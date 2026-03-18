@@ -65,8 +65,6 @@ Terminal { id, name, command? }
 
 ```
 main.zig → app.zig → project.zig (data model)
-                    → terminal.zig (session registry)
-                    → ghostty.zig (stub init)
          → ui/window.zig → ui/sidebar.zig
                           → ui/term_text_view.zig → vt.zig (libvterm)
                                                    → pty.zig (fork/PTY)
@@ -76,8 +74,7 @@ main.zig → app.zig → project.zig (data model)
 ## Build
 
 `build.zig` links:
-- libvterm from Homebrew (`-lvterm`, include/lib paths)
-- stub libghostty from `vendor/ghostty/`
-- Apple frameworks: AppKit, CoreText, CoreGraphics, etc.
+- libvterm from Homebrew (`-lvterm`, include/lib paths from `/opt/homebrew/Cellar/libvterm/0.3.3/`)
+- Apple frameworks: AppKit, CoreText, CoreGraphics, QuartzCore, Foundation
 
 Output: `zig-out/bin/my-term` → copy into `/tmp/MyTerm.app/Contents/MacOS/`

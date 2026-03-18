@@ -392,8 +392,7 @@ const TermRowInfo = struct {
 var term_row_infos: [64]?TermRowInfo = [_]?TermRowInfo{null} ** 64;
 var term_row_info_count: usize = 0;
 
-var hover_row_class: ?objc.id = null;
-const DELETE_BTN_TAG: objc.NSInteger = 9999;
+
 
 fn registerDragRowClass() ?objc.id {
     if (drag_row_class) |cls| return cls;
@@ -679,77 +678,6 @@ fn performDrop() void {
 
     // Save
     app.store.save() catch {};
-}
-
-fn registerHoverRowClass() ?objc.id {
-    if (hover_row_class) |cls| return cls;
-    const NSView = objc.getClass("NSView") orelse return null;
-    const cls = objc.allocateClassPair(NSView, "HoverRowView2") orelse return null;
-    _ = objc.addMethod(cls, objc.sel("updateTrackingAreas"), &hoverUpdateTracking, "v@:");
-    _ = objc.addMethod(cls, objc.sel("mouseEntered:"), &hoverMouseEntered, "v@:@");
-    _ = objc.addMethod(cls, objc.sel("mouseExited:"), &hoverMouseExited, "v@:@");
-    objc.registerClassPair(cls);
-    hover_row_class = cls;
-    return cls;
-}
-
-fn hoverUpdateTracking(self: objc.id, _: objc.SEL) callconv(.c) void {
-    // Remove old tracking areas
-    const areas = objc.msgSend(self, objc.sel("trackingAreas"));
-    const count = objc.msgSendUInt(areas, objc.sel("count"));
-    var i: objc.NSUInteger = 0;
-    while (i < count) : (i += 1) {
-        const area = objc.msgSend1(areas, objc.sel("objectAtIndex:"), i);
-        objc.msgSendVoid1(self, objc.sel("removeTrackingArea:"), area);
-    }
-
-    // Add new tracking area covering the whole view
-    const NSTrackingArea = objc.getClass("NSTrackingArea") orelse return;
-    const bounds = objc.msgSendRect(self, objc.sel("bounds"));
-    // NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp
-    const opts: objc.NSUInteger = 0x01 | 0x40;
-    const initTA: *const fn (objc.id, objc.SEL, objc.NSRect, objc.NSUInteger, objc.id, ?*anyopaque) callconv(.c) objc.id =
-        @ptrCast(&objc.c.objc_msgSend);
-    const ta = initTA(
-        objc.msgSend(NSTrackingArea, objc.sel("alloc")),
-        objc.sel("initWithRect:options:owner:userInfo:"),
-        bounds, opts, self, null,
-    );
-    objc.msgSendVoid1(self, objc.sel("addTrackingArea:"), ta);
-}
-
-fn hoverMouseEntered(self: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    // Show delete button
-    const getTag: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSInteger =
-        @ptrCast(&objc.c.objc_msgSend);
-    const subviews = objc.msgSend(self, objc.sel("subviews"));
-    const count = objc.msgSendUInt(subviews, objc.sel("count"));
-    var i: objc.NSUInteger = 0;
-    while (i < count) : (i += 1) {
-        const sv = objc.msgSend1(subviews, objc.sel("objectAtIndex:"), i);
-        if (getTag(sv, objc.sel("tag")) == DELETE_BTN_TAG) {
-            const setHidden: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
-                @ptrCast(&objc.c.objc_msgSend);
-            setHidden(sv, objc.sel("setHidden:"), objc.NO);
-        }
-    }
-}
-
-fn hoverMouseExited(self: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    // Hide delete button
-    const getTag: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSInteger =
-        @ptrCast(&objc.c.objc_msgSend);
-    const subviews = objc.msgSend(self, objc.sel("subviews"));
-    const count = objc.msgSendUInt(subviews, objc.sel("count"));
-    var i: objc.NSUInteger = 0;
-    while (i < count) : (i += 1) {
-        const sv = objc.msgSend1(subviews, objc.sel("objectAtIndex:"), i);
-        if (getTag(sv, objc.sel("tag")) == DELETE_BTN_TAG) {
-            const setHidden: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
-                @ptrCast(&objc.c.objc_msgSend);
-            setHidden(sv, objc.sel("setHidden:"), objc.YES);
-        }
-    }
 }
 
 fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]const u8, project_id: []const u8, terminal_id: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, _: usize, is_active_project: bool) objc.id {

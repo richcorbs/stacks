@@ -1,21 +1,16 @@
-/// macOS AppKit main window — sets up the app, window, and root split view.
+/// macOS AppKit main window — sets up the app, window, menu bar, and root split view.
 ///
-/// Layout mirrors the Electron app:
+/// Layout:
 ///   ┌─────────────┬───────────────────────────────┐
-///   │  Sidebar    │  Header bar                   │
-///   │  (projects  │───────────────────────────────│
-///   │   + sub-    │  Tab bar (if >1 tab)          │
-///   │   items)    │───────────────────────────────│
-///   │             │  Terminal host (split tree)    │
-///   │             │  ─── or ───                   │
-///   │             │  Git panel                    │
+///   │  Sidebar    │  Main Panel                   │
+///   │  (projects  │  (terminal split tree)         │
+///   │   + terms)  │                               │
 ///   └─────────────┴───────────────────────────────┘
 const std = @import("std");
 const objc = @import("../objc.zig");
 const app_mod = @import("../app.zig");
 const sidebar = @import("sidebar.zig");
-const terminal_view = @import("terminal_view.zig");
-const git_panel = @import("git_panel.zig");
+const term_text_view = @import("term_text_view.zig");
 
 // AppKit constants
 const NSWindowStyleMaskTitled: objc.NSUInteger = 1 << 0;
@@ -23,9 +18,6 @@ const NSWindowStyleMaskClosable: objc.NSUInteger = 1 << 1;
 const NSWindowStyleMaskMiniaturizable: objc.NSUInteger = 1 << 2;
 const NSWindowStyleMaskResizable: objc.NSUInteger = 1 << 3;
 const NSBackingStoreBuffered: objc.NSUInteger = 2;
-const NSApplicationActivationPolicyRegular: objc.NSInteger = 0;
-
-// NSSplitView divider styles
 const NSSplitViewDividerStyleThin: objc.NSInteger = 1;
 
 /// Global pointer so ObjC callbacks can reach our app.
@@ -37,55 +29,53 @@ pub var main_panel_view: ?objc.id = null;
 /// The app delegate instance (for explicit action targeting).
 pub var app_delegate: ?objc.id = null;
 
+// -------------------------------------------------------------------------
+// Public API
+// -------------------------------------------------------------------------
+
 /// Launch the macOS application run loop.
 pub fn launchApp(application: *app_mod.App) void {
     g_app = application;
 
-    // --- NSApplication setup ---
     const NSApp_class = objc.getClass("NSApplication") orelse return;
     const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
 
-    // Set activation policy
     const setPolicy: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setPolicy(nsapp, objc.sel("setActivationPolicy:"), NSApplicationActivationPolicyRegular);
+    setPolicy(nsapp, objc.sel("setActivationPolicy:"), 0); // NSApplicationActivationPolicyRegular
 
-    // --- Register delegate class ---
     const delegate_class = registerDelegateClass() orelse return;
     const delegate = objc.msgSend(delegate_class, objc.sel("new"));
     app_delegate = delegate;
     objc.msgSendVoid1(nsapp, objc.sel("setDelegate:"), delegate);
 
-    // --- Create main menu ---
     createMainMenu(nsapp);
-
-    // --- Run ---
     objc.msgSendVoid(nsapp, objc.sel("run"));
 }
 
-/// Register our custom NSApplicationDelegate class.
+// -------------------------------------------------------------------------
+// App delegate class
+// -------------------------------------------------------------------------
+
 fn registerDelegateClass() ?objc.id {
     const NSObject = objc.getClass("NSObject") orelse return null;
     const cls = objc.allocateClassPair(NSObject, "MyTermAppDelegate") orelse return null;
 
+    // Lifecycle
     _ = objc.addMethod(cls, objc.sel("applicationDidFinishLaunching:"), &appDidFinishLaunching, "v@:@");
     _ = objc.addMethod(cls, objc.sel("applicationShouldTerminateAfterLastWindowClosed:"), &shouldTerminate, "B@:@");
     _ = objc.addMethod(cls, objc.sel("applicationWillTerminate:"), &appWillTerminate, "v@:@");
 
-    // Split action handlers
+    // Terminal split actions
     _ = objc.addMethod(cls, objc.sel("splitHorizontal:"), &onSplitHorizontal, "v@:@");
     _ = objc.addMethod(cls, objc.sel("splitVertical:"), &onSplitVertical, "v@:@");
     _ = objc.addMethod(cls, objc.sel("closePane:"), &onClosePane, "v@:@");
     _ = objc.addMethod(cls, objc.sel("focusNextPane:"), &onFocusNextPane, "v@:@");
     _ = objc.addMethod(cls, objc.sel("focusPrevPane:"), &onFocusPrevPane, "v@:@");
-    _ = objc.addMethod(cls, objc.sel("newTab:"), &onNewTab, "v@:@");
-    _ = objc.addMethod(cls, objc.sel("closeTab:"), &onCloseTab, "v@:@");
-    _ = objc.addMethod(cls, objc.sel("nextTab:"), &onNextTab, "v@:@");
-    _ = objc.addMethod(cls, objc.sel("prevTab:"), &onPrevTab, "v@:@");
-    _ = objc.addMethod(cls, objc.sel("growPane:"), &onGrowPane, "v@:@");
-    _ = objc.addMethod(cls, objc.sel("shrinkPane:"), &onShrinkPane, "v@:@");
     _ = objc.addMethod(cls, objc.sel("increaseFontSize:"), &onIncreaseFontSize, "v@:@");
     _ = objc.addMethod(cls, objc.sel("decreaseFontSize:"), &onDecreaseFontSize, "v@:@");
+
+    // Sidebar actions
     _ = objc.addMethod(cls, objc.sel("sidebarNext:"), &onSidebarNext, "v@:@");
     _ = objc.addMethod(cls, objc.sel("sidebarPrev:"), &onSidebarPrev, "v@:@");
     _ = objc.addMethod(cls, objc.sel("sidebarActivate:"), &onSidebarActivate, "v@:@");
@@ -99,67 +89,52 @@ fn registerDelegateClass() ?objc.id {
     return cls;
 }
 
-// --- Delegate callbacks ---
+// -------------------------------------------------------------------------
+// Lifecycle callbacks
+// -------------------------------------------------------------------------
 
 fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const application = g_app orelse {
-        return;
-    };
+    const application = g_app orelse return;
 
-    // Create the main window
-    const NSWindow = objc.getClass("NSWindow") orelse {
-        return;
-    };
-    const frame = objc.NSMakeRect(100, 100, 1200, 760);
+    const NSWindow = objc.getClass("NSWindow") orelse return;
     const style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
         NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
 
     const initWindow: *const fn (objc.id, objc.SEL, objc.NSRect, objc.NSUInteger, objc.NSUInteger, objc.BOOL) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
-
     const window = initWindow(
         objc.msgSend(NSWindow, objc.sel("alloc")),
         objc.sel("initWithContentRect:styleMask:backing:defer:"),
-        frame,
+        objc.NSMakeRect(100, 100, 1200, 760),
         style,
         NSBackingStoreBuffered,
         objc.NO,
     );
 
-
-    // Title
     objc.msgSendVoid1(window, objc.sel("setTitle:"), objc.nsString("my-term"));
 
-    // Remember window position and size across launches
     const setAutosave: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) objc.BOOL =
         @ptrCast(&objc.c.objc_msgSend);
     _ = setAutosave(window, objc.sel("setFrameAutosaveName:"), objc.nsString("MyTermMainWindow"));
 
-    // Minimum size
     const setMinSize: *const fn (objc.id, objc.SEL, objc.NSSize) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     setMinSize(window, objc.sel("setMinSize:"), .{ .width = 900, .height = 600 });
 
-    // --- Root horizontal split: sidebar | main panel ---
-    const root_split = createSplitView(.horizontal);
-
-    // Sidebar
+    // Root split: sidebar | main panel
+    const root_split = createSplitView();
     const sidebar_view = sidebar.createSidebarView();
     sidebar.rebuildSidebar(application);
-
-    // Main panel (contains header + terminal/git content)
     const main_view = createMainPanel();
     main_panel_view = main_view;
 
-    // Add subviews to split
     objc.msgSendVoid1(root_split, objc.sel("addSubview:"), sidebar_view);
     objc.msgSendVoid1(root_split, objc.sel("addSubview:"), main_view);
 
-    // Constrain sidebar width directly
+    // Constrain sidebar to 200px
     const setTranslates: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     setTranslates(sidebar_view, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
-
     const widthAnchor = objc.msgSend(sidebar_view, objc.sel("widthAnchor"));
     const constraintEq: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
@@ -168,24 +143,20 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
         @ptrCast(&objc.c.objc_msgSend);
     setActive(widthConstraint, objc.sel("setActive:"), objc.YES);
 
-    // Set as window content
     objc.msgSendVoid1(window, objc.sel("setContentView:"), root_split);
 
-    // Center and show
+    // Show window
     objc.msgSendVoid(window, objc.sel("center"));
     const makeKeyAndOrderFront: *const fn (objc.id, objc.SEL, ?*anyopaque) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     makeKeyAndOrderFront(window, objc.sel("makeKeyAndOrderFront:"), null);
 
-    // Activate app
     const NSApp_class = objc.getClass("NSApplication") orelse return;
     const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
     const activate: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     activate(nsapp, objc.sel("activateIgnoringOtherApps:"), objc.YES);
 
-    // Clear initial focus so the "+" button isn't highlighted on launch.
-    // Set the content view itself as the first responder.
     objc.msgSendVoid1(window, objc.sel("makeFirstResponder:"), root_split);
 }
 
@@ -194,18 +165,17 @@ fn shouldTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.BOOL {
 }
 
 fn appWillTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    // Kill all running terminal processes
-    const term_text_view = @import("term_text_view.zig");
     term_text_view.destroyAllTerminals();
 }
 
-// --- Split / tab action handlers ---
+// -------------------------------------------------------------------------
+// Action handlers
+// -------------------------------------------------------------------------
 
 fn relayoutAndFocus() void {
     const panel = main_panel_view orelse return;
-    const term_tv = @import("term_text_view.zig");
-    term_tv.layoutActiveSession(panel);
-    if (term_tv.getFocusedView()) |focused| {
+    term_text_view.layoutActiveSession(panel);
+    if (term_text_view.getFocusedView()) |focused| {
         const NSApp_class = objc.getClass("NSApplication") orelse return;
         const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
         const mw = objc.msgSend(nsapp, objc.sel("mainWindow"));
@@ -214,145 +184,78 @@ fn relayoutAndFocus() void {
 }
 
 fn onSplitHorizontal(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.splitFocused(.horizontal);
+    term_text_view.splitFocused(.horizontal);
     relayoutAndFocus();
 }
-
 fn onSplitVertical(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.splitFocused(.vertical);
+    term_text_view.splitFocused(.vertical);
     relayoutAndFocus();
 }
-
 fn onClosePane(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.closeFocusedPane();
+    term_text_view.closeFocusedPane();
     relayoutAndFocus();
 }
-
 fn onFocusNextPane(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.cycleFocus(true);
+    term_text_view.cycleFocus(true);
     relayoutAndFocus();
 }
-
 fn onFocusPrevPane(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.cycleFocus(false);
+    term_text_view.cycleFocus(false);
     relayoutAndFocus();
 }
-
-fn onNewTab(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const application = g_app orelse return;
-    application.addTab() catch {};
-    terminal_view.rebuildTabBar(application);
-    terminal_view.rebuildSplitViews(application);
-}
-
-fn onCloseTab(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const application = g_app orelse return;
-    application.closeActiveTab() catch {};
-    terminal_view.rebuildTabBar(application);
-    terminal_view.rebuildSplitViews(application);
-}
-
-fn onNextTab(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const application = g_app orelse return;
-    application.cycleTab(true);
-    terminal_view.rebuildTabBar(application);
-    terminal_view.rebuildSplitViews(application);
-}
-
-fn onPrevTab(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const application = g_app orelse return;
-    application.cycleTab(false);
-    terminal_view.rebuildTabBar(application);
-    terminal_view.rebuildSplitViews(application);
-}
-
-fn onGrowPane(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const application = g_app orelse return;
-    application.growPane();
-    terminal_view.rebuildSplitViews(application);
-}
-
-fn onShrinkPane(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const application = g_app orelse return;
-    application.shrinkPane();
-    terminal_view.rebuildSplitViews(application);
-}
-
 fn onIncreaseFontSize(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.adjustFontSize(1.0);
+    term_text_view.adjustFontSize(1.0);
 }
-
 fn onDecreaseFontSize(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.adjustFontSize(-1.0);
+    term_text_view.adjustFontSize(-1.0);
 }
 
 fn onSidebarNext(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     sidebar.navigateSidebar(1);
 }
-
 fn onSidebarPrev(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     sidebar.navigateSidebar(-1);
 }
-
 fn onSidebarActivate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     sidebar.activateSelectedSidebarItem();
 }
-
 fn onAddProject(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     const application = g_app orelse return;
     sidebar.showAddProjectPanel(application);
 }
 
+fn getTagFromSender(sender: objc.id) ?usize {
+    const getTag: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSInteger =
+        @ptrCast(&objc.c.objc_msgSend);
+    const tag = getTag(sender, objc.sel("tag"));
+    if (tag < 0) return null;
+    return @intCast(@as(usize, @bitCast(tag)));
+}
+
 fn onOpenTerminal(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
-    const getTag: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSInteger =
-        @ptrCast(&objc.c.objc_msgSend);
-    const tag = getTag(sender, objc.sel("tag"));
-    if (tag < 0) return;
-    sidebar.openTerminalAtIndex(@intCast(@as(usize, @bitCast(tag))));
+    if (getTagFromSender(sender)) |idx| sidebar.openTerminalAtIndex(idx);
 }
-
 fn onDeleteTerminal(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
-    const getTag: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSInteger =
-        @ptrCast(&objc.c.objc_msgSend);
-    const tag = getTag(sender, objc.sel("tag"));
-    if (tag < 0) return;
-    sidebar.showDeleteTerminalDialog(@intCast(@as(usize, @bitCast(tag))));
+    if (getTagFromSender(sender)) |idx| sidebar.showDeleteTerminalDialog(idx);
 }
-
 fn onEditTerminal(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
-    const getTag: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSInteger =
-        @ptrCast(&objc.c.objc_msgSend);
-    const tag = getTag(sender, objc.sel("tag"));
-    if (tag < 0) return;
-    sidebar.showEditTerminalDialog(@intCast(@as(usize, @bitCast(tag))));
+    if (getTagFromSender(sender)) |idx| sidebar.showEditTerminalDialog(idx);
 }
-
 fn onAddTerminalToProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
-    // The sender is the button; its tag holds the project index
-    const getTag: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSInteger =
-        @ptrCast(&objc.c.objc_msgSend);
-    const tag = getTag(sender, objc.sel("tag"));
-    if (tag < 0) return;
-    sidebar.showAddTerminalDialog(@intCast(@as(usize, @bitCast(tag))));
+    if (getTagFromSender(sender)) |idx| sidebar.showAddTerminalDialog(idx);
 }
 
-// --- View construction helpers ---
+// -------------------------------------------------------------------------
+// View construction
+// -------------------------------------------------------------------------
 
-fn createSplitView(direction: enum { horizontal, vertical }) objc.id {
+fn createSplitView() objc.id {
     const NSSplitView = objc.getClass("NSSplitView") orelse unreachable;
     const split = objc.msgSend(NSSplitView, objc.sel("new"));
 
     const setVertical: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    // NSSplitView.isVertical = YES means side-by-side (our "horizontal" split)
-    setVertical(split, objc.sel("setVertical:"), if (direction == .horizontal) objc.YES else objc.NO);
+    setVertical(split, objc.sel("setVertical:"), objc.YES); // side-by-side
 
     const setDivider: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -378,18 +281,16 @@ fn registerMainPanelClass() ?objc.id {
 }
 
 fn mainPanelMouseDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.handlePanelMouseDown(self, event);
+    term_text_view.handlePanelMouseDown(self, event);
 }
-
 fn mainPanelMouseDragged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.handlePanelMouseDragged(self, event);
+    term_text_view.handlePanelMouseDragged(self, event);
 }
-
 fn mainPanelMouseMoved(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.handlePanelMouseMoved(self, event);
+    term_text_view.handlePanelMouseMoved(self, event);
+}
+fn mainPanelMouseUp(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    term_text_view.handlePanelMouseUp();
 }
 
 fn mainPanelUpdateTracking(self: objc.id, _: objc.SEL) callconv(.c) void {
@@ -402,11 +303,10 @@ fn mainPanelUpdateTracking(self: objc.id, _: objc.SEL) callconv(.c) void {
         objc.msgSendVoid1(self, objc.sel("removeTrackingArea:"), area);
     }
 
-    // Add tracking area for mouse moved events
+    // Add new tracking area for mouse-moved events
     const NSTrackingArea = objc.getClass("NSTrackingArea") orelse return;
     const bounds = objc.msgSendRect(self, objc.sel("bounds"));
-    // NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp | NSTrackingInVisibleRect
-    const opts: objc.NSUInteger = 0x02 | 0x01 | 0x40 | 0x200;
+    const opts: objc.NSUInteger = 0x02 | 0x01 | 0x40 | 0x200; // mouseMoved | entered/exited | activeApp | visibleRect
     const initTA: *const fn (objc.id, objc.SEL, objc.NSRect, objc.NSUInteger, objc.id, ?*anyopaque) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
     const ta = initTA(
@@ -415,11 +315,6 @@ fn mainPanelUpdateTracking(self: objc.id, _: objc.SEL) callconv(.c) void {
         bounds, opts, self, null,
     );
     objc.msgSendVoid1(self, objc.sel("addTrackingArea:"), ta);
-}
-
-fn mainPanelMouseUp(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    const term_tv = @import("term_text_view.zig");
-    term_tv.handlePanelMouseUp();
 }
 
 fn createMainPanel() objc.id {
@@ -433,7 +328,9 @@ fn createMainPanel() objc.id {
     return main;
 }
 
-// --- Main menu with keyboard shortcuts ---
+// -------------------------------------------------------------------------
+// Menu bar
+// -------------------------------------------------------------------------
 
 fn createMainMenu(nsapp: objc.id) void {
     const NSMenu = objc.getClass("NSMenu") orelse return;
@@ -441,7 +338,7 @@ fn createMainMenu(nsapp: objc.id) void {
 
     const menubar = objc.msgSend(NSMenu, objc.sel("new"));
 
-    // -- App menu --
+    // App menu
     const app_item = objc.msgSend(NSMenuItem, objc.sel("new"));
     const app_menu = objc.msgSend1(
         objc.msgSend(NSMenu, objc.sel("alloc")),
@@ -452,14 +349,13 @@ fn createMainMenu(nsapp: objc.id) void {
     objc.msgSendVoid1(app_item, objc.sel("setSubmenu:"), app_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), app_item);
 
-    // -- Shell menu --
+    // Shell menu
     const shell_item = objc.msgSend(NSMenuItem, objc.sel("new"));
     const shell_menu = objc.msgSend1(
         objc.msgSend(NSMenu, objc.sel("alloc")),
         objc.sel("initWithTitle:"),
         objc.nsString("Shell"),
     );
-
     addMenuItem(shell_menu, NSMenuItem, "Split Right", "d", "splitHorizontal:");
     addMenuItem(shell_menu, NSMenuItem, "Split Down", "D", "splitVertical:");
     addMenuItem(shell_menu, NSMenuItem, "Close Pane", "w", "closePane:");
@@ -474,11 +370,9 @@ fn createMainMenu(nsapp: objc.id) void {
     addMenuItem(shell_menu, NSMenuItem, "Activate Sidebar Item", "\r", "sidebarActivate:");
     addMenuSeparator(shell_menu);
     addMenuItem(shell_menu, NSMenuItem, "Add Project…", "o", "addProject:");
-
     objc.msgSendVoid1(shell_item, objc.sel("setSubmenu:"), shell_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), shell_item);
 
-    // Set menu bar
     objc.msgSendVoid1(nsapp, objc.sel("setMainMenu:"), menubar);
 }
 
@@ -497,6 +391,5 @@ fn addMenuItem(menu: objc.id, NSMenuItem: objc.id, title: []const u8, key: []con
 
 fn addMenuSeparator(menu: objc.id) void {
     const NSMenuItem = objc.getClass("NSMenuItem") orelse return;
-    const sep = objc.msgSend(NSMenuItem, objc.sel("separatorItem"));
-    objc.msgSendVoid1(menu, objc.sel("addItem:"), sep);
+    objc.msgSendVoid1(menu, objc.sel("addItem:"), objc.msgSend(NSMenuItem, objc.sel("separatorItem")));
 }
