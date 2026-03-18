@@ -681,8 +681,15 @@ fn performDrop() void {
 }
 
 fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]const u8, project_id: []const u8, terminal_id: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, _: usize, is_active_project: bool) objc.id {
-    // This will be the info_idx for this row
+    // Active terminal (actually open in the main panel)
     const is_selected = if (selected_terminal_index) |sel| sel == term_row_info_count else false;
+    // Nav-highlighted terminal (⌘⇧[] navigation, not yet activated)
+    const is_nav_highlighted = blk: {
+        const ni = selected_nav_index orelse break :blk false;
+        if (ni >= nav_items.len) break :blk false;
+        const item = nav_items[ni] orelse break :blk false;
+        break :blk item.kind == .terminal and item.index == term_row_info_count;
+    };
 
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -727,19 +734,31 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     const wrapper = objc.msgSend(drag_cls, objc.sel("new"));
     setFrame(wrapper, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, 200, height));
 
+    setBool(wrapper, objc.sel("setWantsLayer:"), objc.YES);
+    const wrapper_layer = objc.msgSend(wrapper, objc.sel("layer"));
     if (is_selected) {
-        setBool(wrapper, objc.sel("setWantsLayer:"), objc.YES);
-        const layer = objc.msgSend(wrapper, objc.sel("layer"));
-        setLayerBgColor(layer, 0.20, 0.25, 0.31); // #334050 — selected terminal
+        setLayerBgColor(wrapper_layer, 0.20, 0.25, 0.31); // #334050 — active terminal
     } else if (is_active_project) {
-        setBool(wrapper, objc.sel("setWantsLayer:"), objc.YES);
-        const layer = objc.msgSend(wrapper, objc.sel("layer"));
-        setLayerBgColor(layer, 0.12, 0.15, 0.19); // #1f2630 — active project
+        setLayerBgColor(wrapper_layer, 0.12, 0.15, 0.19); // #1f2630 — active project
+    }
+    // Nav highlight: blue left border to show keyboard selection
+    if (is_nav_highlighted and !is_selected) {
+        const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setBorderWidth(wrapper_layer, objc.sel("setBorderWidth:"), 1.0);
+        const NSColor = objc.getClass("NSColor") orelse unreachable;
+        const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
+        const cgColor = objc.msgSend(color, objc.sel("CGColor"));
+        objc.msgSendVoid1(wrapper_layer, objc.sel("setBorderColor:"), cgColor);
+        setLayerBgColor(wrapper_layer, 0.15, 0.19, 0.24); // slightly highlighted bg
     }
 
     // Position label inside wrapper at x=32, vertically centered
+    // The wrapper is inside a FlippedView (y=0 is top), so increase y to push down
     const label_h: objc.CGFloat = 18.0;
-    const label_y: objc.CGFloat = (height - label_h) / 2.0;
+    const label_y: objc.CGFloat = (height - label_h) / 2.0 - 1.0;
     setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(32, label_y, 200 - 32, label_h));
     objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), label);
 
@@ -824,15 +843,8 @@ pub fn navigateSidebar(delta: i32) void {
         selected_nav_index = if (delta > 0) 0 else @intCast(nav_item_count - 1);
     }
 
-    // Update selected_terminal_index to match
-    if (selected_nav_index) |ni| {
-        if (ni < nav_items.len) {
-            if (nav_items[ni]) |item| {
-                selected_terminal_index = if (item.kind == .terminal) item.index else null;
-            }
-        }
-    }
-
+    // Only update visual highlight, do NOT change selected_terminal_index
+    // The terminal only switches when the user presses ⌘Enter (activateSelectedSidebarItem)
     if (g_sidebar_app) |app| rebuildSidebar(app);
 }
 
@@ -909,8 +921,8 @@ fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: 
     const NSView = objc.getClass("NSView") orelse unreachable;
     const row = objc.msgSend(NSView, objc.sel("new"));
 
-    // Check if this add-terminal row is the selected nav item
-    const is_selected = isAddTerminalSelected(project_id);
+    // Check if this add-terminal row is nav-highlighted
+    const is_nav_highlighted = isAddTerminalSelected(project_id);
 
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -918,14 +930,22 @@ fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: 
 
     const setBoolH: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    if (is_selected) {
-        setBoolH(row, objc.sel("setWantsLayer:"), objc.YES);
-        const layer = objc.msgSend(row, objc.sel("layer"));
-        setLayerBgColor(layer, 0.16, 0.20, 0.26);
-    } else if (is_active_project) {
-        setBoolH(row, objc.sel("setWantsLayer:"), objc.YES);
-        const layer = objc.msgSend(row, objc.sel("layer"));
-        setLayerBgColor(layer, 0.12, 0.15, 0.19); // #1f2630 — active project
+    setBoolH(row, objc.sel("setWantsLayer:"), objc.YES);
+    const row_layer = objc.msgSend(row, objc.sel("layer"));
+    if (is_active_project) {
+        setLayerBgColor(row_layer, 0.12, 0.15, 0.19); // #1f2630 — active project
+    }
+    if (is_nav_highlighted) {
+        const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setBorderWidth(row_layer, objc.sel("setBorderWidth:"), 1.0);
+        const NSColor = objc.getClass("NSColor") orelse unreachable;
+        const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
+        const cgColor = objc.msgSend(color, objc.sel("CGColor"));
+        objc.msgSendVoid1(row_layer, objc.sel("setBorderColor:"), cgColor);
+        setLayerBgColor(row_layer, 0.15, 0.19, 0.24);
     }
 
     // "+" button
