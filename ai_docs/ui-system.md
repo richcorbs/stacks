@@ -3,44 +3,60 @@
 ## Window Layout (`src/ui/window.zig`)
 
 ```
-NSWindow
- └─ NSSplitView (horizontal)
+NSWindow (transparent title bar, dark bg #171d26)
+ └─ ThinSplitView (1px divider, horizontal)
      ├─ Sidebar (200px, fixed via width anchor)
+     │   ├─ Header: "PROJECTS" + "+" button (44px)
      │   └─ NSScrollView
      │       └─ FlippedView (document view, top-down coords)
      │           ├─ ProjectRow (bold header, draggable)
      │           ├─ TerminalRow (DragRowView4, click to open)
      │           ├─ AddTerminalRow (+ button)
      │           └─ SeparatorLine (1px)
-     └─ MainPanelView (custom NSView)
-         └─ TermGridView2 instances (one per split pane leaf)
+     └─ MainPanelView (custom NSView, dark bg #0f141b)
+         ├─ Header Bar (44px, pinned to top)
+         │   ├─ Terminal name label (left, bold #d8efe7)
+         │   └─ Git info label (right, sizeToFit + pin right edge)
+         └─ Terminal area (below header)
+             └─ TermGridView2 instances (one per split pane leaf)
 ```
+
+### Window Chrome
+- Title bar is transparent (`setTitlebarAppearsTransparent: YES`, `setTitleVisibility: 1`)
+- Window background color matches sidebar (`#171d26`)
+- NSSplitView uses `ThinSplitView` subclass that overrides `dividerThickness` → 1px
+
+### Header Bar
+Located at the top of the main panel (44px, matches sidebar header height). Contains:
+- **Left**: Terminal name (bold, 12pt, `#d8efe7`)
+- **Right**: Git branch + change count, auto-sized via `sizeToFit` then pinned to right edge
+
+Git info format: `<branch>  •  <N> changed`
+- Orange (`0.85, 0.55, 0.35`) when changes exist
+- Gray (`#9aa8bc`) when clean or no changes
+
+Git status is fetched by running `git branch --show-current` and `git status --porcelain` via `std.process.Child`.
 
 ### App Delegate
 
-Registered as `MyTermAppDelegate` (NSObject subclass). Handles:
+Registered as `MyTermAppDelegate` (NSObject subclass). Key actions:
 - `applicationDidFinishLaunching:` — window creation
 - `applicationWillTerminate:` — clean PTY shutdown
-- `applicationShouldTerminateAfterLastWindowClosed:` → YES
-- Menu bar actions: `openTerminal:`, `editTerminal:`, `deleteTerminal:`, `addTerminal:`, `increaseFontSize:`, `decreaseFontSize:`, `resetFontSize:`, `splitHorizontal:`, `splitVertical:`, `closePane:`, `nextPane:`, `prevPane:`
+- Split actions: `splitHorizontal:`, `splitVertical:`, `closePane:`, `focusNextPane:`, `focusPrevPane:`
+- Font: `increaseFontSize:`, `decreaseFontSize:`
+- Sidebar: `sidebarNext:`, `sidebarPrev:`, `sidebarActivate:`, `newTerminal:`
+- Terminal CRUD: `openTerminal:`, `editTerminal:`, `deleteTerminal:`, `addTerminalToProject:`, `addProject:`
 
 ### Menu Bar
 
-Created programmatically. Key menus:
-- **File**: Close Pane (⌘W)
-- **Edit**: Paste (⌘V), Select All (⌘A)
-- **View**: Font size (⌘+/⌘-/⌘0), Split (⌘D/⇧⌘D), Pane nav (⌘]/⌘[)
-- **Navigate**: Sidebar nav (⌘⇧]/⌘⇧[)
+Created programmatically with two menus:
+- **App menu**: Quit (⌘Q)
+- **Shell menu**: Split (⌘D/⇧⌘D), Close (⌘W), Pane nav (⌘]/⌘[), Font (⌘+/⌘-), Sidebar nav (⌘⇧]/⌘⇧[), New Terminal (⌘T), Add Project (⌘O)
 
 ## Sidebar (`src/ui/sidebar.zig`)
 
-### View Hierarchy
-- Uses a `FlippedView` (custom NSView with `isFlipped` → YES) so y=0 is top
-- All rows positioned with absolute frames (no Auto Layout within the scroll content)
-- Sidebar root uses Auto Layout constraints to pin to parent
-
 ### Terminal Rows
-Terminal rows use `DragRowView4` (custom NSView subclass) instead of NSButton to allow drag-and-drop. Contains an NSTextField label for the terminal name.
+Terminal rows use `DragRowView4` (custom NSView subclass with `_infoIdx` ivar) containing an NSTextField label. This allows the wrapper to receive mouse events for drag-and-drop.
 
 ### Drag-and-Drop
 Implemented via manual mouse tracking (not NSDragging protocol):
@@ -59,19 +75,23 @@ Two drag modes:
 - **Terminal drag**: reorder within same project (info index < PROJECT_IDX_OFFSET)
 - **Project drag**: reorder projects (info index ≥ PROJECT_IDX_OFFSET = 10000)
 
+### Navigation vs Activation
+Sidebar navigation (⌘⇧[/]) and terminal activation are separate:
+- **Navigation** (`navigateSidebar`): moves `selected_nav_index` and shows a blue 1px border on the highlighted item. Does NOT switch the active terminal.
+- **Activation** (`activateSelectedSidebarItem`): triggered by ⌘Enter. Opens the terminal or shows the add-terminal dialog for the highlighted item.
+
 ### Active Project Highlighting
 Three background levels:
 - Default sidebar: `#171d26`
-- Active project (contains selected terminal): `#1f2630`
-- Selected terminal row: `#334050`
+- Active project (contains selected terminal): `#263040`
+- Selected terminal row: `#404f61`
+- Nav-highlighted item (not yet activated): blue 1px border + `#263040` bg
 
-### Navigation
-- `⌘⇧]` / `⌘⇧[` cycles through nav items (terminals + add-terminal buttons)
-- `Enter` activates the selected nav item
-- Nav items are tracked in `nav_items[]` array, rebuilt each `rebuildSidebar()`
+### New Terminal (⌘T)
+`showNewTerminalForCurrentProject()` finds the project containing the currently selected terminal (or falls back to the first project) and opens the add-terminal dialog pre-populated with "Terminal" as the name.
 
 ### Context Menu
-Right-click on terminal rows shows Edit (rename + change command) and Delete (with confirmation). Menu items use `setTag:` on `NSMenuItem` (which is an NSObject subclass and supports tags) to identify the target terminal.
+Right-click on terminal rows shows Edit (rename + change command) and Delete (with confirmation). The `DragRowView4` wrapper forwards right-clicks via `rightMouseDown:` to `NSMenu popUpContextMenu:withEvent:forView:`.
 
 ### Rebuilding
 `rebuildSidebar(app)` removes all subviews from the document view and recreates them from the current project store state. Called after any data mutation (add/delete/rename/reorder).

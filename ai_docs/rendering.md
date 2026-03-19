@@ -2,6 +2,10 @@
 
 The largest file (~1558 lines). Handles grid drawing, keyboard input, mouse selection, split panes, scrollback, and clipboard.
 
+## Layout
+
+The main panel reserves 44px at the top for the header bar. `layoutActiveSession` computes `term_bounds` as the panel bounds minus the header height, then recursively lays out the split tree within that area.
+
 ## Drawing Pipeline
 
 Each terminal pane is a custom `NSView` subclass (`TermGridView2`) with a `drawRect:` override:

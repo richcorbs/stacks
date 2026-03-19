@@ -20,6 +20,7 @@ Kill before redeploying: `pkill -9 -f my-term`
 4. **NSButton eats mouse events** — if you need a parent view to receive mouseDown/mouseDragged, use NSTextField labels instead of NSButton
 5. **`sed -i` on source files is dangerous** — it can delete lines containing patterns you didn't intend to match. Use the `edit` tool for surgical changes.
 6. **No window on launch?** — usually means `appDidFinishLaunching` hit an `unreachable`. Add `std.debug.print` breadcrumbs and run `./zig-out/bin/my-term` directly (not via `open`) to see stderr.
+7. **`bufPrint` alias crash** — never `bufPrint` into a buffer that contains a slice you're formatting from. Copy to a temp buffer first.
 
 ## Architecture
 
@@ -32,9 +33,25 @@ See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system desig
 | `src/pty.zig` | 118 | PTY/fork management — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
 | `src/project.zig` | 321 | Project/terminal data model + JSON persistence |
 | `src/app.zig` | 37 | Central app state (wraps ProjectStore) |
-| `src/ui/window.zig` | 395 | App delegate, window, menu bar, main panel — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/sidebar.zig` | 1391 | Project list, drag-and-drop, navigation — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/term_text_view.zig` | 1558 | Terminal grid rendering, input, selection — [ai_docs/rendering.md](ai_docs/rendering.md) |
+| `src/ui/window.zig` | 650 | App delegate, window, header bar, menu bar — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
+| `src/ui/sidebar.zig` | 1458 | Project list, drag-and-drop, navigation — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
+| `src/ui/term_text_view.zig` | 1582 | Terminal grid rendering, input, selection — [ai_docs/rendering.md](ai_docs/rendering.md) |
+
+## Key Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘T | New terminal in current project |
+| ⌘D | Split horizontal |
+| ⇧⌘D | Split vertical |
+| ⌘W | Close pane |
+| ⌘] / ⌘[ | Cycle focus between panes |
+| ⌘= / ⌘- | Font size increase/decrease |
+| ⌘⇧] / ⌘⇧[ | Navigate sidebar (highlight only) |
+| ⌘Enter | Activate highlighted sidebar item |
+| ⌘V | Paste with bracketed paste mode |
+| ⌘O | Add project |
+| ⌘Q | Quit |
 
 ## Dependencies
 
@@ -45,3 +62,4 @@ See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system desig
 
 - Projects: `~/Library/Application Support/my-term/projects.json`
 - Window frame: persisted via `setFrameAutosaveName:` ("MyTermMainWindow")
+- App icon: `resources/AppIcon.icns`
