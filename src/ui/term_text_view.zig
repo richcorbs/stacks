@@ -800,6 +800,12 @@ fn createTerminalViewAtSlot(slot: usize, cwd: []const u8, command: ?[]const u8) 
         @ptrCast(&objc.c.objc_msgSend);
     setBool(view, objc.sel("setWantsLayer:"), objc.YES);
 
+    // Register as drag destination for file URLs
+    const NSArray = objc.getClass("NSArray") orelse return null;
+    const fileURLType = objc.nsString("public.file-url");
+    const dragTypes = objc.msgSend1(NSArray, objc.sel("arrayWithObject:"), fileURLType);
+    objc.msgSendVoid1(view, objc.sel("registerForDraggedTypes:"), dragTypes);
+
     const layer = objc.msgSend(view, objc.sel("layer"));
     const NSColor = objc.getClass("NSColor") orelse return null;
     const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
@@ -879,8 +885,71 @@ fn registerTermViewClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("acceptsFirstResponder"), &acceptsFirst, "B@:");
     _ = objc.addMethod(cls, objc.sel("becomeFirstResponder"), &becomesFirst, "B@:");
     _ = objc.addMethod(cls, objc.sel("isFlipped"), &isFlipped, "B@:");
+    // Drag-and-drop destination
+    _ = objc.addMethod(cls, objc.sel("draggingEntered:"), &termDragEntered, "Q@:@");
+    _ = objc.addMethod(cls, objc.sel("performDragOperation:"), &termPerformDrag, "B@:@");
     objc.registerClassPair(cls);
     return cls;
+}
+
+// ---------------------------------------------------------------------------
+// Drag-and-drop destination
+// ---------------------------------------------------------------------------
+
+fn termDragEntered(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.NSUInteger {
+    return 1; // NSDragOperationCopy
+}
+
+fn termPerformDrag(self: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) objc.BOOL {
+    const entry = findEntry(self) orelse return objc.NO;
+    const pboard = objc.msgSend(sender, objc.sel("draggingPasteboard"));
+
+    // Get array of file URLs from pasteboard
+    const NSURL = objc.getClass("NSURL") orelse return objc.NO;
+    const NSArray = objc.getClass("NSArray") orelse return objc.NO;
+    const urlType = objc.nsString("public.file-url");
+    _ = urlType;
+    const options = objc.msgSend(objc.getClass("NSDictionary") orelse return objc.NO, objc.sel("dictionary"));
+
+    const readObjects: *const fn (objc.id, objc.SEL, objc.id, objc.id) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const urls = readObjects(pboard, objc.sel("readObjectsForClasses:options:"), 
+        objc.msgSend1(NSArray, objc.sel("arrayWithObject:"), NSURL), options);
+
+    const count = objc.msgSendUInt(urls, objc.sel("count"));
+    if (count == 0) return objc.NO;
+
+    // Build space-separated list of paths, shell-escaped
+    var i: objc.NSUInteger = 0;
+    var first = true;
+    while (i < count) : (i += 1) {
+        const url = objc.msgSend1(urls, objc.sel("objectAtIndex:"), i);
+        const path_ns = objc.msgSend(url, objc.sel("path"));
+        if (path_ns == objc.nil) continue;
+        const utf8: [*:0]const u8 = @ptrCast(objc.msgSend(path_ns, objc.sel("UTF8String")));
+        const path = std.mem.span(utf8);
+        if (path.len == 0) continue;
+
+        if (!first) {
+            entry.pty.write(" ");
+        }
+        first = false;
+
+        // Shell-escape: wrap in single quotes, escape existing single quotes
+        entry.pty.write("'");
+        var start: usize = 0;
+        for (path, 0..) |c, j| {
+            if (c == '\'') {
+                if (j > start) entry.pty.write(path[start..j]);
+                entry.pty.write("'\\''");
+                start = j + 1;
+            }
+        }
+        if (start < path.len) entry.pty.write(path[start..]);
+        entry.pty.write("'");
+    }
+
+    return objc.YES;
 }
 
 // ---------------------------------------------------------------------------
