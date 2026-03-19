@@ -284,13 +284,44 @@ fn saveSplitState() void {
 
     const split_str = allocator.dupe(u8, buf[0..pos]) catch return;
 
-    // Find the terminal in the project store and update its splits field
+    // Find the terminal in the project store and update splits + cwd
     const app = sidebar.g_sidebar_app orelse return;
     const info = sidebar.getTermRowInfo(session_idx) orelse return;
     const proj = app.store.findById(info.project_id) orelse return;
     for (proj.terminals.items) |*t| {
         if (std.mem.eql(u8, t.id, info.terminal_id)) {
             t.splits = split_str;
+            // Also save the focused terminal's live cwd
+            saveCwdForTerminal(t, session);
+            app.store.save() catch {};
+            return;
+        }
+    }
+}
+
+/// Save the focused pane's live cwd to the terminal struct.
+fn saveCwdForTerminal(t: *@import("../project.zig").Terminal, session: *Session) void {
+    if (terminals[session.focused_slot]) |*entry| {
+        var cwd_buf: [4096]u8 = undefined;
+        if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
+            t.cwd = allocator.dupe(u8, live_cwd) catch return;
+        }
+    }
+}
+
+/// Save cwd for the active session (called on terminal switch and app quit).
+pub fn saveActiveCwd() void {
+    const sidebar = @import("sidebar.zig");
+    const session_idx = active_session orelse return;
+    if (session_idx >= MAX_TERMS) return;
+    const session = &(sessions[session_idx] orelse return);
+
+    const app = sidebar.g_sidebar_app orelse return;
+    const info = sidebar.getTermRowInfo(session_idx) orelse return;
+    const proj = app.store.findById(info.project_id) orelse return;
+    for (proj.terminals.items) |*t| {
+        if (std.mem.eql(u8, t.id, info.terminal_id)) {
+            saveCwdForTerminal(t, session);
             app.store.save() catch {};
             return;
         }

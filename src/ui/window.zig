@@ -191,6 +191,7 @@ fn shouldTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.BOOL {
 }
 
 fn appWillTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    term_text_view.saveActiveCwd();
     term_text_view.destroyAllTerminals();
 }
 

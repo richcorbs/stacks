@@ -146,7 +146,7 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
         const is_active_project = if (active_project_id) |aid| std.mem.eql(u8, proj.id, aid) else false;
 
         // Project header row
-        const row = createProjectRow(proj.name, y_offset, row_height, true, proj_i);
+        const row = createProjectRow(proj.name, y_offset, row_height, true, proj_i, is_active_project);
         // Highlight active project header
         if (is_active_project) {
             const setBoolP: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
@@ -330,7 +330,7 @@ fn flippedYes(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL {
     return objc.YES;
 }
 
-fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, is_header: bool, project_idx: ?usize) objc.id {
+fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, is_header: bool, project_idx: ?usize, is_active_project: bool) objc.id {
     // Use draggable view for project headers
     const row = if (is_header and project_idx != null)
         objc.msgSend(registerDragRowClass() orelse objc.getClass("NSView") orelse unreachable, objc.sel("new"))
@@ -356,7 +356,11 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
             @ptrCast(&objc.c.objc_msgSend);
         const font = boldFont(NSFont, objc.sel("boldSystemFontOfSize:"), 13.0);
         objc.msgSendVoid1(label, objc.sel("setFont:"), font);
-        setTextColor(label, 0.847, 0.937, 0.906); // #d8efe7
+        if (is_active_project) {
+            setTextColor(label, 0.847, 0.937, 0.906); // #d8efe7 — bright
+        } else {
+            setTextColor(label, 0.45, 0.50, 0.56); // dimmed
+        }
     } else {
         const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
             @ptrCast(&objc.c.objc_msgSend);
@@ -898,6 +902,9 @@ pub fn openTerminalAtIndex(index: usize) void {
     opening_terminal = true;
     defer opening_terminal = false;
 
+    // Save cwd of the terminal we're leaving
+    term_text_view.saveActiveCwd();
+
     if (index >= term_row_infos.len) return;
     const info = term_row_infos[index] orelse return;
     const main_panel = window_ui.main_panel_view orelse return;
@@ -906,8 +913,29 @@ pub fn openTerminalAtIndex(index: usize) void {
     selected_terminal_index = index;
     if (g_sidebar_app) |app| rebuildSidebar(app);
 
+    // Resolve effective cwd: saved cwd > project path
+    const effective_cwd = blk: {
+        const app2 = g_sidebar_app orelse break :blk info.path;
+        for (app2.projects()) |proj| {
+            if (std.mem.eql(u8, proj.id, info.project_id)) {
+                for (proj.terminals.items) |t| {
+                    if (std.mem.eql(u8, t.id, info.terminal_id)) {
+                        if (t.cwd) |saved_cwd| {
+                            // Check if directory still exists
+                            std.fs.accessAbsolute(saved_cwd, .{}) catch break :blk info.path;
+                            break :blk saved_cwd;
+                        }
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        break :blk info.path;
+    };
+
     // Create or switch to session
-    if (!term_text_view.getOrCreateSession(index, info.path, info.command)) return;
+    if (!term_text_view.getOrCreateSession(index, effective_cwd, info.command)) return;
 
     // Layout the session's split tree in the main panel
     term_text_view.layoutActiveSession(main_panel);

@@ -7,6 +7,7 @@ pub const Terminal = struct {
     name: []const u8,
     command: ?[]const u8 = null,
     splits: ?[]const u8 = null, // serialized split tree, e.g. "h(leaf,leaf)"
+    cwd: ?[]const u8 = null, // last known working directory
 };
 
 pub const ItemVisibility = struct {
@@ -219,6 +220,9 @@ pub const ProjectStore = struct {
                 if (t.splits) |splits| {
                     try w.print(",\"splits\":\"{s}\"", .{splits});
                 }
+                if (t.cwd) |cwd_val| {
+                    try w.print(",\"cwd\":\"{s}\"", .{cwd_val});
+                }
                 try w.writeAll("}");
             }
             try w.writeAll("],\n");
@@ -280,11 +284,16 @@ pub const ProjectStore = struct {
                             break :blk if (sv == .string) try self.allocator.dupe(u8, sv.string) else null;
                         } else null;
 
+                        const tcwd = if (tobj.get("cwd")) |cv| blk: {
+                            break :blk if (cv == .string) try self.allocator.dupe(u8, cv.string) else null;
+                        } else null;
+
                         try terminals.append(.{
                             .id = try self.allocator.dupe(u8, tid.string),
                             .name = try self.allocator.dupe(u8, tname.string),
                             .command = tcmd,
                             .splits = tsplits,
+                            .cwd = tcwd,
                         });
                     }
                 }
