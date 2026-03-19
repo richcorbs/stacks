@@ -29,6 +29,13 @@ pub var main_panel_view: ?objc.id = null;
 /// The app delegate instance (for explicit action targeting).
 pub var app_delegate: ?objc.id = null;
 
+/// Header bar above the terminal area (44px, matches sidebar header).
+pub var header_view: ?objc.id = null;
+pub var header_name_label: ?objc.id = null;
+pub var header_git_label: ?objc.id = null;
+
+pub const HEADER_HEIGHT: objc.CGFloat = 44.0;
+
 // -------------------------------------------------------------------------
 // Public API
 // -------------------------------------------------------------------------
@@ -111,7 +118,22 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
         objc.NO,
     );
 
-    objc.msgSendVoid1(window, objc.sel("setTitle:"), objc.nsString("my-term"));
+    objc.msgSendVoid1(window, objc.sel("setTitle:"), objc.nsString(""));
+
+    // Transparent title bar blending with dark content
+    const setBoolW: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setBoolW(window, objc.sel("setTitlebarAppearsTransparent:"), objc.YES);
+    const setTitleVis: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setTitleVis(window, objc.sel("setTitleVisibility:"), 1); // NSWindowTitleHidden
+
+    // Dark window background so title bar area is dark
+    const NSColor = objc.getClass("NSColor") orelse return;
+    const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const darkBg = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.09, 0.114, 0.149, 1.0);
+    objc.msgSendVoid1(window, objc.sel("setBackgroundColor:"), darkBg);
 
     const setAutosave: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) objc.BOOL =
         @ptrCast(&objc.c.objc_msgSend);
@@ -249,13 +271,29 @@ fn onAddTerminalToProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c)
 // View construction
 // -------------------------------------------------------------------------
 
+var thin_split_class: ?objc.id = null;
+
+fn registerThinSplitClass() ?objc.id {
+    if (thin_split_class) |cls| return cls;
+    const NSSplitView = objc.getClass("NSSplitView") orelse return null;
+    const cls = objc.allocateClassPair(NSSplitView, "ThinSplitView") orelse return null;
+    _ = objc.addMethod(cls, objc.sel("dividerThickness"), &thinDividerThickness, "d@:");
+    objc.registerClassPair(cls);
+    thin_split_class = cls;
+    return cls;
+}
+
+fn thinDividerThickness(_: objc.id, _: objc.SEL) callconv(.c) objc.CGFloat {
+    return 1.0;
+}
+
 fn createSplitView() objc.id {
-    const NSSplitView = objc.getClass("NSSplitView") orelse unreachable;
-    const split = objc.msgSend(NSSplitView, objc.sel("new"));
+    const cls = registerThinSplitClass() orelse objc.getClass("NSSplitView") orelse unreachable;
+    const split = objc.msgSend(cls, objc.sel("new"));
 
     const setVertical: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setVertical(split, objc.sel("setVertical:"), objc.YES); // side-by-side
+    setVertical(split, objc.sel("setVertical:"), objc.YES);
 
     const setDivider: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -321,11 +359,169 @@ fn createMainPanel() objc.id {
     const cls = registerMainPanelClass() orelse unreachable;
     const main = objc.msgSend(cls, objc.sel("new"));
 
-    const setTranslates: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setTranslates(main, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.YES);
+    setBool(main, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.YES);
+
+    // Dark background for when no terminal is open
+    setBool(main, objc.sel("setWantsLayer:"), objc.YES);
+    const layer = objc.msgSend(main, objc.sel("layer"));
+    const NSColor = objc.getClass("NSColor") orelse unreachable;
+    const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const bgColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.059, 0.078, 0.106, 1.0); // #0f141b
+    objc.msgSendVoid1(layer, objc.sel("setBackgroundColor:"), objc.msgSend(bgColor, objc.sel("CGColor")));
+
+    // Top border line (visible below title bar when content is empty)
+    const borderColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.2, 0.24, 0.3, 1.0);
+    objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), objc.msgSend(borderColor, objc.sel("CGColor")));
+    const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.5);
+
+    // Create header bar
+    const header = createHeaderBar();
+    header_view = header;
+    objc.msgSendVoid1(main, objc.sel("addSubview:"), header);
 
     return main;
+}
+
+fn createHeaderBar() objc.id {
+    const NSView = objc.getClass("NSView") orelse unreachable;
+    const header = objc.msgSend(NSView, objc.sel("new"));
+
+    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setBool(header, objc.sel("setWantsLayer:"), objc.YES);
+
+    const layer = objc.msgSend(header, objc.sel("layer"));
+    // Match sidebar bg
+    const NSColor = objc.getClass("NSColor") orelse unreachable;
+    const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const bgColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.09, 0.114, 0.149, 1.0);
+    const cgBg = objc.msgSend(bgColor, objc.sel("CGColor"));
+    objc.msgSendVoid1(layer, objc.sel("setBackgroundColor:"), cgBg);
+
+    // Bottom border
+    const borderColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.2, 0.24, 0.3, 1.0);
+    const cgBorder = objc.msgSend(borderColor, objc.sel("CGColor"));
+    objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), cgBorder);
+    const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.5);
+
+    // Terminal name label (left)
+    const NSTextField = objc.getClass("NSTextField") orelse unreachable;
+    const name_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString(""));
+    const NSFont = objc.getClass("NSFont") orelse unreachable;
+    const boldFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    objc.msgSendVoid1(name_label, objc.sel("setFont:"), boldFont(NSFont, objc.sel("boldSystemFontOfSize:"), 12.0));
+    const nameColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.847, 0.937, 0.906, 1.0); // #d8efe7
+    objc.msgSendVoid1(name_label, objc.sel("setTextColor:"), nameColor);
+    objc.msgSendVoid1(header, objc.sel("addSubview:"), name_label);
+    header_name_label = name_label;
+
+    // Git info label (right)
+    const git_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString(""));
+    const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    objc.msgSendVoid1(git_label, objc.sel("setFont:"), sysFont(NSFont, objc.sel("systemFontOfSize:"), 11.0));
+    const gitColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.604, 0.659, 0.737, 1.0); // #9aa8bc
+    objc.msgSendVoid1(git_label, objc.sel("setTextColor:"), gitColor);
+    const setAlignment: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setAlignment(git_label, objc.sel("setAlignment:"), 1); // NSTextAlignmentRight
+    objc.msgSendVoid1(header, objc.sel("addSubview:"), git_label);
+    header_git_label = git_label;
+
+    // Layout with auto layout
+    setBool(header, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
+    setBool(name_label, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
+    setBool(git_label, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
+
+    return header;
+}
+
+/// Update the header bar content for the given terminal name and project path.
+pub fn updateHeader(name: []const u8, project_path: []const u8) void {
+    if (header_name_label) |label| {
+        objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(name));
+    }
+    // Get git branch + status
+    if (header_git_label) |label| {
+        var buf: [256]u8 = undefined;
+        const git_text = getGitStatus(project_path, &buf) catch "";
+        objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(git_text));
+    }
+}
+
+/// Clear the header (no terminal selected).
+pub fn clearHeader() void {
+    if (header_name_label) |label| {
+        objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(""));
+    }
+    if (header_git_label) |label| {
+        objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(""));
+    }
+}
+
+fn runGitCommand(project_path: []const u8, args: []const []const u8, out_buf: []u8) ![]const u8 {
+    const alloc = std.heap.page_allocator;
+    var full_args = std.array_list.AlignedManaged([]const u8, null).init(alloc);
+    defer full_args.deinit();
+    try full_args.append("git");
+    try full_args.append("-C");
+    try full_args.append(project_path);
+    for (args) |a| try full_args.append(a);
+
+    var child = std.process.Child.init(full_args.items, alloc);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+    try child.spawn();
+
+    var stdout_list: std.ArrayListAligned(u8, null) = .empty;
+    defer stdout_list.deinit(alloc);
+    var stderr_list: std.ArrayListAligned(u8, null) = .empty;
+    defer stderr_list.deinit(alloc);
+    child.collectOutput(alloc, &stdout_list, &stderr_list, 64 * 1024) catch {};
+    const term = try child.wait();
+    if (term != .Exited or term.Exited != 0) return "";
+
+    const trimmed = std.mem.trimRight(u8, stdout_list.items, "\n\r ");
+    const len = @min(trimmed.len, out_buf.len);
+    @memcpy(out_buf[0..len], trimmed[0..len]);
+    return out_buf[0..len];
+}
+
+fn getGitStatus(project_path: []const u8, buf: *[256]u8) ![]const u8 {
+    // Get branch name
+    var branch_buf: [128]u8 = undefined;
+    const branch = try runGitCommand(project_path, &.{ "branch", "--show-current" }, &branch_buf);
+    if (branch.len == 0) return "";
+
+    // Count changed files
+    var status_buf: [32768]u8 = undefined;
+    const status_output = try runGitCommand(project_path, &.{ "status", "--porcelain" }, &status_buf);
+    var changed_count: usize = 0;
+    if (status_output.len > 0) {
+        var lines = std.mem.splitScalar(u8, status_output, '\n');
+        while (lines.next()) |line| {
+            if (line.len >= 2) changed_count += 1;
+        }
+    }
+
+    if (changed_count > 0) {
+        return std.fmt.bufPrint(buf, "⎇ {s}  ·  {d} file{s} changed", .{
+            branch,
+            changed_count,
+            if (changed_count == 1) "" else "s",
+        }) catch "";
+    } else {
+        return std.fmt.bufPrint(buf, "⎇ {s}", .{branch}) catch "";
+    }
 }
 
 // -------------------------------------------------------------------------

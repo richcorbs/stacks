@@ -883,6 +883,21 @@ pub fn openTerminalAtIndex(index: usize) void {
     // Layout the session's split tree in the main panel
     term_text_view.layoutActiveSession(main_panel);
 
+    // Update header with terminal name and git info
+    // Find the terminal name from the info
+    const app = g_sidebar_app orelse return;
+    for (app.projects()) |proj| {
+        if (std.mem.eql(u8, proj.id, info.project_id)) {
+            for (proj.terminals.items) |t| {
+                if (std.mem.eql(u8, t.id, info.terminal_id)) {
+                    window_ui.updateHeader(t.name, proj.path);
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
     // Focus the active pane
     if (term_text_view.getFocusedView()) |focused_view| {
         const NSApp_class = objc.getClass("NSApplication") orelse return;

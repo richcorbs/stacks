@@ -239,6 +239,7 @@ pub fn getOrCreateSession(index: usize, cwd: []const u8, command: ?[]const u8) b
 
 /// Layout the active session's split tree within the given rect.
 pub fn layoutActiveSession(panel: objc.id) void {
+    const window_ui = @import("window.zig");
     const session_idx = active_session orelse return;
     if (session_idx >= MAX_TERMS) return;
     const session = &(sessions[session_idx] orelse return);
@@ -250,12 +251,32 @@ pub fn layoutActiveSession(panel: objc.id) void {
     // Reset divider tracking
     divider_count = 0;
 
-    // First remove all subviews
+    // First remove all subviews (except header)
     const subviews = objc.msgSend(panel, objc.sel("subviews"));
     objc.msgSendVoid1(subviews, objc.sel("makeObjectsPerformSelector:"), objc.sel("removeFromSuperview"));
 
-    // Recursively add terminal views
-    layoutNode(session.root, panel, bounds, session.focused_slot);
+    // Re-add and position header
+    const header_h = window_ui.HEADER_HEIGHT;
+    if (window_ui.header_view) |header| {
+        objc.msgSendVoid1(panel, objc.sel("addSubview:"), header);
+        const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setFrame(header, objc.sel("setFrame:"), objc.NSMakeRect(0, bounds.size.height - header_h, bounds.size.width, header_h));
+
+        // Position labels inside header
+        if (window_ui.header_name_label) |nl| {
+            setFrame(nl, objc.sel("setFrame:"), objc.NSMakeRect(16, 12, bounds.size.width / 2 - 16, 20));
+        }
+        if (window_ui.header_git_label) |gl| {
+            setFrame(gl, objc.sel("setFrame:"), objc.NSMakeRect(bounds.size.width / 2, 12, bounds.size.width / 2 - 16, 20));
+        }
+    }
+
+    // Terminal area is below the header
+    const term_bounds = objc.NSMakeRect(0, 0, bounds.size.width, bounds.size.height - header_h);
+
+    // Recursively add terminal views in the area below the header
+    layoutNode(session.root, panel, term_bounds, session.focused_slot);
 
     // Sync all terminal sizes to their new frames
     var leaves: std.ArrayListUnmanaged(usize) = .{};
