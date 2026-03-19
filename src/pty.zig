@@ -15,6 +15,7 @@ const c = @cImport({
 pub const Pty = struct {
     master_fd: c_int,
     child_pid: c.pid_t,
+    exited: bool = false,
 
     /// Spawn a shell in a new PTY.
     /// `cwd` = working directory, `command` = optional startup command to run.
@@ -101,10 +102,12 @@ pub const Pty = struct {
 
     /// Check if child has exited.
     pub fn hasExited(self: *Pty) bool {
-        if (self.child_pid < 0) return true;
+        if (self.exited) return true;
+        if (self.child_pid < 0) { self.exited = true; return true; }
         var status: c_int = 0;
         const result = c.waitpid(self.child_pid, &status, c.WNOHANG);
-        return result > 0;
+        if (result > 0) { self.exited = true; return true; }
+        return false;
     }
 
     /// Close the PTY.

@@ -198,7 +198,104 @@ const SplitNode = union(enum) {
             },
         }
     }
+
+    /// Serialize split tree to compact string: "leaf", "h(leaf,leaf)", etc.
+    fn serialize(self: *SplitNode, buf: []u8, pos: *usize) void {
+        switch (self.*) {
+            .leaf => {
+                const s = "leaf";
+                if (pos.* + s.len <= buf.len) {
+                    @memcpy(buf[pos.*..][0..s.len], s);
+                    pos.* += s.len;
+                }
+            },
+            .split => |sp| {
+                const ch: u8 = if (sp.direction == .horizontal) 'h' else 'v';
+                if (pos.* + 2 <= buf.len) {
+                    buf[pos.*] = ch;
+                    buf[pos.* + 1] = '(';
+                    pos.* += 2;
+                }
+                sp.first.serialize(buf, pos);
+                if (pos.* + 1 <= buf.len) {
+                    buf[pos.*] = ',';
+                    pos.* += 1;
+                }
+                sp.second.serialize(buf, pos);
+                if (pos.* + 1 <= buf.len) {
+                    buf[pos.*] = ')';
+                    pos.* += 1;
+                }
+            },
+        }
+    }
 };
+
+/// Deserialize a split tree from a string like "leaf", "h(leaf,leaf)".
+/// Creates SplitNode tree, creating terminal views for each leaf.
+fn deserializeSplitTree(input: []const u8, pos: *usize, cwd: []const u8, command: ?[]const u8) ?*SplitNode {
+    if (pos.* >= input.len) return null;
+
+    // Check for "leaf"
+    if (pos.* + 4 <= input.len and std.mem.eql(u8, input[pos.*..][0..4], "leaf")) {
+        pos.* += 4;
+        const slot = findFreeSlot() orelse return null;
+        _ = createTerminalViewAtSlot(slot, cwd, command) orelse return null;
+        const node = allocator.create(SplitNode) catch return null;
+        node.* = .{ .leaf = slot };
+        return node;
+    }
+
+    // Check for "h(" or "v("
+    if (pos.* + 2 <= input.len and (input[pos.*] == 'h' or input[pos.*] == 'v') and input[pos.* + 1] == '(') {
+        const direction: SplitDirection = if (input[pos.*] == 'h') .horizontal else .vertical;
+        pos.* += 2;
+        // Only the first leaf gets the configured command; splits get plain shells
+        const first = deserializeSplitTree(input, pos, cwd, command) orelse return null;
+        if (pos.* < input.len and input[pos.*] == ',') pos.* += 1;
+        const second = deserializeSplitTree(input, pos, cwd, null) orelse return null;
+        if (pos.* < input.len and input[pos.*] == ')') pos.* += 1;
+
+        const node = allocator.create(SplitNode) catch return null;
+        node.* = .{ .split = .{
+            .direction = direction,
+            .first = first,
+            .second = second,
+            .ratio = 0.5,
+        } };
+        // Rebalance will fix the ratio
+        return node;
+    }
+
+    return null;
+}
+
+/// Serialize the active session's split tree and save to project store.
+fn saveSplitState() void {
+    const sidebar = @import("sidebar.zig");
+    const session_idx = active_session orelse return;
+    if (session_idx >= MAX_TERMS) return;
+    const session = &(sessions[session_idx] orelse return);
+
+    var buf: [512]u8 = undefined;
+    var pos: usize = 0;
+    session.root.serialize(&buf, &pos);
+    if (pos == 0) return;
+
+    const split_str = allocator.dupe(u8, buf[0..pos]) catch return;
+
+    // Find the terminal in the project store and update its splits field
+    const app = sidebar.g_sidebar_app orelse return;
+    const info = sidebar.getTermRowInfo(session_idx) orelse return;
+    const proj = app.store.findById(info.project_id) orelse return;
+    for (proj.terminals.items) |*t| {
+        if (std.mem.eql(u8, t.id, info.terminal_id)) {
+            t.splits = split_str;
+            app.store.save() catch {};
+            return;
+        }
+    }
+}
 
 /// A session corresponds to one sidebar terminal entry and holds a split tree.
 const Session = struct {
@@ -249,20 +346,75 @@ pub fn getOrCreateSession(index: usize, cwd: []const u8, command: ?[]const u8) b
     if (index < MAX_TERMS) bell_active[index] = false;
 
     if (index < MAX_TERMS and sessions[index] != null) {
-        return true; // session already exists
+        // Check if the sole pane's process has exited — respawn it
+        const session = &(sessions[index].?);
+        var leaves: std.ArrayListUnmanaged(usize) = .{};
+        defer leaves.deinit(allocator);
+        session.root.collectLeaves(&leaves);
+        if (leaves.items.len == 1) {
+            const slot = leaves.items[0];
+            if (slot < MAX_TERMS) {
+                if (terminals[slot]) |*entry| {
+                    if (entry.pty.hasExited()) {
+                        entry.pty.close();
+                        entry.pty = @import("../pty.zig").Pty.spawn(cwd, command) catch return true;
+                        // Clear the vterm screen
+                        entry.vterm.deinit();
+                        entry.vterm = @import("../vt.zig").VTerm.init(24, 80) catch return true;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
-    // Create a new terminal and session
-    const slot = findFreeSlot() orelse return false;
-    _ = createTerminalViewAtSlot(slot, cwd, command) orelse return false;
+    // Check for saved split layout
+    const sidebar = @import("sidebar.zig");
+    const saved_splits: ?[]const u8 = blk: {
+        const info = sidebar.getTermRowInfo(index) orelse break :blk null;
+        const app = sidebar.g_sidebar_app orelse break :blk null;
+        const proj = app.store.findById(info.project_id) orelse break :blk null;
+        for (proj.terminals.items) |t| {
+            if (std.mem.eql(u8, t.id, info.terminal_id)) {
+                break :blk t.splits;
+            }
+        }
+        break :blk null;
+    };
 
-    const root = allocator.create(SplitNode) catch return false;
-    root.* = .{ .leaf = slot };
+    // Create terminal tree from saved layout or single pane
+    const root = if (saved_splits) |splits| restore: {
+        var pos: usize = 0;
+        const restored = deserializeSplitTree(splits, &pos, cwd, command);
+        if (restored) |r| {
+            r.rebalanceAxis(.horizontal);
+            r.rebalanceAxis(.vertical);
+            break :restore r;
+        }
+        // Fallback to single pane
+        const slot = findFreeSlot() orelse return false;
+        _ = createTerminalViewAtSlot(slot, cwd, command) orelse return false;
+        const node = allocator.create(SplitNode) catch return false;
+        node.* = .{ .leaf = slot };
+        break :restore node;
+    } else single: {
+        const slot = findFreeSlot() orelse return false;
+        _ = createTerminalViewAtSlot(slot, cwd, command) orelse return false;
+        const node = allocator.create(SplitNode) catch return false;
+        node.* = .{ .leaf = slot };
+        break :single node;
+    };
+
+    // Find first leaf for focus
+    var leaves: std.ArrayListUnmanaged(usize) = .{};
+    defer leaves.deinit(allocator);
+    root.collectLeaves(&leaves);
+    const focused = if (leaves.items.len > 0) leaves.items[0] else 0;
 
     if (index < MAX_TERMS) {
         sessions[index] = .{
             .root = root,
-            .focused_slot = slot,
+            .focused_slot = focused,
             .cwd = cwd,
             .command = command,
         };
@@ -452,6 +604,9 @@ pub fn splitFocused(direction: SplitDirection) void {
     session.root.rebalanceAxis(direction);
 
     session.focused_slot = new_slot;
+
+    // Persist split layout
+    saveSplitState();
 }
 
 /// Close the focused pane in the active session, with confirmation.
@@ -464,18 +619,20 @@ pub fn closeFocusedPane() void {
     const leaf_node = session.root.findLeaf(session.focused_slot) orelse return;
     const parent_node = session.root.findParent(leaf_node) orelse return;
 
-    // Show confirmation dialog
-    const NSAlert = objc.getClass("NSAlert") orelse return;
-    const alert = objc.msgSend(NSAlert, objc.sel("new"));
-    objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString("Close Pane"));
-    objc.msgSendVoid1(alert, objc.sel("setInformativeText:"), objc.nsString("Close this terminal pane?"));
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Close"));
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Cancel"));
+    // Skip confirmation if the shell has already exited
+    const already_exited = if (terminals[session.focused_slot]) |*entry| entry.pty.hasExited() else false;
+    if (!already_exited) {
+        const NSAlert = objc.getClass("NSAlert") orelse return;
+        const alert = objc.msgSend(NSAlert, objc.sel("new"));
+        objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString("Close Pane"));
+        objc.msgSendVoid1(alert, objc.sel("setInformativeText:"), objc.nsString("Close this terminal pane?"));
+        objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Close"));
+        objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Cancel"));
 
-    // First button ("Close") is already the default — Enter confirms it
-    const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
-    const result = objc.msgSendUInt(alert, objc.sel("runModal"));
-    if (result != NSAlertFirstButtonReturn) return;
+        const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
+        const result = objc.msgSendUInt(alert, objc.sel("runModal"));
+        if (result != NSAlertFirstButtonReturn) return;
+    }
 
     // Destroy the focused terminal
     destroyTerminalAtSlot(session.focused_slot);
@@ -498,6 +655,9 @@ pub fn closeFocusedPane() void {
     if (leaves.items.len > 0) {
         session.focused_slot = leaves.items[0];
     }
+
+    // Persist split layout
+    saveSplitState();
 }
 
 /// Cycle focus to the next/previous pane.
@@ -1550,6 +1710,68 @@ var last_panel_width: f64 = 0;
 var last_panel_height: f64 = 0;
 var last_bell_state: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
 
+fn checkForExitedTerminals() void {
+    const window_ui = @import("window.zig");
+    for (&sessions, 0..) |*sess, si| {
+        if (sess.*) |*session| {
+            // Collect all leaf slots
+            var leaves: std.ArrayListUnmanaged(usize) = .{};
+            defer leaves.deinit(allocator);
+            session.root.collectLeaves(&leaves);
+
+            for (leaves.items) |slot| {
+                if (slot < MAX_TERMS) {
+                    if (terminals[slot]) |*entry| {
+                        if (entry.pty.hasExited()) {
+                            // Single pane — leave it alone, user can close manually
+                            if (leaves.items.len <= 1) continue;
+
+                            // Multi-pane — auto-close this pane without confirmation
+                            const leaf_node = session.root.findLeaf(slot) orelse continue;
+                            const parent_node = session.root.findParent(leaf_node) orelse continue;
+
+                            destroyTerminalAtSlot(slot);
+
+                            const sibling = if (parent_node.split.first == leaf_node) parent_node.split.second else parent_node.split.first;
+                            const sibling_copy = sibling.*;
+                            allocator.destroy(leaf_node);
+                            allocator.destroy(sibling);
+                            parent_node.* = sibling_copy;
+
+                            // Rebalance
+                            session.root.rebalanceAxis(.horizontal);
+                            session.root.rebalanceAxis(.vertical);
+
+                            // Focus first remaining leaf
+                            var remaining: std.ArrayListUnmanaged(usize) = .{};
+                            defer remaining.deinit(allocator);
+                            parent_node.collectLeaves(&remaining);
+                            if (remaining.items.len > 0) {
+                                session.focused_slot = remaining.items[0];
+                            }
+
+                            // Re-layout
+                            if (active_session != null and active_session.? == si) {
+                                if (window_ui.main_panel_view) |panel| {
+                                    layoutActiveSession(panel);
+                                    if (getFocusedView()) |focused| {
+                                        const NSApp_class = objc.getClass("NSApplication") orelse return;
+                                        const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
+                                        const mw = objc.msgSend(nsapp, objc.sel("mainWindow"));
+                                        objc.msgSendVoid1(mw, objc.sel("makeFirstResponder:"), focused);
+                                    }
+                                }
+                            }
+                            saveSplitState();
+                            return; // only handle one exit per tick to avoid iterator invalidation
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     // Re-layout if the panel size changed (window resize)
     if (active_session != null) {
@@ -1611,6 +1833,9 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
             }
         }
     }
+
+    // Check for exited terminals and auto-close their panes
+    checkForExitedTerminals();
 
     // Check if bell state changed and rebuild sidebar
     var bell_changed = false;

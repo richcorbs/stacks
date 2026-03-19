@@ -383,13 +383,18 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
 }
 
 /// Stored info for terminal rows so the click handler knows what to open.
-const TermRowInfo = struct {
+pub const TermRowInfo = struct {
     path: []const u8,
     command: ?[]const u8,
     project_id: []const u8,
     terminal_id: []const u8,
 };
 var term_row_infos: [64]?TermRowInfo = [_]?TermRowInfo{null} ** 64;
+
+pub fn getTermRowInfo(index: usize) ?TermRowInfo {
+    if (index >= term_row_infos.len) return null;
+    return term_row_infos[index];
+}
 var term_row_info_count: usize = 0;
 
 
