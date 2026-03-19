@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Gracefully quit first (triggers applicationWillTerminate), then force kill if needed
+osascript -e 'quit app "my-term"' 2>/dev/null || true
+sleep 1
+pkill -9 -f my-term 2>/dev/null || true
+
 APP_DIR="$HOME/Applications/MyTerm.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"

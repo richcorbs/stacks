@@ -1990,6 +1990,8 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     git_refresh_counter += 1;
     if (git_refresh_counter >= 625) {
         git_refresh_counter = 0;
+        // Save cwd periodically so it survives force kills
+        saveActiveCwd();
         if (active_session) |si| {
             if (sidebar.getTermRowInfo(si)) |info| {
                 if (sidebar.g_sidebar_app) |app| {
