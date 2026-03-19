@@ -358,9 +358,13 @@ pub fn getOrCreateSession(index: usize, cwd: []const u8, command: ?[]const u8) b
                     if (entry.pty.hasExited()) {
                         entry.pty.close();
                         entry.pty = @import("../pty.zig").Pty.spawn(cwd, command) catch return true;
-                        // Clear the vterm screen
+                        // Clear the vterm screen and scrollback
                         entry.vterm.deinit();
                         entry.vterm = @import("../vt.zig").VTerm.init(24, 80) catch return true;
+                        entry.scroll_offset = 0;
+                        entry.scrollback.clearRetainingCapacity();
+                        // Re-register scrollback callbacks on new vterm
+                        registerScrollbackCallbacks(slot, &entry.vterm);
                     }
                 }
             }
@@ -582,9 +586,15 @@ pub fn splitFocused(direction: SplitDirection) void {
     // Find the focused leaf node
     const leaf_node = session.root.findLeaf(session.focused_slot) orelse return;
 
-    // Create a new terminal in the same cwd
+    // Inherit cwd from the focused terminal's live working directory
+    var cwd_buf: [4096]u8 = undefined;
+    const split_cwd = if (terminals[session.focused_slot]) |*entry|
+        entry.pty.getCwd(&cwd_buf) orelse session.cwd
+    else
+        session.cwd;
+
     const new_slot = findFreeSlot() orelse return;
-    _ = createTerminalViewAtSlot(new_slot, session.cwd, null) orelse return;
+    _ = createTerminalViewAtSlot(new_slot, split_cwd, null) orelse return;
 
     // Replace the leaf with a split
     const old_slot = leaf_node.leaf;
@@ -822,7 +832,13 @@ fn createTerminalViewAtSlot(slot: usize, cwd: []const u8, command: ?[]const u8) 
         .slot = slot,
     };
 
-    // Set up scrollback callbacks
+    registerScrollbackCallbacks(slot, &terminals[slot].?.vterm);
+
+    ensurePollTimer();
+    return view;
+}
+
+fn registerScrollbackCallbacks(slot: usize, vterm: *VTerm) void {
     const RawCallbacks = extern struct {
         damage: ?*const anyopaque = null,
         moverect: ?*const anyopaque = null,
@@ -841,9 +857,6 @@ fn createTerminalViewAtSlot(slot: usize, cwd: []const u8, command: ?[]const u8) 
         };
     };
     vt_mod.screenSetCallbacks(vterm.screen, @ptrCast(&cbs.callbacks), @ptrCast(@alignCast(&terminals[slot].?)));
-
-    ensurePollTimer();
-    return view;
 }
 
 /// Destroy a specific terminal by slot index.
@@ -1126,10 +1139,20 @@ fn termMouseDragged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) voi
 fn termMouseUp(self: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     dragging_divider = null;
 
-    // Copy selection to clipboard
+    // Copy selection to clipboard only if there's a real selection (not just a click)
     if (findEntry(self)) |entry| {
         if (entry.selection.active) {
-            copySelectionToClipboard(entry);
+            const s = entry.selection.ordered();
+            const has_selection = s.r1 != s.r2 or s.c1 != s.c2;
+            if (has_selection) {
+                copySelectionToClipboard(entry);
+            } else {
+                // Plain click — clear selection
+                entry.selection.active = false;
+                const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+                    @ptrCast(&objc.c.objc_msgSend);
+                setBool(self, objc.sel("setNeedsDisplay:"), objc.YES);
+            }
         }
     }
 }
@@ -1240,12 +1263,15 @@ fn showCopiedToast(term_view: objc.id) void {
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
 
-    // Position toast at top-center of the terminal view
-    const bounds = objc.msgSendRect(term_view, objc.sel("bounds"));
-    const toast_w: f64 = 150;
-    const toast_h: f64 = 28;
+    // Position toast at center of the main panel
+    const window_ui = @import("window.zig");
+    const panel = window_ui.main_panel_view orelse term_view;
+    const bounds = objc.msgSendRect(panel, objc.sel("bounds"));
+    const toast_w: f64 = 200;
+    const toast_h: f64 = 36;
     const toast_x = (bounds.size.width - toast_w) / 2;
-    setFrame(toast, objc.sel("setFrame:"), objc.NSMakeRect(toast_x, 8, toast_w, toast_h));
+    const toast_y = (bounds.size.height - toast_h) / 2;
+    setFrame(toast, objc.sel("setFrame:"), objc.NSMakeRect(toast_x, toast_y, toast_w, toast_h));
 
     const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -1264,12 +1290,12 @@ fn showCopiedToast(term_view: objc.id) void {
 
     // Label
     const label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Copied to clipboard"));
-    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(0, 4, toast_w, 20));
+    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(0, 8, toast_w, 22));
 
     const NSFont = objc.getClass("NSFont") orelse return;
     const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
-    objc.msgSendVoid1(label, objc.sel("setFont:"), sysFont(NSFont, objc.sel("systemFontOfSize:"), 12.0));
+    objc.msgSendVoid1(label, objc.sel("setFont:"), sysFont(NSFont, objc.sel("boldSystemFontOfSize:"), 13.0));
 
     const fg = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.85, 0.9, 0.95, 1.0);
     objc.msgSendVoid1(label, objc.sel("setTextColor:"), fg);
@@ -1279,7 +1305,7 @@ fn showCopiedToast(term_view: objc.id) void {
     setAlign(label, objc.sel("setAlignment:"), 1); // NSTextAlignmentCenter
 
     objc.msgSendVoid1(toast, objc.sel("addSubview:"), label);
-    objc.msgSendVoid1(term_view, objc.sel("addSubview:"), toast);
+    objc.msgSendVoid1(panel, objc.sel("addSubview:"), toast);
     toast_view = toast;
 
     // Set timer to remove toast after 1.5 seconds
@@ -1313,19 +1339,13 @@ fn pasteFromClipboard(entry: *TermEntry) void {
     const pb = objc.msgSend(NSPasteboard, objc.sel("generalPasteboard"));
     const pb_type = objc.nsString("public.utf8-plain-text");
     const ns_str = objc.msgSend1(pb, objc.sel("stringForType:"), pb_type);
+    if (@intFromPtr(ns_str) == 0) return; // nil check
 
-    // Check if nil
-    const NSString = objc.getClass("NSString") orelse return;
-    _ = NSString;
-    const lengthFn: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
-        @ptrCast(&objc.c.objc_msgSend);
-    const len = lengthFn(ns_str, objc.sel("length"));
-    if (len == 0) return;
-
-    const utf8: [*:0]const u8 = @ptrCast(objc.msgSend(ns_str, objc.sel("UTF8String")));
+    const utf8_ptr = objc.msgSend(ns_str, objc.sel("UTF8String"));
+    if (@intFromPtr(utf8_ptr) == 0) return; // nil check
+    const utf8: [*:0]const u8 = @ptrCast(utf8_ptr);
     const str = std.mem.span(utf8);
     if (str.len > 0) {
-        // Use bracketed paste mode for better shell handling
         entry.pty.write("\x1b[200~");
         entry.pty.write(str);
         entry.pty.write("\x1b[201~");
@@ -1363,7 +1383,7 @@ fn syncTermSize(entry: *TermEntry) void {
     if (bounds.size.width < 1 or bounds.size.height < 1) return;
 
     // Account for focus border, scrollbar overlap, and rounding
-    const usable_w = bounds.size.width - 10;
+    const usable_w = bounds.size.width - 14;
     const usable_h = bounds.size.height - 4;
     const new_cols: u16 = @intFromFloat(@max(@floor(usable_w / cell_width), 1));
     const new_rows: u16 = @intFromFloat(@max(@floor(usable_h / cell_height), 1));
@@ -1388,6 +1408,11 @@ fn findEntry(view: objc.id) ?*TermEntry {
 // ---------------------------------------------------------------------------
 
 fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
+    // Wrap in autorelease pool to prevent ObjC object leaks
+    const NSAutoreleasePool = objc.getClass("NSAutoreleasePool") orelse return;
+    const pool = objc.msgSend(NSAutoreleasePool, objc.sel("new"));
+    defer objc.msgSendVoid(pool, objc.sel("drain"));
+
     const entry = findEntry(self) orelse return;
 
     // Get current graphics context
@@ -1576,11 +1601,11 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
         );
 
         const NSMutableAS = objc.getClass("NSMutableAttributedString") orelse continue;
-        const astr = objc.msgSend1(
+        const astr = objc.msgSend(objc.msgSend1(
             objc.msgSend(NSMutableAS, objc.sel("alloc")),
             objc.sel("initWithString:"),
             row_nsstr,
-        );
+        ), objc.sel("autorelease"));
 
         const full_len = objc.msgSendUInt(astr, objc.sel("length"));
         const addAttr: *const fn (objc.id, objc.SEL, objc.id, objc.id, objc.NSRange) callconv(.c) void =
@@ -1672,9 +1697,16 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
                 resizeAllTerminals();
                 objc.msgSendVoid1(self, objc.sel("setNeedsDisplay:"), objc.YES);
                 return;
-            } else if (str[0] == 'v' or code == 9) {
+            } else if (str[0] == 'v' or str[0] == 'V' or code == 9) {
                 // ⌘V — paste from clipboard into PTY
                 pasteFromClipboard(entry);
+                return;
+            } else if (str[0] == 'k' or str[0] == 'K' or code == 40) {
+                // ⌘K — clear terminal screen and scrollback
+                entry.pty.write("\x1b[2J\x1b[H"); // clear screen + move cursor home
+                entry.scroll_offset = 0;
+                entry.scrollback.clearRetainingCapacity();
+                objc.msgSendVoid1(self, objc.sel("setNeedsDisplay:"), objc.YES);
                 return;
             }
         }
@@ -1710,7 +1742,7 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
     // Write directly to PTY — vterm is used only for parsing output, not generating input
     if (vterm_key) |key| {
         const seq: ?[]const u8 = switch (key) {
-            vt_mod.c.VTERM_KEY_ENTER => "\r",
+            vt_mod.c.VTERM_KEY_ENTER => if (has_shift) "\n" else "\r",
             vt_mod.c.VTERM_KEY_TAB => "\t",
             vt_mod.c.VTERM_KEY_BACKSPACE => "\x7f",
             vt_mod.c.VTERM_KEY_ESCAPE => "\x1b",

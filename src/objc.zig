@@ -117,17 +117,14 @@ pub fn msgSendRect(target: anytype, selector: SEL) NSRect {
     return f(target, selector);
 }
 
-/// Create an NSString from a Zig slice.
-/// Note: copies the string data into a null-terminated buffer since we use initWithUTF8String:.
+/// Create an NSString from a Zig slice (autoreleased).
 pub fn nsString(str: []const u8) id {
     const NSString = getClass("NSString") orelse unreachable;
-    // We need a null-terminated copy
     var buf: [4096]u8 = undefined;
     const len = @min(str.len, buf.len - 1);
     @memcpy(buf[0..len], str[0..len]);
     buf[len] = 0;
-    const alloc_obj = msgSend(NSString, sel("alloc"));
-    return msgSend1(alloc_obj, sel("initWithUTF8String:"), @as([*:0]const u8, @ptrCast(&buf)));
+    return msgSend1(NSString, sel("stringWithUTF8String:"), @as([*:0]const u8, @ptrCast(&buf)));
 }
 
 /// Allocate a new class pair (subclass).

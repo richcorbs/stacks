@@ -110,6 +110,26 @@ pub const Pty = struct {
         return false;
     }
 
+    /// Get the current working directory of the child process.
+    pub fn getCwd(self: *Pty, buf: []u8) ?[]const u8 {
+        if (self.child_pid < 0) return null;
+        const libproc = struct {
+            extern "c" fn proc_pidinfo(pid: c.pid_t, flavor: c_int, arg: u64, buffer: *anyopaque, buffersize: c_int) c_int;
+        };
+        // PROC_PIDVNODEPATHINFO = 9, struct is 2352 bytes
+        var vpi: [2352]u8 = undefined;
+        const ret = libproc.proc_pidinfo(self.child_pid, 9, 0, &vpi, 2352);
+        if (ret <= 0) return null;
+        // pvi_cdir.vip_path starts at offset 152 (after pvi_cdir.vip_vi), 1024 bytes
+        const path_offset = 152;
+        const path_ptr: [*:0]const u8 = @ptrCast(&vpi[path_offset]);
+        const path = std.mem.span(path_ptr);
+        if (path.len == 0) return null;
+        const len = @min(path.len, buf.len);
+        @memcpy(buf[0..len], path[0..len]);
+        return buf[0..len];
+    }
+
     /// Close the PTY.
     pub fn close(self: *Pty) void {
         _ = c.close(self.master_fd);

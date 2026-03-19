@@ -73,6 +73,7 @@ fn registerDelegateClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("applicationDidFinishLaunching:"), &appDidFinishLaunching, "v@:@");
     _ = objc.addMethod(cls, objc.sel("applicationShouldTerminateAfterLastWindowClosed:"), &shouldTerminate, "B@:@");
     _ = objc.addMethod(cls, objc.sel("applicationWillTerminate:"), &appWillTerminate, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("applicationDidBecomeActive:"), &appDidBecomeActive, "v@:@");
 
     // Terminal split actions
     _ = objc.addMethod(cls, objc.sel("splitHorizontal:"), &onSplitHorizontal, "v@:@");
@@ -191,6 +192,18 @@ fn shouldTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.BOOL {
 
 fn appWillTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     term_text_view.destroyAllTerminals();
+}
+
+fn appDidBecomeActive(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    // Restore focus to the last focused terminal view
+    if (term_text_view.getFocusedView()) |focused| {
+        const NSApp_class = objc.getClass("NSApplication") orelse return;
+        const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
+        const mw = objc.msgSend(nsapp, objc.sel("mainWindow"));
+        if (mw != objc.nil) {
+            objc.msgSendVoid1(mw, objc.sel("makeFirstResponder:"), focused);
+        }
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -418,13 +431,13 @@ fn createHeaderBar() objc.id {
     const cgBg = objc.msgSend(bgColor, objc.sel("CGColor"));
     objc.msgSendVoid1(layer, objc.sel("setBackgroundColor:"), cgBg);
 
-    // Bottom border
-    const borderColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.2, 0.24, 0.3, 1.0);
+    // Border (matches sidebar separator style)
+    const borderColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.25, 0.30, 0.38, 1.0);
     const cgBorder = objc.msgSend(borderColor, objc.sel("CGColor"));
     objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), cgBorder);
     const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.5);
+    setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
 
     // Terminal name label (left)
     const NSTextField = objc.getClass("NSTextField") orelse unreachable;
@@ -474,6 +487,9 @@ fn createHeaderBar() objc.id {
 
 /// Update the header bar content for the given terminal name and project path.
 pub fn updateHeader(name: []const u8, project_path: []const u8) void {
+    const NSAutoreleasePool = objc.getClass("NSAutoreleasePool") orelse return;
+    const pool = objc.msgSend(NSAutoreleasePool, objc.sel("new"));
+    defer objc.msgSendVoid(pool, objc.sel("drain"));
     if (header_name_label) |label| {
         objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(name));
         // Ensure name label stays white
