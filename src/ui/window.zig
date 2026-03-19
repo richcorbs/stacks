@@ -284,13 +284,21 @@ fn registerThinSplitClass() ?objc.id {
     const NSSplitView = objc.getClass("NSSplitView") orelse return null;
     const cls = objc.allocateClassPair(NSSplitView, "ThinSplitView") orelse return null;
     _ = objc.addMethod(cls, objc.sel("dividerThickness"), &thinDividerThickness, "d@:");
+    _ = objc.addMethod(cls, objc.sel("dividerColor"), &thinDividerColor, "@@:");
     objc.registerClassPair(cls);
     thin_split_class = cls;
     return cls;
 }
 
 fn thinDividerThickness(_: objc.id, _: objc.SEL) callconv(.c) objc.CGFloat {
-    return 1.0;
+    return 0.0;
+}
+
+fn thinDividerColor(_: objc.id, _: objc.SEL) callconv(.c) objc.id {
+    const NSColor = objc.getClass("NSColor") orelse unreachable;
+    const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    return colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.15, 0.18, 0.22, 1.0);
 }
 
 fn createSplitView() objc.id {
