@@ -33,6 +33,7 @@ pub var app_delegate: ?objc.id = null;
 pub var header_view: ?objc.id = null;
 pub var header_name_label: ?objc.id = null;
 pub var header_git_label: ?objc.id = null;
+pub var header_git_changes_label: ?objc.id = null;
 
 pub const HEADER_HEIGHT: objc.CGFloat = 44.0;
 
@@ -81,6 +82,8 @@ fn registerDelegateClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("focusPrevPane:"), &onFocusPrevPane, "v@:@");
     _ = objc.addMethod(cls, objc.sel("increaseFontSize:"), &onIncreaseFontSize, "v@:@");
     _ = objc.addMethod(cls, objc.sel("decreaseFontSize:"), &onDecreaseFontSize, "v@:@");
+
+    _ = objc.addMethod(cls, objc.sel("newTerminal:"), &onNewTerminal, "v@:@");
 
     // Sidebar actions
     _ = objc.addMethod(cls, objc.sel("sidebarNext:"), &onSidebarNext, "v@:@");
@@ -232,6 +235,9 @@ fn onDecreaseFontSize(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     term_text_view.adjustFontSize(-1.0);
 }
 
+fn onNewTerminal(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    sidebar.showNewTerminalForCurrentProject();
+}
 fn onSidebarNext(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     sidebar.navigateSidebar(1);
 }
@@ -424,23 +430,36 @@ fn createHeaderBar() objc.id {
     objc.msgSendVoid1(header, objc.sel("addSubview:"), name_label);
     header_name_label = name_label;
 
-    // Git info label (right)
-    const git_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString(""));
+    // Git branch label (right-aligned)
+    const git_label = objc.msgSend(NSTextField, objc.sel("new"));
     const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
     objc.msgSendVoid1(git_label, objc.sel("setFont:"), sysFont(NSFont, objc.sel("systemFontOfSize:"), 11.0));
     const gitColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.604, 0.659, 0.737, 1.0); // #9aa8bc
     objc.msgSendVoid1(git_label, objc.sel("setTextColor:"), gitColor);
+    setBool(git_label, objc.sel("setBezeled:"), objc.NO);
+    setBool(git_label, objc.sel("setDrawsBackground:"), objc.NO);
+    setBool(git_label, objc.sel("setEditable:"), objc.NO);
+    setBool(git_label, objc.sel("setSelectable:"), objc.NO);
     const setAlignment: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setAlignment(git_label, objc.sel("setAlignment:"), 1); // NSTextAlignmentRight
+    setAlignment(git_label, objc.sel("setAlignment:"), 2); // NSTextAlignmentRight
     objc.msgSendVoid1(header, objc.sel("addSubview:"), git_label);
     header_git_label = git_label;
+
+    // Git changes count label (right of branch, red when non-zero)
+    const changes_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString(""));
+    objc.msgSendVoid1(changes_label, objc.sel("setFont:"), sysFont(NSFont, objc.sel("systemFontOfSize:"), 11.0));
+    objc.msgSendVoid1(changes_label, objc.sel("setTextColor:"), gitColor);
+    setAlignment(changes_label, objc.sel("setAlignment:"), 0); // NSTextAlignmentLeft
+    objc.msgSendVoid1(header, objc.sel("addSubview:"), changes_label);
+    header_git_changes_label = changes_label;
 
     // Layout with auto layout
     setBool(header, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
     setBool(name_label, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
     setBool(git_label, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
+    setBool(changes_label, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
 
     return header;
 }
@@ -449,12 +468,46 @@ fn createHeaderBar() objc.id {
 pub fn updateHeader(name: []const u8, project_path: []const u8) void {
     if (header_name_label) |label| {
         objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(name));
+        // Ensure name label stays white
+        const NSColor = objc.getClass("NSColor") orelse return;
+        const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const nameColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.847, 0.937, 0.906, 1.0);
+        objc.msgSendVoid1(label, objc.sel("setTextColor:"), nameColor);
     }
-    // Get git branch + status
+
+    var branch_buf: [128]u8 = undefined;
+    var count_buf: [64]u8 = undefined;
+    var branch_text: []const u8 = "";
+    var changes_text: []const u8 = "";
+    var has_changes: bool = false;
+    getGitInfo(project_path, &branch_buf, &count_buf, &branch_text, &changes_text, &has_changes) catch {};
+
     if (header_git_label) |label| {
-        var buf: [256]u8 = undefined;
-        const git_text = getGitStatus(project_path, &buf) catch "";
-        objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(git_text));
+        // Combine into one string
+        var full_buf: [256]u8 = undefined;
+        const full_text = std.fmt.bufPrint(&full_buf, "{s}  {s}", .{ branch_text, changes_text }) catch "";
+        objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(full_text));
+
+        // Gray when clean, orange-red when dirty
+        const NSColor2 = objc.getClass("NSColor") orelse return;
+        const colorWith2: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const color = if (has_changes)
+            colorWith2(NSColor2, objc.sel("colorWithRed:green:blue:alpha:"), 0.85, 0.55, 0.35, 1.0)
+        else
+            colorWith2(NSColor2, objc.sel("colorWithRed:green:blue:alpha:"), 0.604, 0.659, 0.737, 1.0);
+        objc.msgSendVoid1(label, objc.sel("setTextColor:"), color);
+
+        // Size to fit text, then pin to right edge of panel
+        objc.msgSendVoid(label, objc.sel("sizeToFit"));
+        const fitted = objc.msgSendRect(label, objc.sel("frame"));
+        const panel = main_panel_view orelse return;
+        const panel_bounds = objc.msgSendRect(panel, objc.sel("bounds"));
+        const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        const w = fitted.size.width + 4;
+        setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(panel_bounds.size.width - w - 16, 12, w, 20));
     }
 }
 
@@ -496,11 +549,16 @@ fn runGitCommand(project_path: []const u8, args: []const []const u8, out_buf: []
     return out_buf[0..len];
 }
 
-fn getGitStatus(project_path: []const u8, buf: *[256]u8) ![]const u8 {
-    // Get branch name
-    var branch_buf: [128]u8 = undefined;
-    const branch = try runGitCommand(project_path, &.{ "branch", "--show-current" }, &branch_buf);
-    if (branch.len == 0) return "";
+fn getGitInfo(
+    project_path: []const u8,
+    branch_buf: *[128]u8,
+    count_buf: *[64]u8,
+    branch_out: *[]const u8,
+    changes_out: *[]const u8,
+    has_changes: *bool,
+) !void {
+    const branch = try runGitCommand(project_path, &.{ "branch", "--show-current" }, branch_buf);
+    if (branch.len == 0) return;
 
     // Count changed files
     var status_buf: [32768]u8 = undefined;
@@ -513,15 +571,15 @@ fn getGitStatus(project_path: []const u8, buf: *[256]u8) ![]const u8 {
         }
     }
 
-    if (changed_count > 0) {
-        return std.fmt.bufPrint(buf, "⎇ {s}  ·  {d} file{s} changed", .{
-            branch,
-            changed_count,
-            if (changed_count == 1) "" else "s",
-        }) catch "";
-    } else {
-        return std.fmt.bufPrint(buf, "⎇ {s}", .{branch}) catch "";
-    }
+    // Copy branch to count_buf temporarily to avoid aliasing
+    var tmp_branch: [128]u8 = undefined;
+    const bl = @min(branch.len, tmp_branch.len);
+    @memcpy(tmp_branch[0..bl], branch[0..bl]);
+    const safe_branch = tmp_branch[0..bl];
+
+    branch_out.* = std.fmt.bufPrint(branch_buf, "{s}  •", .{safe_branch}) catch "";
+    changes_out.* = std.fmt.bufPrint(count_buf, "{d} changed", .{changed_count}) catch "";
+    has_changes.* = changed_count > 0;
 }
 
 // -------------------------------------------------------------------------
@@ -565,6 +623,7 @@ fn createMainMenu(nsapp: objc.id) void {
     addMenuItem(shell_menu, NSMenuItem, "Previous Sidebar Item", "{", "sidebarPrev:");
     addMenuItem(shell_menu, NSMenuItem, "Activate Sidebar Item", "\r", "sidebarActivate:");
     addMenuSeparator(shell_menu);
+    addMenuItem(shell_menu, NSMenuItem, "New Terminal", "t", "newTerminal:");
     addMenuItem(shell_menu, NSMenuItem, "Add Project…", "o", "addProject:");
     objc.msgSendVoid1(shell_item, objc.sel("setSubmenu:"), shell_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), shell_item);

@@ -153,7 +153,7 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
                 @ptrCast(&objc.c.objc_msgSend);
             setBoolP(row, objc.sel("setWantsLayer:"), objc.YES);
             const layer = objc.msgSend(row, objc.sel("layer"));
-            setLayerBgColor(layer, 0.12, 0.15, 0.19); // #1f2630 — subtle highlight
+            setLayerBgColor(layer, 0.15, 0.19, 0.24); // #263040 — subtle highlight
         }
         objc.msgSendVoid1(list_view, objc.sel("addSubview:"), row);
         y_offset += row_height;
@@ -737,9 +737,9 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     setBool(wrapper, objc.sel("setWantsLayer:"), objc.YES);
     const wrapper_layer = objc.msgSend(wrapper, objc.sel("layer"));
     if (is_selected) {
-        setLayerBgColor(wrapper_layer, 0.20, 0.25, 0.31); // #334050 — active terminal
+        setLayerBgColor(wrapper_layer, 0.25, 0.31, 0.38); // #404f61 — active terminal
     } else if (is_active_project) {
-        setLayerBgColor(wrapper_layer, 0.12, 0.15, 0.19); // #1f2630 — active project
+        setLayerBgColor(wrapper_layer, 0.15, 0.19, 0.24); // #263040 — active project
     }
     // Nav highlight: blue left border to show keyboard selection
     if (is_nav_highlighted and !is_selected) {
@@ -860,6 +860,30 @@ pub fn activateSelectedSidebarItem() void {
     }
 }
 
+/// Show add terminal dialog for the current project (⌘T).
+/// Pre-populates name with "Terminal" so user can just press Enter.
+pub fn showNewTerminalForCurrentProject() void {
+    const application = g_sidebar_app orelse return;
+    // Find current project from selected terminal
+    var current_project_idx: ?usize = null;
+    if (selected_terminal_index) |sel_idx| {
+        var count: usize = 0;
+        for (application.projects(), 0..) |proj, pi| {
+            for (proj.terminals.items) |_| {
+                if (count == sel_idx) {
+                    current_project_idx = pi;
+                    break;
+                }
+                count += 1;
+            }
+            if (current_project_idx != null) break;
+        }
+    }
+    // Fall back to first project
+    const proj_idx = current_project_idx orelse if (application.projects().len > 0) @as(usize, 0) else return;
+    showAddTerminalDialogWithDefault(proj_idx, "Terminal");
+}
+
 /// Prevent re-entrant terminal opens (button can fire multiple times).
 var opening_terminal: bool = false;
 
@@ -948,7 +972,7 @@ fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: 
     setBoolH(row, objc.sel("setWantsLayer:"), objc.YES);
     const row_layer = objc.msgSend(row, objc.sel("layer"));
     if (is_active_project) {
-        setLayerBgColor(row_layer, 0.12, 0.15, 0.19); // #1f2630 — active project
+        setLayerBgColor(row_layer, 0.15, 0.19, 0.24); // #263040 — active project
     }
     if (is_nav_highlighted) {
         const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
@@ -1184,6 +1208,10 @@ pub fn showEditTerminalDialog(info_index: usize) void {
 }
 
 pub fn showAddTerminalDialog(project_index: usize) void {
+    showAddTerminalDialogWithDefault(project_index, "");
+}
+
+fn showAddTerminalDialogWithDefault(project_index: usize, default_name: []const u8) void {
     const application = g_sidebar_app orelse return;
     const projs = application.projects();
     if (project_index >= projs.len) return;
@@ -1214,7 +1242,11 @@ pub fn showAddTerminalDialog(project_index: usize) void {
 
     const name_field = objc.msgSend(NSTextField, objc.sel("new"));
     setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(76, 50, 240, 24));
-    objc.msgSendVoid1(name_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. Dev Server"));
+    if (default_name.len > 0) {
+        objc.msgSendVoid1(name_field, objc.sel("setStringValue:"), objc.nsString(default_name));
+    } else {
+        objc.msgSendVoid1(name_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. Dev Server"));
+    }
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_field);
 
     // Command label + field (bottom row, 30px gap)
