@@ -70,6 +70,16 @@ After each split or close, `rebalanceAxis(direction)` walks the tree and adjusts
 - Focused pane: 1px blue border (`#4a90d9`)
 - Non-focused panes: 0.5px subtle dark border (`#333d4d`)
 
+### Split Persistence
+Split tree structure is serialized as a compact string (e.g. `"h(leaf,leaf)"`, `"v(h(leaf,leaf),leaf)"`) and stored in the `splits` field of the terminal entry in `projects.json`. Saved on every split/close. On reopening a terminal, the tree is deserialized and terminal views are recreated. Only the root leaf gets the configured command; split panes get plain shells.
+
+### Auto-Close and Respawn
+- **Multi-pane exit**: when a shell exits (`exit`/Ctrl+D) in a split session, that pane auto-closes without confirmation. Detected via `Pty.hasExited()` in the poll timer.
+- **Last pane exit**: stays open, no auto-close.
+- **Respawn**: clicking a terminal whose sole pane has exited respawns a fresh shell and clears the vterm screen.
+- **⌘W on exited pane**: skips confirmation dialog.
+- `Pty.hasExited()` caches the exit state so it works after `waitpid` reaps the child.
+
 ### Keyboard Shortcuts
 - `⌘D` — split horizontal
 - `⇧⌘D` — split vertical  

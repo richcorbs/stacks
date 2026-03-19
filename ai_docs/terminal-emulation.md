@@ -76,3 +76,7 @@ When the view bounds change:
 - Default BG: `#0f141b` (15, 20, 27)
 - Font: Menlo, 13pt default (8-36pt range)
 - Poll interval: 16ms (~60fps)
+
+## PTY Exit Detection
+
+`Pty.hasExited()` calls `waitpid` with `WNOHANG` and caches the result in an `exited` bool field. This is important because `waitpid` only returns the exit status once — subsequent calls return 0 after the child is reaped. The cached state ensures `hasExited()` remains true for the lifetime of the `Pty` struct.

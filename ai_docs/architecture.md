@@ -58,7 +58,7 @@ ProjectStore {
 }
 
 Project { id, name, path, terminals: ArrayList(Terminal) }
-Terminal { id, name, command? }
+Terminal { id, name, command?, splits? }  // splits: serialized tree e.g. "h(leaf,leaf)"
 ```
 
 ## Module Dependency Graph
