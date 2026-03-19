@@ -1707,6 +1707,7 @@ fn registerTimerHelperClass() ?objc.id {
 }
 
 var last_panel_width: f64 = 0;
+var git_refresh_counter: u32 = 0;
 var last_panel_height: f64 = 0;
 var last_bell_state: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
 
@@ -1837,6 +1838,31 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     // Check for exited terminals and auto-close their panes
     checkForExitedTerminals();
 
+    // Refresh git status every ~10 seconds (625 ticks at 16ms)
+    const window_ui = @import("window.zig");
+    const sidebar = @import("sidebar.zig");
+    git_refresh_counter += 1;
+    if (git_refresh_counter >= 625) {
+        git_refresh_counter = 0;
+        if (active_session) |si| {
+            if (sidebar.getTermRowInfo(si)) |info| {
+                if (sidebar.g_sidebar_app) |app| {
+                    for (app.projects()) |proj| {
+                        if (std.mem.eql(u8, proj.id, info.project_id)) {
+                            for (proj.terminals.items) |t| {
+                                if (std.mem.eql(u8, t.id, info.terminal_id)) {
+                                    window_ui.updateHeader(t.name, proj.path);
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Check if bell state changed and rebuild sidebar
     var bell_changed = false;
     for (0..MAX_TERMS) |i| {
@@ -1846,7 +1872,6 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
         }
     }
     if (bell_changed) {
-        const sidebar = @import("../ui/sidebar.zig");
         if (sidebar.g_sidebar_app) |app| {
             sidebar.rebuildSidebar(app);
         }
