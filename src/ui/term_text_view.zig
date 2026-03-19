@@ -1266,6 +1266,11 @@ fn pasteFromClipboard(entry: *TermEntry) void {
 pub fn adjustFontSize(delta: f64) void {
     changeFontSize(delta);
     resizeAllTerminals();
+    // Force relayout so terminal views update their grid sizes
+    const window_ui = @import("window.zig");
+    if (window_ui.main_panel_view) |panel| {
+        layoutActiveSession(panel);
+    }
 }
 
 fn changeFontSize(delta: f64) void {
@@ -1577,7 +1582,7 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
         const keyCodeFn: *const fn (objc.id, objc.SEL) callconv(.c) u16 =
             @ptrCast(&objc.c.objc_msgSend);
         const code = keyCodeFn(event, objc.sel("keyCode"));
-        const chars = objc.msgSend(event, objc.sel("characters"));
+        const chars = objc.msgSend(event, objc.sel("charactersIgnoringModifiers"));
         const utf8: [*:0]const u8 = @ptrCast(objc.msgSend(chars, objc.sel("UTF8String")));
         const str = std.mem.span(utf8);
         if (str.len == 1) {

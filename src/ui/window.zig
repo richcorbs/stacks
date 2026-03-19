@@ -599,7 +599,7 @@ fn createMainMenu(nsapp: objc.id) void {
         objc.sel("initWithTitle:"),
         objc.nsString("my-term"),
     );
-    addMenuItem(app_menu, NSMenuItem, "Quit my-term", "q", "terminate:");
+    addMenuItemNoTarget(app_menu, NSMenuItem, "Quit my-term", "q", "terminate:");
     objc.msgSendVoid1(app_item, objc.sel("setSubmenu:"), app_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), app_item);
 
@@ -632,6 +632,14 @@ fn createMainMenu(nsapp: objc.id) void {
 }
 
 fn addMenuItem(menu: objc.id, NSMenuItem: objc.id, title: []const u8, key: []const u8, action: [*:0]const u8) void {
+    addMenuItemWithTarget(menu, NSMenuItem, title, key, action, true);
+}
+
+fn addMenuItemNoTarget(menu: objc.id, NSMenuItem: objc.id, title: []const u8, key: []const u8, action: [*:0]const u8) void {
+    addMenuItemWithTarget(menu, NSMenuItem, title, key, action, false);
+}
+
+fn addMenuItemWithTarget(menu: objc.id, NSMenuItem: objc.id, title: []const u8, key: []const u8, action: [*:0]const u8, set_target: bool) void {
     const initItem: *const fn (objc.id, objc.SEL, objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
     const item = initItem(
@@ -641,6 +649,11 @@ fn addMenuItem(menu: objc.id, NSMenuItem: objc.id, title: []const u8, key: []con
         objc.sel(action),
         objc.nsString(key),
     );
+    if (set_target) {
+        if (app_delegate) |delegate| {
+            objc.msgSendVoid1(item, objc.sel("setTarget:"), delegate);
+        }
+    }
     objc.msgSendVoid1(menu, objc.sel("addItem:"), item);
 }
 
