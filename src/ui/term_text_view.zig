@@ -1898,6 +1898,15 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
                 }
 
                 entry.vterm.feed(buf[0..n]);
+
+                // Flush vterm output back to PTY (e.g. cursor position responses)
+                var out_buf: [256]u8 = undefined;
+                while (true) {
+                    const out_n = entry.vterm.read(&out_buf);
+                    if (out_n == 0) break;
+                    entry.pty.write(out_buf[0..out_n]);
+                }
+
                 got_data = true;
             }
             if (got_data) {

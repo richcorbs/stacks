@@ -59,14 +59,63 @@ comptime {
 pub fn decodeVTermColor(raw: u32, default: Color) Color {
     const bytes = std.mem.asBytes(&raw);
     const color_type = bytes[0];
-    const is_rgb = (color_type & c.VTERM_COLOR_TYPE_MASK) == c.VTERM_COLOR_RGB;
     const is_default = (color_type & (c.VTERM_COLOR_DEFAULT_FG | c.VTERM_COLOR_DEFAULT_BG)) != 0;
-
     if (is_default) return default;
+
+    const is_rgb = (color_type & c.VTERM_COLOR_TYPE_MASK) == c.VTERM_COLOR_RGB;
     if (is_rgb) {
         return .{ .r = bytes[1], .g = bytes[2], .b = bytes[3] };
     }
+
+    const is_indexed = (color_type & c.VTERM_COLOR_TYPE_MASK) == c.VTERM_COLOR_INDEXED;
+    if (is_indexed) {
+        const idx = bytes[1];
+        return indexedColor(idx);
+    }
+
     return default;
+}
+
+/// Convert a 256-color index to RGB.
+fn indexedColor(idx: u8) Color {
+    // Standard 16 ANSI colors
+    const ansi16 = [16]Color{
+        .{ .r = 0, .g = 0, .b = 0 },       // 0 black
+        .{ .r = 187, .g = 0, .b = 0 },     // 1 red
+        .{ .r = 0, .g = 187, .b = 0 },     // 2 green
+        .{ .r = 187, .g = 187, .b = 0 },   // 3 yellow
+        .{ .r = 0, .g = 0, .b = 187 },     // 4 blue
+        .{ .r = 187, .g = 0, .b = 187 },   // 5 magenta
+        .{ .r = 0, .g = 187, .b = 187 },   // 6 cyan
+        .{ .r = 187, .g = 187, .b = 187 }, // 7 white
+        .{ .r = 85, .g = 85, .b = 85 },    // 8 bright black
+        .{ .r = 255, .g = 85, .b = 85 },   // 9 bright red
+        .{ .r = 85, .g = 255, .b = 85 },   // 10 bright green
+        .{ .r = 255, .g = 255, .b = 85 },  // 11 bright yellow
+        .{ .r = 85, .g = 85, .b = 255 },   // 12 bright blue
+        .{ .r = 255, .g = 85, .b = 255 },  // 13 bright magenta
+        .{ .r = 85, .g = 255, .b = 255 },  // 14 bright cyan
+        .{ .r = 255, .g = 255, .b = 255 }, // 15 bright white
+    };
+    if (idx < 16) return ansi16[idx];
+
+    // 216 color cube: indices 16-231
+    if (idx < 232) {
+        const ci = idx - 16;
+        const b_idx: u8 = ci % 6;
+        const g_idx: u8 = (ci / 6) % 6;
+        const r_idx: u8 = ci / 36;
+        const toVal = struct {
+            fn f(v: u8) u8 {
+                return if (v == 0) 0 else @as(u8, @intCast(@as(u16, v) * 40 + 55));
+            }
+        }.f;
+        return .{ .r = toVal(r_idx), .g = toVal(g_idx), .b = toVal(b_idx) };
+    }
+
+    // Grayscale: indices 232-255
+    const gray: u8 = @intCast(@as(u16, idx - 232) * 10 + 8);
+    return .{ .r = gray, .g = gray, .b = gray };
 }
 
 fn decodeAttrs(raw: u32) struct { bold: bool, italic: bool, underline: bool, reverse: bool } {
