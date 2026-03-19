@@ -77,6 +77,24 @@ When the view bounds change:
 - Font: Menlo, 13pt default (8-36pt range)
 - Poll interval: 16ms (~60fps)
 
+## VTerm Output Flushing
+
+After feeding PTY data into libvterm, the output buffer must be flushed back to the PTY. This handles terminal query responses like DSR (`\x1b[6n` → `\x1b[<row>;<col>R`), device attributes (DA), and other sequences that programs like atuin, starship, and fzf depend on.
+
+```
+PTY.read(buf)  → VTerm.feed(buf)  → VTerm.read(out_buf)  → PTY.write(out_buf)
+```
+
+## 256-Color Support
+
+`decodeVTermColor` handles three color types:
+- **RGB** (`VTERM_COLOR_RGB`): direct r,g,b bytes
+- **Indexed** (`VTERM_COLOR_INDEXED`): 256-color palette lookup via `indexedColor()`
+  - 0-15: standard ANSI colors
+  - 16-231: 6×6×6 color cube
+  - 232-255: 24-step grayscale ramp
+- **Default** (`VTERM_COLOR_DEFAULT_FG/BG`): fallback to configured defaults
+
 ## PTY Exit Detection
 
 `Pty.hasExited()` calls `waitpid` with `WNOHANG` and caches the result in an `exited` bool field. This is important because `waitpid` only returns the exit status once — subsequent calls return 0 after the child is reaped. The cached state ensures `hasExited()` remains true for the lifetime of the `Pty` struct.

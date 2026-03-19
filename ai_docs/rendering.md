@@ -86,6 +86,9 @@ Split tree structure is serialized as a compact string (e.g. `"h(leaf,leaf)"`, `
 - `⌘W` — close focused pane (with confirmation dialog)
 - `⌘]` / `⌘[` — cycle focus between panes
 
+### File Drag-and-Drop
+Terminal views are registered as drag destinations for `public.file-url`. Dropping files from Finder types their shell-escaped paths (single-quoted) into the PTY. Multiple files are space-separated.
+
 ### Divider Dragging
 Handled at the `MainPanelView` level (parent of all terminal views) because the gap between panes can't receive events from child views. `MainPanelView` has `mouseDown`/`mouseDragged`/`mouseUp` that detect hits on divider zones and adjust split ratios.
 
