@@ -603,7 +603,7 @@ fn createMainMenu(nsapp: objc.id) void {
     objc.msgSendVoid1(app_item, objc.sel("setSubmenu:"), app_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), app_item);
 
-    // Shell menu
+    // Shell menu (exposes keyboard shortcuts)
     const shell_item = objc.msgSend(NSMenuItem, objc.sel("new"));
     const shell_menu = objc.msgSend1(
         objc.msgSend(NSMenu, objc.sel("alloc")),
