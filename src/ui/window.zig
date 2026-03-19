@@ -616,7 +616,7 @@ fn createMainMenu(nsapp: objc.id) void {
     addMenuSeparator(shell_menu);
     addMenuItem(shell_menu, NSMenuItem, "Next Pane", "]", "focusNextPane:");
     addMenuItem(shell_menu, NSMenuItem, "Previous Pane", "[", "focusPrevPane:");
-    addMenuItem(shell_menu, NSMenuItem, "Increase Font Size", "+", "increaseFontSize:");
+    addMenuItem(shell_menu, NSMenuItem, "Increase Font Size", "=", "increaseFontSize:");
     addMenuItem(shell_menu, NSMenuItem, "Decrease Font Size", "-", "decreaseFontSize:");
     addMenuSeparator(shell_menu);
     addMenuItem(shell_menu, NSMenuItem, "Next Sidebar Item", "}", "sidebarNext:");
