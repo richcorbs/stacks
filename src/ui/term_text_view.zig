@@ -165,6 +165,39 @@ const SplitNode = union(enum) {
             },
         }
     }
+
+    /// Count the number of leaves visible along a given axis.
+    /// For a split in the same direction, both subtrees contribute.
+    /// For a split in the other direction, only the max of the two subtrees counts.
+    fn countLeavesAlongAxis(self: *SplitNode, direction: SplitDirection) usize {
+        switch (self.*) {
+            .leaf => return 1,
+            .split => |s| {
+                if (s.direction == direction) {
+                    return s.first.countLeavesAlongAxis(direction) + s.second.countLeavesAlongAxis(direction);
+                } else {
+                    return @max(s.first.countLeavesAlongAxis(direction), s.second.countLeavesAlongAxis(direction));
+                }
+            },
+        }
+    }
+
+    /// Rebalance all split ratios along a given axis so leaves get equal space.
+    fn rebalanceAxis(self: *SplitNode, direction: SplitDirection) void {
+        switch (self.*) {
+            .leaf => {},
+            .split => |*s| {
+                if (s.direction == direction) {
+                    const left_count = s.first.countLeavesAlongAxis(direction);
+                    const right_count = s.second.countLeavesAlongAxis(direction);
+                    const total: f64 = @floatFromInt(left_count + right_count);
+                    s.ratio = @as(f64, @floatFromInt(left_count)) / total;
+                }
+                s.first.rebalanceAxis(direction);
+                s.second.rebalanceAxis(direction);
+            },
+        }
+    }
 };
 
 /// A session corresponds to one sidebar terminal entry and holds a split tree.
@@ -335,7 +368,14 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
                     } else {
                         const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
                             @ptrCast(&objc.c.objc_msgSend);
-                        setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.0);
+                        setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.5);
+
+                        const NSColor = objc.getClass("NSColor") orelse return;
+                        const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+                            @ptrCast(&objc.c.objc_msgSend);
+                        const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.2, 0.24, 0.3, 1.0); // subtle dark border
+                        const cgColor = objc.msgSend(color, objc.sel("CGColor"));
+                        objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), cgColor);
                     }
                 }
             }
@@ -408,6 +448,9 @@ pub fn splitFocused(direction: SplitDirection) void {
         .ratio = 0.5,
     } };
 
+    // Rebalance so all panes along this axis get equal space
+    session.root.rebalanceAxis(direction);
+
     session.focused_slot = new_slot;
 }
 
@@ -443,6 +486,10 @@ pub fn closeFocusedPane() void {
     allocator.destroy(leaf_node);
     allocator.destroy(sibling);
     parent_node.* = sibling_copy;
+
+    // Rebalance after closing
+    session.root.rebalanceAxis(.horizontal);
+    session.root.rebalanceAxis(.vertical);
 
     // Focus the first leaf in the remaining tree
     var leaves: std.ArrayListUnmanaged(usize) = .{};
