@@ -19,6 +19,39 @@ var font_size: f64 = 13.0;
 var cell_width: f64 = 7.8;
 var cell_height: f64 = 16.0;
 
+// Cached ObjC objects to avoid per-frame allocation
+var cached_nscolor_key: ?objc.id = null;
+var cached_nsfont_key: ?objc.id = null;
+var cached_menlo_name: ?objc.id = null;
+var cached_font: ?objc.id = null;
+var cached_font_size: f64 = 0;
+
+fn getCachedNSColorKey() objc.id {
+    if (cached_nscolor_key) |k| return k;
+    cached_nscolor_key = objc.msgSend(objc.nsString("NSColor"), objc.sel("retain"));
+    return cached_nscolor_key.?;
+}
+
+fn getCachedNSFontKey() objc.id {
+    if (cached_nsfont_key) |k| return k;
+    cached_nsfont_key = objc.msgSend(objc.nsString("NSFont"), objc.sel("retain"));
+    return cached_nsfont_key.?;
+}
+
+fn getCachedFont() objc.id {
+    if (cached_font != null and cached_font_size == font_size) return cached_font.?;
+    const NSFont = objc.getClass("NSFont") orelse unreachable;
+    const monoFont: *const fn (objc.id, objc.SEL, objc.id, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    if (cached_menlo_name == null) {
+        cached_menlo_name = objc.msgSend(objc.nsString("Menlo"), objc.sel("retain"));
+    }
+    const f = monoFont(NSFont, objc.sel("fontWithName:size:"), cached_menlo_name.?, font_size);
+    cached_font = objc.msgSend(f, objc.sel("retain"));
+    cached_font_size = font_size;
+    return cached_font.?;
+}
+
 fn updateCellMetrics() void {
     // Measure actual rendered width by creating a CTLine with 10 characters
     // and dividing by 10 — this gives the exact advance Core Text uses.
@@ -28,10 +61,7 @@ fn updateCellMetrics() void {
         extern "CoreFoundation" fn CFRelease(cf: *anyopaque) void;
     };
 
-    const NSFont = objc.getClass("NSFont") orelse return;
-    const monoFont: *const fn (objc.id, objc.SEL, objc.id, objc.CGFloat) callconv(.c) objc.id =
-        @ptrCast(&objc.c.objc_msgSend);
-    const font = monoFont(NSFont, objc.sel("fontWithName:size:"), objc.nsString("Menlo"), font_size);
+    const font = getCachedFont();
 
     // Create a 10-char attributed string and measure via CTLine
     const test_str = objc.nsString("MMMMMMMMMM"); // 10 M's
@@ -45,7 +75,7 @@ fn updateCellMetrics() void {
         @ptrCast(&objc.c.objc_msgSend);
     const full_len = objc.msgSendUInt(astr, objc.sel("length"));
     addAttr(astr, objc.sel("addAttribute:value:range:"),
-        objc.nsString("NSFont"), font, .{ .location = 0, .length = full_len });
+        getCachedNSFontKey(), font, .{ .location = 0, .length = full_len });
 
     const ct_line = CT.CTLineCreateWithAttributedString(@ptrCast(astr));
     defer CT.CFRelease(ct_line);
@@ -1458,10 +1488,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
     const view_bounds = objc.msgSendRect(self, objc.sel("bounds"));
     CG_clip.CGContextClipToRect(cgctx, view_bounds);
 
-    const NSFont = objc.getClass("NSFont") orelse return;
-    const monoFont: *const fn (objc.id, objc.SEL, objc.id, objc.CGFloat) callconv(.c) objc.id =
-        @ptrCast(&objc.c.objc_msgSend);
-    const font = monoFont(NSFont, objc.sel("fontWithName:size:"), objc.nsString("Menlo"), font_size);
+    const font = getCachedFont();
 
     // Get CoreGraphics function pointers
     const CG = struct {
@@ -1644,7 +1671,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
 
         // Set monospace font on entire row
         addAttr(astr, objc.sel("addAttribute:value:range:"),
-            objc.nsString("NSFont"), font, .{ .location = 0, .length = full_len });
+            getCachedNSFontKey(), font, .{ .location = 0, .length = full_len });
 
         // Set per-character foreground color using correct UTF-16 offsets
         var utf16_pos: objc.NSUInteger = 0;
@@ -1659,7 +1686,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 @as(f64, @floatFromInt(fc.g)) / 255.0,
                 @as(f64, @floatFromInt(fc.b)) / 255.0, 1.0);
             addAttr(astr, objc.sel("addAttribute:value:range:"),
-                objc.nsString("NSColor"), fg_obj, .{ .location = utf16_pos, .length = run_len });
+                getCachedNSColorKey(), fg_obj, .{ .location = utf16_pos, .length = run_len });
             utf16_pos += run_len;
         }
 
