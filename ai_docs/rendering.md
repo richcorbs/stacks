@@ -63,6 +63,13 @@ Layout is computed recursively in `layoutNode()`:
 - Split nodes divide the rect by ratio along the split direction
 - A 4px gap between panes allows for divider dragging
 
+### Auto-Rebalancing
+After each split or close, `rebalanceAxis(direction)` walks the tree and adjusts ratios so all leaves along the split axis get equal space. For example, 3 horizontal panes → 33/33/33 instead of 50/25/25. Uses `countLeavesAlongAxis()` to count leaves visible along a given direction, then sets `ratio = left_count / total_count`.
+
+### Pane Borders
+- Focused pane: 1px blue border (`#4a90d9`)
+- Non-focused panes: 0.5px subtle dark border (`#333d4d`)
+
 ### Keyboard Shortcuts
 - `⌘D` — split horizontal
 - `⇧⌘D` — split vertical  
