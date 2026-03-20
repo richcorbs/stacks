@@ -81,6 +81,9 @@ fn registerDelegateClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("closePane:"), &onClosePane, "v@:@");
     _ = objc.addMethod(cls, objc.sel("focusNextPane:"), &onFocusNextPane, "v@:@");
     _ = objc.addMethod(cls, objc.sel("focusPrevPane:"), &onFocusPrevPane, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("clearTerminal:"), &onClearTerminal, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("pasteTerminal:"), &onPasteTerminal, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("resetFontSize:"), &onResetFontSize, "v@:@");
     _ = objc.addMethod(cls, objc.sel("increaseFontSize:"), &onIncreaseFontSize, "v@:@");
     _ = objc.addMethod(cls, objc.sel("decreaseFontSize:"), &onDecreaseFontSize, "v@:@");
 
@@ -243,11 +246,20 @@ fn onFocusPrevPane(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     term_text_view.cycleFocus(false);
     relayoutAndFocus();
 }
+fn onClearTerminal(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    term_text_view.clearFocusedTerminal();
+}
+fn onPasteTerminal(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    term_text_view.pasteFocusedTerminal();
+}
+fn onResetFontSize(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    term_text_view.pending_font_reset = true;
+}
 fn onIncreaseFontSize(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    term_text_view.adjustFontSize(1.0);
+    term_text_view.pending_font_delta = 1.0;
 }
 fn onDecreaseFontSize(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    term_text_view.adjustFontSize(-1.0);
+    term_text_view.pending_font_delta = -1.0;
 }
 
 fn onNewTerminal(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
@@ -639,21 +651,27 @@ fn createMainMenu(nsapp: objc.id) void {
         objc.sel("initWithTitle:"),
         objc.nsString("Shortcuts"),
     );
-    addMenuItem(shell_menu, NSMenuItem, "Split Right", "d", "splitHorizontal:");
-    addMenuItem(shell_menu, NSMenuItem, "Split Down", "D", "splitVertical:");
-    addMenuItem(shell_menu, NSMenuItem, "Close Pane", "w", "closePane:");
+    // No key equivalents — keyboard shortcuts handled in keyDown.
+    // Menu items are clickable via delegate target.
+    addMenuItem(shell_menu, NSMenuItem, "New Terminal          ⌘T", "", "newTerminal:");
+    addMenuItem(shell_menu, NSMenuItem, "Add Project…            ⌘O", "", "addProject:");
     addMenuSeparator(shell_menu);
-    addMenuItem(shell_menu, NSMenuItem, "Next Pane", "]", "focusNextPane:");
-    addMenuItem(shell_menu, NSMenuItem, "Previous Pane", "[", "focusPrevPane:");
-    addMenuItem(shell_menu, NSMenuItem, "Increase Font Size", "=", "increaseFontSize:");
-    addMenuItem(shell_menu, NSMenuItem, "Decrease Font Size", "-", "decreaseFontSize:");
+    addMenuItem(shell_menu, NSMenuItem, "Split Right               ⌘D", "", "splitHorizontal:");
+    addMenuItem(shell_menu, NSMenuItem, "Split Down             ⇧⌘D", "", "splitVertical:");
+    addMenuItem(shell_menu, NSMenuItem, "Close Pane             ⌘W", "", "closePane:");
+    addMenuItem(shell_menu, NSMenuItem, "Next Pane                ⌘]", "", "focusNextPane:");
+    addMenuItem(shell_menu, NSMenuItem, "Previous Pane         ⌘[", "", "focusPrevPane:");
     addMenuSeparator(shell_menu);
-    addMenuItem(shell_menu, NSMenuItem, "Next Sidebar Item", "}", "sidebarNext:");
-    addMenuItem(shell_menu, NSMenuItem, "Previous Sidebar Item", "{", "sidebarPrev:");
-    addMenuItem(shell_menu, NSMenuItem, "Activate Sidebar Item", "\r", "sidebarActivate:");
+    addMenuItem(shell_menu, NSMenuItem, "Increase Font          ⌘=", "", "increaseFontSize:");
+    addMenuItem(shell_menu, NSMenuItem, "Decrease Font         ⌘-", "", "decreaseFontSize:");
+    addMenuItem(shell_menu, NSMenuItem, "Reset Font               ⌘0", "", "resetFontSize:");
     addMenuSeparator(shell_menu);
-    addMenuItem(shell_menu, NSMenuItem, "New Terminal", "t", "newTerminal:");
-    addMenuItem(shell_menu, NSMenuItem, "Add Project…", "o", "addProject:");
+    addMenuItem(shell_menu, NSMenuItem, "Clear Terminal          ⌘K", "", "clearTerminal:");
+    addMenuItem(shell_menu, NSMenuItem, "Paste                        ⌘V", "", "pasteTerminal:");
+    addMenuSeparator(shell_menu);
+    addMenuItem(shell_menu, NSMenuItem, "Next Sidebar           ⌘⇧]", "", "sidebarNext:");
+    addMenuItem(shell_menu, NSMenuItem, "Previous Sidebar     ⌘⇧[", "", "sidebarPrev:");
+    addMenuItem(shell_menu, NSMenuItem, "Activate Sidebar    ⌘Enter", "", "sidebarActivate:");
     objc.msgSendVoid1(shell_item, objc.sel("setSubmenu:"), shell_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), shell_item);
 
@@ -665,6 +683,11 @@ fn addMenuItem(menu: objc.id, NSMenuItem: objc.id, title: []const u8, key: []con
 }
 
 fn addMenuItemNoTarget(menu: objc.id, NSMenuItem: objc.id, title: []const u8, key: []const u8, action: [*:0]const u8) void {
+    addMenuItemWithTarget(menu, NSMenuItem, title, key, action, false);
+}
+
+fn addMenuItemResponderChain(menu: objc.id, NSMenuItem: objc.id, title: []const u8, key: []const u8, action: [*:0]const u8) void {
+    // No target — action goes through responder chain (only fires if a view handles it)
     addMenuItemWithTarget(menu, NSMenuItem, title, key, action, false);
 }
 

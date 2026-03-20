@@ -997,8 +997,34 @@ fn registerTermViewClass() ?objc.id {
     // Drag-and-drop destination
     _ = objc.addMethod(cls, objc.sel("draggingEntered:"), &termDragEntered, "Q@:@");
     _ = objc.addMethod(cls, objc.sel("performDragOperation:"), &termPerformDrag, "B@:@");
+    // No menu-based actions — all ⌘ shortcuts handled in keyDown
     objc.registerClassPair(cls);
     return cls;
+}
+
+// ---------------------------------------------------------------------------
+// Menu action responders (called via responder chain when terminal is focused)
+// ---------------------------------------------------------------------------
+
+fn termClearAction(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    clearFocusedTerminal();
+}
+fn termPasteAction(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    pasteFocusedTerminal();
+}
+fn termResetFontAction(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    resetFontSize();
+}
+fn termIncreaseFontAction(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    adjustFontSize(1.0);
+}
+fn termDecreaseFontAction(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    adjustFontSize(-1.0);
+}
+
+fn termPerformKeyEquiv(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.BOOL {
+    // Don't override — let everything go to the menu bar
+    return objc.NO;
 }
 
 // ---------------------------------------------------------------------------
@@ -1448,18 +1474,47 @@ fn pasteFromClipboard(entry: *TermEntry) void {
     }
 }
 
+pub fn pasteFocusedTerminal() void {
+    const session_idx = active_session orelse return;
+    if (session_idx >= MAX_TERMS) return;
+    const session = sessions[session_idx] orelse return;
+    if (terminals[session.focused_slot]) |*entry| {
+        pasteFromClipboard(entry);
+    }
+}
+
+pub fn resetFontSize() void {
+    font_size = 13.0;
+    cached_font = null;
+    updateCellMetrics();
+    resizeAllTerminals();
+}
+
+pub fn clearFocusedTerminal() void {
+    const session_idx = active_session orelse return;
+    if (session_idx >= MAX_TERMS) return;
+    const session = sessions[session_idx] orelse return;
+    if (terminals[session.focused_slot]) |*entry| {
+        entry.pty.write("\x1b[2J\x1b[H");
+        entry.scroll_offset = 0;
+        entry.scrollback.clearRetainingCapacity();
+        const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setBool(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
+    }
+}
+
+pub var pending_font_delta: f64 = 0;
+pub var pending_font_reset: bool = false;
+
 pub fn adjustFontSize(delta: f64) void {
     changeFontSize(delta);
     resizeAllTerminals();
-    // Force relayout so terminal views update their grid sizes
-    const window_ui = @import("window.zig");
-    if (window_ui.main_panel_view) |panel| {
-        layoutActiveSession(panel);
-    }
 }
 
 fn changeFontSize(delta: f64) void {
     font_size = @max(8.0, @min(36.0, font_size + delta));
+    cached_font = null; // invalidate cache
     updateCellMetrics();
 }
 
@@ -1764,43 +1819,70 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
     const has_ctrl = (flags & (1 << 18)) != 0;
     const has_shift = (flags & (1 << 17)) != 0;
 
-    // Handle ⌘+ / ⌘- for font size, let other ⌘ shortcuts pass to system
     if (has_cmd) {
         const keyCodeFn: *const fn (objc.id, objc.SEL) callconv(.c) u16 =
             @ptrCast(&objc.c.objc_msgSend);
         const code = keyCodeFn(event, objc.sel("keyCode"));
-        const chars = objc.msgSend(event, objc.sel("charactersIgnoringModifiers"));
-        const utf8: [*:0]const u8 = @ptrCast(objc.msgSend(chars, objc.sel("UTF8String")));
-        const str = std.mem.span(utf8);
-        if (str.len == 1) {
-            // keyCode 24 = =/+ key, keyCode 27 = -/_ key, keyCode 29 = 0
-            if (str[0] == '+' or str[0] == '=' or code == 24) {
-                changeFontSize(1.0);
-                resizeAllTerminals();
-                objc.msgSendVoid1(self, objc.sel("setNeedsDisplay:"), objc.YES);
-                return;
-            } else if (str[0] == '-' or code == 27) {
-                changeFontSize(-1.0);
-                resizeAllTerminals();
-                objc.msgSendVoid1(self, objc.sel("setNeedsDisplay:"), objc.YES);
-                return;
-            } else if (str[0] == '0' or code == 29) {
-                font_size = 13.0;
-                updateCellMetrics();
-                resizeAllTerminals();
-                objc.msgSendVoid1(self, objc.sel("setNeedsDisplay:"), objc.YES);
-                return;
-            } else if (str[0] == 'v' or str[0] == 'V' or code == 9) {
-                // ⌘V — paste from clipboard into PTY
-                pasteFromClipboard(entry);
-                return;
-            } else if (str[0] == 'k' or str[0] == 'K' or code == 40) {
-                // ⌘K — clear terminal screen and scrollback
-                entry.pty.write("\x1b[2J\x1b[H"); // clear screen + move cursor home
-                entry.scroll_offset = 0;
-                entry.scrollback.clearRetainingCapacity();
-                objc.msgSendVoid1(self, objc.sel("setNeedsDisplay:"), objc.YES);
-                return;
+        const window_ui = @import("window.zig");
+        const sidebar_mod = @import("sidebar.zig");
+
+        if (has_shift) {
+            switch (code) {
+                2 => { // D — split down
+                    splitFocused(.vertical);
+                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
+                    if (getFocusedView()) |v| {
+                        const w = objc.msgSend(v, objc.sel("window"));
+                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
+                    }
+                },
+                30 => sidebar_mod.navigateSidebar(-1), // ]
+                33 => sidebar_mod.navigateSidebar(1),  // [
+                else => {},
+            }
+        } else {
+            switch (code) {
+                24 => pending_font_delta = 1.0,    // =
+                // 27 (minus) disabled — conflicts with macOS accessibility zoom
+                // Use menu click or ⌘0 to reset instead
+                29 => pending_font_reset = true,    // 0
+                40 => clearFocusedTerminal(),  // k
+                9 => pasteFocusedTerminal(),   // v
+                2 => { // d — split right
+                    splitFocused(.horizontal);
+                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
+                    if (getFocusedView()) |v| {
+                        const w = objc.msgSend(v, objc.sel("window"));
+                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
+                    }
+                },
+                13 => { // w — close pane
+                    closeFocusedPane();
+                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
+                    if (getFocusedView()) |v| {
+                        const w = objc.msgSend(v, objc.sel("window"));
+                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
+                    }
+                },
+                30 => { // ] — next pane
+                    cycleFocus(true);
+                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
+                    if (getFocusedView()) |v| {
+                        const w = objc.msgSend(v, objc.sel("window"));
+                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
+                    }
+                },
+                33 => { // [ — prev pane
+                    cycleFocus(false);
+                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
+                    if (getFocusedView()) |v| {
+                        const w = objc.msgSend(v, objc.sel("window"));
+                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
+                    }
+                },
+                17 => sidebar_mod.showNewTerminalForCurrentProject(), // t
+                36 => sidebar_mod.activateSelectedSidebarItem(), // enter
+                else => {},
             }
         }
         return;
@@ -1907,6 +1989,7 @@ fn registerTimerHelperClass() ?objc.id {
 
 var last_panel_width: f64 = 0;
 var git_refresh_counter: u32 = 0;
+var last_applied_font_size: f64 = 13.0;
 var last_panel_height: f64 = 0;
 var last_bell_state: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
 var last_exit_state: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
@@ -1974,6 +2057,16 @@ fn checkForExitedTerminals() void {
 }
 
 fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    // Process deferred font changes (avoids beachball from key auto-repeat)
+    if (pending_font_reset) {
+        pending_font_reset = false;
+        pending_font_delta = 0;
+        resetFontSize();
+    } else if (pending_font_delta != 0) {
+        const delta = pending_font_delta;
+        pending_font_delta = 0;
+        adjustFontSize(delta);
+    }
     // Re-layout if the panel size changed (window resize)
     if (active_session != null) {
         const panel = @import("window.zig").main_panel_view;
