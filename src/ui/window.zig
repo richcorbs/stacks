@@ -111,6 +111,23 @@ fn registerDelegateClass() ?objc.id {
 fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     const application = g_app orelse return;
 
+    // Set app icon programmatically (bypasses icon cache)
+    {
+        const NSImage = objc.getClass("NSImage") orelse unreachable;
+        const NSBundle = objc.getClass("NSBundle") orelse unreachable;
+        const NSApp = objc.msgSend(objc.getClass("NSApplication") orelse unreachable, objc.sel("sharedApplication"));
+        const bundle = objc.msgSend(NSBundle, objc.sel("mainBundle"));
+        const icon_path = objc.msgSend2(bundle, objc.sel("pathForResource:ofType:"), objc.nsString("AppIcon"), objc.nsString("icns"));
+        if (@intFromPtr(icon_path) != 0) {
+            const initByRef: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
+                @ptrCast(&objc.c.objc_msgSend);
+            const icon = initByRef(objc.msgSend(NSImage, objc.sel("alloc")), objc.sel("initByReferencingFile:"), icon_path);
+            if (@intFromPtr(icon) != 0) {
+                objc.msgSendVoid1(NSApp, objc.sel("setApplicationIconImage:"), icon);
+            }
+        }
+    }
+
     const NSWindow = objc.getClass("NSWindow") orelse return;
     const style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
         NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
