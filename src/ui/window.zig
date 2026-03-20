@@ -111,6 +111,9 @@ fn registerDelegateClass() ?objc.id {
 fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     const application = g_app orelse return;
 
+    // Load persisted font size before creating any terminals
+    term_text_view.loadFontSize();
+
     // Set app icon programmatically (bypasses icon cache)
     {
         const NSImage = objc.getClass("NSImage") orelse unreachable;

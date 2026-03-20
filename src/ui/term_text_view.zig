@@ -1626,6 +1626,7 @@ pub fn resetFontSize() void {
     cached_font = null;
     updateCellMetrics();
     resizeAllTerminals();
+    saveFontSize();
 }
 
 pub fn clearFocusedTerminal() void {
@@ -1652,12 +1653,45 @@ pub var pending_font_reset: bool = false;
 pub fn adjustFontSize(delta: f64) void {
     changeFontSize(delta);
     resizeAllTerminals();
+    saveFontSize();
 }
 
 fn changeFontSize(delta: f64) void {
     font_size = @max(8.0, @min(36.0, font_size + delta));
     cached_font = null; // invalidate cache
     updateCellMetrics();
+}
+
+fn saveFontSize() void {
+    const home = std.posix.getenv("HOME") orelse return;
+    var path_buf: [512]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, "{s}/Library/Application Support/stacks/settings.json", .{home}) catch return;
+    var file = std.fs.createFileAbsolute(path, .{}) catch return;
+    defer file.close();
+    var buf: [64]u8 = undefined;
+    const json = std.fmt.bufPrint(&buf, "{{\"font_size\":{d:.1}}}\n", .{font_size}) catch return;
+    file.writeAll(json) catch {};
+}
+
+pub fn loadFontSize() void {
+    const home = std.posix.getenv("HOME") orelse return;
+    var path_buf: [512]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, "{s}/Library/Application Support/stacks/settings.json", .{home}) catch return;
+    const file = std.fs.openFileAbsolute(path, .{}) catch return;
+    defer file.close();
+    var buf: [256]u8 = undefined;
+    const n = file.readAll(&buf) catch return;
+    const content = buf[0..n];
+    // Simple parse: find "font_size": followed by a number
+    if (std.mem.indexOf(u8, content, "\"font_size\":")) |idx| {
+        const after = content[idx + 12 ..];
+        const size = std.fmt.parseFloat(f64, std.mem.trim(u8, after[0..@min(after.len, 10)], " \t\n\r}")) catch return;
+        if (size >= 8.0 and size <= 36.0) {
+            font_size = size;
+            cached_font = null;
+            updateCellMetrics();
+        }
+    }
 }
 
 fn resizeAllTerminals() void {
