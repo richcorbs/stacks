@@ -1750,7 +1750,7 @@ fn setStatsAttributedString(label: objc.id, text: []const u8) void {
     // Set kern (character spacing)
     const numberWith: *const fn (objc.id, objc.SEL, f64) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
-    const kern = numberWith(NSNumber, objc.sel("numberWithDouble:"), 1.2);
+    const kern = numberWith(NSNumber, objc.sel("numberWithDouble:"), 1.1);
     addAttr(attr_str, objc.sel("addAttribute:value:range:"), objc.nsString("NSKern"), kern, range);
 
     // Set text color
