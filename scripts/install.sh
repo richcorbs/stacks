@@ -22,6 +22,13 @@ mkdir -p "$MACOS" "$RESOURCES"
 # Copy binary
 cp zig-out/bin/my-term "$MACOS/my-term"
 
+# Bundle libvterm so the app is self-contained
+FRAMEWORKS="$CONTENTS/Frameworks"
+mkdir -p "$FRAMEWORKS"
+cp /opt/homebrew/opt/libvterm/lib/libvterm.0.dylib "$FRAMEWORKS/"
+install_name_tool -change /opt/homebrew/opt/libvterm/lib/libvterm.0.dylib \
+  @executable_path/../Frameworks/libvterm.0.dylib "$MACOS/my-term"
+
 # Copy resources
 cp resources/Info.plist "$CONTENTS/Info.plist"
 cp resources/AppIcon.icns "$RESOURCES/AppIcon.icns"
