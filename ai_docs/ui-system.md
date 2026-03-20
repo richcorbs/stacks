@@ -90,8 +90,18 @@ Three background levels:
 ### New Terminal (⌘T)
 `showNewTerminalForCurrentProject()` finds the project containing the currently selected terminal (or falls back to the first project) and opens the add-terminal dialog pre-populated with "Terminal" as the name.
 
+### Process Status Indicators
+Terminals with a configured command show a status dot on the right side of the sidebar row:
+- **Green dot**: process is running
+- **Gray dot**: process has exited
+- Hover tooltip shows command + status (e.g. `npm run dev (running)`)
+- Dot updates automatically via poll timer exit state detection
+- Clicking an exited terminal respawns the process
+
 ### Context Menu
-Right-click on terminal rows shows Edit (rename + change command) and Delete (with confirmation). The `DragRowView4` wrapper forwards right-clicks via `rightMouseDown:` to `NSMenu popUpContextMenu:withEvent:forView:`.
+- **Terminal rows**: right-click shows Edit (rename + change command) and Delete (with confirmation)
+- **Project headers**: right-click shows Delete Project (with critical warning)
+- The `DragRowView4` wrapper forwards right-clicks via `rightMouseDown:` to `NSMenu popUpContextMenu:withEvent:forView:`.
 
 ### Rebuilding
 `rebuildSidebar(app)` removes all subviews from the document view and recreates them from the current project store state. Called after any data mutation (add/delete/rename/reorder).

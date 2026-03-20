@@ -28,14 +28,14 @@ See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system desig
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `src/objc.zig` | 166 | ObjC runtime bindings — [ai_docs/objc-patterns.md](ai_docs/objc-patterns.md) |
+| `src/objc.zig` | 163 | ObjC runtime bindings — [ai_docs/objc-patterns.md](ai_docs/objc-patterns.md) |
 | `src/vt.zig` | 210 | libvterm wrapper — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
-| `src/pty.zig` | 121 | PTY/fork management — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
-| `src/project.zig` | 330 | Project/terminal data model + JSON persistence |
+| `src/pty.zig` | 141 | PTY/fork management — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
+| `src/project.zig` | 339 | Project/terminal data model + JSON persistence |
 | `src/app.zig` | 37 | Central app state (wraps ProjectStore) |
-| `src/ui/window.zig` | 671 | App delegate, window, header bar, menu bar — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/sidebar.zig` | 1463 | Project list, drag-and-drop, navigation — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/term_text_view.zig` | 1962 | Terminal grid rendering, input, selection — [ai_docs/rendering.md](ai_docs/rendering.md) |
+| `src/ui/window.zig` | 692 | App delegate, window, header bar, menu bar — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
+| `src/ui/sidebar.zig` | 1595 | Project list, drag-and-drop, navigation — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
+| `src/ui/term_text_view.zig` | 2095 | Terminal grid rendering, input, selection — [ai_docs/rendering.md](ai_docs/rendering.md) |
 
 ## Key Shortcuts
 
@@ -50,6 +50,7 @@ See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system desig
 | ⌘⇧] / ⌘⇧[ | Navigate sidebar (highlight only) |
 | ⌘Enter | Activate highlighted sidebar item |
 | ⌘V | Paste with bracketed paste mode |
+| ⌘K | Clear terminal screen and scrollback |
 | ⌘O | Add project |
 | ⌘Q | Quit |
 
