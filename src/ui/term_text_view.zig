@@ -754,6 +754,13 @@ pub fn closeFocusedPane() void {
     parent_node.collectLeaves(&leaves);
     if (leaves.items.len > 0) {
         session.focused_slot = leaves.items[0];
+        // Make the new focused pane the first responder for keyboard input
+        if (terminals[leaves.items[0]]) |*entry| {
+            const win = objc.msgSend(entry.view, objc.sel("window"));
+            if (@intFromPtr(win) != 0) {
+                objc.msgSendVoid1(win, objc.sel("makeFirstResponder:"), entry.view);
+            }
+        }
     }
 
     // Persist split layout
@@ -1302,6 +1309,21 @@ fn termMouseDragged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) voi
     div_node.split.ratio = new_ratio;
 
     layoutActiveSession(panel);
+
+    // Check if mouse button was released (event has no pressed button)
+    // Since layoutActiveSession may destroy/recreate views, mouseUp may never fire.
+    const NSEvent = objc.getClass("NSEvent") orelse return;
+    const button_mask = objc.msgSendUInt(NSEvent, objc.sel("pressedMouseButtons"));
+    if (button_mask & 1 == 0) {
+        // Mouse button released — end drag and refocus
+        dragging_divider = null;
+        if (getFocusedView()) |focused_view| {
+            const win = objc.msgSend(focused_view, objc.sel("window"));
+            if (@intFromPtr(win) != 0) {
+                objc.msgSendVoid1(win, objc.sel("makeFirstResponder:"), focused_view);
+            }
+        }
+    }
 }
 
 fn termMouseUp(self: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
@@ -2193,7 +2215,20 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
                         if (std.mem.eql(u8, proj.id, info.project_id)) {
                             for (proj.terminals.items) |t| {
                                 if (std.mem.eql(u8, t.id, info.terminal_id)) {
-                                    window_ui.updateHeader(t.name, proj.path);
+                                    // Use focused terminal's live cwd for git info
+                                    // (supports worktrees and cd into subdirs)
+                                    const git_path = blk: {
+                                        if (sessions[si]) |*session| {
+                                            if (terminals[session.focused_slot]) |*entry| {
+                                                var cwd_buf: [4096]u8 = undefined;
+                                                if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
+                                                    break :blk live_cwd;
+                                                }
+                                            }
+                                        }
+                                        break :blk proj.path;
+                                    };
+                                    window_ui.updateHeader(t.name, git_path);
                                     break;
                                 }
                             }
