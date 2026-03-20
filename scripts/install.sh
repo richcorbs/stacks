@@ -25,6 +25,7 @@ cp zig-out/bin/my-term "$MACOS/my-term"
 # Bundle libvterm so the app is self-contained
 FRAMEWORKS="$CONTENTS/Frameworks"
 mkdir -p "$FRAMEWORKS"
+chmod u+w "$FRAMEWORKS/libvterm.0.dylib" 2>/dev/null || true
 cp /opt/homebrew/opt/libvterm/lib/libvterm.0.dylib "$FRAMEWORKS/"
 install_name_tool -change /opt/homebrew/opt/libvterm/lib/libvterm.0.dylib \
   @executable_path/../Frameworks/libvterm.0.dylib "$MACOS/my-term"

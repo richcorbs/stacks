@@ -1326,6 +1326,7 @@ fn copySelectionToClipboard(entry: *TermEntry) void {
         const start_col: u16 = if (row == s.r1) s.c1 else 0;
         const end_col: u16 = if (row == s.r2) s.c2 else entry.vterm.cols - 1;
 
+        const row_start = text_len;
         var col = start_col;
         while (col <= end_col) : (col += 1) {
             var cell_val: vt_mod.Cell = undefined;
@@ -1351,6 +1352,11 @@ fn copySelectionToClipboard(entry: *TermEntry) void {
                     text_len += 1;
                 }
             }
+        }
+
+        // Trim trailing spaces from this row
+        while (text_len > row_start and text_buf[text_len - 1] == ' ') {
+            text_len -= 1;
         }
 
         // Add newline between rows (but not after the last)
@@ -1429,7 +1435,7 @@ fn showCopiedToast(term_view: objc.id) void {
 
     // Label
     const label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Copied to clipboard"));
-    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(0, 8, toast_w, 22));
+    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, toast_w, toast_h));
 
     const NSFont = objc.getClass("NSFont") orelse return;
     const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
