@@ -933,6 +933,22 @@ pub fn destroyTerminalAtSlot(slot: usize) void {
 
 /// Destroy all terminals.
 /// Destroy a session and all its terminal panes.
+/// Check if a session's root terminal process is alive.
+pub fn isSessionAlive(session_idx: usize) bool {
+    if (session_idx >= MAX_TERMS) return false;
+    const session = sessions[session_idx] orelse return false;
+    // Check the first leaf's PTY
+    var leaves: std.ArrayListUnmanaged(usize) = .{};
+    defer leaves.deinit(allocator);
+    session.root.collectLeaves(&leaves);
+    if (leaves.items.len == 0) return false;
+    // Check first leaf (root pane — the one with the configured command)
+    if (terminals[leaves.items[0]]) |*entry| {
+        return !entry.pty.hasExited();
+    }
+    return false;
+}
+
 pub fn destroySession(session_idx: usize) void {
     if (session_idx >= MAX_TERMS) return;
     if (sessions[session_idx]) |*session| {
@@ -1893,6 +1909,7 @@ var last_panel_width: f64 = 0;
 var git_refresh_counter: u32 = 0;
 var last_panel_height: f64 = 0;
 var last_bell_state: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
+var last_exit_state: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
 
 fn checkForExitedTerminals() void {
     const window_ui = @import("window.zig");
@@ -2057,15 +2074,20 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
         }
     }
 
-    // Check if bell state changed and rebuild sidebar
-    var bell_changed = false;
+    // Check if bell or exit state changed and rebuild sidebar
+    var state_changed = false;
     for (0..MAX_TERMS) |i| {
         if (bell_active[i] != last_bell_state[i]) {
-            bell_changed = true;
+            state_changed = true;
             last_bell_state[i] = bell_active[i];
         }
+        const exited = if (terminals[i]) |*e| e.pty.hasExited() else false;
+        if (exited != last_exit_state[i]) {
+            state_changed = true;
+            last_exit_state[i] = exited;
+        }
     }
-    if (bell_changed) {
+    if (state_changed) {
         if (sidebar.g_sidebar_app) |app| {
             sidebar.rebuildSidebar(app);
         }

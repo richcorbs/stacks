@@ -807,6 +807,36 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
         objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), dot);
     }
 
+    // Show process status indicator for terminals with commands
+    if (command != null) {
+        const is_alive = term_text_view.isSessionAlive(term_row_info_count);
+        const status_dot = objc.msgSend(objc.getClass("NSView") orelse unreachable, objc.sel("new"));
+        const dot_size: objc.CGFloat = 6;
+        const dot_x: objc.CGFloat = 200 - 24; // right-aligned with margin
+        const dot_y: objc.CGFloat = (height - dot_size) / 2.0;
+        setFrame(status_dot, objc.sel("setFrame:"), objc.NSMakeRect(dot_x, dot_y, dot_size, dot_size));
+        setBool(status_dot, objc.sel("setWantsLayer:"), objc.YES);
+        const status_layer = objc.msgSend(status_dot, objc.sel("layer"));
+        if (is_alive) {
+            setLayerBgColor(status_layer, 0.30, 0.75, 0.40); // green
+        } else {
+            setLayerBgColor(status_layer, 0.45, 0.50, 0.56); // gray
+        }
+        const setCorner: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setCorner(status_layer, objc.sel("setCornerRadius:"), dot_size / 2.0);
+        // Tooltip shows the command and status
+        if (command) |cmd| {
+            var tip_buf: [256]u8 = undefined;
+            const tip = if (is_alive)
+                std.fmt.bufPrint(&tip_buf, "{s} (running)", .{cmd}) catch cmd
+            else
+                std.fmt.bufPrint(&tip_buf, "{s} (stopped)", .{cmd}) catch cmd;
+            objc.msgSendVoid1(status_dot, objc.sel("setToolTip:"), objc.nsString(tip));
+        }
+        objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), status_dot);
+    }
+
     // Store info for the click handler
     const info_idx = term_row_info_count;
     if (info_idx < term_row_infos.len) {
@@ -976,6 +1006,9 @@ pub fn openTerminalAtIndex(index: usize) void {
             break;
         }
     }
+
+    // Rebuild sidebar again now that the session exists (updates status dots)
+    if (g_sidebar_app) |app2| rebuildSidebar(app2);
 
     // Focus the active pane
     if (term_text_view.getFocusedView()) |focused_view| {
