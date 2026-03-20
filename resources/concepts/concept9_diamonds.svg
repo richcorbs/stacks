@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="#000000"/>
+  <!-- Diamond 1 (back-left) -->
+  <polygon points="160,160 260,100 360,160 260,220" fill="#ffffff" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Diamond 2 (back-right) -->
+  <polygon points="200,200 300,140 400,200 300,260" fill="#ffffff" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Diamond 3 (front-left) -->
+  <polygon points="120,260 220,200 320,260 220,320" fill="#ffffff" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Diamond 4 (front-right) -->
+  <polygon points="200,310 300,250 400,310 300,370" fill="#ffffff" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+</svg>

@@ -37,9 +37,9 @@ pub const ProjectStore = struct {
     file_path: []const u8,
 
     pub fn init(allocator: std.mem.Allocator) !ProjectStore {
-        // Determine config directory: ~/Library/Application Support/my-term/projects.json
+        // Determine config directory: ~/Library/Application Support/stacks/projects.json
         const home = std.posix.getenv("HOME") orelse "/tmp";
-        const dir = try std.fmt.allocPrint(allocator, "{s}/Library/Application Support/my-term", .{home});
+        const dir = try std.fmt.allocPrint(allocator, "{s}/Library/Application Support/stacks", .{home});
         std.fs.makeDirAbsolute(dir) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,

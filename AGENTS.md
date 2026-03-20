@@ -1,4 +1,4 @@
-# agents.md — AI Agent Guide for my-term-zig
+# agents.md — AI Agent Guide for Stacks
 
 Native macOS terminal emulator built in **Zig 0.15** using the ObjC runtime for AppKit, **libvterm** for terminal emulation, and PTY for shell processes.
 
@@ -6,11 +6,11 @@ Native macOS terminal emulator built in **Zig 0.15** using the ObjC runtime for 
 
 ```bash
 zig build                                                    # compile
-cp zig-out/bin/my-term /tmp/MyTerm.app/Contents/MacOS/my-term  # deploy
-open /tmp/MyTerm.app                                         # run
+bash scripts/install.sh                                      # deploy
+open ~/Applications/Stacks.app                               # run
 ```
 
-Kill before redeploying: `pkill -9 -f my-term`
+Kill before redeploying: `pkill -9 -f stacks`
 
 ## Critical Pitfalls
 
@@ -19,7 +19,7 @@ Kill before redeploying: `pkill -9 -f my-term`
 3. **`setTag:` only works on NSControl subclasses** (NSButton, etc.), not NSView — calling it on NSView hangs the app silently
 4. **NSButton eats mouse events** — if you need a parent view to receive mouseDown/mouseDragged, use NSTextField labels instead of NSButton
 5. **`sed -i` on source files is dangerous** — it can delete lines containing patterns you didn't intend to match. Use the `edit` tool for surgical changes.
-6. **No window on launch?** — usually means `appDidFinishLaunching` hit an `unreachable`. Add `std.debug.print` breadcrumbs and run `./zig-out/bin/my-term` directly (not via `open`) to see stderr.
+6. **No window on launch?** — usually means `appDidFinishLaunching` hit an `unreachable`. Add `std.debug.print` breadcrumbs and run `./zig-out/bin/stacks` directly (not via `open`) to see stderr.
 7. **`bufPrint` alias crash** — never `bufPrint` into a buffer that contains a slice you're formatting from. Copy to a temp buffer first.
 8. **`vterm_set_size` hangs without output callback** — libvterm's default 4096-byte output buffer fills during resize. Always register `vterm_output_set_callback` so output flushes synchronously to the PTY.
 9. **`sbPopLine` must fill the cells buffer** — if you return 1 from `sb_popline` without writing valid `VTermScreenCell` data into the buffer, `vterm_set_size` hangs. Currently we return 0 (no restore) as a workaround.
@@ -64,6 +64,6 @@ See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system desig
 
 ## Data
 
-- Projects: `~/Library/Application Support/my-term/projects.json`
-- Window frame: persisted via `setFrameAutosaveName:` ("MyTermMainWindow")
+- Projects: `~/Library/Application Support/stacks/projects.json`
+- Window frame: persisted via `setFrameAutosaveName:` ("StacksMainWindow")
 - App icon: `resources/AppIcon.icns`

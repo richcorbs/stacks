@@ -145,7 +145,7 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
 
     const setAutosave: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) objc.BOOL =
         @ptrCast(&objc.c.objc_msgSend);
-    _ = setAutosave(window, objc.sel("setFrameAutosaveName:"), objc.nsString("MyTermMainWindow"));
+    _ = setAutosave(window, objc.sel("setFrameAutosaveName:"), objc.nsString("StacksMainWindow"));
 
     const setMinSize: *const fn (objc.id, objc.SEL, objc.NSSize) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -638,9 +638,9 @@ fn createMainMenu(nsapp: objc.id) void {
     const app_menu = objc.msgSend1(
         objc.msgSend(NSMenu, objc.sel("alloc")),
         objc.sel("initWithTitle:"),
-        objc.nsString("my-term"),
+        objc.nsString("Stacks"),
     );
-    addMenuItemNoTarget(app_menu, NSMenuItem, "Quit my-term", "q", "terminate:");
+    addMenuItemNoTarget(app_menu, NSMenuItem, "Quit Stacks", "q", "terminate:");
     objc.msgSendVoid1(app_item, objc.sel("setSubmenu:"), app_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), app_item);
 

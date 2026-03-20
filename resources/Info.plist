@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>my-term</string>
+    <string>stacks</string>
     <key>CFBundleIdentifier</key>
-    <string>com.myterm.app</string>
+    <string>com.stacks.app</string>
     <key>CFBundleName</key>
-    <string>my-term</string>
+    <string>Stacks</string>
     <key>CFBundleVersion</key>
     <string>7</string>
     <key>CFBundleIconFile</key>

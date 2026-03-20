@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="#000000"/>
+  <!-- Each diamond: white fill, black stroke, round joins give consistent rounding -->
+  <!-- Diamond 4 (back, bottom) -->
+  <polygon points="256,261 400,331 256,401 112,331" fill="#e0e0e0" stroke="#000000" stroke-width="16" stroke-linejoin="round"/>
+  <!-- Diamond 3 -->
+  <polygon points="256,211 400,281 256,351 112,281" fill="#e0e0e0" stroke="#000000" stroke-width="16" stroke-linejoin="round"/>
+  <!-- Diamond 2 -->
+  <polygon points="256,161 400,231 256,301 112,231" fill="#e0e0e0" stroke="#000000" stroke-width="16" stroke-linejoin="round"/>
+  <!-- Diamond 1 (front, top) -->
+  <polygon points="256,111 400,181 256,251 112,181" fill="#e0e0e0" stroke="#000000" stroke-width="16" stroke-linejoin="round"/>
+</svg>

@@ -2,11 +2,11 @@
 set -e
 
 # Gracefully quit first (triggers applicationWillTerminate), then force kill if needed
-osascript -e 'quit app "my-term"' 2>/dev/null || true
+osascript -e 'quit app "stacks"' 2>/dev/null || true
 sleep 1
-pkill -9 -f my-term 2>/dev/null || true
+pkill -9 -f stacks 2>/dev/null || true
 
-APP_DIR="$HOME/Applications/MyTerm.app"
+APP_DIR="$HOME/Applications/Stacks.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
@@ -20,7 +20,7 @@ zig build
 mkdir -p "$MACOS" "$RESOURCES"
 
 # Copy binary
-cp zig-out/bin/my-term "$MACOS/my-term"
+cp zig-out/bin/stacks "$MACOS/stacks"
 
 # Bundle libvterm so the app is self-contained
 FRAMEWORKS="$CONTENTS/Frameworks"
@@ -28,7 +28,7 @@ mkdir -p "$FRAMEWORKS"
 chmod u+w "$FRAMEWORKS/libvterm.0.dylib" 2>/dev/null || true
 cp /opt/homebrew/opt/libvterm/lib/libvterm.0.dylib "$FRAMEWORKS/"
 install_name_tool -change /opt/homebrew/opt/libvterm/lib/libvterm.0.dylib \
-  @executable_path/../Frameworks/libvterm.0.dylib "$MACOS/my-term"
+  @executable_path/../Frameworks/libvterm.0.dylib "$MACOS/stacks"
 
 # Copy resources
 cp resources/Info.plist "$CONTENTS/Info.plist"
