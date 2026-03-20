@@ -286,7 +286,7 @@ fn createSidebarHeader() objc.id {
     pinLeading(label, header, 16.0);
 
     centerVertically(add_btn, header);
-    pinTrailing(add_btn, header, -8.0);
+    pinTrailing(add_btn, header, -14.0);
 
     return header;
 }
