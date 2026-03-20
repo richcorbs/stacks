@@ -90,11 +90,74 @@ fn updateCellMetrics() void {
 }
 
 const ScrollLine = struct {
-    cells: [512]vt_mod.Cell,
+    cells: []vt_mod.Cell,
     len: u16,
+
+    fn deinit(self: *ScrollLine, alloc: std.mem.Allocator) void {
+        alloc.free(self.cells);
+    }
 };
 
-const ScrollList = std.ArrayListUnmanaged(ScrollLine);
+/// Ring buffer for scrollback lines. Avoids O(n) shifts on remove.
+const ScrollList = struct {
+    buffer: []ScrollLine = &.{},
+    head: usize = 0, // index of first (oldest) element
+    count: usize = 0, // number of elements stored
+    capacity: usize = 0,
+
+    const Self = @This();
+
+    fn initCapacity(self: *Self, alloc: std.mem.Allocator, cap: usize) void {
+        if (self.capacity >= cap) return;
+        const new_buf = alloc.alloc(ScrollLine, cap) catch return;
+        // Copy existing elements in order
+        for (0..self.count) |i| {
+            new_buf[i] = self.buffer[(self.head + i) % self.capacity];
+        }
+        if (self.capacity > 0) alloc.free(self.buffer);
+        self.buffer = new_buf;
+        self.head = 0;
+        self.capacity = cap;
+    }
+
+    fn append(self: *Self, alloc: std.mem.Allocator, line: ScrollLine) void {
+        if (self.capacity == 0) self.initCapacity(alloc, MAX_SCROLLBACK + 1);
+        if (self.count < self.capacity) {
+            // Space available
+            self.buffer[(self.head + self.count) % self.capacity] = line;
+            self.count += 1;
+        } else {
+            // Full — overwrite oldest, free its cells
+            self.buffer[self.head].deinit(alloc);
+            self.buffer[self.head] = line;
+            self.head = (self.head + 1) % self.capacity;
+        }
+    }
+
+    fn get(self: *const Self, index: usize) *ScrollLine {
+        return &self.buffer[(self.head + index) % self.capacity];
+    }
+
+    fn len(self: *const Self) usize {
+        return self.count;
+    }
+
+    fn clearRetainingCapacity(self: *Self, alloc: std.mem.Allocator) void {
+        for (0..self.count) |i| {
+            self.buffer[(self.head + i) % self.capacity].deinit(alloc);
+        }
+        self.count = 0;
+        self.head = 0;
+    }
+
+    fn deinit(self: *Self, alloc: std.mem.Allocator) void {
+        for (0..self.count) |i| {
+            self.buffer[(self.head + i) % self.capacity].deinit(alloc);
+        }
+        if (self.capacity > 0) alloc.free(self.buffer);
+        self.* = .{};
+    }
+};
 const allocator = std.heap.page_allocator;
 
 const Selection = struct {
@@ -423,7 +486,7 @@ pub fn getOrCreateSession(index: usize, cwd: []const u8, command: ?[]const u8) b
                         entry.vterm.deinit();
                         entry.vterm = @import("../vt.zig").VTerm.init(24, 80) catch return true;
                         entry.scroll_offset = 0;
-                        entry.scrollback.clearRetainingCapacity();
+                        entry.scrollback.clearRetainingCapacity(allocator);
                         // Re-register callbacks on new vterm
                         registerScrollbackCallbacks(slot, &entry.vterm);
                         registerOutputCallback(&terminals[slot].?);
@@ -544,6 +607,14 @@ pub fn layoutActiveSession(panel: objc.id) void {
                     @ptrCast(&objc.c.objc_msgSend);
                 setBool(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
             }
+        }
+    }
+
+    // Ensure focused pane has keyboard focus
+    if (terminals[session.focused_slot]) |*entry| {
+        const win = objc.msgSend(entry.view, objc.sel("window"));
+        if (@intFromPtr(win) != 0) {
+            objc.msgSendVoid1(win, objc.sel("makeFirstResponder:"), entry.view);
         }
     }
 }
@@ -1145,8 +1216,9 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
     const entry: *TermEntry = @ptrCast(@alignCast(user orelse return 0));
     const num_cols: u16 = @intCast(@min(@as(u16, @intCast(cols)), 512));
 
-    var line = ScrollLine{ .cells = undefined, .len = num_cols };
-    @memset(std.mem.asBytes(&line.cells), 0);
+    // Allocate only the cells needed
+    const cells = allocator.alloc(vt_mod.Cell, num_cols) catch return 0;
+    @memset(std.mem.sliceAsBytes(cells), 0);
 
     if (cells_raw) |ptr| {
         // Each VTermScreenCell is 40 bytes
@@ -1157,7 +1229,7 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
             var raw: vt_mod.RawScreenCell = undefined;
             @memcpy(std.mem.asBytes(&raw), raw_bytes[offset..][0..40]);
 
-            line.cells[i] = .{
+            cells[i] = .{
                 .chars = raw.chars,
                 .width = if (raw.width > 0) @intCast(raw.width) else 1,
                 .fg = vt_mod.decodeVTermColor(raw.fg, vt_mod.DEFAULT_FG),
@@ -1166,11 +1238,8 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
         }
     }
 
-    entry.scrollback.append(allocator, line) catch {};
-
-    if (entry.scrollback.items.len > MAX_SCROLLBACK) {
-        _ = entry.scrollback.orderedRemove(0);
-    }
+    const line = ScrollLine{ .cells = cells, .len = num_cols };
+    entry.scrollback.append(allocator, line);
 
     return 1;
 }
@@ -1201,7 +1270,7 @@ fn termScrollWheel(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void
     const lines: i32 = @intFromFloat(delta / 3.0);
     if (lines == 0) return;
 
-    const sb_len: i32 = @intCast(entry.scrollback.items.len);
+    const sb_len: i32 = @intCast(entry.scrollback.len());
     entry.scroll_offset = @min(0, @max(-sb_len, entry.scroll_offset - lines));
 
     // Trigger redraw
@@ -1309,21 +1378,6 @@ fn termMouseDragged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) voi
     div_node.split.ratio = new_ratio;
 
     layoutActiveSession(panel);
-
-    // Check if mouse button was released (event has no pressed button)
-    // Since layoutActiveSession may destroy/recreate views, mouseUp may never fire.
-    const NSEvent = objc.getClass("NSEvent") orelse return;
-    const button_mask = objc.msgSendUInt(NSEvent, objc.sel("pressedMouseButtons"));
-    if (button_mask & 1 == 0) {
-        // Mouse button released — end drag and refocus
-        dragging_divider = null;
-        if (getFocusedView()) |focused_view| {
-            const win = objc.msgSend(focused_view, objc.sel("window"));
-            if (@intFromPtr(win) != 0) {
-                objc.msgSendVoid1(win, objc.sel("makeFirstResponder:"), focused_view);
-            }
-        }
-    }
 }
 
 fn termMouseUp(self: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
@@ -1380,7 +1434,7 @@ fn copySelectionToClipboard(entry: *TermEntry) void {
     // Build the selected text
     var text_buf: [65536]u8 = undefined;
     var text_len: usize = 0;
-    const sb_len: i32 = @intCast(entry.scrollback.items.len);
+    const sb_len: i32 = @intCast(entry.scrollback.len());
 
     var row = s.r1;
     while (row <= s.r2) : (row += 1) {
@@ -1394,7 +1448,7 @@ fn copySelectionToClipboard(entry: *TermEntry) void {
             if (row < 0) {
                 const sb_idx = sb_len + row;
                 if (sb_idx >= 0 and sb_idx < sb_len) {
-                    const line = &entry.scrollback.items[@intCast(sb_idx)];
+                    const line = entry.scrollback.get(@intCast(sb_idx));
                     cell_val = if (col < line.len) line.cells[col] else .{};
                 } else cell_val = .{};
             } else {
@@ -1581,7 +1635,7 @@ pub fn clearFocusedTerminal() void {
     if (terminals[session.focused_slot]) |*entry| {
         // Clear scrollback
         entry.scroll_offset = 0;
-        entry.scrollback.clearRetainingCapacity();
+        entry.scrollback.clearRetainingCapacity(allocator);
         // Clear vterm screen
         entry.vterm.feed("\x1b[2J\x1b[H");
         // Send Ctrl+L to the shell so it redraws the prompt
@@ -1684,7 +1738,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
         @ptrCast(&objc.c.objc_msgSend);
 
     const cursor = entry.vterm.getCursor();
-    const sb_len: i32 = @intCast(entry.scrollback.items.len);
+    const sb_len: i32 = @intCast(entry.scrollback.len());
     // scroll_offset: 0 = at bottom (showing live grid), negative = scrolled up
     const scroll_off = entry.scroll_offset;
 
@@ -1707,7 +1761,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 // Scrollback line
                 const sb_idx = sb_len + grid_row_i;
                 if (sb_idx >= 0 and sb_idx < sb_len) {
-                    const line = &entry.scrollback.items[@intCast(sb_idx)];
+                    const line = entry.scrollback.get(@intCast(sb_idx));
                     if (col < line.len) {
                         cell = line.cells[col];
                     } else {
@@ -1786,7 +1840,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
             if (grid_row_i < 0) {
                 const sb_idx2 = sb_len + grid_row_i;
                 if (sb_idx2 >= 0 and sb_idx2 < sb_len) {
-                    const line2 = &entry.scrollback.items[@intCast(sb_idx2)];
+                    const line2 = entry.scrollback.get(@intCast(sb_idx2));
                     cell2 = if (c2 < line2.len) line2.cells[c2] else .{};
                 } else cell2 = .{};
             } else {
