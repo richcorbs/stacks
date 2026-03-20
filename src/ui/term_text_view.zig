@@ -2172,6 +2172,8 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     const refresh_interval: u32 = if (on_slow_timer) 100 else 625; // ~10s in both modes
     if (git_refresh_counter >= refresh_interval) {
         git_refresh_counter = 0;
+        // Update stats bar
+        sidebar.updateStats();
         // Save cwd periodically so it survives force kills
         saveActiveCwd();
         if (active_session) |si| {

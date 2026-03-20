@@ -18,6 +18,9 @@ var project_list_view: ?objc.id = null;
 /// The sidebar root view (so we can access it for rebuilds).
 var sidebar_root_view: ?objc.id = null;
 
+/// Stats bar label at the bottom of the sidebar.
+var stats_label: ?objc.id = null;
+
 /// Track which project the "Add Terminal" button targets (by index).
 var add_terminal_project_id: ?[]const u8 = null;
 
@@ -83,12 +86,20 @@ pub fn createSidebarView() objc.id {
     const scroll = createProjectListScrollView();
     objc.msgSendVoid1(sidebar_view, objc.sel("addSubview:"), scroll);
 
-    // Layout: header at top (44px), scroll fills rest
+    // --- Stats bar at bottom ---
+    const stats_bar = createStatsBar();
+    objc.msgSendVoid1(sidebar_view, objc.sel("addSubview:"), stats_bar);
+
+    // Layout: header at top (44px), stats bar at bottom (24px), scroll fills middle
     pinToEdges(header, sidebar_view, .{ .bottom = false });
     setHeight(header, 44.0);
 
-    pinToEdges(scroll, sidebar_view, .{ .top = false });
+    pinToEdges(stats_bar, sidebar_view, .{ .top = false });
+    setHeight(stats_bar, 34.0);
+
+    pinToEdges(scroll, sidebar_view, .{ .top = false, .bottom = false });
     pinTopToBottom(scroll, header);
+    pinBottomToTop(scroll, stats_bar);
 
     return sidebar_view;
 }
@@ -1592,4 +1603,170 @@ fn setBorderBottom(layer: objc.id) void {
     const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.173, 0.204, 0.251, 1.0);
     const cgColor = objc.msgSend(color, objc.sel("CGColor"));
     objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), cgColor);
+}
+
+// ---------------------------------------------------------------------------
+// Stats bar (CPU + Memory at bottom of sidebar)
+// ---------------------------------------------------------------------------
+
+fn pinBottomToTop(child: objc.id, below: objc.id) void {
+    const setTranslates: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setTranslates(child, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
+
+    const c_anchor = objc.msgSend(child, objc.sel("bottomAnchor"));
+    const b_anchor = objc.msgSend(below, objc.sel("topAnchor"));
+    const constraint = objc.msgSend1(c_anchor, objc.sel("constraintEqualToAnchor:"), b_anchor);
+    const activate: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    activate(constraint, objc.sel("setActive:"), objc.YES);
+}
+
+fn createStatsBar() objc.id {
+    const NSView = objc.getClass("NSView") orelse unreachable;
+    const NSTextField = objc.getClass("NSTextField") orelse unreachable;
+    const bar = objc.msgSend(NSView, objc.sel("new"));
+    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setBool(bar, objc.sel("setWantsLayer:"), objc.YES);
+    const layer = objc.msgSend(bar, objc.sel("layer"));
+    setBackgroundColor(layer, 0.09, 0.114, 0.149); // match sidebar bg
+
+    // Separator line at top of stats bar
+    const sep = objc.msgSend(NSView, objc.sel("new"));
+    setBool(sep, objc.sel("setWantsLayer:"), objc.YES);
+    const sep_layer = objc.msgSend(sep, objc.sel("layer"));
+    setBackgroundColor(sep_layer, 0.173, 0.204, 0.251); // #2c3440
+    objc.msgSendVoid1(bar, objc.sel("addSubview:"), sep);
+    pinToEdges(sep, bar, .{ .bottom = false });
+    setHeight(sep, 1.0);
+
+    // Label
+    const label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString(""));
+    const setTranslates: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setTranslates(label, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
+
+    setTextColor(label, 0.45, 0.5, 0.55);
+
+    const setAlign: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setAlign(label, objc.sel("setAlignment:"), 1); // NSTextAlignmentCenter
+
+    // Set initial attributed string with kerning
+    setStatsAttributedString(label, "CPU 0%  •  MEM 0MB");
+
+    objc.msgSendVoid1(bar, objc.sel("addSubview:"), label);
+
+    // Center label vertically in bar
+    const setTranslates2: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setTranslates2(label, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
+    // Leading/trailing
+    const activate2: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    const lc = objc.msgSend1(objc.msgSend(label, objc.sel("leadingAnchor")), objc.sel("constraintEqualToAnchor:"), objc.msgSend(bar, objc.sel("leadingAnchor")));
+    activate2(lc, objc.sel("setActive:"), objc.YES);
+    const tc = objc.msgSend1(objc.msgSend(label, objc.sel("trailingAnchor")), objc.sel("constraintEqualToAnchor:"), objc.msgSend(bar, objc.sel("trailingAnchor")));
+    activate2(tc, objc.sel("setActive:"), objc.YES);
+    // Center Y
+    const cy = objc.msgSend1(objc.msgSend(label, objc.sel("centerYAnchor")), objc.sel("constraintEqualToAnchor:"), objc.msgSend(bar, objc.sel("centerYAnchor")));
+    activate2(cy, objc.sel("setActive:"), objc.YES);
+
+    stats_label = label;
+
+    return bar;
+}
+
+var last_cpu_time_ns: i128 = 0;
+var last_wall_time_ns: i128 = 0;
+var last_cpu_pct: u32 = 0;
+
+/// Update the stats bar with current CPU and memory usage.
+/// Called from the poll timer every ~10 seconds.
+pub fn updateStats() void {
+    const label = stats_label orelse return;
+
+    // Get memory via rusage
+    const rusage = std.posix.getrusage(0); // RUSAGE_SELF
+    const mem_mb = @divTrunc(rusage.maxrss, 1024 * 1024); // maxrss is in bytes on macOS
+
+    // Get CPU percentage since last sample
+    const clock = std.posix.clock_gettime(.PROCESS_CPUTIME_ID) catch return;
+    const wall = std.posix.clock_gettime(.MONOTONIC) catch return;
+    const cpu_ns: i128 = @as(i128, clock.sec) * 1_000_000_000 + clock.nsec;
+    const wall_ns: i128 = @as(i128, wall.sec) * 1_000_000_000 + wall.nsec;
+
+    if (last_wall_time_ns > 0) {
+        const cpu_delta = cpu_ns - last_cpu_time_ns;
+        const wall_delta = wall_ns - last_wall_time_ns;
+        if (wall_delta > 0) {
+            last_cpu_pct = @intCast(@min(@divTrunc(cpu_delta * 100, wall_delta), 100));
+        }
+    }
+    last_cpu_time_ns = cpu_ns;
+    last_wall_time_ns = wall_ns;
+
+    // Format string
+    var buf: [64]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "CPU {d}%  •  MEM {d}MB", .{
+        last_cpu_pct,
+        mem_mb,
+    }) catch return;
+
+    // Update label with kerning
+    setStatsAttributedString(label, text);
+}
+
+fn setStatsAttributedString(label: objc.id, text: []const u8) void {
+    const NSMutableAttributedString = objc.getClass("NSMutableAttributedString") orelse return;
+    const NSFont = objc.getClass("NSFont") orelse return;
+    const NSNumber = objc.getClass("NSNumber") orelse return;
+
+    const ns_str = objc.nsString(text);
+
+    const initWith: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const attr_str = initWith(
+        objc.msgSend(NSMutableAttributedString, objc.sel("alloc")),
+        objc.sel("initWithString:"),
+        ns_str,
+    );
+
+    // Build range {0, length}
+    const NSRange = extern struct { location: u64, length: u64 };
+    const length = objc.msgSendUInt(attr_str, objc.sel("length"));
+    const range: NSRange = .{ .location = 0, .length = length };
+
+    const addAttr: *const fn (objc.id, objc.SEL, objc.id, objc.id, NSRange) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+
+    // Set font
+    const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const font = sysFont(NSFont, objc.sel("systemFontOfSize:"), 10.0);
+    addAttr(attr_str, objc.sel("addAttribute:value:range:"), objc.nsString("NSFont"), font, range);
+
+    // Set kern (character spacing)
+    const numberWith: *const fn (objc.id, objc.SEL, f64) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const kern = numberWith(NSNumber, objc.sel("numberWithDouble:"), 1.2);
+    addAttr(attr_str, objc.sel("addAttribute:value:range:"), objc.nsString("NSKern"), kern, range);
+
+    // Set text color
+    const NSColor = objc.getClass("NSColor") orelse return;
+    const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.45, 0.5, 0.55, 1.0);
+    addAttr(attr_str, objc.sel("addAttribute:value:range:"), objc.nsString("NSColor"), color, range);
+
+    // Set paragraph style for center alignment
+    const NSMutableParagraphStyle = objc.getClass("NSMutableParagraphStyle") orelse return;
+    const para = objc.msgSend(NSMutableParagraphStyle, objc.sel("new"));
+    const setAlignment: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setAlignment(para, objc.sel("setAlignment:"), 1); // NSTextAlignmentCenter
+    addAttr(attr_str, objc.sel("addAttribute:value:range:"), objc.nsString("NSParagraphStyle"), para, range);
+
+    objc.msgSendVoid1(label, objc.sel("setAttributedStringValue:"), attr_str);
 }
