@@ -48,18 +48,18 @@ pub const Pty = struct {
             // Set proper terminal type — we now have VT100 emulation via libvterm
             _ = c.setenv("TERM", "xterm-256color", 1);
 
-            // Get shell from environment or default to /bin/zsh
-            const shell_env = std.posix.getenv("SHELL");
-            const shell: [*:0]const u8 = if (shell_env) |s| s.ptr else "/bin/zsh";
+            // /bin/zsh is always available on macOS and sources login profile
 
             if (cmd_z) |cmd_ptr| {
-                // Use -lc for login shell so PATH/env from .zshrc/.zprofile is loaded
-                var argv = [_][*c]const u8{ shell, "-lc", cmd_ptr, null };
-                _ = c.execvp(shell, @ptrCast(&argv));
+                // Always use /bin/zsh for reliable launch from Finder/Dock
+                // (SHELL env may not be set, and PATH is bare)
+                // Login shell sources .zprofile/.zshrc to get full PATH
+                var argv = [_][*c]const u8{ "/bin/zsh", "-l", "-c", cmd_ptr, null };
+                _ = c.execvp("/bin/zsh", @ptrCast(&argv));
             } else {
                 // Interactive login shell
-                var argv = [_][*c]const u8{ shell, "-l", null };
-                _ = c.execvp(shell, @ptrCast(&argv));
+                var argv = [_][*c]const u8{ "/bin/zsh", "-l", null };
+                _ = c.execvp("/bin/zsh", @ptrCast(&argv));
             }
             // If exec fails, exit
             c._exit(1);
