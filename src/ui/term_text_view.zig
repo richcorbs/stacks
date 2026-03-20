@@ -158,7 +158,7 @@ const ScrollList = struct {
         self.* = .{};
     }
 };
-const allocator = std.heap.page_allocator;
+const allocator = std.heap.c_allocator;
 
 const Selection = struct {
     active: bool = false,

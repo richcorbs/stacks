@@ -580,7 +580,7 @@ pub fn clearHeader() void {
 }
 
 fn runGitCommand(project_path: []const u8, args: []const []const u8, out_buf: []u8) ![]const u8 {
-    const alloc = std.heap.page_allocator;
+    const alloc = std.heap.c_allocator;
     var full_args = std.array_list.AlignedManaged([]const u8, null).init(alloc);
     defer full_args.deinit();
     try full_args.append("git");
