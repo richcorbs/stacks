@@ -77,7 +77,7 @@ When the view bounds change:
 - Default FG: `#cccccc` (204, 204, 204)
 - Default BG: `#0f141b` (15, 20, 27)
 - Font: Menlo, 13pt default (8-36pt range)
-- Poll interval: 16ms (~60fps)
+- Poll interval: adaptive — 16ms (~60fps) when active, 100ms (~10fps) when idle
 
 ## VTerm Output Callback
 

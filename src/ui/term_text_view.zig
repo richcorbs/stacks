@@ -2073,6 +2073,8 @@ fn checkForExitedTerminals() void {
     }
 }
 
+var idle_ticks: u32 = 0;
+
 fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     // Process deferred font changes (avoids beachball from key auto-repeat)
     if (pending_font_reset) {
@@ -2098,6 +2100,7 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     }
 
     var buf: [16384]u8 = undefined;
+    var any_data = false;
 
     for (&terminals) |*t| {
         if (t.*) |*entry| {
@@ -2143,18 +2146,31 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
                 const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
                     @ptrCast(&objc.c.objc_msgSend);
                 setBool(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
+                any_data = true;
             }
         }
+    }
+
+    // Adaptive polling: switch between fast (16ms) and slow (100ms) timers
+    if (any_data) {
+        idle_ticks = 0;
+        // If we're on the slow timer, switch back to fast
+        if (on_slow_timer) switchToFastTimer();
+    } else {
+        idle_ticks += 1;
+        // After ~0.5s of no data (30 ticks at 16ms), switch to slow polling
+        if (!on_slow_timer and idle_ticks > 30) switchToSlowTimer();
     }
 
     // Check for exited terminals and auto-close their panes
     checkForExitedTerminals();
 
-    // Refresh git status every ~10 seconds (625 ticks at 16ms)
+    // Refresh git status every ~10 seconds
     const window_ui = @import("window.zig");
     const sidebar = @import("sidebar.zig");
     git_refresh_counter += 1;
-    if (git_refresh_counter >= 625) {
+    const refresh_interval: u32 = if (on_slow_timer) 100 else 625; // ~10s in both modes
+    if (git_refresh_counter >= refresh_interval) {
         git_refresh_counter = 0;
         // Save cwd periodically so it survives force kills
         saveActiveCwd();
@@ -2195,4 +2211,38 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
             sidebar.rebuildSidebar(app);
         }
     }
+}
+
+var on_slow_timer: bool = false;
+
+fn switchToSlowTimer() void {
+    if (poll_timer) |t| {
+        objc.msgSendVoid(t, objc.sel("invalidate"));
+        poll_timer = null;
+    }
+    on_slow_timer = true;
+    const helper_cls = registerTimerHelperClass() orelse return;
+    const helper = objc.msgSend(helper_cls, objc.sel("new"));
+    const NSTimer = objc.getClass("NSTimer") orelse return;
+    const timerFn: *const fn (objc.id, objc.SEL, f64, ?*anyopaque, objc.SEL, ?*anyopaque, objc.BOOL) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    poll_timer = timerFn(NSTimer,
+        objc.sel("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
+        0.1, helper, objc.sel("tick:"), null, objc.YES);
+}
+
+fn switchToFastTimer() void {
+    if (poll_timer) |t| {
+        objc.msgSendVoid(t, objc.sel("invalidate"));
+        poll_timer = null;
+    }
+    on_slow_timer = false;
+    const helper_cls = registerTimerHelperClass() orelse return;
+    const helper = objc.msgSend(helper_cls, objc.sel("new"));
+    const NSTimer = objc.getClass("NSTimer") orelse return;
+    const timerFn: *const fn (objc.id, objc.SEL, f64, ?*anyopaque, objc.SEL, ?*anyopaque, objc.BOOL) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    poll_timer = timerFn(NSTimer,
+        objc.sel("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
+        0.016, helper, objc.sel("tick:"), null, objc.YES);
 }

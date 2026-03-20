@@ -26,7 +26,7 @@ Shell output   → PTY.read()    → VTerm.feed() → grid cells updated
 Poll timer     → read PTY      → feed vterm   → setNeedsDisplay → drawRect
 ```
 
-A 16ms poll timer (`NSTimer`) drives the read loop. There is no async I/O — the PTY master fd is set to `O_NONBLOCK` and polled each tick.
+An adaptive poll timer (`NSTimer`) drives the read loop. There is no async I/O — the PTY master fd is set to `O_NONBLOCK` and polled each tick. The timer runs at 16ms (~60fps) when there is active PTY output, then drops to 100ms (~10fps) after 0.5s of idle to reduce CPU usage.
 
 ## Key Data Structures
 
