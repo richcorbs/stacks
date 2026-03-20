@@ -1305,7 +1305,17 @@ fn termMouseDragged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) voi
 }
 
 fn termMouseUp(self: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    dragging_divider = null;
+    if (dragging_divider != null) {
+        dragging_divider = null;
+        // Re-focus the focused pane after divider drag
+        if (getFocusedView()) |focused_view| {
+            const win = objc.msgSend(focused_view, objc.sel("window"));
+            if (@intFromPtr(win) != 0) {
+                objc.msgSendVoid1(win, objc.sel("makeFirstResponder:"), focused_view);
+            }
+        }
+        return;
+    }
 
     // Copy selection to clipboard only if there's a real selection (not just a click)
     if (findEntry(self)) |entry| {
