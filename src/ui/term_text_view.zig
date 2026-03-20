@@ -424,8 +424,9 @@ pub fn getOrCreateSession(index: usize, cwd: []const u8, command: ?[]const u8) b
                         entry.vterm = @import("../vt.zig").VTerm.init(24, 80) catch return true;
                         entry.scroll_offset = 0;
                         entry.scrollback.clearRetainingCapacity();
-                        // Re-register scrollback callbacks on new vterm
+                        // Re-register callbacks on new vterm
                         registerScrollbackCallbacks(slot, &entry.vterm);
+                        registerOutputCallback(&terminals[slot].?);
                     }
                 }
             }
@@ -894,6 +895,7 @@ fn createTerminalViewAtSlot(slot: usize, cwd: []const u8, command: ?[]const u8) 
     };
 
     registerScrollbackCallbacks(slot, &terminals[slot].?.vterm);
+    registerOutputCallback(&terminals[slot].?);
 
     ensurePollTimer();
     return view;
@@ -918,6 +920,17 @@ fn registerScrollbackCallbacks(slot: usize, vterm: *VTerm) void {
         };
     };
     vt_mod.screenSetCallbacks(vterm.screen, @ptrCast(&cbs.callbacks), @ptrCast(@alignCast(&terminals[slot].?)));
+}
+
+fn registerOutputCallback(entry: *TermEntry) void {
+    const cb: *const fn ([*c]const u8, usize, ?*anyopaque) callconv(.c) void = &vtermOutputCallback;
+    vt_mod.c.vterm_output_set_callback(entry.vterm.vt, cb, @ptrCast(entry));
+}
+
+fn vtermOutputCallback(s: [*c]const u8, len: usize, user: ?*anyopaque) callconv(.c) void {
+    const entry: *TermEntry = @ptrCast(@alignCast(user orelse return));
+    if (s == null) return;
+    entry.pty.write(s[0..len]);
 }
 
 /// Destroy a specific terminal by slot index.
@@ -997,7 +1010,9 @@ fn registerTermViewClass() ?objc.id {
     // Drag-and-drop destination
     _ = objc.addMethod(cls, objc.sel("draggingEntered:"), &termDragEntered, "Q@:@");
     _ = objc.addMethod(cls, objc.sel("performDragOperation:"), &termPerformDrag, "B@:@");
-    // No menu-based actions — all ⌘ shortcuts handled in keyDown
+    // Font size shortcuts (⌘= ⌘- ⌘0) need deferred handling via pending_font_delta,
+    // so we intercept them here before the menu system sees them.
+    _ = objc.addMethod(cls, objc.sel("performKeyEquivalent:"), &termPerformKeyEquivalent, "B@:@");
     objc.registerClassPair(cls);
     return cls;
 }
@@ -1125,11 +1140,13 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
     return 1;
 }
 
-fn sbPopLine(_: c_int, _: ?*anyopaque, user: ?*anyopaque) callconv(.c) c_int {
-    const entry: *TermEntry = @ptrCast(@alignCast(user orelse return 0));
-    if (entry.scrollback.items.len == 0) return 0;
-    _ = entry.scrollback.pop();
-    return 1;
+fn sbPopLine(_: c_int, _: ?*anyopaque, _: ?*anyopaque) callconv(.c) c_int {
+    // Always return 0 (no lines to restore). Scrollback viewing still works
+    // via our own scroll_offset mechanism. Returning 1 without perfectly
+    // filling the VTermScreenCell buffer causes vterm_set_size to hang.
+    // TODO: properly fill the VTermScreenCell buffer from scrollback data
+    // so lines are restored when the terminal grows.
+    return 0;
 }
 
 fn acceptsFirst(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL { return objc.YES; }
@@ -1495,9 +1512,13 @@ pub fn clearFocusedTerminal() void {
     if (session_idx >= MAX_TERMS) return;
     const session = sessions[session_idx] orelse return;
     if (terminals[session.focused_slot]) |*entry| {
-        entry.pty.write("\x1b[2J\x1b[H");
+        // Clear scrollback
         entry.scroll_offset = 0;
         entry.scrollback.clearRetainingCapacity();
+        // Clear vterm screen
+        entry.vterm.feed("\x1b[2J\x1b[H");
+        // Send Ctrl+L to the shell so it redraws the prompt
+        entry.pty.write("\x0c");
         const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
             @ptrCast(&objc.c.objc_msgSend);
         setBool(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
@@ -1804,6 +1825,30 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
 // Key handling
 // ---------------------------------------------------------------------------
 
+fn termPerformKeyEquivalent(_: objc.id, _: objc.SEL, event: objc.id) callconv(.c) objc.BOOL {
+    const modifierFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
+        @ptrCast(&objc.c.objc_msgSend);
+    const flags = modifierFlags(event, objc.sel("modifierFlags"));
+    const has_cmd = (flags & (1 << 20)) != 0;
+    if (!has_cmd) return objc.NO;
+    const has_shift = (flags & (1 << 17)) != 0;
+    if (has_shift) return objc.NO; // all ⌘⇧ combos handled by menu
+
+    const keyCodeFn: *const fn (objc.id, objc.SEL) callconv(.c) u16 =
+        @ptrCast(&objc.c.objc_msgSend);
+    const code = keyCodeFn(event, objc.sel("keyCode"));
+
+    // Font size changes use pending_font_delta (deferred to pollTick)
+    // so they can't go through the menu system.
+    switch (code) {
+        24 => pending_font_delta = 1.0,    // ⌘=
+        27 => pending_font_delta = -1.0,   // ⌘-
+        29 => pending_font_reset = true,    // ⌘0
+        else => return objc.NO, // let menu system handle everything else
+    }
+    return objc.YES;
+}
+
 fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
     const entry = findEntry(self) orelse {
         return;
@@ -1820,71 +1865,8 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
     const has_shift = (flags & (1 << 17)) != 0;
 
     if (has_cmd) {
-        const keyCodeFn: *const fn (objc.id, objc.SEL) callconv(.c) u16 =
-            @ptrCast(&objc.c.objc_msgSend);
-        const code = keyCodeFn(event, objc.sel("keyCode"));
-        const window_ui = @import("window.zig");
-        const sidebar_mod = @import("sidebar.zig");
-
-        if (has_shift) {
-            switch (code) {
-                2 => { // D — split down
-                    splitFocused(.vertical);
-                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
-                    if (getFocusedView()) |v| {
-                        const w = objc.msgSend(v, objc.sel("window"));
-                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
-                    }
-                },
-                30 => sidebar_mod.navigateSidebar(-1), // ]
-                33 => sidebar_mod.navigateSidebar(1),  // [
-                else => {},
-            }
-        } else {
-            switch (code) {
-                24 => pending_font_delta = 1.0,    // =
-                // 27 (minus) disabled — conflicts with macOS accessibility zoom
-                // Use menu click or ⌘0 to reset instead
-                29 => pending_font_reset = true,    // 0
-                40 => clearFocusedTerminal(),  // k
-                9 => pasteFocusedTerminal(),   // v
-                2 => { // d — split right
-                    splitFocused(.horizontal);
-                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
-                    if (getFocusedView()) |v| {
-                        const w = objc.msgSend(v, objc.sel("window"));
-                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
-                    }
-                },
-                13 => { // w — close pane
-                    closeFocusedPane();
-                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
-                    if (getFocusedView()) |v| {
-                        const w = objc.msgSend(v, objc.sel("window"));
-                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
-                    }
-                },
-                30 => { // ] — next pane
-                    cycleFocus(true);
-                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
-                    if (getFocusedView()) |v| {
-                        const w = objc.msgSend(v, objc.sel("window"));
-                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
-                    }
-                },
-                33 => { // [ — prev pane
-                    cycleFocus(false);
-                    if (window_ui.main_panel_view) |panel| layoutActiveSession(panel);
-                    if (getFocusedView()) |v| {
-                        const w = objc.msgSend(v, objc.sel("window"));
-                        objc.msgSendVoid1(w, objc.sel("makeFirstResponder:"), v);
-                    }
-                },
-                17 => sidebar_mod.showNewTerminalForCurrentProject(), // t
-                36 => sidebar_mod.activateSelectedSidebarItem(), // enter
-                else => {},
-            }
-        }
+        // All ⌘ shortcuts are handled by menu key equivalents (window.zig)
+        // and performKeyEquivalent: (font size). Nothing to do here.
         return;
     }
 
@@ -2117,14 +2099,7 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
                 }
 
                 entry.vterm.feed(buf[0..n]);
-
-                // Flush vterm output back to PTY (e.g. cursor position responses)
-                var out_buf: [256]u8 = undefined;
-                while (true) {
-                    const out_n = entry.vterm.read(&out_buf);
-                    if (out_n == 0) break;
-                    entry.pty.write(out_buf[0..out_n]);
-                }
+                // Output callback handles flushing vterm → PTY automatically
 
                 got_data = true;
             }

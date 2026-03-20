@@ -21,6 +21,9 @@ Kill before redeploying: `pkill -9 -f my-term`
 5. **`sed -i` on source files is dangerous** — it can delete lines containing patterns you didn't intend to match. Use the `edit` tool for surgical changes.
 6. **No window on launch?** — usually means `appDidFinishLaunching` hit an `unreachable`. Add `std.debug.print` breadcrumbs and run `./zig-out/bin/my-term` directly (not via `open`) to see stderr.
 7. **`bufPrint` alias crash** — never `bufPrint` into a buffer that contains a slice you're formatting from. Copy to a temp buffer first.
+8. **`vterm_set_size` hangs without output callback** — libvterm's default 4096-byte output buffer fills during resize. Always register `vterm_output_set_callback` so output flushes synchronously to the PTY.
+9. **`sbPopLine` must fill the cells buffer** — if you return 1 from `sb_popline` without writing valid `VTermScreenCell` data into the buffer, `vterm_set_size` hangs. Currently we return 0 (no restore) as a workaround.
+10. **Menu key equivalents vs `performKeyEquivalent:`** — Use NSMenuItem key equivalents for shortcuts that should work regardless of focus. Only use `performKeyEquivalent:` for shortcuts needing deferred handling (e.g. font size via `pending_font_delta`).
 
 ## Architecture
 
@@ -33,9 +36,9 @@ See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system desig
 | `src/pty.zig` | 141 | PTY/fork management — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
 | `src/project.zig` | 339 | Project/terminal data model + JSON persistence |
 | `src/app.zig` | 37 | Central app state (wraps ProjectStore) |
-| `src/ui/window.zig` | 692 | App delegate, window, header bar, menu bar — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
+| `src/ui/window.zig` | 739 | App delegate, window, header bar, menu bar — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
 | `src/ui/sidebar.zig` | 1595 | Project list, drag-and-drop, navigation — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/term_text_view.zig` | 2095 | Terminal grid rendering, input, selection — [ai_docs/rendering.md](ai_docs/rendering.md) |
+| `src/ui/term_text_view.zig` | 2163 | Terminal grid rendering, input, selection — [ai_docs/rendering.md](ai_docs/rendering.md) |
 
 ## Key Shortcuts
 
@@ -46,7 +49,7 @@ See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system desig
 | ⇧⌘D | Split vertical |
 | ⌘W | Close pane |
 | ⌘] / ⌘[ | Cycle focus between panes |
-| ⌘= / ⌘- | Font size increase/decrease |
+| ⌘= / ⌘- / ⌘0 | Font size increase/decrease/reset |
 | ⌘⇧] / ⌘⇧[ | Navigate sidebar (highlight only) |
 | ⌘Enter | Activate highlighted sidebar item |
 | ⌘V | Paste with bracketed paste mode |

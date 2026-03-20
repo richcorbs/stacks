@@ -651,27 +651,51 @@ fn createMainMenu(nsapp: objc.id) void {
         objc.sel("initWithTitle:"),
         objc.nsString("Shortcuts"),
     );
-    // No key equivalents — keyboard shortcuts handled in keyDown.
-    // Menu items are clickable via delegate target.
-    addMenuItem(shell_menu, NSMenuItem, "New Terminal          ⌘T", "", "newTerminal:");
-    addMenuItem(shell_menu, NSMenuItem, "Add Project…            ⌘O", "", "addProject:");
+    // Most shortcuts use real key equivalents so macOS dispatches them
+    // regardless of which view has focus. Font size (⌘= ⌘- ⌘0) is handled
+    // by performKeyEquivalent: in term_text_view.zig (deferred via pending_font_delta).
+    addMenuItem(shell_menu, NSMenuItem, "New Terminal", "t", "newTerminal:");
+    addMenuItem(shell_menu, NSMenuItem, "Add Project…", "o", "addProject:");
     addMenuSeparator(shell_menu);
-    addMenuItem(shell_menu, NSMenuItem, "Split Right               ⌘D", "", "splitHorizontal:");
-    addMenuItem(shell_menu, NSMenuItem, "Split Down             ⇧⌘D", "", "splitVertical:");
-    addMenuItem(shell_menu, NSMenuItem, "Close Pane             ⌘W", "", "closePane:");
-    addMenuItem(shell_menu, NSMenuItem, "Next Pane                ⌘]", "", "focusNextPane:");
-    addMenuItem(shell_menu, NSMenuItem, "Previous Pane         ⌘[", "", "focusPrevPane:");
+    addMenuItem(shell_menu, NSMenuItem, "Split Right", "d", "splitHorizontal:");
+    addMenuItem(shell_menu, NSMenuItem, "Close Pane", "w", "closePane:");
+    addMenuItem(shell_menu, NSMenuItem, "Next Pane", "]", "focusNextPane:");
+    addMenuItem(shell_menu, NSMenuItem, "Previous Pane", "[", "focusPrevPane:");
     addMenuSeparator(shell_menu);
-    addMenuItem(shell_menu, NSMenuItem, "Increase Font          ⌘=", "", "increaseFontSize:");
-    addMenuItem(shell_menu, NSMenuItem, "Decrease Font         ⌘-", "", "decreaseFontSize:");
-    addMenuItem(shell_menu, NSMenuItem, "Reset Font               ⌘0", "", "resetFontSize:");
+    addMenuItem(shell_menu, NSMenuItem, "Increase Font", "", "increaseFontSize:");
+    addMenuItem(shell_menu, NSMenuItem, "Decrease Font", "", "decreaseFontSize:");
+    addMenuItem(shell_menu, NSMenuItem, "Reset Font", "", "resetFontSize:");
     addMenuSeparator(shell_menu);
-    addMenuItem(shell_menu, NSMenuItem, "Clear Terminal          ⌘K", "", "clearTerminal:");
-    addMenuItem(shell_menu, NSMenuItem, "Paste                        ⌘V", "", "pasteTerminal:");
+    addMenuItem(shell_menu, NSMenuItem, "Clear Terminal", "k", "clearTerminal:");
+    addMenuItem(shell_menu, NSMenuItem, "Paste", "v", "pasteTerminal:");
     addMenuSeparator(shell_menu);
-    addMenuItem(shell_menu, NSMenuItem, "Next Sidebar           ⌘⇧]", "", "sidebarNext:");
-    addMenuItem(shell_menu, NSMenuItem, "Previous Sidebar     ⌘⇧[", "", "sidebarPrev:");
-    addMenuItem(shell_menu, NSMenuItem, "Activate Sidebar    ⌘Enter", "", "sidebarActivate:");
+    // Items needing ⌘⇧ modifier
+    {
+        const initItem: *const fn (objc.id, objc.SEL, objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const setMask: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        const cmd_shift = (1 << 20) | (1 << 17); // NSEventModifierFlagCommand | NSEventModifierFlagShift
+
+        const items = [_]struct { title: []const u8, key: []const u8, action: [*:0]const u8 }{
+            .{ .title = "Split Down", .key = "d", .action = "splitVertical:" },
+            .{ .title = "Next Sidebar", .key = "]", .action = "sidebarNext:" },
+            .{ .title = "Previous Sidebar", .key = "[", .action = "sidebarPrev:" },
+        };
+        for (items) |entry| {
+            const item = initItem(
+                objc.msgSend(NSMenuItem, objc.sel("alloc")),
+                objc.sel("initWithTitle:action:keyEquivalent:"),
+                objc.nsString(entry.title),
+                objc.sel(entry.action),
+                objc.nsString(entry.key),
+            );
+            setMask(item, objc.sel("setKeyEquivalentModifierMask:"), cmd_shift);
+            if (app_delegate) |delegate| objc.msgSendVoid1(item, objc.sel("setTarget:"), delegate);
+            objc.msgSendVoid1(shell_menu, objc.sel("addItem:"), item);
+        }
+    }
+    addMenuItem(shell_menu, NSMenuItem, "Activate Sidebar", "\r", "sidebarActivate:");
     objc.msgSendVoid1(shell_item, objc.sel("setSubmenu:"), shell_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), shell_item);
 

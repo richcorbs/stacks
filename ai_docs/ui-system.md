@@ -47,11 +47,21 @@ Registered as `MyTermAppDelegate` (NSObject subclass). Key actions:
 - Sidebar: `sidebarNext:`, `sidebarPrev:`, `sidebarActivate:`, `newTerminal:`
 - Terminal CRUD: `openTerminal:`, `editTerminal:`, `deleteTerminal:`, `addTerminalToProject:`, `addProject:`
 
-### Menu Bar
+### Menu Bar & Keyboard Shortcuts
 
 Created programmatically with two menus:
 - **App menu**: Quit (⌘Q)
-- **Shell menu**: Split (⌘D/⇧⌘D), Close (⌘W), Pane nav (⌘]/⌘[), Font (⌘+/⌘-), Sidebar nav (⌘⇧]/⌘⇧[), New Terminal (⌘T), Add Project (⌘O)
+- **Shell menu**: All other shortcuts
+
+**Keybinding architecture** — three layers, each with a clear responsibility:
+
+1. **NSMenuItem key equivalents** (window.zig `createMainMenu`) — handles most ⌘ shortcuts (⌘T, ⌘D, ⌘⇧D, ⌘W, ⌘], ⌘[, ⌘K, ⌘V, ⌘⇧], ⌘⇧[, ⌘Enter, ⌘O). These work regardless of which view has focus. Menu actions dispatch to the app delegate which calls into term_text_view/sidebar.
+2. **`performKeyEquivalent:`** (term_text_view.zig) — intercepts only ⌘=, ⌘-, ⌘0 (font size). These need deferred handling via `pending_font_delta`/`pending_font_reset` to avoid beachball from key auto-repeat during `vterm_set_size`.
+3. **`keyDown:`** (term_text_view.zig) — handles non-⌘ input only (typing, Ctrl keys → vterm). Returns immediately if ⌘ is held.
+
+For ⌘⇧ shortcuts, NSMenuItem `setKeyEquivalentModifierMask:` is used with `NSEventModifierFlagCommand | NSEventModifierFlagShift`.
+
+Font size menu items have empty key equivalents (display only) since `performKeyEquivalent:` handles them before the menu system.
 
 ## Sidebar (`src/ui/sidebar.zig`)
 

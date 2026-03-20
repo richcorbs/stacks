@@ -50,6 +50,8 @@ pub const RawScreenCell = extern struct {
 
 Implemented via `sb_pushline` / `sb_popline` callbacks registered on the vterm screen. Scrollback lines are stored in a circular buffer (512 lines per pane). The callbacks are set using raw function pointers to bypass the opaque `VTermScreenCallbacks` struct.
 
+**`sb_popline` workaround**: Currently always returns 0 (no lines to restore). Returning 1 requires filling the `VTermScreenCell` buffer with exact binary layout data; an incomplete implementation causes `vterm_set_size` to hang. Scrollback *viewing* still works via the `scroll_offset` mechanism — this only affects restoring lines when the terminal grows.
+
 ### Data Flow
 
 ```
@@ -77,13 +79,15 @@ When the view bounds change:
 - Font: Menlo, 13pt default (8-36pt range)
 - Poll interval: 16ms (~60fps)
 
-## VTerm Output Flushing
+## VTerm Output Callback
 
-After feeding PTY data into libvterm, the output buffer must be flushed back to the PTY. This handles terminal query responses like DSR (`\x1b[6n` → `\x1b[<row>;<col>R`), device attributes (DA), and other sequences that programs like atuin, starship, and fzf depend on.
+libvterm generates output (terminal query responses like DSR, device attributes, etc.) that must be sent back to the PTY. This is handled via `vterm_output_set_callback` which calls our callback synchronously whenever vterm produces output.
 
 ```
-PTY.read(buf)  → VTerm.feed(buf)  → VTerm.read(out_buf)  → PTY.write(out_buf)
+PTY.read(buf)  → VTerm.feed(buf)  → vtermOutputCallback(s, len)  → PTY.write(s)
 ```
+
+**Critical**: Do NOT use the deprecated buffer-based API (`vterm_output_read`) instead. libvterm's internal output buffer is only 4096 bytes. During `vterm_set_size`, vterm can generate enough output to fill the buffer and hang. The callback approach flushes immediately and avoids this.
 
 ## 256-Color Support
 
