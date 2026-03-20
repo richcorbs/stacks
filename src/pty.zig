@@ -53,7 +53,8 @@ pub const Pty = struct {
             const shell: [*:0]const u8 = if (shell_env) |s| s.ptr else "/bin/zsh";
 
             if (cmd_z) |cmd_ptr| {
-                var argv = [_][*c]const u8{ shell, "-c", cmd_ptr, null };
+                // Use -lc for login shell so PATH/env from .zshrc/.zprofile is loaded
+                var argv = [_][*c]const u8{ shell, "-lc", cmd_ptr, null };
                 _ = c.execvp(shell, @ptrCast(&argv));
             } else {
                 // Interactive login shell
