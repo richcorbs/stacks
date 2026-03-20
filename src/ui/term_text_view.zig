@@ -639,6 +639,34 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
     }
 }
 
+/// Update focus borders on all panes without re-laying out.
+fn updateFocusBorders(session: *Session) void {
+    const NSColor = objc.getClass("NSColor") orelse return;
+    const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+
+    var leaves: std.ArrayListUnmanaged(usize) = .{};
+    defer leaves.deinit(allocator);
+    session.root.collectLeaves(&leaves);
+
+    for (leaves.items) |slot| {
+        if (terminals[slot]) |*entry| {
+            const layer = objc.msgSend(entry.view, objc.sel("layer"));
+            if (slot == session.focused_slot) {
+                setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
+                const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
+                objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), objc.msgSend(color, objc.sel("CGColor")));
+            } else {
+                setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.5);
+                const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.2, 0.24, 0.3, 1.0);
+                objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), objc.msgSend(color, objc.sel("CGColor")));
+            }
+        }
+    }
+}
+
 /// Split the focused pane in the active session.
 pub fn splitFocused(direction: SplitDirection) void {
     const session_idx = active_session orelse return;
@@ -1216,7 +1244,8 @@ fn termMouseDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
         if (sessions[session_idx]) |*session| {
             session.focused_slot = entry_found.slot;
             // Don't call layoutActiveSession here — it would destroy this view
-            // and break mouse drag tracking. Just update the focus border.
+            // and break mouse drag tracking. Just update the focus borders.
+            updateFocusBorders(session);
         }
     }
 
@@ -1426,7 +1455,7 @@ fn showCopiedToast(term_view: objc.id) void {
     const NSColor = objc.getClass("NSColor") orelse return;
     const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
-    const bg = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.2, 0.25, 0.32, 0.95);
+    const bg = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.2, 0.25, 0.32, 1.0);
     const cgColor = objc.msgSend(bg, objc.sel("CGColor"));
     objc.msgSendVoid1(layer, objc.sel("setBackgroundColor:"), cgColor);
     const setCornerRadius: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
@@ -1435,7 +1464,7 @@ fn showCopiedToast(term_view: objc.id) void {
 
     // Label
     const label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Copied to clipboard"));
-    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, toast_w, toast_h));
+    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(0, 10, toast_w, 16));
 
     const NSFont = objc.getClass("NSFont") orelse return;
     const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
