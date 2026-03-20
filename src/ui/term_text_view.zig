@@ -1884,11 +1884,11 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
         const NSString = objc.getClass("NSString") orelse continue;
         const initWithBytes: *const fn (objc.id, objc.SEL, [*]const u8, objc.NSUInteger, objc.NSUInteger) callconv(.c) objc.id =
             @ptrCast(&objc.c.objc_msgSend);
-        const row_nsstr = initWithBytes(
+        const row_nsstr = objc.msgSend(initWithBytes(
             objc.msgSend(NSString, objc.sel("alloc")),
             objc.sel("initWithBytes:length:encoding:"),
             &row_buf, row_len, 4,
-        );
+        ), objc.sel("autorelease"));
 
         const NSMutableAS = objc.getClass("NSMutableAttributedString") orelse continue;
         const astr = objc.msgSend(objc.msgSend1(
