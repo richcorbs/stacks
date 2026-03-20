@@ -932,6 +932,25 @@ pub fn destroyTerminalAtSlot(slot: usize) void {
 }
 
 /// Destroy all terminals.
+/// Destroy a session and all its terminal panes.
+pub fn destroySession(session_idx: usize) void {
+    if (session_idx >= MAX_TERMS) return;
+    if (sessions[session_idx]) |*session| {
+        var leaves: std.ArrayListUnmanaged(usize) = .{};
+        defer leaves.deinit(allocator);
+        session.root.collectLeaves(&leaves);
+        for (leaves.items) |slot| {
+            destroyTerminalAtSlot(slot);
+        }
+        session.root.destroyTree();
+        allocator.destroy(session.root);
+        sessions[session_idx] = null;
+    }
+    if (active_session != null and active_session.? == session_idx) {
+        active_session = null;
+    }
+}
+
 pub fn destroyAllTerminals() void {
     for (&terminals) |*t| {
         if (t.*) |*entry| {

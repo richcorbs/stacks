@@ -380,6 +380,28 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
     if (is_header) {
         if (project_idx) |pi| {
             setRowInfoIdx(row, pi + PROJECT_IDX_OFFSET);
+
+            // Right-click context menu for project
+            const NSMenu = objc.getClass("NSMenu") orelse return row;
+            const NSMenuItem = objc.getClass("NSMenuItem") orelse return row;
+            const menu = objc.msgSend(NSMenu, objc.sel("new"));
+
+            const initItem: *const fn (objc.id, objc.SEL, objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
+                @ptrCast(&objc.c.objc_msgSend);
+            const setTag: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
+                @ptrCast(&objc.c.objc_msgSend);
+
+            const delete_item = initItem(
+                objc.msgSend(NSMenuItem, objc.sel("alloc")),
+                objc.sel("initWithTitle:action:keyEquivalent:"),
+                objc.nsString("Delete Project"),
+                objc.sel("deleteProject:"),
+                objc.nsString(""),
+            );
+            setTag(delete_item, objc.sel("setTag:"), @intCast(pi));
+            objc.msgSendVoid1(menu, objc.sel("addItem:"), delete_item);
+
+            objc.msgSendVoid1(row, objc.sel("setMenu:"), menu);
         }
     }
 
@@ -1063,6 +1085,55 @@ fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: 
 }
 
 /// Show a delete confirmation dialog for the terminal at the given info index.
+pub fn showDeleteProjectDialog(project_index: usize) void {
+    const application = g_sidebar_app orelse return;
+    const projs = application.projects();
+    if (project_index >= projs.len) return;
+    const proj = projs[project_index];
+
+    const NSAlert = objc.getClass("NSAlert") orelse return;
+    const alert = objc.msgSend(NSAlert, objc.sel("new"));
+
+    var msg_buf: [256]u8 = undefined;
+    const msg = std.fmt.bufPrint(&msg_buf, "Delete project \"{s}\"?", .{proj.name}) catch "Delete project?";
+    objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString(msg));
+    objc.msgSendVoid1(alert, objc.sel("setInformativeText:"),
+        objc.nsString("This will remove the project from the sidebar and close all its terminals. The files on disk will not be affected."));
+
+    // Set alert style to critical (warning icon)
+    const setStyle: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setStyle(alert, objc.sel("setAlertStyle:"), 2); // NSAlertStyleCritical
+
+    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Delete"));
+    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Cancel"));
+
+    const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
+    const result = objc.msgSendUInt(alert, objc.sel("runModal"));
+    if (result != NSAlertFirstButtonReturn) return;
+
+    // Close all terminals for this project
+    for (proj.terminals.items) |t| {
+        for (term_row_infos, 0..) |info_opt, ti| {
+            if (info_opt) |info| {
+                if (std.mem.eql(u8, info.terminal_id, t.id)) {
+                    term_text_view.destroySession(ti);
+                }
+            }
+        }
+    }
+
+    // Remove the project
+    _ = application.store.projects.orderedRemove(project_index);
+    application.store.save() catch {};
+
+    // Clear selection if it was in this project
+    selected_terminal_index = null;
+    selected_nav_index = null;
+
+    rebuildSidebar(application);
+}
+
 pub fn showDeleteTerminalDialog(info_index: usize) void {
     const application = g_sidebar_app orelse return;
     if (info_index >= term_row_infos.len) return;

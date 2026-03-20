@@ -95,6 +95,7 @@ fn registerDelegateClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("openTerminal:"), &onOpenTerminal, "v@:@");
     _ = objc.addMethod(cls, objc.sel("editTerminal:"), &onEditTerminal, "v@:@");
     _ = objc.addMethod(cls, objc.sel("deleteTerminal:"), &onDeleteTerminal, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("deleteProject:"), &onDeleteProject, "v@:@");
 
     objc.registerClassPair(cls);
     return cls;
@@ -282,6 +283,9 @@ fn onDeleteTerminal(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void 
 }
 fn onEditTerminal(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
     if (getTagFromSender(sender)) |idx| sidebar.showEditTerminalDialog(idx);
+}
+fn onDeleteProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
+    if (getTagFromSender(sender)) |idx| sidebar.showDeleteProjectDialog(idx);
 }
 fn onAddTerminalToProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
     if (getTagFromSender(sender)) |idx| sidebar.showAddTerminalDialog(idx);
@@ -633,7 +637,7 @@ fn createMainMenu(nsapp: objc.id) void {
     const shell_menu = objc.msgSend1(
         objc.msgSend(NSMenu, objc.sel("alloc")),
         objc.sel("initWithTitle:"),
-        objc.nsString("Shell"),
+        objc.nsString("Shortcuts"),
     );
     addMenuItem(shell_menu, NSMenuItem, "Split Right", "d", "splitHorizontal:");
     addMenuItem(shell_menu, NSMenuItem, "Split Down", "D", "splitVertical:");
