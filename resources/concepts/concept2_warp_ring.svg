@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#1a1a2e"/>
+    </linearGradient>
+    <linearGradient id="ring2a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="ring2b" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ec4899"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="url(#bg2)"/>
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="160" fill="none" stroke="url(#ring2a)" stroke-width="18" opacity="0.9"/>
+  <!-- Inner ring, rotated/offset for depth -->
+  <ellipse cx="256" cy="256" rx="110" ry="140" fill="none" stroke="url(#ring2b)" stroke-width="12" opacity="0.7" transform="rotate(-20,256,256)"/>
+  <!-- Third ring for warp effect -->
+  <ellipse cx="256" cy="256" rx="140" ry="90" fill="none" stroke="#06b6d4" stroke-width="8" opacity="0.4" transform="rotate(35,256,256)"/>
+  <!-- Center glow -->
+  <circle cx="256" cy="256" r="30" fill="#e2e8f0" opacity="0.15"/>
+  <circle cx="256" cy="256" r="8" fill="#e2e8f0" opacity="0.6"/>
+  <!-- Accent particles -->
+  <circle cx="140" cy="160" r="4" fill="#06b6d4" opacity="0.6"/>
+  <circle cx="380" cy="340" r="3" fill="#ec4899" opacity="0.5"/>
+  <circle cx="350" cy="150" r="5" fill="#8b5cf6" opacity="0.4"/>
+  <circle cx="170" cy="370" r="3" fill="#f97316" opacity="0.5"/>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="#000000"/>
+  <!-- > chevron -->
+  <polyline points="120,120 370,256 120,392" fill="none" stroke="#ffffff" stroke-width="56" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

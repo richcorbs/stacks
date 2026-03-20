@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#020617"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="face3a" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="face3b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+    <linearGradient id="face3c" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7dd3fc"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="url(#bg3)"/>
+  <!-- Geometric "M" made of crystal/gem facets -->
+  <!-- Left leg -->
+  <polygon points="110,380 140,130 190,130 170,380" fill="url(#face3a)" opacity="0.9"/>
+  <polygon points="140,130 190,130 200,160 155,160" fill="url(#face3c)" opacity="0.7"/>
+  <!-- Left diagonal -->
+  <polygon points="190,130 256,280 220,280 170,160" fill="url(#face3b)" opacity="0.85"/>
+  <!-- Right diagonal -->
+  <polygon points="322,130 256,280 292,280 342,160" fill="url(#face3a)" opacity="0.85"/>
+  <!-- Right leg -->
+  <polygon points="402,380 372,130 322,130 342,380" fill="url(#face3b)" opacity="0.9"/>
+  <polygon points="372,130 322,130 312,160 357,160" fill="url(#face3c)" opacity="0.7"/>
+  <!-- Center V highlight -->
+  <polygon points="256,280 220,280 256,200 292,280" fill="#7dd3fc" opacity="0.25"/>
+  <!-- Reflection lines -->
+  <line x1="150" y1="200" x2="160" y2="300" stroke="#bae6fd" stroke-width="2" opacity="0.3"/>
+  <line x1="355" y1="200" x2="348" y2="300" stroke="#bae6fd" stroke-width="2" opacity="0.3"/>
+  <!-- Subtle sparkle -->
+  <circle cx="190" cy="130" r="6" fill="#e0f2fe" opacity="0.5"/>
+  <circle cx="322" cy="130" r="6" fill="#e0f2fe" opacity="0.5"/>
+  <circle cx="256" cy="280" r="4" fill="#e0f2fe" opacity="0.4"/>
+</svg>

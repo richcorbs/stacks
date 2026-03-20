@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg4" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0%" stop-color="#18181b"/>
+      <stop offset="100%" stop-color="#09090b"/>
+    </linearGradient>
+    <linearGradient id="layer4a" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ef4444"/>
+    </linearGradient>
+    <linearGradient id="layer4b" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="layer4c" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="url(#bg4)"/>
+  <!-- Three stacked rounded rectangles (like split terminal panes) -->
+  <!-- Back layer (orange-red) -->
+  <rect x="100" y="100" width="280" height="180" rx="20" fill="url(#layer4a)" opacity="0.85" transform="rotate(-6,240,190)"/>
+  <!-- Middle layer (purple) -->
+  <rect x="120" y="160" width="280" height="180" rx="20" fill="url(#layer4b)" opacity="0.85" transform="rotate(2,260,250)"/>
+  <!-- Front layer (cyan-blue) -->
+  <rect x="130" y="220" width="280" height="180" rx="20" fill="url(#layer4c)" opacity="0.9" transform="rotate(-1,270,310)"/>
+  <!-- Minimal text lines on front pane -->
+  <rect x="165" y="270" width="90" height="8" rx="4" fill="#e2e8f0" opacity="0.5" transform="rotate(-1,210,274)"/>
+  <rect x="165" y="290" width="140" height="8" rx="4" fill="#e2e8f0" opacity="0.35" transform="rotate(-1,235,294)"/>
+  <rect x="165" y="310" width="60" height="8" rx="4" fill="#e2e8f0" opacity="0.25" transform="rotate(-1,195,314)"/>
+  <!-- Blinking cursor on front pane -->
+  <rect x="165" y="332" width="12" height="18" rx="2" fill="#e2e8f0" opacity="0.7" transform="rotate(-1,171,341)"/>
+</svg>
