@@ -581,8 +581,14 @@ pub fn layoutActiveSession(panel: objc.id) void {
         if (window_ui.header_name_label) |nl| {
             setFrame(nl, objc.sel("setFrame:"), objc.NSMakeRect(15, 12, 300, 20));
         }
-        // Git label position is set in updateHeader after text is set
-        _ = window_ui.header_git_label;
+        // Reposition git label to right edge of panel
+        if (window_ui.header_git_label) |gl| {
+            const gl_frame = objc.msgSendRect(gl, objc.sel("frame"));
+            const w = gl_frame.size.width;
+            if (w > 0) {
+                setFrame(gl, objc.sel("setFrame:"), objc.NSMakeRect(bounds.size.width - w - 16, 12, w, 20));
+            }
+        }
         // Hide changes label (unused)
         if (window_ui.header_git_changes_label) |cl| {
             setFrame(cl, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 0, 0));
