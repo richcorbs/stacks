@@ -1247,6 +1247,11 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
     const line = ScrollLine{ .cells = cells, .len = num_cols };
     entry.scrollback.append(allocator, line);
 
+    // If user is scrolled back, adjust offset to keep viewport stable
+    if (entry.scroll_offset < 0) {
+        entry.scroll_offset -= 1;
+    }
+
     return 1;
 }
 
