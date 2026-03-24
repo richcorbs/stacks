@@ -270,6 +270,23 @@ fn downloadAndInstall(url: []const u8) void {
         _ = cp.wait() catch return;
     }
 
+    // Save window frame before quitting
+    {
+        const NSApp_class2 = objc.getClass("NSApplication") orelse return;
+        const nsapp2 = objc.msgSend(NSApp_class2, objc.sel("sharedApplication"));
+        const main_win = objc.msgSend(nsapp2, objc.sel("mainWindow"));
+        if (@intFromPtr(main_win) != 0) {
+            const saveName: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) void =
+                @ptrCast(&objc.c.objc_msgSend);
+            saveName(main_win, objc.sel("saveFrameUsingName:"), objc.nsString("StacksMainWindow"));
+        }
+        // Flush UserDefaults to disk
+        if (objc.getClass("NSUserDefaults")) |NSUserDefaults| {
+            const defaults = objc.msgSend(NSUserDefaults, objc.sel("standardUserDefaults"));
+            objc.msgSendVoid(defaults, objc.sel("synchronize"));
+        }
+    }
+
     // Relaunch and quit
     {
         var open = std.process.Child.init(&[_][]const u8{ "open", "-n", dest }, allocator);
