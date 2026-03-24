@@ -1,6 +1,10 @@
-# Stacks
+<p align="center">
+  <img src="resources/icon.png" width="128" height="128" alt="Stacks icon">
+</p>
 
-A native macOS terminal emulator built with **Zig 0.15** and the ObjC runtime for AppKit, **libvterm** for terminal emulation, and PTY for shell processes.
+<h1 align="center">Stacks</h1>
+
+<p align="center">A native macOS terminal emulator built with <strong>Zig 0.15</strong> and the ObjC runtime for AppKit, <strong>libvterm</strong> for terminal emulation, and PTY for shell processes.</p>
 
 ## Features
 
