@@ -96,7 +96,7 @@ fn fetchLatestVersion() !VersionInfo {
         allocator,
     );
     result.stdout_behavior = .Pipe;
-    result.stderr_behavior = .Ignore;
+    result.stderr_behavior = .Pipe;
     try result.spawn();
     var stdout_list: std.ArrayListAligned(u8, null) = .empty;
     defer stdout_list.deinit(allocator);
