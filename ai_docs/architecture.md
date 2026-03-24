@@ -54,7 +54,7 @@ SplitNode = union {
 ```
 ProjectStore {
     projects: ArrayList(Project)
-    file_path: "~/Library/Application Support/my-term/projects.json"
+    file_path: "~/Library/Application Support/stacks/projects.json"
 }
 
 Project { id, name, path, terminals: ArrayList(Terminal) }

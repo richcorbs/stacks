@@ -1,5 +1,5 @@
 /// Project management — CRUD, persistence, and data model.
-/// Mirrors the Electron app's projects.json storage.
+/// CRUD operations, JSON persistence, and data model for projects and terminals.
 const std = @import("std");
 
 pub const Terminal = struct {

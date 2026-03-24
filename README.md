@@ -1,97 +1,83 @@
-# my-term (Zig + libghostty)
+# Stacks
 
-A native macOS project-shell manager built with Zig and [libghostty](https://github.com/ghostty-org/ghostty).
-
-This is a port of the Electron/xterm.js version, replacing:
-- **Electron** → native AppKit (via Zig's ObjC interop)
-- **xterm.js + node-pty** → libghostty (terminal emulation, PTY, Metal rendering)
-- **Node.js** → Zig (git operations, project persistence, session management)
+A native macOS terminal emulator built with **Zig 0.15** and the ObjC runtime for AppKit, **libvterm** for terminal emulation, and PTY for shell processes.
 
 ## Features
 
-- **Project management** — Add directories as projects, persisted to `~/Library/Application Support/my-term/projects.json`
-- **Multiple terminals per project** — Each with optional startup commands
-- **Split panes per tab** — Horizontal and vertical splits (Ghostty-style)
-- **Tabs per terminal view** — Multiple tabs within each project terminal
-- **Git integration** — Status, staging, commits, push/pull, branches, worktrees, diffs
-- **Keyboard-driven** — Full menu shortcuts for splits, tabs, and pane navigation
+- **Project management** — organize terminals by project, persisted to `~/Library/Application Support/stacks/projects.json`
+- **Multiple terminals per project** — each with optional startup commands
+- **Split panes** — horizontal (⌘D) and vertical (⇧⌘D) splits with draggable dividers
+- **Sidebar** — drag-and-drop reordering of terminals and projects
+- **Full terminal emulation** — via libvterm (xterm-256color)
+- **Scrollback** — 10,000 line history with mouse wheel scrolling
+- **Git branch display** — header bar shows branch and change count from the terminal's live cwd
+- **Copy/paste** — select to copy, ⌘V to paste with bracketed paste mode
+- **File drag-and-drop** — drop files into terminal panes (auto-escapes paths)
+- **Bell notifications** — blue dot in sidebar for background terminal activity
+- **Process status indicators** — green/gray dots for command-based terminals
+- **Persistent state** — projects, terminals, splits, cwds, font size, and window frame saved across launches
+- **Auto-update** — checks GitHub releases on startup and hourly, with in-app update dialog
+- **Box-drawing rendering** — Unicode box characters drawn with CoreGraphics for pixel-perfect table borders
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘D | Split Right (horizontal) |
-| ⇧⌘D | Split Down (vertical) |
-| ⇧⌘W | Close Pane |
-| ⌘] | Focus Next Pane |
-| ⌘[ | Focus Previous Pane |
-| ⌘+ | Grow Pane |
-| ⌘- | Shrink Pane |
-| ⌘T | New Tab |
-| ⌘W | Close Tab |
-| ⌘} | Next Tab |
-| ⌘{ | Previous Tab |
-| ⌘O | Add Project |
+| ⌘T | New terminal in current project |
+| ⌘D | Split horizontal |
+| ⇧⌘D | Split vertical |
+| ⌘W | Close pane |
+| ⌘] / ⌘[ | Cycle focus between panes |
+| ⌘= / ⌘- / ⌘0 | Font size increase/decrease/reset |
+| ⌘⇧] / ⌘⇧[ | Navigate sidebar (highlight only) |
+| ⌘Enter | Activate highlighted sidebar item |
+| ⌘V | Paste with bracketed paste mode |
+| ⌘K | Clear terminal screen and scrollback |
+| ⌘O | Add project |
 | ⌘Q | Quit |
 
 ## Architecture
 
 ```
 src/
-├── main.zig              Entry point
-├── app.zig               Application state (projects + sessions + git)
-├── project.zig           Project CRUD & JSON persistence
-├── git.zig               Git operations (wraps CLI git)
-├── terminal.zig          Split-tree session management
-├── ghostty.zig           libghostty C API wrapper
-├── objc.zig              Objective-C runtime bindings
+├── main.zig                Entry point
+├── app.zig                 Central app state (wraps ProjectStore)
+├── project.zig             Project/terminal data model + JSON persistence
+├── objc.zig                ObjC runtime bindings
+├── vt.zig                  libvterm wrapper
+├── pty.zig                 PTY/fork management
+├── version.zig             Build-time version embedding
+├── updater.zig             Auto-update checker (GitHub releases)
 └── ui/
-    ├── window.zig         Main window, menus, AppKit run loop
-    ├── sidebar.zig        Project sidebar (NSOutlineView)
-    ├── terminal_view.zig  Terminal host with NSSplitView tree
-    └── git_panel.zig      Git status/commit/log panel
-```
-
-### Split Tree Model
-
-Each terminal tab holds a **binary split tree** where:
-- **Leaf nodes** = individual ghostty surfaces (terminal + PTY + Metal renderer)
-- **Interior nodes** = horizontal or vertical splits with adjustable ratios
-
-This mirrors Ghostty's own split model. The tree maps to nested `NSSplitView` instances.
-
-```
-Tab "1"
-└── Split (horizontal, 50/50)
-    ├── Leaf [surface A] ← focused
-    └── Split (vertical, 60/40)
-        ├── Leaf [surface B]
-        └── Leaf [surface C]
+    ├── window.zig          App delegate, window, header bar, menu bar
+    ├── sidebar.zig         Project list, drag-and-drop, navigation
+    └── term_text_view.zig  Terminal grid rendering, input, selection, splits
 ```
 
 ## Building
 
 ### Prerequisites
 
-1. **Zig 0.14+**
-2. **libghostty** — Build from the [Ghostty source](https://github.com/ghostty-org/ghostty):
-   ```bash
-   cd ghostty
-   zig build -Doptimize=ReleaseFast
-   # This produces include/ and zig-out/lib/libghostty.a (or .dylib)
-   ```
+- **Zig 0.15+**
+- **libvterm** (Homebrew): `brew install libvterm`
+- **macOS** with Apple Silicon (ARM64)
 
 ### Build & Run
 
 ```bash
-# Point to your ghostty build output
-zig build -Dghostty-path=/path/to/ghostty/zig-out run
-
-# Or if installed to /usr/local/lib/ghostty:
-zig build run
+zig build                    # compile
+bash scripts/install.sh      # deploy to ~/Applications/Stacks.app
+open ~/Applications/Stacks.app
 ```
 
-## Project Data
+## Releases
 
-Projects are stored in `~/Library/Application Support/my-term/projects.json` —
-the same format as the Electron version, so you can migrate seamlessly.
+See [GitHub Releases](https://github.com/richcorbs/stacks/releases) for downloads and release notes.
+
+Release notes are also tracked in the [`releases/`](releases/) directory.
+
+## Data
+
+- **Projects**: `~/Library/Application Support/stacks/projects.json`
+- **Window frame**: persisted via `setFrameAutosaveName:` ("StacksMainWindow")
+- **App icon**: `resources/AppIcon.icns`
