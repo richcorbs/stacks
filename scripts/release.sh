@@ -52,9 +52,9 @@ PLIST
 
 # Zip it
 cd dist
-rm -f Stacks.zip
-zip -qr Stacks.zip Stacks.app
+rm -f Stacks-arm64.zip
+zip -qr Stacks-arm64.zip Stacks.app
 cd ..
 
-echo "Built dist/Stacks.zip (v${VERSION})"
-ls -lh dist/Stacks.zip
+echo "Built dist/Stacks-arm64.zip (v${VERSION})"
+ls -lh dist/Stacks-arm64.zip

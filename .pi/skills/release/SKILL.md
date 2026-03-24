@@ -37,7 +37,7 @@ description: Create a new release of Stacks. Bumps VERSION, generates release no
    gh release create v<version> \
      --title "v<version>" \
      --notes-file releases/v<version>.md \
-     dist/Stacks.zip
+     dist/Stacks-arm64.zip
    ```
 
 7. **Verify** — confirm the release is visible at https://github.com/richcorbs/stacks/releases
@@ -47,4 +47,4 @@ description: Create a new release of Stacks. Bumps VERSION, generates release no
 - `VERSION` — current version (no `v` prefix)
 - `releases/v*.md` — release notes per version
 - `scripts/release.sh` — build + package script
-- `dist/Stacks.zip` — built artifact (gitignored)
+- `dist/Stacks-arm64.zip` — built artifact (gitignored)
