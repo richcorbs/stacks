@@ -84,10 +84,23 @@ pub const Pty = struct {
         return @intCast(n);
     }
 
-    /// Write input to the PTY.
+    /// Write input to the PTY, handling partial writes and buffer-full conditions.
     pub fn write(self: *Pty, data: []const u8) void {
         if (self.master_fd < 0) return;
-        _ = c.write(self.master_fd, data.ptr, data.len);
+        var remaining = data;
+        var retries: u32 = 0;
+        while (remaining.len > 0 and retries < 100) {
+            const n = c.write(self.master_fd, remaining.ptr, remaining.len);
+            if (n > 0) {
+                remaining = remaining[@intCast(n)..];
+                retries = 0;
+            } else {
+                // EAGAIN/EWOULDBLOCK — brief sleep to let PTY drain
+                retries += 1;
+                // usleep(1000) = 1ms wait for PTY to drain
+                _ = c.usleep(1000);
+            }
+        }
     }
 
     /// Resize the PTY.
@@ -113,7 +126,7 @@ pub const Pty = struct {
 
     /// Get the current working directory of the child process.
     pub fn getCwd(self: *Pty, buf: []u8) ?[]const u8 {
-        if (self.child_pid < 0) return null;
+        if (self.child_pid < 0 or self.exited) return null;
         const libproc = struct {
             extern "c" fn proc_pidinfo(pid: c.pid_t, flavor: c_int, arg: u64, buffer: *anyopaque, buffersize: c_int) c_int;
         };

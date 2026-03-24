@@ -4,9 +4,10 @@ const objc = @import("objc.zig");
 const window_ui = @import("ui/window.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    // Use c_allocator globally — term_text_view.zig also uses c_allocator for
+    // scrollback, split strings, and cwd strings. Using the same allocator
+    // everywhere allows safe free() of strings regardless of origin.
+    const allocator = std.heap.c_allocator;
 
     // Initialize application state
     var application = try app.App.init(allocator);

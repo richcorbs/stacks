@@ -124,6 +124,12 @@ pub const ProjectStore = struct {
         const project = self.findById(project_id) orelse return error.ProjectNotFound;
         for (project.terminals.items, 0..) |t, i| {
             if (std.mem.eql(u8, t.id, terminal_id)) {
+                // Free owned strings before removing
+                self.allocator.free(t.id);
+                self.allocator.free(t.name);
+                if (t.command) |cmd| self.allocator.free(cmd);
+                if (t.splits) |s| self.allocator.free(s);
+                if (t.cwd) |c| self.allocator.free(c);
                 _ = project.terminals.orderedRemove(i);
                 try self.save();
                 return;

@@ -19,6 +19,10 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/Cellar/libvterm/0.3.3/lib" });
     exe.linkSystemLibrary("vterm");
 
+    // --- Embed version string from VERSION file ---
+    const version_file = b.path("VERSION");
+    exe.root_module.addAnonymousImport("version", .{ .root_source_file = version_file });
+
     // --- macOS frameworks ---
     exe.linkFramework("AppKit");
     exe.linkFramework("QuartzCore");

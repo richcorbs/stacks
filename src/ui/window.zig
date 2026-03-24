@@ -208,6 +208,10 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
     activate(nsapp, objc.sel("activateIgnoringOtherApps:"), objc.YES);
 
     objc.msgSendVoid1(window, objc.sel("makeFirstResponder:"), root_split);
+
+    // Start auto-update checker
+    const updater = @import("../updater.zig");
+    updater.start();
 }
 
 fn shouldTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.BOOL {

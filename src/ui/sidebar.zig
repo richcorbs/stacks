@@ -105,7 +105,21 @@ pub fn createSidebarView() objc.id {
 }
 
 /// Rebuild the sidebar content from current app state.
+/// Create an ObjC object with `new` and immediately `autorelease` it.
+/// The caller must ensure an autorelease pool is active.
+fn newAutorelease(cls: objc.id) objc.id {
+    const obj = objc.msgSend(cls, objc.sel("new"));
+    return objc.msgSend(obj, objc.sel("autorelease"));
+}
+
 pub fn rebuildSidebar(application: *app_mod.App) void {
+    // Wrap in autorelease pool — all views created during rebuild are autoreleased.
+    // They survive because addSubview: retains them. When removeAllSubviews is called
+    // on the next rebuild, removeFromSuperview drops the sole remaining retain → dealloc.
+    const NSAutoreleasePool = objc.getClass("NSAutoreleasePool") orelse return;
+    const pool = objc.msgSend(NSAutoreleasePool, objc.sel("new"));
+    defer objc.msgSendVoid(pool, objc.sel("drain"));
+
     g_sidebar_app = application;
     const list_view = project_list_view orelse return;
 
@@ -344,9 +358,9 @@ fn flippedYes(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL {
 fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, is_header: bool, project_idx: ?usize, is_active_project: bool) objc.id {
     // Use draggable view for project headers
     const row = if (is_header and project_idx != null)
-        objc.msgSend(registerDragRowClass() orelse objc.getClass("NSView") orelse unreachable, objc.sel("new"))
+        newAutorelease(registerDragRowClass() orelse objc.getClass("NSView") orelse unreachable)
     else
-        objc.msgSend(objc.getClass("NSView") orelse unreachable, objc.sel("new"));
+        newAutorelease(objc.getClass("NSView") orelse unreachable);
 
     // Set frame manually (within the flipped document view)
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
@@ -395,7 +409,7 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
             // Right-click context menu for project
             const NSMenu = objc.getClass("NSMenu") orelse return row;
             const NSMenuItem = objc.getClass("NSMenuItem") orelse return row;
-            const menu = objc.msgSend(NSMenu, objc.sel("new"));
+            const menu = newAutorelease(NSMenu);
 
             const initItem: *const fn (objc.id, objc.SEL, objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
                 @ptrCast(&objc.c.objc_msgSend);
@@ -403,7 +417,7 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
                 @ptrCast(&objc.c.objc_msgSend);
 
             const delete_item = initItem(
-                objc.msgSend(NSMenuItem, objc.sel("alloc")),
+                newAutorelease(NSMenuItem),
                 objc.sel("initWithTitle:action:keyEquivalent:"),
                 objc.nsString("Delete Project"),
                 objc.sel("deleteProject:"),
@@ -617,6 +631,7 @@ fn showDragIndicator() void {
 fn hideDragIndicator() void {
     if (drag_indicator_view) |v| {
         objc.msgSendVoid(v, objc.sel("removeFromSuperview"));
+        objc.msgSendVoid(v, objc.sel("release"));
         drag_indicator_view = null;
     }
 }
@@ -740,7 +755,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
 
     // Create label (NSTextField) instead of button so wrapper gets mouse events
     const NSTextField = objc.getClass("NSTextField") orelse unreachable;
-    const label = objc.msgSend(NSTextField, objc.sel("new"));
+    const label = newAutorelease(NSTextField);
     objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(name));
     setBool(label, objc.sel("setBezeled:"), objc.NO);
     setBool(label, objc.sel("setDrawsBackground:"), objc.NO);
@@ -773,7 +788,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
 
     // Draggable wrapper view
     const drag_cls = registerDragRowClass() orelse objc.getClass("NSView") orelse unreachable;
-    const wrapper = objc.msgSend(drag_cls, objc.sel("new"));
+    const wrapper = newAutorelease(drag_cls);
     setFrame(wrapper, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, 200, height));
 
     setBool(wrapper, objc.sel("setWantsLayer:"), objc.YES);
@@ -805,23 +820,25 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), label);
 
     // Show blue bell dot if this terminal has a pending notification
-    const bell_idx = term_row_info_count;
-    if (bell_idx < term_text_view.bell_active.len and term_text_view.bell_active[bell_idx]) {
-        const dot = objc.msgSend(objc.getClass("NSView") orelse unreachable, objc.sel("new"));
-        setFrame(dot, objc.sel("setFrame:"), objc.NSMakeRect(18, (height - 8) / 2, 8, 8));
-        setBool(dot, objc.sel("setWantsLayer:"), objc.YES);
-        const dot_layer = objc.msgSend(dot, objc.sel("layer"));
-        setLayerBgColor(dot_layer, 0.29, 0.565, 0.851); // blue #4a90d9
-        const setCornerRadius: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
-            @ptrCast(&objc.c.objc_msgSend);
-        setCornerRadius(dot_layer, objc.sel("setCornerRadius:"), 4.0); // circle
-        objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), dot);
+    const bell_session_idx = term_text_view.findSessionByTerminalId(terminal_id);
+    if (bell_session_idx) |bsi| {
+        if (bsi < term_text_view.bell_active.len and term_text_view.bell_active[bsi]) {
+            const dot = newAutorelease(objc.getClass("NSView") orelse unreachable);
+            setFrame(dot, objc.sel("setFrame:"), objc.NSMakeRect(18, (height - 8) / 2, 8, 8));
+            setBool(dot, objc.sel("setWantsLayer:"), objc.YES);
+            const dot_layer = objc.msgSend(dot, objc.sel("layer"));
+            setLayerBgColor(dot_layer, 0.29, 0.565, 0.851); // blue #4a90d9
+            const setCornerRadius: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+                @ptrCast(&objc.c.objc_msgSend);
+            setCornerRadius(dot_layer, objc.sel("setCornerRadius:"), 4.0); // circle
+            objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), dot);
+        }
     }
 
     // Show process status indicator for terminals with commands
     if (command != null) {
-        const is_alive = term_text_view.isSessionAlive(term_row_info_count);
-        const status_dot = objc.msgSend(objc.getClass("NSView") orelse unreachable, objc.sel("new"));
+        const is_alive = term_text_view.isSessionAlive(terminal_id);
+        const status_dot = newAutorelease(objc.getClass("NSView") orelse unreachable);
         const dot_size: objc.CGFloat = 6;
         const dot_x: objc.CGFloat = 200 - 24; // right-aligned with margin
         const dot_y: objc.CGFloat = (height - dot_size) / 2.0;
@@ -865,7 +882,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     // Set up right-click context menu on wrapper
     const NSMenu = objc.getClass("NSMenu") orelse unreachable;
     const NSMenuItem = objc.getClass("NSMenuItem") orelse unreachable;
-    const menu = objc.msgSend(NSMenu, objc.sel("new"));
+    const menu = newAutorelease(NSMenu);
 
     const setTag: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -873,7 +890,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     const initItem: *const fn (objc.id, objc.SEL, objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
     const rename_item = initItem(
-        objc.msgSend(NSMenuItem, objc.sel("alloc")),
+        newAutorelease(NSMenuItem),
         objc.sel("initWithTitle:action:keyEquivalent:"),
         objc.nsString("Edit"),
         objc.sel("editTerminal:"),
@@ -888,7 +905,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
 
     // Delete
     const delete_item = initItem(
-        objc.msgSend(NSMenuItem, objc.sel("alloc")),
+        newAutorelease(NSMenuItem),
         objc.sel("initWithTitle:action:keyEquivalent:"),
         objc.nsString("Delete"),
         objc.sel("deleteTerminal:"),
@@ -997,8 +1014,8 @@ pub fn openTerminalAtIndex(index: usize) void {
         break :blk info.path;
     };
 
-    // Create or switch to session
-    if (!term_text_view.getOrCreateSession(index, effective_cwd, info.command)) return;
+    // Create or switch to session (keyed by terminal_id, not sidebar position)
+    if (!term_text_view.getOrCreateSession(info.terminal_id, effective_cwd, info.command)) return;
 
     // Layout the session's split tree in the main panel
     term_text_view.layoutActiveSession(main_panel);
@@ -1043,7 +1060,7 @@ fn isAddTerminalSelected(project_id: []const u8) bool {
 
 fn createSeparatorLine(y_offset: objc.CGFloat) objc.id {
     const NSView = objc.getClass("NSView") orelse unreachable;
-    const sep = objc.msgSend(NSView, objc.sel("new"));
+    const sep = newAutorelease(NSView);
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     setFrame(sep, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, 200, 1));
@@ -1057,7 +1074,7 @@ fn createSeparatorLine(y_offset: objc.CGFloat) objc.id {
 
 fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, is_active_project: bool) objc.id {
     const NSView = objc.getClass("NSView") orelse unreachable;
-    const row = objc.msgSend(NSView, objc.sel("new"));
+    const row = newAutorelease(NSView);
 
     // Check if this add-terminal row is nav-highlighted
     const is_nav_highlighted = isAddTerminalSelected(project_id);
@@ -1088,7 +1105,7 @@ fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: 
 
     // "+" button
     const NSButton = objc.getClass("NSButton") orelse unreachable;
-    const btn = objc.msgSend(NSButton, objc.sel("new"));
+    const btn = newAutorelease(NSButton);
     objc.msgSendVoid1(btn, objc.sel("setTitle:"), objc.nsString("+ Add Terminal"));
 
     const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
@@ -1156,26 +1173,59 @@ pub fn showDeleteProjectDialog(project_index: usize) void {
     const result = objc.msgSendUInt(alert, objc.sel("runModal"));
     if (result != NSAlertFirstButtonReturn) return;
 
-    // Close all terminals for this project
-    for (proj.terminals.items) |t| {
-        for (term_row_infos, 0..) |info_opt, ti| {
-            if (info_opt) |info| {
-                if (std.mem.eql(u8, info.terminal_id, t.id)) {
-                    term_text_view.destroySession(ti);
+    // Find a terminal in another project to select after deletion
+    var next_terminal_id: ?[]const u8 = null;
+    if (selected_terminal_index != null) {
+        // Try project above first, then below
+        if (project_index > 0) {
+            var pi: usize = project_index - 1;
+            while (true) {
+                const p = application.store.projects.items[pi];
+                if (p.terminals.items.len > 0) {
+                    next_terminal_id = p.terminals.items[p.terminals.items.len - 1].id;
+                    break;
+                }
+                if (pi == 0) break;
+                pi -= 1;
+            }
+        }
+        if (next_terminal_id == null) {
+            for (application.store.projects.items[project_index + 1 ..]) |p| {
+                if (p.terminals.items.len > 0) {
+                    next_terminal_id = p.terminals.items[0].id;
+                    break;
                 }
             }
         }
+    }
+
+    // Close all terminals for this project
+    for (proj.terminals.items) |t| {
+        term_text_view.destroySession(t.id);
     }
 
     // Remove the project
     _ = application.store.projects.orderedRemove(project_index);
     application.store.save() catch {};
 
-    // Clear selection if it was in this project
+    // Select neighbor or clear
     selected_terminal_index = null;
     selected_nav_index = null;
-
     rebuildSidebar(application);
+
+    if (next_terminal_id) |neighbor_id| {
+        for (term_row_infos, 0..) |tri, idx| {
+            if (tri) |row_info| {
+                if (std.mem.eql(u8, row_info.terminal_id, neighbor_id)) {
+                    openTerminalAtIndex(idx);
+                    return;
+                }
+            }
+        }
+    }
+    // No neighbor — clear the main panel
+    const window_ui2 = @import("window.zig");
+    window_ui2.clearHeader();
 }
 
 pub fn showDeleteTerminalDialog(info_index: usize) void {
@@ -1229,20 +1279,77 @@ pub fn showDeleteTerminalDialog(info_index: usize) void {
     const result = objc.msgSendUInt(alert, objc.sel("runModal"));
     if (result != NSAlertFirstButtonReturn) return;
 
-    // Delete the terminal
-    _ = application.store.deleteTerminal(info.project_id, info.terminal_id) catch {};
-
-    // If this was the selected terminal, clear selection
-    if (selected_terminal_index) |sel| {
-        if (sel == info_index) {
-            selected_terminal_index = null;
+    // Determine neighbor to select before deleting (above first, then below)
+    var next_terminal_id: ?[]const u8 = null;
+    const is_active = if (selected_terminal_index) |sel| sel == info_index else false;
+    if (is_active) {
+        // Look for terminal above (lower index)
+        if (info_index > 0) {
+            var i: usize = info_index - 1;
+            while (true) {
+                if (term_row_infos[i]) |neighbor| {
+                    next_terminal_id = neighbor.terminal_id;
+                    break;
+                }
+                if (i == 0) break;
+                i -= 1;
+            }
+        }
+        // If none above, look below
+        if (next_terminal_id == null) {
+            var i: usize = info_index + 1;
+            while (i < term_row_infos.len) : (i += 1) {
+                if (term_row_infos[i]) |neighbor| {
+                    next_terminal_id = neighbor.terminal_id;
+                    break;
+                }
+            }
         }
     }
 
-    // Destroy the terminal session if it exists
-    term_text_view.destroyTerminalAtSlot(info_index);
+    // Delete the terminal
+    _ = application.store.deleteTerminal(info.project_id, info.terminal_id) catch {};
 
+    // Destroy the terminal session if it exists
+    term_text_view.destroySession(info.terminal_id);
+
+    // Select neighbor or clear
+    selected_terminal_index = null;
+    selected_nav_index = null;
+
+    // Rebuild sidebar first so term_row_infos reflects the deletion
     rebuildSidebar(application);
+
+    if (is_active) {
+        // Open the neighbor terminal if we found one
+        if (next_terminal_id) |neighbor_id| {
+            for (term_row_infos, 0..) |tri, idx| {
+                if (tri) |row_info| {
+                    if (std.mem.eql(u8, row_info.terminal_id, neighbor_id)) {
+                        openTerminalAtIndex(idx);
+                        return;
+                    }
+                }
+            }
+        }
+        // No neighbor — clear the main panel
+        const window_ui2 = @import("window.zig");
+        window_ui2.clearHeader();
+    } else {
+        // Deleted a non-active terminal — re-select the previously active one
+        // by finding it in the rebuilt term_row_infos
+        if (term_text_view.getActiveTerminalId()) |active_tid| {
+            for (term_row_infos, 0..) |tri, idx| {
+                if (tri) |row_info| {
+                    if (std.mem.eql(u8, row_info.terminal_id, active_tid)) {
+                        selected_terminal_index = idx;
+                        break;
+                    }
+                }
+            }
+        }
+        rebuildSidebar(application);
+    }
 }
 
 /// Show an edit dialog for the terminal at the given info index (same layout as Add Terminal).

@@ -120,14 +120,27 @@ const ScrollList = struct {
         self.capacity = cap;
     }
 
+    const INITIAL_CAPACITY = 64;
+    const MAX_CAPACITY = MAX_SCROLLBACK + 1;
+
     fn append(self: *Self, alloc: std.mem.Allocator, line: ScrollLine) void {
-        if (self.capacity == 0) self.initCapacity(alloc, MAX_SCROLLBACK + 1);
+        // Lazy growth: start small, double until max
+        if (self.count == self.capacity) {
+            if (self.capacity < MAX_CAPACITY) {
+                const new_cap = if (self.capacity == 0)
+                    INITIAL_CAPACITY
+                else
+                    @min(self.capacity * 2, MAX_CAPACITY);
+                self.initCapacity(alloc, new_cap);
+            }
+        }
+
         if (self.count < self.capacity) {
             // Space available
             self.buffer[(self.head + self.count) % self.capacity] = line;
             self.count += 1;
         } else {
-            // Full — overwrite oldest, free its cells
+            // Full at max capacity — overwrite oldest, free its cells
             self.buffer[self.head].deinit(alloc);
             self.buffer[self.head] = line;
             self.head = (self.head + 1) % self.capacity;
@@ -377,19 +390,23 @@ fn saveSplitState() void {
 
     const split_str = allocator.dupe(u8, buf[0..pos]) catch return;
 
-    // Find the terminal in the project store and update splits + cwd
+    // Find the terminal in the project store by session's terminal_id
     const app = sidebar.g_sidebar_app orelse return;
-    const info = sidebar.getTermRowInfo(session_idx) orelse return;
-    const proj = app.store.findById(info.project_id) orelse return;
-    for (proj.terminals.items) |*t| {
-        if (std.mem.eql(u8, t.id, info.terminal_id)) {
-            t.splits = split_str;
-            // Also save the focused terminal's live cwd
-            saveCwdForTerminal(t, session);
-            app.store.save() catch {};
-            return;
+    const terminal = findTerminalInStore(app, session.terminal_id) orelse return;
+    if (terminal.splits) |old| allocator.free(old);
+    terminal.splits = split_str;
+    saveCwdForTerminal(terminal, session);
+    app.store.save() catch {};
+}
+
+/// Look up a Terminal struct in the project store by terminal_id.
+fn findTerminalInStore(app: *@import("../app.zig").App, terminal_id: []const u8) ?*@import("../project.zig").Terminal {
+    for (app.projects()) |proj| {
+        for (proj.terminals.items) |*t| {
+            if (std.mem.eql(u8, t.id, terminal_id)) return t;
         }
     }
+    return null;
 }
 
 /// Save the focused pane's live cwd to the terminal struct.
@@ -397,6 +414,7 @@ fn saveCwdForTerminal(t: *@import("../project.zig").Terminal, session: *Session)
     if (terminals[session.focused_slot]) |*entry| {
         var cwd_buf: [4096]u8 = undefined;
         if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
+            if (t.cwd) |old| allocator.free(old);
             t.cwd = allocator.dupe(u8, live_cwd) catch return;
         }
     }
@@ -410,29 +428,51 @@ pub fn saveActiveCwd() void {
     const session = &(sessions[session_idx] orelse return);
 
     const app = sidebar.g_sidebar_app orelse return;
-    const info = sidebar.getTermRowInfo(session_idx) orelse return;
-    const proj = app.store.findById(info.project_id) orelse return;
-    for (proj.terminals.items) |*t| {
-        if (std.mem.eql(u8, t.id, info.terminal_id)) {
-            saveCwdForTerminal(t, session);
-            app.store.save() catch {};
-            return;
-        }
-    }
+    const terminal = findTerminalInStore(app, session.terminal_id) orelse return;
+    saveCwdForTerminal(terminal, session);
+    app.store.save() catch {};
 }
 
 /// A session corresponds to one sidebar terminal entry and holds a split tree.
+/// Sessions are keyed by terminal_id (stable across sidebar rebuilds).
 const Session = struct {
     root: *SplitNode,
     focused_slot: usize, // which terminal slot is focused
     cwd: []const u8,
     command: ?[]const u8,
+    terminal_id: []const u8, // unique key — stable across sidebar reorder
 };
 
 var sessions: [MAX_TERMS]?Session = [_]?Session{null} ** MAX_TERMS;
-var active_session: ?usize = null; // which session is displayed
+var active_session: ?usize = null; // index into sessions[] (NOT sidebar position)
 
-// Bell notification tracking — indexed by sidebar entry (session index)
+/// Get the terminal_id of the currently active session, if any.
+pub fn getActiveTerminalId() ?[]const u8 {
+    const si = active_session orelse return null;
+    if (si >= MAX_TERMS) return null;
+    const session = sessions[si] orelse return null;
+    return session.terminal_id;
+}
+
+/// Find a session by terminal_id, returning its index in sessions[].
+pub fn findSessionByTerminalId(terminal_id: []const u8) ?usize {
+    for (&sessions, 0..) |*s, i| {
+        if (s.*) |session| {
+            if (std.mem.eql(u8, session.terminal_id, terminal_id)) return i;
+        }
+    }
+    return null;
+}
+
+/// Find a free slot in the sessions[] array.
+fn findFreeSessionSlot() ?usize {
+    for (&sessions, 0..) |*s, i| {
+        if (s.* == null) return i;
+    }
+    return null;
+}
+
+// Bell notification tracking — indexed by sessions[] slot (stable)
 pub var bell_active: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
 
 // Divider drag state
@@ -462,16 +502,15 @@ pub fn createTerminalView(cwd: []const u8, command: ?[]const u8) ?objc.id {
     return createTerminalViewAtSlot(findFreeSlot() orelse return null, cwd, command);
 }
 
-/// Get or create a session for a sidebar entry, and return a dummy view (layout handles the rest).
-pub fn getOrCreateSession(index: usize, cwd: []const u8, command: ?[]const u8) bool {
-    active_session = index;
+/// Get or create a session for a terminal, keyed by terminal_id.
+pub fn getOrCreateSession(terminal_id: []const u8, cwd: []const u8, command: ?[]const u8) bool {
+    // Look up existing session by terminal_id
+    if (findSessionByTerminalId(terminal_id)) |si| {
+        active_session = si;
+        bell_active[si] = false;
 
-    // Clear bell when switching to this session
-    if (index < MAX_TERMS) bell_active[index] = false;
-
-    if (index < MAX_TERMS and sessions[index] != null) {
         // Check if the sole pane's process has exited — respawn it
-        const session = &(sessions[index].?);
+        const session = &(sessions[si].?);
         var leaves: std.ArrayListUnmanaged(usize) = .{};
         defer leaves.deinit(allocator);
         session.root.collectLeaves(&leaves);
@@ -497,15 +536,18 @@ pub fn getOrCreateSession(index: usize, cwd: []const u8, command: ?[]const u8) b
         return true;
     }
 
+    // No existing session — create a new one
+    const session_slot = findFreeSessionSlot() orelse return false;
+
     // Check for saved split layout
     const sidebar = @import("sidebar.zig");
     const saved_splits: ?[]const u8 = blk: {
-        const info = sidebar.getTermRowInfo(index) orelse break :blk null;
         const app = sidebar.g_sidebar_app orelse break :blk null;
-        const proj = app.store.findById(info.project_id) orelse break :blk null;
-        for (proj.terminals.items) |t| {
-            if (std.mem.eql(u8, t.id, info.terminal_id)) {
-                break :blk t.splits;
+        for (app.projects()) |proj| {
+            for (proj.terminals.items) |t| {
+                if (std.mem.eql(u8, t.id, terminal_id)) {
+                    break :blk t.splits;
+                }
             }
         }
         break :blk null;
@@ -540,14 +582,17 @@ pub fn getOrCreateSession(index: usize, cwd: []const u8, command: ?[]const u8) b
     root.collectLeaves(&leaves);
     const focused = if (leaves.items.len > 0) leaves.items[0] else 0;
 
-    if (index < MAX_TERMS) {
-        sessions[index] = .{
-            .root = root,
-            .focused_slot = focused,
-            .cwd = cwd,
-            .command = command,
-        };
-    }
+    // Dupe the terminal_id so it's stable
+    const id_copy = allocator.dupe(u8, terminal_id) catch return false;
+
+    sessions[session_slot] = .{
+        .root = root,
+        .focused_slot = focused,
+        .cwd = cwd,
+        .command = command,
+        .terminal_id = id_copy,
+    };
+    active_session = session_slot;
     return true;
 }
 
@@ -1049,6 +1094,9 @@ fn vtermOutputCallback(s: [*c]const u8, len: usize, user: ?*anyopaque) callconv(
 pub fn destroyTerminalAtSlot(slot: usize) void {
     if (slot >= MAX_TERMS) return;
     if (terminals[slot]) |*entry| {
+        // Remove view from superview and release
+        objc.msgSendVoid(entry.view, objc.sel("removeFromSuperview"));
+        objc.msgSendVoid(entry.view, objc.sel("release"));
         entry.pty.close();
         entry.vterm.deinit();
         entry.scrollback.deinit(allocator);
@@ -1059,9 +1107,9 @@ pub fn destroyTerminalAtSlot(slot: usize) void {
 /// Destroy all terminals.
 /// Destroy a session and all its terminal panes.
 /// Check if a session's root terminal process is alive.
-pub fn isSessionAlive(session_idx: usize) bool {
-    if (session_idx >= MAX_TERMS) return false;
-    const session = sessions[session_idx] orelse return false;
+pub fn isSessionAlive(terminal_id: []const u8) bool {
+    const si = findSessionByTerminalId(terminal_id) orelse return false;
+    const session = sessions[si] orelse return false;
     // Check the first leaf's PTY
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
@@ -1074,8 +1122,8 @@ pub fn isSessionAlive(session_idx: usize) bool {
     return false;
 }
 
-pub fn destroySession(session_idx: usize) void {
-    if (session_idx >= MAX_TERMS) return;
+pub fn destroySession(terminal_id: []const u8) void {
+    const session_idx = findSessionByTerminalId(terminal_id) orelse return;
     if (sessions[session_idx]) |*session| {
         var leaves: std.ArrayListUnmanaged(usize) = .{};
         defer leaves.deinit(allocator);
@@ -1085,6 +1133,7 @@ pub fn destroySession(session_idx: usize) void {
         }
         session.root.destroyTree();
         allocator.destroy(session.root);
+        allocator.free(session.terminal_id);
         sessions[session_idx] = null;
     }
     if (active_session != null and active_session.? == session_idx) {
@@ -1095,12 +1144,23 @@ pub fn destroySession(session_idx: usize) void {
 pub fn destroyAllTerminals() void {
     for (&terminals) |*t| {
         if (t.*) |*entry| {
+            objc.msgSendVoid(entry.view, objc.sel("removeFromSuperview"));
+            objc.msgSendVoid(entry.view, objc.sel("release"));
             entry.pty.close();
             entry.vterm.deinit();
             entry.scrollback.deinit(allocator);
             t.* = null;
         }
     }
+    for (&sessions) |*s| {
+        if (s.*) |*session| {
+            session.root.destroyTree();
+            allocator.destroy(session.root);
+            allocator.free(session.terminal_id);
+            s.* = null;
+        }
+    }
+    active_session = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1222,12 +1282,11 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
     const entry: *TermEntry = @ptrCast(@alignCast(user orelse return 0));
     const num_cols: u16 = @intCast(@min(@as(u16, @intCast(cols)), 512));
 
-    // Allocate only the cells needed
-    const cells = allocator.alloc(vt_mod.Cell, num_cols) catch return 0;
-    @memset(std.mem.sliceAsBytes(cells), 0);
+    // Parse raw cells into a temporary stack buffer first to find trimmed length
+    var tmp_cells: [512]vt_mod.Cell = undefined;
+    @memset(std.mem.sliceAsBytes(tmp_cells[0..num_cols]), 0);
 
     if (cells_raw) |ptr| {
-        // Each VTermScreenCell is 40 bytes
         const raw_bytes: [*]const u8 = @ptrCast(ptr);
         var i: u16 = 0;
         while (i < num_cols) : (i += 1) {
@@ -1235,14 +1294,31 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
             var raw: vt_mod.RawScreenCell = undefined;
             @memcpy(std.mem.asBytes(&raw), raw_bytes[offset..][0..40]);
 
-            cells[i] = .{
-                .chars = raw.chars,
+            tmp_cells[i] = .{
+                .chars = .{ raw.chars[0], raw.chars[1] },
                 .width = if (raw.width > 0) @intCast(raw.width) else 1,
                 .fg = vt_mod.decodeVTermColor(raw.fg, vt_mod.DEFAULT_FG),
                 .bg = vt_mod.decodeVTermColor(raw.bg, vt_mod.DEFAULT_BG),
             };
         }
     }
+
+    // Trim trailing empty cells (space/NUL with default colors, no attributes)
+    var trimmed: u16 = num_cols;
+    while (trimmed > 0) {
+        const c = tmp_cells[trimmed - 1];
+        const is_empty_char = (c.chars[0] == 0 or c.chars[0] == ' ') and c.chars[1] == 0;
+        const is_default_fg = c.fg.r == vt_mod.DEFAULT_FG.r and c.fg.g == vt_mod.DEFAULT_FG.g and c.fg.b == vt_mod.DEFAULT_FG.b;
+        const is_default_bg = c.bg.r == vt_mod.DEFAULT_BG.r and c.bg.g == vt_mod.DEFAULT_BG.g and c.bg.b == vt_mod.DEFAULT_BG.b;
+        if (is_empty_char and is_default_fg and is_default_bg and !c.bold and !c.italic and !c.underline and !c.reverse) {
+            trimmed -= 1;
+        } else break;
+    }
+
+    // Allocate only the trimmed cells
+    const store_len = if (trimmed > 0) trimmed else 1; // keep at least 1 for empty lines
+    const cells = allocator.alloc(vt_mod.Cell, store_len) catch return 0;
+    @memcpy(cells, tmp_cells[0..store_len]);
 
     const line = ScrollLine{ .cells = cells, .len = num_cols };
     entry.scrollback.append(allocator, line);
@@ -1411,6 +1487,11 @@ fn termMouseUp(self: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
             const has_selection = s.r1 != s.r2 or s.c1 != s.c2;
             if (has_selection) {
                 copySelectionToClipboard(entry);
+                // Clear selection after copying
+                entry.selection.active = false;
+                const setBool3: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+                    @ptrCast(&objc.c.objc_msgSend);
+                setBool3(self, objc.sel("setNeedsDisplay:"), objc.YES);
             } else {
                 // Plain click — clear selection
                 entry.selection.active = false;
@@ -1460,7 +1541,7 @@ fn copySelectionToClipboard(entry: *TermEntry) void {
                 const sb_idx = sb_len + row;
                 if (sb_idx >= 0 and sb_idx < sb_len) {
                     const line = entry.scrollback.get(@intCast(sb_idx));
-                    cell_val = if (col < line.len) line.cells[col] else .{};
+                    cell_val = if (col < line.cells.len) line.cells[col] else .{};
                 } else cell_val = .{};
             } else {
                 cell_val = entry.vterm.getCell(@intCast(row), col);
@@ -1807,7 +1888,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 const sb_idx = sb_len + grid_row_i;
                 if (sb_idx >= 0 and sb_idx < sb_len) {
                     const line = entry.scrollback.get(@intCast(sb_idx));
-                    if (col < line.len) {
+                    if (col < line.cells.len) {
                         cell = line.cells[col];
                     } else {
                         cell = .{};
@@ -1886,7 +1967,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 const sb_idx2 = sb_len + grid_row_i;
                 if (sb_idx2 >= 0 and sb_idx2 < sb_len) {
                     const line2 = entry.scrollback.get(@intCast(sb_idx2));
-                    cell2 = if (c2 < line2.len) line2.cells[c2] else .{};
+                    cell2 = if (c2 < line2.cells.len) line2.cells[c2] else .{};
                 } else cell2 = .{};
             } else {
                 cell2 = entry.vterm.getCell(@intCast(grid_row_i), c2);
@@ -1899,7 +1980,9 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
 
             const ch = cell2.chars[0];
             var utf16_len: u8 = 1; // most characters are 1 UTF-16 code unit
-            if (ch > 0 and ch <= 0x10FFFF) {
+            // Replace box-drawing chars with spaces — we draw them with CG lines instead
+            const is_box = ch >= 0x2500 and ch <= 0x257F and boxDrawingInfo(ch) != null;
+            if (!is_box and ch > 0 and ch <= 0x10FFFF) {
                 if (ch > 0xFFFF) utf16_len = 2; // surrogate pair for emoji etc.
                 if (row_len + 4 <= row_buf.len) {
                     const enc_len = std.unicode.utf8Encode(@intCast(ch), row_buf[row_len..][0..4]) catch 0;
@@ -1984,7 +2067,140 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
         CG.CGContextSetTextPosition(cgctx, 0, baseline_offset);
         CT.CTLineDraw(ct_line, cgctx);
         CG.CGContextRestoreGState(cgctx);
+
+        // Overdraw box-drawing characters (U+2500–U+257F) with CG lines
+        // because font glyphs don't fill the cell, leaving gaps.
+        drawBoxDrawingChars(cgctx, entry, grid_row_i, sb_len, row, CG);
     }
+}
+
+/// Draw box-drawing characters (U+2500–U+257F) using CoreGraphics lines.
+/// Each character is defined by which edges it connects to: right, left, down, up.
+fn drawBoxDrawingChars(
+    cgctx: *anyopaque,
+    entry: *TermEntry,
+    grid_row_i: i32,
+    sb_len: i32,
+    row: u16,
+    CG: anytype,
+) void {
+    var col: u16 = 0;
+    while (col < entry.vterm.cols) : (col += 1) {
+        var cell: vt_mod.Cell = undefined;
+        if (grid_row_i < 0) {
+            const sb_idx = sb_len + grid_row_i;
+            if (sb_idx >= 0 and sb_idx < sb_len) {
+                const line = entry.scrollback.get(@intCast(sb_idx));
+                cell = if (col < line.cells.len) line.cells[col] else .{};
+            } else cell = .{};
+        } else {
+            cell = entry.vterm.getCell(@intCast(grid_row_i), col);
+        }
+
+        const ch = cell.chars[0];
+        if (ch < 0x2500 or ch > 0x257F) continue;
+
+        // Determine which directions this box char connects
+        const info = boxDrawingInfo(ch) orelse continue;
+
+        var fg = cell.fg;
+        if (cell.reverse) fg = cell.bg;
+
+        const fg_r: f64 = @as(f64, @floatFromInt(fg.r)) / 255.0;
+        const fg_g: f64 = @as(f64, @floatFromInt(fg.g)) / 255.0;
+        const fg_b: f64 = @as(f64, @floatFromInt(fg.b)) / 255.0;
+        CG.CGContextSetRGBFillColor(cgctx, fg_r, fg_g, fg_b, 1.0);
+        CG.CGContextSetRGBStrokeColor(cgctx, fg_r, fg_g, fg_b, 1.0);
+
+        const x: f64 = @as(f64, @floatFromInt(col)) * cell_width;
+        const y: f64 = @as(f64, @floatFromInt(row)) * cell_height;
+        const cx = @floor(x + cell_width / 2.0);
+        const cy = @floor(y + cell_height / 2.0);
+        const thick: f64 = if (info.heavy) 2.0 else 1.0;
+
+        // Use filled rectangles instead of stroked lines — no anti-aliasing gaps
+        CG.CGContextSetRGBFillColor(cgctx, fg_r, fg_g, fg_b, 1.0);
+
+        if (info.right) { // center to right edge
+            CG.CGContextFillRect(cgctx, objc.NSMakeRect(cx, cy, x + cell_width - cx, thick));
+        }
+        if (info.left) { // left edge to center
+            CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, cy, cx - x + thick, thick));
+        }
+        if (info.down) { // center to bottom edge
+            CG.CGContextFillRect(cgctx, objc.NSMakeRect(cx, cy, thick, y + cell_height - cy));
+        }
+        if (info.up) { // top edge to center
+            CG.CGContextFillRect(cgctx, objc.NSMakeRect(cx, y, thick, cy - y + thick));
+        }
+    }
+}
+
+const BoxInfo = struct { left: bool, right: bool, up: bool, down: bool, heavy: bool };
+
+fn boxDrawingInfo(ch: u32) ?BoxInfo {
+    return switch (ch) {
+        // Light lines
+        0x2500 => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = false }, // ─
+        0x2502 => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = false }, // │
+        0x250C => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = false }, // ┌
+        0x2510 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = false }, // ┐
+        0x2514 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = false }, // └
+        0x2518 => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = false }, // ┘
+        0x251C => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = false }, // ├
+        0x2524 => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = false }, // ┤
+        0x252C => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = false }, // ┬
+        0x2534 => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = false }, // ┴
+        0x253C => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = false }, // ┼
+        // Heavy lines
+        0x2501 => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = true },  // ━
+        0x2503 => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = true },  // ┃
+        0x250F => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = true },  // ┏
+        0x2513 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = true },  // ┓
+        0x2517 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = true },  // ┗
+        0x251B => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = true },  // ┛
+        0x2523 => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = true },  // ┣
+        0x252B => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = true },  // ┫
+        0x2533 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ┳
+        0x253B => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ┻
+        0x254B => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╋
+        // Rounded corners
+        0x256D => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = false }, // ╭
+        0x256E => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = false }, // ╮
+        0x256F => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = false }, // ╯
+        0x2570 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = false }, // ╰
+        // Double lines (treat as heavy)
+        0x2550 => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = true },  // ═
+        0x2551 => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = true },  // ║
+        0x2552 => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = true },  // ╒
+        0x2553 => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = true },  // ╓
+        0x2554 => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = true },  // ╔
+        0x2555 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = true },  // ╕
+        0x2556 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = true },  // ╖
+        0x2557 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = true },  // ╗
+        0x2558 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = true },  // ╘
+        0x2559 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = true },  // ╙
+        0x255A => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = true },  // ╚
+        0x255B => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = true },  // ╛
+        0x255C => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = true },  // ╜
+        0x255D => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = true },  // ╝
+        0x255E => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = true },  // ╞
+        0x255F => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = true },  // ╟
+        0x2560 => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = true },  // ╠
+        0x2561 => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = true },  // ╡
+        0x2562 => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = true },  // ╢
+        0x2563 => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = true },  // ╣
+        0x2564 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ╤
+        0x2565 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ╥
+        0x2566 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ╦
+        0x2567 => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ╧
+        0x2568 => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ╨
+        0x2569 => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ╩
+        0x256A => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╪
+        0x256B => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╫
+        0x256C => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╬
+        else => null,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -2020,8 +2236,9 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
         return;
     };
 
-    // Clear selection on any keypress
+    // Clear selection and snap to bottom on any keypress
     entry.selection.active = false;
+    entry.scroll_offset = 0;
 
     const modifierFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
         @ptrCast(&objc.c.objc_msgSend);
@@ -2308,31 +2525,32 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
         // Save cwd periodically so it survives force kills
         saveActiveCwd();
         if (active_session) |si| {
-            if (sidebar.getTermRowInfo(si)) |info| {
+            if (sessions[si]) |*session| {
                 if (sidebar.g_sidebar_app) |app| {
-                    for (app.projects()) |proj| {
-                        if (std.mem.eql(u8, proj.id, info.project_id)) {
-                            for (proj.terminals.items) |t| {
-                                if (std.mem.eql(u8, t.id, info.terminal_id)) {
-                                    // Use focused terminal's live cwd for git info
-                                    // (supports worktrees and cd into subdirs)
-                                    const git_path = blk: {
-                                        if (sessions[si]) |*session| {
-                                            if (terminals[session.focused_slot]) |*entry| {
-                                                var cwd_buf: [4096]u8 = undefined;
-                                                if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
-                                                    break :blk live_cwd;
-                                                }
-                                            }
-                                        }
+                    if (findTerminalInStore(app, session.terminal_id)) |t| {
+                        // Find the project path for this terminal
+                        const proj_path = blk: {
+                            for (app.projects()) |proj| {
+                                for (proj.terminals.items) |pt| {
+                                    if (std.mem.eql(u8, pt.id, session.terminal_id)) {
                                         break :blk proj.path;
-                                    };
-                                    window_ui.updateHeader(t.name, git_path);
-                                    break;
+                                    }
                                 }
                             }
-                            break;
-                        }
+                            break :blk session.cwd;
+                        };
+                        // Use focused terminal's live cwd for git info
+                        // (supports worktrees and cd into subdirs)
+                        const git_path = blk2: {
+                            if (terminals[session.focused_slot]) |*entry| {
+                                var cwd_buf: [4096]u8 = undefined;
+                                if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
+                                    break :blk2 live_cwd;
+                                }
+                            }
+                            break :blk2 proj_path;
+                        };
+                        window_ui.updateHeader(t.name, git_path);
                     }
                 }
             }

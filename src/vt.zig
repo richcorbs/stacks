@@ -32,7 +32,7 @@ pub const DEFAULT_FG = Color{ .r = 204, .g = 204, .b = 204 };
 pub const DEFAULT_BG = Color{ .r = 15, .g = 20, .b = 27 };
 
 pub const Cell = struct {
-    chars: [6]u32 = .{ 0, 0, 0, 0, 0, 0 },
+    chars: [2]u32 = .{ 0, 0 }, // base char + 1 combining mark (covers 99%+ of text)
     width: u8 = 1,
     fg: Color = DEFAULT_FG,
     bg: Color = DEFAULT_BG,
@@ -179,9 +179,8 @@ pub const VTerm = struct {
             .underline = attrs.underline,
             .reverse = attrs.reverse,
         };
-        for (0..6) |i| {
-            cell.chars[i] = raw.chars[i];
-        }
+        cell.chars[0] = raw.chars[0];
+        cell.chars[1] = raw.chars[1];
         return cell;
     }
 
