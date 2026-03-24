@@ -195,8 +195,12 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
 
     objc.msgSendVoid1(window, objc.sel("setContentView:"), root_split);
 
-    // Show window
-    objc.msgSendVoid(window, objc.sel("center"));
+    // Show window — only center if no saved frame was restored
+    const didRestore: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) objc.BOOL =
+        @ptrCast(&objc.c.objc_msgSend);
+    if (didRestore(window, objc.sel("setFrameUsingName:"), objc.nsString("StacksMainWindow")) == objc.NO) {
+        objc.msgSendVoid(window, objc.sel("center"));
+    }
     const makeKeyAndOrderFront: *const fn (objc.id, objc.SEL, ?*anyopaque) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     makeKeyAndOrderFront(window, objc.sel("makeKeyAndOrderFront:"), null);

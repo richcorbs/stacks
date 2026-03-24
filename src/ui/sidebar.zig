@@ -1761,7 +1761,10 @@ fn createStatsBar() objc.id {
     setAlign(label, objc.sel("setAlignment:"), 1); // NSTextAlignmentCenter
 
     // Set initial attributed string with kerning
-    setStatsAttributedString(label, "CPU 0%  •  MEM 0MB");
+    const ver = @import("../version.zig");
+    var init_buf: [96]u8 = undefined;
+    const init_text = std.fmt.bufPrint(&init_buf, "CPU 0%  •  MEM 0MB  •  {s}", .{ver.string}) catch "CPU 0%  •  MEM 0MB";
+    setStatsAttributedString(label, init_text);
 
     objc.msgSendVoid1(bar, objc.sel("addSubview:"), label);
 
@@ -1815,10 +1818,12 @@ pub fn updateStats() void {
     last_wall_time_ns = wall_ns;
 
     // Format string
-    var buf: [64]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, "CPU {d}%  •  MEM {d}MB", .{
+    const ver = @import("../version.zig");
+    var buf: [96]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "CPU {d}%  •  MEM {d}MB  •  {s}", .{
         last_cpu_pct,
         mem_mb,
+        ver.string,
     }) catch return;
 
     // Update label with kerning

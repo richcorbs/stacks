@@ -176,12 +176,13 @@ fn showUpdateAlert() void {
 
     var msg_buf: [512]u8 = undefined;
     const msg = std.fmt.bufPrint(&msg_buf,
-        "Stacks {s} is available (you have {s}).\n\nRelease notes: {s}{s}",
-        .{ tag, version.string, RELEASE_NOTES_BASE, tag },
+        "Stacks {s} is available (you have {s}).",
+        .{ tag, version.string },
     ) catch "A new version is available.";
     objc.msgSendVoid1(alert, objc.sel("setInformativeText:"), objc.nsString(msg));
 
     objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Update Now"));
+    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Release Notes"));
     objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Later"));
 
     // Center over main window
@@ -204,6 +205,19 @@ fn showUpdateAlert() void {
     const result = objc.msgSendUInt(alert, objc.sel("runModal"));
     if (result == NSAlertFirstButtonReturn) {
         downloadAndInstall(url);
+    } else if (result == NSAlertFirstButtonReturn + 1) {
+        // "Release Notes" — open in browser, then re-show the alert
+        var notes_url_buf: [256]u8 = undefined;
+        const notes_url = std.fmt.bufPrint(&notes_url_buf, "{s}{s}", .{ RELEASE_NOTES_BASE, tag }) catch return;
+        const NSURL = objc.getClass("NSURL") orelse return;
+        const ns_url = objc.msgSend1(NSURL, objc.sel("URLWithString:"), objc.nsString(notes_url));
+        if (@intFromPtr(ns_url) != 0) {
+            const NSWorkspace = objc.getClass("NSWorkspace") orelse return;
+            const workspace = objc.msgSend(NSWorkspace, objc.sel("sharedWorkspace"));
+            objc.msgSendVoid1(workspace, objc.sel("openURL:"), ns_url);
+        }
+        // Re-show the alert so they can still update
+        showUpdateAlert();
     }
 }
 
