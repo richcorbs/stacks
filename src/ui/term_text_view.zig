@@ -336,8 +336,7 @@ pub fn getOrCreateSession(terminal_id: []const u8, cwd: []const u8, command: ?[]
     const root = if (saved_splits) |splits| restore: {
         const restored = deserializeSplitTree(splits, cwd, command);
         if (restored) |r| {
-            r.rebalanceAxis(.horizontal);
-            r.rebalanceAxis(.vertical);
+            // Don't rebalance - use the saved ratios from serialization
             break :restore r;
         }
         // Fallback to single pane
@@ -763,7 +762,10 @@ pub fn handlePanelMouseDragged(panel: objc.id, event: objc.id) void {
 }
 
 pub fn handlePanelMouseUp() void {
-    dragging_divider = null;
+    if (dragging_divider != null) {
+        dragging_divider = null;
+        saveSplitState(); // Persist new ratio
+    }
 }
 
 /// Get the focused terminal's view for makeFirstResponder.
@@ -1238,6 +1240,7 @@ fn termMouseDragged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) voi
 fn termMouseUp(self: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     if (dragging_divider != null) {
         dragging_divider = null;
+        saveSplitState(); // Persist new ratio
         // Re-focus the focused pane after divider drag
         if (getFocusedView()) |focused_view| {
             const win = objc.msgSend(focused_view, objc.sel("window"));
