@@ -188,7 +188,7 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
     const widthAnchor = objc.msgSend(sidebar_view, objc.sel("widthAnchor"));
     const constraintEq: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
-    const widthConstraint = constraintEq(widthAnchor, objc.sel("constraintEqualToConstant:"), 200.0);
+    const widthConstraint = constraintEq(widthAnchor, objc.sel("constraintEqualToConstant:"), sidebar.SIDEBAR_WIDTH);
     const setActive: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     setActive(widthConstraint, objc.sel("setActive:"), objc.YES);

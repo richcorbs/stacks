@@ -9,6 +9,9 @@ const project_mod = @import("../project.zig");
 const window_ui = @import("window.zig");
 const term_text_view = @import("term_text_view.zig");
 
+/// Sidebar width — must match the constraint in window.zig.
+pub const SIDEBAR_WIDTH: objc.CGFloat = 225.0;
+
 /// Global reference so callbacks can reach the app.
 pub var g_sidebar_app: ?*app_mod.App = null;
 
@@ -222,7 +225,7 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
     // Set the content size of the list view
     const setFrameSize: *const fn (objc.id, objc.SEL, objc.NSSize) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrameSize(list_view, objc.sel("setFrameSize:"), .{ .width = 200.0, .height = y_offset });
+    setFrameSize(list_view, objc.sel("setFrameSize:"), .{ .width = SIDEBAR_WIDTH, .height = y_offset });
 }
 
 /// Show the "Add Project" open panel.
@@ -365,7 +368,7 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
     // Set frame manually (within the flipped document view)
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrame(row, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, 200, height));
+    setFrame(row, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, SIDEBAR_WIDTH, height));
 
     const setWantsLayer: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -616,7 +619,7 @@ fn showDragIndicator() void {
     const indicator = objc.msgSend(NSView, objc.sel("new"));
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrame(indicator, objc.sel("setFrame:"), objc.NSMakeRect(16, 0, 200 - 32, 2));
+    setFrame(indicator, objc.sel("setFrame:"), objc.NSMakeRect(16, 0, SIDEBAR_WIDTH - 32, 2));
 
     const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
@@ -696,7 +699,7 @@ fn moveDragIndicator(y: objc.CGFloat) void {
     const indicator = drag_indicator_view orelse return;
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrame(indicator, objc.sel("setFrame:"), objc.NSMakeRect(16, y - 1, 200 - 32, 2));
+    setFrame(indicator, objc.sel("setFrame:"), objc.NSMakeRect(16, y - 1, SIDEBAR_WIDTH - 32, 2));
 }
 
 fn performDrop() void {
@@ -789,7 +792,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     // Draggable wrapper view
     const drag_cls = registerDragRowClass() orelse objc.getClass("NSView") orelse unreachable;
     const wrapper = newAutorelease(drag_cls);
-    setFrame(wrapper, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, 200, height));
+    setFrame(wrapper, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, SIDEBAR_WIDTH, height));
 
     setBool(wrapper, objc.sel("setWantsLayer:"), objc.YES);
     const wrapper_layer = objc.msgSend(wrapper, objc.sel("layer"));
@@ -816,7 +819,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     // The wrapper is inside a FlippedView (y=0 is top), so increase y to push down
     const label_h: objc.CGFloat = 18.0;
     const label_y: objc.CGFloat = (height - label_h) / 2.0 - 1.0;
-    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(32, label_y, 200 - 32, label_h));
+    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(32, label_y, SIDEBAR_WIDTH - 32, label_h));
     objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), label);
 
     // Show blue bell dot if this terminal has a pending notification
@@ -840,7 +843,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
         const is_alive = term_text_view.isSessionAlive(terminal_id);
         const status_dot = newAutorelease(objc.getClass("NSView") orelse unreachable);
         const dot_size: objc.CGFloat = 6;
-        const dot_x: objc.CGFloat = 200 - 24; // right-aligned with margin
+        const dot_x: objc.CGFloat = SIDEBAR_WIDTH - 24; // right-aligned with margin
         const dot_y: objc.CGFloat = (height - dot_size) / 2.0;
         setFrame(status_dot, objc.sel("setFrame:"), objc.NSMakeRect(dot_x, dot_y, dot_size, dot_size));
         setBool(status_dot, objc.sel("setWantsLayer:"), objc.YES);
@@ -1063,7 +1066,7 @@ fn createSeparatorLine(y_offset: objc.CGFloat) objc.id {
     const sep = newAutorelease(NSView);
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrame(sep, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, 200, 1));
+    setFrame(sep, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, SIDEBAR_WIDTH, 1));
     const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     setBool(sep, objc.sel("setWantsLayer:"), objc.YES);
@@ -1081,7 +1084,7 @@ fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: 
 
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrame(row, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, 200, height));
+    setFrame(row, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, SIDEBAR_WIDTH, height));
 
     const setBoolH: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
