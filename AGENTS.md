@@ -32,13 +32,19 @@ See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system desig
 | File | Lines | Purpose |
 |------|-------|---------|
 | `src/objc.zig` | 163 | ObjC runtime bindings — [ai_docs/objc-patterns.md](ai_docs/objc-patterns.md) |
-| `src/vt.zig` | 210 | libvterm wrapper — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
-| `src/pty.zig` | 141 | PTY/fork management — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
-| `src/project.zig` | 339 | Project/terminal data model + JSON persistence |
+| `src/vt.zig` | 209 | libvterm wrapper — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
+| `src/pty.zig` | 155 | PTY/fork management — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
+| `src/project.zig` | 345 | Project/terminal data model + JSON persistence |
 | `src/app.zig` | 37 | Central app state (wraps ProjectStore) |
-| `src/ui/window.zig` | 739 | App delegate, window, header bar, menu bar — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/sidebar.zig` | 1595 | Project list, drag-and-drop, navigation — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/term_text_view.zig` | 2163 | Terminal grid rendering, input, selection — [ai_docs/rendering.md](ai_docs/rendering.md) |
+| `src/split_tree.zig` | 444 | Split pane tree structure + serialization (12 tests) |
+| `src/scrollback.zig` | 194 | Ring buffer for terminal history (5 tests) |
+| `src/selection.zig` | 169 | Text selection state + helpers (7 tests) |
+| `src/terminal_state.zig` | 301 | Terminal/session type definitions |
+| `src/term_keys.zig` | 104 | Key code → escape sequence mapping (5 tests) |
+| `src/box_drawing.zig` | 146 | Unicode box drawing character info (6 tests) |
+| `src/ui/window.zig` | 789 | App delegate, window, header bar, menu bar — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
+| `src/ui/sidebar.zig` | 1903 | Project list, drag-and-drop, navigation — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
+| `src/ui/term_text_view.zig` | 2280 | Terminal grid rendering, input — [ai_docs/rendering.md](ai_docs/rendering.md) |
 
 ## Key Shortcuts
 

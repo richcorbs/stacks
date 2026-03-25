@@ -30,23 +30,35 @@ An adaptive poll timer (`NSTimer`) drives the read loop. There is no async I/O �
 
 ## Key Data Structures
 
-### Session (`term_text_view.zig`)
+### Session (`terminal_state.zig`)
 Each sidebar terminal entry maps to a `Session`:
 ```
 Session {
-    vt: VTerm          — libvterm state (grid, cursor, colors)
-    pty: Pty            — master fd + child pid
-    split_root: SplitNode — binary tree of panes
-    scrollback: [512][]u8 — circular buffer of pushed lines
+    root: *SplitNode     — binary tree of panes
+    focused_slot: usize  — which terminal pane has focus
+    cwd: []const u8      — working directory
+    terminal_id: []const u8 — unique ID for persistence
 }
 ```
 
-### SplitNode (`term_text_view.zig`)
+### TermEntry (`terminal_state.zig`)
+Each terminal pane in a split:
+```
+TermEntry {
+    vterm: VTerm        — libvterm state (grid, cursor, colors)
+    pty: Pty            — master fd + child pid
+    view: objc.id       — NSView for this pane
+    scrollback: ScrollList — ring buffer of pushed lines
+    selection: Selection — text selection state
+}
+```
+
+### SplitNode (`split_tree.zig`)
 Binary tree for split panes:
 ```
 SplitNode = union {
-    leaf: { vt, pty, scrollback_offset, ... }
-    split: { direction: .horizontal|.vertical, ratio: 0.0-1.0, left, right }
+    leaf: usize  — terminal slot index
+    split: { direction: .horizontal|.vertical, ratio: 0.0-1.0, first, second }
 }
 ```
 
@@ -68,8 +80,25 @@ main.zig → app.zig → project.zig (data model)
          → ui/window.zig → ui/sidebar.zig
                           → ui/term_text_view.zig → vt.zig (libvterm)
                                                    → pty.zig (fork/PTY)
+                                                   → split_tree.zig
+                                                   → scrollback.zig
+                                                   → selection.zig
+                                                   → terminal_state.zig
+                                                   → term_keys.zig
+                                                   → box_drawing.zig
          → objc.zig (used by all ui/ files)
 ```
+
+## Extracted Modules (Pure, Testable)
+
+| Module | Purpose | Tests |
+|--------|---------|-------|
+| `split_tree.zig` | Split pane tree operations, serialization with ratios | 12 |
+| `scrollback.zig` | Generic ring buffer for terminal history | 5 |
+| `selection.zig` | Text selection state and bounds helpers | 7 |
+| `terminal_state.zig` | Type definitions for TermEntry, Session | 5 |
+| `term_keys.zig` | macOS key codes → terminal escape sequences | 5 |
+| `box_drawing.zig` | Unicode box drawing character lookup | 6 |
 
 ## Build
 
