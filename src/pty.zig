@@ -51,10 +51,10 @@ pub const Pty = struct {
             // /bin/zsh is always available on macOS and sources login profile
 
             if (cmd_z) |cmd_ptr| {
-                // Always use /bin/zsh for reliable launch from Finder/Dock
-                // (SHELL env may not be set, and PATH is bare)
-                // Login shell sources .zprofile/.zshrc to get full PATH
-                var argv = [_][*c]const u8{ "/bin/zsh", "-l", "-c", cmd_ptr, null };
+                // Run command inside an interactive login shell so that
+                // .zprofile AND .zshrc are both sourced (full PATH available).
+                // We build: /bin/zsh -lic "command"
+                var argv = [_][*c]const u8{ "/bin/zsh", "-lic", cmd_ptr, null };
                 _ = c.execvp("/bin/zsh", @ptrCast(&argv));
             } else {
                 // Interactive login shell

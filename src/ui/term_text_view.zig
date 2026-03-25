@@ -866,10 +866,6 @@ pub fn closeFocusedPane() void {
     allocator.destroy(sibling);
     parent_node.* = sibling_copy;
 
-    // Rebalance after closing
-    session.root.rebalanceAxis(.horizontal);
-    session.root.rebalanceAxis(.vertical);
-
     // Focus the first leaf in the remaining tree
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
@@ -2386,10 +2382,6 @@ fn checkForExitedTerminals() void {
                             allocator.destroy(leaf_node);
                             allocator.destroy(sibling);
                             parent_node.* = sibling_copy;
-
-                            // Rebalance
-                            session.root.rebalanceAxis(.horizontal);
-                            session.root.rebalanceAxis(.vertical);
 
                             // Focus first remaining leaf
                             var remaining: std.ArrayListUnmanaged(usize) = .{};
