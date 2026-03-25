@@ -119,11 +119,26 @@ pub const SplitNode = union(enum) {
                 }
             },
             .split => |sp| {
+                // Format: "h:0.50(" or "v:0.33("
                 const ch: u8 = if (sp.direction == .horizontal) 'h' else 'v';
-                if (pos.* + 2 <= buf.len) {
+                if (pos.* + 1 <= buf.len) {
                     buf[pos.*] = ch;
-                    buf[pos.* + 1] = '(';
-                    pos.* += 2;
+                    pos.* += 1;
+                }
+                // Write ratio as ":0.XX"
+                if (pos.* + 5 <= buf.len) {
+                    buf[pos.*] = ':';
+                    pos.* += 1;
+                    const ratio_int: u8 = @intFromFloat(@round(sp.ratio * 100));
+                    buf[pos.*] = '0';
+                    buf[pos.* + 1] = '.';
+                    buf[pos.* + 2] = '0' + (ratio_int / 10);
+                    buf[pos.* + 3] = '0' + (ratio_int % 10);
+                    pos.* += 4;
+                }
+                if (pos.* + 1 <= buf.len) {
+                    buf[pos.*] = '(';
+                    pos.* += 1;
                 }
                 sp.first.serializeImpl(buf, pos);
                 if (pos.* + 1 <= buf.len) {
@@ -180,10 +195,28 @@ fn parseNode(allocator: std.mem.Allocator, input: []const u8, pos: *usize, leaf_
         return node;
     }
 
-    // Check for "h(" or "v("
-    if (pos.* + 2 <= input.len and (input[pos.*] == 'h' or input[pos.*] == 'v') and input[pos.* + 1] == '(') {
+    // Check for "h" or "v" followed by optional ratio and "("
+    // Formats: "h(...)" (legacy, ratio=0.5) or "h:0.50(...)" (with ratio)
+    if (pos.* < input.len and (input[pos.*] == 'h' or input[pos.*] == 'v')) {
         const direction: SplitDirection = if (input[pos.*] == 'h') .horizontal else .vertical;
-        pos.* += 2;
+        pos.* += 1;
+
+        // Parse optional ratio ":0.XX"
+        var ratio: f64 = 0.5;
+        if (pos.* + 5 <= input.len and input[pos.*] == ':') {
+            pos.* += 1; // skip ':'
+            // Parse "0.XX" format
+            if (pos.* + 4 <= input.len and input[pos.*] == '0' and input[pos.* + 1] == '.') {
+                const tens = input[pos.* + 2] - '0';
+                const ones = input[pos.* + 3] - '0';
+                ratio = @as(f64, @floatFromInt(tens * 10 + ones)) / 100.0;
+                pos.* += 4;
+            }
+        }
+
+        // Expect '('
+        if (pos.* >= input.len or input[pos.*] != '(') return null;
+        pos.* += 1;
 
         const first = parseNode(allocator, input, pos, leaf_index) orelse return null;
         if (pos.* < input.len and input[pos.*] == ',') pos.* += 1;
@@ -195,7 +228,7 @@ fn parseNode(allocator: std.mem.Allocator, input: []const u8, pos: *usize, leaf_
             .direction = direction,
             .first = first,
             .second = second,
-            .ratio = 0.5,
+            .ratio = ratio,
         } };
         return node;
     }
@@ -252,7 +285,7 @@ test "serialize horizontal split" {
 
     var buf: [64]u8 = undefined;
     const result = root.serialize(&buf);
-    try std.testing.expectEqualStrings("h(leaf,leaf)", result);
+    try std.testing.expectEqualStrings("h:0.50(leaf,leaf)", result);
 }
 
 test "serialize nested split" {
@@ -267,7 +300,7 @@ test "serialize nested split" {
 
     var buf: [64]u8 = undefined;
     const result = root.serialize(&buf);
-    try std.testing.expectEqualStrings("v(h(leaf,leaf),leaf)", result);
+    try std.testing.expectEqualStrings("v:0.50(h:0.50(leaf,leaf),leaf)", result);
 }
 
 test "parse leaf" {
@@ -282,7 +315,7 @@ test "parse leaf" {
 
 test "parse horizontal split" {
     const allocator = std.testing.allocator;
-    const result = parseStructure(allocator, "h(leaf,leaf)").?;
+    const result = parseStructure(allocator, "h:0.50(leaf,leaf)").?;
     defer allocator.destroy(result.root); // runs LAST
     defer result.root.destroyTree(allocator); // runs FIRST
 
@@ -290,26 +323,46 @@ test "parse horizontal split" {
     try std.testing.expectEqual(SplitDirection.horizontal, result.root.split.direction);
     try std.testing.expectEqual(@as(usize, 0), result.root.split.first.leaf);
     try std.testing.expectEqual(@as(usize, 1), result.root.split.second.leaf);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), result.root.split.ratio, 0.01);
+}
+
+test "parse with custom ratio" {
+    const allocator = std.testing.allocator;
+    const result = parseStructure(allocator, "h:0.33(leaf,leaf)").?;
+    defer allocator.destroy(result.root);
+    defer result.root.destroyTree(allocator);
+
+    try std.testing.expectApproxEqAbs(@as(f64, 0.33), result.root.split.ratio, 0.01);
+}
+
+test "parse legacy format (no ratio)" {
+    const allocator = std.testing.allocator;
+    const result = parseStructure(allocator, "h(leaf,leaf)").?;
+    defer allocator.destroy(result.root);
+    defer result.root.destroyTree(allocator);
+
+    // Legacy format defaults to 0.5
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), result.root.split.ratio, 0.01);
 }
 
 test "serialize-parse round trip" {
     const allocator = std.testing.allocator;
 
-    // Create a complex tree
+    // Create a complex tree with varied ratios
     const a = createLeaf(allocator, 0).?;
     const b = createLeaf(allocator, 1).?;
     const c = createLeaf(allocator, 2).?;
     const d = createLeaf(allocator, 3).?;
-    const left = createSplit(allocator, .horizontal, a, b, 0.5).?;
-    const right = createSplit(allocator, .vertical, c, d, 0.5).?;
-    const root = createSplit(allocator, .horizontal, left, right, 0.5).?;
+    const left = createSplit(allocator, .horizontal, a, b, 0.33).?;
+    const right = createSplit(allocator, .vertical, c, d, 0.67).?;
+    const root = createSplit(allocator, .horizontal, left, right, 0.40).?;
     defer root.destroyTree(allocator);
     defer allocator.destroy(root);
 
     // Serialize
     var buf: [128]u8 = undefined;
     const serialized = root.serialize(&buf);
-    try std.testing.expectEqualStrings("h(h(leaf,leaf),v(leaf,leaf))", serialized);
+    try std.testing.expectEqualStrings("h:0.40(h:0.33(leaf,leaf),v:0.67(leaf,leaf))", serialized);
 
     // Parse back
     const parsed = parseStructure(allocator, serialized).?;
@@ -321,6 +374,9 @@ test "serialize-parse round trip" {
     const reserialized = parsed.root.serialize(&buf2);
     try std.testing.expectEqualStrings(serialized, reserialized);
     try std.testing.expectEqual(@as(usize, 4), parsed.leaf_count);
+
+    // Verify ratios preserved
+    try std.testing.expectApproxEqAbs(@as(f64, 0.40), parsed.root.split.ratio, 0.01);
 }
 
 test "countLeaves" {
