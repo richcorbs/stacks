@@ -7,6 +7,7 @@ const objc = @import("../objc.zig");
 const Pty = @import("../pty.zig").Pty;
 const VTerm = @import("../vt.zig").VTerm;
 const vt_mod = @import("../vt.zig");
+const split_tree = @import("../split_tree.zig");
 
 const MAX_TERMS = 32;
 const MAX_SCROLLBACK = 10000;
@@ -215,165 +216,56 @@ const TermEntry = struct {
 // Split tree
 // ---------------------------------------------------------------------------
 
-pub const SplitDirection = enum { horizontal, vertical };
+// Re-export from split_tree for convenience
+pub const SplitDirection = split_tree.SplitDirection;
+const SplitNode = split_tree.SplitNode;
 
-const SplitNode = union(enum) {
-    leaf: usize, // slot index into terminals[]
-    split: struct {
-        direction: SplitDirection,
-        first: *SplitNode,
-        second: *SplitNode,
-        ratio: f64, // 0.0 - 1.0, portion for first child
-    },
+/// Deserialize a split tree from a string and create terminal views for each leaf.
+/// The first leaf gets the configured command; additional leaves get plain shells.
+fn deserializeSplitTree(input: []const u8, cwd: []const u8, command: ?[]const u8) ?*SplitNode {
+    // Parse the tree structure (leaves get sequential indices 0, 1, 2, ...)
+    const parsed = split_tree.parseStructure(allocator, input) orelse return null;
 
-    fn destroyTree(self: *SplitNode) void {
-        switch (self.*) {
-            .split => |s| {
-                s.first.destroyTree();
-                s.second.destroyTree();
-                allocator.destroy(s.first);
-                allocator.destroy(s.second);
-            },
-            .leaf => {},
-        }
+    // Create terminal views for each leaf, mapping parsed indices to actual slots
+    var slot_map: [32]usize = undefined;
+    for (0..parsed.leaf_count) |i| {
+        const slot = findFreeSlot() orelse {
+            // Cleanup on failure: destroy any terminals we already created
+            for (0..i) |j| destroyTerminalAtSlot(slot_map[j]);
+            parsed.root.destroyTree(allocator);
+            allocator.destroy(parsed.root);
+            return null;
+        };
+        // Only the first leaf gets the configured command
+        const leaf_command = if (i == 0) command else null;
+        _ = createTerminalViewAtSlot(slot, cwd, leaf_command) orelse {
+            for (0..i) |j| destroyTerminalAtSlot(slot_map[j]);
+            parsed.root.destroyTree(allocator);
+            allocator.destroy(parsed.root);
+            return null;
+        };
+        slot_map[i] = slot;
     }
 
-    fn collectLeaves(self: *SplitNode, out: *std.ArrayListUnmanaged(usize)) void {
-        switch (self.*) {
-            .leaf => |slot| {
-                out.append(allocator, slot) catch {};
-            },
-            .split => |s| {
-                s.first.collectLeaves(out);
-                s.second.collectLeaves(out);
-            },
-        }
+    // Remap leaf indices to actual slots
+    remapLeafSlots(parsed.root, &slot_map);
+
+    return parsed.root;
+}
+
+/// Recursively update leaf slot values from sequential indices to actual terminal slots.
+fn remapLeafSlots(node: *SplitNode, slot_map: []const usize) void {
+    switch (node.*) {
+        .leaf => |idx| {
+            if (idx < slot_map.len) {
+                node.* = .{ .leaf = slot_map[idx] };
+            }
+        },
+        .split => |s| {
+            remapLeafSlots(s.first, slot_map);
+            remapLeafSlots(s.second, slot_map);
+        },
     }
-
-    fn findLeaf(self: *SplitNode, slot: usize) ?*SplitNode {
-        switch (self.*) {
-            .leaf => |s| {
-                if (s == slot) return self;
-                return null;
-            },
-            .split => |s| {
-                return s.first.findLeaf(slot) orelse s.second.findLeaf(slot);
-            },
-        }
-    }
-
-    fn findParent(self: *SplitNode, child: *SplitNode) ?*SplitNode {
-        switch (self.*) {
-            .leaf => return null,
-            .split => |s| {
-                if (s.first == child or s.second == child) return self;
-                return s.first.findParent(child) orelse s.second.findParent(child);
-            },
-        }
-    }
-
-    /// Count the number of leaves visible along a given axis.
-    /// For a split in the same direction, both subtrees contribute.
-    /// For a split in the other direction, only the max of the two subtrees counts.
-    fn countLeavesAlongAxis(self: *SplitNode, direction: SplitDirection) usize {
-        switch (self.*) {
-            .leaf => return 1,
-            .split => |s| {
-                if (s.direction == direction) {
-                    return s.first.countLeavesAlongAxis(direction) + s.second.countLeavesAlongAxis(direction);
-                } else {
-                    return @max(s.first.countLeavesAlongAxis(direction), s.second.countLeavesAlongAxis(direction));
-                }
-            },
-        }
-    }
-
-    /// Rebalance all split ratios along a given axis so leaves get equal space.
-    fn rebalanceAxis(self: *SplitNode, direction: SplitDirection) void {
-        switch (self.*) {
-            .leaf => {},
-            .split => |*s| {
-                if (s.direction == direction) {
-                    const left_count = s.first.countLeavesAlongAxis(direction);
-                    const right_count = s.second.countLeavesAlongAxis(direction);
-                    const total: f64 = @floatFromInt(left_count + right_count);
-                    s.ratio = @as(f64, @floatFromInt(left_count)) / total;
-                }
-                s.first.rebalanceAxis(direction);
-                s.second.rebalanceAxis(direction);
-            },
-        }
-    }
-
-    /// Serialize split tree to compact string: "leaf", "h(leaf,leaf)", etc.
-    fn serialize(self: *SplitNode, buf: []u8, pos: *usize) void {
-        switch (self.*) {
-            .leaf => {
-                const s = "leaf";
-                if (pos.* + s.len <= buf.len) {
-                    @memcpy(buf[pos.*..][0..s.len], s);
-                    pos.* += s.len;
-                }
-            },
-            .split => |sp| {
-                const ch: u8 = if (sp.direction == .horizontal) 'h' else 'v';
-                if (pos.* + 2 <= buf.len) {
-                    buf[pos.*] = ch;
-                    buf[pos.* + 1] = '(';
-                    pos.* += 2;
-                }
-                sp.first.serialize(buf, pos);
-                if (pos.* + 1 <= buf.len) {
-                    buf[pos.*] = ',';
-                    pos.* += 1;
-                }
-                sp.second.serialize(buf, pos);
-                if (pos.* + 1 <= buf.len) {
-                    buf[pos.*] = ')';
-                    pos.* += 1;
-                }
-            },
-        }
-    }
-};
-
-/// Deserialize a split tree from a string like "leaf", "h(leaf,leaf)".
-/// Creates SplitNode tree, creating terminal views for each leaf.
-fn deserializeSplitTree(input: []const u8, pos: *usize, cwd: []const u8, command: ?[]const u8) ?*SplitNode {
-    if (pos.* >= input.len) return null;
-
-    // Check for "leaf"
-    if (pos.* + 4 <= input.len and std.mem.eql(u8, input[pos.*..][0..4], "leaf")) {
-        pos.* += 4;
-        const slot = findFreeSlot() orelse return null;
-        _ = createTerminalViewAtSlot(slot, cwd, command) orelse return null;
-        const node = allocator.create(SplitNode) catch return null;
-        node.* = .{ .leaf = slot };
-        return node;
-    }
-
-    // Check for "h(" or "v("
-    if (pos.* + 2 <= input.len and (input[pos.*] == 'h' or input[pos.*] == 'v') and input[pos.* + 1] == '(') {
-        const direction: SplitDirection = if (input[pos.*] == 'h') .horizontal else .vertical;
-        pos.* += 2;
-        // Only the first leaf gets the configured command; splits get plain shells
-        const first = deserializeSplitTree(input, pos, cwd, command) orelse return null;
-        if (pos.* < input.len and input[pos.*] == ',') pos.* += 1;
-        const second = deserializeSplitTree(input, pos, cwd, null) orelse return null;
-        if (pos.* < input.len and input[pos.*] == ')') pos.* += 1;
-
-        const node = allocator.create(SplitNode) catch return null;
-        node.* = .{ .split = .{
-            .direction = direction,
-            .first = first,
-            .second = second,
-            .ratio = 0.5,
-        } };
-        // Rebalance will fix the ratio
-        return node;
-    }
-
-    return null;
 }
 
 /// Serialize the active session's split tree and save to project store.
@@ -384,11 +276,10 @@ fn saveSplitState() void {
     const session = &(sessions[session_idx] orelse return);
 
     var buf: [512]u8 = undefined;
-    var pos: usize = 0;
-    session.root.serialize(&buf, &pos);
-    if (pos == 0) return;
+    const serialized = session.root.serialize(&buf);
+    if (serialized.len == 0) return;
 
-    const split_str = allocator.dupe(u8, buf[0..pos]) catch return;
+    const split_str = allocator.dupe(u8, serialized) catch return;
 
     // Find the terminal in the project store by session's terminal_id
     const app = sidebar.g_sidebar_app orelse return;
@@ -513,7 +404,7 @@ pub fn getOrCreateSession(terminal_id: []const u8, cwd: []const u8, command: ?[]
         const session = &(sessions[si].?);
         var leaves: std.ArrayListUnmanaged(usize) = .{};
         defer leaves.deinit(allocator);
-        session.root.collectLeaves(&leaves);
+        session.root.collectLeaves(allocator, &leaves);
         if (leaves.items.len == 1) {
             const slot = leaves.items[0];
             if (slot < MAX_TERMS) {
@@ -555,8 +446,7 @@ pub fn getOrCreateSession(terminal_id: []const u8, cwd: []const u8, command: ?[]
 
     // Create terminal tree from saved layout or single pane
     const root = if (saved_splits) |splits| restore: {
-        var pos: usize = 0;
-        const restored = deserializeSplitTree(splits, &pos, cwd, command);
+        const restored = deserializeSplitTree(splits, cwd, command);
         if (restored) |r| {
             r.rebalanceAxis(.horizontal);
             r.rebalanceAxis(.vertical);
@@ -565,21 +455,17 @@ pub fn getOrCreateSession(terminal_id: []const u8, cwd: []const u8, command: ?[]
         // Fallback to single pane
         const slot = findFreeSlot() orelse return false;
         _ = createTerminalViewAtSlot(slot, cwd, command) orelse return false;
-        const node = allocator.create(SplitNode) catch return false;
-        node.* = .{ .leaf = slot };
-        break :restore node;
+        break :restore split_tree.createLeaf(allocator, slot) orelse return false;
     } else single: {
         const slot = findFreeSlot() orelse return false;
         _ = createTerminalViewAtSlot(slot, cwd, command) orelse return false;
-        const node = allocator.create(SplitNode) catch return false;
-        node.* = .{ .leaf = slot };
-        break :single node;
+        break :single split_tree.createLeaf(allocator, slot) orelse return false;
     };
 
     // Find first leaf for focus
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
-    root.collectLeaves(&leaves);
+    root.collectLeaves(allocator, &leaves);
     const focused = if (leaves.items.len > 0) leaves.items[0] else 0;
 
     // Dupe the terminal_id so it's stable
@@ -649,7 +535,7 @@ pub fn layoutActiveSession(panel: objc.id) void {
     // Sync all terminal sizes to their new frames
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
-    session.root.collectLeaves(&leaves);
+    session.root.collectLeaves(allocator, &leaves);
     for (leaves.items) |slot| {
         if (slot < MAX_TERMS) {
             if (terminals[slot]) |*entry| {
@@ -771,7 +657,7 @@ fn updateFocusBorders(session: *Session) void {
 
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
-    session.root.collectLeaves(&leaves);
+    session.root.collectLeaves(allocator, &leaves);
 
     for (leaves.items) |slot| {
         if (terminals[slot]) |*entry| {
@@ -810,10 +696,8 @@ pub fn splitFocused(direction: SplitDirection) void {
 
     // Replace the leaf with a split
     const old_slot = leaf_node.leaf;
-    const first = allocator.create(SplitNode) catch return;
-    const second = allocator.create(SplitNode) catch return;
-    first.* = .{ .leaf = old_slot };
-    second.* = .{ .leaf = new_slot };
+    const first = split_tree.createLeaf(allocator, old_slot) orelse return;
+    const second = split_tree.createLeaf(allocator, new_slot) orelse return;
 
     leaf_node.* = .{ .split = .{
         .direction = direction,
@@ -869,7 +753,7 @@ pub fn closeFocusedPane() void {
     // Focus the first leaf in the remaining tree
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
-    parent_node.collectLeaves(&leaves);
+    parent_node.collectLeaves(allocator, &leaves);
     if (leaves.items.len > 0) {
         session.focused_slot = leaves.items[0];
         // Make the new focused pane the first responder for keyboard input
@@ -893,7 +777,7 @@ pub fn cycleFocus(forward: bool) void {
 
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
-    session.root.collectLeaves(&leaves);
+    session.root.collectLeaves(allocator, &leaves);
 
     if (leaves.items.len <= 1) return;
 
@@ -1109,7 +993,7 @@ pub fn isSessionAlive(terminal_id: []const u8) bool {
     // Check the first leaf's PTY
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
-    session.root.collectLeaves(&leaves);
+    session.root.collectLeaves(allocator, &leaves);
     if (leaves.items.len == 0) return false;
     // Check first leaf (root pane — the one with the configured command)
     if (terminals[leaves.items[0]]) |*entry| {
@@ -1123,11 +1007,11 @@ pub fn destroySession(terminal_id: []const u8) void {
     if (sessions[session_idx]) |*session| {
         var leaves: std.ArrayListUnmanaged(usize) = .{};
         defer leaves.deinit(allocator);
-        session.root.collectLeaves(&leaves);
+        session.root.collectLeaves(allocator, &leaves);
         for (leaves.items) |slot| {
             destroyTerminalAtSlot(slot);
         }
-        session.root.destroyTree();
+        session.root.destroyTree(allocator);
         allocator.destroy(session.root);
         allocator.free(session.terminal_id);
         sessions[session_idx] = null;
@@ -1150,7 +1034,7 @@ pub fn destroyAllTerminals() void {
     }
     for (&sessions) |*s| {
         if (s.*) |*session| {
-            session.root.destroyTree();
+            session.root.destroyTree(allocator);
             allocator.destroy(session.root);
             allocator.free(session.terminal_id);
             s.* = null;
@@ -2362,7 +2246,7 @@ fn checkForExitedTerminals() void {
             // Collect all leaf slots
             var leaves: std.ArrayListUnmanaged(usize) = .{};
             defer leaves.deinit(allocator);
-            session.root.collectLeaves(&leaves);
+            session.root.collectLeaves(allocator, &leaves);
 
             for (leaves.items) |slot| {
                 if (slot < MAX_TERMS) {
@@ -2386,7 +2270,7 @@ fn checkForExitedTerminals() void {
                             // Focus first remaining leaf
                             var remaining: std.ArrayListUnmanaged(usize) = .{};
                             defer remaining.deinit(allocator);
-                            parent_node.collectLeaves(&remaining);
+                            parent_node.collectLeaves(allocator, &remaining);
                             if (remaining.items.len > 0) {
                                 session.focused_slot = remaining.items[0];
                             }
@@ -2460,7 +2344,7 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
                             if (sess.*) |*s| {
                                 var leaves: std.ArrayListUnmanaged(usize) = .{};
                                 defer leaves.deinit(allocator);
-                                s.root.collectLeaves(&leaves);
+                                s.root.collectLeaves(allocator, &leaves);
                                 for (leaves.items) |slot| {
                                     if (slot == entry.slot) {
                                         // Only set bell if this isn't the active session
