@@ -37,8 +37,10 @@ description: Create a new release of Stacks. Bumps VERSION, generates release no
    gh release create v<version> \
      --title "v<version>" \
      --notes-file releases/v<version>.md \
-     dist/Stacks-arm64.zip
+     dist/Stacks-*.zip
    ```
+   
+   Note: Currently builds for native architecture only (arm64 on Apple Silicon, x86_64 on Intel). Cross-compilation requires matching libvterm and would need GitHub Actions or a separate build machine.
 
 7. **Verify** — confirm the release is visible at https://github.com/richcorbs/stacks/releases
 
