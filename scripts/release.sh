@@ -4,19 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=$(cat VERSION | tr -d '[:space:]')
-ARCH=$(uname -m)
-
-# Map architecture names
-if [ "$ARCH" = "arm64" ]; then
-    ZIP_NAME="Stacks-arm64.zip"
-elif [ "$ARCH" = "x86_64" ]; then
-    ZIP_NAME="Stacks-x86_64.zip"
-else
-    echo "Unknown architecture: $ARCH"
-    exit 1
-fi
-
-echo "Building Stacks v${VERSION} for ${ARCH}..."
+echo "Building Stacks v${VERSION}..."
 
 # Build
 zig build
@@ -64,10 +52,9 @@ PLIST
 
 # Zip it
 cd dist
-rm -f "${ZIP_NAME}"
-zip -qr "${ZIP_NAME}" Stacks.app
-rm -rf Stacks.app
+rm -f Stacks-arm64.zip
+zip -qr Stacks-arm64.zip Stacks.app
 cd ..
 
-echo "Built dist/${ZIP_NAME} (v${VERSION})"
-ls -lh "dist/${ZIP_NAME}"
+echo "Built dist/Stacks-arm64.zip (v${VERSION})"
+ls -lh dist/Stacks-arm64.zip
