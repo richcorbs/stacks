@@ -153,22 +153,9 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
             if (active_project_id != null) break;
         }
     }
-    // Also check if an "Add Terminal" nav item is selected
-    if (active_project_id == null) {
-        if (selected_nav_index) |nav_idx| {
-            if (nav_idx < nav_item_count) {
-                // Nav items aren't built yet, but we can check the previous state
-                // Actually, check isAddTerminalSelected per project below
-            }
-        }
-        // Check which project's add-terminal is selected via isAddTerminalSelected
-        for (application.projects()) |proj| {
-            if (isAddTerminalSelected(proj.id)) {
-                active_project_id = proj.id;
-                break;
-            }
-        }
-    }
+    // Note: we intentionally do NOT highlight a project header when its
+    // "Add Terminal" row is nav-selected — only actual terminal selection
+    // should highlight the parent project.
 
     for (application.projects(), 0..) |proj, proj_i| {
         const is_active_project = if (active_project_id) |aid| std.mem.eql(u8, proj.id, aid) else false;
@@ -275,9 +262,9 @@ fn createSidebarHeader() objc.id {
         @ptrCast(&objc.c.objc_msgSend);
     setWantsLayer(header, objc.sel("setWantsLayer:"), objc.YES);
 
-    // Bottom border
-    const layer = objc.msgSend(header, objc.sel("layer"));
-    setBorderBottom(layer);
+    // Top and bottom borders (1px line subviews, not CALayer border which draws all 4 sides)
+    addBorderLine(header, .top);
+    addBorderLine(header, .bottom);
 
     // "PROJECTS" label
     const NSTextField = objc.getClass("NSTextField") orelse unreachable;
@@ -1702,17 +1689,46 @@ fn setTextColor(field: objc.id, r: f64, g: f64, b: f64) void {
     objc.msgSendVoid1(field, objc.sel("setTextColor:"), color);
 }
 
-fn setBorderBottom(layer: objc.id) void {
-    const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
+const BorderEdge = enum { top, bottom };
 
+fn addBorderLine(view: objc.id, edge: BorderEdge) void {
+    // Add a 1px border line as a subview pinned to one edge.
+    const NSView = objc.getClass("NSView") orelse return;
+    const line = objc.msgSend(NSView, objc.sel("new"));
+
+    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setBool(line, objc.sel("setWantsLayer:"), objc.YES);
+    setBool(line, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
+
+    const line_layer = objc.msgSend(line, objc.sel("layer"));
     const NSColor = objc.getClass("NSColor") orelse return;
     const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
     const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.173, 0.204, 0.251, 1.0);
     const cgColor = objc.msgSend(color, objc.sel("CGColor"));
-    objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), cgColor);
+    objc.msgSendVoid1(line_layer, objc.sel("setBackgroundColor:"), cgColor);
+
+    objc.msgSendVoid1(view, objc.sel("addSubview:"), line);
+
+    // Constrain: pin left, right, top-or-bottom, height=1
+    const setConst: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const setActive: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+
+    const left = objc.msgSend1(objc.msgSend(line, objc.sel("leadingAnchor")), objc.sel("constraintEqualToAnchor:"), objc.msgSend(view, objc.sel("leadingAnchor")));
+    setActive(left, objc.sel("setActive:"), objc.YES);
+
+    const right = objc.msgSend1(objc.msgSend(line, objc.sel("trailingAnchor")), objc.sel("constraintEqualToAnchor:"), objc.msgSend(view, objc.sel("trailingAnchor")));
+    setActive(right, objc.sel("setActive:"), objc.YES);
+
+    const vert_sel = if (edge == .top) "topAnchor" else "bottomAnchor";
+    const vert = objc.msgSend1(objc.msgSend(line, objc.sel(vert_sel)), objc.sel("constraintEqualToAnchor:"), objc.msgSend(view, objc.sel(vert_sel)));
+    setActive(vert, objc.sel("setActive:"), objc.YES);
+
+    const height = setConst(objc.msgSend(line, objc.sel("heightAnchor")), objc.sel("constraintEqualToConstant:"), 1.0);
+    setActive(height, objc.sel("setActive:"), objc.YES);
 }
 
 // ---------------------------------------------------------------------------
