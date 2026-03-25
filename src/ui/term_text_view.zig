@@ -11,6 +11,8 @@ const split_tree = @import("../split_tree.zig");
 const scrollback = @import("../scrollback.zig");
 const selection_mod = @import("../selection.zig");
 const terminal_state = @import("../terminal_state.zig");
+const term_keys = @import("../term_keys.zig");
+const box_drawing = @import("../box_drawing.zig");
 
 const MAX_TERMS = terminal_state.MAX_TERMINALS;
 const MAX_SCROLLBACK = terminal_state.MAX_SCROLLBACK;
@@ -1752,7 +1754,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
             const ch = cell2.chars[0];
             var utf16_len: u8 = 1; // most characters are 1 UTF-16 code unit
             // Replace box-drawing chars with spaces — we draw them with CG lines instead
-            const is_box = ch >= 0x2500 and ch <= 0x257F and boxDrawingInfo(ch) != null;
+            const is_box = box_drawing.isBoxDrawing(ch);
             if (!is_box and ch > 0 and ch <= 0x10FFFF) {
                 if (ch > 0xFFFF) utf16_len = 2; // surrogate pair for emoji etc.
                 if (row_len + 4 <= row_buf.len) {
@@ -1872,7 +1874,7 @@ fn drawBoxDrawingChars(
         if (ch < 0x2500 or ch > 0x257F) continue;
 
         // Determine which directions this box char connects
-        const info = boxDrawingInfo(ch) orelse continue;
+        const info = box_drawing.getInfo(ch) orelse continue;
 
         var fg = cell.fg;
         if (cell.reverse) fg = cell.bg;
@@ -1907,72 +1909,7 @@ fn drawBoxDrawingChars(
     }
 }
 
-const BoxInfo = struct { left: bool, right: bool, up: bool, down: bool, heavy: bool };
-
-fn boxDrawingInfo(ch: u32) ?BoxInfo {
-    return switch (ch) {
-        // Light lines
-        0x2500 => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = false }, // ─
-        0x2502 => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = false }, // │
-        0x250C => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = false }, // ┌
-        0x2510 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = false }, // ┐
-        0x2514 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = false }, // └
-        0x2518 => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = false }, // ┘
-        0x251C => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = false }, // ├
-        0x2524 => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = false }, // ┤
-        0x252C => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = false }, // ┬
-        0x2534 => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = false }, // ┴
-        0x253C => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = false }, // ┼
-        // Heavy lines
-        0x2501 => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = true },  // ━
-        0x2503 => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = true },  // ┃
-        0x250F => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = true },  // ┏
-        0x2513 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = true },  // ┓
-        0x2517 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = true },  // ┗
-        0x251B => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = true },  // ┛
-        0x2523 => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = true },  // ┣
-        0x252B => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = true },  // ┫
-        0x2533 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ┳
-        0x253B => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ┻
-        0x254B => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╋
-        // Rounded corners
-        0x256D => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = false }, // ╭
-        0x256E => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = false }, // ╮
-        0x256F => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = false }, // ╯
-        0x2570 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = false }, // ╰
-        // Double lines (treat as heavy)
-        0x2550 => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = true },  // ═
-        0x2551 => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = true },  // ║
-        0x2552 => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = true },  // ╒
-        0x2553 => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = true },  // ╓
-        0x2554 => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = true },  // ╔
-        0x2555 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = true },  // ╕
-        0x2556 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = true },  // ╖
-        0x2557 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = true },  // ╗
-        0x2558 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = true },  // ╘
-        0x2559 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = true },  // ╙
-        0x255A => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = true },  // ╚
-        0x255B => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = true },  // ╛
-        0x255C => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = true },  // ╜
-        0x255D => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = true },  // ╝
-        0x255E => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = true },  // ╞
-        0x255F => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = true },  // ╟
-        0x2560 => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = true },  // ╠
-        0x2561 => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = true },  // ╡
-        0x2562 => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = true },  // ╢
-        0x2563 => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = true },  // ╣
-        0x2564 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ╤
-        0x2565 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ╥
-        0x2566 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ╦
-        0x2567 => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ╧
-        0x2568 => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ╨
-        0x2569 => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ╩
-        0x256A => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╪
-        0x256B => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╫
-        0x256C => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╬
-        else => null,
-    };
-}
+// BoxInfo and boxDrawingInfo moved to box_drawing.zig
 
 // ---------------------------------------------------------------------------
 // Key handling
@@ -2031,44 +1968,11 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
     // Check for special keys
     const keyCode: *const fn (objc.id, objc.SEL) callconv(.c) u16 =
         @ptrCast(&objc.c.objc_msgSend);
-    const code = keyCode(event, objc.sel("keyCode"));
+    const code = term_keys.KeyCode.from(keyCode(event, objc.sel("keyCode")));
 
-    const vterm_key: ?vt_mod.c.VTermKey = switch (code) {
-        36 => vt_mod.c.VTERM_KEY_ENTER,
-        48 => vt_mod.c.VTERM_KEY_TAB,
-        51 => vt_mod.c.VTERM_KEY_BACKSPACE,
-        53 => vt_mod.c.VTERM_KEY_ESCAPE,
-        126 => vt_mod.c.VTERM_KEY_UP,
-        125 => vt_mod.c.VTERM_KEY_DOWN,
-        124 => vt_mod.c.VTERM_KEY_RIGHT,
-        123 => vt_mod.c.VTERM_KEY_LEFT,
-        117 => vt_mod.c.VTERM_KEY_DEL,
-        115 => vt_mod.c.VTERM_KEY_HOME,
-        119 => vt_mod.c.VTERM_KEY_END,
-        116 => vt_mod.c.VTERM_KEY_PAGEUP,
-        121 => vt_mod.c.VTERM_KEY_PAGEDOWN,
-        else => null,
-    };
-
-    // Write directly to PTY — vterm is used only for parsing output, not generating input
-    if (vterm_key) |key| {
-        const seq: ?[]const u8 = switch (key) {
-            vt_mod.c.VTERM_KEY_ENTER => if (has_shift) "\n" else "\r",
-            vt_mod.c.VTERM_KEY_TAB => "\t",
-            vt_mod.c.VTERM_KEY_BACKSPACE => "\x7f",
-            vt_mod.c.VTERM_KEY_ESCAPE => "\x1b",
-            vt_mod.c.VTERM_KEY_UP => "\x1b[A",
-            vt_mod.c.VTERM_KEY_DOWN => "\x1b[B",
-            vt_mod.c.VTERM_KEY_RIGHT => "\x1b[C",
-            vt_mod.c.VTERM_KEY_LEFT => "\x1b[D",
-            vt_mod.c.VTERM_KEY_HOME => "\x1b[H",
-            vt_mod.c.VTERM_KEY_END => "\x1b[F",
-            vt_mod.c.VTERM_KEY_PAGEUP => "\x1b[5~",
-            vt_mod.c.VTERM_KEY_PAGEDOWN => "\x1b[6~",
-            vt_mod.c.VTERM_KEY_DEL => "\x1b[3~",
-            else => null,
-        };
-        if (seq) |s| entry.pty.write(s);
+    // Try special key escape sequence first
+    if (term_keys.getEscapeSequence(code, has_shift)) |seq| {
+        entry.pty.write(seq);
     } else {
         // Regular character input
         const chars = objc.msgSend(event, objc.sel("characters"));
@@ -2076,11 +1980,8 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
         const str = std.mem.span(utf8);
 
         if (has_ctrl and str.len == 1) {
-            const ch = str[0];
-            if (ch >= 'a' and ch <= 'z') {
-                entry.pty.write(&[1]u8{ch - 'a' + 1});
-            } else if (ch >= 'A' and ch <= 'Z') {
-                entry.pty.write(&[1]u8{ch - 'A' + 1});
+            if (term_keys.ctrlModify(str[0])) |ctrl_char| {
+                entry.pty.write(&[1]u8{ctrl_char});
             } else {
                 entry.pty.write(str);
             }
