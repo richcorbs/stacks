@@ -8,6 +8,7 @@ const Pty = @import("../pty.zig").Pty;
 const VTerm = @import("../vt.zig").VTerm;
 const vt_mod = @import("../vt.zig");
 const split_tree = @import("../split_tree.zig");
+const scrollback = @import("../scrollback.zig");
 
 const MAX_TERMS = 32;
 const MAX_SCROLLBACK = 10000;
@@ -90,88 +91,10 @@ fn updateCellMetrics() void {
     cell_height = @ceil(ascent + descent + leading);
 }
 
-const ScrollLine = struct {
-    cells: []vt_mod.Cell,
-    len: u16,
+// Re-export from scrollback module
+const ScrollLine = scrollback.ScrollLine;
+const ScrollList = scrollback.ScrollList(MAX_SCROLLBACK + 1);
 
-    fn deinit(self: *ScrollLine, alloc: std.mem.Allocator) void {
-        alloc.free(self.cells);
-    }
-};
-
-/// Ring buffer for scrollback lines. Avoids O(n) shifts on remove.
-const ScrollList = struct {
-    buffer: []ScrollLine = &.{},
-    head: usize = 0, // index of first (oldest) element
-    count: usize = 0, // number of elements stored
-    capacity: usize = 0,
-
-    const Self = @This();
-
-    fn initCapacity(self: *Self, alloc: std.mem.Allocator, cap: usize) void {
-        if (self.capacity >= cap) return;
-        const new_buf = alloc.alloc(ScrollLine, cap) catch return;
-        // Copy existing elements in order
-        for (0..self.count) |i| {
-            new_buf[i] = self.buffer[(self.head + i) % self.capacity];
-        }
-        if (self.capacity > 0) alloc.free(self.buffer);
-        self.buffer = new_buf;
-        self.head = 0;
-        self.capacity = cap;
-    }
-
-    const INITIAL_CAPACITY = 64;
-    const MAX_CAPACITY = MAX_SCROLLBACK + 1;
-
-    fn append(self: *Self, alloc: std.mem.Allocator, line: ScrollLine) void {
-        // Lazy growth: start small, double until max
-        if (self.count == self.capacity) {
-            if (self.capacity < MAX_CAPACITY) {
-                const new_cap = if (self.capacity == 0)
-                    INITIAL_CAPACITY
-                else
-                    @min(self.capacity * 2, MAX_CAPACITY);
-                self.initCapacity(alloc, new_cap);
-            }
-        }
-
-        if (self.count < self.capacity) {
-            // Space available
-            self.buffer[(self.head + self.count) % self.capacity] = line;
-            self.count += 1;
-        } else {
-            // Full at max capacity — overwrite oldest, free its cells
-            self.buffer[self.head].deinit(alloc);
-            self.buffer[self.head] = line;
-            self.head = (self.head + 1) % self.capacity;
-        }
-    }
-
-    fn get(self: *const Self, index: usize) *ScrollLine {
-        return &self.buffer[(self.head + index) % self.capacity];
-    }
-
-    fn len(self: *const Self) usize {
-        return self.count;
-    }
-
-    fn clearRetainingCapacity(self: *Self, alloc: std.mem.Allocator) void {
-        for (0..self.count) |i| {
-            self.buffer[(self.head + i) % self.capacity].deinit(alloc);
-        }
-        self.count = 0;
-        self.head = 0;
-    }
-
-    fn deinit(self: *Self, alloc: std.mem.Allocator) void {
-        for (0..self.count) |i| {
-            self.buffer[(self.head + i) % self.capacity].deinit(alloc);
-        }
-        if (self.capacity > 0) alloc.free(self.buffer);
-        self.* = .{};
-    }
-};
 const allocator = std.heap.c_allocator;
 
 const Selection = struct {
