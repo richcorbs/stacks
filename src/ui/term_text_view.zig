@@ -9,6 +9,7 @@ const VTerm = @import("../vt.zig").VTerm;
 const vt_mod = @import("../vt.zig");
 const split_tree = @import("../split_tree.zig");
 const scrollback = @import("../scrollback.zig");
+const selection_mod = @import("../selection.zig");
 
 const MAX_TERMS = 32;
 const MAX_SCROLLBACK = 10000;
@@ -97,32 +98,8 @@ const ScrollList = scrollback.ScrollList(MAX_SCROLLBACK + 1);
 
 const allocator = std.heap.c_allocator;
 
-const Selection = struct {
-    active: bool = false,
-    start_col: u16 = 0,
-    start_row: i32 = 0, // can be negative for scrollback
-    end_col: u16 = 0,
-    end_row: i32 = 0,
-
-    fn ordered(self: Selection) struct { r1: i32, c1: u16, r2: i32, c2: u16 } {
-        if (self.start_row < self.end_row or
-            (self.start_row == self.end_row and self.start_col <= self.end_col))
-        {
-            return .{ .r1 = self.start_row, .c1 = self.start_col, .r2 = self.end_row, .c2 = self.end_col };
-        }
-        return .{ .r1 = self.end_row, .c1 = self.end_col, .r2 = self.start_row, .c2 = self.start_col };
-    }
-
-    fn contains(self: Selection, row: i32, col: u16) bool {
-        if (!self.active) return false;
-        const s = self.ordered();
-        if (row < s.r1 or row > s.r2) return false;
-        if (row == s.r1 and row == s.r2) return col >= s.c1 and col <= s.c2;
-        if (row == s.r1) return col >= s.c1;
-        if (row == s.r2) return col <= s.c2;
-        return true;
-    }
-};
+// Re-export from selection module
+const Selection = selection_mod.Selection;
 
 const TermEntry = struct {
     pty: Pty,
