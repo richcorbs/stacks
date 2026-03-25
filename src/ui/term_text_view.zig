@@ -10,9 +10,14 @@ const vt_mod = @import("../vt.zig");
 const split_tree = @import("../split_tree.zig");
 const scrollback = @import("../scrollback.zig");
 const selection_mod = @import("../selection.zig");
+const terminal_state = @import("../terminal_state.zig");
 
-const MAX_TERMS = 32;
-const MAX_SCROLLBACK = 10000;
+const MAX_TERMS = terminal_state.MAX_TERMINALS;
+const MAX_SCROLLBACK = terminal_state.MAX_SCROLLBACK;
+
+// Import types from terminal_state (single source of truth)
+const TermEntry = terminal_state.TermEntry;
+const Session = terminal_state.Session;
 
 var terminals: [MAX_TERMS]?TermEntry = [_]?TermEntry{null} ** MAX_TERMS;
 var poll_timer: ?objc.id = null;
@@ -101,16 +106,7 @@ const allocator = std.heap.c_allocator;
 // Re-export from selection module
 const Selection = selection_mod.Selection;
 
-const TermEntry = struct {
-    pty: Pty,
-    vterm: VTerm,
-    view: objc.id,
-    slot: usize,
-    needs_redraw: bool = true,
-    scroll_offset: i32 = 0,
-    scrollback: ScrollList = .{},
-    selection: Selection = .{},
-};
+// TermEntry imported from terminal_state above
 
 // ---------------------------------------------------------------------------
 // Split tree
@@ -224,15 +220,7 @@ pub fn saveActiveCwd() void {
     app.store.save() catch {};
 }
 
-/// A session corresponds to one sidebar terminal entry and holds a split tree.
-/// Sessions are keyed by terminal_id (stable across sidebar rebuilds).
-const Session = struct {
-    root: *SplitNode,
-    focused_slot: usize, // which terminal slot is focused
-    cwd: []const u8,
-    command: ?[]const u8,
-    terminal_id: []const u8, // unique key — stable across sidebar reorder
-};
+// Session imported from terminal_state above
 
 var sessions: [MAX_TERMS]?Session = [_]?Session{null} ** MAX_TERMS;
 var active_session: ?usize = null; // index into sessions[] (NOT sidebar position)
