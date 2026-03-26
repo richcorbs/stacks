@@ -8,6 +8,15 @@ const app_mod = @import("../app.zig");
 const project_mod = @import("../project.zig");
 const window_ui = @import("window.zig");
 const term_text_view = @import("term_text_view.zig");
+const dialogs = @import("dialogs.zig");
+
+// Re-export dialog functions (moved to dialogs.zig)
+pub const showAddProjectPanel = dialogs.showAddProjectPanel;
+pub const showDeleteProjectDialog = dialogs.showDeleteProjectDialog;
+pub const showDeleteTerminalDialog = dialogs.showDeleteTerminalDialog;
+pub const showEditTerminalDialog = dialogs.showEditTerminalDialog;
+pub const showAddTerminalDialog = dialogs.showAddTerminalDialog;
+pub const showNewTerminalForCurrentProject = dialogs.showNewTerminalForCurrentProject;
 
 /// Sidebar width — must match the constraint in window.zig.
 pub const SIDEBAR_WIDTH: objc.CGFloat = 225.0;
@@ -186,40 +195,6 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
     setFrameSize(list_view, objc.sel("setFrameSize:"), .{ .width = SIDEBAR_WIDTH, .height = y_offset });
 }
 
-/// Show the "Add Project" open panel.
-pub fn showAddProjectPanel(application: *app_mod.App) void {
-    const NSOpenPanel = objc.getClass("NSOpenPanel") orelse return;
-    const panel = objc.msgSend(NSOpenPanel, objc.sel("openPanel"));
-
-    objc.msgSendVoid1(panel, objc.sel("setTitle:"), objc.nsString("Select Project Folder"));
-
-    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setBool(panel, objc.sel("setCanChooseFiles:"), objc.NO);
-    setBool(panel, objc.sel("setCanChooseDirectories:"), objc.YES);
-    setBool(panel, objc.sel("setCanCreateDirectories:"), objc.YES);
-
-    // Run modal
-    const result = objc.msgSendUInt(panel, objc.sel("runModal"));
-    const NSModalResponseOK: objc.NSUInteger = 1;
-    if (result != NSModalResponseOK) return;
-
-    // Get selected URL
-    const urls = objc.msgSend(panel, objc.sel("URLs"));
-    const count = objc.msgSendUInt(urls, objc.sel("count"));
-    if (count == 0) return;
-
-    const url = objc.msgSend1(urls, objc.sel("objectAtIndex:"), @as(objc.NSUInteger, 0));
-    const path_nsstring = objc.msgSend(url, objc.sel("path"));
-
-    // Convert NSString to Zig slice
-    const utf8: [*:0]const u8 = @ptrCast(objc.msgSend(path_nsstring, objc.sel("UTF8String")));
-    const path = std.mem.span(utf8);
-
-    // Add the project
-    _ = application.addProject(path) catch return;
-    rebuildSidebar(application);
-}
 
 // ---------------------------------------------------------------------------
 // Internal view construction
@@ -404,6 +379,46 @@ pub fn getTermRowInfo(index: usize) ?TermRowInfo {
     return term_row_infos[index];
 }
 var term_row_info_count: usize = 0;
+
+pub fn getSelectedTerminalIndex() ?usize {
+    return selected_terminal_index;
+}
+
+pub fn setSelectedTerminalIndex(idx: usize) void {
+    selected_terminal_index = idx;
+}
+
+pub fn clearSelection() void {
+    selected_terminal_index = null;
+    selected_nav_index = null;
+}
+
+pub fn findTermRowByTerminalId(terminal_id: []const u8) ?usize {
+    for (term_row_infos[0..term_row_info_count], 0..) |info_opt, idx| {
+        if (info_opt) |info| {
+            if (std.mem.eql(u8, info.terminal_id, terminal_id)) return idx;
+        }
+    }
+    return null;
+}
+
+pub fn findNeighborTerminal(info_index: usize) ?[]const u8 {
+    // Look above first
+    if (info_index > 0) {
+        var i: usize = info_index - 1;
+        while (true) {
+            if (term_row_infos[i]) |neighbor| return neighbor.terminal_id;
+            if (i == 0) break;
+            i -= 1;
+        }
+    }
+    // Then below
+    var i: usize = info_index + 1;
+    while (i < term_row_infos.len) : (i += 1) {
+        if (term_row_infos[i]) |neighbor| return neighbor.terminal_id;
+    }
+    return null;
+}
 
 
 
@@ -910,27 +925,6 @@ pub fn activateSelectedSidebarItem() void {
 
 /// Show add terminal dialog for the current project (⌘T).
 /// Pre-populates name with "Terminal" so user can just press Enter.
-pub fn showNewTerminalForCurrentProject() void {
-    const application = g_sidebar_app orelse return;
-    // Find current project from selected terminal
-    var current_project_idx: ?usize = null;
-    if (selected_terminal_index) |sel_idx| {
-        var count: usize = 0;
-        for (application.projects(), 0..) |proj, pi| {
-            for (proj.terminals.items) |_| {
-                if (count == sel_idx) {
-                    current_project_idx = pi;
-                    break;
-                }
-                count += 1;
-            }
-            if (current_project_idx != null) break;
-        }
-    }
-    // Fall back to first project
-    const proj_idx = current_project_idx orelse if (application.projects().len > 0) @as(usize, 0) else return;
-    showAddTerminalDialogWithDefault(proj_idx, "Terminal");
-}
 
 /// Prevent re-entrant terminal opens (button can fire multiple times).
 var opening_terminal: bool = false;
@@ -1104,424 +1098,11 @@ fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: 
 }
 
 /// Show a delete confirmation dialog for the terminal at the given info index.
-pub fn showDeleteProjectDialog(project_index: usize) void {
-    const application = g_sidebar_app orelse return;
-    const projs = application.projects();
-    if (project_index >= projs.len) return;
-    const proj = projs[project_index];
 
-    const NSAlert = objc.getClass("NSAlert") orelse return;
-    const alert = objc.msgSend(NSAlert, objc.sel("new"));
-
-    var msg_buf: [256]u8 = undefined;
-    const msg = std.fmt.bufPrint(&msg_buf, "Delete project \"{s}\"?", .{proj.name}) catch "Delete project?";
-    objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString(msg));
-    objc.msgSendVoid1(alert, objc.sel("setInformativeText:"),
-        objc.nsString("This will remove the project from the sidebar and close all its terminals. The files on disk will not be affected."));
-
-    // Set alert style to critical (warning icon)
-    const setStyle: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setStyle(alert, objc.sel("setAlertStyle:"), 2); // NSAlertStyleCritical
-
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Delete"));
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Cancel"));
-
-    const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
-    const result = objc.msgSendUInt(alert, objc.sel("runModal"));
-    if (result != NSAlertFirstButtonReturn) return;
-
-    // Find a terminal in another project to select after deletion
-    var next_terminal_id: ?[]const u8 = null;
-    if (selected_terminal_index != null) {
-        // Try project above first, then below
-        if (project_index > 0) {
-            var pi: usize = project_index - 1;
-            while (true) {
-                const p = application.store.projects.items[pi];
-                if (p.terminals.items.len > 0) {
-                    next_terminal_id = p.terminals.items[p.terminals.items.len - 1].id;
-                    break;
-                }
-                if (pi == 0) break;
-                pi -= 1;
-            }
-        }
-        if (next_terminal_id == null) {
-            for (application.store.projects.items[project_index + 1 ..]) |p| {
-                if (p.terminals.items.len > 0) {
-                    next_terminal_id = p.terminals.items[0].id;
-                    break;
-                }
-            }
-        }
-    }
-
-    // Close all terminals for this project
-    for (proj.terminals.items) |t| {
-        term_text_view.destroySession(t.id);
-    }
-
-    // Remove the project
-    _ = application.store.projects.orderedRemove(project_index);
-    application.store.save() catch {};
-
-    // Select neighbor or clear
-    selected_terminal_index = null;
-    selected_nav_index = null;
-    rebuildSidebar(application);
-
-    if (next_terminal_id) |neighbor_id| {
-        for (term_row_infos, 0..) |tri, idx| {
-            if (tri) |row_info| {
-                if (std.mem.eql(u8, row_info.terminal_id, neighbor_id)) {
-                    openTerminalAtIndex(idx);
-                    return;
-                }
-            }
-        }
-    }
-    // No neighbor — clear the main panel
-    const window_ui2 = @import("window.zig");
-    window_ui2.clearHeader();
-}
-
-pub fn showDeleteTerminalDialog(info_index: usize) void {
-    const application = g_sidebar_app orelse return;
-    if (info_index >= term_row_infos.len) return;
-    const info = term_row_infos[info_index] orelse return;
-
-    // Find terminal name for the message
-    const proj = application.store.findById(info.project_id) orelse return;
-    var term_name: []const u8 = "this terminal";
-    for (proj.terminals.items) |t| {
-        if (std.mem.eql(u8, t.id, info.terminal_id)) {
-            term_name = t.name;
-            break;
-        }
-    }
-
-    const NSAlert = objc.getClass("NSAlert") orelse return;
-    const alert = objc.msgSend(NSAlert, objc.sel("new"));
-
-    objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString("Delete Terminal"));
-
-    var msg_buf: [256]u8 = undefined;
-    const msg = std.fmt.bufPrint(&msg_buf, "Are you sure you want to delete \"{s}\"?", .{term_name}) catch "Are you sure?";
-    objc.msgSendVoid1(alert, objc.sel("setInformativeText:"), objc.nsString(msg));
-
-    // NSAlertStyleCritical = 2
-    const setStyle: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setStyle(alert, objc.sel("setAlertStyle:"), 2);
-
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Delete"));
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Cancel"));
-
-    // Center over main window
-    const NSApp_class = objc.getClass("NSApplication") orelse return;
-    const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
-    const main_window = objc.msgSend(nsapp, objc.sel("mainWindow"));
-    const alert_window = objc.msgSend(alert, objc.sel("window"));
-    objc.msgSendVoid(alert_window, objc.sel("layoutIfNeeded"));
-
-    const main_frame = objc.msgSendRect(main_window, objc.sel("frame"));
-    const alert_frame = objc.msgSendRect(alert_window, objc.sel("frame"));
-    const cx = main_frame.origin.x + (main_frame.size.width - alert_frame.size.width) / 2.0;
-    const cy = main_frame.origin.y + (main_frame.size.height - alert_frame.size.height) / 2.0;
-    const setFrameOrigin: *const fn (objc.id, objc.SEL, objc.NSPoint) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setFrameOrigin(alert_window, objc.sel("setFrameOrigin:"), .{ .x = cx, .y = cy });
-
-    const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
-    const result = objc.msgSendUInt(alert, objc.sel("runModal"));
-    if (result != NSAlertFirstButtonReturn) return;
-
-    // Determine neighbor to select before deleting (above first, then below)
-    var next_terminal_id: ?[]const u8 = null;
-    const is_active = if (selected_terminal_index) |sel| sel == info_index else false;
-    if (is_active) {
-        // Look for terminal above (lower index)
-        if (info_index > 0) {
-            var i: usize = info_index - 1;
-            while (true) {
-                if (term_row_infos[i]) |neighbor| {
-                    next_terminal_id = neighbor.terminal_id;
-                    break;
-                }
-                if (i == 0) break;
-                i -= 1;
-            }
-        }
-        // If none above, look below
-        if (next_terminal_id == null) {
-            var i: usize = info_index + 1;
-            while (i < term_row_infos.len) : (i += 1) {
-                if (term_row_infos[i]) |neighbor| {
-                    next_terminal_id = neighbor.terminal_id;
-                    break;
-                }
-            }
-        }
-    }
-
-    // Delete the terminal
-    _ = application.store.deleteTerminal(info.project_id, info.terminal_id) catch {};
-
-    // Destroy the terminal session if it exists
-    term_text_view.destroySession(info.terminal_id);
-
-    // Select neighbor or clear
-    selected_terminal_index = null;
-    selected_nav_index = null;
-
-    // Rebuild sidebar first so term_row_infos reflects the deletion
-    rebuildSidebar(application);
-
-    if (is_active) {
-        // Open the neighbor terminal if we found one
-        if (next_terminal_id) |neighbor_id| {
-            for (term_row_infos, 0..) |tri, idx| {
-                if (tri) |row_info| {
-                    if (std.mem.eql(u8, row_info.terminal_id, neighbor_id)) {
-                        openTerminalAtIndex(idx);
-                        return;
-                    }
-                }
-            }
-        }
-        // No neighbor — clear the main panel
-        const window_ui2 = @import("window.zig");
-        window_ui2.clearHeader();
-    } else {
-        // Deleted a non-active terminal — re-select the previously active one
-        // by finding it in the rebuilt term_row_infos
-        if (term_text_view.getActiveTerminalId()) |active_tid| {
-            for (term_row_infos, 0..) |tri, idx| {
-                if (tri) |row_info| {
-                    if (std.mem.eql(u8, row_info.terminal_id, active_tid)) {
-                        selected_terminal_index = idx;
-                        break;
-                    }
-                }
-            }
-        }
-        rebuildSidebar(application);
-    }
-}
 
 /// Show an edit dialog for the terminal at the given info index (same layout as Add Terminal).
-pub fn showEditTerminalDialog(info_index: usize) void {
-    const application = g_sidebar_app orelse return;
-    if (info_index >= term_row_infos.len) return;
-    const info = term_row_infos[info_index] orelse return;
 
-    // Find current terminal data to pre-fill
-    const proj = application.store.findById(info.project_id) orelse return;
-    var current_name: []const u8 = "";
-    var current_command: []const u8 = "";
-    for (proj.terminals.items) |t| {
-        if (std.mem.eql(u8, t.id, info.terminal_id)) {
-            current_name = t.name;
-            current_command = if (t.command) |c| c else "";
-            break;
-        }
-    }
 
-    const NSAlert = objc.getClass("NSAlert") orelse return;
-    const alert = objc.msgSend(NSAlert, objc.sel("new"));
-
-    objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString("Edit Terminal"));
-    objc.msgSendVoid1(alert, objc.sel("setInformativeText:"),
-        objc.nsString("Edit the name and startup command."));
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Save"));
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Cancel"));
-
-    const NSView = objc.getClass("NSView") orelse return;
-    const NSTextField = objc.getClass("NSTextField") orelse return;
-
-    const accessory = objc.msgSend(NSView, objc.sel("new"));
-    const setFrameFn: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 80));
-
-    // Name label + field
-    const name_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Name:"));
-    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 52, 70, 20));
-    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_label);
-
-    const name_field = objc.msgSend(NSTextField, objc.sel("new"));
-    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(76, 50, 240, 24));
-    objc.msgSendVoid1(name_field, objc.sel("setStringValue:"), objc.nsString(current_name));
-    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_field);
-
-    // Command label + field
-    const cmd_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Command:"));
-    setFrameFn(cmd_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 14, 70, 20));
-    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), cmd_label);
-
-    const cmd_field = objc.msgSend(NSTextField, objc.sel("new"));
-    setFrameFn(cmd_field, objc.sel("setFrame:"), objc.NSMakeRect(76, 12, 240, 24));
-    objc.msgSendVoid1(cmd_field, objc.sel("setStringValue:"), objc.nsString(current_command));
-    objc.msgSendVoid1(cmd_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. npm run dev"));
-    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), cmd_field);
-
-    objc.msgSendVoid1(alert, objc.sel("setAccessoryView:"), accessory);
-
-    // Center over main window
-    const NSApp_class = objc.getClass("NSApplication") orelse return;
-    const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
-    const main_window = objc.msgSend(nsapp, objc.sel("mainWindow"));
-    const alert_window = objc.msgSend(alert, objc.sel("window"));
-    objc.msgSendVoid1(alert_window, objc.sel("setInitialFirstResponder:"), name_field);
-    objc.msgSendVoid(alert_window, objc.sel("layoutIfNeeded"));
-
-    const main_frame = objc.msgSendRect(main_window, objc.sel("frame"));
-    const alert_frame = objc.msgSendRect(alert_window, objc.sel("frame"));
-    const cx = main_frame.origin.x + (main_frame.size.width - alert_frame.size.width) / 2.0;
-    const cy = main_frame.origin.y + (main_frame.size.height - alert_frame.size.height) / 2.0;
-    const setFrameOrigin: *const fn (objc.id, objc.SEL, objc.NSPoint) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setFrameOrigin(alert_window, objc.sel("setFrameOrigin:"), .{ .x = cx, .y = cy });
-
-    const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
-    const result = objc.msgSendUInt(alert, objc.sel("runModal"));
-    if (result != NSAlertFirstButtonReturn) return;
-
-    // Read values
-    const name_nsstr = objc.msgSend(name_field, objc.sel("stringValue"));
-    const name_utf8: [*:0]const u8 = @ptrCast(objc.msgSend(name_nsstr, objc.sel("UTF8String")));
-    const name = std.mem.span(name_utf8);
-
-    const cmd_nsstr = objc.msgSend(cmd_field, objc.sel("stringValue"));
-    const cmd_utf8: [*:0]const u8 = @ptrCast(objc.msgSend(cmd_nsstr, objc.sel("UTF8String")));
-    const cmd = std.mem.span(cmd_utf8);
-
-    if (name.len == 0) return;
-
-    // Update name
-    _ = application.store.renameTerminal(info.project_id, info.terminal_id, name) catch {};
-
-    // Update command — need to find and modify the terminal directly
-    if (application.store.findById(info.project_id)) |p| {
-        for (p.terminals.items) |*t| {
-            if (std.mem.eql(u8, t.id, info.terminal_id)) {
-                if (cmd.len > 0) {
-                    t.command = application.store.allocator.dupe(u8, cmd) catch null;
-                } else {
-                    t.command = null;
-                }
-                break;
-            }
-        }
-        application.store.save() catch {};
-    }
-
-    rebuildSidebar(application);
-}
-
-pub fn showAddTerminalDialog(project_index: usize) void {
-    showAddTerminalDialogWithDefault(project_index, "");
-}
-
-fn showAddTerminalDialogWithDefault(project_index: usize, default_name: []const u8) void {
-    const application = g_sidebar_app orelse return;
-    const projs = application.projects();
-    if (project_index >= projs.len) return;
-    const proj = projs[project_index];
-
-    const NSAlert = objc.getClass("NSAlert") orelse return;
-    const alert = objc.msgSend(NSAlert, objc.sel("new"));
-
-    objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString("Add Terminal"));
-    objc.msgSendVoid1(alert, objc.sel("setInformativeText:"),
-        objc.nsString("Enter a name and optional startup command."));
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Add"));
-    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Cancel"));
-
-    // Create accessory view with two labeled text fields, more spacing
-    const NSView = objc.getClass("NSView") orelse return;
-    const NSTextField = objc.getClass("NSTextField") orelse return;
-
-    const accessory = objc.msgSend(NSView, objc.sel("new"));
-    const setFrameFn: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 80));
-
-    // Name label + field (top row)
-    const name_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Name:"));
-    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 52, 70, 20));
-    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_label);
-
-    const name_field = objc.msgSend(NSTextField, objc.sel("new"));
-    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(76, 50, 240, 24));
-    if (default_name.len > 0) {
-        objc.msgSendVoid1(name_field, objc.sel("setStringValue:"), objc.nsString(default_name));
-    } else {
-        objc.msgSendVoid1(name_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. Dev Server"));
-    }
-    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_field);
-
-    // Command label + field (bottom row, 30px gap)
-    const cmd_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Command:"));
-    setFrameFn(cmd_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 14, 70, 20));
-    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), cmd_label);
-
-    const cmd_field = objc.msgSend(NSTextField, objc.sel("new"));
-    setFrameFn(cmd_field, objc.sel("setFrame:"), objc.NSMakeRect(76, 12, 240, 24));
-    objc.msgSendVoid1(cmd_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. npm run dev"));
-    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), cmd_field);
-
-    objc.msgSendVoid1(alert, objc.sel("setAccessoryView:"), accessory);
-
-    // Run as sheet on the main window (centered over app)
-    const NSApp_class = objc.getClass("NSApplication") orelse return;
-    const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
-    const main_window = objc.msgSend(nsapp, objc.sel("mainWindow"));
-
-    // Make name field first responder
-    const alert_window = objc.msgSend(alert, objc.sel("window"));
-    objc.msgSendVoid1(alert_window, objc.sel("setInitialFirstResponder:"), name_field);
-
-    // Layout the alert so it knows its size, then center over main window
-    objc.msgSendVoid(alert_window, objc.sel("layoutIfNeeded"));
-    const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
-    const main_frame = objc.msgSendRect(main_window, objc.sel("frame"));
-    const alert_frame = objc.msgSendRect(alert_window, objc.sel("frame"));
-    const cx = main_frame.origin.x + (main_frame.size.width - alert_frame.size.width) / 2.0;
-    const cy = main_frame.origin.y + (main_frame.size.height - alert_frame.size.height) / 2.0;
-    const setFrameOrigin: *const fn (objc.id, objc.SEL, objc.NSPoint) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setFrameOrigin(alert_window, objc.sel("setFrameOrigin:"), .{ .x = cx, .y = cy });
-    const result = objc.msgSendUInt(alert, objc.sel("runModal"));
-    if (result != NSAlertFirstButtonReturn) return;
-
-    // Read values
-    const name_nsstr = objc.msgSend(name_field, objc.sel("stringValue"));
-    const name_utf8: [*:0]const u8 = @ptrCast(objc.msgSend(name_nsstr, objc.sel("UTF8String")));
-    const name = std.mem.span(name_utf8);
-
-    const cmd_nsstr = objc.msgSend(cmd_field, objc.sel("stringValue"));
-    const cmd_utf8: [*:0]const u8 = @ptrCast(objc.msgSend(cmd_nsstr, objc.sel("UTF8String")));
-    const cmd = std.mem.span(cmd_utf8);
-
-    if (name.len == 0) return;
-
-    const command: ?[]const u8 = if (cmd.len > 0) cmd else null;
-    const new_terminal = application.store.addTerminal(proj.id, name, command) catch return;
-    const new_id = new_terminal.id;
-    rebuildSidebar(application);
-
-    // Select and open the newly added terminal
-    for (term_row_infos[0..term_row_info_count], 0..) |info_opt, idx| {
-        if (info_opt) |info| {
-            if (std.mem.eql(u8, info.terminal_id, new_id)) {
-                openTerminalAtIndex(idx);
-                return;
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Layout helpers
