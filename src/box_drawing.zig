@@ -66,6 +66,11 @@ pub fn getInfo(ch: u32) ?BoxInfo {
         0x253D, 0x253E, 0x253F, 0x2540, 0x2541, 0x2542, 0x2543,
         0x2544, 0x2545, 0x2546, 0x2547, 0x2548, 0x2549, 0x254A,
         => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = false }, // ┽┾┿╀╁╂╃╄╅╆╇╈╉╊
+        // More dashed lines
+        0x254C => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = false }, // ╌
+        0x254D => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = true },  // ╍
+        0x254E => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = false }, // ╎
+        0x254F => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = true },  // ╏
         // Rounded corners
         0x256D => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = false }, // ╭
         0x256E => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = false }, // ╮
@@ -101,6 +106,20 @@ pub fn getInfo(ch: u32) ?BoxInfo {
         0x256A => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╪
         0x256B => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╫
         0x256C => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╬
+        // Half-line characters (single direction)
+        0x2574 => .{ .left = true,  .right = false, .up = false, .down = false, .heavy = false }, // ╴
+        0x2575 => .{ .left = false, .right = false, .up = true,  .down = false, .heavy = false }, // ╵
+        0x2576 => .{ .left = false, .right = true,  .up = false, .down = false, .heavy = false }, // ╶
+        0x2577 => .{ .left = false, .right = false, .up = false, .down = true,  .heavy = false }, // ╷
+        0x2578 => .{ .left = true,  .right = false, .up = false, .down = false, .heavy = true },  // ╸
+        0x2579 => .{ .left = false, .right = false, .up = true,  .down = false, .heavy = true },  // ╹
+        0x257A => .{ .left = false, .right = true,  .up = false, .down = false, .heavy = true },  // ╺
+        0x257B => .{ .left = false, .right = false, .up = false, .down = true,  .heavy = true },  // ╻
+        // Mixed half-lines (treat as full lines)
+        0x257C => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = false }, // ╼
+        0x257D => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = false }, // ╽
+        0x257E => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = false }, // ╾
+        0x257F => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = false }, // ╿
         else => null,
     };
 }
