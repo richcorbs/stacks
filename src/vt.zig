@@ -142,6 +142,33 @@ pub const VTerm = struct {
         c.vterm_screen_reset(screen, 1);
         c.vterm_screen_enable_altscreen(screen, 1);
 
+        // Set a custom ANSI palette with brighter colors readable on dark backgrounds.
+        // Standard ANSI blue (index 4) is notoriously dark; brighten it and others.
+        const state = c.vterm_obtain_state(vt);
+        const palette = [16][3]u8{
+            .{ 0, 0, 0 }, //  0 black
+            .{ 204, 49, 49 }, //  1 red
+            .{ 49, 204, 49 }, //  2 green
+            .{ 204, 204, 49 }, //  3 yellow
+            .{ 88, 130, 255 }, //  4 blue (brightened from ~0,0,170)
+            .{ 178, 67, 204 }, //  5 magenta
+            .{ 49, 204, 204 }, //  6 cyan
+            .{ 204, 204, 204 }, //  7 white
+            .{ 102, 102, 102 }, //  8 bright black
+            .{ 255, 102, 102 }, //  9 bright red
+            .{ 102, 255, 102 }, // 10 bright green
+            .{ 255, 255, 102 }, // 11 bright yellow
+            .{ 130, 170, 255 }, // 12 bright blue
+            .{ 255, 119, 255 }, // 13 bright magenta
+            .{ 102, 255, 255 }, // 14 bright cyan
+            .{ 255, 255, 255 }, // 15 bright white
+        };
+        for (palette, 0..) |rgb, i| {
+            var col: c.VTermColor = undefined;
+            c.vterm_color_rgb(&col, rgb[0], rgb[1], rgb[2]);
+            c.vterm_state_set_palette_color(state, @intCast(i), &col);
+        }
+
         return .{
             .vt = vt,
             .screen = screen,
