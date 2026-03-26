@@ -43,6 +43,29 @@ pub fn getInfo(ch: u32) ?BoxInfo {
         0x2533 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = true },  // ┳
         0x253B => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = true },  // ┻
         0x254B => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = true },  // ╋
+        // Dashed lines (render as solid — dashing not worth the complexity)
+        0x2504, 0x2508 => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = false }, // ┄ ┈
+        0x2505, 0x2509 => .{ .left = true,  .right = true,  .up = false, .down = false, .heavy = true },  // ┅ ┉
+        0x2506, 0x250A => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = false }, // ┆ ┊
+        0x2507, 0x250B => .{ .left = false, .right = false, .up = true,  .down = true,  .heavy = true },  // ┇ ┋
+        // Mixed heavy/light corners (treat as the heavier variant)
+        0x250D => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = false }, // ┍
+        0x250E => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = false }, // ┎
+        0x2511 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = false }, // ┑
+        0x2512 => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = false }, // ┒
+        0x2515 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = false }, // ┕
+        0x2516 => .{ .left = false, .right = true,  .up = true,  .down = false, .heavy = false }, // ┖
+        0x2519 => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = false }, // ┙
+        0x251A => .{ .left = true,  .right = false, .up = true,  .down = false, .heavy = false }, // ┚
+        // Mixed heavy/light T-junctions
+        0x251D, 0x251E, 0x251F, 0x2520, 0x2521, 0x2522 => .{ .left = false, .right = true,  .up = true,  .down = true,  .heavy = false }, // ┝┞┟┠┡┢
+        0x2525, 0x2526, 0x2527, 0x2528, 0x2529, 0x252A => .{ .left = true,  .right = false, .up = true,  .down = true,  .heavy = false }, // ┥┦┧┨┩┪
+        0x252D, 0x252E, 0x252F, 0x2530, 0x2531, 0x2532 => .{ .left = true,  .right = true,  .up = false, .down = true,  .heavy = false }, // ┭┮┯┰┱┲
+        0x2535, 0x2536, 0x2537, 0x2538, 0x2539, 0x253A => .{ .left = true,  .right = true,  .up = true,  .down = false, .heavy = false }, // ┵┶┷┸┹┺
+        // Mixed heavy/light crosses
+        0x253D, 0x253E, 0x253F, 0x2540, 0x2541, 0x2542, 0x2543,
+        0x2544, 0x2545, 0x2546, 0x2547, 0x2548, 0x2549, 0x254A,
+        => .{ .left = true,  .right = true,  .up = true,  .down = true,  .heavy = false }, // ┽┾┿╀╁╂╃╄╅╆╇╈╉╊
         // Rounded corners
         0x256D => .{ .left = false, .right = true,  .up = false, .down = true,  .heavy = false }, // ╭
         0x256E => .{ .left = true,  .right = false, .up = false, .down = true,  .heavy = false }, // ╮
@@ -82,9 +105,13 @@ pub fn getInfo(ch: u32) ?BoxInfo {
     };
 }
 
-/// Check if a character is a box drawing character.
+/// Check if a character is in the box drawing Unicode block.
+/// Returns true for ALL characters in 0x2500-0x257F, even if we
+/// don't have specific rendering info — the caller should render
+/// them as custom graphics or blank rather than passing to font rendering
+/// (which often produces "?" glyphs for these characters).
 pub fn isBoxDrawing(ch: u32) bool {
-    return ch >= 0x2500 and ch <= 0x257F and getInfo(ch) != null;
+    return ch >= 0x2500 and ch <= 0x257F;
 }
 
 // ============================================================================
@@ -141,6 +168,8 @@ test "non-box characters return null" {
 test "isBoxDrawing" {
     try std.testing.expect(isBoxDrawing(0x2500)); // ─
     try std.testing.expect(isBoxDrawing(0x254B)); // ╋
+    try std.testing.expect(isBoxDrawing(0x2504)); // ┄ dashed (now covered)
+    try std.testing.expect(isBoxDrawing(0x257F)); // last in range
     try std.testing.expect(!isBoxDrawing('A'));
     try std.testing.expect(!isBoxDrawing(0x2580)); // ▀ block element, not box drawing
 }
