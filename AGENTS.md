@@ -24,6 +24,14 @@ Kill before redeploying: `pkill -9 -f stacks`
 8. **`vterm_set_size` hangs without output callback** — libvterm's default 4096-byte output buffer fills during resize. Always register `vterm_output_set_callback` so output flushes synchronously to the PTY.
 9. **`sbPopLine` must fill the cells buffer** — if you return 1 from `sb_popline` without writing valid `VTermScreenCell` data into the buffer, `vterm_set_size` hangs. Currently we return 0 (no restore) as a workaround.
 10. **Menu key equivalents vs `performKeyEquivalent:`** — Use NSMenuItem key equivalents for shortcuts that should work regardless of focus. Only use `performKeyEquivalent:` for shortcuts needing deferred handling (e.g. font size via `pending_font_delta`).
+11. **ObjC blocks can't be created from Zig** — use a `.m` helper file with C-callable wrapper functions. Link it via `exe.addCSourceFile` in build.zig with `-fobjc-arc`.
+12. **`AVAudioSession` is iOS-only** — on macOS, use `AVCaptureDevice authorizationStatusForMediaType:` for microphone permission and `AVAudioEngine` for audio capture.
+13. **`AVAudioEngine.inputNode` latches the default device at creation** — if the user changes their system default input between recordings, you must create a new `AVAudioEngine` instance to pick it up.
+14. **`var x: objc.id = undefined` is UB** — `objc.id` is `*anyopaque` (non-nullable). Use `?objc.id = null` for any ObjC reference that might not be set yet.
+15. **`NSTextField` trims trailing spaces** — don't rely on space padding for fixed-width text. Use a monospace approach or separate views instead.
+16. **`SFSpeechRecognitionTask cancel` discards pending results** — use `finish` instead of `cancel` if you want the final transcription delivered to the result handler.
+17. **`NSMicrophoneUsageDescription` required** — apps using the microphone must include this key (and `NSSpeechRecognitionUsageDescription` for speech) in Info.plist or they'll crash/silently fail on fresh installs.
+18. **`CoreAudio` framework must be linked separately** — `AudioObjectGetPropertyData` lives in CoreAudio, not in AVFoundation or AppKit. Add `exe.linkFramework("CoreAudio")` in build.zig.
 
 ## Architecture
 
