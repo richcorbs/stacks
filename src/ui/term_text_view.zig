@@ -2148,6 +2148,13 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     var buf: [16384]u8 = undefined;
     var any_data = false;
 
+    // Per-terminal leftover bytes from split UTF-8 sequences.
+    // Static so they persist across poll ticks.
+    const Leftover = struct { data: [4]u8 = undefined, len: u8 = 0 };
+    const leftovers = struct {
+        var slots: [MAX_TERMS]Leftover = [_]Leftover{.{}} ** MAX_TERMS;
+    };
+
     for (&terminals) |*t| {
         if (t.*) |*entry| {
             // Sync terminal size to view bounds
@@ -2155,11 +2162,48 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
 
             var got_data = false;
             while (true) {
-                const n = entry.pty.read(&buf);
-                if (n == 0) break;
+                // Prepend any leftover bytes from previous read
+                var lo = &leftovers.slots[entry.slot];
+                if (lo.len > 0) {
+                    @memcpy(buf[0..lo.len], lo.data[0..lo.len]);
+                }
+                const raw_n = entry.pty.read(buf[lo.len..]);
+                if (raw_n == 0 and lo.len == 0) break;
+                const n = raw_n + lo.len;
+                lo.len = 0;
+
+                // Check if the buffer ends mid-UTF-8 sequence.
+                // If so, save the trailing bytes for the next read.
+                var feed_len = n;
+                if (n > 0) {
+                    // Scan backwards to find any incomplete UTF-8 at the end
+                    var trail: usize = 0;
+                    var i = n;
+                    while (i > 0 and trail < 4) {
+                        i -= 1;
+                        const b = buf[i];
+                        if (b < 0x80) break; // ASCII — clean boundary
+                        if (b >= 0xC0) {
+                            // Start byte found — check if sequence is complete
+                            const expected: usize = if (b < 0xE0) 2 else if (b < 0xF0) 3 else 4;
+                            const available = n - i;
+                            if (available < expected) {
+                                // Incomplete — save these bytes
+                                const save: u8 = @intCast(available);
+                                @memcpy(lo.data[0..save], buf[i..n]);
+                                lo.len = save;
+                                feed_len = i;
+                            }
+                            break;
+                        }
+                        trail += 1;
+                    }
+                }
+
+                if (feed_len == 0) break;
 
                 // Check for bell character (0x07) — set notification on the session
-                for (buf[0..n]) |byte| {
+                for (buf[0..feed_len]) |byte| {
                     if (byte == 0x07) {
                         // Find which session owns this terminal
                         for (&sessions, 0..) |*sess, si| {
@@ -2182,7 +2226,7 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
                     }
                 }
 
-                entry.vterm.feed(buf[0..n]);
+                entry.vterm.feed(buf[0..feed_len]);
                 // Output callback handles flushing vterm → PTY automatically
 
                 got_data = true;
