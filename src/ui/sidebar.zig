@@ -138,38 +138,16 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
     const row_height: objc.CGFloat = 36.0;
     const sub_row_height: objc.CGFloat = 28.0;
 
-    // Determine which project contains the selected terminal or add-terminal
-    var active_project_id: ?[]const u8 = null;
-    if (selected_terminal_index) |sel_idx| {
-        var count: usize = 0;
-        for (application.projects()) |proj| {
-            for (proj.terminals.items) |_| {
-                if (count == sel_idx) {
-                    active_project_id = proj.id;
-                    break;
-                }
-                count += 1;
-            }
-            if (active_project_id != null) break;
-        }
-    }
-    // Note: we intentionally do NOT highlight a project header when its
-    // "Add Terminal" row is nav-selected — only actual terminal selection
-    // should highlight the parent project.
-
     for (application.projects(), 0..) |proj, proj_i| {
-        const is_active_project = if (active_project_id) |aid| std.mem.eql(u8, proj.id, aid) else false;
-
         // Project header row
-        const row = createProjectRow(proj.name, y_offset, row_height, true, proj_i, is_active_project);
-        // Project header — no background highlight (keep it clean)
+        const row = createProjectRow(proj.name, y_offset, row_height, true, proj_i, false);
         objc.msgSendVoid1(list_view, objc.sel("addSubview:"), row);
         y_offset += row_height;
 
         // Terminal sub-items (clickable)
         for (proj.terminals.items, 0..) |term, ti| {
             const term_info_idx = term_row_info_count;
-            const term_row = createTerminalRow(term.name, proj.path, term.command, proj.id, term.id, y_offset, sub_row_height, ti, is_active_project);
+            const term_row = createTerminalRow(term.name, proj.path, term.command, proj.id, term.id, y_offset, sub_row_height, ti, false);
             objc.msgSendVoid1(list_view, objc.sel("addSubview:"), term_row);
             y_offset += sub_row_height;
 
@@ -192,7 +170,7 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
             nav_items[nav_item_count] = .{ .kind = .add_terminal, .index = add_term_proj_idx };
             nav_item_count += 1;
         }
-        const add_term_row = createAddTerminalRow(proj.id, y_offset, sub_row_height, is_active_project);
+        const add_term_row = createAddTerminalRow(proj.id, y_offset, sub_row_height, false);
         objc.msgSendVoid1(list_view, objc.sel("addSubview:"), add_term_row);
         y_offset += sub_row_height + 6; // extra spacing before divider
 
@@ -338,7 +316,7 @@ fn flippedYes(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL {
     return objc.YES;
 }
 
-fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, is_header: bool, project_idx: ?usize, is_active_project: bool) objc.id {
+fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, is_header: bool, project_idx: ?usize, _: bool) objc.id {
     // Use draggable view for project headers
     const row = if (is_header and project_idx != null)
         newAutorelease(registerDragRowClass() orelse objc.getClass("NSView") orelse unreachable)
@@ -364,11 +342,7 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
             @ptrCast(&objc.c.objc_msgSend);
         const font = boldFont(NSFont, objc.sel("boldSystemFontOfSize:"), 13.0);
         objc.msgSendVoid1(label, objc.sel("setFont:"), font);
-        if (is_active_project) {
-            setTextColor(label, 0.847, 0.937, 0.906); // #d8efe7 — bright
-        } else {
-            setTextColor(label, 0.45, 0.50, 0.56); // dimmed
-        }
+        setTextColor(label, 0.847, 0.937, 0.906); // #d8efe7 — always bright
     } else {
         const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
             @ptrCast(&objc.c.objc_msgSend);
