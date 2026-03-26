@@ -1795,10 +1795,13 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 continue;
             }
 
-            // Replace box-drawing chars with spaces — we draw them with CG lines instead
+            // Wide characters (emoji, CJK) and box-drawing chars are replaced with
+            // spaces in the row string. Wide chars are drawn individually at grid
+            // positions afterward (CoreText doesn't respect monospace grid for emoji).
             const is_box = box_drawing.isBoxDrawing(ch);
-            if (!is_box and ch > 0 and ch <= 0x10FFFF) {
-                if (ch > 0xFFFF) utf16_len = 2; // surrogate pair for emoji etc.
+            const is_wide = cell2.width > 1;
+            if (!is_box and !is_wide and ch > 0 and ch <= 0x10FFFF) {
+                if (ch > 0xFFFF) utf16_len = 2; // surrogate pair
                 if (row_len + 4 <= row_buf.len) {
                     const enc_len = std.unicode.utf8Encode(@intCast(ch), row_buf[row_len..][0..4]) catch 0;
                     if (enc_len > 0) {
@@ -1886,6 +1889,112 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
         // Overdraw box-drawing characters (U+2500–U+257F) with CG lines
         // because font glyphs don't fill the cell, leaving gaps.
         drawBoxDrawingChars(cgctx, entry, grid_row_i, sb_len, row, CG);
+
+        // Draw wide characters (emoji, CJK) individually at grid positions.
+        // These were replaced with spaces in the CTLine to prevent misalignment.
+        drawWideChars(cgctx, entry, grid_row_i, sb_len, row, CG);
+    }
+}
+
+/// Draw wide characters (emoji, CJK) individually at their grid positions.
+/// These are excluded from the row CTLine to prevent column misalignment.
+fn drawWideChars(
+    cgctx: *anyopaque,
+    entry: *TermEntry,
+    grid_row_i: i32,
+    sb_len: i32,
+    row: u16,
+    CG: anytype,
+) void {
+    const CT = struct {
+        extern "CoreText" fn CTLineCreateWithAttributedString(attrString: *anyopaque) *anyopaque;
+        extern "CoreText" fn CTLineDraw(line: *anyopaque, context: *anyopaque) void;
+        extern "CoreFoundation" fn CFRelease(cf: *anyopaque) void;
+    };
+
+    var col: u16 = 0;
+    while (col < entry.vterm.cols) : (col += 1) {
+        var cell: vt_mod.Cell = undefined;
+        if (grid_row_i < 0) {
+            const sb_idx = sb_len + grid_row_i;
+            if (sb_idx >= 0 and sb_idx < sb_len) {
+                const line = entry.scrollback.get(@intCast(sb_idx));
+                cell = if (col < line.cells.len) line.cells[col] else .{};
+            } else cell = .{};
+        } else {
+            cell = entry.vterm.getCell(@intCast(grid_row_i), col);
+        }
+
+        if (cell.width <= 1) continue;
+        const ch = cell.chars[0];
+        if (ch == 0 or ch > 0x10FFFF) continue;
+
+        // Encode the character
+        var char_buf: [8]u8 = undefined;
+        var char_len: usize = 0;
+
+        // Encode the primary character
+        const enc_len = std.unicode.utf8Encode(@intCast(ch), char_buf[0..4]) catch 0;
+        if (enc_len == 0) continue;
+        char_len = enc_len;
+
+        // Also encode variation selectors and combining marks from chars[1..]
+        for (cell.chars[1..]) |extra| {
+            if (extra == 0) break;
+            if (char_len + 4 <= char_buf.len) {
+                const extra_len = std.unicode.utf8Encode(@intCast(extra), char_buf[char_len..][0..4]) catch 0;
+                char_len += extra_len;
+            }
+        }
+
+        // Create attributed string for this character
+        const NSString = objc.getClass("NSString") orelse continue;
+        const NSMutableAttributedString = objc.getClass("NSMutableAttributedString") orelse continue;
+
+        const initWithBytes: *const fn (objc.id, objc.SEL, [*]const u8, objc.NSUInteger, objc.NSUInteger) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const ns_str = initWithBytes(
+            objc.msgSend(NSString, objc.sel("alloc")),
+            objc.sel("initWithBytes:length:encoding:"),
+            &char_buf, char_len, 4, // NSUTF8StringEncoding = 4
+        );
+
+        const attr_str = objc.msgSend1(
+            objc.msgSend(NSMutableAttributedString, objc.sel("alloc")),
+            objc.sel("initWithString:"),
+            ns_str,
+        );
+
+        // Set font
+        const font = getCachedFont();
+        const range_end: objc.NSUInteger = objc.msgSendUInt(attr_str, objc.sel("length"));
+        const addAttr: *const fn (objc.id, objc.SEL, objc.id, objc.id, objc.NSRange) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        addAttr(attr_str, objc.sel("addAttribute:value:range:"), getCachedNSFontKey(), font, .{ .location = 0, .length = range_end });
+
+        // Set foreground color
+        var fg = cell.fg;
+        if (cell.reverse) fg = cell.bg;
+        const NSColor = objc.getClass("NSColor") orelse continue;
+        const colorWithRGBA: *const fn (objc.id, objc.SEL, f64, f64, f64, f64) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const fg_color = colorWithRGBA(NSColor, objc.sel("colorWithRed:green:blue:alpha:"),
+            @as(f64, @floatFromInt(fg.r)) / 255.0,
+            @as(f64, @floatFromInt(fg.g)) / 255.0,
+            @as(f64, @floatFromInt(fg.b)) / 255.0, 1.0);
+        addAttr(attr_str, objc.sel("addAttribute:value:range:"), getCachedNSColorKey(), fg_color, .{ .location = 0, .length = range_end });
+
+        // Draw at grid position
+        const x: f64 = @as(f64, @floatFromInt(col)) * cell_width;
+        const y: f64 = @as(f64, @floatFromInt(row + 1)) * cell_height - 3.0; // baseline
+        CG.CGContextSetTextPosition(cgctx, x, y);
+
+        const ct_line = CT.CTLineCreateWithAttributedString(@ptrCast(attr_str));
+        CT.CTLineDraw(ct_line, cgctx);
+        CT.CFRelease(ct_line);
+
+        // Skip continuation cells
+        col += cell.width - 1;
     }
 }
 
