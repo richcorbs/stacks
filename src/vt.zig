@@ -31,6 +31,27 @@ pub const Color = struct {
 pub const DEFAULT_FG = Color{ .r = 204, .g = 204, .b = 204 };
 pub const DEFAULT_BG = Color{ .r = 15, .g = 20, .b = 27 };
 
+/// ANSI 16-color palette, optimized for dark backgrounds.
+/// Single source of truth — used by both vterm init and indexed color lookup.
+pub const ANSI_PALETTE = [16]Color{
+    .{ .r = 0, .g = 0, .b = 0 },       //  0 black
+    .{ .r = 204, .g = 49, .b = 49 },   //  1 red
+    .{ .r = 49, .g = 204, .b = 49 },   //  2 green
+    .{ .r = 204, .g = 204, .b = 49 },  //  3 yellow
+    .{ .r = 138, .g = 180, .b = 255 }, //  4 blue
+    .{ .r = 178, .g = 67, .b = 204 },  //  5 magenta
+    .{ .r = 49, .g = 204, .b = 204 },  //  6 cyan
+    .{ .r = 204, .g = 204, .b = 204 }, //  7 white
+    .{ .r = 102, .g = 102, .b = 102 }, //  8 bright black
+    .{ .r = 255, .g = 102, .b = 102 }, //  9 bright red
+    .{ .r = 102, .g = 255, .b = 102 }, // 10 bright green
+    .{ .r = 255, .g = 255, .b = 102 }, // 11 bright yellow
+    .{ .r = 130, .g = 170, .b = 255 }, // 12 bright blue
+    .{ .r = 255, .g = 119, .b = 255 }, // 13 bright magenta
+    .{ .r = 102, .g = 255, .b = 255 }, // 14 bright cyan
+    .{ .r = 255, .g = 255, .b = 255 }, // 15 bright white
+};
+
 pub const Cell = struct {
     chars: [2]u32 = .{ 0, 0 }, // base char + 1 combining mark (covers 99%+ of text)
     width: u8 = 1,
@@ -78,26 +99,7 @@ pub fn decodeVTermColor(raw: u32, default: Color) Color {
 
 /// Convert a 256-color index to RGB.
 fn indexedColor(idx: u8) Color {
-    // Standard 16 ANSI colors — must match the palette set in VTerm.init()
-    const ansi16 = [16]Color{
-        .{ .r = 0, .g = 0, .b = 0 },       // 0 black
-        .{ .r = 204, .g = 49, .b = 49 },   // 1 red
-        .{ .r = 49, .g = 204, .b = 49 },   // 2 green
-        .{ .r = 204, .g = 204, .b = 49 },  // 3 yellow
-        .{ .r = 138, .g = 180, .b = 255 }, // 4 blue
-        .{ .r = 178, .g = 67, .b = 204 },  // 5 magenta
-        .{ .r = 49, .g = 204, .b = 204 },  // 6 cyan
-        .{ .r = 204, .g = 204, .b = 204 }, // 7 white
-        .{ .r = 102, .g = 102, .b = 102 }, // 8 bright black
-        .{ .r = 255, .g = 102, .b = 102 }, // 9 bright red
-        .{ .r = 102, .g = 255, .b = 102 }, // 10 bright green
-        .{ .r = 255, .g = 255, .b = 102 }, // 11 bright yellow
-        .{ .r = 130, .g = 170, .b = 255 }, // 12 bright blue
-        .{ .r = 255, .g = 119, .b = 255 }, // 13 bright magenta
-        .{ .r = 102, .g = 255, .b = 255 }, // 14 bright cyan
-        .{ .r = 255, .g = 255, .b = 255 }, // 15 bright white
-    };
-    if (idx < 16) return ansi16[idx];
+    if (idx < 16) return ANSI_PALETTE[idx];
 
     // 216 color cube: indices 16-231
     if (idx < 232) {
@@ -142,30 +144,11 @@ pub const VTerm = struct {
         c.vterm_screen_reset(screen, 1);
         c.vterm_screen_enable_altscreen(screen, 1);
 
-        // Set a custom ANSI palette with brighter colors readable on dark backgrounds.
-        // Standard ANSI blue (index 4) is notoriously dark; brighten it and others.
+        // Set custom ANSI palette (uses ANSI_PALETTE — single source of truth)
         const state = c.vterm_obtain_state(vt);
-        const palette = [16][3]u8{
-            .{ 0, 0, 0 }, //  0 black
-            .{ 204, 49, 49 }, //  1 red
-            .{ 49, 204, 49 }, //  2 green
-            .{ 204, 204, 49 }, //  3 yellow
-            .{ 138, 180, 255 }, //  4 blue (brightened from ~0,0,170)
-            .{ 178, 67, 204 }, //  5 magenta
-            .{ 49, 204, 204 }, //  6 cyan
-            .{ 204, 204, 204 }, //  7 white
-            .{ 102, 102, 102 }, //  8 bright black
-            .{ 255, 102, 102 }, //  9 bright red
-            .{ 102, 255, 102 }, // 10 bright green
-            .{ 255, 255, 102 }, // 11 bright yellow
-            .{ 130, 170, 255 }, // 12 bright blue
-            .{ 255, 119, 255 }, // 13 bright magenta
-            .{ 102, 255, 255 }, // 14 bright cyan
-            .{ 255, 255, 255 }, // 15 bright white
-        };
-        for (palette, 0..) |rgb, i| {
+        for (ANSI_PALETTE, 0..) |color, i| {
             var col: c.VTermColor = undefined;
-            c.vterm_color_rgb(&col, rgb[0], rgb[1], rgb[2]);
+            c.vterm_color_rgb(&col, color.r, color.g, color.b);
             c.vterm_state_set_palette_color(state, @intCast(i), &col);
         }
 
