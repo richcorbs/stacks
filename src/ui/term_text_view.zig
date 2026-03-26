@@ -1120,6 +1120,163 @@ fn isFlipped(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL { return objc.YES; 
 
 // Track shift-only state for push-to-talk
 var shift_only_down: bool = false;
+var shift_pending: bool = false; // waiting for 1 second delay
+var shift_timer: ?objc.id = null;
+var shift_view: objc.id = undefined; // view that triggered shift
+var last_transcription: [4096]u8 = undefined;
+var last_transcription_len: usize = 0;
+var speech_indicator: ?objc.id = null;
+var speech_title_label: ?objc.id = null;
+var speech_dot_timer: ?objc.id = null;
+var speech_dot_count: u8 = 1;
+var speech_helper_class: ?objc.id = null;
+var speech_dot_helper_class: ?objc.id = null;
+
+fn showSpeechIndicator(parent_view: objc.id) void {
+    if (speech_indicator != null) return;
+    
+    const NSView = objc.getClass("NSView") orelse return;
+    const NSTextField = objc.getClass("NSTextField") orelse return;
+    const NSColor = objc.getClass("NSColor") orelse return;
+    const NSFont = objc.getClass("NSFont") orelse return;
+    
+    // Create indicator view
+    const indicator = objc.msgSend(objc.msgSend(NSView, objc.sel("alloc")), objc.sel("init"));
+    
+    // Get device name
+    const device_name = speech.getInputDeviceName();
+    
+    // Create title label "Recording..."
+    const title_label = objc.msgSend(objc.msgSend(NSTextField, objc.sel("alloc")), objc.sel("init"));
+    objc.msgSendVoid1(title_label, objc.sel("setStringValue:"), objc.nsString("Recording..."));
+    objc.msgSendVoid1(title_label, objc.sel("setBezeled:"), objc.NO);
+    objc.msgSendVoid1(title_label, objc.sel("setDrawsBackground:"), objc.NO);
+    objc.msgSendVoid1(title_label, objc.sel("setEditable:"), objc.NO);
+    objc.msgSendVoid1(title_label, objc.sel("setSelectable:"), objc.NO);
+    objc.msgSendVoid1(title_label, objc.sel("setAlignment:"), @as(objc.NSUInteger, 1)); // center
+    const white = objc.msgSend(NSColor, objc.sel("whiteColor"));
+    objc.msgSendVoid1(title_label, objc.sel("setTextColor:"), white);
+    const bold_font = objc.msgSend1(NSFont, objc.sel("boldSystemFontOfSize:"), @as(f64, 16.0));
+    objc.msgSendVoid1(title_label, objc.sel("setFont:"), bold_font);
+    objc.msgSendVoid(title_label, objc.sel("sizeToFit"));
+    const title_frame = objc.msgSendRect(title_label, objc.sel("frame"));
+    
+    // Create device label (dimmer)
+    var buf: [512]u8 = undefined;
+    const device_text = std.fmt.bufPrint(&buf, "{s}\n(System Default)", .{device_name}) catch "Unknown";
+    const device_label = objc.msgSend(objc.msgSend(NSTextField, objc.sel("alloc")), objc.sel("init"));
+    objc.msgSendVoid1(device_label, objc.sel("setStringValue:"), objc.nsString(device_text));
+    objc.msgSendVoid1(device_label, objc.sel("setBezeled:"), objc.NO);
+    objc.msgSendVoid1(device_label, objc.sel("setDrawsBackground:"), objc.NO);
+    objc.msgSendVoid1(device_label, objc.sel("setEditable:"), objc.NO);
+    objc.msgSendVoid1(device_label, objc.sel("setSelectable:"), objc.NO);
+    objc.msgSendVoid1(device_label, objc.sel("setAlignment:"), @as(objc.NSUInteger, 1)); // center
+    const colorWithRGBA2: *const fn (objc.id, objc.SEL, f64, f64, f64, f64) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const gray = colorWithRGBA2(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.7, 0.7, 0.7, 1.0);
+    objc.msgSendVoid1(device_label, objc.sel("setTextColor:"), gray);
+    const small_font = objc.msgSend1(NSFont, objc.sel("systemFontOfSize:"), @as(f64, 12.0));
+    objc.msgSendVoid1(device_label, objc.sel("setFont:"), small_font);
+    objc.msgSendVoid(device_label, objc.sel("sizeToFit"));
+    const device_frame = objc.msgSendRect(device_label, objc.sel("frame"));
+    
+    // Calculate total size
+    const label_width = @max(title_frame.size.width, device_frame.size.width);
+    const label_height = title_frame.size.height + 12 + device_frame.size.height; // 12px gap
+    
+    // Position indicator in center of parent
+    const parent_frame = objc.msgSendRect(parent_view, objc.sel("frame"));
+    const width: f64 = @max(label_width + 40, 200);
+    const height: f64 = label_height + 30;
+    const x = (parent_frame.size.width - width) / 2;
+    const y = (parent_frame.size.height - height) / 2;
+    
+    objc.msgSendVoid1(indicator, objc.sel("setFrame:"), objc.NSMakeRect(x, y, width, height));
+    
+    // Background color (dark with transparency)
+    const colorWithRGBA: *const fn (objc.id, objc.SEL, f64, f64, f64, f64) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const bg_color = colorWithRGBA(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 
+        0.1, 0.1, 0.1, 0.9);
+    objc.msgSendVoid1(indicator, objc.sel("setWantsLayer:"), objc.YES);
+    const layer = objc.msgSend(indicator, objc.sel("layer"));
+    if (@intFromPtr(layer) != 0) {
+        const cg_color = objc.msgSend(bg_color, objc.sel("CGColor"));
+        objc.msgSendVoid1(layer, objc.sel("setBackgroundColor:"), cg_color);
+        objc.msgSendVoid1(layer, objc.sel("setCornerRadius:"), @as(f64, 10.0));
+    }
+    
+    // Position title at top
+    const title_x = (width - title_frame.size.width) / 2;
+    const title_y = height - 15 - title_frame.size.height;
+    objc.msgSendVoid1(title_label, objc.sel("setFrame:"), objc.NSMakeRect(title_x, title_y, title_frame.size.width, title_frame.size.height));
+    
+    // Position device info below with gap
+    const device_x = (width - device_frame.size.width) / 2;
+    const device_y = title_y - 12 - device_frame.size.height;
+    objc.msgSendVoid1(device_label, objc.sel("setFrame:"), objc.NSMakeRect(device_x, device_y, device_frame.size.width, device_frame.size.height));
+    
+    objc.msgSendVoid1(indicator, objc.sel("addSubview:"), title_label);
+    objc.msgSendVoid1(indicator, objc.sel("addSubview:"), device_label);
+    objc.msgSendVoid1(parent_view, objc.sel("addSubview:"), indicator);
+    
+    speech_indicator = indicator;
+    speech_title_label = title_label;
+    speech_dot_count = 1;
+    
+    // Start animation timer for dots
+    if (speech_dot_helper_class == null) {
+        const NSObject = objc.getClass("NSObject") orelse return;
+        speech_dot_helper_class = objc.allocateClassPair(NSObject, "SpeechDotHelper");
+        if (speech_dot_helper_class) |cls| {
+            _ = objc.addMethod(cls, objc.sel("dotTimerFired:"), &dotTimerFired, "v@:@");
+            objc.registerClassPair(cls);
+        }
+    }
+    
+    const NSTimer = objc.getClass("NSTimer") orelse return;
+    const dot_helper_cls = speech_dot_helper_class orelse return;
+    const dot_helper = objc.msgSend(dot_helper_cls, objc.sel("new"));
+    
+    const scheduledTimer2: *const fn (objc.id, objc.SEL, f64, ?*anyopaque, objc.SEL, ?*anyopaque, objc.BOOL) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    speech_dot_timer = scheduledTimer2(
+        NSTimer,
+        objc.sel("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
+        1.0,
+        dot_helper,
+        objc.sel("dotTimerFired:"),
+        null,
+        objc.YES, // repeats
+    );
+}
+
+fn dotTimerFired(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    speech_dot_count = (speech_dot_count % 3) + 1;
+    
+    const text = switch (speech_dot_count) {
+        1 => "Recording.",
+        2 => "Recording..",
+        else => "Recording...",
+    };
+    
+    if (speech_title_label) |label| {
+        objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(text));
+    }
+}
+
+fn hideSpeechIndicator() void {
+    if (speech_dot_timer) |timer| {
+        objc.msgSendVoid(timer, objc.sel("invalidate"));
+        speech_dot_timer = null;
+    }
+    speech_title_label = null;
+    
+    if (speech_indicator) |indicator| {
+        objc.msgSendVoid(indicator, objc.sel("removeFromSuperview"));
+        speech_indicator = null;
+    }
+}
 
 fn termFlagsChanged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
     const modifierFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
@@ -1138,24 +1295,80 @@ fn termFlagsChanged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) voi
     // Only shift, no other modifiers
     const shift_only = shift_pressed and !other_modifiers;
 
-    if (shift_only and !shift_only_down) {
-        // Shift just pressed alone - start listening
+    if (shift_only and !shift_only_down and !shift_pending) {
+        // Shift just pressed alone - start 1 second timer
+        shift_pending = true;
+        shift_view = self;
+        
+        // Create timer helper class if needed
+        if (speech_helper_class == null) {
+            const NSObject = objc.getClass("NSObject") orelse return;
+            speech_helper_class = objc.allocateClassPair(NSObject, "SpeechTimerHelper");
+            if (speech_helper_class) |cls| {
+                _ = objc.addMethod(cls, objc.sel("shiftTimerFired:"), &shiftTimerFired, "v@:@");
+                objc.registerClassPair(cls);
+            }
+        }
+        
+        // Create and schedule timer for 1 second
+        const NSTimer = objc.getClass("NSTimer") orelse return;
+        const helper_cls = speech_helper_class orelse return;
+        const helper = objc.msgSend(helper_cls, objc.sel("new"));
+        
+        const scheduledTimer: *const fn (objc.id, objc.SEL, f64, ?*anyopaque, objc.SEL, ?*anyopaque, objc.BOOL) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        shift_timer = scheduledTimer(
+            NSTimer,
+            objc.sel("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
+            1.0, // 1 second delay
+            helper,
+            objc.sel("shiftTimerFired:"),
+            self,
+            objc.NO,
+        );
+    } else if (!shift_only and (shift_only_down or shift_pending)) {
+        // Shift released
+        if (shift_pending and !shift_only_down) {
+            // Released before timer fired - cancel
+            if (shift_timer) |timer| {
+                objc.msgSendVoid(timer, objc.sel("invalidate"));
+                shift_timer = null;
+            }
+            shift_pending = false;
+        } else if (shift_only_down) {
+            // Was recording - stop and send text
+            shift_only_down = false;
+            speech.stopListening();
+            hideSpeechIndicator();
+            
+            if (last_transcription_len > 0) {
+                const text = last_transcription[0..last_transcription_len];
+                
+                // Send to the focused terminal's PTY
+                const entry = findEntry(self) orelse return;
+                entry.pty.write(text);
+            }
+        }
+    }
+}
+
+fn shiftTimerFired(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    shift_timer = null;
+    
+    if (shift_pending) {
+        // Timer fired and shift still held - start recording
+        shift_pending = false;
         shift_only_down = true;
-        const entry = findEntry(self) orelse return;
+        last_transcription_len = 0;
         _ = speech.startListening(struct {
             fn callback(text: []const u8, is_final: bool) void {
-                std.debug.print("Speech: {s}{s}\n", .{ text, if (is_final) " [FINAL]" else "" });
-                // TODO: on final, send text to the focused terminal's PTY
+                const copy_len = @min(text.len, last_transcription.len);
+                @memcpy(last_transcription[0..copy_len], text[0..copy_len]);
+                last_transcription_len = copy_len;
+                _ = is_final;
             }
         }.callback);
-        // Visual feedback - could highlight border or show indicator
-        std.debug.print("Push-to-talk: STARTED\n", .{});
-        _ = entry;
-    } else if (!shift_only and shift_only_down) {
-        // Shift released or other modifier added - stop listening
-        shift_only_down = false;
-        speech.stopListening();
-        std.debug.print("Push-to-talk: STOPPED\n", .{});
+        showSpeechIndicator(shift_view);
     }
 }
 

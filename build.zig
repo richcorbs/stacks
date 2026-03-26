@@ -31,6 +31,7 @@ pub fn build(b: *std.Build) void {
     exe.linkFramework("Foundation");
     exe.linkFramework("Speech");
     exe.linkFramework("AVFoundation");
+    exe.linkFramework("CoreAudio");
 
     // Compile ObjC helper for speech recognition (requires blocks)
     exe.addCSourceFile(.{

@@ -5,6 +5,8 @@
 
 #import <Speech/Speech.h>
 #import <AVFoundation/AVFoundation.h>
+#import <CoreAudio/CoreAudio.h>
+#include <math.h>
 
 // Callback function type for transcription results
 typedef void (*TranscriptionCallback)(const char *text, int isFinal, void *context);
@@ -21,10 +23,24 @@ static void *callbackContext = NULL;
 int speech_init(void) {
     if (speechRecognizer != nil) return 1; // Already initialized
     
+    // Request microphone permission on macOS
+    if (@available(macOS 10.14, *)) {
+        AVAuthorizationStatus micStatus = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+        
+        if (micStatus == AVAuthorizationStatusNotDetermined) {
+            dispatch_semaphore_t micSem = dispatch_semaphore_create(0);
+            [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
+                dispatch_semaphore_signal(micSem);
+            }];
+            dispatch_semaphore_wait(micSem, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+        } else if (micStatus == AVAuthorizationStatusDenied) {
+            return 0;
+        }
+    }
+    
     // Check authorization
     SFSpeechRecognizerAuthorizationStatus status = [SFSpeechRecognizer authorizationStatus];
     if (status != SFSpeechRecognizerAuthorizationStatusAuthorized) {
-        // Request authorization
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
         __block BOOL authorized = NO;
         
@@ -33,32 +49,18 @@ int speech_init(void) {
             dispatch_semaphore_signal(sem);
         }];
         
-        // Wait up to 30 seconds for user response
         dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
         
-        if (!authorized) {
-            NSLog(@"Speech recognition not authorized");
-            return 0;
-        }
+        if (!authorized) return 0;
     }
     
     // Create recognizer
     speechRecognizer = [[SFSpeechRecognizer alloc] init];
-    if (!speechRecognizer || !speechRecognizer.isAvailable) {
-        NSLog(@"Speech recognizer not available");
-        return 0;
-    }
+    if (!speechRecognizer || !speechRecognizer.isAvailable) return 0;
     
-    // Check on-device support
-    if (!speechRecognizer.supportsOnDeviceRecognition) {
-        NSLog(@"On-device recognition not supported");
-        return 0;
-    }
-    
-    // Create audio engine
+    // Create audio engine (uses system default input device)
     audioEngine = [[AVAudioEngine alloc] init];
     
-    NSLog(@"Speech recognition initialized (on-device)");
     return 1;
 }
 
@@ -80,9 +82,11 @@ int speech_start(TranscriptionCallback callback, void *context) {
     // Create recognition request
     recognitionRequest = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
     recognitionRequest.shouldReportPartialResults = YES;
-    recognitionRequest.requiresOnDeviceRecognition = YES;
+    if (speechRecognizer.supportsOnDeviceRecognition) {
+        recognitionRequest.requiresOnDeviceRecognition = YES;
+    }
     
-    // Get input node
+    // Get input node - this uses current system default input device
     AVAudioInputNode *inputNode = audioEngine.inputNode;
     AVAudioFormat *format = [inputNode outputFormatForBus:0];
     
@@ -109,13 +113,8 @@ int speech_start(TranscriptionCallback callback, void *context) {
             NSString *text = result.bestTranscription.formattedString;
             transcriptionCallback([text UTF8String], result.isFinal, callbackContext);
         }
-        
-        if (error) {
-            NSLog(@"Recognition error: %@", error);
-        }
     }];
     
-    NSLog(@"Speech recognition started");
     return 1;
 }
 
@@ -138,13 +137,40 @@ void speech_stop(void) {
     
     transcriptionCallback = NULL;
     callbackContext = NULL;
-    
-    NSLog(@"Speech recognition stopped");
 }
 
 // Check if currently listening
 int speech_is_listening(void) {
     return audioEngine != nil && audioEngine.isRunning;
+}
+
+// Get the current input device name
+const char* speech_get_input_device_name(void) {
+    static char deviceName[256] = "Unknown";
+    
+    AudioObjectPropertyAddress address = {
+        kAudioHardwarePropertyDefaultInputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    
+    AudioDeviceID deviceID = 0;
+    UInt32 size = sizeof(deviceID);
+    OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &size, &deviceID);
+    
+    if (status == noErr) {
+        address.mSelector = kAudioDevicePropertyDeviceNameCFString;
+        CFStringRef name = NULL;
+        size = sizeof(name);
+        status = AudioObjectGetPropertyData(deviceID, &address, 0, NULL, &size, &name);
+        
+        if (status == noErr && name) {
+            CFStringGetCString(name, deviceName, sizeof(deviceName), kCFStringEncodingUTF8);
+            CFRelease(name);
+        }
+    }
+    
+    return deviceName;
 }
 
 // Clean up everything

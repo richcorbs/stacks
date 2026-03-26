@@ -11,6 +11,7 @@ const c = struct {
     extern fn speech_stop() void;
     extern fn speech_is_listening() c_int;
     extern fn speech_cleanup() void;
+    extern fn speech_get_input_device_name() [*:0]const u8;
 };
 
 // Zig callback wrapper
@@ -51,4 +52,9 @@ pub fn isListening() bool {
 pub fn cleanup() void {
     c.speech_cleanup();
     zig_callback = null;
+}
+
+/// Get the name of the current input device.
+pub fn getInputDeviceName() []const u8 {
+    return std.mem.span(c.speech_get_input_device_name());
 }
