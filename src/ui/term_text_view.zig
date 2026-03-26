@@ -25,11 +25,10 @@ var terminals: [MAX_TERMS]?TermEntry = [_]?TermEntry{null} ** MAX_TERMS;
 var poll_timer: ?objc.id = null;
 var term_view_class: ?objc.id = null;
 
+// --- Font metrics ---
 var font_size: f64 = 13.0;
 var cell_width: f64 = 7.8;
 var cell_height: f64 = 16.0;
-
-// Cached ObjC objects to avoid per-frame allocation
 var cached_nscolor_key: ?objc.id = null;
 var cached_nsfont_key: ?objc.id = null;
 var cached_menlo_name: ?objc.id = null;
@@ -1982,6 +1981,7 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
         @ptrCast(&objc.c.objc_msgSend);
     const flags = modifierFlags(event, objc.sel("modifierFlags"));
     const has_cmd = (flags & (1 << 20)) != 0;
+    const has_opt = (flags & (1 << 19)) != 0;
     const has_ctrl = (flags & (1 << 18)) != 0;
     const has_shift = (flags & (1 << 17)) != 0;
 
@@ -2002,10 +2002,17 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
 
     // Try special key escape sequence first
     if (term_keys.getEscapeSequence(code, has_shift)) |seq| {
+        // Alt+special key: send ESC prefix then the sequence
+        if (has_opt) entry.pty.write("\x1b");
         entry.pty.write(seq);
     } else {
         // Regular character input
-        const chars = objc.msgSend(event, objc.sel("characters"));
+        // Use "charactersIgnoringModifiers" for Alt combos so we get the
+        // base key (e.g., 'a') rather than the macOS special character (e.g., 'å')
+        const chars = if (has_opt)
+            objc.msgSend(event, objc.sel("charactersIgnoringModifiers"))
+        else
+            objc.msgSend(event, objc.sel("characters"));
         const utf8: [*:0]const u8 = @ptrCast(objc.msgSend(chars, objc.sel("UTF8String")));
         const str = std.mem.span(utf8);
 
@@ -2015,6 +2022,10 @@ fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
             } else {
                 entry.pty.write(str);
             }
+        } else if (has_opt and str.len > 0) {
+            // Alt+key: send ESC followed by the key (standard terminal behavior)
+            entry.pty.write("\x1b");
+            entry.pty.write(str);
         } else if (str.len > 0) {
             entry.pty.write(str);
         }
