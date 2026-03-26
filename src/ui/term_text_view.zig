@@ -2122,7 +2122,16 @@ fn checkForExitedTerminals() void {
 var idle_ticks: u32 = 0;
 
 fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
-    // Process deferred font changes (avoids beachball from key auto-repeat)
+    handlePendingFontChanges();
+    handlePanelResize();
+    const any_data = readAllTerminals();
+    updateTimerSpeed(any_data);
+    checkForExitedTerminals();
+    periodicRefresh();
+    checkStateChanges();
+}
+
+fn handlePendingFontChanges() void {
     if (pending_font_reset) {
         pending_font_reset = false;
         pending_font_delta = 0;
@@ -2132,7 +2141,9 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
         pending_font_delta = 0;
         adjustFontSize(delta);
     }
-    // Re-layout if the panel size changed (window resize)
+}
+
+fn handlePanelResize() void {
     if (active_session != null) {
         const panel = @import("window.zig").main_panel_view;
         if (panel) |p| {
@@ -2144,12 +2155,12 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
             }
         }
     }
+}
 
+fn readAllTerminals() bool {
     var buf: [16384]u8 = undefined;
     var any_data = false;
 
-    // Per-terminal leftover bytes from split UTF-8 sequences.
-    // Static so they persist across poll ticks.
     const Leftover = struct { data: [4]u8 = undefined, len: u8 = 0 };
     const leftovers = struct {
         var slots: [MAX_TERMS]Leftover = [_]Leftover{.{}} ** MAX_TERMS;
@@ -2157,12 +2168,10 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
 
     for (&terminals) |*t| {
         if (t.*) |*entry| {
-            // Sync terminal size to view bounds
             syncTermSize(entry);
 
             var got_data = false;
             while (true) {
-                // Prepend any leftover bytes from previous read
                 var lo = &leftovers.slots[entry.slot];
                 if (lo.len > 0) {
                     @memcpy(buf[0..lo.len], lo.data[0..lo.len]);
@@ -2172,67 +2181,14 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
                 const n = raw_n + lo.len;
                 lo.len = 0;
 
-                // Check if the buffer ends mid-UTF-8 sequence.
-                // If so, save the trailing bytes for the next read.
-                var feed_len = n;
-                if (n > 0) {
-                    // Scan backwards to find any incomplete UTF-8 at the end
-                    var trail: usize = 0;
-                    var i = n;
-                    while (i > 0 and trail < 4) {
-                        i -= 1;
-                        const b = buf[i];
-                        if (b < 0x80) break; // ASCII — clean boundary
-                        if (b >= 0xC0) {
-                            // Start byte found — check if sequence is complete
-                            const expected: usize = if (b < 0xE0) 2 else if (b < 0xF0) 3 else 4;
-                            const available = n - i;
-                            if (available < expected) {
-                                // Incomplete — save these bytes
-                                const save: u8 = @intCast(available);
-                                @memcpy(lo.data[0..save], buf[i..n]);
-                                lo.len = save;
-                                feed_len = i;
-                            }
-                            break;
-                        }
-                        trail += 1;
-                    }
-                }
-
+                const feed_len = findUtf8Boundary(&buf, n, lo);
                 if (feed_len == 0) break;
 
-                // Check for bell character (0x07) — set notification on the session
-                for (buf[0..feed_len]) |byte| {
-                    if (byte == 0x07) {
-                        // Find which session owns this terminal
-                        for (&sessions, 0..) |*sess, si| {
-                            if (sess.*) |*s| {
-                                var leaves: std.ArrayListUnmanaged(usize) = .{};
-                                defer leaves.deinit(allocator);
-                                s.root.collectLeaves(allocator, &leaves);
-                                for (leaves.items) |slot| {
-                                    if (slot == entry.slot) {
-                                        // Only set bell if this isn't the active session
-                                        if (active_session == null or active_session.? != si) {
-                                            bell_active[si] = true;
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        break; // one bell per read is enough
-                    }
-                }
-
+                checkBell(buf[0..feed_len], entry.slot);
                 entry.vterm.feed(buf[0..feed_len]);
-                // Output callback handles flushing vterm → PTY automatically
-
                 got_data = true;
             }
             if (got_data) {
-                // Trigger redraw
                 const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
                     @ptrCast(&objc.c.objc_msgSend);
                 setBool(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
@@ -2240,66 +2196,114 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
             }
         }
     }
+    return any_data;
+}
 
-    // Adaptive polling: switch between fast (16ms) and slow (100ms) timers
+/// Find the last clean UTF-8 boundary in the buffer.
+/// Saves any trailing incomplete sequence in `lo` for the next read.
+fn findUtf8Boundary(buf: []u8, n: usize, lo: anytype) usize {
+    var feed_len = n;
+    if (n > 0) {
+        var trail: usize = 0;
+        var i = n;
+        while (i > 0 and trail < 4) {
+            i -= 1;
+            const b = buf[i];
+            if (b < 0x80) break;
+            if (b >= 0xC0) {
+                const expected: usize = if (b < 0xE0) 2 else if (b < 0xF0) 3 else 4;
+                const available = n - i;
+                if (available < expected) {
+                    const save: u8 = @intCast(available);
+                    @memcpy(lo.data[0..save], buf[i..n]);
+                    lo.len = save;
+                    feed_len = i;
+                }
+                break;
+            }
+            trail += 1;
+        }
+    }
+    return feed_len;
+}
+
+/// Check for bell character (0x07) and set notification on the owning session.
+fn checkBell(data: []const u8, slot: usize) void {
+    for (data) |byte| {
+        if (byte == 0x07) {
+            for (&sessions, 0..) |*sess, si| {
+                if (sess.*) |*s| {
+                    var leaves: std.ArrayListUnmanaged(usize) = .{};
+                    defer leaves.deinit(allocator);
+                    s.root.collectLeaves(allocator, &leaves);
+                    for (leaves.items) |leaf_slot| {
+                        if (leaf_slot == slot) {
+                            if (active_session == null or active_session.? != si) {
+                                bell_active[si] = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+}
+
+fn updateTimerSpeed(any_data: bool) void {
     if (any_data) {
         idle_ticks = 0;
-        // If we're on the slow timer, switch back to fast
         if (on_slow_timer) switchToFastTimer();
     } else {
         idle_ticks += 1;
-        // After ~0.5s of no data (30 ticks at 16ms), switch to slow polling
         if (!on_slow_timer and idle_ticks > 30) switchToSlowTimer();
     }
+}
 
-    // Check for exited terminals and auto-close their panes
-    checkForExitedTerminals();
-
-    // Refresh git status every ~10 seconds
+fn periodicRefresh() void {
     const window_ui = @import("window.zig");
     const sidebar = @import("sidebar.zig");
     git_refresh_counter += 1;
-    const refresh_interval: u32 = if (on_slow_timer) 100 else 625; // ~10s in both modes
-    if (git_refresh_counter >= refresh_interval) {
-        git_refresh_counter = 0;
-        // Update stats bar
-        sidebar.updateStats();
-        // Save cwd periodically so it survives force kills
-        saveActiveCwd();
-        if (active_session) |si| {
-            if (sessions[si]) |*session| {
-                if (sidebar.g_sidebar_app) |app| {
-                    if (findTerminalInStore(app, session.terminal_id)) |t| {
-                        // Find the project path for this terminal
-                        const proj_path = blk: {
-                            for (app.projects()) |proj| {
-                                for (proj.terminals.items) |pt| {
-                                    if (std.mem.eql(u8, pt.id, session.terminal_id)) {
-                                        break :blk proj.path;
-                                    }
+    const refresh_interval: u32 = if (on_slow_timer) 100 else 625;
+    if (git_refresh_counter < refresh_interval) return;
+
+    git_refresh_counter = 0;
+    sidebar.updateStats();
+    saveActiveCwd();
+
+    if (active_session) |si| {
+        if (sessions[si]) |*session| {
+            if (sidebar.g_sidebar_app) |app| {
+                if (findTerminalInStore(app, session.terminal_id)) |t| {
+                    const proj_path = blk: {
+                        for (app.projects()) |proj| {
+                            for (proj.terminals.items) |pt| {
+                                if (std.mem.eql(u8, pt.id, session.terminal_id)) {
+                                    break :blk proj.path;
                                 }
                             }
-                            break :blk session.cwd;
-                        };
-                        // Use focused terminal's live cwd for git info
-                        // (supports worktrees and cd into subdirs)
-                        const git_path = blk2: {
-                            if (terminals[session.focused_slot]) |*entry| {
-                                var cwd_buf: [4096]u8 = undefined;
-                                if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
-                                    break :blk2 live_cwd;
-                                }
+                        }
+                        break :blk session.cwd;
+                    };
+                    const git_path = blk2: {
+                        if (terminals[session.focused_slot]) |*entry| {
+                            var cwd_buf: [4096]u8 = undefined;
+                            if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
+                                break :blk2 live_cwd;
                             }
-                            break :blk2 proj_path;
-                        };
-                        window_ui.updateHeader(t.name, git_path);
-                    }
+                        }
+                        break :blk2 proj_path;
+                    };
+                    window_ui.updateHeader(t.name, git_path);
                 }
             }
         }
     }
+}
 
-    // Check if bell or exit state changed and rebuild sidebar
+fn checkStateChanges() void {
+    const sidebar = @import("sidebar.zig");
     var state_changed = false;
     for (0..MAX_TERMS) |i| {
         if (bell_active[i] != last_bell_state[i]) {
