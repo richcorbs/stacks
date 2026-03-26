@@ -13,6 +13,7 @@ const selection_mod = @import("../selection.zig");
 const terminal_state = @import("../terminal_state.zig");
 const term_keys = @import("../term_keys.zig");
 const box_drawing = @import("../box_drawing.zig");
+const speech = @import("../speech.zig");
 
 const MAX_TERMS = terminal_state.MAX_TERMINALS;
 const MAX_SCROLLBACK = terminal_state.MAX_SCROLLBACK;
@@ -948,6 +949,7 @@ fn registerTermViewClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("mouseDragged:"), &termMouseDragged, "v@:@");
     _ = objc.addMethod(cls, objc.sel("mouseUp:"), &termMouseUp, "v@:@");
     _ = objc.addMethod(cls, objc.sel("scrollWheel:"), &termScrollWheel, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("flagsChanged:"), &termFlagsChanged, "v@:@");
     _ = objc.addMethod(cls, objc.sel("acceptsFirstResponder"), &acceptsFirst, "B@:");
     _ = objc.addMethod(cls, objc.sel("becomeFirstResponder"), &becomesFirst, "B@:");
     _ = objc.addMethod(cls, objc.sel("isFlipped"), &isFlipped, "B@:");
@@ -1115,6 +1117,47 @@ fn sbPopLine(_: c_int, _: ?*anyopaque, _: ?*anyopaque) callconv(.c) c_int {
 fn acceptsFirst(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL { return objc.YES; }
 fn becomesFirst(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL { return objc.YES; }
 fn isFlipped(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL { return objc.YES; }
+
+// Track shift-only state for push-to-talk
+var shift_only_down: bool = false;
+
+fn termFlagsChanged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
+    const modifierFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
+        @ptrCast(&objc.c.objc_msgSend);
+    const flags = modifierFlags(event, objc.sel("modifierFlags"));
+
+    // Modifier flag masks
+    const NSEventModifierFlagShift: objc.NSUInteger = 1 << 17;
+    const NSEventModifierFlagControl: objc.NSUInteger = 1 << 18;
+    const NSEventModifierFlagOption: objc.NSUInteger = 1 << 19;
+    const NSEventModifierFlagCommand: objc.NSUInteger = 1 << 20;
+
+    const shift_pressed = (flags & NSEventModifierFlagShift) != 0;
+    const other_modifiers = (flags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)) != 0;
+
+    // Only shift, no other modifiers
+    const shift_only = shift_pressed and !other_modifiers;
+
+    if (shift_only and !shift_only_down) {
+        // Shift just pressed alone - start listening
+        shift_only_down = true;
+        const entry = findEntry(self) orelse return;
+        _ = speech.startListening(struct {
+            fn callback(text: []const u8, is_final: bool) void {
+                std.debug.print("Speech: {s}{s}\n", .{ text, if (is_final) " [FINAL]" else "" });
+                // TODO: on final, send text to the focused terminal's PTY
+            }
+        }.callback);
+        // Visual feedback - could highlight border or show indicator
+        std.debug.print("Push-to-talk: STARTED\n", .{});
+        _ = entry;
+    } else if (!shift_only and shift_only_down) {
+        // Shift released or other modifier added - stop listening
+        shift_only_down = false;
+        speech.stopListening();
+        std.debug.print("Push-to-talk: STOPPED\n", .{});
+    }
+}
 
 fn termScrollWheel(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
     const entry = findEntry(self) orelse return;

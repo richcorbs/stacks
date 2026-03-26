@@ -29,6 +29,14 @@ pub fn build(b: *std.Build) void {
     exe.linkFramework("CoreGraphics");
     exe.linkFramework("CoreText");
     exe.linkFramework("Foundation");
+    exe.linkFramework("Speech");
+    exe.linkFramework("AVFoundation");
+
+    // Compile ObjC helper for speech recognition (requires blocks)
+    exe.addCSourceFile(.{
+        .file = b.path("src/speech_helper.m"),
+        .flags = &.{ "-fobjc-arc" },
+    });
 
     b.installArtifact(exe);
 
