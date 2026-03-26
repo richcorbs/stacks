@@ -1795,12 +1795,15 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 continue;
             }
 
-            // Wide characters (emoji, CJK) and box-drawing chars are replaced with
-            // spaces in the row string. Wide chars are drawn individually at grid
-            // positions afterward (CoreText doesn't respect monospace grid for emoji).
+            // Non-ASCII characters that aren't in the monospace font may render at
+            // the wrong width in CoreText, misaligning subsequent columns.
+            // Box-drawing chars and wide chars are already drawn separately.
+            // Also draw any other non-ASCII char individually if it's outside
+            // the basic Latin + Latin-1 range to be safe.
             const is_box = box_drawing.isBoxDrawing(ch);
             const is_wide = cell2.width > 1;
-            if (!is_box and !is_wide and ch > 0 and ch <= 0x10FFFF) {
+            const is_symbol = !is_box and !is_wide and ch > 0xFF;
+            if (!is_box and !is_wide and !is_symbol and ch > 0 and ch <= 0x10FFFF) {
                 if (ch > 0xFFFF) utf16_len = 2; // surrogate pair
                 if (row_len + 4 <= row_buf.len) {
                     const enc_len = std.unicode.utf8Encode(@intCast(ch), row_buf[row_len..][0..4]) catch 0;
@@ -1896,8 +1899,9 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
     }
 }
 
-/// Draw wide characters (emoji, CJK) individually at their grid positions.
-/// These are excluded from the row CTLine to prevent column misalignment.
+/// Draw non-standard characters individually at their grid positions.
+/// This includes wide chars (emoji, CJK) and symbols above U+00FF that
+/// CoreText might render at non-monospace widths, causing column misalignment.
 fn drawWideChars(
     cgctx: *anyopaque,
     entry: *TermEntry,
@@ -1925,9 +1929,14 @@ fn drawWideChars(
             cell = entry.vterm.getCell(@intCast(grid_row_i), col);
         }
 
-        if (cell.width <= 1) continue;
         const ch = cell.chars[0];
         if (ch == 0 or ch > 0x10FFFF) continue;
+        if (cell.width == 0) continue; // continuation cell
+
+        // Draw wide chars and non-Latin symbols individually
+        const is_wide = cell.width > 1;
+        const is_symbol = ch > 0xFF and !box_drawing.isBoxDrawing(ch);
+        if (!is_wide and !is_symbol) continue;
 
         // Encode the character
         var char_buf: [8]u8 = undefined;
