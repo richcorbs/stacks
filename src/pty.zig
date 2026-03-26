@@ -48,6 +48,11 @@ pub const Pty = struct {
             // Set proper terminal type — we now have VT100 emulation via libvterm
             _ = c.setenv("TERM", "xterm-256color", 1);
 
+            // Ensure UTF-8 locale so programs output valid UTF-8.
+            // Without this, some tools produce invalid byte sequences.
+            _ = c.setenv("LANG", "en_US.UTF-8", 0); // 0 = don't overwrite if already set
+            _ = c.setenv("LC_CTYPE", "en_US.UTF-8", 0);
+
             // /bin/zsh is always available on macOS and sources login profile
 
             if (cmd_z) |cmd_ptr| {
