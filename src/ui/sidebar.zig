@@ -1540,8 +1540,19 @@ fn showAddTerminalDialogWithDefault(project_index: usize, default_name: []const 
     if (name.len == 0) return;
 
     const command: ?[]const u8 = if (cmd.len > 0) cmd else null;
-    _ = application.store.addTerminal(proj.id, name, command) catch return;
+    const new_terminal = application.store.addTerminal(proj.id, name, command) catch return;
+    const new_id = new_terminal.id;
     rebuildSidebar(application);
+
+    // Select and open the newly added terminal
+    for (term_row_infos[0..term_row_info_count], 0..) |info_opt, idx| {
+        if (info_opt) |info| {
+            if (std.mem.eql(u8, info.terminal_id, new_id)) {
+                openTerminalAtIndex(idx);
+                return;
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
