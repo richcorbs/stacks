@@ -1779,6 +1779,22 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
 
             const ch = cell2.chars[0];
             var utf16_len: u8 = 1; // most characters are 1 UTF-16 code unit
+
+            // Skip continuation cells of wide characters (width == 0 means
+            // this cell is the trailing half of a wide char drawn in the previous cell)
+            if (cell2.width == 0) {
+                // Emit a space placeholder so column positions stay aligned
+                if (row_len < row_buf.len) {
+                    row_buf[row_len] = ' ';
+                    row_len += 1;
+                }
+                if (run_count < 512) {
+                    color_runs[run_count] = .{ .fg = fg2, .utf16_len = 1 };
+                    run_count += 1;
+                }
+                continue;
+            }
+
             // Replace box-drawing chars with spaces — we draw them with CG lines instead
             const is_box = box_drawing.isBoxDrawing(ch);
             if (!is_box and ch > 0 and ch <= 0x10FFFF) {
