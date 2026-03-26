@@ -162,14 +162,7 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
 
         // Project header row
         const row = createProjectRow(proj.name, y_offset, row_height, true, proj_i, is_active_project);
-        // Highlight active project header
-        if (is_active_project) {
-            const setBoolP: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
-                @ptrCast(&objc.c.objc_msgSend);
-            setBoolP(row, objc.sel("setWantsLayer:"), objc.YES);
-            const layer = objc.msgSend(row, objc.sel("layer"));
-            setLayerBgColor(layer, 0.15, 0.19, 0.24); // #263040 — subtle highlight
-        }
+        // Project header — no background highlight (keep it clean)
         objc.msgSendVoid1(list_view, objc.sel("addSubview:"), row);
         y_offset += row_height;
 
@@ -201,7 +194,7 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
         }
         const add_term_row = createAddTerminalRow(proj.id, y_offset, sub_row_height, is_active_project);
         objc.msgSendVoid1(list_view, objc.sel("addSubview:"), add_term_row);
-        y_offset += sub_row_height;
+        y_offset += sub_row_height + 6; // extra spacing before divider
 
         // Separator line
         const sep = createSeparatorLine(y_offset);
@@ -727,7 +720,7 @@ fn performDrop() void {
     app.store.save() catch {};
 }
 
-fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]const u8, project_id: []const u8, terminal_id: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, _: usize, is_active_project: bool) objc.id {
+fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]const u8, project_id: []const u8, terminal_id: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, _: usize, _: bool) objc.id {
     // Active terminal (actually open in the main panel)
     const is_selected = if (selected_terminal_index) |sel| sel == term_row_info_count else false;
     // Nav-highlighted terminal (⌘⇧[] navigation, not yet activated)
@@ -779,17 +772,19 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     // Draggable wrapper view
     const drag_cls = registerDragRowClass() orelse objc.getClass("NSView") orelse unreachable;
     const wrapper = newAutorelease(drag_cls);
-    setFrame(wrapper, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, SIDEBAR_WIDTH, height));
+    // Pill shape: left edge aligns with project header text (indent 16), right margin matches
+    const pill_inset: objc.CGFloat = if (is_selected or is_nav_highlighted) 10.0 else 0.0;
+    setFrame(wrapper, objc.sel("setFrame:"), objc.NSMakeRect(pill_inset, y_offset, SIDEBAR_WIDTH - pill_inset * 2, height));
 
     setBool(wrapper, objc.sel("setWantsLayer:"), objc.YES);
     const wrapper_layer = objc.msgSend(wrapper, objc.sel("layer"));
     if (is_selected) {
         setLayerBgColor(wrapper_layer, 0.25, 0.31, 0.38); // #404f61 — active terminal
-    } else if (is_active_project) {
-        setLayerBgColor(wrapper_layer, 0.15, 0.19, 0.24); // #263040 — active project
+        objc.msgSendVoid1(wrapper_layer, objc.sel("setCornerRadius:"), @as(f64, 6.0));
     }
-    // Nav highlight: blue left border to show keyboard selection
+    // Nav highlight: blue border pill to show keyboard selection
     if (is_nav_highlighted and !is_selected) {
+        objc.msgSendVoid1(wrapper_layer, objc.sel("setCornerRadius:"), @as(f64, 6.0));
         const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
             @ptrCast(&objc.c.objc_msgSend);
         setBorderWidth(wrapper_layer, objc.sel("setBorderWidth:"), 1.0);
@@ -802,11 +797,11 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
         setLayerBgColor(wrapper_layer, 0.15, 0.19, 0.24); // slightly highlighted bg
     }
 
-    // Position label inside wrapper at x=32, vertically centered
-    // The wrapper is inside a FlippedView (y=0 is top), so increase y to push down
+    // Position label inside wrapper, compensating for pill inset
     const label_h: objc.CGFloat = 18.0;
     const label_y: objc.CGFloat = (height - label_h) / 2.0 - 1.0;
-    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(32, label_y, SIDEBAR_WIDTH - 32, label_h));
+    const label_x: objc.CGFloat = 26.0 - pill_inset;
+    setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(label_x, label_y, SIDEBAR_WIDTH - 32, label_h));
     objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), label);
 
     // Show blue bell dot if this terminal has a pending notification
@@ -814,7 +809,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     if (bell_session_idx) |bsi| {
         if (bsi < term_text_view.bell_active.len and term_text_view.bell_active[bsi]) {
             const dot = newAutorelease(objc.getClass("NSView") orelse unreachable);
-            setFrame(dot, objc.sel("setFrame:"), objc.NSMakeRect(18, (height - 8) / 2, 8, 8));
+            setFrame(dot, objc.sel("setFrame:"), objc.NSMakeRect(18 - pill_inset, (height - 8) / 2, 8, 8));
             setBool(dot, objc.sel("setWantsLayer:"), objc.YES);
             const dot_layer = objc.msgSend(dot, objc.sel("layer"));
             setLayerBgColor(dot_layer, 0.29, 0.565, 0.851); // blue #4a90d9
@@ -830,7 +825,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
         const is_alive = term_text_view.isSessionAlive(terminal_id);
         const status_dot = newAutorelease(objc.getClass("NSView") orelse unreachable);
         const dot_size: objc.CGFloat = 6;
-        const dot_x: objc.CGFloat = SIDEBAR_WIDTH - 24; // right-aligned with margin
+        const dot_x: objc.CGFloat = SIDEBAR_WIDTH - 34 - pill_inset; // right-aligned, matches pill dot position
         const dot_y: objc.CGFloat = (height - dot_size) / 2.0;
         setFrame(status_dot, objc.sel("setFrame:"), objc.NSMakeRect(dot_x, dot_y, dot_size, dot_size));
         setBool(status_dot, objc.sel("setWantsLayer:"), objc.YES);
@@ -1062,25 +1057,24 @@ fn createSeparatorLine(y_offset: objc.CGFloat) objc.id {
     return sep;
 }
 
-fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, is_active_project: bool) objc.id {
+fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, _: bool) objc.id {
     const NSView = objc.getClass("NSView") orelse unreachable;
     const row = newAutorelease(NSView);
 
     // Check if this add-terminal row is nav-highlighted
     const is_nav_highlighted = isAddTerminalSelected(project_id);
 
+    const pill_inset: objc.CGFloat = if (is_nav_highlighted) 10.0 else 0.0;
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrame(row, objc.sel("setFrame:"), objc.NSMakeRect(0, y_offset, SIDEBAR_WIDTH, height));
+    setFrame(row, objc.sel("setFrame:"), objc.NSMakeRect(pill_inset, y_offset, SIDEBAR_WIDTH - pill_inset * 2, height));
 
     const setBoolH: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     setBoolH(row, objc.sel("setWantsLayer:"), objc.YES);
     const row_layer = objc.msgSend(row, objc.sel("layer"));
-    if (is_active_project) {
-        setLayerBgColor(row_layer, 0.15, 0.19, 0.24); // #263040 — active project
-    }
     if (is_nav_highlighted) {
+        objc.msgSendVoid1(row_layer, objc.sel("setCornerRadius:"), @as(f64, 6.0));
         const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
             @ptrCast(&objc.c.objc_msgSend);
         setBorderWidth(row_layer, objc.sel("setBorderWidth:"), 1.0);
@@ -1130,7 +1124,7 @@ fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: 
 
     objc.msgSendVoid1(row, objc.sel("addSubview:"), btn);
     centerVertically(btn, row);
-    pinLeading(btn, row, 32.0);
+    pinLeading(btn, row, 26.0 - pill_inset);
 
     return row;
 }
