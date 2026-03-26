@@ -1967,6 +1967,9 @@ fn termPerformKeyEquivalent(_: objc.id, _: objc.SEL, event: objc.id) callconv(.c
 }
 
 fn termKeyDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
+    // Any keypress means the user is typing, not dictating
+    speech_indicator.cancel();
+
     const entry = findEntry(self) orelse {
         return;
     };
