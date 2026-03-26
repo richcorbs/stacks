@@ -1,7 +1,7 @@
 /// Speech indicator — push-to-talk UI and speech recognition integration.
 ///
-/// Hold shift (alone) for 1 second to start recording. Release shift to
-/// stop recording after a 1-second tail delay (captures trailing speech).
+/// Hold shift (alone, no other keys) for 1 second to start recording.
+/// Release shift to stop recording after a 1-second tail delay.
 /// Transcribed text is sent to the focused terminal's PTY.
 const std = @import("std");
 const objc = @import("../objc.zig");
@@ -11,22 +11,21 @@ const speech = @import("../speech.zig");
 // State
 // ---------------------------------------------------------------------------
 
-/// Push-to-talk phase.
 const Phase = enum {
-    idle, // not doing anything
+    idle,
     pending, // shift held, waiting for 1-second activation delay
     recording, // actively recording speech
-    tail, // shift released, 1-second tail delay before stop
+    tail, // shift released, 1-second tail before stop
 };
 
 var phase: Phase = .idle;
-var active_view: ?objc.id = null; // view that triggered the session
+var active_view: ?objc.id = null;
 var last_transcription: [4096]u8 = undefined;
 var last_transcription_len: usize = 0;
 
 // Timers
-var activation_timer: ?objc.id = null; // 1-second delay before recording
-var tail_timer: ?objc.id = null; // 1-second delay after shift release
+var activation_timer: ?objc.id = null;
+var tail_timer: ?objc.id = null;
 
 // UI elements
 var indicator_view: ?objc.id = null;
@@ -34,17 +33,17 @@ var wave_timer: ?objc.id = null;
 var wave_phase: u8 = 0;
 var wave_bars: [5]?objc.id = .{ null, null, null, null, null };
 
-// ObjC helper classes (registered once)
+// ObjC helper class
 var timer_helper_class: ?objc.id = null;
 
 // Callback to write text to the focused terminal
 var write_callback: ?*const fn ([]const u8) void = null;
 
 // ---------------------------------------------------------------------------
-// Public API (called from term_text_view.zig)
+// Public API
 // ---------------------------------------------------------------------------
 
-/// Register the ObjC helper class. Call once during setup.
+/// Register ObjC helper class. Call once during setup.
 pub fn init() void {
     if (timer_helper_class != null) return;
     const NSObject = objc.getClass("NSObject") orelse return;
@@ -57,20 +56,40 @@ pub fn init() void {
     }
 }
 
-/// Handle a flagsChanged event. Call from the terminal view's flagsChanged: method.
+/// Cancel any active speech session. Call when terminal loses focus,
+/// a dialog opens, or any other event that should abort recording.
+pub fn cancel() void {
+    if (phase == .idle) return;
+    cancelTimer(&activation_timer);
+    cancelTimer(&tail_timer);
+    if (phase == .recording or phase == .tail) {
+        speech.stopListening();
+        hideIndicator();
+    }
+    phase = .idle;
+    write_callback = null;
+}
+
+/// Handle a flagsChanged event from the terminal view.
 pub fn handleFlagsChanged(view: objc.id, event: objc.id, writeFn: *const fn ([]const u8) void) void {
+    // Only activate when the terminal view is the first responder
+    if (!isFirstResponder(view)) {
+        if (phase != .idle) cancel();
+        return;
+    }
+
     const modifierFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
         @ptrCast(&objc.c.objc_msgSend);
     const flags = modifierFlags(event, objc.sel("modifierFlags"));
 
-    const shift = (flags & (1 << 17)) != 0;
-    const others = (flags & ((1 << 18) | (1 << 19) | (1 << 20))) != 0;
-    const shift_only = shift and !others;
+    // Mask to just the modifier bits we care about (ignore device-dependent bits)
+    const modifier_mask: objc.NSUInteger = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20);
+    const relevant = flags & modifier_mask;
+    const shift_only = relevant == (1 << 17); // EXACTLY shift and nothing else
 
     switch (phase) {
         .idle => {
             if (shift_only) {
-                // Start activation delay
                 phase = .pending;
                 active_view = view;
                 write_callback = writeFn;
@@ -79,14 +98,14 @@ pub fn handleFlagsChanged(view: objc.id, event: objc.id, writeFn: *const fn ([]c
         },
         .pending => {
             if (!shift_only) {
-                // Released before activation — cancel
+                // Any change away from shift-only cancels
                 cancelTimer(&activation_timer);
                 phase = .idle;
             }
         },
         .recording => {
             if (!shift_only) {
-                // Shift released while recording — start tail delay
+                // Shift released or other modifier added — start tail delay
                 phase = .tail;
                 tail_timer = scheduleTimer("tailFired:", 1.0, false);
             }
@@ -97,8 +116,20 @@ pub fn handleFlagsChanged(view: objc.id, event: objc.id, writeFn: *const fn ([]c
                 cancelTimer(&tail_timer);
                 phase = .recording;
             }
+            // Other modifier changes during tail are ignored — timer will fire
         },
     }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn isFirstResponder(view: objc.id) bool {
+    const win = objc.msgSend(view, objc.sel("window"));
+    if (@intFromPtr(win) == 0) return false;
+    const first = objc.msgSend(win, objc.sel("firstResponder"));
+    return first == view;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +139,17 @@ pub fn handleFlagsChanged(view: objc.id, event: objc.id, writeFn: *const fn ([]c
 fn activationFired(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     activation_timer = null;
     if (phase != .pending) return;
+
+    // Double-check: is the view still first responder?
+    if (active_view) |view| {
+        if (!isFirstResponder(view)) {
+            phase = .idle;
+            return;
+        }
+    } else {
+        phase = .idle;
+        return;
+    }
 
     // Start recording
     phase = .recording;
@@ -125,8 +167,8 @@ fn tailFired(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     speech.stopListening();
     hideIndicator();
 
-    if (last_transcription_len > 0 and write_callback != null) {
-        write_callback.?(last_transcription[0..last_transcription_len]);
+    if (last_transcription_len > 0) {
+        if (write_callback) |cb| cb(last_transcription[0..last_transcription_len]);
     }
     write_callback = null;
 }

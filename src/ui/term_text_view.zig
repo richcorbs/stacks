@@ -952,6 +952,7 @@ fn registerTermViewClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("flagsChanged:"), &termFlagsChanged, "v@:@");
     _ = objc.addMethod(cls, objc.sel("acceptsFirstResponder"), &acceptsFirst, "B@:");
     _ = objc.addMethod(cls, objc.sel("becomeFirstResponder"), &becomesFirst, "B@:");
+    _ = objc.addMethod(cls, objc.sel("resignFirstResponder"), &resignsFirst, "B@:");
     _ = objc.addMethod(cls, objc.sel("isFlipped"), &isFlipped, "B@:");
     // Drag-and-drop destination
     _ = objc.addMethod(cls, objc.sel("draggingEntered:"), &termDragEntered, "Q@:@");
@@ -1116,6 +1117,11 @@ fn sbPopLine(_: c_int, _: ?*anyopaque, _: ?*anyopaque) callconv(.c) c_int {
 
 fn acceptsFirst(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL { return objc.YES; }
 fn becomesFirst(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL { return objc.YES; }
+fn resignsFirst(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL {
+    // Cancel any active speech session when terminal loses focus
+    speech_indicator.cancel();
+    return objc.YES;
+}
 fn isFlipped(_: objc.id, _: objc.SEL) callconv(.c) objc.BOOL { return objc.YES; }
 
 // Push-to-talk speech recognition — delegates to speech_indicator module
