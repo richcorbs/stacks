@@ -78,23 +78,23 @@ pub fn decodeVTermColor(raw: u32, default: Color) Color {
 
 /// Convert a 256-color index to RGB.
 fn indexedColor(idx: u8) Color {
-    // Standard 16 ANSI colors
+    // Standard 16 ANSI colors — must match the palette set in VTerm.init()
     const ansi16 = [16]Color{
         .{ .r = 0, .g = 0, .b = 0 },       // 0 black
-        .{ .r = 187, .g = 0, .b = 0 },     // 1 red
-        .{ .r = 0, .g = 187, .b = 0 },     // 2 green
-        .{ .r = 187, .g = 187, .b = 0 },   // 3 yellow
-        .{ .r = 0, .g = 0, .b = 187 },     // 4 blue
-        .{ .r = 187, .g = 0, .b = 187 },   // 5 magenta
-        .{ .r = 0, .g = 187, .b = 187 },   // 6 cyan
-        .{ .r = 187, .g = 187, .b = 187 }, // 7 white
-        .{ .r = 85, .g = 85, .b = 85 },    // 8 bright black
-        .{ .r = 255, .g = 85, .b = 85 },   // 9 bright red
-        .{ .r = 85, .g = 255, .b = 85 },   // 10 bright green
-        .{ .r = 255, .g = 255, .b = 85 },  // 11 bright yellow
-        .{ .r = 85, .g = 85, .b = 255 },   // 12 bright blue
-        .{ .r = 255, .g = 85, .b = 255 },  // 13 bright magenta
-        .{ .r = 85, .g = 255, .b = 255 },  // 14 bright cyan
+        .{ .r = 204, .g = 49, .b = 49 },   // 1 red
+        .{ .r = 49, .g = 204, .b = 49 },   // 2 green
+        .{ .r = 204, .g = 204, .b = 49 },  // 3 yellow
+        .{ .r = 138, .g = 180, .b = 255 }, // 4 blue
+        .{ .r = 178, .g = 67, .b = 204 },  // 5 magenta
+        .{ .r = 49, .g = 204, .b = 204 },  // 6 cyan
+        .{ .r = 204, .g = 204, .b = 204 }, // 7 white
+        .{ .r = 102, .g = 102, .b = 102 }, // 8 bright black
+        .{ .r = 255, .g = 102, .b = 102 }, // 9 bright red
+        .{ .r = 102, .g = 255, .b = 102 }, // 10 bright green
+        .{ .r = 255, .g = 255, .b = 102 }, // 11 bright yellow
+        .{ .r = 130, .g = 170, .b = 255 }, // 12 bright blue
+        .{ .r = 255, .g = 119, .b = 255 }, // 13 bright magenta
+        .{ .r = 102, .g = 255, .b = 255 }, // 14 bright cyan
         .{ .r = 255, .g = 255, .b = 255 }, // 15 bright white
     };
     if (idx < 16) return ansi16[idx];
@@ -150,7 +150,7 @@ pub const VTerm = struct {
             .{ 204, 49, 49 }, //  1 red
             .{ 49, 204, 49 }, //  2 green
             .{ 204, 204, 49 }, //  3 yellow
-            .{ 88, 130, 255 }, //  4 blue (brightened from ~0,0,170)
+            .{ 138, 180, 255 }, //  4 blue (brightened from ~0,0,170)
             .{ 178, 67, 204 }, //  5 magenta
             .{ 49, 204, 204 }, //  6 cyan
             .{ 204, 204, 204 }, //  7 white
