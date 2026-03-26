@@ -46,6 +46,10 @@ cat > "dist/Stacks.app/Contents/Info.plist" << PLIST
     <true/>
     <key>LSUIElement</key>
     <false/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Stacks uses the microphone for speech-to-text dictation.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Stacks uses speech recognition for voice dictation into the terminal.</string>
 </dict>
 </plist>
 PLIST
