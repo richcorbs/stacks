@@ -1600,9 +1600,9 @@ fn syncTermSize(entry: *TermEntry) void {
     const bounds = objc.msgSendRect(entry.view, objc.sel("bounds"));
     if (bounds.size.width < 1 or bounds.size.height < 1) return;
 
-    // Account for focus border, scrollbar overlap, and rounding
-    const usable_w = bounds.size.width - 14;
-    const usable_h = bounds.size.height - 4;
+    // Small margin to avoid sub-pixel clipping at edges
+    const usable_w = bounds.size.width - 2;
+    const usable_h = bounds.size.height - 2;
     const new_cols: u16 = @intFromFloat(@max(@floor(usable_w / cell_width), 1));
     const new_rows: u16 = @intFromFloat(@max(@floor(usable_h / cell_height), 1));
 
@@ -1666,6 +1666,18 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
     const sb_len: i32 = @intCast(entry.scrollback.len());
     // scroll_offset: 0 = at bottom (showing live grid), negative = scrolled up
     const scroll_off = entry.scroll_offset;
+
+    // Fill entire view with default background to cover any fractional-pixel gaps
+    // at the right/bottom edges beyond the cell grid
+    const default_bg = vt_mod.DEFAULT_BG;
+    CG.CGContextSetRGBFillColor(
+        cgctx,
+        @as(f64, @floatFromInt(default_bg.r)) / 255.0,
+        @as(f64, @floatFromInt(default_bg.g)) / 255.0,
+        @as(f64, @floatFromInt(default_bg.b)) / 255.0,
+        1.0,
+    );
+    CG.CGContextFillRect(cgctx, view_bounds);
 
     var row: u16 = 0;
     while (row < entry.vterm.rows) : (row += 1) {
