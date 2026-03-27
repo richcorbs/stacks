@@ -2005,14 +2005,23 @@ fn drawWideChars(
             @as(f64, @floatFromInt(fg.b)) / 255.0, 1.0);
         addAttr(attr_str, objc.sel("addAttribute:value:range:"), getCachedNSColorKey(), fg_color, .{ .location = 0, .length = range_end });
 
-        // Draw at grid position
+        // Draw at grid position using the same flipped coordinate transform
+        // as the main CTLine row drawing
         const x: f64 = @as(f64, @floatFromInt(col)) * cell_width;
-        const y: f64 = @as(f64, @floatFromInt(row + 1)) * cell_height - 3.0; // baseline
-        CG.CGContextSetTextPosition(cgctx, x, y);
+        const row_y: f64 = @as(f64, @floatFromInt(row)) * cell_height;
+        const getFloat: *const fn (objc.id, objc.SEL) callconv(.c) objc.CGFloat =
+            @ptrCast(&objc.c.objc_msgSend);
+        const baseline_offset = @abs(getFloat(font, objc.sel("descender")));
+
+        CG.CGContextSaveGState(cgctx);
+        CG.CGContextTranslateCTM(cgctx, 0, row_y + cell_height);
+        CG.CGContextScaleCTM(cgctx, 1.0, -1.0);
+        CG.CGContextSetTextPosition(cgctx, x, baseline_offset);
 
         const ct_line = CT.CTLineCreateWithAttributedString(@ptrCast(attr_str));
         CT.CTLineDraw(ct_line, cgctx);
         CT.CFRelease(ct_line);
+        CG.CGContextRestoreGState(cgctx);
 
         // Skip continuation cells
         col += cell.width - 1;
