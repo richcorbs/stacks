@@ -14,7 +14,40 @@ const window_ui = @import("window.zig");
 // ---------------------------------------------------------------------------
 
 pub fn showAddProjectPanel(application: *app_mod.App) void {
-    const NSOpenPanel = objc.getClass("NSOpenPanel") orelse return;
+    const alert = createAlert("Add Project", "Enter a project name and select a directory.") orelse return;
+    addButton(alert, "Add");
+    addButton(alert, "Cancel");
+
+    const fields = addNameDirFields(alert, "", "");
+
+    if (runModalCentered(alert) != 1000) return;
+
+    var name = readTextField(fields.name_field);
+    var dir = readTextField(fields.dir_field);
+
+    // If no directory specified, open a folder picker
+    if (dir.len == 0) {
+        const picked = showFolderPicker() orelse return;
+        dir = picked;
+    }
+
+    if (dir.len == 0) return;
+
+    // If no name specified, derive from directory basename
+    if (name.len == 0) {
+        name = std.fs.path.basename(dir);
+    }
+
+    const project = application.addProject(dir) catch return;
+
+    // Update name if user provided one different from basename
+    application.store.updateProject(project.id, name, "") catch {};
+
+    sidebar.rebuildSidebar(application);
+}
+
+fn showFolderPicker() ?[]const u8 {
+    const NSOpenPanel = objc.getClass("NSOpenPanel") orelse return null;
     const panel = objc.msgSend(NSOpenPanel, objc.sel("openPanel"));
 
     objc.msgSendVoid1(panel, objc.sel("setTitle:"), objc.nsString("Select Project Folder"));
@@ -27,19 +60,16 @@ pub fn showAddProjectPanel(application: *app_mod.App) void {
 
     const result = objc.msgSendUInt(panel, objc.sel("runModal"));
     const NSModalResponseOK: objc.NSUInteger = 1;
-    if (result != NSModalResponseOK) return;
+    if (result != NSModalResponseOK) return null;
 
     const urls = objc.msgSend(panel, objc.sel("URLs"));
     const count = objc.msgSendUInt(urls, objc.sel("count"));
-    if (count == 0) return;
+    if (count == 0) return null;
 
     const url = objc.msgSend1(urls, objc.sel("objectAtIndex:"), @as(objc.NSUInteger, 0));
     const path_nsstring = objc.msgSend(url, objc.sel("path"));
     const utf8: [*:0]const u8 = @ptrCast(objc.msgSend(path_nsstring, objc.sel("UTF8String")));
-    const path = std.mem.span(utf8);
-
-    _ = application.addProject(path) catch return;
-    sidebar.rebuildSidebar(application);
+    return std.mem.span(utf8);
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +135,32 @@ pub fn showDeleteProjectDialog(project_index: usize) void {
         }
     }
     window_ui.clearHeader();
+}
+
+// ---------------------------------------------------------------------------
+// Edit Project
+// ---------------------------------------------------------------------------
+
+pub fn showEditProjectDialog(project_index: usize) void {
+    const application = sidebar.g_sidebar_app orelse return;
+    const projs = application.projects();
+    if (project_index >= projs.len) return;
+    const proj = projs[project_index];
+
+    const alert = createAlert("Edit Project", "Edit the project name and directory.") orelse return;
+    addButton(alert, "Save");
+    addButton(alert, "Cancel");
+
+    const fields = addNameDirFields(alert, proj.name, proj.path);
+
+    if (runModalCentered(alert) != 1000) return;
+
+    const name = readTextField(fields.name_field);
+    const dir = readTextField(fields.dir_field);
+    if (name.len == 0) return;
+
+    application.store.updateProject(proj.id, name, dir) catch return;
+    sidebar.rebuildSidebar(application);
 }
 
 // ---------------------------------------------------------------------------
@@ -320,17 +376,18 @@ fn addNameCommandFields(alert: objc.id, default_name: []const u8, default_comman
     const NSView = objc.getClass("NSView") orelse unreachable;
     const NSTextField = objc.getClass("NSTextField") orelse unreachable;
 
+    // Layout: label(16) + gap(4) + field(24) + gap(24) + label(16) + gap(4) + field(24) = 112
     const accessory = objc.msgSend(NSView, objc.sel("new"));
     const setFrameFn: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 80));
+    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 112));
 
-    const name_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Name:"));
-    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 52, 70, 20));
+    const name_label = createDimLabel(NSTextField, "Name");
+    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 92, 320, 16));
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_label);
 
     const name_field = objc.msgSend(NSTextField, objc.sel("new"));
-    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(76, 50, 240, 24));
+    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(0, 64, 320, 24));
     if (default_name.len > 0) {
         objc.msgSendVoid1(name_field, objc.sel("setStringValue:"), objc.nsString(default_name));
     } else {
@@ -338,12 +395,12 @@ fn addNameCommandFields(alert: objc.id, default_name: []const u8, default_comman
     }
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_field);
 
-    const cmd_label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Command:"));
-    setFrameFn(cmd_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 14, 70, 20));
+    const cmd_label = createDimLabel(NSTextField, "Command");
+    setFrameFn(cmd_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 28, 320, 16));
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), cmd_label);
 
     const cmd_field = objc.msgSend(NSTextField, objc.sel("new"));
-    setFrameFn(cmd_field, objc.sel("setFrame:"), objc.NSMakeRect(76, 12, 240, 24));
+    setFrameFn(cmd_field, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 24));
     if (default_command.len > 0) {
         objc.msgSendVoid1(cmd_field, objc.sel("setStringValue:"), objc.nsString(default_command));
     }
@@ -356,6 +413,102 @@ fn addNameCommandFields(alert: objc.id, default_name: []const u8, default_comman
     objc.msgSendVoid1(alert_window, objc.sel("setInitialFirstResponder:"), name_field);
 
     return .{ .name_field = name_field, .cmd_field = cmd_field };
+}
+
+const NameDirFields = struct { name_field: objc.id, dir_field: objc.id };
+
+fn addNameDirFields(alert: objc.id, default_name: []const u8, default_dir: []const u8) NameDirFields {
+    const NSView = objc.getClass("NSView") orelse unreachable;
+    const NSTextField = objc.getClass("NSTextField") orelse unreachable;
+
+    // Layout: label(16) + gap(4) + field(24) + gap(24) + label(16) + gap(4) + field(24) = 112
+    const accessory = objc.msgSend(NSView, objc.sel("new"));
+    const setFrameFn: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 112));
+
+    const name_label = createDimLabel(NSTextField, "Name");
+    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 92, 320, 16));
+    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_label);
+
+    const name_field = objc.msgSend(NSTextField, objc.sel("new"));
+    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(0, 64, 320, 24));
+    if (default_name.len > 0) {
+        objc.msgSendVoid1(name_field, objc.sel("setStringValue:"), objc.nsString(default_name));
+    } else {
+        objc.msgSendVoid1(name_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. My Project"));
+    }
+    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_field);
+
+    const dir_label = createDimLabel(NSTextField, "Directory");
+    setFrameFn(dir_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 28, 320, 16));
+    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), dir_label);
+
+    // Directory field with Browse button
+    const dir_field = objc.msgSend(NSTextField, objc.sel("new"));
+    setFrameFn(dir_field, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 280, 24));
+    if (default_dir.len > 0) {
+        objc.msgSendVoid1(dir_field, objc.sel("setStringValue:"), objc.nsString(default_dir));
+    }
+    objc.msgSendVoid1(dir_field, objc.sel("setPlaceholderString:"), objc.nsString("/path/to/project"));
+    objc.msgSendVoid1(accessory, objc.sel("addSubview:"), dir_field);
+
+    // Browse button — opens folder picker and fills the dir field
+    const browse_cls = registerBrowseButtonClass();
+    if (browse_cls) |cls| {
+        const browse_btn = objc.msgSend(cls, objc.sel("new"));
+        objc.msgSendVoid1(browse_btn, objc.sel("setTitle:"), objc.nsString("..."));
+        const setBezel: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setBezel(browse_btn, objc.sel("setBezelStyle:"), 1);
+        setFrameFn(browse_btn, objc.sel("setFrame:"), objc.NSMakeRect(284, -1, 36, 25));
+        // Store dir_field reference in the button's tag (we'll use a global for simplicity)
+        g_browse_target_field = dir_field;
+        objc.msgSendVoid1(browse_btn, objc.sel("setTarget:"), browse_btn);
+        objc.msgSendVoid1(browse_btn, objc.sel("setAction:"), objc.sel("browseClicked:"));
+        objc.msgSendVoid1(accessory, objc.sel("addSubview:"), browse_btn);
+    }
+
+    objc.msgSendVoid1(alert, objc.sel("setAccessoryView:"), accessory);
+
+    const alert_window = objc.msgSend(alert, objc.sel("window"));
+    objc.msgSendVoid1(alert_window, objc.sel("setInitialFirstResponder:"), name_field);
+
+    return .{ .name_field = name_field, .dir_field = dir_field };
+}
+
+// ---------------------------------------------------------------------------
+// Browse button for directory picker
+// ---------------------------------------------------------------------------
+
+var g_browse_target_field: ?objc.id = null;
+var browse_button_class: ?objc.id = null;
+
+fn registerBrowseButtonClass() ?objc.id {
+    if (browse_button_class) |cls| return cls;
+    const NSButton = objc.getClass("NSButton") orelse return null;
+    const cls = objc.allocateClassPair(NSButton, "BrowseDirButton") orelse return null;
+    _ = objc.addMethod(cls, objc.sel("browseClicked:"), &onBrowseClicked, "v@:@");
+    objc.registerClassPair(cls);
+    browse_button_class = cls;
+    return cls;
+}
+
+fn onBrowseClicked(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    const dir_field = g_browse_target_field orelse return;
+    const picked = showFolderPicker() orelse return;
+    objc.msgSendVoid1(dir_field, objc.sel("setStringValue:"), objc.nsString(picked));
+}
+
+fn createDimLabel(NSTextField: objc.id, text: []const u8) objc.id {
+    const label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString(text));
+    const NSFont = objc.getClass("NSFont") orelse return label;
+    const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    objc.msgSendVoid1(label, objc.sel("setFont:"), sysFont(NSFont, objc.sel("systemFontOfSize:"), 11.0));
+    const NSColor = objc.getClass("NSColor") orelse return label;
+    objc.msgSendVoid1(label, objc.sel("setTextColor:"), objc.msgSend(NSColor, objc.sel("secondaryLabelColor")));
+    return label;
 }
 
 fn readTextField(field: objc.id) []const u8 {

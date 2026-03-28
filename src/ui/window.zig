@@ -67,7 +67,7 @@ pub fn launchApp(application: *app_mod.App) void {
 
 fn registerDelegateClass() ?objc.id {
     const NSObject = objc.getClass("NSObject") orelse return null;
-    const cls = objc.allocateClassPair(NSObject, "MyTermAppDelegate") orelse return null;
+    const cls = objc.allocateClassPair(NSObject, "MyTermAppDelegate2") orelse return null;
 
     // Lifecycle
     _ = objc.addMethod(cls, objc.sel("applicationDidFinishLaunching:"), &appDidFinishLaunching, "v@:@");
@@ -99,6 +99,7 @@ fn registerDelegateClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("editTerminal:"), &onEditTerminal, "v@:@");
     _ = objc.addMethod(cls, objc.sel("deleteTerminal:"), &onDeleteTerminal, "v@:@");
     _ = objc.addMethod(cls, objc.sel("deleteProject:"), &onDeleteProject, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("editProject:"), &onEditProject, "v@:@");
 
     objc.registerClassPair(cls);
     return cls;
@@ -326,6 +327,9 @@ fn onEditTerminal(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
 }
 fn onDeleteProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
     if (getTagFromSender(sender)) |idx| sidebar.showDeleteProjectDialog(idx);
+}
+fn onEditProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
+    if (getTagFromSender(sender)) |idx| sidebar.showEditProjectDialog(idx);
 }
 fn onAddTerminalToProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
     if (getTagFromSender(sender)) |idx| sidebar.showAddTerminalDialog(idx);

@@ -13,6 +13,7 @@ const dialogs = @import("dialogs.zig");
 // Re-export dialog functions (moved to dialogs.zig)
 pub const showAddProjectPanel = dialogs.showAddProjectPanel;
 pub const showDeleteProjectDialog = dialogs.showDeleteProjectDialog;
+pub const showEditProjectDialog = dialogs.showEditProjectDialog;
 pub const showDeleteTerminalDialog = dialogs.showDeleteTerminalDialog;
 pub const showEditTerminalDialog = dialogs.showEditTerminalDialog;
 pub const showAddTerminalDialog = dialogs.showAddTerminalDialog;
@@ -342,11 +343,24 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
             const NSMenu = objc.getClass("NSMenu") orelse return row;
             const NSMenuItem = objc.getClass("NSMenuItem") orelse return row;
             const menu = newAutorelease(NSMenu);
+            const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+                @ptrCast(&objc.c.objc_msgSend);
+            setBool(menu, objc.sel("setAutoenablesItems:"), objc.NO);
 
             const initItem: *const fn (objc.id, objc.SEL, objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
                 @ptrCast(&objc.c.objc_msgSend);
             const setTag: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
                 @ptrCast(&objc.c.objc_msgSend);
+
+            const edit_item = initItem(
+                newAutorelease(NSMenuItem),
+                objc.sel("initWithTitle:action:keyEquivalent:"),
+                objc.nsString("Edit"),
+                objc.sel("editProject:"),
+                objc.nsString(""),
+            );
+            setTag(edit_item, objc.sel("setTag:"), @intCast(pi));
+            objc.msgSendVoid1(menu, objc.sel("addItem:"), edit_item);
 
             const delete_item = initItem(
                 newAutorelease(NSMenuItem),

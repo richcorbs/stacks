@@ -152,6 +152,22 @@ pub const ProjectStore = struct {
         return error.TerminalNotFound;
     }
 
+    /// Update a project's name and/or path.
+    pub fn updateProject(self: *ProjectStore, project_id: []const u8, new_name: []const u8, new_path: []const u8) !void {
+        const project = self.findById(project_id) orelse return error.ProjectNotFound;
+        if (new_name.len > 0) {
+            const name_owned = try self.allocator.dupe(u8, new_name);
+            self.allocator.free(project.name);
+            project.name = name_owned;
+        }
+        if (new_path.len > 0) {
+            const path_owned = try self.allocator.dupe(u8, new_path);
+            self.allocator.free(project.path);
+            project.path = path_owned;
+        }
+        try self.save();
+    }
+
     /// Reorder projects by ID list.
     pub fn reorder(self: *ProjectStore, ordered_ids: []const []const u8) !void {
         var new_list = std.array_list.AlignedManaged(Project, null).init(self.allocator);
@@ -342,4 +358,45 @@ test "generate id" {
     const id = try store.generateId();
     defer allocator.free(id);
     try std.testing.expect(id.len > 0);
+}
+
+test "updateProject changes name and path" {
+    const allocator = std.testing.allocator;
+    var store = try ProjectStore.init(allocator);
+    defer store.deinit();
+
+    const proj = try store.addProject("/tmp/test-project");
+    const proj_id = try allocator.dupe(u8, proj.id);
+    defer allocator.free(proj_id);
+
+    try std.testing.expectEqualStrings("test-project", proj.name);
+    try std.testing.expectEqualStrings("/tmp/test-project", proj.path);
+
+    try store.updateProject(proj_id, "My Project", "/tmp/other-dir");
+
+    const updated = store.findById(proj_id).?;
+    try std.testing.expectEqualStrings("My Project", updated.name);
+    try std.testing.expectEqualStrings("/tmp/other-dir", updated.path);
+}
+
+test "updateProject skips empty name or path" {
+    const allocator = std.testing.allocator;
+    var store = try ProjectStore.init(allocator);
+    defer store.deinit();
+
+    const proj = try store.addProject("/tmp/test-project2");
+    const proj_id = try allocator.dupe(u8, proj.id);
+    defer allocator.free(proj_id);
+
+    // Empty name should not change it
+    try store.updateProject(proj_id, "", "/tmp/new-path");
+    const updated = store.findById(proj_id).?;
+    try std.testing.expectEqualStrings("test-project2", updated.name);
+    try std.testing.expectEqualStrings("/tmp/new-path", updated.path);
+
+    // Empty path should not change it
+    try store.updateProject(proj_id, "New Name", "");
+    const updated2 = store.findById(proj_id).?;
+    try std.testing.expectEqualStrings("New Name", updated2.name);
+    try std.testing.expectEqualStrings("/tmp/new-path", updated2.path);
 }
