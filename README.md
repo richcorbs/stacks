@@ -16,7 +16,7 @@
 
 - **Project/group management** — organize terminals by renamable project/group (see screenshot: Arcasa, Stacks, Oz, TestToolbox Upgrade)
 - **Multiple terminals per project/group** — each with optional startup commands (see screenshot: Agent (both instances have startup commands), ST-793, ST-1231...)
-- **Split panes** — horizontal (⌘D) and vertical (⇧⌘D) splits with draggable resizing (see screenshot)
+- **Split panes** — horizontal (⌘D) and vertical (⇧⌘D) splits with draggable resizing (see screenshot: Agent, ST-793, ST-1231... I create a terminal inside a project for each feature (ST-793, ST-1231, etc) and use worktrees + agents in each terminal to get work done)
 - **Sidebar** — drag-and-drop reordering of terminals and projects/groups (see screenshot)
 - **Full terminal emulation** — via libvterm (xterm-256color)
 - **Scrollback** — 10,000 line history with mouse wheel scrolling
