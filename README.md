@@ -4,21 +4,27 @@
 
 <h1 align="center">Stacks</h1>
 
-<p align="center">A native macOS terminal emulator built with <strong>Zig 0.15</strong> and the ObjC runtime for AppKit, <strong>libvterm</strong> for terminal emulation, and PTY for shell processes.</p>
+<p align="center">A native macOS terminal emulator and multiplexer built for developers who organize their work around projects. Group your terminals, split your panes, and get back to what you were doing — instantly.</p>
+
+<p align="center">
+  <img src="resources/screenshot.png" alt="Stacks screenshot" width="800">
+</p>
+
+<p align="center"><em>Built with Zig and ObjC on AppKit. ARM (Apple Silicon) only for now.</em></p>
 
 ## Features
 
-- **Project management** — organize terminals by project, persisted to `~/Library/Application Support/stacks/projects.json`
-- **Multiple terminals per project** — each with optional startup commands
-- **Split panes** — horizontal (⌘D) and vertical (⇧⌘D) splits with draggable dividers
-- **Sidebar** — drag-and-drop reordering of terminals and projects
+- **Project/group management** — organize terminals by renamable project/group (see screenshot: Arcasa, Stacks, Oz, TestToolbox Upgrade)
+- **Multiple terminals per project/group** — each with optional startup commands (see screenshot: Agent (both instances have startup commands), ST-793, ST-1231...)
+- **Split panes** — horizontal (⌘D) and vertical (⇧⌘D) splits with draggable resizing (see screenshot)
+- **Sidebar** — drag-and-drop reordering of terminals and projects/groups (see screenshot)
 - **Full terminal emulation** — via libvterm (xterm-256color)
 - **Scrollback** — 10,000 line history with mouse wheel scrolling
-- **Git branch display** — header bar shows branch and change count from the terminal's live cwd
+- **Git branch display** — header bar shows branch and change count from the terminal's live cwd (screenshot: top right)
 - **Copy/paste** — select to copy, ⌘V to paste with bracketed paste mode
 - **File drag-and-drop** — drop files into terminal panes (auto-escapes paths)
 - **Bell notifications** — blue dot in sidebar for background terminal activity
-- **Process status indicators** — green/gray dots for command-based terminals
+- **Process status indicators** — green/gray dots for command-based terminals (running = green, gray = not running, see screenshot)
 - **Persistent state** — projects, terminals, splits, cwds, font size, and window frame saved across launches
 - **Auto-update** — checks GitHub releases on startup and hourly, with in-app update dialog
 - **Box-drawing rendering** — Unicode box characters drawn with CoreGraphics for pixel-perfect table borders
@@ -37,7 +43,7 @@
 | ⌘Enter | Activate highlighted sidebar item |
 | ⌘V | Paste with bracketed paste mode |
 | ⌘K | Clear terminal screen and scrollback |
-| ⌘O | Add project |
+| ⌘O | Add project/group |
 | ⌘Q | Quit |
 
 ## Architecture
