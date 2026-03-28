@@ -355,7 +355,7 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
             const edit_item = initItem(
                 newAutorelease(NSMenuItem),
                 objc.sel("initWithTitle:action:keyEquivalent:"),
-                objc.nsString("Edit"),
+                objc.nsString("Edit Project"),
                 objc.sel("editProject:"),
                 objc.nsString(""),
             );

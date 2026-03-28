@@ -376,23 +376,24 @@ fn addNameCommandFields(alert: objc.id, default_name: []const u8, default_comman
     const NSView = objc.getClass("NSView") orelse unreachable;
     const NSTextField = objc.getClass("NSTextField") orelse unreachable;
 
-    // Layout: label(16) + gap(4) + field(24) + gap(24) + label(16) + gap(4) + field(24) = 112
+    // Layout: label(16) + gap(4) + field(24) + gap(20) + label(16) + gap(4) + field(24) = 108
     const accessory = objc.msgSend(NSView, objc.sel("new"));
     const setFrameFn: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 112));
+    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 108));
 
     const name_label = createDimLabel(NSTextField, "Name");
-    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 92, 320, 16));
+    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 88, 320, 16));
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_label);
 
     const name_field = objc.msgSend(NSTextField, objc.sel("new"));
-    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(0, 64, 320, 24));
+    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(0, 60, 320, 24));
     if (default_name.len > 0) {
         objc.msgSendVoid1(name_field, objc.sel("setStringValue:"), objc.nsString(default_name));
     } else {
         objc.msgSendVoid1(name_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. Dev Server"));
     }
+    setFieldFont(name_field);
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_field);
 
     const cmd_label = createDimLabel(NSTextField, "Command");
@@ -405,6 +406,7 @@ fn addNameCommandFields(alert: objc.id, default_name: []const u8, default_comman
         objc.msgSendVoid1(cmd_field, objc.sel("setStringValue:"), objc.nsString(default_command));
     }
     objc.msgSendVoid1(cmd_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. npm run dev"));
+    setFieldFont(cmd_field);
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), cmd_field);
 
     objc.msgSendVoid1(alert, objc.sel("setAccessoryView:"), accessory);
@@ -421,23 +423,24 @@ fn addNameDirFields(alert: objc.id, default_name: []const u8, default_dir: []con
     const NSView = objc.getClass("NSView") orelse unreachable;
     const NSTextField = objc.getClass("NSTextField") orelse unreachable;
 
-    // Layout: label(16) + gap(4) + field(24) + gap(24) + label(16) + gap(4) + field(24) = 112
+    // Layout: label(16) + gap(4) + field(24) + gap(20) + label(16) + gap(4) + field(24) = 108
     const accessory = objc.msgSend(NSView, objc.sel("new"));
     const setFrameFn: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
-    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 112));
+    setFrameFn(accessory, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 320, 108));
 
     const name_label = createDimLabel(NSTextField, "Name");
-    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 92, 320, 16));
+    setFrameFn(name_label, objc.sel("setFrame:"), objc.NSMakeRect(0, 88, 320, 16));
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_label);
 
     const name_field = objc.msgSend(NSTextField, objc.sel("new"));
-    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(0, 64, 320, 24));
+    setFrameFn(name_field, objc.sel("setFrame:"), objc.NSMakeRect(0, 60, 320, 24));
     if (default_name.len > 0) {
         objc.msgSendVoid1(name_field, objc.sel("setStringValue:"), objc.nsString(default_name));
     } else {
         objc.msgSendVoid1(name_field, objc.sel("setPlaceholderString:"), objc.nsString("e.g. My Project"));
     }
+    setFieldFont(name_field);
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), name_field);
 
     const dir_label = createDimLabel(NSTextField, "Directory");
@@ -451,6 +454,7 @@ fn addNameDirFields(alert: objc.id, default_name: []const u8, default_dir: []con
         objc.msgSendVoid1(dir_field, objc.sel("setStringValue:"), objc.nsString(default_dir));
     }
     objc.msgSendVoid1(dir_field, objc.sel("setPlaceholderString:"), objc.nsString("/path/to/project"));
+    setFieldFont(dir_field);
     objc.msgSendVoid1(accessory, objc.sel("addSubview:"), dir_field);
 
     // Browse button — opens folder picker and fills the dir field
@@ -498,6 +502,13 @@ fn onBrowseClicked(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     const dir_field = g_browse_target_field orelse return;
     const picked = showFolderPicker() orelse return;
     objc.msgSendVoid1(dir_field, objc.sel("setStringValue:"), objc.nsString(picked));
+}
+
+fn setFieldFont(field: objc.id) void {
+    const NSFont = objc.getClass("NSFont") orelse return;
+    const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    objc.msgSendVoid1(field, objc.sel("setFont:"), sysFont(NSFont, objc.sel("systemFontOfSize:"), 14.0));
 }
 
 fn createDimLabel(NSTextField: objc.id, text: []const u8) objc.id {
