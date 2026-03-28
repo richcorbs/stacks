@@ -15,7 +15,7 @@
 ## Features
 
 - **Project/group management** — organize terminals by renamable project/group (see screenshot: Arcasa, Stacks, Oz, TestToolbox Upgrade)
-- **Multiple terminals per project/group** — each with optional startup commands (see screenshot: Agent (both instances have startup commands), ST-793, ST-1231...I create a terminal inside a project for each feature (ST-793, ST-1231, etc) and use worktrees + agents in each terminal to get work done.)
+- **Multiple terminals per project/group** — each with optional startup commands (Startup commands like pi, claude, npm run dev, etc. See screenshot: Agent (both instances have startup commands), ST-793, ST-1231...I create a terminal inside a project for each feature (ST-793, ST-1231, etc) and use worktrees + agents in each terminal to get work done.)
 - **Split panes** — horizontal (⌘D) and vertical (⇧⌘D) splits with draggable resizing (see screenshot)
 - **Sidebar** — drag-and-drop reordering of terminals and projects/groups (see screenshot)
 - **Full terminal emulation** — via libvterm (xterm-256color)
