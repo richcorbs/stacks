@@ -14,10 +14,30 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // --- libvterm (Homebrew) ---
-    exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/Cellar/libvterm/0.3.3/include" });
-    exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/Cellar/libvterm/0.3.3/lib" });
-    exe.linkSystemLibrary("vterm");
+    // --- libvterm (vendored, compiled from source) ---
+    const vterm_include = b.path("vendor/libvterm/include");
+    const vterm_src_include = b.path("vendor/libvterm/src");
+    exe.root_module.addIncludePath(vterm_include);
+
+    const vterm_sources = [_][]const u8{
+        "vendor/libvterm/src/encoding.c",
+        "vendor/libvterm/src/keyboard.c",
+        "vendor/libvterm/src/mouse.c",
+        "vendor/libvterm/src/parser.c",
+        "vendor/libvterm/src/pen.c",
+        "vendor/libvterm/src/screen.c",
+        "vendor/libvterm/src/state.c",
+        "vendor/libvterm/src/unicode.c",
+        "vendor/libvterm/src/vterm.c",
+    };
+    for (vterm_sources) |src| {
+        exe.addCSourceFile(.{
+            .file = b.path(src),
+            .flags = &.{ "-std=c99", "-DINLINE=static inline", "-DHAVE_CURSES", "-DHAVE_UNIBILIUM" },
+        });
+    }
+    // vterm_internal.h includes from its own directory
+    exe.root_module.addIncludePath(vterm_src_include);
 
     // --- Embed version string from VERSION file ---
     const version_file = b.path("VERSION");
@@ -36,7 +56,7 @@ pub fn build(b: *std.Build) void {
     // Compile ObjC helper for speech recognition (requires blocks)
     exe.addCSourceFile(.{
         .file = b.path("src/speech_helper.m"),
-        .flags = &.{ "-fobjc-arc" },
+        .flags = &.{"-fobjc-arc"},
     });
 
     b.installArtifact(exe);
