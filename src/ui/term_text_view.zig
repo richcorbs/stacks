@@ -468,7 +468,7 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
                     setBool(entry.view, objc.sel("setWantsLayer:"), objc.YES);
                     const layer = objc.msgSend(entry.view, objc.sel("layer"));
 
-                    if (slot == focused_slot) {
+                    if (slot == focused_slot and !entry.pty.isClosed()) {
                         const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
                             @ptrCast(&objc.c.objc_msgSend);
                         setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
@@ -550,7 +550,7 @@ fn updateFocusBorders(session: *Session) void {
     for (leaves.items) |slot| {
         if (terminals[slot]) |*entry| {
             const layer = objc.msgSend(entry.view, objc.sel("layer"));
-            if (slot == session.focused_slot) {
+            if (slot == session.focused_slot and !entry.pty.isClosed()) {
                 setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
                 const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
                 objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), objc.msgSend(color, objc.sel("CGColor")));
@@ -1739,8 +1739,8 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
             }
             CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, y, char_w, cell_height));
 
-            // Draw cursor (only on active grid, not scrollback)
-            if (scroll_off == 0 and grid_row_i >= 0 and @as(u16, @intCast(grid_row_i)) == cursor.row and col == cursor.col) {
+            // Draw cursor (only on active grid, not scrollback, and only if PTY is alive)
+            if (scroll_off == 0 and grid_row_i >= 0 and @as(u16, @intCast(grid_row_i)) == cursor.row and col == cursor.col and !entry.pty.isClosed()) {
                 CG.CGContextSetRGBFillColor(cgctx, 0.8, 0.8, 0.8, 1.0);
                 CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, y, char_w, cell_height));
                 fg = vt_mod.DEFAULT_BG;
@@ -2240,8 +2240,27 @@ fn checkForExitedTerminals() void {
                 if (slot < MAX_TERMS) {
                     if (terminals[slot]) |*entry| {
                         if (entry.pty.hasExited()) {
-                            // Single pane — leave it alone, user can close manually
-                            if (leaves.items.len <= 1) continue;
+                            // Single pane — reset to empty state (once)
+                            if (leaves.items.len <= 1) {
+                                if (entry.pty.isClosed()) continue; // already reset
+                                entry.pty.close();
+                                const rows = entry.vterm.rows;
+                                const cols = entry.vterm.cols;
+                                entry.vterm.deinit();
+                                entry.vterm = @import("../vt.zig").VTerm.init(rows, cols) catch continue;
+                                entry.scroll_offset = 0;
+                                entry.scrollback.clearRetainingCapacity(allocator);
+                                entry.selection = .{};
+                                registerScrollbackCallbacks(slot, &entry.vterm);
+                                entry.needs_redraw = true;
+                                // Remove focus border
+                                const layer = objc.msgSend(entry.view, objc.sel("layer"));
+                                const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+                                    @ptrCast(&objc.c.objc_msgSend);
+                                setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.0);
+                                objc.msgSendVoid1(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
+                                continue;
+                            }
 
                             // Multi-pane — auto-close this pane without confirmation
                             const leaf_node = session.root.findLeaf(slot) orelse continue;

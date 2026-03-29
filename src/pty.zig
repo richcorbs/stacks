@@ -149,12 +149,61 @@ pub const Pty = struct {
         return buf[0..len];
     }
 
-    /// Close the PTY.
+    /// Whether the PTY has been closed (no running process).
+    pub fn isClosed(self: *const Pty) bool {
+        return self.master_fd < 0;
+    }
+
+    /// Close the PTY. Safe to call multiple times.
     pub fn close(self: *Pty) void {
-        _ = c.close(self.master_fd);
-        self.master_fd = -1;
-        _ = c.kill(self.child_pid, c.SIGTERM);
-        _ = c.waitpid(self.child_pid, null, c.WNOHANG);
-        self.child_pid = -1;
+        if (self.master_fd >= 0) {
+            _ = c.close(self.master_fd);
+            self.master_fd = -1;
+        }
+        if (self.child_pid > 0) {
+            _ = c.kill(self.child_pid, c.SIGTERM);
+            _ = c.waitpid(self.child_pid, null, c.WNOHANG);
+            self.child_pid = -1;
+        }
+        self.exited = true;
     }
 };
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "close is idempotent" {
+    var pty = Pty{ .master_fd = -1, .child_pid = -1, .exited = true };
+    // Calling close on an already-closed PTY should not panic or misbehave
+    pty.close();
+    pty.close();
+    try std.testing.expect(pty.isClosed());
+    try std.testing.expect(pty.hasExited());
+    try std.testing.expectEqual(@as(c_int, -1), pty.master_fd);
+    try std.testing.expectEqual(@as(c.pid_t, -1), pty.child_pid);
+}
+
+test "isClosed reflects state" {
+    var pty = Pty{ .master_fd = 42, .child_pid = 1234 };
+    try std.testing.expect(!pty.isClosed());
+    // Simulate close without actually calling kill/close on real fds
+    pty.master_fd = -1;
+    pty.child_pid = -1;
+    pty.exited = true;
+    try std.testing.expect(pty.isClosed());
+}
+
+test "hasExited with negative pid" {
+    var pty = Pty{ .master_fd = -1, .child_pid = -1 };
+    try std.testing.expect(pty.hasExited());
+    try std.testing.expect(pty.exited);
+}
+
+test "read and write on closed PTY are no-ops" {
+    var pty = Pty{ .master_fd = -1, .child_pid = -1, .exited = true };
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 0), pty.read(&buf));
+    // write should return without hanging
+    pty.write("hello");
+}
