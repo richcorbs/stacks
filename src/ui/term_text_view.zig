@@ -1714,7 +1714,11 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
 
             const x: f64 = @as(f64, @floatFromInt(col)) * cell_width;
             const y: f64 = @as(f64, @floatFromInt(row)) * cell_height;
-            const char_w = cell_width * @as(f64, @floatFromInt(cell.width));
+            // Extend last column to right edge, last row to bottom edge
+            const is_last_col = (col + cell.width) >= entry.vterm.cols;
+            const is_last_row = (row + 1) >= entry.vterm.rows;
+            const char_w = if (is_last_col) view_bounds.size.width - x else cell_width * @as(f64, @floatFromInt(cell.width));
+            const row_h = if (is_last_row) view_bounds.size.height - y else cell_height;
 
             var fg = cell.fg;
             var bg_color = cell.bg;
@@ -1737,12 +1741,14 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 const bg_b: f64 = @as(f64, @floatFromInt(bg_color.b)) / 255.0;
                 CG.CGContextSetRGBFillColor(cgctx, bg_r, bg_g, bg_b, 1.0);
             }
-            CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, y, char_w, cell_height));
+            CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, y, char_w, row_h));
 
             // Draw cursor (only on active grid, not scrollback, and only if PTY is alive)
+            // Use normal cell dimensions so cursor doesn't stretch at edges
             if (scroll_off == 0 and grid_row_i >= 0 and @as(u16, @intCast(grid_row_i)) == cursor.row and col == cursor.col and !entry.pty.isClosed()) {
+                const cursor_w = cell_width * @as(f64, @floatFromInt(cell.width));
                 CG.CGContextSetRGBFillColor(cgctx, 0.8, 0.8, 0.8, 1.0);
-                CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, y, char_w, cell_height));
+                CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, y, cursor_w, cell_height));
                 fg = vt_mod.DEFAULT_BG;
             }
 
@@ -1903,7 +1909,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
 
         // Overdraw box-drawing characters (U+2500–U+257F) with CG lines
         // because font glyphs don't fill the cell, leaving gaps.
-        drawBoxDrawingChars(cgctx, entry, grid_row_i, sb_len, row, CG);
+        drawBoxDrawingChars(cgctx, entry, grid_row_i, sb_len, row, view_bounds, CG);
 
         // Draw wide characters (emoji, CJK) individually at grid positions.
         // These were replaced with spaces in the CTLine to prevent misalignment.
@@ -2036,6 +2042,7 @@ fn drawBoxDrawingChars(
     grid_row_i: i32,
     sb_len: i32,
     row: u16,
+    view_bounds: objc.NSRect,
     CG: anytype,
 ) void {
     var col: u16 = 0;
@@ -2076,7 +2083,8 @@ fn drawBoxDrawingChars(
         CG.CGContextSetRGBFillColor(cgctx, fg_r, fg_g, fg_b, 1.0);
 
         if (info.right) { // center to right edge
-            CG.CGContextFillRect(cgctx, objc.NSMakeRect(cx, cy, x + cell_width - cx, thick));
+            const right_edge = if (col + 1 >= entry.vterm.cols) view_bounds.size.width else x + cell_width;
+            CG.CGContextFillRect(cgctx, objc.NSMakeRect(cx, cy, right_edge - cx, thick));
         }
         if (info.left) { // left edge to center
             CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, cy, cx - x + thick, thick));
@@ -2253,11 +2261,6 @@ fn checkForExitedTerminals() void {
                                 entry.selection = .{};
                                 registerScrollbackCallbacks(slot, &entry.vterm);
                                 entry.needs_redraw = true;
-                                // Remove focus border
-                                const layer = objc.msgSend(entry.view, objc.sel("layer"));
-                                const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
-                                    @ptrCast(&objc.c.objc_msgSend);
-                                setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.0);
                                 objc.msgSendVoid1(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
                                 continue;
                             }
