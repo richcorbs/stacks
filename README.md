@@ -27,6 +27,7 @@
 - **Process status indicators** — green/gray dots for command-based terminals (running = green, gray = not running, see screenshot)
 - **Persistent state** — projects, terminals, splits, cwds, font size, and window frame saved across launches
 - **Auto-update** — checks GitHub releases on startup and hourly, with in-app update dialog
+- **Speech-to-text** — dictate into terminals via macOS Speech framework (hold Shift)
 - **Box-drawing rendering** — Unicode box characters drawn with CoreGraphics for pixel-perfect table borders
 
 ## Keyboard Shortcuts
@@ -45,6 +46,7 @@
 | ⌘K | Clear terminal screen and scrollback |
 | ⌘O | Add project/group |
 | ⌘Q | Quit |
+| Hold Shift | Speech-to-text (hold to record, release to transcribe) |
 
 ## Architecture
 
