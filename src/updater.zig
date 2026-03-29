@@ -176,7 +176,7 @@ fn showUpdateAlert() void {
 
     var msg_buf: [512]u8 = undefined;
     const msg = std.fmt.bufPrint(&msg_buf,
-        "Stacks {s} is available (you have {s}).",
+        "Stacks {s} is available\n(you have {s})",
         .{ tag, version.string },
     ) catch "A new version is available.";
     objc.msgSendVoid1(alert, objc.sel("setInformativeText:"), objc.nsString(msg));
