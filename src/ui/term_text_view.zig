@@ -302,8 +302,10 @@ pub fn getOrCreateSession(terminal_id: []const u8, cwd: []const u8, command: ?[]
                         entry.pty.close();
                         entry.pty = @import("../pty.zig").Pty.spawn(cwd, command) catch return true;
                         // Clear the vterm screen and scrollback
+                        const rows = entry.vterm.rows;
+                        const cols = entry.vterm.cols;
                         entry.vterm.deinit();
-                        entry.vterm = @import("../vt.zig").VTerm.init(24, 80) catch return true;
+                        entry.vterm = @import("../vt.zig").VTerm.init(rows, cols) catch return true;
                         entry.scroll_offset = 0;
                         entry.scrollback.clearRetainingCapacity(allocator);
                         // Re-register callbacks on new vterm
@@ -2090,7 +2092,8 @@ fn drawBoxDrawingChars(
             CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, cy, cx - x + thick, thick));
         }
         if (info.down) { // center to bottom edge
-            CG.CGContextFillRect(cgctx, objc.NSMakeRect(cx, cy, thick, y + cell_height - cy));
+            const bottom_edge = if (row + 1 >= entry.vterm.rows) view_bounds.size.height else y + cell_height;
+            CG.CGContextFillRect(cgctx, objc.NSMakeRect(cx, cy, thick, bottom_edge - cy));
         }
         if (info.up) { // top edge to center
             CG.CGContextFillRect(cgctx, objc.NSMakeRect(cx, y, thick, cy - y + thick));
@@ -2261,6 +2264,11 @@ fn checkForExitedTerminals() void {
                                 entry.selection = .{};
                                 registerScrollbackCallbacks(slot, &entry.vterm);
                                 entry.needs_redraw = true;
+                                // Remove focus border
+                                const layer = objc.msgSend(entry.view, objc.sel("layer"));
+                                const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
+                                    @ptrCast(&objc.c.objc_msgSend);
+                                setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.0);
                                 objc.msgSendVoid1(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
                                 continue;
                             }
