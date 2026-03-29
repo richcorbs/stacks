@@ -197,15 +197,36 @@ fn findTerminalInStore(app: *@import("../app.zig").App, terminal_id: []const u8)
     return null;
 }
 
-/// Save the focused pane's live cwd to the terminal struct.
+/// Save a live cwd to the terminal struct.
+/// Tries the focused pane first, then falls back to any live pane in the session.
+/// If all panes are empty (closed), keeps the previously saved cwd.
 fn saveCwdForTerminal(t: *@import("../project.zig").Terminal, session: *Session) void {
+    var cwd_buf: [4096]u8 = undefined;
+
+    // Try focused pane first
     if (terminals[session.focused_slot]) |*entry| {
-        var cwd_buf: [4096]u8 = undefined;
         if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
             if (t.cwd) |old| allocator.free(old);
             t.cwd = allocator.dupe(u8, live_cwd) catch return;
+            return;
         }
     }
+
+    // Focused pane has no live process — try any other pane
+    var leaves: std.ArrayListUnmanaged(usize) = .{};
+    defer leaves.deinit(allocator);
+    session.root.collectLeaves(allocator, &leaves);
+    for (leaves.items) |slot| {
+        if (slot == session.focused_slot) continue;
+        if (terminals[slot]) |*entry| {
+            if (entry.pty.getCwd(&cwd_buf)) |live_cwd| {
+                if (t.cwd) |old| allocator.free(old);
+                t.cwd = allocator.dupe(u8, live_cwd) catch return;
+                return;
+            }
+        }
+    }
+    // All panes empty — keep previously saved cwd
 }
 
 /// Save cwd for the active session (called on terminal switch and app quit).
@@ -419,13 +440,14 @@ pub fn layoutActiveSession(panel: objc.id) void {
     // Terminal area is below the header
     const term_bounds = objc.NSMakeRect(0, 0, bounds.size.width, bounds.size.height - header_h);
 
-    // Recursively add terminal views in the area below the header
-    layoutNode(session.root, panel, term_bounds, session.focused_slot);
-
-    // Sync all terminal sizes to their new frames
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
     session.root.collectLeaves(allocator, &leaves);
+
+    // Recursively add terminal views in the area below the header
+    layoutNode(session.root, panel, term_bounds, session.focused_slot, leaves.items.len);
+
+    // Sync all terminal sizes to their new frames
     for (leaves.items) |slot| {
         if (slot < MAX_TERMS) {
             if (terminals[slot]) |*entry| {
@@ -446,7 +468,7 @@ pub fn layoutActiveSession(panel: objc.id) void {
     }
 }
 
-fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot: usize) void {
+fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot: usize, leaf_count: usize) void {
     switch (node.*) {
         .leaf => |slot| {
             if (slot < MAX_TERMS) {
@@ -470,7 +492,7 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
                     setBool(entry.view, objc.sel("setWantsLayer:"), objc.YES);
                     const layer = objc.msgSend(entry.view, objc.sel("layer"));
 
-                    if (slot == focused_slot and !entry.pty.isClosed()) {
+                    if (shouldShowFocusBorder(slot, focused_slot, leaf_count, entry)) {
                         const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
                             @ptrCast(&objc.c.objc_msgSend);
                         setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
@@ -513,8 +535,8 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
                     divider_count += 1;
                 }
 
-                layoutNode(s.first, parent, first_rect, focused_slot);
-                layoutNode(s.second, parent, second_rect, focused_slot);
+                layoutNode(s.first, parent, first_rect, focused_slot, leaf_count);
+                layoutNode(s.second, parent, second_rect, focused_slot, leaf_count);
             } else {
                 const first_h = (rect.size.height - gap) * s.ratio;
                 const second_h = rect.size.height - gap - first_h;
@@ -530,8 +552,8 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
                     divider_count += 1;
                 }
 
-                layoutNode(s.first, parent, first_rect, focused_slot);
-                layoutNode(s.second, parent, second_rect, focused_slot);
+                layoutNode(s.first, parent, first_rect, focused_slot, leaf_count);
+                layoutNode(s.second, parent, second_rect, focused_slot, leaf_count);
             }
         },
     }
@@ -552,7 +574,7 @@ fn updateFocusBorders(session: *Session) void {
     for (leaves.items) |slot| {
         if (terminals[slot]) |*entry| {
             const layer = objc.msgSend(entry.view, objc.sel("layer"));
-            if (slot == session.focused_slot and !entry.pty.isClosed()) {
+            if (shouldShowFocusBorder(slot, session.focused_slot, leaves.items.len, entry)) {
                 setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
                 const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
                 objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), objc.msgSend(color, objc.sel("CGColor")));
@@ -615,8 +637,8 @@ pub fn closeFocusedPane() void {
     const leaf_node = session.root.findLeaf(session.focused_slot) orelse return;
     const parent_node = session.root.findParent(leaf_node) orelse return;
 
-    // Skip confirmation if the shell has already exited
-    const already_exited = if (terminals[session.focused_slot]) |*entry| entry.pty.hasExited() else false;
+    // Skip confirmation if the shell has already exited (but not if it's an empty/reset pane)
+    const already_exited = if (terminals[session.focused_slot]) |*entry| entry.pty.hasExited() and !entry.pty.isClosed() else false;
     if (!already_exited) {
         const NSAlert = objc.getClass("NSAlert") orelse return;
         const alert = objc.msgSend(NSAlert, objc.sel("new"));
@@ -674,10 +696,19 @@ pub fn cycleFocus(forward: bool) void {
     // Find current focused index
     for (leaves.items, 0..) |slot, i| {
         if (slot == session.focused_slot) {
-            if (forward) {
-                session.focused_slot = leaves.items[(i + 1) % leaves.items.len];
-            } else {
-                session.focused_slot = leaves.items[(i + leaves.items.len - 1) % leaves.items.len];
+            const new_slot = if (forward)
+                leaves.items[(i + 1) % leaves.items.len]
+            else
+                leaves.items[(i + leaves.items.len - 1) % leaves.items.len];
+            session.focused_slot = new_slot;
+
+            // Respawn shell if the newly focused pane is empty (process exited)
+            if (new_slot < MAX_TERMS) {
+                if (terminals[new_slot]) |*entry| {
+                    if (entry.pty.isClosed()) {
+                        respawnPaneShell(new_slot, entry, session.cwd);
+                    }
+                }
             }
             return;
         }
@@ -862,6 +893,26 @@ fn vtermOutputCallback(s: [*c]const u8, len: usize, user: ?*anyopaque) callconv(
     const entry: *TermEntry = @ptrCast(@alignCast(user orelse return));
     if (s == null) return;
     entry.pty.write(s[0..len]);
+}
+
+/// Respawn a shell in an empty (closed) pane.
+/// Takes cwd explicitly so it works for any session, not just the active one.
+fn respawnPaneShell(slot: usize, entry: *TermEntry, cwd: []const u8) void {
+    // vterm was already reset by the exit handler — just spawn a new shell
+    entry.pty = @import("../pty.zig").Pty.spawn(cwd, null) catch return;
+    // Sync PTY size to match vterm so zsh PROMPT_SP clears correctly
+    const rows = entry.vterm.rows;
+    const cols = entry.vterm.cols;
+    entry.pty.resize(@intCast(cols), @intCast(rows));
+    registerOutputCallback(&terminals[slot].?);
+    entry.needs_redraw = true;
+}
+
+/// Whether a pane should show the focus border.
+/// In multi-pane sessions, always show on the focused pane (even if empty).
+/// In single-pane sessions, only show if the process is running.
+fn shouldShowFocusBorder(slot: usize, focused_slot: usize, leaf_count: usize, entry: *TermEntry) bool {
+    return slot == focused_slot and (leaf_count > 1 or !entry.pty.isClosed());
 }
 
 /// Destroy a specific terminal by slot index.
@@ -1206,6 +1257,12 @@ fn termMouseDown(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
     if (session_idx < MAX_TERMS) {
         if (sessions[session_idx]) |*session| {
             session.focused_slot = entry_found.slot;
+            // Respawn shell if the pane is empty (process exited).
+            // Note: this also starts a text selection, but that's harmless
+            // on an empty pane and avoids needing a separate click to select.
+            if (entry_found.pty.isClosed()) {
+                respawnPaneShell(entry_found.slot, entry_found, session.cwd);
+            }
             // Don't call layoutActiveSession here — it would destroy this view
             // and break mouse drag tracking. Just update the focus borders.
             updateFocusBorders(session);
@@ -2239,8 +2296,7 @@ var last_bell_state: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
 var last_exit_state: [MAX_TERMS]bool = [_]bool{false} ** MAX_TERMS;
 
 fn checkForExitedTerminals() void {
-    const window_ui = @import("window.zig");
-    for (&sessions, 0..) |*sess, si| {
+    for (&sessions) |*sess| {
         if (sess.*) |*session| {
             // Collect all leaf slots
             var leaves: std.ArrayListUnmanaged(usize) = .{};
@@ -2251,62 +2307,27 @@ fn checkForExitedTerminals() void {
                 if (slot < MAX_TERMS) {
                     if (terminals[slot]) |*entry| {
                         if (entry.pty.hasExited()) {
-                            // Single pane — reset to empty state (once)
+                            if (entry.pty.isClosed()) continue; // already reset
+                            entry.pty.close();
+                            // Reset vterm to empty state
+                            const rows = entry.vterm.rows;
+                            const cols = entry.vterm.cols;
+                            entry.vterm.deinit();
+                            entry.vterm = @import("../vt.zig").VTerm.init(rows, cols) catch continue;
+                            entry.scroll_offset = 0;
+                            entry.scrollback.clearRetainingCapacity(allocator);
+                            entry.selection = .{};
+                            registerScrollbackCallbacks(slot, &entry.vterm);
+                            entry.needs_redraw = true;
+                            // Remove focus border if single pane
                             if (leaves.items.len <= 1) {
-                                if (entry.pty.isClosed()) continue; // already reset
-                                entry.pty.close();
-                                const rows = entry.vterm.rows;
-                                const cols = entry.vterm.cols;
-                                entry.vterm.deinit();
-                                entry.vterm = @import("../vt.zig").VTerm.init(rows, cols) catch continue;
-                                entry.scroll_offset = 0;
-                                entry.scrollback.clearRetainingCapacity(allocator);
-                                entry.selection = .{};
-                                registerScrollbackCallbacks(slot, &entry.vterm);
-                                entry.needs_redraw = true;
-                                // Remove focus border
                                 const layer = objc.msgSend(entry.view, objc.sel("layer"));
                                 const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
                                     @ptrCast(&objc.c.objc_msgSend);
                                 setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.0);
-                                objc.msgSendVoid1(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
-                                continue;
                             }
-
-                            // Multi-pane — auto-close this pane without confirmation
-                            const leaf_node = session.root.findLeaf(slot) orelse continue;
-                            const parent_node = session.root.findParent(leaf_node) orelse continue;
-
-                            destroyTerminalAtSlot(slot);
-
-                            const sibling = if (parent_node.split.first == leaf_node) parent_node.split.second else parent_node.split.first;
-                            const sibling_copy = sibling.*;
-                            allocator.destroy(leaf_node);
-                            allocator.destroy(sibling);
-                            parent_node.* = sibling_copy;
-
-                            // Focus first remaining leaf
-                            var remaining: std.ArrayListUnmanaged(usize) = .{};
-                            defer remaining.deinit(allocator);
-                            parent_node.collectLeaves(allocator, &remaining);
-                            if (remaining.items.len > 0) {
-                                session.focused_slot = remaining.items[0];
-                            }
-
-                            // Re-layout
-                            if (active_session != null and active_session.? == si) {
-                                if (window_ui.main_panel_view) |panel| {
-                                    layoutActiveSession(panel);
-                                    if (getFocusedView()) |focused| {
-                                        const NSApp_class = objc.getClass("NSApplication") orelse return;
-                                        const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
-                                        const mw = objc.msgSend(nsapp, objc.sel("mainWindow"));
-                                        objc.msgSendVoid1(mw, objc.sel("makeFirstResponder:"), focused);
-                                    }
-                                }
-                            }
-                            saveSplitState();
-                            return; // only handle one exit per tick to avoid iterator invalidation
+                            objc.msgSendVoid1(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
+                            continue;
                         }
                     }
                 }

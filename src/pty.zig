@@ -207,3 +207,48 @@ test "read and write on closed PTY are no-ops" {
     // write should return without hanging
     pty.write("hello");
 }
+
+// State transition tests for pane lifecycle:
+// These verify the invariants that term_text_view.zig relies on for
+// focus borders, confirmation dialogs, and respawn triggers.
+
+test "state transitions: running -> exited -> closed" {
+    // Simulates: shell running -> process exits -> exit handler closes PTY
+    var pty = Pty{ .master_fd = 42, .child_pid = 1234 };
+
+    // Running: hasExited=false, isClosed=false
+    try std.testing.expect(!pty.hasExited());
+    try std.testing.expect(!pty.isClosed());
+
+    // Process exits (detected by waitpid in hasExited)
+    pty.exited = true;
+    // hasExited=true, isClosed=false — transient state before exit handler runs
+    try std.testing.expect(pty.hasExited());
+    try std.testing.expect(!pty.isClosed());
+
+    // Exit handler calls close()
+    pty.master_fd = -1;
+    pty.child_pid = -1;
+    // hasExited=true, isClosed=true — empty pane state
+    try std.testing.expect(pty.hasExited());
+    try std.testing.expect(pty.isClosed());
+}
+
+test "hasExited and not isClosed means skip confirmation" {
+    // This is the state where closeFocusedPane skips the dialog:
+    // process just exited but exit handler hasn't run yet.
+    var pty = Pty{ .master_fd = 42, .child_pid = 1234 };
+    pty.exited = true;
+    const skip_confirm = pty.hasExited() and !pty.isClosed();
+    try std.testing.expect(skip_confirm);
+}
+
+test "isClosed means show confirmation and allow respawn" {
+    // This is the empty pane state — closeFocusedPane should confirm,
+    // and focus/click should trigger respawnPaneShell.
+    var pty = Pty{ .master_fd = -1, .child_pid = -1, .exited = true };
+    const show_confirm = !(pty.hasExited() and !pty.isClosed());
+    const should_respawn = pty.isClosed();
+    try std.testing.expect(show_confirm);
+    try std.testing.expect(should_respawn);
+}
