@@ -34,8 +34,19 @@ pub var header_view: ?objc.id = null;
 pub var header_name_label: ?objc.id = null;
 pub var header_git_label: ?objc.id = null;
 pub var header_git_changes_label: ?objc.id = null;
+pub var header_split_h_button: ?objc.id = null;
+pub var header_split_v_button: ?objc.id = null;
 
 pub const HEADER_HEIGHT: objc.CGFloat = 44.0;
+
+// Header layout constants for split buttons (shared with term_text_view.zig)
+pub const SPLIT_BTN_W: objc.CGFloat = 18.0;
+pub const SPLIT_BTN_H: objc.CGFloat = 24.0;
+pub const SPLIT_BTN_GAP: objc.CGFloat = 4.0;
+pub const SPLIT_BTN_MARGIN: objc.CGFloat = 12.0;
+pub const SPLIT_GIT_GAP: objc.CGFloat = 16.0;
+pub const SPLIT_BTN_Y: objc.CGFloat = 10.0;
+pub const HEADER_LABEL_Y: objc.CGFloat = 14.0;
 
 // -------------------------------------------------------------------------
 // Public API
@@ -72,6 +83,7 @@ fn registerDelegateClass() ?objc.id {
     // Lifecycle
     _ = objc.addMethod(cls, objc.sel("applicationDidFinishLaunching:"), &appDidFinishLaunching, "v@:@");
     _ = objc.addMethod(cls, objc.sel("applicationShouldTerminateAfterLastWindowClosed:"), &shouldTerminate, "B@:@");
+    _ = objc.addMethod(cls, objc.sel("applicationShouldTerminate:"), &applicationShouldTerminate, "Q@:@");
     _ = objc.addMethod(cls, objc.sel("applicationWillTerminate:"), &appWillTerminate, "v@:@");
     _ = objc.addMethod(cls, objc.sel("applicationDidBecomeActive:"), &appDidBecomeActive, "v@:@");
 
@@ -221,6 +233,25 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
 
 fn shouldTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.BOOL {
     return objc.YES;
+}
+
+/// Confirm quit when any terminal has a running process.
+fn applicationShouldTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.NSUInteger {
+    // NSTerminateNow = 1, NSTerminateCancel = 0
+    // Check if any session has a running (non-exited) process
+    if (term_text_view.hasAnyRunningProcess()) {
+        const NSAlert = objc.getClass("NSAlert") orelse return 1;
+        const alert = objc.msgSend(NSAlert, objc.sel("new"));
+        objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString("Quit Stacks?"));
+        objc.msgSendVoid1(alert, objc.sel("setInformativeText:"), objc.nsString("There are terminals with running processes. Quit anyway?"));
+        objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Quit"));
+        objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Cancel"));
+
+        const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
+        const result = objc.msgSendUInt(alert, objc.sel("runModal"));
+        if (result != NSAlertFirstButtonReturn) return 0; // NSTerminateCancel
+    }
+    return 1; // NSTerminateNow
 }
 
 fn appWillTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
@@ -525,6 +556,55 @@ fn createHeaderBar() objc.id {
     objc.msgSendVoid1(header, objc.sel("addSubview:"), changes_label);
     header_git_changes_label = changes_label;
 
+    // Split pane buttons (right of git status)
+    const NSButton = objc.getClass("NSButton") orelse unreachable;
+    const NSImage = objc.getClass("NSImage") orelse unreachable;
+    const NSImageSymbolConfig = objc.getClass("NSImageSymbolConfiguration") orelse unreachable;
+    const iconColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.604, 0.659, 0.737, 1.0);
+
+    // Helpers for multi-arg ObjC calls
+    const imgWithSymbol: *const fn (objc.id, objc.SEL, objc.id, ?objc.id) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const configWithSize: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.NSInteger) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const setAction: *const fn (objc.id, objc.SEL, objc.SEL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    const setToolTip: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+
+    // NSSymbolScaleMedium = 2, NSFontWeightRegular = 0
+    const symbol_config = configWithSize(NSImageSymbolConfig, objc.sel("configurationWithPointSize:weight:scale:"), 14.0, 0, 2);
+
+    // Split Right button (horizontal split, like Cmd+D)
+    const split_h_raw = imgWithSymbol(NSImage, objc.sel("imageWithSystemSymbolName:accessibilityDescription:"), objc.nsString("square.split.2x1"), null);
+    if (@intFromPtr(split_h_raw) != 0) {
+        const split_h_btn = objc.msgSend(NSButton, objc.sel("new"));
+        setBool(split_h_btn, objc.sel("setBordered:"), objc.NO);
+        const tinted = objc.msgSend1(split_h_raw, objc.sel("imageWithSymbolConfiguration:"), symbol_config);
+        objc.msgSendVoid1(split_h_btn, objc.sel("setImage:"), tinted);
+        objc.msgSendVoid1(split_h_btn, objc.sel("setContentTintColor:"), iconColor);
+        setAction(split_h_btn, objc.sel("setAction:"), objc.sel("splitHorizontal:"));
+        if (app_delegate) |delegate| objc.msgSendVoid1(split_h_btn, objc.sel("setTarget:"), delegate);
+        setToolTip(split_h_btn, objc.sel("setToolTip:"), objc.nsString("Split Right (\u{2318}D)"));
+        objc.msgSendVoid1(header, objc.sel("addSubview:"), split_h_btn);
+        header_split_h_button = split_h_btn;
+    }
+
+    // Split Down button (vertical split, like Cmd+Shift+D)
+    const split_v_raw = imgWithSymbol(NSImage, objc.sel("imageWithSystemSymbolName:accessibilityDescription:"), objc.nsString("square.split.1x2"), null);
+    if (@intFromPtr(split_v_raw) != 0) {
+        const split_v_btn = objc.msgSend(NSButton, objc.sel("new"));
+        setBool(split_v_btn, objc.sel("setBordered:"), objc.NO);
+        const tinted = objc.msgSend1(split_v_raw, objc.sel("imageWithSymbolConfiguration:"), symbol_config);
+        objc.msgSendVoid1(split_v_btn, objc.sel("setImage:"), tinted);
+        objc.msgSendVoid1(split_v_btn, objc.sel("setContentTintColor:"), iconColor);
+        setAction(split_v_btn, objc.sel("setAction:"), objc.sel("splitVertical:"));
+        if (app_delegate) |delegate| objc.msgSendVoid1(split_v_btn, objc.sel("setTarget:"), delegate);
+        setToolTip(split_v_btn, objc.sel("setToolTip:"), objc.nsString("Split Down (\u{21e7}\u{2318}D)"));
+        objc.msgSendVoid1(header, objc.sel("addSubview:"), split_v_btn);
+        header_split_v_button = split_v_btn;
+    }
+
     // Layout with auto layout
     setBool(header, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
     setBool(name_label, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
@@ -572,15 +652,44 @@ pub fn updateHeader(name: []const u8, project_path: []const u8) void {
             colorWith2(NSColor2, objc.sel("colorWithRed:green:blue:alpha:"), 0.604, 0.659, 0.737, 1.0);
         objc.msgSendVoid1(label, objc.sel("setTextColor:"), color);
 
-        // Size to fit text, then pin to right edge of panel
         objc.msgSendVoid(label, objc.sel("sizeToFit"));
-        const fitted = objc.msgSendRect(label, objc.sel("frame"));
         const panel = main_panel_view orelse return;
         const panel_bounds = objc.msgSendRect(panel, objc.sel("bounds"));
-        const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
-            @ptrCast(&objc.c.objc_msgSend);
-        const w = fitted.size.width + 4;
-        setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(panel_bounds.size.width - w - 16, 12, w, 20));
+        layoutHeaderRight(panel_bounds.size.width);
+    }
+}
+
+/// Position git label and split buttons from the right edge of the header.
+/// Called from both updateHeader and layoutActiveSession to keep positions in sync.
+pub fn layoutHeaderRight(panel_width: objc.CGFloat) void {
+    const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    const setBoolH: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+
+    // Ensure split buttons are visible
+    if (header_split_h_button) |btn| setBoolH(btn, objc.sel("setHidden:"), objc.NO);
+    if (header_split_v_button) |btn| setBoolH(btn, objc.sel("setHidden:"), objc.NO);
+
+    // Layout from right: [margin] [split_v] [gap] [split_h] [git_gap] [git label]
+    var right_x = panel_width - SPLIT_BTN_MARGIN;
+
+    if (header_split_v_button) |btn| {
+        right_x -= SPLIT_BTN_W;
+        setFrame(btn, objc.sel("setFrame:"), objc.NSMakeRect(right_x, SPLIT_BTN_Y, SPLIT_BTN_W, SPLIT_BTN_H));
+        right_x -= SPLIT_BTN_GAP;
+    }
+    if (header_split_h_button) |btn| {
+        right_x -= SPLIT_BTN_W;
+        setFrame(btn, objc.sel("setFrame:"), objc.NSMakeRect(right_x, SPLIT_BTN_Y, SPLIT_BTN_W, SPLIT_BTN_H));
+        right_x -= SPLIT_GIT_GAP;
+    }
+    if (header_git_label) |gl| {
+        const gl_frame = objc.msgSendRect(gl, objc.sel("frame"));
+        const w = gl_frame.size.width;
+        if (w > 0) {
+            setFrame(gl, objc.sel("setFrame:"), objc.NSMakeRect(right_x - w, HEADER_LABEL_Y, w, 20));
+        }
     }
 }
 
@@ -592,6 +701,10 @@ pub fn clearHeader() void {
     if (header_git_label) |label| {
         objc.msgSendVoid1(label, objc.sel("setStringValue:"), objc.nsString(""));
     }
+    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    if (header_split_h_button) |btn| setBool(btn, objc.sel("setHidden:"), objc.YES);
+    if (header_split_v_button) |btn| setBool(btn, objc.sel("setHidden:"), objc.YES);
 }
 
 fn runGitCommand(project_path: []const u8, args: []const []const u8, out_buf: []u8) ![]const u8 {

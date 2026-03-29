@@ -421,16 +421,9 @@ pub fn layoutActiveSession(panel: objc.id) void {
 
         // Position labels inside header
         if (window_ui.header_name_label) |nl| {
-            setFrame(nl, objc.sel("setFrame:"), objc.NSMakeRect(15, 12, 300, 20));
+            setFrame(nl, objc.sel("setFrame:"), objc.NSMakeRect(15, window_ui.HEADER_LABEL_Y, 300, 20));
         }
-        // Reposition git label to right edge of panel
-        if (window_ui.header_git_label) |gl| {
-            const gl_frame = objc.msgSendRect(gl, objc.sel("frame"));
-            const w = gl_frame.size.width;
-            if (w > 0) {
-                setFrame(gl, objc.sel("setFrame:"), objc.NSMakeRect(bounds.size.width - w - 16, 12, w, 20));
-            }
-        }
+        window_ui.layoutHeaderRight(bounds.size.width);
         // Hide changes label (unused)
         if (window_ui.header_git_changes_label) |cl| {
             setFrame(cl, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, 0, 0));
@@ -964,6 +957,16 @@ pub fn destroySession(terminal_id: []const u8) void {
     if (active_session != null and active_session.? == session_idx) {
         active_session = null;
     }
+}
+
+/// Check if any terminal has a running (non-exited) process.
+pub fn hasAnyRunningProcess() bool {
+    for (&terminals) |*t| {
+        if (t.*) |*entry| {
+            if (!entry.pty.hasExited()) return true;
+        }
+    }
+    return false;
 }
 
 pub fn destroyAllTerminals() void {
