@@ -36,6 +36,7 @@ pub var header_git_label: ?objc.id = null;
 pub var header_git_changes_label: ?objc.id = null;
 pub var header_split_h_button: ?objc.id = null;
 pub var header_split_v_button: ?objc.id = null;
+var header_bottom_border: ?objc.id = null;
 
 pub const HEADER_HEIGHT: objc.CGFloat = 44.0;
 
@@ -511,13 +512,15 @@ fn createHeaderBar() objc.id {
     const cgBg = objc.msgSend(bgColor, objc.sel("CGColor"));
     objc.msgSendVoid1(layer, objc.sel("setBackgroundColor:"), cgBg);
 
-    // Border (matches sidebar separator style)
+    // Bottom border only (avoids thick right edge from full-border + window edge)
+    const CALayer = objc.getClass("CALayer") orelse unreachable;
+    const bottom_border = objc.msgSend(CALayer, objc.sel("layer"));
     const borderColor = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.25, 0.30, 0.38, 1.0);
     const cgBorder = objc.msgSend(borderColor, objc.sel("CGColor"));
-    objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), cgBorder);
-    const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
+    objc.msgSendVoid1(bottom_border, objc.sel("setBackgroundColor:"), cgBorder);
+    // Frame will be set in layoutHeaderRight; initially zero-sized
+    objc.msgSendVoid1(layer, objc.sel("addSublayer:"), bottom_border);
+    header_bottom_border = bottom_border;
 
     // Terminal name label (left)
     const NSTextField = objc.getClass("NSTextField") orelse unreachable;
@@ -690,6 +693,13 @@ pub fn layoutHeaderRight(panel_width: objc.CGFloat) void {
         if (w > 0) {
             setFrame(gl, objc.sel("setFrame:"), objc.NSMakeRect(right_x - w, HEADER_LABEL_Y, w, 20));
         }
+    }
+
+    // Update bottom border sublayer to span the full header width
+    if (header_bottom_border) |border| {
+        const setLayerFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setLayerFrame(border, objc.sel("setFrame:"), objc.NSMakeRect(0, 0, panel_width, 1.0));
     }
 }
 
