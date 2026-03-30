@@ -318,7 +318,7 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
             @ptrCast(&objc.c.objc_msgSend);
         const font = boldFont(NSFont, objc.sel("boldSystemFontOfSize:"), 13.0);
         objc.msgSendVoid1(label, objc.sel("setFont:"), font);
-        setTextColor(label, 0.847, 0.937, 0.906); // #d8efe7 — always bright
+        setTextColor(label, 0.70, 0.78, 0.75); // #b3c7c0 — softened project name
     } else {
         const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
             @ptrCast(&objc.c.objc_msgSend);
@@ -958,6 +958,11 @@ pub fn openTerminalAtIndex(index: usize) void {
 
     // Update selection and rebuild sidebar to show highlight
     selected_terminal_index = index;
+    // Sync nav highlight to the clicked terminal so ⌘⇧[] starts from here
+    selected_nav_index = for (nav_items[0..nav_item_count], 0..) |maybe_item, i| {
+        const item = maybe_item orelse continue;
+        if (item.kind == .terminal and item.index == index) break i;
+    } else null;
     if (g_sidebar_app) |app| rebuildSidebar(app);
 
     // Resolve effective cwd: saved cwd > project path
