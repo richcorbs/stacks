@@ -2081,12 +2081,13 @@ fn drawWideChars(
             @ptrCast(&objc.c.objc_msgSend);
         const baseline_offset = @abs(getFloat(font, objc.sel("descender")));
 
+        const ct_line = CT.CTLineCreateWithAttributedString(@ptrCast(attr_str));
+
         CG.CGContextSaveGState(cgctx);
         CG.CGContextTranslateCTM(cgctx, 0, row_y + cell_height);
         CG.CGContextScaleCTM(cgctx, 1.0, -1.0);
         CG.CGContextSetTextPosition(cgctx, x, baseline_offset);
 
-        const ct_line = CT.CTLineCreateWithAttributedString(@ptrCast(attr_str));
         CT.CTLineDraw(ct_line, cgctx);
         CT.CFRelease(ct_line);
         CG.CGContextRestoreGState(cgctx);

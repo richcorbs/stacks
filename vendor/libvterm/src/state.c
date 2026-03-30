@@ -336,6 +336,21 @@ static int on_text(const char bytes[], size_t len, void *user)
       printf("}\n");
 #endif
 
+      /* VS16 (U+FE0F) triggers emoji presentation — widen to 2 cells if
+       * the base character was only 1 cell wide. The sending program
+       * (e.g. CLI tools using wcwidth) expects emoji+VS16 to be width 2,
+       * so we need to advance the cursor to match. */
+      if(state->combine_width == 1) {
+        for(int ci = 0; state->combine_chars[ci]; ci++) {
+          if(state->combine_chars[ci] == 0xFE0F) {
+            state->combine_width = 2;
+            if(state->pos.col < THISROWWIDTH(state))
+              state->pos.col += 1;  /* advance cursor for the extra cell */
+            break;
+          }
+        }
+      }
+
       /* Now render it */
       putglyph(state, state->combine_chars, state->combine_width, state->combine_pos);
     }
@@ -375,6 +390,17 @@ static int on_text(const char bytes[], size_t len, void *user)
 
     chars[glyph_ends - glyph_starts] = 0;
     i--;
+
+    /* VS16 (U+FE0F) triggers emoji presentation — widen to 2 cells.
+     * Programs using wcwidth() expect emoji+VS16 to occupy 2 columns. */
+    if(width == 1) {
+      for(int ci = 0; chars[ci]; ci++) {
+        if(chars[ci] == 0xFE0F) {
+          width = 2;
+          break;
+        }
+      }
+    }
 
 #ifdef DEBUG_GLYPH_COMBINE
     int printpos;
