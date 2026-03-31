@@ -239,6 +239,9 @@ fn shouldTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.BOOL {
 /// Confirm quit when any terminal has a running process.
 fn applicationShouldTerminate(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.NSUInteger {
     // NSTerminateNow = 1, NSTerminateCancel = 0
+    const updater = @import("../updater.zig");
+    if (updater.skip_quit_confirmation) return 1;
+
     // Check if any session has a running (non-exited) process
     if (term_text_view.hasAnyRunningProcess()) {
         const NSAlert = objc.getClass("NSAlert") orelse return 1;

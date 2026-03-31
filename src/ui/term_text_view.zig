@@ -2042,17 +2042,17 @@ fn drawWideChars(
 
         const initWithBytes: *const fn (objc.id, objc.SEL, [*]const u8, objc.NSUInteger, objc.NSUInteger) callconv(.c) objc.id =
             @ptrCast(&objc.c.objc_msgSend);
-        const ns_str = initWithBytes(
+        const ns_str = objc.msgSend(initWithBytes(
             objc.msgSend(NSString, objc.sel("alloc")),
             objc.sel("initWithBytes:length:encoding:"),
             &char_buf, char_len, 4, // NSUTF8StringEncoding = 4
-        );
+        ), objc.sel("autorelease"));
 
-        const attr_str = objc.msgSend1(
+        const attr_str = objc.msgSend(objc.msgSend1(
             objc.msgSend(NSMutableAttributedString, objc.sel("alloc")),
             objc.sel("initWithString:"),
             ns_str,
-        );
+        ), objc.sel("autorelease"));
 
         // Set font
         const font = getCachedFont();

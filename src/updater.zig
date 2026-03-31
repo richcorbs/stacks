@@ -11,6 +11,9 @@ const allocator = std.heap.c_allocator;
 
 var checking: bool = false;
 
+/// Set when the updater is about to quit+relaunch — suppresses the quit confirmation dialog.
+pub var skip_quit_confirmation: bool = false;
+
 // Shared state for passing info from background thread to main thread
 var pending_tag: [64]u8 = undefined;
 var pending_tag_len: usize = 0;
@@ -287,7 +290,8 @@ fn downloadAndInstall(url: []const u8) void {
         }
     }
 
-    // Relaunch and quit
+    // Relaunch and quit (suppress quit confirmation since user already confirmed the update)
+    skip_quit_confirmation = true;
     {
         var open = std.process.Child.init(&[_][]const u8{ "open", "-n", dest }, allocator);
         open.spawn() catch return;
