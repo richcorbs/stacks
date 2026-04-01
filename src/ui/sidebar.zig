@@ -566,12 +566,44 @@ fn dragRowMouseUp(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void 
         // Restore cursor
         const NSCursor = objc.getClass("NSCursor") orelse unreachable;
         objc.msgSendVoid(NSCursor, objc.sel("pop"));
+        // Remember which terminal is selected by ID so we can restore after reorder
+        const sel_terminal_id = if (selected_terminal_index) |sel_idx| blk: {
+            if (sel_idx < term_row_infos.len) {
+                if (term_row_infos[sel_idx]) |info| break :blk info.terminal_id;
+            }
+            break :blk @as(?[]const u8, null);
+        } else null;
+
         // Perform the reorder
         performDrop();
         hideDragIndicator();
         drag_state.active = false;
 
-        if (g_sidebar_app) |app| rebuildSidebar(app);
+        if (g_sidebar_app) |app| {
+            rebuildSidebar(app);
+
+            // Restore selected_terminal_index to the new position of the same terminal
+            if (sel_terminal_id) |tid| {
+                selected_terminal_index = null;
+                selected_nav_index = null;
+                for (term_row_infos[0..term_row_info_count], 0..) |info_opt, idx| {
+                    const info = info_opt orelse continue;
+                    if (std.mem.eql(u8, info.terminal_id, tid)) {
+                        selected_terminal_index = idx;
+                        // Sync nav index too
+                        for (nav_items[0..nav_item_count], 0..) |maybe_item, ni| {
+                            const nav_item = maybe_item orelse continue;
+                            if (nav_item.kind == .terminal and nav_item.index == idx) {
+                                selected_nav_index = ni;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                rebuildSidebar(app); // rebuild again to reflect updated highlight
+            }
+        }
     } else {
         // Was just a click, not a drag — forward to the button inside
         if (getRowInfoIdx(self)) |idx| {
