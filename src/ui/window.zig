@@ -74,6 +74,33 @@ pub fn launchApp(application: *app_mod.App) void {
 }
 
 // -------------------------------------------------------------------------
+// Window subclass (for flagsChanged: when no terminal is focused)
+// -------------------------------------------------------------------------
+
+var window_class: ?objc.id = null;
+
+fn registerWindowClass() ?objc.id {
+    if (window_class) |cls| return cls;
+    const NSWindow = objc.getClass("NSWindow") orelse return null;
+    const cls = objc.allocateClassPair(NSWindow, "StacksWindow") orelse return null;
+    _ = objc.addMethod(cls, objc.sel("flagsChanged:"), &windowFlagsChanged, "v@:@");
+    objc.registerClassPair(cls);
+    window_class = cls;
+    return cls;
+}
+
+fn windowFlagsChanged(_: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
+    const modifierFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
+        @ptrCast(&objc.c.objc_msgSend);
+    const flags = modifierFlags(event, objc.sel("modifierFlags"));
+    const now_cmd = (flags & (1 << 20)) != 0;
+    if (now_cmd != sidebar.cmd_held) {
+        sidebar.cmd_held = now_cmd;
+        if (sidebar.g_sidebar_app) |app| sidebar.rebuildSidebar(app);
+    }
+}
+
+// -------------------------------------------------------------------------
 // App delegate class
 // -------------------------------------------------------------------------
 
@@ -146,14 +173,14 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
         }
     }
 
-    const NSWindow = objc.getClass("NSWindow") orelse return;
+    const WindowCls = registerWindowClass() orelse return;
     const style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
         NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
 
     const initWindow: *const fn (objc.id, objc.SEL, objc.NSRect, objc.NSUInteger, objc.NSUInteger, objc.BOOL) callconv(.c) objc.id =
         @ptrCast(&objc.c.objc_msgSend);
     const window = initWindow(
-        objc.msgSend(NSWindow, objc.sel("alloc")),
+        objc.msgSend(WindowCls, objc.sel("alloc")),
         objc.sel("initWithContentRect:styleMask:backing:defer:"),
         objc.NSMakeRect(100, 100, 1200, 760),
         style,

@@ -1192,6 +1192,17 @@ fn termFlagsChanged(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) voi
             }
         }
     }.write);
+
+    // Update cmd_held for sidebar shortcut badges
+    const modifierFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
+        @ptrCast(&objc.c.objc_msgSend);
+    const flags = modifierFlags(event, objc.sel("modifierFlags"));
+    const now_cmd = (flags & (1 << 20)) != 0;
+    const sb = @import("sidebar.zig");
+    if (now_cmd != sb.cmd_held) {
+        sb.cmd_held = now_cmd;
+        if (sb.g_sidebar_app) |app| sb.rebuildSidebar(app);
+    }
 }
 
 fn termScrollWheel(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void {
@@ -2418,20 +2429,6 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     checkForExitedTerminals();
     periodicRefresh();
     checkStateChanges();
-    checkCmdHeld();
-}
-
-fn checkCmdHeld() void {
-    const NSEvent = objc.getClass("NSEvent") orelse return;
-    const getFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
-        @ptrCast(&objc.c.objc_msgSend);
-    const flags = getFlags(NSEvent, objc.sel("modifierFlags"));
-    const now_cmd = (flags & (1 << 20)) != 0;
-    const sb = @import("sidebar.zig");
-    if (now_cmd != sb.cmd_held) {
-        sb.cmd_held = now_cmd;
-        if (sb.g_sidebar_app) |app| sb.rebuildSidebar(app);
-    }
 }
 
 fn handlePendingFontChanges() void {
