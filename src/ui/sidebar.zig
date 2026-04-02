@@ -34,20 +34,12 @@ var sidebar_root_view: ?objc.id = null;
 /// Stats bar label at the bottom of the sidebar.
 var stats_label: ?objc.id = null;
 
-/// Track which project the "Add Terminal" button targets (by index).
-var add_terminal_project_id: ?[]const u8 = null;
-
-/// Registered button handler class.
-var add_terminal_btn_class: ?objc.id = null;
-
 /// Currently selected terminal index (for highlighting).
 var selected_terminal_index: ?usize = null;
 
-/// Navigation items — includes terminals and "Add Terminal" buttons.
-const NavItemKind = enum { terminal, add_terminal };
+/// Navigation items — terminal entries only.
 const NavItem = struct {
-    kind: NavItemKind,
-    index: usize, // term_row_info index for terminals, project index for add_terminal
+    index: usize, // term_row_info index
 };
 var nav_items: [128]?NavItem = [_]?NavItem{null} ** 128;
 var nav_item_count: usize = 0;
@@ -163,26 +155,12 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
 
             // Register as nav item
             if (nav_item_count < nav_items.len) {
-                nav_items[nav_item_count] = .{ .kind = .terminal, .index = term_info_idx };
+                nav_items[nav_item_count] = .{ .index = term_info_idx };
                 nav_item_count += 1;
             }
         }
 
-        // "Add Terminal" button row
-        const add_term_proj_idx = blk: {
-            for (application.projects(), 0..) |p, pi| {
-                if (std.mem.eql(u8, p.id, proj.id)) break :blk pi;
-            }
-            break :blk @as(usize, 0);
-        };
-        // Register as nav item
-        if (nav_item_count < nav_items.len) {
-            nav_items[nav_item_count] = .{ .kind = .add_terminal, .index = add_term_proj_idx };
-            nav_item_count += 1;
-        }
-        const add_term_row = createAddTerminalRow(proj.id, y_offset, sub_row_height, false);
-        objc.msgSendVoid1(list_view, objc.sel("addSubview:"), add_term_row);
-        y_offset += sub_row_height + 6; // extra spacing before divider
+        y_offset += 9; // spacing before divider
 
         // Separator line
         const sep = createSeparatorLine(y_offset);
@@ -371,6 +349,18 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
             );
             setTag(delete_item, objc.sel("setTag:"), @intCast(pi));
             objc.msgSendVoid1(menu, objc.sel("addItem:"), delete_item);
+
+            objc.msgSendVoid1(menu, objc.sel("addItem:"), objc.msgSend(NSMenuItem, objc.sel("separatorItem")));
+
+            const add_term_item = initItem(
+                newAutorelease(NSMenuItem),
+                objc.sel("initWithTitle:action:keyEquivalent:"),
+                objc.nsString("Add Terminal"),
+                objc.sel("addTerminalToProject:"),
+                objc.nsString(""),
+            );
+            setTag(add_term_item, objc.sel("setTag:"), @intCast(pi));
+            objc.msgSendVoid1(menu, objc.sel("addItem:"), add_term_item);
 
             objc.msgSendVoid1(row, objc.sel("setMenu:"), menu);
         }
@@ -593,7 +583,7 @@ fn dragRowMouseUp(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void 
                         // Sync nav index too
                         for (nav_items[0..nav_item_count], 0..) |maybe_item, ni| {
                             const nav_item = maybe_item orelse continue;
-                            if (nav_item.kind == .terminal and nav_item.index == idx) {
+                            if (nav_item.index == idx) {
                                 selected_nav_index = ni;
                                 break;
                             }
@@ -665,7 +655,7 @@ fn updateDropTarget(doc_y: objc.CGFloat) void {
         // Project-level reorder: find which project slot the cursor is over
         var y: objc.CGFloat = 0;
         for (projs, 0..) |proj, pi| {
-            const proj_height = row_h + sub_h * @as(objc.CGFloat, @floatFromInt(proj.terminals.items.len)) + sub_h + 1;
+            const proj_height = row_h + sub_h * @as(objc.CGFloat, @floatFromInt(proj.terminals.items.len)) + 9 + 1;
             if (doc_y < y + proj_height / 2) {
                 drag_state.drop_project_idx = pi;
                 moveDragIndicator(y);
@@ -685,8 +675,7 @@ fn updateDropTarget(doc_y: objc.CGFloat) void {
         if (!std.mem.eql(u8, proj.id, drag_state.project_id)) {
             y += row_h;
             y += sub_h * @as(objc.CGFloat, @floatFromInt(proj.terminals.items.len));
-            y += sub_h; // add terminal button
-            y += 1; // separator
+            y += 9 + 1; // spacing + separator
             continue;
         }
 
@@ -763,7 +752,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
         const ni = selected_nav_index orelse break :blk false;
         if (ni >= nav_items.len) break :blk false;
         const item = nav_items[ni] orelse break :blk false;
-        break :blk item.kind == .terminal and item.index == term_row_info_count;
+        break :blk item.index == term_row_info_count;
     };
 
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
@@ -963,10 +952,7 @@ pub fn activateSelectedSidebarItem() void {
     if (ni >= nav_items.len) return;
     const item = nav_items[ni] orelse return;
 
-    switch (item.kind) {
-        .terminal => openTerminalAtIndex(item.index),
-        .add_terminal => showAddTerminalDialog(item.index),
-    }
+    openTerminalAtIndex(item.index);
 }
 
 /// Show add terminal dialog for the current project (⌘T).
@@ -993,7 +979,7 @@ pub fn openTerminalAtIndex(index: usize) void {
     // Sync nav highlight to the clicked terminal so ⌘⇧[] starts from here
     selected_nav_index = for (nav_items[0..nav_item_count], 0..) |maybe_item, i| {
         const item = maybe_item orelse continue;
-        if (item.kind == .terminal and item.index == index) break i;
+        if (item.index == index) break i;
     } else null;
     if (g_sidebar_app) |app| rebuildSidebar(app);
 
@@ -1051,17 +1037,6 @@ pub fn openTerminalAtIndex(index: usize) void {
     }
 }
 
-fn isAddTerminalSelected(project_id: []const u8) bool {
-    const ni = selected_nav_index orelse return false;
-    if (ni >= nav_items.len) return false;
-    const item = nav_items[ni] orelse return false;
-    if (item.kind != .add_terminal) return false;
-    const app = g_sidebar_app orelse return false;
-    const projs = app.projects();
-    if (item.index >= projs.len) return false;
-    return std.mem.eql(u8, projs[item.index].id, project_id);
-}
-
 fn createSeparatorLine(y_offset: objc.CGFloat) objc.id {
     const NSView = objc.getClass("NSView") orelse unreachable;
     const sep = newAutorelease(NSView);
@@ -1076,82 +1051,10 @@ fn createSeparatorLine(y_offset: objc.CGFloat) objc.id {
     return sep;
 }
 
-fn createAddTerminalRow(project_id: []const u8, y_offset: objc.CGFloat, height: objc.CGFloat, _: bool) objc.id {
-    const NSView = objc.getClass("NSView") orelse unreachable;
-    const row = newAutorelease(NSView);
-
-    // Check if this add-terminal row is nav-highlighted
-    const is_nav_highlighted = isAddTerminalSelected(project_id);
-
-    const pill_inset: objc.CGFloat = if (is_nav_highlighted) 10.0 else 0.0;
-    const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setFrame(row, objc.sel("setFrame:"), objc.NSMakeRect(pill_inset, y_offset, SIDEBAR_WIDTH - pill_inset * 2, height));
-
-    const setBoolH: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setBoolH(row, objc.sel("setWantsLayer:"), objc.YES);
-    const row_layer = objc.msgSend(row, objc.sel("layer"));
-    if (is_nav_highlighted) {
-        objc.msgSendVoid1(row_layer, objc.sel("setCornerRadius:"), @as(f64, 6.0));
-        const setBorderWidth: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) void =
-            @ptrCast(&objc.c.objc_msgSend);
-        setBorderWidth(row_layer, objc.sel("setBorderWidth:"), 1.0);
-        const NSColor = objc.getClass("NSColor") orelse unreachable;
-        const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
-            @ptrCast(&objc.c.objc_msgSend);
-        const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
-        const cgColor = objc.msgSend(color, objc.sel("CGColor"));
-        objc.msgSendVoid1(row_layer, objc.sel("setBorderColor:"), cgColor);
-        setLayerBgColor(row_layer, 0.15, 0.19, 0.24);
-    }
-
-    // "+" button
-    const NSButton = objc.getClass("NSButton") orelse unreachable;
-    const btn = newAutorelease(NSButton);
-    objc.msgSendVoid1(btn, objc.sel("setTitle:"), objc.nsString("+ Add Terminal"));
-
-    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setBool(btn, objc.sel("setBordered:"), objc.NO);
-
-    const NSFont = objc.getClass("NSFont") orelse unreachable;
-    const sysFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
-        @ptrCast(&objc.c.objc_msgSend);
-    const font = sysFont(NSFont, objc.sel("systemFontOfSize:"), 11.0);
-    objc.msgSendVoid1(btn, objc.sel("setFont:"), font);
-
-    // Wire up the action with explicit delegate target
-    objc.msgSendVoid1(btn, objc.sel("setAction:"), objc.sel("addTerminalToProject:"));
-    if (window_ui.app_delegate) |delegate| {
-        objc.msgSendVoid1(btn, objc.sel("setTarget:"), delegate);
-    }
-
-    // Store the project ID as the button's tag via associated object
-    // We use a simpler approach: store in the button's tag (index into projects)
-    // Find the project index
-    if (g_sidebar_app) |app| {
-        for (app.projects(), 0..) |proj, i| {
-            if (std.mem.eql(u8, proj.id, project_id)) {
-                const setTag: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
-                    @ptrCast(&objc.c.objc_msgSend);
-                setTag(btn, objc.sel("setTag:"), @intCast(i));
-                break;
-            }
-        }
-    }
-
-    objc.msgSendVoid1(row, objc.sel("addSubview:"), btn);
-    centerVertically(btn, row);
-    pinLeading(btn, row, 26.0 - pill_inset);
-
-    return row;
-}
-
 /// Show a delete confirmation dialog for the terminal at the given info index.
 
 
-/// Show an edit dialog for the terminal at the given info index (same layout as Add Terminal).
+/// Show an edit dialog for the terminal at the given info index.
 
 
 
