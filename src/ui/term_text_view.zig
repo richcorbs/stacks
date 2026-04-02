@@ -1979,6 +1979,52 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Grapheme cluster helpers for visual combining
+// ---------------------------------------------------------------------------
+
+/// Fetch a cell from either scrollback or the live grid.
+fn fetchCell(entry: *TermEntry, grid_row_i: i32, col: u16, sb_len: i32) vt_mod.Cell {
+    if (grid_row_i < 0) {
+        const sb_idx = sb_len + grid_row_i;
+        if (sb_idx >= 0 and sb_idx < sb_len) {
+            const line = entry.scrollback.get(@intCast(sb_idx));
+            return if (col < line.cells.len) line.cells[col] else .{};
+        }
+        return .{};
+    }
+    return entry.vterm.getCell(@intCast(grid_row_i), col);
+}
+
+/// Encode all non-zero codepoints from a cell into a UTF-8 buffer.
+/// Returns the number of bytes written.
+fn encodeCellChars(cell: *const vt_mod.Cell, buf: []u8) usize {
+    var len: usize = 0;
+    for (cell.chars) |cp| {
+        if (cp == 0) break;
+        if (cp > 0x10FFFF) break;
+        if (len + 4 > buf.len) break;
+        const n = std.unicode.utf8Encode(@intCast(cp), buf[len..][0..4]) catch 0;
+        if (n == 0) break;
+        len += n;
+    }
+    return len;
+}
+
+fn isRegionalIndicator(cp: u32) bool {
+    return cp >= 0x1F1E6 and cp <= 0x1F1FF;
+}
+
+/// Check if the encoded content of a cell ends with ZWJ (U+200D).
+fn cellEndsWithZWJ(cell: *const vt_mod.Cell, _: []const u8, _: usize) bool {
+    var last_cp: u32 = 0;
+    for (cell.chars) |cp| {
+        if (cp == 0) break;
+        last_cp = cp;
+    }
+    return last_cp == 0x200D;
+}
+
 /// Draw non-standard characters individually at their grid positions.
 /// This includes wide chars (emoji, CJK) and symbols above U+00FF that
 /// CoreText might render at non-monospace widths, causing column misalignment.
@@ -1998,16 +2044,7 @@ fn drawWideChars(
 
     var col: u16 = 0;
     while (col < entry.vterm.cols) : (col += 1) {
-        var cell: vt_mod.Cell = undefined;
-        if (grid_row_i < 0) {
-            const sb_idx = sb_len + grid_row_i;
-            if (sb_idx >= 0 and sb_idx < sb_len) {
-                const line = entry.scrollback.get(@intCast(sb_idx));
-                cell = if (col < line.cells.len) line.cells[col] else .{};
-            } else cell = .{};
-        } else {
-            cell = entry.vterm.getCell(@intCast(grid_row_i), col);
-        }
+        const cell = fetchCell(entry, grid_row_i, col, sb_len);
 
         const ch = cell.chars[0];
         if (ch == 0 or ch > 0x10FFFF) continue;
@@ -2018,22 +2055,45 @@ fn drawWideChars(
         const is_symbol = ch > 0xFF and !box_drawing.isBoxDrawing(ch);
         if (!is_wide and !is_symbol) continue;
 
-        // Encode the character
-        var char_buf: [24]u8 = undefined; // 6 codepoints × 4 bytes max each
+        // Encode the character (up to 64 bytes for complex grapheme clusters)
+        var char_buf: [64]u8 = undefined;
         var char_len: usize = 0;
+        var visual_width: u8 = cell.width;
 
-        // Encode the primary character
-        const enc_len = std.unicode.utf8Encode(@intCast(ch), char_buf[0..4]) catch 0;
-        if (enc_len == 0) continue;
-        char_len = enc_len;
+        // Encode all codepoints from this cell
+        char_len = encodeCellChars(&cell, &char_buf);
+        if (char_len == 0) continue;
 
-        // Also encode variation selectors and combining marks from chars[1..]
-        for (cell.chars[1..]) |extra| {
-            if (extra == 0) break;
-            if (char_len + 4 <= char_buf.len) {
-                const extra_len = std.unicode.utf8Encode(@intCast(extra), char_buf[char_len..][0..4]) catch 0;
-                char_len += extra_len;
-            }
+        // Visual combining: merge adjacent cells that form a single
+        // grapheme cluster but occupy separate cells for wcwidth compat.
+        var extra_cols: u16 = 0;
+        var peek_col = col + cell.width;
+        while (peek_col < entry.vterm.cols) {
+            const next_cell = fetchCell(entry, grid_row_i, peek_col, sb_len);
+            const nch = next_cell.chars[0];
+            if (nch == 0) break;
+
+            const should_merge = blk: {
+                // Regional indicator pair: first RI + second RI → flag
+                if (isRegionalIndicator(ch) and isRegionalIndicator(nch) and extra_cols == 0)
+                    break :blk true;
+                // Skin tone modifier following emoji
+                if (nch >= 0x1F3FB and nch <= 0x1F3FF)
+                    break :blk true;
+                // Character following ZWJ: check if this cell ends with ZWJ
+                if (cellEndsWithZWJ(&cell, &char_buf, char_len))
+                    break :blk true;
+                break :blk false;
+            };
+            if (!should_merge) break;
+
+            // Encode the next cell's codepoints into the same buffer
+            const added = encodeCellChars(&next_cell, char_buf[char_len..]);
+            if (added == 0) break;
+            char_len += added;
+            extra_cols += next_cell.width;
+            visual_width += next_cell.width;
+            peek_col += next_cell.width;
         }
 
         // Create attributed string for this character
@@ -2092,8 +2152,8 @@ fn drawWideChars(
         CT.CFRelease(ct_line);
         CG.CGContextRestoreGState(cgctx);
 
-        // Skip continuation cells
-        col += cell.width - 1;
+        // Skip continuation cells and any visually-merged cells
+        col += cell.width + extra_cols - 1;
     }
 }
 
