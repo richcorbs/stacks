@@ -365,9 +365,16 @@ static int on_text(const char bytes[], size_t len, void *user)
     int glyph_ends;
     for(glyph_ends = i + 1;
         (glyph_ends < npoints) && (glyph_ends < glyph_starts + VTERM_MAX_CHARS_PER_CELL);
-        glyph_ends++)
-      if(!vterm_unicode_is_combining(codepoints[glyph_ends]))
+        glyph_ends++) {
+      if(!vterm_unicode_is_combining(codepoints[glyph_ends])) {
+        /* If the previous codepoint was ZWJ (U+200D), include this
+         * non-combining character too — it continues a ZWJ sequence
+         * (e.g. family emoji, profession emoji). */
+        if(glyph_ends > glyph_starts && codepoints[glyph_ends - 1] == 0x200D)
+          continue; /* include this char — the for loop will increment */
         break;
+      }
+    }
 
     int width = 0;
 

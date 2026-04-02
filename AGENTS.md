@@ -12,6 +12,8 @@ open ~/Applications/Stacks.app                               # run
 
 Kill before redeploying: `pkill -9 -f stacks`
 
+**NEVER run `install.sh` UNLESS THE USER TELLS YOU TO.** Use `./zig-out/bin/stacks` directly for testing.
+
 ## Critical Pitfalls
 
 1. **`objc.nil` is `null`** — never write `objc.nil orelse unreachable` (instant panic)

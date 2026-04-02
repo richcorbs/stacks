@@ -53,7 +53,7 @@ pub const ANSI_PALETTE = [16]Color{
 };
 
 pub const Cell = struct {
-    chars: [6]u32 = .{ 0, 0, 0, 0, 0, 0 }, // base char + up to 5 combining/VS (matches VTERM_MAX_CHARS_PER_CELL)
+    chars: [10]u32 = .{0} ** 10, // matches VTERM_MAX_CHARS_PER_CELL (10 covers all real emoji sequences)
     width: u8 = 1,
     fg: Color = DEFAULT_FG,
     bg: Color = DEFAULT_BG,
@@ -63,18 +63,19 @@ pub const Cell = struct {
     reverse: bool = false,
 };
 
-/// Raw VTermScreenCell layout (40 bytes) — defined manually because
+/// Raw VTermScreenCell layout (56 bytes) — defined manually because
 /// Zig's cImport can't handle the bitfield in VTermScreenCellAttrs.
 pub const RawScreenCell = extern struct {
-    chars: [6]u32,      // offset 0, 24 bytes
-    width: i32,         // offset 24
-    attrs: u32,         // offset 28 (bitfield packed into 4 bytes)
-    fg: u32,            // offset 32 (VTermColor = 4 bytes)
-    bg: u32,            // offset 36
+    chars: [10]u32,     // offset 0, 40 bytes
+    width: i8,          // offset 40 (C `char`)
+    _pad: [3]u8 = undefined, // offset 41-43 (alignment padding)
+    attrs: u32,         // offset 44 (bitfield packed into 4 bytes)
+    fg: u32,            // offset 48 (VTermColor = 4 bytes)
+    bg: u32,            // offset 52
 };
 
 comptime {
-    if (@sizeOf(RawScreenCell) != 40) @compileError("RawScreenCell size mismatch");
+    if (@sizeOf(RawScreenCell) != 56) @compileError("RawScreenCell size mismatch");
 }
 
 pub fn decodeVTermColor(raw: u32, default: Color) Color {
@@ -181,7 +182,7 @@ pub const VTerm = struct {
 
         const attrs = decodeAttrs(raw.attrs);
         var cell = Cell{
-            .width = if (raw.width > 0) @intCast(raw.width) else 1,
+            .width = if (raw.width >= 0) @intCast(raw.width) else 0,
             .fg = decodeVTermColor(raw.fg, DEFAULT_FG),
             .bg = decodeVTermColor(raw.bg, DEFAULT_BG),
             .bold = attrs.bold,

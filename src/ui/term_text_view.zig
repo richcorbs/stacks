@@ -1120,13 +1120,14 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
         const raw_bytes: [*]const u8 = @ptrCast(ptr);
         var i: u16 = 0;
         while (i < num_cols) : (i += 1) {
-            const offset = @as(usize, i) * 40;
+            const cell_size = @sizeOf(vt_mod.RawScreenCell);
+            const offset = @as(usize, i) * cell_size;
             var raw: vt_mod.RawScreenCell = undefined;
-            @memcpy(std.mem.asBytes(&raw), raw_bytes[offset..][0..40]);
+            @memcpy(std.mem.asBytes(&raw), raw_bytes[offset..][0..cell_size]);
 
             tmp_cells[i] = .{
                 .chars = raw.chars,
-                .width = if (raw.width > 0) @intCast(raw.width) else 1,
+                .width = if (raw.width >= 0) @intCast(raw.width) else 0,
                 .fg = vt_mod.decodeVTermColor(raw.fg, vt_mod.DEFAULT_FG),
                 .bg = vt_mod.decodeVTermColor(raw.bg, vt_mod.DEFAULT_BG),
             };
@@ -2015,8 +2016,8 @@ fn isRegionalIndicator(cp: u32) bool {
     return cp >= 0x1F1E6 and cp <= 0x1F1FF;
 }
 
-/// Check if the encoded content of a cell ends with ZWJ (U+200D).
-fn cellEndsWithZWJ(cell: *const vt_mod.Cell, _: []const u8, _: usize) bool {
+/// Check if a cell's last codepoint is ZWJ (U+200D).
+fn cellEndsWithZWJ(cell: *const vt_mod.Cell) bool {
     var last_cp: u32 = 0;
     for (cell.chars) |cp| {
         if (cp == 0) break;
@@ -2068,6 +2069,7 @@ fn drawWideChars(
         // grapheme cluster but occupy separate cells for wcwidth compat.
         var extra_cols: u16 = 0;
         var peek_col = col + cell.width;
+        var last_cell = cell; // track last merged cell for ZWJ check
         while (peek_col < entry.vterm.cols) {
             const next_cell = fetchCell(entry, grid_row_i, peek_col, sb_len);
             const nch = next_cell.chars[0];
@@ -2080,8 +2082,8 @@ fn drawWideChars(
                 // Skin tone modifier following emoji
                 if (nch >= 0x1F3FB and nch <= 0x1F3FF)
                     break :blk true;
-                // Character following ZWJ: check if this cell ends with ZWJ
-                if (cellEndsWithZWJ(&cell, &char_buf, char_len))
+                // Character following ZWJ: check if last merged cell ends with ZWJ
+                if (cellEndsWithZWJ(&last_cell))
                     break :blk true;
                 break :blk false;
             };
@@ -2093,6 +2095,7 @@ fn drawWideChars(
             char_len += added;
             extra_cols += next_cell.width;
             visual_width += next_cell.width;
+            last_cell = next_cell;
             peek_col += next_cell.width;
         }
 

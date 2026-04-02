@@ -105,7 +105,8 @@ pub fn ScrollList(comptime max_capacity: usize) type {
 fn makeTestLine(alloc: std.mem.Allocator, char: u32, width: usize) ScrollLine {
     const cells = alloc.alloc(vt.Cell, width) catch unreachable;
     for (cells) |*c| {
-        c.* = .{ .chars = .{ char, 0, 0, 0, 0, 0 } };
+        c.* = .{};
+        c.chars[0] = char;
     }
     return .{ .cells = cells, .len = @intCast(width) };
 }
