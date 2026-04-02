@@ -33,7 +33,8 @@ Kill before redeploying: `pkill -9 -f stacks`
 15. **`NSTextField` trims trailing spaces** — don't rely on space padding for fixed-width text. Use a monospace approach or separate views instead.
 16. **`SFSpeechRecognitionTask cancel` discards pending results** — use `finish` instead of `cancel` if you want the final transcription delivered to the result handler.
 17. **`NSMicrophoneUsageDescription` required** — apps using the microphone must include this key (and `NSSpeechRecognitionUsageDescription` for speech) in Info.plist or they'll crash/silently fail on fresh installs.
-18. **`CoreAudio` framework must be linked separately** — `AudioObjectGetPropertyData` lives in CoreAudio, not in AVFoundation or AppKit. Add `exe.linkFramework("CoreAudio")` in build.zig.
+18. **Visual combining in the renderer is a maintenance surface** — `drawWideChars` in `term_text_view.zig` merges adjacent cells for flag emoji (RI pairs), skin tone modifiers, and ZWJ sequences at render time. This is necessary because programs use `wcwidth()` to track cursor position, so the cell grid must keep individual characters in separate cells. If you find yourself adding more special cases here, that's the signal to revisit whether libvterm should handle it at the cell level instead.
+19. **`CoreAudio` framework must be linked separately** — `AudioObjectGetPropertyData` lives in CoreAudio, not in AVFoundation or AppKit. Add `exe.linkFramework("CoreAudio")` in build.zig.
 
 ## Architecture
 
