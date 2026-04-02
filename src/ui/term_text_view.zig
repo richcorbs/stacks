@@ -869,6 +869,7 @@ fn registerScrollbackCallbacks(slot: usize, vterm: *VTerm) void {
     };
     const cbs = struct {
         var callbacks: RawCallbacks = .{
+            .settermprop = @ptrCast(&cbSetTermProp),
             .sb_pushline = @ptrCast(&sbPushLine),
             .sb_popline = @ptrCast(&sbPopLine),
         };
@@ -1102,6 +1103,17 @@ fn termPerformDrag(self: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) obj
 // ---------------------------------------------------------------------------
 // Scrollback callbacks
 // ---------------------------------------------------------------------------
+
+fn cbSetTermProp(prop: c_int, val_ptr: ?*anyopaque, user: ?*anyopaque) callconv(.c) c_int {
+    const entry: *TermEntry = @ptrCast(@alignCast(user orelse return 0));
+    const VTERM_PROP_CURSORVISIBLE = 1;
+    if (prop == VTERM_PROP_CURSORVISIBLE) {
+        // VTermValue for bool props: first field is c_int (boolean)
+        const bool_val: *const c_int = @ptrCast(@alignCast(val_ptr orelse return 0));
+        entry.cursor_visible = bool_val.* != 0;
+    }
+    return 1;
+}
 
 fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) callconv(.c) c_int {
     const entry: *TermEntry = @ptrCast(@alignCast(user orelse return 0));
@@ -1824,7 +1836,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
 
             // Draw cursor (only on active grid, not scrollback, and only if PTY is alive)
             // Use normal cell dimensions so cursor doesn't stretch at edges
-            if (scroll_off == 0 and grid_row_i >= 0 and @as(u16, @intCast(grid_row_i)) == cursor.row and col == cursor.col and !entry.pty.isClosed()) {
+            if (scroll_off == 0 and grid_row_i >= 0 and @as(u16, @intCast(grid_row_i)) == cursor.row and col == cursor.col and !entry.pty.isClosed() and entry.cursor_visible) {
                 const cursor_w = cell_width * @as(f64, @floatFromInt(cell.width));
                 CG.CGContextSetRGBFillColor(cgctx, 0.8, 0.8, 0.8, 1.0);
                 CG.CGContextFillRect(cgctx, objc.NSMakeRect(x, y, cursor_w, cell_height));

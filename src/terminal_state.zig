@@ -24,6 +24,7 @@ pub const TermEntry = struct {
     scroll_offset: i32 = 0,
     scrollback: scrollback.ScrollList(MAX_SCROLLBACK + 1) = .{},
     selection: selection.Selection = .{},
+    cursor_visible: bool = true,
 };
 
 /// A session corresponds to one sidebar terminal entry and holds a split tree.
