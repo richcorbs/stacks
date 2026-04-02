@@ -113,6 +113,7 @@ fn registerDelegateClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("deleteTerminal:"), &onDeleteTerminal, "v@:@");
     _ = objc.addMethod(cls, objc.sel("deleteProject:"), &onDeleteProject, "v@:@");
     _ = objc.addMethod(cls, objc.sel("editProject:"), &onEditProject, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("jumpToTerminal:"), &onJumpToTerminal, "v@:@");
 
     objc.registerClassPair(cls);
     return cls;
@@ -374,6 +375,9 @@ fn onEditProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
 }
 fn onAddTerminalToProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
     if (getTagFromSender(sender)) |idx| sidebar.showAddTerminalDialog(idx);
+}
+fn onJumpToTerminal(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
+    if (getTagFromSender(sender)) |n| sidebar.jumpToTerminal(n);
 }
 
 // -------------------------------------------------------------------------
@@ -886,6 +890,36 @@ fn createMainMenu(nsapp: objc.id) void {
     // Terminal actions
     addMenuItem(shell_menu, NSMenuItem, "Clear Terminal", "k", "clearTerminal:");
     addMenuItem(shell_menu, NSMenuItem, "Paste", "v", "pasteTerminal:");
+    addMenuSeparator(shell_menu);
+
+    // Quick jump (⌘1-9)
+    {
+        const initItem: *const fn (objc.id, objc.SEL, objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const setTag: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        const titles = [9][]const u8{
+            "Terminal 1", "Terminal 2", "Terminal 3",
+            "Terminal 4", "Terminal 5", "Terminal 6",
+            "Terminal 7", "Terminal 8", "Last Terminal",
+        };
+        var n: usize = 1;
+        while (n <= 9) : (n += 1) {
+            var key_buf: [2]u8 = undefined;
+            key_buf[0] = '0' + @as(u8, @intCast(n));
+            key_buf[1] = 0;
+            const item = initItem(
+                objc.msgSend(NSMenuItem, objc.sel("alloc")),
+                objc.sel("initWithTitle:action:keyEquivalent:"),
+                objc.nsString(titles[n - 1]),
+                objc.sel("jumpToTerminal:"),
+                objc.nsString(key_buf[0..1]),
+            );
+            setTag(item, objc.sel("setTag:"), @intCast(n));
+            if (app_delegate) |delegate| objc.msgSendVoid1(item, objc.sel("setTarget:"), delegate);
+            objc.msgSendVoid1(shell_menu, objc.sel("addItem:"), item);
+        }
+    }
     objc.msgSendVoid1(shell_item, objc.sel("setSubmenu:"), shell_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), shell_item);
 

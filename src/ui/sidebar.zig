@@ -37,13 +37,13 @@ var stats_label: ?objc.id = null;
 /// Currently selected terminal index (for highlighting).
 var selected_terminal_index: ?usize = null;
 
-/// Navigation items — terminal entries only.
-const NavItem = struct {
-    index: usize, // term_row_info index
-};
-var nav_items: [128]?NavItem = [_]?NavItem{null} ** 128;
+/// Navigation items — term_row_info indices for each terminal.
+var nav_items: [128]?usize = [_]?usize{null} ** 128;
 var nav_item_count: usize = 0;
 var selected_nav_index: ?usize = null;
+
+/// Whether ⌘ is currently held — shows jump shortcuts in sidebar.
+pub var cmd_held: bool = false;
 
 // ---------------------------------------------------------------------------
 // Drag-and-drop state
@@ -83,9 +83,8 @@ pub fn createSidebarView() objc.id {
     const layer = objc.msgSend(sidebar_view, objc.sel("layer"));
     setBackgroundColor(layer, 0.09, 0.114, 0.149); // #171d26
 
-    // --- Header: "PROJECTS" + "+" button ---
-    const header = createSidebarHeader();
-    objc.msgSendVoid1(sidebar_view, objc.sel("addSubview:"), header);
+    // Top border (matches the main content area border)
+    addBorderLine(sidebar_view, .top);
 
     // --- Scroll view with project list ---
     const scroll = createProjectListScrollView();
@@ -95,15 +94,11 @@ pub fn createSidebarView() objc.id {
     const stats_bar = createStatsBar();
     objc.msgSendVoid1(sidebar_view, objc.sel("addSubview:"), stats_bar);
 
-    // Layout: header at top (44px), stats bar at bottom (24px), scroll fills middle
-    pinToEdges(header, sidebar_view, .{ .bottom = false });
-    setHeight(header, 44.0);
-
+    // Layout: scroll fills top, stats bar at bottom (34px)
     pinToEdges(stats_bar, sidebar_view, .{ .top = false });
     setHeight(stats_bar, 34.0);
 
-    pinToEdges(scroll, sidebar_view, .{ .top = false, .bottom = false });
-    pinTopToBottom(scroll, header);
+    pinToEdges(scroll, sidebar_view, .{ .bottom = false });
     pinBottomToTop(scroll, stats_bar);
 
     return sidebar_view;
@@ -155,7 +150,7 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
 
             // Register as nav item
             if (nav_item_count < nav_items.len) {
-                nav_items[nav_item_count] = .{ .index = term_info_idx };
+                nav_items[nav_item_count] = term_info_idx;
                 nav_item_count += 1;
             }
         }
@@ -178,58 +173,6 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
 // ---------------------------------------------------------------------------
 // Internal view construction
 // ---------------------------------------------------------------------------
-
-fn createSidebarHeader() objc.id {
-    const NSView = objc.getClass("NSView") orelse unreachable;
-    const header = objc.msgSend(NSView, objc.sel("new"));
-
-    const setWantsLayer: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setWantsLayer(header, objc.sel("setWantsLayer:"), objc.YES);
-
-    // Top and bottom borders (1px line subviews, not CALayer border which draws all 4 sides)
-    addBorderLine(header, .top);
-    addBorderLine(header, .bottom);
-
-    // "PROJECTS" label
-    const NSTextField = objc.getClass("NSTextField") orelse unreachable;
-    const label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("PROJECTS"));
-
-    const NSFont = objc.getClass("NSFont") orelse unreachable;
-    const boldFont: *const fn (objc.id, objc.SEL, objc.CGFloat) callconv(.c) objc.id =
-        @ptrCast(&objc.c.objc_msgSend);
-    const font = boldFont(NSFont, objc.sel("boldSystemFontOfSize:"), 10.0);
-    objc.msgSendVoid1(label, objc.sel("setFont:"), font);
-    setTextColor(label, 0.604, 0.659, 0.737); // #9aa8bc
-
-    objc.msgSendVoid1(header, objc.sel("addSubview:"), label);
-
-    // "+" button — use a simple NSButton with bezel style
-    const NSButton = objc.getClass("NSButton") orelse unreachable;
-    const add_btn = objc.msgSend(NSButton, objc.sel("new"));
-    objc.msgSendVoid1(add_btn, objc.sel("setTitle:"), objc.nsString("+"));
-
-    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setBool(add_btn, objc.sel("setBordered:"), objc.NO);
-
-    objc.msgSendVoid1(add_btn, objc.sel("setAction:"), objc.sel("addProject:"));
-    // target nil = responder chain
-    const setTarget: *const fn (objc.id, objc.SEL, ?*anyopaque) callconv(.c) void =
-        @ptrCast(&objc.c.objc_msgSend);
-    setTarget(add_btn, objc.sel("setTarget:"), null);
-
-    objc.msgSendVoid1(header, objc.sel("addSubview:"), add_btn);
-
-    // Layout
-    centerVertically(label, header);
-    pinLeading(label, header, 16.0);
-
-    centerVertically(add_btn, header);
-    pinTrailing(add_btn, header, -14.0);
-
-    return header;
-}
 
 fn createProjectListScrollView() objc.id {
     const NSScrollView = objc.getClass("NSScrollView") orelse unreachable;
@@ -583,7 +526,7 @@ fn dragRowMouseUp(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void 
                         // Sync nav index too
                         for (nav_items[0..nav_item_count], 0..) |maybe_item, ni| {
                             const nav_item = maybe_item orelse continue;
-                            if (nav_item.index == idx) {
+                            if (nav_item == idx) {
                                 selected_nav_index = ni;
                                 break;
                             }
@@ -751,8 +694,8 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     const is_nav_highlighted = blk: {
         const ni = selected_nav_index orelse break :blk false;
         if (ni >= nav_items.len) break :blk false;
-        const item = nav_items[ni] orelse break :blk false;
-        break :blk item.index == term_row_info_count;
+        const idx = nav_items[ni] orelse break :blk false;
+        break :blk idx == term_row_info_count;
     };
 
     const setFrame: *const fn (objc.id, objc.SEL, objc.NSRect) callconv(.c) void =
@@ -844,8 +787,34 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
         }
     }
 
-    // Show process status indicator for terminals with commands
-    if (command != null) {
+    // Show jump shortcut badge (⌘1-9) when ⌘ is held, otherwise show process status dot
+    if (cmd_held and nav_item_count < 9) {
+        // Show shortcut number badge
+        const badge_num = nav_item_count + 1; // 1-indexed
+        var badge_buf: [4]u8 = undefined;
+        const badge_text = std.fmt.bufPrint(&badge_buf, "\u{2318}{d}", .{badge_num}) catch "?";
+        const NSTextField2 = objc.getClass("NSTextField") orelse unreachable;
+        const badge = newAutorelease(NSTextField2);
+        objc.msgSendVoid1(badge, objc.sel("setStringValue:"), objc.nsString(badge_text));
+        setBool(badge, objc.sel("setBezeled:"), objc.NO);
+        setBool(badge, objc.sel("setDrawsBackground:"), objc.NO);
+        setBool(badge, objc.sel("setEditable:"), objc.NO);
+        setBool(badge, objc.sel("setSelectable:"), objc.NO);
+        const NSFont2 = objc.getClass("NSFont") orelse unreachable;
+        const monoFont: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        objc.msgSendVoid1(badge, objc.sel("setFont:"), monoFont(NSFont2, objc.sel("monospacedSystemFontOfSize:weight:"), 10.0, 0.0));
+        setTextColor(badge, 0.5, 0.55, 0.62);
+        const badge_w: objc.CGFloat = 24;
+        const badge_x: objc.CGFloat = SIDEBAR_WIDTH - badge_w - 22 - pill_inset;
+        const badge_y: objc.CGFloat = (height - 14) / 2.0;
+        setFrame(badge, objc.sel("setFrame:"), objc.NSMakeRect(badge_x, badge_y, badge_w, 14));
+        const setAlign2: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setAlign2(badge, objc.sel("setAlignment:"), 2); // NSTextAlignmentRight
+        objc.msgSendVoid1(wrapper, objc.sel("addSubview:"), badge);
+    } else if (command != null) {
+        // Show process status dot
         const is_alive = term_text_view.isSessionAlive(terminal_id);
         const status_dot = newAutorelease(objc.getClass("NSView") orelse unreachable);
         const dot_size: objc.CGFloat = 6;
@@ -950,9 +919,9 @@ pub fn navigateSidebar(delta: i32) void {
 pub fn activateSelectedSidebarItem() void {
     const ni = selected_nav_index orelse return;
     if (ni >= nav_items.len) return;
-    const item = nav_items[ni] orelse return;
+    const idx = nav_items[ni] orelse return;
 
-    openTerminalAtIndex(item.index);
+    openTerminalAtIndex(idx);
 }
 
 /// Show add terminal dialog for the current project (⌘T).
@@ -961,7 +930,17 @@ pub fn activateSelectedSidebarItem() void {
 /// Prevent re-entrant terminal opens (button can fire multiple times).
 var opening_terminal: bool = false;
 
-/// Called when a terminal row is clicked — opens the terminal in the main panel.
+/// Jump to the Nth terminal (1-indexed). 9 always jumps to the last.
+/// Does nothing if the list doesn't have that many terminals.
+pub fn jumpToTerminal(n: usize) void {
+    if (nav_item_count == 0) return;
+    const target: usize = if (n >= 9) nav_item_count - 1 else n - 1;
+    if (target >= nav_item_count) return;
+    const idx = nav_items[target] orelse return;
+    cmd_held = false; // clear so sidebar reverts to status dots after jump
+    openTerminalAtIndex(idx);
+}
+
 pub fn openTerminalAtIndex(index: usize) void {
     if (opening_terminal) return;
     opening_terminal = true;
@@ -979,7 +958,7 @@ pub fn openTerminalAtIndex(index: usize) void {
     // Sync nav highlight to the clicked terminal so ⌘⇧[] starts from here
     selected_nav_index = for (nav_items[0..nav_item_count], 0..) |maybe_item, i| {
         const item = maybe_item orelse continue;
-        if (item.index == index) break i;
+        if (item == index) break i;
     } else null;
     if (g_sidebar_app) |app| rebuildSidebar(app);
 

@@ -1404,11 +1404,21 @@ fn copySelectionToClipboard(entry: *TermEntry) void {
                 cell_val = entry.vterm.getCell(@intCast(row), col);
             }
 
+            // Skip continuation cells of wide characters.
+            // libvterm marks them with chars[0] == 0xFFFFFFFF.
+            if (cell_val.width == 0 or cell_val.chars[0] == 0xFFFFFFFF) continue;
+
             const ch = cell_val.chars[0];
             if (ch > 0 and ch <= 0x10FFFF) {
-                if (text_len + 4 <= text_buf.len) {
-                    const enc_len = std.unicode.utf8Encode(@intCast(ch), text_buf[text_len..][0..4]) catch 0;
-                    if (enc_len > 0) text_len += enc_len;
+                // Encode all codepoints in the cell (handles combining chars, ZWJ sequences)
+                for (cell_val.chars) |cp| {
+                    if (cp == 0) break;
+                    if (cp <= 0x10FFFF) {
+                        if (text_len + 4 <= text_buf.len) {
+                            const enc_len = std.unicode.utf8Encode(@intCast(cp), text_buf[text_len..][0..4]) catch 0;
+                            if (enc_len > 0) text_len += enc_len;
+                        }
+                    }
                 }
             } else {
                 if (text_len < text_buf.len) {
@@ -2408,6 +2418,20 @@ fn pollTick(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     checkForExitedTerminals();
     periodicRefresh();
     checkStateChanges();
+    checkCmdHeld();
+}
+
+fn checkCmdHeld() void {
+    const NSEvent = objc.getClass("NSEvent") orelse return;
+    const getFlags: *const fn (objc.id, objc.SEL) callconv(.c) objc.NSUInteger =
+        @ptrCast(&objc.c.objc_msgSend);
+    const flags = getFlags(NSEvent, objc.sel("modifierFlags"));
+    const now_cmd = (flags & (1 << 20)) != 0;
+    const sb = @import("sidebar.zig");
+    if (now_cmd != sb.cmd_held) {
+        sb.cmd_held = now_cmd;
+        if (sb.g_sidebar_app) |app| sb.rebuildSidebar(app);
+    }
 }
 
 fn handlePendingFontChanges() void {
