@@ -207,6 +207,12 @@ fn appDidFinishLaunching(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void 
         @ptrCast(&objc.c.objc_msgSend);
     setActive(widthConstraint, objc.sel("setActive:"), objc.YES);
 
+    // Set holding priorities: sidebar holds firm (high), main panel yields (low)
+    const setHolding: *const fn (objc.id, objc.SEL, f32, objc.NSInteger) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setHolding(root_split, objc.sel("setHoldingPriority:forSubviewAtIndex:"), 750.0, 0); // sidebar holds
+    setHolding(root_split, objc.sel("setHoldingPriority:forSubviewAtIndex:"), 250.0, 1); // main expands
+
     objc.msgSendVoid1(window, objc.sel("setContentView:"), root_split);
 
     // Show window — only center if no saved frame was restored
@@ -409,6 +415,10 @@ fn createSplitView() objc.id {
     const setDivider: *const fn (objc.id, objc.SEL, objc.NSInteger) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     setDivider(split, objc.sel("setDividerStyle:"), NSSplitViewDividerStyleThin);
+
+    const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+        @ptrCast(&objc.c.objc_msgSend);
+    setBool(split, objc.sel("setArrangesAllSubviews:"), objc.YES);
 
     return split;
 }

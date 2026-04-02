@@ -321,10 +321,10 @@ pub fn getOrCreateSession(terminal_id: []const u8, cwd: []const u8, command: ?[]
                 if (terminals[slot]) |*entry| {
                     if (entry.pty.hasExited()) {
                         entry.pty.close();
-                        entry.pty = @import("../pty.zig").Pty.spawn(cwd, command) catch return true;
-                        // Clear the vterm screen and scrollback
                         const rows = entry.vterm.rows;
                         const cols = entry.vterm.cols;
+                        entry.pty = @import("../pty.zig").Pty.spawn(cwd, command, .{ .cols = cols, .rows = rows }) catch return true;
+                        // Clear the vterm screen and scrollback
                         entry.vterm.deinit();
                         entry.vterm = @import("../vt.zig").VTerm.init(rows, cols) catch return true;
                         entry.scroll_offset = 0;
@@ -813,8 +813,7 @@ fn createTerminalViewAtSlot(slot: usize, cwd: []const u8, command: ?[]const u8) 
     if (terminals[slot] != null) return null; // already occupied
 
     const vterm = VTerm.init(24, 80) catch return null;
-    var pty = Pty.spawn(cwd, command) catch return null;
-    pty.resize(80, 24);
+    const pty = Pty.spawn(cwd, command, .{ .cols = 80, .rows = 24 }) catch return null;
 
     if (term_view_class == null) {
         term_view_class = registerTermViewClass();
@@ -892,11 +891,7 @@ fn vtermOutputCallback(s: [*c]const u8, len: usize, user: ?*anyopaque) callconv(
 /// Takes cwd explicitly so it works for any session, not just the active one.
 fn respawnPaneShell(slot: usize, entry: *TermEntry, cwd: []const u8) void {
     // vterm was already reset by the exit handler — just spawn a new shell
-    entry.pty = @import("../pty.zig").Pty.spawn(cwd, null) catch return;
-    // Sync PTY size to match vterm so zsh PROMPT_SP clears correctly
-    const rows = entry.vterm.rows;
-    const cols = entry.vterm.cols;
-    entry.pty.resize(@intCast(cols), @intCast(rows));
+    entry.pty = @import("../pty.zig").Pty.spawn(cwd, null, .{ .cols = entry.vterm.cols, .rows = entry.vterm.rows }) catch return;
     registerOutputCallback(&terminals[slot].?);
     entry.needs_redraw = true;
 }

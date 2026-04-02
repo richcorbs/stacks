@@ -12,6 +12,8 @@ const c = @cImport({
     @cInclude("fcntl.h");
 });
 
+pub const WinSize = struct { cols: u16 = 80, rows: u16 = 24 };
+
 pub const Pty = struct {
     master_fd: c_int,
     child_pid: c.pid_t,
@@ -19,8 +21,14 @@ pub const Pty = struct {
 
     /// Spawn a shell in a new PTY.
     /// `cwd` = working directory, `command` = optional startup command to run.
-    pub fn spawn(cwd: []const u8, command: ?[]const u8) !Pty {
+    pub fn spawn(cwd: []const u8, command: ?[]const u8, size: WinSize) !Pty {
         var master_fd: c_int = undefined;
+        var ws: c.struct_winsize = .{
+            .ws_col = size.cols,
+            .ws_row = size.rows,
+            .ws_xpixel = 0,
+            .ws_ypixel = 0,
+        };
 
         // Make null-terminated copies for C APIs
         var cwd_buf: [4096]u8 = undefined;
@@ -37,8 +45,8 @@ pub const Pty = struct {
             cmd_z = @ptrCast(&cmd_buf);
         }
 
-        // Use forkpty from util.h
-        const pid = c.forkpty(&master_fd, null, null, null);
+        // Use forkpty from util.h — pass winsize so child starts at correct dimensions
+        const pid = c.forkpty(&master_fd, null, null, &ws);
         if (pid < 0) return error.ForkFailed;
 
         if (pid == 0) {
