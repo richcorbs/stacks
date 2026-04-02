@@ -53,7 +53,7 @@ pub const ANSI_PALETTE = [16]Color{
 };
 
 pub const Cell = struct {
-    chars: [2]u32 = .{ 0, 0 }, // base char + 1 combining mark (covers 99%+ of text)
+    chars: [6]u32 = .{ 0, 0, 0, 0, 0, 0 }, // base char + up to 5 combining/VS (matches VTERM_MAX_CHARS_PER_CELL)
     width: u8 = 1,
     fg: Color = DEFAULT_FG,
     bg: Color = DEFAULT_BG,
@@ -189,8 +189,7 @@ pub const VTerm = struct {
             .underline = attrs.underline,
             .reverse = attrs.reverse,
         };
-        cell.chars[0] = raw.chars[0];
-        cell.chars[1] = raw.chars[1];
+        cell.chars = raw.chars;
         return cell;
     }
 

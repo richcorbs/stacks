@@ -1125,7 +1125,7 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
             @memcpy(std.mem.asBytes(&raw), raw_bytes[offset..][0..40]);
 
             tmp_cells[i] = .{
-                .chars = .{ raw.chars[0], raw.chars[1] },
+                .chars = raw.chars,
                 .width = if (raw.width > 0) @intCast(raw.width) else 1,
                 .fg = vt_mod.decodeVTermColor(raw.fg, vt_mod.DEFAULT_FG),
                 .bg = vt_mod.decodeVTermColor(raw.bg, vt_mod.DEFAULT_BG),
@@ -2019,7 +2019,7 @@ fn drawWideChars(
         if (!is_wide and !is_symbol) continue;
 
         // Encode the character
-        var char_buf: [8]u8 = undefined;
+        var char_buf: [24]u8 = undefined; // 6 codepoints × 4 bytes max each
         var char_len: usize = 0;
 
         // Encode the primary character
