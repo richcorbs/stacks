@@ -158,65 +158,6 @@ pub fn parseParams(data: []const u8) Params {
     return params;
 }
 
-/// Process an APC fragment for the Kitty graphics protocol.
-/// `data` is the raw APC payload (everything between \x1b_ and \x1b\\, with 'G' prefix already stripped).
-/// `cursor_col`, `cursor_row` are the current cursor position for image placement.
-pub fn handleApcFragment(
-    state: *ImageState,
-    data: []const u8,
-    is_initial: bool,
-    is_final: bool,
-    cursor_col: u16,
-    cursor_row: u16,
-) void {
-    if (is_initial) {
-        // Start of new APC sequence — parse params and base64 data
-        // Find the semicolon separating params from data
-        const semi_pos = std.mem.indexOfScalar(u8, data, ';');
-        const param_str = if (semi_pos) |pos| data[0..pos] else data;
-        const base64_data = if (semi_pos) |pos| data[pos + 1 ..] else &[_]u8{};
-
-        const params = parseParams(param_str);
-
-        // Handle delete action immediately
-        if (params.action == 'd') {
-            if (params.delete_target == 'A' or params.delete_target == 'a') {
-                state.deleteAllVisible();
-            } else if (params.delete_target == 'I' or params.delete_target == 'i') {
-                state.deleteById(params.image_id);
-            }
-            return;
-        }
-
-        if (params.more) {
-            // Chunked transfer — accumulate
-            state.pending_base64.clearRetainingCapacity();
-            state.pending_base64.appendSlice(std.heap.page_allocator, base64_data) catch return;
-            state.pending_params = params;
-            state.has_pending = true;
-        } else {
-            // Single-chunk transfer — process immediately
-            state.has_pending = false;
-            processImage(state, params, base64_data, cursor_col, cursor_row);
-        }
-    } else {
-        // Continuation fragment
-        if (!state.has_pending) return;
-
-        // This is a continuation chunk — the data contains "m=0;<base64>" or "m=1;<base64>"
-        // But actually for continuation APC sequences, each is a separate APC.
-        // With libvterm fragments, a single APC can be split across fragments.
-        // Just append raw data.
-        state.pending_base64.appendSlice(std.heap.page_allocator, data) catch return;
-
-        if (is_final and state.has_pending) {
-            // This fragment completes the current APC. But we may still need more chunks (m=1).
-            // We can't tell from fragments alone — the chunked protocol uses separate APC sequences.
-            // So just keep accumulating.
-        }
-    }
-}
-
 /// Handle a complete APC sequence (called when we get initial+final in one, or for continuation chunks).
 /// Returns image dimensions if an image was placed, for cursor advancement.
 pub fn handleCompleteApc(
