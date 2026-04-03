@@ -1,6 +1,7 @@
 /// Kitty graphics protocol support.
 /// Handles APC sequences: \x1b_G<params>;<base64data>\x1b\\
-/// Supports: transmit+display (a=T), chunked transfers (m=0/1), delete (a=d), PNG format (f=100).
+/// Supports: transmit+display (a=T), chunked transfers (m=0/1), delete (a=d).
+/// Image formats: PNG, JPEG, GIF, WebP (any format supported by NSImage).
 const std = @import("std");
 const objc = @import("objc.zig");
 
@@ -210,7 +211,7 @@ pub fn handleCompleteApc(
     }
 }
 
-/// Decode base64 PNG data and create a placed image.
+/// Decode base64 image data and create a placed image.
 /// Returns placement info for cursor advancement, or null on failure.
 pub fn processImage(
     state: *ImageState,
@@ -225,8 +226,8 @@ pub fn processImage(
     const decoded = decodeBase64(base64_data) orelse return null;
     defer std.heap.page_allocator.free(decoded);
 
-    // Create CGImage from PNG data
-    const cgimage = createCGImageFromPNG(decoded) orelse return null;
+    // Create CGImage from image data (PNG, JPEG, GIF, WebP, etc.)
+    const cgimage = createCGImageFromData(decoded) orelse return null;
 
     const columns = if (params.columns > 0) params.columns else blk: {
         // Default to some reasonable width based on image dimensions
@@ -281,8 +282,9 @@ fn decodeBase64(data: []const u8) ?[]u8 {
     return decoded;
 }
 
-/// Create a CGImage from PNG data using NSImage as intermediary.
-fn createCGImageFromPNG(png_data: []const u8) ?*anyopaque {
+/// Create a CGImage from image data using NSImage as intermediary.
+/// Supports any format that NSImage can decode: PNG, JPEG, GIF, WebP, TIFF, BMP, etc.
+fn createCGImageFromData(image_data: []const u8) ?*anyopaque {
     const NSData = objc.getClass("NSData") orelse return null;
     const NSImage = objc.getClass("NSImage") orelse return null;
     const NSBitmapImageRep = objc.getClass("NSBitmapImageRep") orelse return null;
@@ -293,11 +295,11 @@ fn createCGImageFromPNG(png_data: []const u8) ?*anyopaque {
     const nsdata = dataWithBytes(
         NSData,
         objc.sel("dataWithBytes:length:"),
-        png_data.ptr,
-        png_data.len,
+        image_data.ptr,
+        image_data.len,
     ) orelse return null;
 
-    // Create NSImage from data
+    // Create NSImage from data (auto-detects format)
     const alloc_fn: *const fn (objc.id, objc.SEL) callconv(.c) ?objc.id =
         @ptrCast(&objc.c.objc_msgSend);
     const initWithData: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) ?objc.id =
