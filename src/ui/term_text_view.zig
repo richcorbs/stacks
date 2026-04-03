@@ -13,6 +13,7 @@ const selection_mod = @import("../selection.zig");
 const terminal_state = @import("../terminal_state.zig");
 const term_keys = @import("../term_keys.zig");
 const box_drawing = @import("../box_drawing.zig");
+const kitty_gfx = @import("../kitty_graphics.zig");
 
 const MAX_TERMS = terminal_state.MAX_TERMINALS;
 const MAX_SCROLLBACK = terminal_state.MAX_SCROLLBACK;
@@ -875,6 +876,154 @@ fn registerScrollbackCallbacks(slot: usize, vterm: *VTerm) void {
         };
     };
     vt_mod.screenSetCallbacks(vterm.screen, @ptrCast(&cbs.callbacks), @ptrCast(@alignCast(&terminals[slot].?)));
+
+    // Register unrecognised fallbacks to capture APC sequences (Kitty graphics protocol)
+    registerUnrecognisedFallbacks(slot, vterm);
+}
+
+/// VTermStringFragment as seen by Zig — matches the C layout:
+///   struct { const char *str; size_t len:30, initial:1, final:1; }
+const VTermStringFragment = extern struct {
+    str: ?[*]const u8,
+    len_flags: usize,
+
+    fn getLen(self: VTermStringFragment) usize {
+        return self.len_flags & 0x3FFFFFFF;
+    }
+    fn isInitial(self: VTermStringFragment) bool {
+        return (self.len_flags & (1 << 30)) != 0;
+    }
+    fn isFinal(self: VTermStringFragment) bool {
+        return (self.len_flags & (1 << 31)) != 0;
+    }
+};
+
+fn registerUnrecognisedFallbacks(slot: usize, vterm: *VTerm) void {
+    const FallbackCallbacks = extern struct {
+        control: ?*const anyopaque = null,
+        csi: ?*const anyopaque = null,
+        osc: ?*const anyopaque = null,
+        dcs: ?*const anyopaque = null,
+        apc: ?*const fn (VTermStringFragment, ?*anyopaque) callconv(.c) c_int = null,
+        pm: ?*const anyopaque = null,
+        sos: ?*const anyopaque = null,
+    };
+    const fb = struct {
+        var callbacks: FallbackCallbacks = .{
+            .csi = @ptrCast(&cbCsi),
+            .apc = &cbApc,
+        };
+    };
+    const set_fallbacks: *const fn (*anyopaque, *const anyopaque, ?*anyopaque) callconv(.c) void =
+        @extern(*const fn (*anyopaque, *const anyopaque, ?*anyopaque) callconv(.c) void, .{ .name = "vterm_screen_set_unrecognised_fallbacks" });
+    set_fallbacks(@ptrCast(vterm.screen), @ptrCast(&fb.callbacks), @ptrCast(@alignCast(&terminals[slot].?)));
+}
+
+/// CSI fallback — handles unrecognised CSI sequences.
+/// Signature matches: int (*csi)(const char *leader, const long args[], int argcount, const char *intermed, char command, void *user)
+fn cbCsi(leader: ?[*]const u8, args: ?[*]const c_long, argcount: c_int, intermed: ?[*]const u8, command: u8, user: ?*anyopaque) callconv(.c) c_int {
+    _ = leader;
+    _ = intermed;
+    const entry: *TermEntry = @ptrCast(@alignCast(user orelse return 0));
+
+    // CSI 16 t — report cell size in pixels
+    // Response: CSI 6 ; cellHeight ; cellWidth t
+    if (command == 't' and argcount >= 1) {
+        const arg0 = if (args) |a| a[0] else return 0;
+        if (arg0 == 16) {
+            // Report cell pixel dimensions
+            const ch = @as(u32, @intFromFloat(@round(cell_height)));
+            const cw = @as(u32, @intFromFloat(@round(cell_width)));
+            var buf: [64]u8 = undefined;
+            const response = std.fmt.bufPrint(&buf, "\x1b[6;{d};{d}t", .{ ch, cw }) catch return 0;
+            entry.pty.write(response);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/// Per-slot APC fragment accumulation buffer.
+/// Needed because libvterm splits large APC sequences into multiple fragments.
+const ApcAccum = struct {
+    buf: std.ArrayListUnmanaged(u8) = .{},
+    active: bool = false,
+    cursor_col: u16 = 0,
+    cursor_row: u16 = 0,
+};
+var apc_accum: [MAX_TERMS]ApcAccum = [_]ApcAccum{.{}} ** MAX_TERMS;
+
+/// APC callback — receives Kitty graphics protocol sequences.
+/// libvterm may split a single APC into multiple fragments.
+fn cbApc(frag: VTermStringFragment, user: ?*anyopaque) callconv(.c) c_int {
+    const entry: *TermEntry = @ptrCast(@alignCast(user orelse return 0));
+    const str_ptr = frag.str orelse return 0;
+    const len = frag.getLen();
+    const is_initial = frag.isInitial();
+    const is_final = frag.isFinal();
+
+    if (len == 0 and !is_final) return 1;
+    const data = if (len > 0) str_ptr[0..len] else &[_]u8{};
+
+    var accum = &apc_accum[entry.slot];
+
+    if (is_initial) {
+        // Check for 'G' prefix (Kitty graphics)
+        if (data.len < 1 or data[0] != 'G') return 0;
+
+        // Capture cursor position at start of sequence
+        var cursor_pos: vt_mod.c.VTermPos = undefined;
+        vt_mod.c.vterm_state_get_cursorpos(vt_mod.c.vterm_obtain_state(entry.vterm.vt), &cursor_pos);
+        // Clamp to grid bounds
+        accum.cursor_col = @intCast(@min(@max(cursor_pos.col, 0), @as(c_int, entry.vterm.cols) - 1));
+        accum.cursor_row = @intCast(@min(@max(cursor_pos.row, 0), @as(c_int, entry.vterm.rows) - 1));
+
+        if (is_final) {
+            // Complete APC in one fragment — process directly
+            const result = kitty_gfx.handleCompleteApc(&entry.image_state, data[1..], accum.cursor_col, accum.cursor_row);
+            if (result) |img| advanceCursorPastImage(entry, img.columns, img.rows);
+            return 1;
+        }
+
+        // Start accumulating
+        accum.buf.clearRetainingCapacity();
+        accum.buf.appendSlice(std.heap.page_allocator, data[1..]) catch return 0;
+        accum.active = true;
+    } else if (accum.active) {
+        // Continuation fragment — accumulate
+        accum.buf.appendSlice(std.heap.page_allocator, data) catch return 0;
+
+        if (is_final) {
+            // Complete — process the accumulated APC
+            const result = kitty_gfx.handleCompleteApc(&entry.image_state, accum.buf.items, accum.cursor_col, accum.cursor_row);
+            if (result) |img| advanceCursorPastImage(entry, img.columns, img.rows);
+            accum.buf.clearRetainingCapacity();
+            accum.active = false;
+        }
+    }
+
+    return 1;
+}
+
+/// Advance vterm's cursor past a placed image, per Kitty graphics protocol spec.
+/// The cursor moves to the last row of the image, one column past the image width.
+fn advanceCursorPastImage(entry: *TermEntry, columns: u16, rows: u16) void {
+    if (rows <= 1 and columns == 0) return;
+    // Move cursor down by (rows-1) and right by columns.
+    // We feed escape sequences directly into vterm so it updates its internal cursor state.
+    var buf: [64]u8 = undefined;
+    var total: usize = 0;
+    if (rows > 1) {
+        const seq = std.fmt.bufPrint(&buf, "\x1b[{d}B", .{rows - 1}) catch return;
+        total = seq.len;
+    }
+    if (columns > 0) {
+        const seq = std.fmt.bufPrint(buf[total..], "\x1b[{d}C", .{columns}) catch return;
+        total += seq.len;
+    }
+    if (total > 0) {
+        entry.vterm.feed(buf[0..total]);
+    }
 }
 
 fn registerOutputCallback(entry: *TermEntry) void {
@@ -1165,6 +1314,9 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
     if (entry.scroll_offset < 0) {
         entry.scroll_offset -= 1;
     }
+
+    // Track total lines scrolled for image position tracking
+    entry.image_state.total_scrolled += 1;
 
     return 1;
 }
@@ -1619,6 +1771,9 @@ pub fn clearFocusedTerminal() void {
         // Clear scrollback
         entry.scroll_offset = 0;
         entry.scrollback.clearRetainingCapacity(allocator);
+        // Clear inline images
+        entry.image_state.clearAllImages();
+        entry.image_state.total_scrolled = 0;
         // Clear vterm screen
         entry.vterm.feed("\x1b[2J\x1b[H");
         // Send Ctrl+L to the shell so it redraws the prompt
@@ -2005,6 +2160,19 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
         // Draw wide characters (emoji, CJK) individually at grid positions.
         // These were replaced with spaces in the CTLine to prevent misalignment.
         drawWideChars(cgctx, entry, grid_row_i, sb_len, row, CG);
+    }
+
+    // Draw Kitty graphics protocol images
+    if (entry.image_state.image_count > 0) {
+        kitty_gfx.drawImages(
+            &entry.image_state,
+            cgctx,
+            cell_width,
+            cell_height,
+            entry.vterm.rows,
+            entry.scroll_offset,
+            entry.image_state.total_scrolled,
+        );
     }
 }
 

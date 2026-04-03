@@ -56,6 +56,11 @@ pub const Pty = struct {
             // Set proper terminal type — we now have VT100 emulation via libvterm
             _ = c.setenv("TERM", "xterm-256color", 1);
 
+            // Advertise Kitty graphics protocol support so TUI apps (e.g. pi) can display images inline
+            _ = c.setenv("TERM_PROGRAM", "stacks", 1);
+            _ = c.setenv("KITTY_WINDOW_ID", "1", 1);
+            _ = c.setenv("COLORTERM", "truecolor", 1);
+
             // Ensure UTF-8 locale so programs output valid UTF-8.
             // Without this, some tools produce invalid byte sequences.
             _ = c.setenv("LANG", "en_US.UTF-8", 0); // 0 = don't overwrite if already set

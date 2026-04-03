@@ -10,6 +10,7 @@ const vt = @import("vt.zig");
 const split_tree = @import("split_tree.zig");
 const scrollback = @import("scrollback.zig");
 const selection = @import("selection.zig");
+const kitty_graphics = @import("kitty_graphics.zig");
 
 pub const MAX_TERMINALS = 32;
 pub const MAX_SCROLLBACK = 10000;
@@ -25,6 +26,7 @@ pub const TermEntry = struct {
     scrollback: scrollback.ScrollList(MAX_SCROLLBACK + 1) = .{},
     selection: selection.Selection = .{},
     cursor_visible: bool = true,
+    image_state: kitty_graphics.ImageState = .{},
 };
 
 /// A session corresponds to one sidebar terminal entry and holds a split tree.
