@@ -301,6 +301,8 @@ fn findFreeSlot() ?usize {
 /// Create a terminal view for the given working directory and optional command.
 /// Finds the first free slot.
 pub fn createTerminalView(cwd: []const u8, command: ?[]const u8) ?objc.id {
+    // Ensure kitty graphics uses the same allocator as the rest of the app
+    kitty_gfx.setAllocator(allocator);
     return createTerminalViewAtSlot(findFreeSlot() orelse return null, cwd, command);
 }
 
@@ -881,37 +883,19 @@ fn registerScrollbackCallbacks(slot: usize, vterm: *VTerm) void {
     registerUnrecognisedFallbacks(slot, vterm);
 }
 
-/// VTermStringFragment as seen by Zig — matches the C layout:
-///   struct { const char *str; size_t len:30, initial:1, final:1; }
-const VTermStringFragment = extern struct {
-    str: ?[*]const u8,
-    len_flags: usize,
-
-    fn getLen(self: VTermStringFragment) usize {
-        return self.len_flags & 0x3FFFFFFF;
-    }
-    fn isInitial(self: VTermStringFragment) bool {
-        return (self.len_flags & (1 << 30)) != 0;
-    }
-    fn isFinal(self: VTermStringFragment) bool {
-        return (self.len_flags & (1 << 31)) != 0;
-    }
-};
-
 fn registerUnrecognisedFallbacks(slot: usize, vterm: *VTerm) void {
     const FallbackCallbacks = extern struct {
         control: ?*const anyopaque = null,
         csi: ?*const anyopaque = null,
         osc: ?*const anyopaque = null,
         dcs: ?*const anyopaque = null,
-        apc: ?*const fn (VTermStringFragment, ?*anyopaque) callconv(.c) c_int = null,
+        apc: ?*const anyopaque = null,
         pm: ?*const anyopaque = null,
         sos: ?*const anyopaque = null,
     };
     const fb = struct {
         var callbacks: FallbackCallbacks = .{
             .csi = @ptrCast(&cbCsi),
-            .apc = &cbApc,
         };
     };
     const set_fallbacks: *const fn (*anyopaque, *const anyopaque, ?*anyopaque) callconv(.c) void =
@@ -943,8 +927,8 @@ fn cbCsi(leader: ?[*]const u8, args: ?[*]const c_long, argcount: c_int, intermed
     return 0;
 }
 
-/// Per-slot APC fragment accumulation buffer.
-/// Needed because libvterm splits large APC sequences into multiple fragments.
+/// Per-slot APC accumulation buffer for Kitty graphics sequences
+/// that span multiple PTY reads.
 const ApcAccum = struct {
     buf: std.ArrayListUnmanaged(u8) = .{},
     active: bool = false,
@@ -953,186 +937,119 @@ const ApcAccum = struct {
 };
 var apc_accum: [MAX_TERMS]ApcAccum = [_]ApcAccum{.{}} ** MAX_TERMS;
 
-/// APC callback — receives Kitty graphics protocol sequences.
-/// libvterm may split a single APC into multiple fragments.
-fn cbApc(frag: VTermStringFragment, user: ?*anyopaque) callconv(.c) c_int {
-    const entry: *TermEntry = @ptrCast(@alignCast(user orelse return 0));
-    const str_ptr = frag.str orelse return 0;
-    const len = frag.getLen();
-    const is_initial = frag.isInitial();
-    const is_final = frag.isFinal();
-
-    if (len == 0 and !is_final) return 1;
-    const data = if (len > 0) str_ptr[0..len] else &[_]u8{};
-
+/// Scan raw PTY data for Kitty graphics APC sequences (\x1b_G...\x1b\\).
+/// Strips them from the buffer and processes them directly, then feeds
+/// the remaining data to vterm. This is more robust than relying on
+/// vterm's APC callback which doesn't fire in UTF-8 mode.
+fn processAndStripKittyAPCs(entry: *TermEntry, data: []const u8) void {
+    var pos: usize = 0;
     var accum = &apc_accum[entry.slot];
 
-    if (is_initial) {
-        // Check for 'G' prefix (Kitty graphics)
-        if (data.len < 1 or data[0] != 'G') return 0;
+    while (pos < data.len) {
+        const remaining = data[pos..];
 
-        // Capture cursor position at start of sequence
-        var cursor_pos: vt_mod.c.VTermPos = undefined;
-        vt_mod.c.vterm_state_get_cursorpos(vt_mod.c.vterm_obtain_state(entry.vterm.vt), &cursor_pos);
-        // Clamp to grid bounds
-        accum.cursor_col = @intCast(@min(@max(cursor_pos.col, 0), @as(c_int, entry.vterm.cols) - 1));
-        accum.cursor_row = @intCast(@min(@max(cursor_pos.row, 0), @as(c_int, entry.vterm.rows) - 1));
-
-        if (is_final) {
-            // Complete APC in one fragment — process directly
-            if (kitty_gfx.handleCompleteApc(&entry.image_state, data[1..], accum.cursor_col, accum.cursor_row)) |img| {
-                // Store dimensions for pre-processor (single-chunk case is also
-                // handled by raw byte parsing, but this covers edge cases)
-                var adv = &kitty_advance[entry.slot];
-                adv.columns = img.columns;
-                adv.rows = img.rows;
+        // If we're accumulating a split APC from a previous read,
+        // look for the terminator ESC \ in the new data.
+        if (accum.active) {
+            // Search for ESC \
+            var term_pos: ?usize = null;
+            var j: usize = 0;
+            while (j + 1 < remaining.len) : (j += 1) {
+                if (remaining[j] == 0x1b and remaining[j + 1] == '\\') {
+                    term_pos = j;
+                    break;
+                }
             }
-            return 1;
-        }
 
-        // Start accumulating
-        accum.buf.clearRetainingCapacity();
-        accum.buf.appendSlice(std.heap.page_allocator, data[1..]) catch return 0;
-        accum.active = true;
-
-        // Store dimensions from first chunk for the pre-processor.
-        // The pre-processor can't always parse these from raw bytes because
-        // the first APC may span buffer boundaries.
-        const first_apc = data[1..]; // after 'G'
-        const semi = std.mem.indexOfScalar(u8, first_apc, ';');
-        const param_str = if (semi) |s| first_apc[0..s] else first_apc;
-        const p = kitty_gfx.parseParams(param_str);
-        if (p.columns > 0 or p.rows > 0) {
-            var adv = &kitty_advance[entry.slot];
-            if (p.columns > 0) adv.columns = p.columns;
-            if (p.rows > 0) adv.rows = p.rows;
-        }
-    } else if (accum.active) {
-        // Continuation fragment — accumulate
-        accum.buf.appendSlice(std.heap.page_allocator, data) catch return 0;
-
-        if (is_final) {
-            // Complete — process the accumulated APC
-            _ = kitty_gfx.handleCompleteApc(&entry.image_state, accum.buf.items, accum.cursor_col, accum.cursor_row);
-            accum.buf.clearRetainingCapacity();
-            accum.active = false;
-        }
-    }
-
-    return 1;
-}
-
-// ---------------------------------------------------------------------------
-// Kitty graphics cursor advance — pre-processor
-// ---------------------------------------------------------------------------
-
-/// Per-slot state for Kitty image cursor advancement.
-/// The APC callback stores image dimensions here when it processes the first chunk.
-/// The pre-processor detects the final chunk in raw bytes and injects cursor movement.
-const KittyCursorAdvance = struct {
-    columns: u16 = 0,
-    rows: u16 = 0,
-    active: bool = false, // true while a chunked transfer is in progress
-};
-var kitty_advance: [MAX_TERMS]KittyCursorAdvance = [_]KittyCursorAdvance{.{}} ** MAX_TERMS;
-
-/// Scan raw PTY output for Kitty graphics APC sequences. After the final chunk's
-/// terminator, inject cursor-down/right sequences so content flows below the image.
-///
-/// Image dimensions come from two sources:
-/// - For chunked transfers: the APC callback stores c/r in kitty_advance during
-///   earlier feed() calls (the first chunk carries the params).
-/// - For single-chunk transfers: parsed directly from the raw APC params.
-///
-/// Returns a slice from `out` with injected data, or `data` unchanged.
-fn injectKittyImageCursorAdvance(slot: usize, data: []const u8, out: []u8) []const u8 {
-    // Fast path: no APC sequences in buffer
-    if (std.mem.indexOf(u8, data, "\x1b_G") == null) return data;
-
-    var adv = &kitty_advance[slot];
-    var src: usize = 0;
-    var dst: usize = 0;
-
-    while (src < data.len) {
-        // Find next APC start: ESC _ G
-        const next_apc = std.mem.indexOf(u8, data[src..], "\x1b_G");
-        if (next_apc == null) {
-            // No more APCs — copy remaining chunk
-            const remaining = data.len - src;
-            if (dst + remaining > out.len) return data;
-            @memcpy(out[dst..][0..remaining], data[src..data.len]);
-            dst += remaining;
-            break;
-        }
-
-        // Copy bytes before this APC
-        const apc_offset = next_apc.?;
-        if (apc_offset > 0) {
-            if (dst + apc_offset > out.len) return data;
-            @memcpy(out[dst..][0..apc_offset], data[src..][0..apc_offset]);
-            dst += apc_offset;
-        }
-        src += apc_offset;
-
-        // Find the APC terminator: ESC \\
-        const apc_body_start = src + 3; // after ESC _ G
-        var apc_end: ?usize = null;
-        var j = apc_body_start;
-        while (j + 1 < data.len) : (j += 1) {
-            if (data[j] == 0x1b and data[j + 1] == '\\') {
-                apc_end = j + 2;
+            if (term_pos) |tp| {
+                // Found terminator — append data up to it and process
+                accum.buf.appendSlice(allocator, remaining[0..tp]) catch {};
+                if (kitty_gfx.handleCompleteApc(&entry.image_state, accum.buf.items, accum.cursor_col, accum.cursor_row, cell_width, cell_height)) |img| {
+                    advanceCursorPastImage(entry, img);
+                }
+                accum.buf.clearRetainingCapacity();
+                accum.active = false;
+                pos += tp + 2; // skip past ESC \
+                continue;
+            } else {
+                // Still no terminator — accumulate everything
+                accum.buf.appendSlice(allocator, remaining) catch {};
                 break;
             }
         }
 
-        if (apc_end == null) {
-            // Unterminated APC — copy remainder as-is
-            const remaining = data.len - src;
-            if (dst + remaining > out.len) return data;
-            @memcpy(out[dst..][0..remaining], data[src..data.len]);
-            dst += remaining;
+        // Look for APC start: ESC _ G
+        const apc_start = std.mem.indexOf(u8, remaining, "\x1b_G");
+
+        if (apc_start == null) {
+            // No APCs — feed everything to vterm
+            entry.vterm.feed(remaining);
             break;
         }
 
+        const start = apc_start.?;
+
+        // Feed data before the APC to vterm
+        if (start > 0) {
+            entry.vterm.feed(remaining[0..start]);
+        }
+
+        // Find APC terminator: ESC backslash
+        const apc_body_start = start + 3; // after ESC _ G
+        var apc_end: ?usize = null;
+        {
+            var j: usize = apc_body_start;
+            while (j + 1 < remaining.len) : (j += 1) {
+                if (remaining[j] == 0x1b and remaining[j + 1] == '\\') {
+                    apc_end = j + 2;
+                    break;
+                }
+            }
+        }
+
+        if (apc_end == null) {
+            // Unterminated APC — start accumulating
+            const body = remaining[apc_body_start..];
+            accum.buf.clearRetainingCapacity();
+            accum.active = true;
+            // Capture cursor position
+            var cursor_pos: vt_mod.c.VTermPos = undefined;
+            vt_mod.c.vterm_state_get_cursorpos(vt_mod.c.vterm_obtain_state(entry.vterm.vt), &cursor_pos);
+            accum.cursor_col = @intCast(@min(@max(cursor_pos.col, 0), @as(c_int, entry.vterm.cols) - 1));
+            accum.cursor_row = @intCast(@min(@max(cursor_pos.row, 0), @as(c_int, entry.vterm.rows) - 1));
+            accum.buf.appendSlice(allocator, body) catch {};
+            break;
+        }
+
+        // Complete APC found
         const end = apc_end.?;
+        const apc_data = remaining[apc_body_start .. end - 2]; // exclude ESC backslash
 
-        // Copy the entire APC sequence
-        const apc_len = end - src;
-        if (dst + apc_len > out.len) return data;
-        @memcpy(out[dst..][0..apc_len], data[src..end]);
-        dst += apc_len;
-        src = end;
+        // Capture cursor and process
+        var cursor_pos: vt_mod.c.VTermPos = undefined;
+        vt_mod.c.vterm_state_get_cursorpos(vt_mod.c.vterm_obtain_state(entry.vterm.vt), &cursor_pos);
+        const col: u16 = @intCast(@min(@max(cursor_pos.col, 0), @as(c_int, entry.vterm.cols) - 1));
+        const row: u16 = @intCast(@min(@max(cursor_pos.row, 0), @as(c_int, entry.vterm.rows) - 1));
 
-        // Parse params to detect chunk state and capture dimensions
-        const semi = std.mem.indexOfScalar(u8, data[apc_body_start..end], ';');
-        const param_slice = if (semi) |s| data[apc_body_start .. apc_body_start + s] else data[apc_body_start..end];
-        const params = kitty_gfx.parseParams(param_slice);
-
-        // Capture dimensions from transmit commands (first chunk or single-chunk)
-        if (params.action == 'T' or params.action == 't') {
-            if (params.columns > 0) adv.columns = params.columns;
-            if (params.rows > 0) adv.rows = params.rows;
+        if (kitty_gfx.handleCompleteApc(&entry.image_state, apc_data, col, row, cell_width, cell_height)) |img| {
+            advanceCursorPastImage(entry, img);
         }
 
-        if (params.more) {
-            // More chunks coming
-            adv.active = true;
-        } else if (adv.active or params.action == 'T' or params.action == 't') {
-            // Final chunk of chunked transfer, or single-chunk transmit.
-            // Dimensions: from raw params (single-chunk) or from APC callback (chunked).
-            if (adv.rows > 1) {
-                const seq = std.fmt.bufPrint(out[dst..], "\x1b[{d}B", .{adv.rows - 1}) catch return data;
-                dst += seq.len;
-            }
-            if (adv.columns > 0) {
-                const seq = std.fmt.bufPrint(out[dst..], "\x1b[{d}C", .{adv.columns}) catch return data;
-                dst += seq.len;
-            }
-            adv.* = .{}; // reset
-        }
+        pos += end;
     }
+}
 
-    return out[0..dst];
+
+/// Advance vterm cursor past a placed image.
+/// Pi sends cursor-up before the APC to position it. Since we strip the APC,
+/// the cursor stays at the top of the image area. Move it back down so
+/// subsequent text flows below the image.
+fn advanceCursorPastImage(entry: *TermEntry, img: kitty_gfx.ImagePlacement) void {
+    if (img.rows > 1) {
+        var buf: [32]u8 = undefined;
+        const seq = std.fmt.bufPrint(&buf, "\x1b[{d}B", .{img.rows - 1}) catch return;
+        entry.vterm.feed(seq);
+    }
 }
 
 fn registerOutputCallback(entry: *TermEntry) void {
@@ -1883,10 +1800,15 @@ pub fn clearFocusedTerminal() void {
         // Clear inline images
         entry.image_state.clearAllImages();
         entry.image_state.total_scrolled = 0;
-        // Clear vterm screen
+        // Clear vterm screen and move cursor home
         entry.vterm.feed("\x1b[2J\x1b[H");
-        // Send Ctrl+L to the shell so it redraws the prompt
-        entry.pty.write("\x0c");
+        // Send clear + home to the PTY so the shell sees it, then
+        // use Ctrl+U (kill line) + Ctrl+L (clear screen) to redraw.
+        // Ctrl+U clears any partial input, Ctrl+L triggers zsh's
+        // clear-screen widget which redraws the prompt.
+        // The vterm.feed above already cleared our screen, so the
+        // ^L echo from the shell just re-clears (no visible artifact).
+        entry.pty.write("\x15\x0c");
         const setBool: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
             @ptrCast(&objc.c.objc_msgSend);
         setBool(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
@@ -1962,6 +1884,9 @@ fn syncTermSize(entry: *TermEntry) void {
     const new_rows: u16 = @intFromFloat(@max(@floor(usable_h / cell_height), 1));
 
     if (new_cols != entry.vterm.cols or new_rows != entry.vterm.rows) {
+        // Clear inline images on resize — pi will re-send them at the new size.
+        // This prevents duplicate/stale images from the old layout.
+        entry.image_state.clearAllImages();
         entry.vterm.resize(new_rows, new_cols);
         entry.pty.resize(new_cols, new_rows);
     }
@@ -2271,7 +2196,12 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
         drawWideChars(cgctx, entry, grid_row_i, sb_len, row, CG);
     }
 
-    // Draw Kitty graphics protocol images
+    // Draw Kitty graphics protocol images.
+    // Prune images whose cell areas have been overwritten by text
+    // (e.g. TUI redraw without an explicit Kitty delete command).
+    if (entry.image_state.image_count > 0) {
+        pruneOverwrittenImages(&entry.image_state, entry);
+    }
     if (entry.image_state.image_count > 0) {
         kitty_gfx.drawImages(
             &entry.image_state,
@@ -2282,6 +2212,33 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
             entry.scroll_offset,
             entry.image_state.total_scrolled,
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Kitty image pruning
+// ---------------------------------------------------------------------------
+
+/// Remove placed images whose cell areas have been overwritten by text.
+/// This catches cases where the TUI redraws without sending a Kitty delete command.
+fn pruneOverwrittenImages(state: *kitty_gfx.ImageState, entry: *TermEntry) void {
+    const sb_len: i32 = @intCast(entry.scrollback.len());
+
+    for (state.images, 0..) |maybe_img, idx| {
+        const img = maybe_img orelse continue;
+
+        const lines_scrolled_since = state.total_scrolled - img.scroll_offset;
+        const grid_row = @as(i64, img.row) - lines_scrolled_since;
+
+        // Sample the center cell of the image area
+        const center_r = grid_row + img.rows / 2;
+        const center_c = img.col +| (img.columns / 2);
+        if (center_c >= entry.vterm.cols) continue;
+        const r32 = @as(i32, @intCast(@min(@max(center_r, std.math.minInt(i32)), std.math.maxInt(i32))));
+        const cell = fetchCell(entry, r32, center_c, sb_len);
+        if (cell.chars[0] != 0 and cell.chars[0] != ' ') {
+            state.clearImageAtSlot(idx);
+        }
     }
 }
 
@@ -2689,6 +2646,8 @@ fn checkForExitedTerminals() void {
                             entry.scroll_offset = 0;
                             entry.scrollback.clearRetainingCapacity(allocator);
                             entry.selection = .{};
+                            entry.image_state.clearAllImages();
+                            entry.image_state.total_scrolled = 0;
                             registerScrollbackCallbacks(slot, &entry.vterm);
                             entry.needs_redraw = true;
                             // Remove focus border if single pane
@@ -2775,11 +2734,10 @@ fn readAllTerminals() bool {
 
                 checkBell(buf[0..feed_len], entry.slot);
 
-                // Pre-process buffer: inject cursor movement after Kitty image APC sequences.
-                // This is needed because vterm doesn't support reentrant feed from callbacks.
-                var expanded_buf: [16384 + 256]u8 = undefined; // input buf + room for injected sequences
-                const processed = injectKittyImageCursorAdvance(entry.slot, buf[0..feed_len], &expanded_buf);
-                entry.vterm.feed(processed);
+                // Process Kitty graphics APC sequences directly from raw PTY data,
+                // stripping them before feeding to vterm. This bypasses the vterm
+                // APC callback chain which doesn't fire reliably in UTF-8 mode.
+                processAndStripKittyAPCs(entry, buf[0..feed_len]);
 
                 got_data = true;
             }

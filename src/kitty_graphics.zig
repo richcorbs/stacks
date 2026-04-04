@@ -5,6 +5,13 @@
 const std = @import("std");
 const objc = @import("objc.zig");
 
+/// Allocator used for all internal allocations. Set once at init.
+var alloc: std.mem.Allocator = std.heap.page_allocator;
+
+pub fn setAllocator(a: std.mem.Allocator) void {
+    alloc = a;
+}
+
 const CG = struct {
     extern "CoreGraphics" fn CGDataProviderCreateWithData(info: ?*anyopaque, data: [*]const u8, size: usize, releaseData: ?*const anyopaque) ?*anyopaque;
     extern "CoreGraphics" fn CGDataProviderRelease(provider: *anyopaque) void;
@@ -46,7 +53,7 @@ pub const ImageState = struct {
     const MAX_IMAGES = 64;
 
     pub fn deinit(self: *ImageState) void {
-        self.pending_base64.deinit(std.heap.page_allocator);
+        self.pending_base64.deinit(alloc);
         self.clearAllImages();
     }
 
@@ -76,6 +83,16 @@ pub const ImageState = struct {
     /// Delete all visible images.
     pub fn deleteAllVisible(self: *ImageState) void {
         self.clearAllImages();
+    }
+
+    /// Remove a specific image by slot index.
+    pub fn clearImageAtSlot(self: *ImageState, idx: usize) void {
+        if (idx >= MAX_IMAGES) return;
+        if (self.images[idx]) |img| {
+            CG.CGImageRelease(img.image);
+            self.images[idx] = null;
+            self.image_count -= 1;
+        }
     }
 
     /// Add a placed image. Replaces any existing image at the same row, or with the same ID.
@@ -161,11 +178,14 @@ pub fn parseParams(data: []const u8) Params {
 
 /// Handle a complete APC sequence (called when we get initial+final in one, or for continuation chunks).
 /// Returns image dimensions if an image was placed, for cursor advancement.
+/// `cell_w` and `cell_h` are the current cell dimensions in points (used for fallback sizing).
 pub fn handleCompleteApc(
     state: *ImageState,
     data: []const u8,
     cursor_col: u16,
     cursor_row: u16,
+    cell_w: f64,
+    cell_h: f64,
 ) ?ImagePlacement {
     // Find the semicolon separating params from data
     const semi_pos = std.mem.indexOfScalar(u8, data, ';');
@@ -192,21 +212,21 @@ pub fn handleCompleteApc(
             state.pending_params = params;
             state.has_pending = true;
         }
-        state.pending_base64.appendSlice(std.heap.page_allocator, base64_data) catch return null;
+        state.pending_base64.appendSlice(alloc, base64_data) catch return null;
         return null;
     } else {
         // Final or only chunk
         if (state.has_pending) {
             // Append final chunk data
-            state.pending_base64.appendSlice(std.heap.page_allocator, base64_data) catch return null;
+            state.pending_base64.appendSlice(alloc, base64_data) catch return null;
             const all_data = state.pending_base64.items;
-            const result = processImage(state, state.pending_params, all_data, cursor_col, cursor_row);
+            const result = processImage(state, state.pending_params, all_data, cursor_col, cursor_row, cell_w, cell_h);
             state.pending_base64.clearRetainingCapacity();
             state.has_pending = false;
             return result;
         } else {
             // Single chunk
-            return processImage(state, params, base64_data, cursor_col, cursor_row);
+            return processImage(state, params, base64_data, cursor_col, cursor_row, cell_w, cell_h);
         }
     }
 }
@@ -219,24 +239,31 @@ pub fn processImage(
     base64_data: []const u8,
     cursor_col: u16,
     cursor_row: u16,
+    cell_w: f64,
+    cell_h: f64,
 ) ?ImagePlacement {
     if (base64_data.len == 0) return null;
 
     // Decode base64
     const decoded = decodeBase64(base64_data) orelse return null;
-    defer std.heap.page_allocator.free(decoded);
+    defer alloc.free(decoded);
 
     // Create CGImage from image data (PNG, JPEG, GIF, WebP, etc.)
     const cgimage = createCGImageFromData(decoded) orelse return null;
 
     const columns = if (params.columns > 0) params.columns else blk: {
-        // Default to some reasonable width based on image dimensions
+        // Default: map pixel width to cell columns using actual cell width
         const w = CG.CGImageGetWidth(cgimage);
-        break :blk @as(u16, @intCast(@min(w / 8, 80)));
+        const cw = if (cell_w > 0) cell_w else 8.0;
+        const cols = @as(usize, @intFromFloat(@ceil(@as(f64, @floatFromInt(w)) / cw)));
+        break :blk @as(u16, @intCast(@min(cols, 80)));
     };
     const rows = if (params.rows > 0) params.rows else blk: {
+        // Default: map pixel height to cell rows using actual cell height
         const h = CG.CGImageGetHeight(cgimage);
-        break :blk @as(u16, @intCast(@min(h / 16, 24)));
+        const ch = if (cell_h > 0) cell_h else 16.0;
+        const rws = @as(usize, @intFromFloat(@ceil(@as(f64, @floatFromInt(h)) / ch)));
+        break :blk @as(u16, @intCast(@min(rws, 24)));
     };
 
     state.addImage(.{
@@ -255,7 +282,7 @@ pub fn processImage(
 /// Decode base64 data into raw bytes.
 fn decodeBase64(data: []const u8) ?[]u8 {
     // Filter out whitespace/newlines
-    var clean = std.heap.page_allocator.alloc(u8, data.len) catch return null;
+    var clean = alloc.alloc(u8, data.len) catch return null;
     var clean_len: usize = 0;
     for (data) |ch| {
         if (ch != '\n' and ch != '\r' and ch != ' ' and ch != '\t') {
@@ -266,19 +293,19 @@ fn decodeBase64(data: []const u8) ?[]u8 {
 
     const decoder = std.base64.standard.Decoder;
     const decoded_len = decoder.calcSizeForSlice(clean[0..clean_len]) catch {
-        std.heap.page_allocator.free(clean);
+        alloc.free(clean);
         return null;
     };
-    const decoded = std.heap.page_allocator.alloc(u8, decoded_len) catch {
-        std.heap.page_allocator.free(clean);
+    const decoded = alloc.alloc(u8, decoded_len) catch {
+        alloc.free(clean);
         return null;
     };
     decoder.decode(decoded, clean[0..clean_len]) catch {
-        std.heap.page_allocator.free(decoded);
-        std.heap.page_allocator.free(clean);
+        alloc.free(decoded);
+        alloc.free(clean);
         return null;
     };
-    std.heap.page_allocator.free(clean);
+    alloc.free(clean);
     return decoded;
 }
 
@@ -407,6 +434,6 @@ test "parseParams delete" {
 
 test "decodeBase64 simple" {
     const decoded = decodeBase64("SGVsbG8=") orelse unreachable;
-    defer std.heap.page_allocator.free(decoded);
+    defer alloc.free(decoded);
     try std.testing.expectEqualStrings("Hello", decoded);
 }

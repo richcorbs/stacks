@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="iconClip">
+      <rect x="108" y="108" width="808" height="808" rx="176"/>
+    </clipPath>
+  </defs>
+  <rect x="108" y="108" width="808" height="808" rx="176" fill="#000000"/>
+  <g clip-path="url(#iconClip)">
+    <!-- Diamond 4 (back/bottom) -->
+    <polygon points="512,502 730,612 512,722 294,612" fill="#396557"/>
+
+    <!-- Blocker + Diamond 3 -->
+    <polygon points="512,420 730,530 512,640 294,530" fill="#000000"/>
+    <polygon points="512,420 730,530 512,640 294,530" fill="#538376"/>
+
+    <!-- Blocker + Diamond 2 -->
+    <polygon points="512,338 730,448 512,558 294,448" fill="#000000"/>
+    <polygon points="512,338 730,448 512,558 294,448" fill="#72A293"/>
+
+    <!-- Blocker + Diamond 1 (front/top) -->
+    <polygon points="512,256 730,366 512,476 294,366" fill="#000000"/>
+    <polygon points="512,256 730,366 512,476 294,366" fill="#95C1AF"/>
+  </g>
+</svg>
