@@ -1328,10 +1328,12 @@ fn sbPushLine(cols: c_int, cells_raw: ?*const anyopaque, user: ?*anyopaque) call
         } else break;
     }
 
-    // Allocate only the trimmed cells
+    // Allocate only the trimmed cells, converting to CompactCell for storage
     const store_len = if (trimmed > 0) trimmed else 1; // keep at least 1 for empty lines
-    const cells = allocator.alloc(vt_mod.Cell, store_len) catch return 0;
-    @memcpy(cells, tmp_cells[0..store_len]);
+    const cells = allocator.alloc(vt_mod.CompactCell, store_len) catch return 0;
+    for (0..store_len) |i| {
+        cells[i] = tmp_cells[i].toCompact();
+    }
 
     const line = ScrollLine{ .cells = cells, .len = num_cols };
     entry.scrollback.append(allocator, line);
@@ -1599,7 +1601,7 @@ fn copySelectionToClipboard(entry: *TermEntry) void {
                 const sb_idx = sb_len + row;
                 if (sb_idx >= 0 and sb_idx < sb_len) {
                     const line = entry.scrollback.get(@intCast(sb_idx));
-                    cell_val = if (col < line.cells.len) line.cells[col] else .{};
+                    cell_val = line.getCell(col);
                 } else cell_val = .{};
             } else {
                 cell_val = entry.vterm.getCell(@intCast(row), col);
@@ -1980,7 +1982,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 if (sb_idx >= 0 and sb_idx < sb_len) {
                     const line = entry.scrollback.get(@intCast(sb_idx));
                     if (col < line.cells.len) {
-                        cell = line.cells[col];
+                        cell = line.cells[col].toCell();
                     } else {
                         cell = .{};
                     }
@@ -2064,7 +2066,7 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
                 const sb_idx2 = sb_len + grid_row_i;
                 if (sb_idx2 >= 0 and sb_idx2 < sb_len) {
                     const line2 = entry.scrollback.get(@intCast(sb_idx2));
-                    cell2 = if (c2 < line2.cells.len) line2.cells[c2] else .{};
+                    cell2 = line2.getCell(c2);
                 } else cell2 = .{};
             } else {
                 cell2 = entry.vterm.getCell(@intCast(grid_row_i), c2);
@@ -2252,7 +2254,7 @@ fn fetchCell(entry: *TermEntry, grid_row_i: i32, col: u16, sb_len: i32) vt_mod.C
         const sb_idx = sb_len + grid_row_i;
         if (sb_idx >= 0 and sb_idx < sb_len) {
             const line = entry.scrollback.get(@intCast(sb_idx));
-            return if (col < line.cells.len) line.cells[col] else .{};
+            return line.getCell(col);
         }
         return .{};
     }
@@ -2440,7 +2442,7 @@ fn drawBoxDrawingChars(
             const sb_idx = sb_len + grid_row_i;
             if (sb_idx >= 0 and sb_idx < sb_len) {
                 const line = entry.scrollback.get(@intCast(sb_idx));
-                cell = if (col < line.cells.len) line.cells[col] else .{};
+                cell = line.getCell(col);
             } else cell = .{};
         } else {
             cell = entry.vterm.getCell(@intCast(grid_row_i), col);

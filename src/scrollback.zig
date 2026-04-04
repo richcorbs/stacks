@@ -6,12 +6,19 @@ const std = @import("std");
 const vt = @import("vt.zig");
 
 /// A single line of scrollback history.
+/// Uses CompactCell (20 bytes) instead of Cell (52 bytes) to reduce memory.
 pub const ScrollLine = struct {
-    cells: []vt.Cell,
+    cells: []vt.CompactCell,
     len: u16, // original line length (for proper wrapping)
 
     pub fn deinit(self: *ScrollLine, alloc: std.mem.Allocator) void {
         alloc.free(self.cells);
+    }
+
+    /// Get a cell as a full Cell for rendering.
+    pub fn getCell(self: *const ScrollLine, col: u16) vt.Cell {
+        if (col < self.cells.len) return self.cells[col].toCell();
+        return .{};
     }
 };
 
@@ -103,7 +110,7 @@ pub fn ScrollList(comptime max_capacity: usize) type {
 // ============================================================================
 
 fn makeTestLine(alloc: std.mem.Allocator, char: u32, width: usize) ScrollLine {
-    const cells = alloc.alloc(vt.Cell, width) catch unreachable;
+    const cells = alloc.alloc(vt.CompactCell, width) catch unreachable;
     for (cells) |*c| {
         c.* = .{};
         c.chars[0] = char;

@@ -61,6 +61,50 @@ pub const Cell = struct {
     italic: bool = false,
     underline: bool = false,
     reverse: bool = false,
+
+    /// Convert to compact cell for scrollback storage.
+    pub fn toCompact(self: Cell) CompactCell {
+        return .{
+            .chars = .{ self.chars[0], self.chars[1] },
+            .width = self.width,
+            .fg = self.fg,
+            .bg = self.bg,
+            .bold = self.bold,
+            .italic = self.italic,
+            .underline = self.underline,
+            .reverse = self.reverse,
+        };
+    }
+};
+
+/// Compact cell for scrollback storage — 20 bytes vs 52 for Cell.
+/// Stores only 2 codepoints inline (covers 99.9% of real cells).
+/// Rare cells with 3+ codepoints (ZWJ emoji) lose trailing codepoints
+/// in scrollback, which is acceptable for history display.
+pub const CompactCell = struct {
+    chars: [2]u32 = .{ 0, 0 },
+    width: u8 = 1,
+    fg: Color = DEFAULT_FG,
+    bg: Color = DEFAULT_BG,
+    bold: bool = false,
+    italic: bool = false,
+    underline: bool = false,
+    reverse: bool = false,
+
+    /// Convert back to full Cell for rendering.
+    pub fn toCell(self: CompactCell) Cell {
+        var cell = Cell{};
+        cell.chars[0] = self.chars[0];
+        cell.chars[1] = self.chars[1];
+        cell.width = self.width;
+        cell.fg = self.fg;
+        cell.bg = self.bg;
+        cell.bold = self.bold;
+        cell.italic = self.italic;
+        cell.underline = self.underline;
+        cell.reverse = self.reverse;
+        return cell;
+    }
 };
 
 /// Raw VTermScreenCell layout (56 bytes) — defined manually because
