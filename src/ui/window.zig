@@ -11,6 +11,7 @@ const objc = @import("../objc.zig");
 const app_mod = @import("../app.zig");
 const sidebar = @import("sidebar.zig");
 const term_text_view = @import("term_text_view.zig");
+const version = @import("../version.zig");
 
 // AppKit constants
 const NSWindowStyleMaskTitled: objc.NSUInteger = 1 << 0;
@@ -141,6 +142,7 @@ fn registerDelegateClass() ?objc.id {
     _ = objc.addMethod(cls, objc.sel("deleteProject:"), &onDeleteProject, "v@:@");
     _ = objc.addMethod(cls, objc.sel("editProject:"), &onEditProject, "v@:@");
     _ = objc.addMethod(cls, objc.sel("jumpToTerminal:"), &onJumpToTerminal, "v@:@");
+    _ = objc.addMethod(cls, objc.sel("showAbout:"), &onShowAbout, "v@:@");
 
     objc.registerClassPair(cls);
     return cls;
@@ -405,6 +407,102 @@ fn onAddTerminalToProject(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c)
 }
 fn onJumpToTerminal(_: objc.id, _: objc.SEL, sender: objc.id) callconv(.c) void {
     if (getTagFromSender(sender)) |n| sidebar.jumpToTerminal(n);
+}
+
+fn onShowAbout(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    const NSAlert = objc.getClass("NSAlert") orelse return;
+    const alert = objc.msgSend(NSAlert, objc.sel("new"));
+
+    objc.msgSendVoid1(alert, objc.sel("setMessageText:"), objc.nsString("Stacks"));
+
+    var info_buf: [512]u8 = undefined;
+    const info_text = std.fmt.bufPrint(&info_buf,
+        "A native macOS terminal emulator and multiplexer built for developers who organize their work around projects.\n\nVersion {s}",
+        .{version.string},
+    ) catch "Stacks terminal emulator";
+    objc.msgSendVoid1(alert, objc.sel("setInformativeText:"), objc.nsString(info_text));
+
+    // Load app icon: try bundle resource first, then fall back to source tree path
+    {
+        const NSImage = objc.getClass("NSImage") orelse return;
+        const initByRef: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const paths = [_][]const u8{
+            // Installed .app bundle path (relative to executable)
+            "../Resources/AppIcon.icns",
+        };
+        var icon_set = false;
+        for (paths) |_| {
+            // Try the bundle approach first
+            const NSBundle = objc.getClass("NSBundle") orelse break;
+            const bundle = objc.msgSend(NSBundle, objc.sel("mainBundle"));
+            const res_path = objc.msgSend2(bundle, objc.sel("pathForResource:ofType:"), objc.nsString("AppIcon"), objc.nsString("icns"));
+            if (@intFromPtr(res_path) != 0) {
+                const icon = initByRef(objc.msgSend(NSImage, objc.sel("alloc")), objc.sel("initByReferencingFile:"), res_path);
+                if (@intFromPtr(icon) != 0) {
+                    objc.msgSendVoid1(alert, objc.sel("setIcon:"), icon);
+                    icon_set = true;
+                }
+            }
+            break;
+        }
+        if (!icon_set) {
+            // Dev build: load from source tree
+            const NSFileManager = objc.getClass("NSFileManager") orelse return;
+            const fm = objc.msgSend(NSFileManager, objc.sel("defaultManager"));
+            // Get executable path and navigate to source tree
+            const NSProcessInfo = objc.getClass("NSProcessInfo") orelse return;
+            const pi = objc.msgSend(NSProcessInfo, objc.sel("processInfo"));
+            const args = objc.msgSend(pi, objc.sel("arguments"));
+            const exe_path = objc.msgSend1(args, objc.sel("objectAtIndex:"), @as(objc.NSUInteger, 0));
+            // Go up from zig-out/bin/stacks to project root, then into resources/
+            const exe_dir = objc.msgSend(exe_path, objc.sel("stringByDeletingLastPathComponent"));
+            const proj_root = objc.msgSend1(exe_dir, objc.sel("stringByAppendingPathComponent:"), objc.nsString("../../resources/AppIcon.icns"));
+            const std_path = objc.msgSend(proj_root, objc.sel("stringByStandardizingPath"));
+            const exists: *const fn (objc.id, objc.SEL, objc.id) callconv(.c) objc.BOOL =
+                @ptrCast(&objc.c.objc_msgSend);
+            if (exists(fm, objc.sel("fileExistsAtPath:"), std_path) == objc.YES) {
+                const icon = initByRef(objc.msgSend(NSImage, objc.sel("alloc")), objc.sel("initByReferencingFile:"), std_path);
+                if (@intFromPtr(icon) != 0) {
+                    objc.msgSendVoid1(alert, objc.sel("setIcon:"), icon);
+                }
+            }
+        }
+    }
+
+    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("OK"));
+    objc.msgSendVoid1(alert, objc.sel("addButtonWithTitle:"), objc.nsString("Release Notes"));
+
+    // Center over main window
+    const NSApp_class = objc.getClass("NSApplication") orelse return;
+    const nsapp = objc.msgSend(NSApp_class, objc.sel("sharedApplication"));
+    const main_window = objc.msgSend(nsapp, objc.sel("mainWindow"));
+    if (@intFromPtr(main_window) != 0) {
+        const alert_window = objc.msgSend(alert, objc.sel("window"));
+        objc.msgSendVoid(alert_window, objc.sel("layoutIfNeeded"));
+        const main_frame = objc.msgSendRect(main_window, objc.sel("frame"));
+        const alert_frame = objc.msgSendRect(alert_window, objc.sel("frame"));
+        const cx = main_frame.origin.x + (main_frame.size.width - alert_frame.size.width) / 2.0;
+        const cy = main_frame.origin.y + (main_frame.size.height - alert_frame.size.height) / 2.0;
+        const setFrameOrigin: *const fn (objc.id, objc.SEL, objc.NSPoint) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        setFrameOrigin(alert_window, objc.sel("setFrameOrigin:"), .{ .x = cx, .y = cy });
+    }
+
+    const NSAlertFirstButtonReturn: objc.NSUInteger = 1000;
+    const result = objc.msgSendUInt(alert, objc.sel("runModal"));
+    if (result == NSAlertFirstButtonReturn + 1) {
+        // "Release Notes" — open in browser
+        var url_buf: [256]u8 = undefined;
+        const notes_url = std.fmt.bufPrint(&url_buf, "https://github.com/richcorbs/stacks/releases", .{}) catch return;
+        const NSURL = objc.getClass("NSURL") orelse return;
+        const ns_url = objc.msgSend1(NSURL, objc.sel("URLWithString:"), objc.nsString(notes_url));
+        if (@intFromPtr(ns_url) != 0) {
+            const NSWorkspace = objc.getClass("NSWorkspace") orelse return;
+            const workspace = objc.msgSend(NSWorkspace, objc.sel("sharedWorkspace"));
+            objc.msgSendVoid1(workspace, objc.sel("openURL:"), ns_url);
+        }
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -839,6 +937,8 @@ fn createMainMenu(nsapp: objc.id) void {
         objc.sel("initWithTitle:"),
         objc.nsString("Stacks"),
     );
+    addMenuItem(app_menu, NSMenuItem, "About Stacks", "", "showAbout:");
+    addMenuSeparator(app_menu);
     addMenuItemNoTarget(app_menu, NSMenuItem, "Quit Stacks", "q", "terminate:");
     objc.msgSendVoid1(app_item, objc.sel("setSubmenu:"), app_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), app_item);
@@ -949,6 +1049,7 @@ fn createMainMenu(nsapp: objc.id) void {
     }
     objc.msgSendVoid1(shell_item, objc.sel("setSubmenu:"), shell_menu);
     objc.msgSendVoid1(menubar, objc.sel("addItem:"), shell_item);
+
 
     objc.msgSendVoid1(nsapp, objc.sel("setMainMenu:"), menubar);
 }
