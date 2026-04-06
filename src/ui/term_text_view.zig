@@ -441,6 +441,7 @@ pub fn layoutActiveSession(panel: objc.id) void {
     session.root.collectLeaves(allocator, &leaves);
 
     // Recursively add terminal views in the area below the header
+    cached_leaf_count = leaves.items.len;
     layoutNode(session.root, panel, term_bounds, session.focused_slot, leaves.items.len);
 
     // Sync all terminal sizes to their new frames
@@ -566,6 +567,7 @@ fn updateFocusBorders(session: *Session) void {
     var leaves: std.ArrayListUnmanaged(usize) = .{};
     defer leaves.deinit(allocator);
     session.root.collectLeaves(allocator, &leaves);
+    cached_leaf_count = leaves.items.len;
 
     for (leaves.items) |slot| {
         if (terminals[slot]) |*entry| {
@@ -579,6 +581,10 @@ fn updateFocusBorders(session: *Session) void {
                 const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.2, 0.24, 0.3, 1.0);
                 objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), objc.msgSend(color, objc.sel("CGColor")));
             }
+            // Redraw to update dim overlay on focus change
+            const setNeedsDisplay: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
+                @ptrCast(&objc.c.objc_msgSend);
+            setNeedsDisplay(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
         }
     }
 }
@@ -1903,6 +1909,29 @@ fn findEntry(view: objc.id) ?*TermEntry {
     return null;
 }
 
+const EntryAndSlot = struct { entry: *TermEntry, slot: usize };
+
+fn findEntryAndSlot(view: objc.id) ?EntryAndSlot {
+    for (&terminals, 0..) |*t, i| {
+        if (t.*) |*e| {
+            if (e.view == view) return .{ .entry = e, .slot = i };
+        }
+    }
+    return null;
+}
+
+/// Check if a terminal slot is an unfocused pane in a multi-pane session.
+/// Uses the cached leaf count to avoid allocating on every drawRect.
+fn isUnfocusedPane(slot: usize) bool {
+    const session_idx = active_session orelse return false;
+    const session = &(sessions[session_idx] orelse return false);
+    return cached_leaf_count > 1 and slot != session.focused_slot;
+}
+
+/// Cached number of leaves in the active session's split tree.
+/// Updated by layoutActiveSession and updateFocusBorders.
+var cached_leaf_count: usize = 1;
+
 // ---------------------------------------------------------------------------
 // Drawing
 // ---------------------------------------------------------------------------
@@ -1913,7 +1942,9 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
     const pool = objc.msgSend(NSAutoreleasePool, objc.sel("new"));
     defer objc.msgSendVoid(pool, objc.sel("drain"));
 
-    const entry = findEntry(self) orelse return;
+    const found = findEntryAndSlot(self) orelse return;
+    const entry = found.entry;
+    const self_slot = found.slot;
 
     // Get current graphics context
     const NSGraphicsContext = objc.getClass("NSGraphicsContext") orelse return;
@@ -2214,6 +2245,19 @@ fn drawRect(self: objc.id, _: objc.SEL, _: objc.NSRect) callconv(.c) void {
             entry.scroll_offset,
             entry.image_state.total_scrolled,
         );
+    }
+
+    // Dim unfocused panes with a semi-transparent overlay
+    if (isUnfocusedPane(self_slot)) {
+        const dim_bg = vt_mod.DEFAULT_BG;
+        CG.CGContextSetRGBFillColor(
+            cgctx,
+            @as(f64, @floatFromInt(dim_bg.r)) / 255.0,
+            @as(f64, @floatFromInt(dim_bg.g)) / 255.0,
+            @as(f64, @floatFromInt(dim_bg.b)) / 255.0,
+            0.5,
+        );
+        CG.CGContextFillRect(cgctx, view_bounds);
     }
 }
 
