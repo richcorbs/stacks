@@ -168,14 +168,45 @@ pub const Pty = struct {
     }
 
     /// Close the PTY. Safe to call multiple times.
+    ///
+    /// We terminate the entire terminal process group, not just the shell PID,
+    /// so jobs started inside the shell (e.g. servers) do not survive pane/session
+    /// deletion. forkpty creates the child with a controlling terminal and its own
+    /// session/process group, so signalling -child_pid targets that terminal job tree.
     pub fn close(self: *Pty) void {
         if (self.master_fd >= 0) {
             _ = c.close(self.master_fd);
             self.master_fd = -1;
         }
         if (self.child_pid > 0) {
-            _ = c.kill(self.child_pid, c.SIGTERM);
-            _ = c.waitpid(self.child_pid, null, c.WNOHANG);
+            const pgid = -self.child_pid;
+
+            // Ask the whole terminal process group to exit cleanly first.
+            _ = c.kill(pgid, c.SIGTERM);
+
+            var status: c_int = 0;
+            var exited = false;
+            var attempts: usize = 0;
+            while (attempts < 50) : (attempts += 1) {
+                const result = c.waitpid(self.child_pid, &status, c.WNOHANG);
+                if (result > 0) {
+                    exited = true;
+                    break;
+                }
+                _ = c.usleep(10_000); // 10ms, up to 500ms total
+            }
+
+            // If the shell did not exit, force-kill the whole process group.
+            if (!exited) {
+                _ = c.kill(pgid, c.SIGKILL);
+                attempts = 0;
+                while (attempts < 50) : (attempts += 1) {
+                    const result = c.waitpid(self.child_pid, &status, c.WNOHANG);
+                    if (result > 0) break;
+                    _ = c.usleep(10_000); // another 500ms max
+                }
+            }
+
             self.child_pid = -1;
         }
         self.exited = true;
