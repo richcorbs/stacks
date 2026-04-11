@@ -23,11 +23,25 @@ pub const Project = struct {
     name: []const u8,
     path: []const u8,
     terminals: std.array_list.AlignedManaged(Terminal, null),
+    collapsed: bool = false,
     item_names: ItemNames = .{},
     item_visibility: ItemVisibility = .{},
 
-    pub fn deinit(self: *Project) void {
+    pub fn deinit(self: *Project, allocator: std.mem.Allocator) void {
+        allocator.free(self.id);
+        allocator.free(self.name);
+        allocator.free(self.path);
+        for (self.terminals.items) |t| {
+            allocator.free(t.id);
+            allocator.free(t.name);
+            if (t.command) |cmd| allocator.free(cmd);
+            if (t.splits) |splits| allocator.free(splits);
+            if (t.cwd) |cwd| allocator.free(cwd);
+        }
         self.terminals.deinit();
+        if (@intFromPtr(self.item_names.git.ptr) != @intFromPtr("Git".ptr)) {
+            allocator.free(self.item_names.git);
+        }
     }
 };
 
@@ -58,7 +72,7 @@ pub const ProjectStore = struct {
     }
 
     pub fn deinit(self: *ProjectStore) void {
-        for (self.projects.items) |*p| p.deinit();
+        for (self.projects.items) |*p| p.deinit(self.allocator);
         self.projects.deinit();
         self.allocator.free(self.file_path);
     }
@@ -168,6 +182,12 @@ pub const ProjectStore = struct {
         try self.save();
     }
 
+    pub fn setProjectCollapsed(self: *ProjectStore, project_id: []const u8, collapsed: bool) !void {
+        const project = self.findById(project_id) orelse return error.ProjectNotFound;
+        project.collapsed = collapsed;
+        try self.save();
+    }
+
     /// Reorder projects by ID list.
     pub fn reorder(self: *ProjectStore, ordered_ids: []const []const u8) !void {
         var new_list = std.array_list.AlignedManaged(Project, null).init(self.allocator);
@@ -231,6 +251,7 @@ pub const ProjectStore = struct {
             try w.print("    \"id\": \"{s}\",\n", .{p.id});
             try w.print("    \"name\": \"{s}\",\n", .{p.name});
             try w.print("    \"path\": \"{s}\",\n", .{p.path});
+            try w.print("    \"collapsed\": {s},\n", .{if (p.collapsed) "true" else "false"});
             try w.writeAll("    \"terminals\": [");
             for (p.terminals.items, 0..) |t, ti| {
                 if (ti > 0) try w.writeAll(", ");
@@ -286,6 +307,9 @@ pub const ProjectStore = struct {
             const id = try self.allocator.dupe(u8, id_val.string);
             const name = try self.allocator.dupe(u8, name_val.string);
             const path = try self.allocator.dupe(u8, path_val.string);
+            const collapsed = if (obj.get("collapsed")) |cv| blk: {
+                break :blk if (cv == .bool) cv.bool else false;
+            } else false;
 
             var terminals = std.array_list.AlignedManaged(Terminal, null).init(self.allocator);
 
@@ -344,6 +368,7 @@ pub const ProjectStore = struct {
                 .name = name,
                 .path = path,
                 .terminals = terminals,
+                .collapsed = collapsed,
                 .item_names = item_names,
                 .item_visibility = item_visibility,
             });
@@ -399,4 +424,24 @@ test "updateProject skips empty name or path" {
     const updated2 = store.findById(proj_id).?;
     try std.testing.expectEqualStrings("New Name", updated2.name);
     try std.testing.expectEqualStrings("/tmp/new-path", updated2.path);
+}
+
+test "setProjectCollapsed updates persisted state" {
+    const allocator = std.testing.allocator;
+    var store = try ProjectStore.init(allocator);
+    defer store.deinit();
+
+    const proj = try store.addProject("/tmp/collapsible-project");
+    const proj_id = try allocator.dupe(u8, proj.id);
+    defer allocator.free(proj_id);
+
+    try std.testing.expect(!proj.collapsed);
+
+    try store.setProjectCollapsed(proj_id, true);
+    const updated = store.findById(proj_id).?;
+    try std.testing.expect(updated.collapsed);
+
+    try store.setProjectCollapsed(proj_id, false);
+    const updated2 = store.findById(proj_id).?;
+    try std.testing.expect(!updated2.collapsed);
 }

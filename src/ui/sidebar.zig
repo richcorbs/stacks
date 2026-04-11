@@ -112,6 +112,15 @@ fn newAutorelease(cls: objc.id) objc.id {
     return objc.msgSend(obj, objc.sel("autorelease"));
 }
 
+fn toggleProjectCollapsed(project_index: usize) void {
+    const app = g_sidebar_app orelse return;
+    const projs = app.projects();
+    if (project_index >= projs.len) return;
+    const proj = projs[project_index];
+    app.store.setProjectCollapsed(proj.id, !proj.collapsed) catch return;
+    rebuildSidebar(app);
+}
+
 pub fn rebuildSidebar(application: *app_mod.App) void {
     // Wrap in autorelease pool — all views created during rebuild are autoreleased.
     // They survive because addSubview: retains them. When removeAllSubviews is called
@@ -132,26 +141,28 @@ pub fn rebuildSidebar(application: *app_mod.App) void {
 
     // Add a row for each project
     var y_offset: objc.CGFloat = 0;
-    const row_height: objc.CGFloat = 36.0;
+    const row_height: objc.CGFloat = 30.0;
     const sub_row_height: objc.CGFloat = 28.0;
 
     for (application.projects(), 0..) |proj, proj_i| {
         // Project header row
-        const row = createProjectRow(proj.name, y_offset, row_height, true, proj_i, false);
+        const row = createProjectRow(proj.name, y_offset, row_height, true, proj_i, proj.collapsed);
         objc.msgSendVoid1(list_view, objc.sel("addSubview:"), row);
         y_offset += row_height;
 
-        // Terminal sub-items (clickable)
-        for (proj.terminals.items, 0..) |term, ti| {
-            const term_info_idx = term_row_info_count;
-            const term_row = createTerminalRow(term.name, proj.path, term.command, proj.id, term.id, y_offset, sub_row_height, ti, false);
-            objc.msgSendVoid1(list_view, objc.sel("addSubview:"), term_row);
-            y_offset += sub_row_height;
+        if (!proj.collapsed) {
+            // Terminal sub-items (clickable)
+            for (proj.terminals.items, 0..) |term, ti| {
+                const term_info_idx = term_row_info_count;
+                const term_row = createTerminalRow(term.name, proj.path, term.command, proj.id, term.id, y_offset, sub_row_height, ti, false);
+                objc.msgSendVoid1(list_view, objc.sel("addSubview:"), term_row);
+                y_offset += sub_row_height;
 
-            // Register as nav item
-            if (nav_item_count < nav_items.len) {
-                nav_items[nav_item_count] = term_info_idx;
-                nav_item_count += 1;
+                // Register as nav item
+                if (nav_item_count < nav_items.len) {
+                    nav_items[nav_item_count] = term_info_idx;
+                    nav_item_count += 1;
+                }
             }
         }
 
@@ -252,7 +263,11 @@ fn createProjectRow(name: []const u8, y_offset: objc.CGFloat, height: objc.CGFlo
 
     // Position label within row
     const indent: objc.CGFloat = if (is_header) 16.0 else 32.0;
-    centerVertically(label, row);
+    if (is_header) {
+        centerVerticallyOffset(label, row, 2.5);
+    } else {
+        centerVertically(label, row);
+    }
     pinLeading(label, row, indent);
 
     // Store project index for drag (use PROJECT_IDX_OFFSET to distinguish from terminal indices)
@@ -538,9 +553,13 @@ fn dragRowMouseUp(self: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void 
             }
         }
     } else {
-        // Was just a click, not a drag — forward to the button inside
+        // Was just a click, not a drag.
         if (getRowInfoIdx(self)) |idx| {
-            openTerminalAtIndex(idx);
+            if (idx >= PROJECT_IDX_OFFSET) {
+                toggleProjectCollapsed(idx - PROJECT_IDX_OFFSET);
+            } else {
+                openTerminalAtIndex(idx);
+            }
         }
     }
     drag_state = .{};
@@ -591,14 +610,15 @@ fn updateDropTarget(doc_y: objc.CGFloat) void {
     const app = g_sidebar_app orelse return;
     const projs = app.projects();
 
-    const row_h: objc.CGFloat = 36.0;
+    const row_h: objc.CGFloat = 30.0;
     const sub_h: objc.CGFloat = 28.0;
 
     if (drag_state.kind == .project) {
         // Project-level reorder: find which project slot the cursor is over
         var y: objc.CGFloat = 0;
         for (projs, 0..) |proj, pi| {
-            const proj_height = row_h + sub_h * @as(objc.CGFloat, @floatFromInt(proj.terminals.items.len)) + 9 + 1;
+            const visible_term_count = if (proj.collapsed) 0 else proj.terminals.items.len;
+            const proj_height = row_h + sub_h * @as(objc.CGFloat, @floatFromInt(visible_term_count)) + 9 + 1;
             if (doc_y < y + proj_height / 2) {
                 drag_state.drop_project_idx = pi;
                 moveDragIndicator(y);
@@ -617,7 +637,7 @@ fn updateDropTarget(doc_y: objc.CGFloat) void {
     for (projs, 0..) |proj, pi| {
         if (!std.mem.eql(u8, proj.id, drag_state.project_id)) {
             y += row_h;
-            y += sub_h * @as(objc.CGFloat, @floatFromInt(proj.terminals.items.len));
+            if (!proj.collapsed) y += sub_h * @as(objc.CGFloat, @floatFromInt(proj.terminals.items.len));
             y += 9 + 1; // spacing + separator
             continue;
         }
@@ -1110,13 +1130,19 @@ fn setHeight(view: objc.id, height: objc.CGFloat) void {
 }
 
 fn centerVertically(child: objc.id, parent: objc.id) void {
+    centerVerticallyOffset(child, parent, 0);
+}
+
+fn centerVerticallyOffset(child: objc.id, parent: objc.id, offset: objc.CGFloat) void {
     const setTranslates: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     setTranslates(child, objc.sel("setTranslatesAutoresizingMaskIntoConstraints:"), objc.NO);
 
     const c_anchor = objc.msgSend(child, objc.sel("centerYAnchor"));
     const p_anchor = objc.msgSend(parent, objc.sel("centerYAnchor"));
-    const constraint = objc.msgSend1(c_anchor, objc.sel("constraintEqualToAnchor:"), p_anchor);
+    const constraintFn: *const fn (objc.id, objc.SEL, objc.id, objc.CGFloat) callconv(.c) objc.id =
+        @ptrCast(&objc.c.objc_msgSend);
+    const constraint = constraintFn(c_anchor, objc.sel("constraintEqualToAnchor:constant:"), p_anchor, offset);
     const activate: *const fn (objc.id, objc.SEL, objc.BOOL) callconv(.c) void =
         @ptrCast(&objc.c.objc_msgSend);
     activate(constraint, objc.sel("setActive:"), objc.YES);
