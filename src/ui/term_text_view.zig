@@ -1670,14 +1670,20 @@ fn copySelectionToClipboard(entry: *TermEntry) void {
     objc.msgSendVoid2(pb, objc.sel("setString:forType:"), ns_str, pb_type);
 
     // Show toast
-    showCopiedToast(entry.view);
+    showToast(entry.view, "Copied to clipboard");
 }
 
 var toast_view: ?objc.id = null;
 var toast_timer: ?objc.id = null;
 var toast_helper_class: ?objc.id = null;
 
-fn showCopiedToast(term_view: objc.id) void {
+pub fn showToastMessage(message: []const u8) void {
+    const window_ui = @import("window.zig");
+    const panel = window_ui.main_panel_view orelse return;
+    showToast(panel, message);
+}
+
+fn showToast(term_view: objc.id, message: []const u8) void {
     // Remove existing toast
     if (toast_view) |tv| {
         objc.msgSendVoid(tv, objc.sel("removeFromSuperview"));
@@ -1695,7 +1701,7 @@ fn showCopiedToast(term_view: objc.id) void {
     const window_ui = @import("window.zig");
     const panel = window_ui.main_panel_view orelse term_view;
     const bounds = objc.msgSendRect(panel, objc.sel("bounds"));
-    const toast_w: f64 = 200;
+    const toast_w: f64 = 320;
     const toast_h: f64 = 36;
     const toast_x = (bounds.size.width - toast_w) / 2;
     const toast_y = (bounds.size.height - toast_h) / 2;
@@ -1717,7 +1723,7 @@ fn showCopiedToast(term_view: objc.id) void {
     setCornerRadius(layer, objc.sel("setCornerRadius:"), 6.0);
 
     // Label
-    const label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString("Copied to clipboard"));
+    const label = objc.msgSend1(NSTextField, objc.sel("labelWithString:"), objc.nsString(message));
     setFrame(label, objc.sel("setFrame:"), objc.NSMakeRect(0, 10, toast_w, 16));
 
     const NSFont = objc.getClass("NSFont") orelse return;

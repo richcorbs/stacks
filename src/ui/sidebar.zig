@@ -117,6 +117,19 @@ fn toggleProjectCollapsed(project_index: usize) void {
     const projs = app.projects();
     if (project_index >= projs.len) return;
     const proj = projs[project_index];
+
+    // Don't allow collapsing the project that owns the currently active terminal.
+    if (!proj.collapsed) {
+        if (term_text_view.getActiveTerminalId()) |active_tid| {
+            for (proj.terminals.items) |t| {
+                if (std.mem.eql(u8, t.id, active_tid)) {
+                    term_text_view.showToastMessage("Can't collapse project with focused terminal");
+                    return;
+                }
+            }
+        }
+    }
+
     app.store.setProjectCollapsed(proj.id, !proj.collapsed) catch return;
     rebuildSidebar(app);
 }
