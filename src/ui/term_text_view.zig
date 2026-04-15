@@ -388,6 +388,7 @@ pub fn getOrCreateSession(terminal_id: []const u8, cwd: []const u8, command: ?[]
     sessions[session_slot] = .{
         .root = root,
         .focused_slot = focused,
+        .maximized_slot = null,
         .cwd = cwd,
         .command = command,
         .terminal_id = id_copy,
@@ -441,11 +442,27 @@ pub fn layoutActiveSession(panel: objc.id) void {
     session.root.collectLeaves(allocator, &leaves);
 
     // Recursively add terminal views in the area below the header
-    cached_leaf_count = leaves.items.len;
-    layoutNode(session.root, panel, term_bounds, session.focused_slot, leaves.items.len);
+    var visible_slots: [MAX_TERMS]usize = undefined;
+    var visible_count: usize = 0;
+    if (session.maximized_slot) |slot| {
+        if (session.root.findLeaf(slot)) |maximized_leaf| {
+            cached_leaf_count = 1;
+            layoutNode(maximized_leaf, panel, term_bounds, session.focused_slot, session.maximized_slot, 1);
+            visible_slots[0] = slot;
+            visible_count = 1;
+        } else {
+            session.maximized_slot = null;
+        }
+    }
+    if (visible_count == 0) {
+        cached_leaf_count = leaves.items.len;
+        layoutNode(session.root, panel, term_bounds, session.focused_slot, session.maximized_slot, leaves.items.len);
+        for (leaves.items, 0..) |slot, i| visible_slots[i] = slot;
+        visible_count = leaves.items.len;
+    }
 
-    // Sync all terminal sizes to their new frames
-    for (leaves.items) |slot| {
+    // Sync visible terminal sizes to their new frames
+    for (visible_slots[0..visible_count]) |slot| {
         if (slot < MAX_TERMS) {
             if (terminals[slot]) |*entry| {
                 syncTermSize(entry);
@@ -465,7 +482,7 @@ pub fn layoutActiveSession(panel: objc.id) void {
     }
 }
 
-fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot: usize, leaf_count: usize) void {
+fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot: usize, maximized_slot: ?usize, leaf_count: usize) void {
     switch (node.*) {
         .leaf => |slot| {
             if (slot < MAX_TERMS) {
@@ -497,7 +514,10 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
                         const NSColor = objc.getClass("NSColor") orelse return;
                         const colorWith: *const fn (objc.id, objc.SEL, objc.CGFloat, objc.CGFloat, objc.CGFloat, objc.CGFloat) callconv(.c) objc.id =
                             @ptrCast(&objc.c.objc_msgSend);
-                        const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
+                        const color = if (maximized_slot != null and maximized_slot.? == slot)
+                            colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.72, 1.0, 0.20, 1.0)
+                        else
+                            colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
                         const cgColor = objc.msgSend(color, objc.sel("CGColor"));
                         objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), cgColor);
                     } else {
@@ -532,8 +552,8 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
                     divider_count += 1;
                 }
 
-                layoutNode(s.first, parent, first_rect, focused_slot, leaf_count);
-                layoutNode(s.second, parent, second_rect, focused_slot, leaf_count);
+                layoutNode(s.first, parent, first_rect, focused_slot, maximized_slot, leaf_count);
+                layoutNode(s.second, parent, second_rect, focused_slot, maximized_slot, leaf_count);
             } else {
                 const first_h = (rect.size.height - gap) * s.ratio;
                 const second_h = rect.size.height - gap - first_h;
@@ -549,8 +569,8 @@ fn layoutNode(node: *SplitNode, parent: objc.id, rect: objc.NSRect, focused_slot
                     divider_count += 1;
                 }
 
-                layoutNode(s.first, parent, first_rect, focused_slot, leaf_count);
-                layoutNode(s.second, parent, second_rect, focused_slot, leaf_count);
+                layoutNode(s.first, parent, first_rect, focused_slot, maximized_slot, leaf_count);
+                layoutNode(s.second, parent, second_rect, focused_slot, maximized_slot, leaf_count);
             }
         },
     }
@@ -574,7 +594,10 @@ fn updateFocusBorders(session: *Session) void {
             const layer = objc.msgSend(entry.view, objc.sel("layer"));
             if (shouldShowFocusBorder(slot, session.focused_slot, leaves.items.len, entry)) {
                 setBorderWidth(layer, objc.sel("setBorderWidth:"), 1.0);
-                const color = colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
+                const color = if (session.maximized_slot != null and session.maximized_slot.? == slot)
+                    colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.72, 1.0, 0.20, 1.0)
+                else
+                    colorWith(NSColor, objc.sel("colorWithRed:green:blue:alpha:"), 0.29, 0.565, 0.851, 1.0);
                 objc.msgSendVoid1(layer, objc.sel("setBorderColor:"), objc.msgSend(color, objc.sel("CGColor")));
             } else {
                 setBorderWidth(layer, objc.sel("setBorderWidth:"), 0.5);
@@ -587,6 +610,29 @@ fn updateFocusBorders(session: *Session) void {
             setNeedsDisplay(entry.view, objc.sel("setNeedsDisplay:"), objc.YES);
         }
     }
+}
+
+/// Toggle whether the focused pane is temporarily maximized.
+pub fn toggleFocusedMaximized() bool {
+    const session_idx = active_session orelse return false;
+    if (session_idx >= MAX_TERMS) return false;
+    const session = &(sessions[session_idx] orelse return false);
+
+    var leaves: std.ArrayListUnmanaged(usize) = .{};
+    defer leaves.deinit(allocator);
+    session.root.collectLeaves(allocator, &leaves);
+    if (leaves.items.len <= 1) return false;
+
+    if (session.maximized_slot) |slot| {
+        if (slot == session.focused_slot) {
+            session.maximized_slot = null;
+        } else {
+            session.maximized_slot = session.focused_slot;
+        }
+    } else {
+        session.maximized_slot = session.focused_slot;
+    }
+    return true;
 }
 
 /// Split the focused pane in the active session.
@@ -624,6 +670,7 @@ pub fn splitFocused(direction: SplitDirection) void {
     session.root.rebalanceAxis(direction);
 
     session.focused_slot = new_slot;
+    if (session.maximized_slot != null) session.maximized_slot = new_slot;
 
     // Persist split layout
     saveSplitState();
@@ -670,6 +717,9 @@ pub fn closeFocusedPane() void {
     parent_node.collectLeaves(allocator, &leaves);
     if (leaves.items.len > 0) {
         session.focused_slot = leaves.items[0];
+        if (session.maximized_slot != null) {
+            session.maximized_slot = if (leaves.items.len > 1) session.focused_slot else null;
+        }
         // Make the new focused pane the first responder for keyboard input
         if (terminals[leaves.items[0]]) |*entry| {
             const win = objc.msgSend(entry.view, objc.sel("window"));
@@ -703,6 +753,7 @@ pub fn cycleFocus(forward: bool) void {
             else
                 leaves.items[(i + leaves.items.len - 1) % leaves.items.len];
             session.focused_slot = new_slot;
+            if (session.maximized_slot != null) session.maximized_slot = new_slot;
 
             // Respawn shell if the newly focused pane is empty (process exited)
             if (new_slot < MAX_TERMS) {
@@ -1174,7 +1225,7 @@ pub fn destroyAllTerminals() void {
 
 fn registerTermViewClass() ?objc.id {
     const NSView = objc.getClass("NSView") orelse return null;
-    const cls = objc.allocateClassPair(NSView, "TermGridView2") orelse return null;
+    const cls = objc.allocateClassPair(NSView, "TermGridView3") orelse return null;
     _ = objc.addMethod(cls, objc.sel("drawRect:"), &drawRect, "v@:{CGRect=dddd}");
     _ = objc.addMethod(cls, objc.sel("keyDown:"), &termKeyDown, "v@:@");
     _ = objc.addMethod(cls, objc.sel("mouseDown:"), &termMouseDown, "v@:@");
@@ -1189,6 +1240,7 @@ fn registerTermViewClass() ?objc.id {
     // Drag-and-drop destination
     _ = objc.addMethod(cls, objc.sel("draggingEntered:"), &termDragEntered, "Q@:@");
     _ = objc.addMethod(cls, objc.sel("performDragOperation:"), &termPerformDrag, "B@:@");
+    _ = objc.addMethod(cls, objc.sel("togglePaneMaximized:"), &termTogglePaneMaximizedAction, "v@:@");
     // Font size shortcuts (⌘= ⌘- ⌘0) need deferred handling via pending_font_delta,
     // so we intercept them here before the menu system sees them.
     _ = objc.addMethod(cls, objc.sel("performKeyEquivalent:"), &termPerformKeyEquivalent, "B@:@");
@@ -1214,6 +1266,11 @@ fn termIncreaseFontAction(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void
 }
 fn termDecreaseFontAction(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
     adjustFontSize(-1.0);
+}
+fn termTogglePaneMaximizedAction(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) void {
+    if (!toggleFocusedMaximized()) return;
+    const panel = @import("window.zig").main_panel_view orelse return;
+    layoutActiveSession(panel);
 }
 
 fn termPerformKeyEquiv(_: objc.id, _: objc.SEL, _: objc.id) callconv(.c) objc.BOOL {
@@ -2552,7 +2609,6 @@ fn termPerformKeyEquivalent(_: objc.id, _: objc.SEL, event: objc.id) callconv(.c
     const has_cmd = (flags & (1 << 20)) != 0;
     if (!has_cmd) return objc.NO;
     const has_shift = (flags & (1 << 17)) != 0;
-    if (has_shift) return objc.NO; // all ⌘⇧ combos handled by menu
 
     const keyCodeFn: *const fn (objc.id, objc.SEL) callconv(.c) u16 =
         @ptrCast(&objc.c.objc_msgSend);
@@ -2561,9 +2617,18 @@ fn termPerformKeyEquivalent(_: objc.id, _: objc.SEL, event: objc.id) callconv(.c
     // Font size changes use pending_font_delta (deferred to pollTick)
     // so they can't go through the menu system.
     switch (code) {
-        24 => pending_font_delta = 1.0,    // ⌘=
-        27 => pending_font_delta = -1.0,   // ⌘-
-        29 => pending_font_reset = true,    // ⌘0
+        24 => {
+            if (has_shift) return objc.NO;
+            pending_font_delta = 1.0;
+        }, // ⌘=
+        27 => {
+            if (has_shift) return objc.NO;
+            pending_font_delta = -1.0;
+        }, // ⌘-
+        29 => {
+            if (has_shift) return objc.NO;
+            pending_font_reset = true;
+        }, // ⌘0
         else => return objc.NO, // let menu system handle everything else
     }
     return objc.YES;

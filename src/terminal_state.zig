@@ -34,6 +34,7 @@ pub const TermEntry = struct {
 pub const Session = struct {
     root: *split_tree.SplitNode,
     focused_slot: usize,
+    maximized_slot: ?usize = null,
     cwd: []const u8,
     command: ?[]const u8,
     terminal_id: []const u8,

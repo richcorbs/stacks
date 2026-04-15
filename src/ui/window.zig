@@ -107,7 +107,7 @@ fn windowFlagsChanged(_: objc.id, _: objc.SEL, event: objc.id) callconv(.c) void
 
 fn registerDelegateClass() ?objc.id {
     const NSObject = objc.getClass("NSObject") orelse return null;
-    const cls = objc.allocateClassPair(NSObject, "MyTermAppDelegate2") orelse return null;
+    const cls = objc.allocateClassPair(NSObject, "MyTermAppDelegate3") orelse return null;
 
     // Lifecycle
     _ = objc.addMethod(cls, objc.sel("applicationDidFinishLaunching:"), &appDidFinishLaunching, "v@:@");
@@ -1017,6 +1017,22 @@ fn createMainMenu(nsapp: objc.id) void {
     // Terminal actions
     addMenuItem(shell_menu, NSMenuItem, "Clear Terminal", "k", "clearTerminal:");
     addMenuItem(shell_menu, NSMenuItem, "Paste", "v", "pasteTerminal:");
+    {
+        const initItem: *const fn (objc.id, objc.SEL, objc.id, objc.SEL, objc.id) callconv(.c) objc.id =
+            @ptrCast(&objc.c.objc_msgSend);
+        const setMask: *const fn (objc.id, objc.SEL, objc.NSUInteger) callconv(.c) void =
+            @ptrCast(&objc.c.objc_msgSend);
+        const cmd_shift = (1 << 20) | (1 << 17);
+        const item = initItem(
+            objc.msgSend(NSMenuItem, objc.sel("alloc")),
+            objc.sel("initWithTitle:action:keyEquivalent:"),
+            objc.nsString("Maximize Pane"),
+            objc.sel("togglePaneMaximized:"),
+            objc.nsString("\r"),
+        );
+        setMask(item, objc.sel("setKeyEquivalentModifierMask:"), cmd_shift);
+        objc.msgSendVoid1(shell_menu, objc.sel("addItem:"), item);
+    }
     addMenuSeparator(shell_menu);
 
     // Quick jump (⌘1-9)
