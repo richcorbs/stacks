@@ -16,17 +16,20 @@
 
 - **Project/group management** — organize terminals by renamable project/group (see screenshot: Arcasa, Stacks, Oz, TestToolbox Upgrade)
 - **Multiple terminals per project/group** — each with optional startup commands (Startup commands like pi, claude, npm run dev, etc. See screenshot: Agent (both instances have startup commands), ST-793, ST-1231...I create a terminal inside a project for each feature (ST-793, ST-1231, etc) and use worktrees + agents in each terminal to get work done.)
-- **Split panes** — horizontal (⌘D) and vertical (⇧⌘D) splits with draggable resizing (see screenshot)
-- **Sidebar** — drag-and-drop reordering of terminals and projects/groups (see screenshot)
+- **Split panes** — horizontal (⌘D) and vertical (⇧⌘D) splits with draggable resizing, plus temporary pane maximize/restore for the focused split (⇧⌘Enter)
+- **Sidebar** — drag-and-drop reordering, collapsible projects, and persisted project expansion state across launches
 - **Full terminal emulation** — via libvterm (xterm-256color)
 - **Scrollback** — 10,000 line history with mouse wheel scrolling
 - **Git branch display** — header bar shows branch and change count from the terminal's live cwd (screenshot: top right)
 - **Copy/paste** — select to copy, ⌘V to paste with bracketed paste mode
+- **Inline images** — supports the Kitty graphics protocol for terminal apps that render images inline
 - **File drag-and-drop** — drop files into terminal panes (auto-escapes paths)
 - **Bell notifications** — blue dot in sidebar for background terminal activity
+- **Pane focus cues** — unfocused split panes are dimmed so it’s obvious where keyboard input will go
 - **Process status indicators** — green/gray dots for command-based terminals (running = green, gray = not running, see screenshot)
-- **Persistent state** — projects, terminals, splits, cwds, font size, and window frame saved across launches
+- **Persistent state** — projects, terminals, collapsed sidebar state, splits, cwds, font size, and window frame saved across launches
 - **Auto-update** — checks GitHub releases on startup and hourly, with in-app update dialog
+- **About dialog** — in-app version info with a release notes link
 - **Speech-to-text** — dictate into terminals via macOS Speech framework (hold Shift)
 - **Box-drawing rendering** — Unicode box characters drawn with CoreGraphics for pixel-perfect table borders
 
@@ -39,6 +42,7 @@
 | ⇧⌘D | Split vertical |
 | ⌘W | Close pane |
 | ⌘] / ⌘[ | Cycle focus between panes |
+| ⇧⌘Enter | Maximize/restore focused pane |
 | ⌘= / ⌘- / ⌘0 | Font size increase/decrease/reset |
 | ⌘⇧] / ⌘⇧[ | Navigate sidebar (highlight only) |
 | ⌘Enter | Activate highlighted sidebar item |
