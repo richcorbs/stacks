@@ -198,8 +198,11 @@ pub fn showDeleteTerminalDialog(info_index: usize) void {
         next_terminal_id = sidebar.findNeighborTerminal(info_index);
     }
 
-    _ = application.store.deleteTerminal(info.project_id, info.terminal_id) catch {};
+    // Destroy the in-memory session before deleting the store entry.
+    // `info.terminal_id` points into store-owned memory, so deleting first can
+    // free the ID before destroySession() compares against it.
     term_text_view.destroySession(info.terminal_id);
+    _ = application.store.deleteTerminal(info.project_id, info.terminal_id) catch {};
     sidebar.clearSelection();
     sidebar.rebuildSidebar(application);
 
