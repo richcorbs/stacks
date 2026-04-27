@@ -809,7 +809,7 @@ fn createTerminalRow(name: []const u8, project_path: []const u8, command: ?[]con
     if (bell_session_idx) |bsi| {
         if (bsi < term_text_view.bell_active.len and term_text_view.bell_active[bsi]) {
             const dot = newAutorelease(objc.getClass("NSView") orelse unreachable);
-            setFrame(dot, objc.sel("setFrame:"), objc.NSMakeRect(18 - pill_inset, (height - 8) / 2, 8, 8));
+            setFrame(dot, objc.sel("setFrame:"), objc.NSMakeRect(14 - pill_inset, (height - 8) / 2, 8, 8));
             setBool(dot, objc.sel("setWantsLayer:"), objc.YES);
             const dot_layer = objc.msgSend(dot, objc.sel("layer"));
             setLayerBgColor(dot_layer, 0.29, 0.565, 0.851); // blue #4a90d9
