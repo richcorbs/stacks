@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_NAME="Stacks Tauri.app"
+APP_NAME="Stacks.app"
+OLD_APP_NAME="Stacks Tauri.app"
 BUNDLE_ID="com.richcorbs.stacks-tauri"
 BUILT_APP="$ROOT_DIR/src-tauri/target/release/bundle/macos/$APP_NAME"
 DEST_DIR="${DEST_DIR:-$HOME/Applications}"
@@ -15,8 +16,8 @@ Usage: ./install.sh [--system]
 
 Copies the built macOS app to a dogfooding location.
 
-Default:   ~/Applications/Stacks Tauri.app
---system:  /Applications/Stacks Tauri.app  may prompt for sudo
+Default:   ~/Applications/Stacks.app
+--system:  /Applications/Stacks.app  may prompt for sudo
 
 Set DEST_DIR=/some/path to override the destination directory.
 If the app has not been built yet, this script runs: npm run tauri build
@@ -37,6 +38,7 @@ fi
 
 mkdir -p "$DEST_DIR" 2>/dev/null || true
 DEST_APP="$DEST_DIR/$APP_NAME"
+OLD_DEST_APP="$DEST_DIR/$OLD_APP_NAME"
 
 quit_running_app() {
   if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
@@ -68,14 +70,14 @@ quit_running_app() {
 
 copy_app() {
   quit_running_app
-  rm -rf "$DEST_APP"
+  rm -rf "$DEST_APP" "$OLD_DEST_APP"
   ditto "$BUILT_APP" "$DEST_APP"
 }
 
 if [[ ! -w "$DEST_DIR" ]]; then
   echo "Installing to $DEST_DIR requires elevated permissions."
   sudo mkdir -p "$DEST_DIR"
-  sudo rm -rf "$DEST_APP"
+  sudo rm -rf "$DEST_APP" "$OLD_DEST_APP"
   sudo ditto "$BUILT_APP" "$DEST_APP"
   sudo xattr -dr com.apple.quarantine "$DEST_APP" 2>/dev/null || true
 else
