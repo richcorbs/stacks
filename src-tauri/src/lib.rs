@@ -1,7 +1,7 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io::{Read, Write}, path::PathBuf, process::Command, sync::Mutex, thread};
-use tauri::{Emitter, Manager, State, Window};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, Window};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -60,6 +60,16 @@ struct AppStats {
     version: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WindowState {
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    x: Option<i32>,
+    #[serde(default)]
+    y: Option<i32>,
+}
+
 struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
@@ -71,12 +81,23 @@ struct PtyRegistry {
     panes: HashMap<String, PtyHandle>,
 }
 
-fn store_path() -> Result<PathBuf, String> {
+fn app_data_dir() -> Result<PathBuf, String> {
     let mut dir = dirs::data_dir().ok_or_else(|| "Could not locate user data directory".to_string())?;
     dir.push("stacks-tauri");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    dir.push("projects.json");
     Ok(dir)
+}
+
+fn store_path() -> Result<PathBuf, String> {
+    let mut path = app_data_dir()?;
+    path.push("projects.json");
+    Ok(path)
+}
+
+fn window_state_path() -> Result<PathBuf, String> {
+    let mut path = app_data_dir()?;
+    path.push("window.json");
+    Ok(path)
 }
 
 #[tauri::command]
@@ -99,8 +120,30 @@ fn save_store(store: ProjectStore) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_window_state(state: WindowState) -> Result<(), String> {
+    let width = state.width.clamp(780, 10_000);
+    let height = state.height.clamp(500, 10_000);
+    let path = window_state_path()?;
+    let text = serde_json::to_string_pretty(&WindowState { width, height, x: state.x, y: state.y }).map_err(|e| e.to_string())?;
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, text).map_err(|e| e.to_string())?;
+    fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
+}
+
+fn load_window_state() -> Option<WindowState> {
+    let path = window_state_path().ok()?;
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+#[tauri::command]
 fn new_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -334,7 +377,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
+            save_window_state,
             new_id,
+            quit_app,
             spawn_pty,
             write_pty,
             resize_pty,
@@ -346,6 +391,14 @@ pub fn run() {
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title("Stacks Tauri");
+                if let Some(state) = load_window_state() {
+                    let width = state.width.clamp(780, 10_000);
+                    let height = state.height.clamp(500, 10_000);
+                    let _ = window.set_size(PhysicalSize::new(width, height));
+                    if let (Some(x), Some(y)) = (state.x, state.y) {
+                        let _ = window.set_position(PhysicalPosition::new(x, y));
+                    }
+                }
             }
             Ok(())
         })

@@ -22,6 +22,7 @@ export type PaneSession = {
   running: boolean;
   lastPtySize: TermSize | null;
   dataDisposable: { dispose: () => void };
+  decoder: TextDecoder;
   resizeObserver?: ResizeObserver;
   unlistenData?: () => void;
   unlistenExit?: () => void;

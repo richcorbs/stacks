@@ -6,7 +6,6 @@ import { FitAddon } from '@xterm/addon-fit';
 import type { Pane, PaneSession, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
 const paneSessions = new Map<string, PaneSession>();
 
 export function disposePaneSession(paneId: string) {
@@ -23,7 +22,7 @@ export function disposePaneSession(paneId: string) {
 
 function safeTermSize(term: Terminal): TermSize {
   return {
-    cols: Math.max(2, (term.cols || 80) - 1),
+    cols: Math.max(2, (term.cols || 80) - 2),
     rows: Math.max(2, term.rows || 24),
   };
 }
@@ -159,19 +158,22 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
           invoke('write_pty', { paneId: pane.id, data: Array.from(encoder.encode(data)) })
             .catch((e) => term.writeln(`\r\nwrite_pty error: ${e}\r\n`));
         }),
+        decoder: new TextDecoder(),
       };
       paneSessions.set(pane.id, session);
 
       const generation = `${pane.id}:${Date.now()}:${Math.random()}`;
       const dataPromise = listen<PtyData>('pty-data', (event) => {
         if (event.payload.pane_id === pane.id && event.payload.generation === generation) {
-          term.write(decoder.decode(new Uint8Array(event.payload.data)));
+          term.write(session!.decoder.decode(new Uint8Array(event.payload.data), { stream: true }));
           window.dispatchEvent(new CustomEvent('pane-output', { detail: { terminalId: terminal.id, paneId: pane.id } }));
         }
       }).then((fn) => { session!.unlistenData = fn; });
       const exitPromise = listen<PtyExit>('pty-exit', (event) => {
         if (event.payload.pane_id === pane.id && event.payload.generation === generation) {
           session!.running = false;
+          const remaining = session!.decoder.decode();
+          if (remaining) term.write(remaining);
           window.dispatchEvent(new CustomEvent('pane-running-changed', { detail: { paneId: pane.id, running: false } }));
           term.writeln('\r\n[process exited]');
         }

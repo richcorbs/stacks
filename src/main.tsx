@@ -19,6 +19,8 @@ import { useWorkspaceState } from './hooks/useWorkspaceState';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { usePaneCwd } from './hooks/usePaneCwd';
 import { useSidebarInteractions } from './hooks/useSidebarInteractions';
+import { useImageDropToTerminal } from './hooks/useImageDropToTerminal';
+import { useWindowStatePersistence } from './hooks/useWindowStatePersistence';
 
 function App() {
   const [loaded, setLoaded] = useState(false);
@@ -83,6 +85,7 @@ function App() {
 
   useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(sidebarWidth);
+  useWindowStatePersistence();
 
   useEffect(() => {
     invoke<Store>('load_store').then((loadedStore) => {
@@ -132,6 +135,7 @@ function App() {
   }, [activeTerminalId]);
 
   usePaneCwd(activePaneId, rememberPaneCwd, setStore);
+  useImageDropToTerminal(activePaneId);
 
 
   useEffect(() => {
@@ -507,7 +511,7 @@ function App() {
           onCancel={() => setConfirmQuitOpen(false)}
           onConfirm={() => {
             setConfirmQuitOpen(false);
-            getCurrentWindow().destroy().catch(console.error);
+            invoke('quit_app').catch(console.error);
           }}
         />
       )}
