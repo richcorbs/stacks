@@ -294,12 +294,14 @@ function App() {
         activeTerminalId={activeTerminalId}
         activePaneId={activePaneId}
         maximizedPaneId={maximizedPaneId}
+        hasActivePane={Boolean(activeTerminalId && activePaneId)}
         onResizeSplit={resizeSplit}
         onFocusPane={(projectId, terminalId, paneId) => {
           selectTerminal(projectId, terminalId);
           focusPane(terminalId, paneId);
         }}
         onClosePane={closePane}
+        onSplitPane={splitPane}
       />
       {contextMenu && (
         <ContextMenu

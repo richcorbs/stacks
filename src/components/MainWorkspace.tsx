@@ -18,6 +18,8 @@ type MainWorkspaceProps = {
   onResizeSplit: (terminalId: string, path: string, ratio: number) => void;
   onFocusPane: (projectId: string, terminalId: string, paneId: string) => void;
   onClosePane: (paneId: string) => void;
+  onSplitPane: (direction: 'row' | 'column') => void;
+  hasActivePane: boolean;
 };
 
 export function MainWorkspace({
@@ -30,10 +32,12 @@ export function MainWorkspace({
   onResizeSplit,
   onFocusPane,
   onClosePane,
+  onSplitPane,
+  hasActivePane,
 }: MainWorkspaceProps) {
   return (
     <main className="main">
-      <Topbar activePath={activePath} gitInfo={gitInfo} />
+      <Topbar activePath={activePath} gitInfo={gitInfo} hasActivePane={hasActivePane} onSplitPane={onSplitPane} />
       <section className="workspace">
         {workspaces.length > 0 ? (
           workspaces.map(({ project, terminal, panes, root }) => {
@@ -71,13 +75,14 @@ export function MainWorkspace({
   );
 }
 
-function Topbar({ activePath, gitInfo }: { activePath: string | null; gitInfo: GitInfo | null }) {
+function Topbar({ activePath, gitInfo, hasActivePane, onSplitPane }: { activePath: string | null; gitInfo: GitInfo | null; hasActivePane: boolean; onSplitPane: (direction: 'row' | 'column') => void }) {
   return (
     <header className="topbar">
       <div>
-        <div className="subtitle">{activePath || 'Add a project to get started'}</div>
+        <div className="subtitle">{hasActivePane ? activePath : 'Select a terminal'}</div>
       </div>
-      <div className="branchDisplay">
+      {hasActivePane && (
+        <div className="branchDisplay">
         {gitInfo && (
           <>
             <span className="branchName"> {gitInfo.branch}</span>
@@ -90,7 +95,15 @@ function Topbar({ activePath, gitInfo }: { activePath: string | null; gitInfo: G
             )}
           </>
         )}
-      </div>
+        <span className="topbarSeparator">•</span>
+        <button className="splitButton" title="Split right (⌘D)" onClick={() => onSplitPane('row')} aria-label="Split right">
+          <span className="splitIcon splitIconVertical" />
+        </button>
+        <button className="splitButton" title="Split down (⇧⌘D)" onClick={() => onSplitPane('column')} aria-label="Split down">
+          <span className="splitIcon splitIconHorizontal" />
+        </button>
+        </div>
+      )}
     </header>
   );
 }
