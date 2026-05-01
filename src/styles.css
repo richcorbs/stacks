@@ -109,13 +109,15 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 10px;
   white-space: nowrap;
 }
 .branchName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.gitStats { display: inline-flex; gap: 8px; margin-left: 12px; align-items: center; flex: 0 0 auto; }
-.gitSeparator, .topbarSeparator { color: #455466; }
-.topbarSeparator { margin: 0 10px; flex: 0 0 auto; }
+.gitStats { display: inline-flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.gitSeparator, .topbarSeparator { color: #455466; flex: 0 0 auto; }
+.splitControls { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; }
 .gitAdded { color: #22c55e; }
+.gitChanged { color: #f59e0b; }
 .gitRemoved { color: #ef4444; }
 .splitButton {
   border: 0;

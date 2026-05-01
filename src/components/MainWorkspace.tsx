@@ -86,22 +86,25 @@ function Topbar({ activePath, gitInfo, hasActivePane, onSplitPane }: { activePat
         {gitInfo && (
           <>
             <span className="branchName"> {gitInfo.branch}</span>
-            {(gitInfo.added > 0 || gitInfo.removed > 0) && (
-              <span className="gitStats">
+            {(gitInfo.created > 0 || gitInfo.changed > 0 || gitInfo.deleted > 0) && (
+              <span className="gitStats" title="Files created / changed / deleted">
                 <span className="gitSeparator">•</span>
-                {gitInfo.added > 0 && <span className="gitAdded">+{gitInfo.added}</span>}
-                {gitInfo.removed > 0 && <span className="gitRemoved">-{gitInfo.removed}</span>}
+                {gitInfo.created > 0 && <span className="gitAdded">+{gitInfo.created}</span>}
+                {gitInfo.changed > 0 && <span className="gitChanged">~{gitInfo.changed}</span>}
+                {gitInfo.deleted > 0 && <span className="gitRemoved">-{gitInfo.deleted}</span>}
               </span>
             )}
           </>
         )}
         <span className="topbarSeparator">•</span>
-        <button className="splitButton" title="Split right (⌘D)" onClick={() => onSplitPane('row')} aria-label="Split right">
-          <span className="splitIcon splitIconVertical" />
-        </button>
-        <button className="splitButton" title="Split down (⇧⌘D)" onClick={() => onSplitPane('column')} aria-label="Split down">
-          <span className="splitIcon splitIconHorizontal" />
-        </button>
+        <span className="splitControls">
+          <button className="splitButton" title="Split right (⌘D)" onClick={() => onSplitPane('row')} aria-label="Split right">
+            <span className="splitIcon splitIconVertical" />
+          </button>
+          <button className="splitButton" title="Split down (⇧⌘D)" onClick={() => onSplitPane('column')} aria-label="Split down">
+            <span className="splitIcon splitIconHorizontal" />
+          </button>
+        </span>
         </div>
       )}
     </header>

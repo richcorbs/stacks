@@ -1,6 +1,6 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, io::{Read, Write}, path::PathBuf, process::Command, sync::Mutex, thread};
+use std::{collections::{HashMap, HashSet}, fs, io::{Read, Write}, path::PathBuf, process::Command, sync::Mutex, thread};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Window,
@@ -52,8 +52,9 @@ struct PtyExit {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct GitInfo {
     branch: String,
-    added: u32,
-    removed: u32,
+    created: u32,
+    changed: u32,
+    deleted: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -400,16 +401,35 @@ fn pty_cwd(registry: State<'_, Mutex<PtyRegistry>>, pane_id: String) -> Result<O
     Ok(None)
 }
 
-fn parse_numstat(text: &str, added: &mut u32, removed: &mut u32) {
+fn parse_git_status(text: &str) -> (u32, u32, u32) {
+    let mut created_files = HashSet::new();
+    let mut changed_files = HashSet::new();
+    let mut deleted_files = HashSet::new();
+
     for line in text.lines() {
-        let mut parts = line.split_whitespace();
-        if let Some(a) = parts.next().and_then(|s| s.parse::<u32>().ok()) {
-            *added = added.saturating_add(a);
+        if line.len() < 4 {
+            continue;
         }
-        if let Some(r) = parts.next().and_then(|s| s.parse::<u32>().ok()) {
-            *removed = removed.saturating_add(r);
+
+        let status = &line[..2];
+        let path = line[3..].rsplit_once(" -> ").map(|(_, to)| to).unwrap_or(&line[3..]);
+        let index = status.as_bytes()[0] as char;
+        let worktree = status.as_bytes()[1] as char;
+
+        if status == "??" || index == 'A' || worktree == 'A' {
+            created_files.insert(path.to_string());
+        } else if index == 'D' || worktree == 'D' {
+            deleted_files.insert(path.to_string());
+        } else if [index, worktree].iter().any(|c| matches!(c, 'M' | 'R' | 'C' | 'T' | 'U')) {
+            changed_files.insert(path.to_string());
         }
     }
+
+    (
+        created_files.len() as u32,
+        changed_files.len() as u32,
+        deleted_files.len() as u32,
+    )
 }
 
 #[tauri::command]
@@ -459,45 +479,20 @@ fn git_info(path: String) -> Result<Option<GitInfo>, String> {
         return Ok(None);
     }
 
-    let mut added = 0u32;
-    let mut removed = 0u32;
-
-    // Unstaged tracked changes.
-    if let Ok(output) = Command::new("git")
-        .args(["-C", &path, "diff", "--numstat"])
-        .output()
-    {
-        if output.status.success() {
-            parse_numstat(&String::from_utf8_lossy(&output.stdout), &mut added, &mut removed);
-        }
-    }
-
-    // Staged tracked changes.
-    if let Ok(output) = Command::new("git")
-        .args(["-C", &path, "diff", "--cached", "--numstat"])
-        .output()
-    {
-        if output.status.success() {
-            parse_numstat(&String::from_utf8_lossy(&output.stdout), &mut added, &mut removed);
-        }
-    }
-
-    // Count untracked files as +1 each so new files show activity without
-    // huge noisy counts for lockfiles/generated files.
-    if let Ok(output) = Command::new("git")
+    let (created, changed, deleted) = if let Ok(output) = Command::new("git")
         .args(["-C", &path, "status", "--porcelain=v1", "--untracked-files=all"])
         .output()
     {
         if output.status.success() {
-            for line in String::from_utf8_lossy(&output.stdout).lines() {
-                if line.starts_with("?? ") {
-                    added = added.saturating_add(1);
-                }
-            }
+            parse_git_status(&String::from_utf8_lossy(&output.stdout))
+        } else {
+            (0, 0, 0)
         }
-    }
+    } else {
+        (0, 0, 0)
+    };
 
-    Ok(Some(GitInfo { branch, added, removed }))
+    Ok(Some(GitInfo { branch, created, changed, deleted }))
 }
 
 pub fn run() {
