@@ -10,15 +10,16 @@ import './styles.css';
 
 type Store = { projects: Project[] };
 type Project = { id: string; name: string; path: string; terminals: TerminalEntry[]; collapsed?: boolean };
-type TerminalEntry = { id: string; name: string; command?: string | null; cwd?: string | null };
+type TerminalEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
 type Pane = { id: string; terminalId: string };
 type SplitNode =
   | { kind: 'empty' }
   | { kind: 'leaf'; paneId: string }
-  | { kind: 'split'; direction: 'row' | 'column'; first: SplitNode; second: SplitNode };
+  | { kind: 'split'; direction: 'row' | 'column'; ratio?: number; first: SplitNode; second: SplitNode };
 type PtyData = { pane_id: string; generation: string; data: number[] };
 type PtyExit = { pane_id: string; generation: string };
 type GitInfo = { branch: string; added: number; removed: number };
+type AppStats = { cpu: number; mem_mb: number; version: string };
 
 type TermSize = { cols: number; rows: number };
 type PaneSession = {
@@ -54,6 +55,28 @@ function basename(path: string) {
   return path.replace(/\/$/, '').split('/').pop() || path;
 }
 
+function loadSidebarWidth() {
+  const raw = window.localStorage.getItem('stacks.sidebarWidth');
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) ? Math.min(420, Math.max(180, parsed)) : 260;
+}
+
+function collectLeafPaneIds(node: SplitNode | null | undefined): string[] {
+  if (!node || node.kind === 'empty') return [];
+  if (node.kind === 'leaf') return [node.paneId];
+  return [...collectLeafPaneIds(node.first), ...collectLeafPaneIds(node.second)];
+}
+
+function normalizeSplitNode(node: SplitNode | null | undefined): SplitNode | null {
+  if (!node || node.kind === 'empty') return null;
+  if (node.kind === 'leaf') return node;
+  const first = normalizeSplitNode(node.first);
+  const second = normalizeSplitNode(node.second);
+  if (!first) return second;
+  if (!second) return first;
+  return { ...node, first, second };
+}
+
 function disposePaneSession(paneId: string) {
   const session = paneSessions.get(paneId);
   if (!session) return;
@@ -80,14 +103,19 @@ function safeTermSize(term: Terminal): TermSize {
 function App() {
   const [loaded, setLoaded] = useState(false);
   const [store, setStore] = useState<Store>({ projects: [] });
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [panesByTerminalId, setPanesByTerminalId] = useState<Record<string, Pane[]>>({});
   const [splitRootsByTerminalId, setSplitRootsByTerminalId] = useState<Record<string, SplitNode>>({});
   const [visitedTerminalIds, setVisitedTerminalIds] = useState<string[]>([]);
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
+  const [focusedPaneByTerminalId, setFocusedPaneByTerminalId] = useState<Record<string, string>>({});
+  const [maximizedPaneId, setMaximizedPaneId] = useState<string | null>(null);
   const [sidebarFocusedTerminalId, setSidebarFocusedTerminalId] = useState<string | null>(null);
+  const [metaKeyDown, setMetaKeyDown] = useState(false);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
+  const [appStats, setAppStats] = useState<AppStats | null>(null);
   const [runningPaneIds, setRunningPaneIds] = useState<string[]>([]);
   const [activityTerminalIds, setActivityTerminalIds] = useState<string[]>([]);
   const activeTerminalIdRef = useRef<string | null>(null);
@@ -95,6 +123,7 @@ function App() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const pointerDragRef = useRef<PointerDragState | null>(null);
+  const resizingSidebarRef = useRef(false);
   const justPointerDraggedRef = useRef(false);
   const [confirmClosePaneId, setConfirmClosePaneId] = useState<string | null>(null);
 
@@ -132,6 +161,10 @@ function App() {
   }, [loaded, store]);
 
   useEffect(() => {
+    window.localStorage.setItem('stacks.sidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
     const close = () => setContextMenu(null);
     window.addEventListener('click', close);
     window.addEventListener('keydown', close);
@@ -143,6 +176,12 @@ function App() {
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
+      if (resizingSidebarRef.current) {
+        event.preventDefault();
+        setSidebarWidth(Math.min(420, Math.max(180, event.clientX)));
+        return;
+      }
+
       const drag = pointerDragRef.current;
       if (!drag) return;
       event.preventDefault();
@@ -170,6 +209,12 @@ function App() {
     };
 
     const onPointerUp = (event: PointerEvent) => {
+      if (resizingSidebarRef.current) {
+        resizingSidebarRef.current = false;
+        document.body.classList.remove('resizingSidebar');
+        return;
+      }
+
       const drag = pointerDragRef.current;
       pointerDragRef.current = null;
       setDragState(null);
@@ -197,6 +242,21 @@ function App() {
       setActivityTerminalIds((ids) => ids.filter((id) => id !== activeTerminalId));
     }
   }, [activeTerminalId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshStats = () => {
+      invoke<AppStats>('app_stats')
+        .then((stats) => { if (!cancelled) setAppStats(stats); })
+        .catch(() => { if (!cancelled) setAppStats(null); });
+    };
+    refreshStats();
+    const interval = window.setInterval(refreshStats, 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     const onRunningChanged = (event: Event) => {
@@ -250,22 +310,36 @@ function App() {
     }
 
     const paneId = `${activeTerminal.id}:0`;
+    const root = normalizeSplitNode(activeTerminal.splits) ?? { kind: 'leaf' as const, paneId };
+    const leafIds = collectLeafPaneIds(root);
+    const paneIds = leafIds.length > 0 ? leafIds : [paneId];
     setVisitedTerminalIds((ids) => ids.includes(activeTerminal.id) ? ids : [...ids, activeTerminal.id]);
     setPanesByTerminalId((all) => {
       if (all[activeTerminal.id]?.length) return all;
-      return { ...all, [activeTerminal.id]: [{ id: paneId, terminalId: activeTerminal.id }] };
+      return { ...all, [activeTerminal.id]: paneIds.map((id) => ({ id, terminalId: activeTerminal.id })) };
     });
     setSplitRootsByTerminalId((all) => {
       if (all[activeTerminal.id]) return all;
-      return { ...all, [activeTerminal.id]: { kind: 'leaf', paneId } };
+      return { ...all, [activeTerminal.id]: root };
     });
-    setActivePaneId((id) => id?.startsWith(`${activeTerminal.id}:`) ? id : paneId);
-  }, [activeTerminal?.id]);
+    setActivePaneId((id) => {
+      if (id?.startsWith(`${activeTerminal.id}:`)) return id;
+      const rememberedPaneId = focusedPaneByTerminalId[activeTerminal.id];
+      return rememberedPaneId && paneIds.includes(rememberedPaneId) ? rememberedPaneId : paneId;
+    });
+  }, [activeTerminal?.id, focusedPaneByTerminalId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      setMetaKeyDown(event.metaKey);
       if (!event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key.toLowerCase();
+      if (/^[1-9]$/.test(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        activateTerminalByIndex(Number(event.key) - 1);
+        return;
+      }
       if (key === 't') {
         event.preventDefault();
         event.stopPropagation();
@@ -274,7 +348,8 @@ function App() {
       } else if (event.key === 'Enter') {
         event.preventDefault();
         event.stopPropagation();
-        activateSidebarFocusedTerminal();
+        if (event.shiftKey) toggleMaximizedPane();
+        else activateSidebarFocusedTerminal();
       } else if (key === 'd') {
         event.preventDefault();
         event.stopPropagation();
@@ -299,9 +374,19 @@ function App() {
         openProjectDialog();
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Meta') setMetaKeyDown(false);
+    };
+    const onBlur = () => setMetaKeyDown(false);
     window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeProject, activeTerminal, activePaneId, panesByTerminalId, sidebarTerminals, sidebarFocusedTerminalId]);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [activeProject, activeTerminal, activePaneId, maximizedPaneId, panesByTerminalId, sidebarTerminals, sidebarFocusedTerminalId]);
 
   async function openProjectDialog() {
     const selected = await open({
@@ -406,6 +491,21 @@ function App() {
     setDialog({ kind: 'editTerminal', projectId: project.id, terminalId: terminal.id, name: terminal.name, command: terminal.command ?? '' });
   }
 
+  function saveTerminalSplit(terminalId: string, root: SplitNode | null) {
+    const normalizedRoot = normalizeSplitNode(root);
+    setStore((s) => ({
+      projects: s.projects.map((p) => ({
+        ...p,
+        terminals: p.terminals.map((t) => t.id === terminalId ? { ...t, splits: normalizedRoot } : t),
+      })),
+    }));
+  }
+
+  function focusPane(terminalId: string, paneId: string) {
+    setActivePaneId(paneId);
+    setFocusedPaneByTerminalId((all) => ({ ...all, [terminalId]: paneId }));
+  }
+
   function deleteTerminal(projectId: string, terminalId: string) {
     (panesByTerminalId[terminalId] ?? []).forEach((pane) => {
       disposePaneSession(pane.id);
@@ -425,6 +525,10 @@ function App() {
     setVisitedTerminalIds((ids) => ids.filter((id) => id !== terminalId));
     setRunningPaneIds((ids) => ids.filter((id) => !id.startsWith(`${terminalId}:`)));
     setActivityTerminalIds((ids) => ids.filter((id) => id !== terminalId));
+    setFocusedPaneByTerminalId((all) => {
+      const { [terminalId]: _removed, ...rest } = all;
+      return rest;
+    });
     if (activeTerminalId === terminalId) setActiveTerminalId(null);
     if (sidebarFocusedTerminalId === terminalId) setSidebarFocusedTerminalId(null);
   }
@@ -480,6 +584,11 @@ function App() {
       return next;
     });
     setVisitedTerminalIds((ids) => ids.filter((id) => !terminalIds.includes(id)));
+    setFocusedPaneByTerminalId((all) => {
+      const next = { ...all };
+      terminalIds.forEach((id) => delete next[id]);
+      return next;
+    });
     setRunningPaneIds((ids) => ids.filter((id) => !terminalIds.some((terminalId) => id.startsWith(`${terminalId}:`))));
     setActivityTerminalIds((ids) => ids.filter((id) => !terminalIds.includes(id)));
     if (activeProjectId === projectId) {
@@ -499,18 +608,23 @@ function App() {
     }));
     setSplitRootsByTerminalId((all) => {
       const root = all[activeTerminal.id] ?? { kind: 'leaf' as const, paneId: focusedPaneId };
-      return { ...all, [activeTerminal.id]: splitLeaf(root, focusedPaneId, id, direction) };
+      const nextRoot = splitLeaf(root, focusedPaneId, id, direction);
+      saveTerminalSplit(activeTerminal.id, nextRoot);
+      return { ...all, [activeTerminal.id]: nextRoot };
     });
-    setActivePaneId(id);
+    focusPane(activeTerminal.id, id);
   }
 
   function cyclePane(delta: number) {
     if (!activeTerminal) return;
     const panes = panesByTerminalId[activeTerminal.id] ?? [];
     if (panes.length === 0) return;
-    const currentIndex = Math.max(0, panes.findIndex((p) => p.id === activePaneId));
+    const currentPaneId = maximizedPaneId ?? activePaneId;
+    const currentIndex = Math.max(0, panes.findIndex((p) => p.id === currentPaneId));
     const nextIndex = (currentIndex + delta + panes.length) % panes.length;
-    setActivePaneId(panes[nextIndex].id);
+    const nextPaneId = panes[nextIndex].id;
+    focusPane(activeTerminal.id, nextPaneId);
+    if (maximizedPaneId) setMaximizedPaneId(nextPaneId);
   }
 
   function cycleSidebarTerminal(delta: number) {
@@ -529,25 +643,55 @@ function App() {
     setActiveTerminalId(match.terminal.id);
   }
 
+  function activateTerminalByIndex(index: number) {
+    const match = sidebarTerminals[index];
+    if (!match) return;
+    setActiveProjectId(match.project.id);
+    setActiveTerminalId(match.terminal.id);
+    setSidebarFocusedTerminalId(match.terminal.id);
+  }
+
+  function toggleMaximizedPane() {
+    if (!activePaneId) return;
+    setMaximizedPaneId((id) => id === activePaneId ? null : activePaneId);
+  }
+
+  function resizeSplit(terminalId: string, path: string, ratio: number) {
+    setSplitRootsByTerminalId((all) => {
+      const root = all[terminalId];
+      if (!root) return all;
+      const nextRoot = setSplitRatio(root, path, ratio);
+      saveTerminalSplit(terminalId, nextRoot);
+      return { ...all, [terminalId]: nextRoot };
+    });
+  }
+
   async function closePane(paneId: string) {
     disposePaneSession(paneId);
     await invoke('kill_pty', { paneId }).catch(() => {});
     const terminalId = paneId.split(':')[0];
     const remainingPaneCount = (panesByTerminalId[terminalId] ?? []).filter((p) => p.id !== paneId).length;
+    if (maximizedPaneId === paneId) setMaximizedPaneId(null);
     setPanesByTerminalId((all) => {
       const nextPanes = (all[terminalId] ?? []).filter((p) => p.id !== paneId);
-      if (activePaneId === paneId) setActivePaneId(nextPanes[0]?.id ?? null);
+      if (activePaneId === paneId) {
+        const nextPaneId = nextPanes[0]?.id ?? null;
+        setActivePaneId(nextPaneId);
+        setFocusedPaneByTerminalId((focused) => nextPaneId ? { ...focused, [terminalId]: nextPaneId } : focused);
+      }
       return { ...all, [terminalId]: nextPanes };
     });
     setSplitRootsByTerminalId((all) => {
       const root = all[terminalId];
       if (!root) return all;
       if (remainingPaneCount === 0) {
+        saveTerminalSplit(terminalId, null);
         const { [terminalId]: _removed, ...rest } = all;
         return rest;
       }
       const nextRoot = removeLeaf(root, paneId);
-      return { ...all, [terminalId]: nextRoot };
+      saveTerminalSplit(terminalId, nextRoot);
+      return nextRoot ? { ...all, [terminalId]: nextRoot } : all;
     });
   }
 
@@ -561,7 +705,7 @@ function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside className="sidebar" style={{ width: sidebarWidth }}>
         <div className="projectList">
           {store.projects.map((project) => (
             <div
@@ -591,6 +735,7 @@ function App() {
                   {project.terminals.map((term) => {
                     const isRunning = runningPaneIds.some((paneId) => paneId.startsWith(`${term.id}:`));
                     const hasBackgroundActivity = term.id !== activeTerminalId && activityTerminalIds.includes(term.id);
+                    const shortcutIndex = sidebarTerminals.findIndex(({ terminal }) => terminal.id === term.id);
                     return (
                       <button
                         className={`term ${activeTerminalId === term.id ? 'active' : ''} ${sidebarFocusedTerminalId === term.id ? 'focused' : ''}`}
@@ -623,6 +768,7 @@ function App() {
                           <span className="termName">{term.name}</span>
                         </span>
                         <span className="termIndicators">
+                          {metaKeyDown && shortcutIndex >= 0 && shortcutIndex < 9 && <span className="shortcutHint">⌘{shortcutIndex + 1}</span>}
                           {isRunning && <span className="dot" title="Active terminal running" />}
                         </span>
                       </button>
@@ -633,6 +779,21 @@ function App() {
             </div>
           ))}
         </div>
+        <div className="sidebarFooter">
+          {appStats ? (
+            <>CPU {Math.round(appStats.cpu)}% <span>•</span> MEM {appStats.mem_mb}MB <span>•</span> v{appStats.version}</>
+          ) : (
+            <>CPU --% <span>•</span> MEM --MB <span>•</span> v--</>
+          )}
+        </div>
+        <div
+          className="sidebarResizeHandle"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            resizingSidebarRef.current = true;
+            document.body.classList.add('resizingSidebar');
+          }}
+        />
       </aside>
       <main className="main">
         <header className="topbar">
@@ -673,7 +834,10 @@ function App() {
                       project={project}
                       visible={visible}
                       activePaneId={activePaneId}
-                      onFocus={(paneId) => { setActiveProjectId(project.id); setActiveTerminalId(terminal.id); setActivePaneId(paneId); }}
+                      maximizedPaneId={visible ? maximizedPaneId : null}
+                      path=""
+                      onResizeSplit={(path, ratio) => resizeSplit(terminal.id, path, ratio)}
+                      onFocus={(paneId) => { setActiveProjectId(project.id); setActiveTerminalId(terminal.id); focusPane(terminal.id, paneId); }}
                       onClose={closePane}
                     />
                   )}
@@ -725,6 +889,7 @@ function splitLeaf(node: SplitNode, targetPaneId: string, newPaneId: string, dir
     return {
       kind: 'split',
       direction,
+      ratio: 0.5,
       first: node,
       second: { kind: 'leaf', paneId: newPaneId },
     };
@@ -736,14 +901,26 @@ function splitLeaf(node: SplitNode, targetPaneId: string, newPaneId: string, dir
   };
 }
 
-function removeLeaf(node: SplitNode, paneId: string): SplitNode {
-  if (node.kind === 'empty') return node;
-  if (node.kind === 'leaf') return node.paneId === paneId ? { kind: 'empty' } : node;
+function setSplitRatio(node: SplitNode, path: string, ratio: number): SplitNode {
+  if (node.kind !== 'split') return node;
+  if (path === '') return { ...node, ratio: Math.min(0.9, Math.max(0.1, ratio)) };
+  const [head, ...rest] = path.split('.');
+  const childPath = rest.join('.');
   return {
     ...node,
-    first: removeLeaf(node.first, paneId),
-    second: removeLeaf(node.second, paneId),
+    first: head === 'first' ? setSplitRatio(node.first, childPath, ratio) : node.first,
+    second: head === 'second' ? setSplitRatio(node.second, childPath, ratio) : node.second,
   };
+}
+
+function removeLeaf(node: SplitNode, paneId: string): SplitNode | null {
+  if (node.kind === 'empty') return node;
+  if (node.kind === 'leaf') return node.paneId === paneId ? null : node;
+  const first = removeLeaf(node.first, paneId);
+  const second = removeLeaf(node.second, paneId);
+  if (!first) return second;
+  if (!second) return first;
+  return { ...node, first, second };
 }
 
 function ContextMenu({ menu, store, onClose, onEditProject, onDeleteProject, onEditTerminal, onDeleteTerminal }: {
@@ -877,16 +1054,34 @@ function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   );
 }
 
-function SplitView({ node, panesById, terminal, project, visible, activePaneId, onFocus, onClose }: {
+function SplitView({ node, panesById, terminal, project, visible, activePaneId, maximizedPaneId, path, onResizeSplit, onFocus, onClose }: {
   node: SplitNode;
   panesById: Record<string, Pane>;
   terminal: TerminalEntry;
   project: Project;
   visible: boolean;
   activePaneId: string | null;
+  maximizedPaneId: string | null;
+  path: string;
+  onResizeSplit: (path: string, ratio: number) => void;
   onFocus: (paneId: string) => void;
   onClose: (paneId: string) => void;
 }) {
+  if (maximizedPaneId) {
+    const pane = panesById[maximizedPaneId];
+    if (!pane) return null;
+    return (
+      <TerminalPane
+        pane={pane}
+        terminal={terminal}
+        project={project}
+        active={visible && activePaneId === pane.id}
+        maximized={true}
+        onFocus={() => onFocus(pane.id)}
+        onClose={() => onClose(pane.id)}
+      />
+    );
+  }
   if (node.kind === 'empty') return null;
   if (node.kind === 'leaf') {
     const pane = panesById[node.paneId];
@@ -897,24 +1092,64 @@ function SplitView({ node, panesById, terminal, project, visible, activePaneId, 
         terminal={terminal}
         project={project}
         active={visible && activePaneId === pane.id}
+        maximized={false}
         onFocus={() => onFocus(pane.id)}
         onClose={() => onClose(pane.id)}
       />
     );
   }
+  const ratio = node.ratio ?? 0.5;
   return (
     <div className={`split split-${node.direction}`}>
-      <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} onFocus={onFocus} onClose={onClose} />
-      <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} onFocus={onFocus} onClose={onClose} />
+      <div className="splitChild" style={{ flex: `${ratio} 1 0` }}>
+        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} maximizedPaneId={null} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+      </div>
+      <SplitResizeHandle direction={node.direction} onResize={(nextRatio) => onResizeSplit(path, nextRatio)} />
+      <div className="splitChild" style={{ flex: `${1 - ratio} 1 0` }}>
+        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} maximizedPaneId={null} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+      </div>
     </div>
   );
 }
 
-function TerminalPane({ pane, terminal, project, active, onFocus, onClose }: {
+function SplitResizeHandle({ direction, onResize }: { direction: 'row' | 'column'; onResize: (ratio: number) => void }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  return (
+    <div
+      ref={ref}
+      className={`splitResizeHandle splitResizeHandle-${direction}`}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const split = ref.current?.parentElement;
+        if (!split) return;
+        const rect = split.getBoundingClientRect();
+        const update = (event: PointerEvent) => {
+          const raw = direction === 'row'
+            ? (event.clientX - rect.left) / rect.width
+            : (event.clientY - rect.top) / rect.height;
+          onResize(Math.min(0.9, Math.max(0.1, raw)));
+        };
+        const stop = () => {
+          window.removeEventListener('pointermove', update);
+          window.removeEventListener('pointerup', stop);
+          document.body.classList.remove('resizingSplit');
+        };
+        document.body.classList.add('resizingSplit');
+        window.addEventListener('pointermove', update);
+        window.addEventListener('pointerup', stop);
+      }}
+    />
+  );
+}
+
+function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onClose }: {
   pane: Pane;
   terminal: TerminalEntry;
   project: Project;
   active: boolean;
+  maximized: boolean;
   onFocus: () => void;
   onClose: () => void;
 }) {
@@ -1021,10 +1256,13 @@ function TerminalPane({ pane, terminal, project, active, onFocus, onClose }: {
   }, [pane.id, terminal.id, project.path, terminal.cwd, terminal.command]);
 
   useEffect(() => {
-    if (!active) return;
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term || !fit) return;
+
+    term.options.cursorBlink = active;
+    if (!active) return;
+
     requestAnimationFrame(() => {
       fit.fit();
       const size = safeTermSize(term);
@@ -1034,7 +1272,7 @@ function TerminalPane({ pane, terminal, project, active, onFocus, onClose }: {
   }, [active, pane.id]);
 
   return (
-    <div className={`pane ${active ? 'active' : ''}`} onMouseDown={onFocus}>
+    <div className={`pane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`} onMouseDown={onFocus}>
       <div className="terminalHost" ref={hostRef} />
     </div>
   );

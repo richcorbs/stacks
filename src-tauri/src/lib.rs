@@ -28,6 +28,8 @@ struct TerminalEntry {
     command: Option<String>,
     #[serde(default)]
     cwd: Option<String>,
+    #[serde(default)]
+    splits: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +51,13 @@ struct GitInfo {
     branch: String,
     added: u32,
     removed: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AppStats {
+    cpu: f32,
+    mem_mb: u64,
+    version: String,
 }
 
 struct PtyHandle {
@@ -195,6 +204,26 @@ fn parse_numstat(text: &str, added: &mut u32, removed: &mut u32) {
 }
 
 #[tauri::command]
+fn app_stats() -> Result<AppStats, String> {
+    let pid = std::process::id().to_string();
+    let output = Command::new("ps")
+        .args(["-o", "%cpu=", "-o", "rss=", "-p", &pid])
+        .output()
+        .map_err(|err| err.to_string())?;
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut parts = text.split_whitespace();
+    let cpu = parts.next().and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0);
+    let rss_kb = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+
+    Ok(AppStats {
+        cpu,
+        mem_mb: (rss_kb + 1023) / 1024,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+#[tauri::command]
 fn git_info(path: String) -> Result<Option<GitInfo>, String> {
     let output = Command::new("git")
         .args(["-C", &path, "branch", "--show-current"])
@@ -274,6 +303,7 @@ pub fn run() {
             write_pty,
             resize_pty,
             kill_pty,
+            app_stats,
             git_info,
         ])
         .setup(|app| {
