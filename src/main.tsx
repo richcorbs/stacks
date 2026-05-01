@@ -21,6 +21,7 @@ import { useSidebarInteractions } from './hooks/useSidebarInteractions';
 import { useImageDropToTerminal } from './hooks/useImageDropToTerminal';
 import { useWindowStatePersistence } from './hooks/useWindowStatePersistence';
 import { useWorkspaceCommands } from './hooks/useWorkspaceCommands';
+import { useToast } from './hooks/useToast';
 
 function App() {
   const [loaded, setLoaded] = useState(false);
@@ -66,6 +67,7 @@ function App() {
   const justPointerDraggedRef = useRef(false);
   const [confirmClosePaneId, setConfirmClosePaneId] = useState<string | null>(null);
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
+  const { toast, showToast } = useToast();
 
   const activeProject = useMemo(
     () => store.projects.find((p) => p.id === activeProjectId) ?? null,
@@ -104,6 +106,14 @@ function App() {
     });
   }, []);
 
+
+  useEffect(() => {
+    const onToast = (event: Event) => {
+      showToast((event as CustomEvent<{ message: string }>).detail.message);
+    };
+    window.addEventListener('app-toast', onToast);
+    return () => window.removeEventListener('app-toast', onToast);
+  }, [showToast]);
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -296,6 +306,7 @@ function App() {
           }}
         />
       )}
+      {toast && <div className="toast">{toast}</div>}
       {confirmQuitOpen && (
         <ConfirmQuitDialog
           onCancel={() => setConfirmQuitOpen(false)}

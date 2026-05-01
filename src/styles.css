@@ -235,6 +235,24 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
   font-size: 12px;
 }
 
+.toast {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 300;
+  min-width: 220px;
+  padding: 16px 24px;
+  border: 1px solid #304154;
+  border-radius: 14px;
+  background: #111821ee;
+  color: #d6deeb;
+  font-size: 14px;
+  text-align: center;
+  box-shadow: 0 12px 40px #0009;
+  pointer-events: none;
+}
+
 .contextMenu {
   position: fixed;
   z-index: 200;

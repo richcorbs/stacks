@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Pane, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
 import { getPaneSession, setPaneSession } from '../terminalSessionManager';
 
@@ -146,6 +147,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
           invoke('write_pty', { paneId: pane.id, data: Array.from(encoder.encode(data)) })
             .catch((e) => term.writeln(`\r\nwrite_pty error: ${e}\r\n`));
         }),
+        selectionDisposable: term.onSelectionChange(() => {}),
         decoder: new TextDecoder(),
       };
       setPaneSession(pane.id, session);
@@ -236,7 +238,22 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
   }, [active, pane.id]);
 
   return (
-    <div className={`pane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`} onMouseDown={onFocus}>
+    <div
+      className={`pane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
+      onMouseDown={onFocus}
+      onMouseUp={() => {
+        const term = termRef.current;
+        if (!term?.hasSelection()) return;
+        const selection = term.getSelection();
+        if (!selection) return;
+        writeText(selection)
+          .then(() => {
+            term.clearSelection();
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Copied to clipboard' } }));
+          })
+          .catch(console.error);
+      }}
+    >
       <div className="terminalHostFrame">
         <div className="terminalHost" ref={hostRef} />
       </div>

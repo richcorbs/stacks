@@ -20,3 +20,4 @@ portable-pty = "0.8"
 uuid = { version = "1", features = ["v4", "serde"] }
 dirs = "6"
 tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2.3.2"

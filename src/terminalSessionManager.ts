@@ -16,6 +16,7 @@ export function disposePaneSession(paneId: string) {
   window.dispatchEvent(new CustomEvent('pane-running-changed', { detail: { paneId, running: false } }));
   session.resizeObserver?.disconnect();
   session.dataDisposable.dispose();
+  session.selectionDisposable.dispose();
   session.unlistenData?.();
   session.unlistenExit?.();
   session.term.dispose();

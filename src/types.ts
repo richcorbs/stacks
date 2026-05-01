@@ -5,6 +5,7 @@ export type Store = { projects: Project[] };
 export type Project = { id: string; name: string; path: string; terminals: TerminalEntry[]; collapsed?: boolean };
 export type TerminalEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
 export type Pane = { id: string; terminalId: string };
+export type ToastDetail = { message: string };
 export type SplitNode =
   | { kind: 'empty' }
   | { kind: 'leaf'; paneId: string }
@@ -24,6 +25,7 @@ export type PaneSession = {
   running: boolean;
   lastPtySize: TermSize | null;
   dataDisposable: { dispose: () => void };
+  selectionDisposable: { dispose: () => void };
   decoder: TextDecoder;
   resizeObserver?: ResizeObserver;
   unlistenData?: () => void;
