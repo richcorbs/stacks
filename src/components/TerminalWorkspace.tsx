@@ -39,6 +39,7 @@ export function SplitView({ node, panesById, terminal, project, visible, activeP
         project={project}
         active={visible && activePaneId === pane.id}
         maximized={true}
+        visible={visible}
         onFocus={() => onFocus(pane.id)}
         onClose={() => onClose(pane.id)}
       />
@@ -55,6 +56,7 @@ export function SplitView({ node, panesById, terminal, project, visible, activeP
         project={project}
         active={visible && activePaneId === pane.id}
         maximized={false}
+        visible={visible}
         onFocus={() => onFocus(pane.id)}
         onClose={() => onClose(pane.id)}
       />
@@ -106,12 +108,13 @@ function SplitResizeHandle({ direction, onResize }: { direction: 'row' | 'column
   );
 }
 
-function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onClose }: {
+function TerminalPane({ pane, terminal, project, active, maximized, visible, onFocus, onClose }: {
   pane: Pane;
   terminal: TerminalEntry;
   project: Project;
   active: boolean;
   maximized: boolean;
+  visible: boolean;
   onFocus: () => void;
   onClose: () => void;
 }) {
@@ -135,6 +138,18 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
+      term.attachCustomKeyEventHandler((event) => {
+        if (event.key === 'Enter' && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.type === 'keydown') {
+            invoke('write_pty', { paneId: pane.id, data: Array.from(encoder.encode('\n')) })
+              .catch((e) => term.writeln(`\r\nwrite_pty error: ${e}\r\n`));
+          }
+          return false;
+        }
+        return true;
+      });
       term.open(host);
 
       session = {
@@ -188,7 +203,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
         session!.spawned = true;
         session!.running = true;
         window.dispatchEvent(new CustomEvent('pane-running-changed', { detail: { paneId: pane.id, running: true } }));
-        term.focus();
+        if (active) term.focus();
       };
       requestAnimationFrame(() => {
         spawn().catch((e) => term.writeln(`\r\nPTY error: ${e}\r\n`));
@@ -235,7 +250,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
       invoke('resize_pty', { paneId: pane.id, cols: size.cols, rows: size.rows }).catch(() => {});
       term.focus();
     });
-  }, [active, pane.id]);
+  }, [active, visible, pane.id]);
 
   return (
     <div

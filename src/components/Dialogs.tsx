@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
 import type { ContextMenuState, DialogState, Project, Store, TerminalEntry } from '../types';
 
-export function ContextMenu({ menu, store, onClose, onEditProject, onDeleteProject, onEditTerminal, onDeleteTerminal }: {
+export function ContextMenu({ menu, store, onClose, onNewTerminal, onEditProject, onDeleteProject, onEditTerminal, onDeleteTerminal }: {
   menu: ContextMenuState;
   store: Store;
   onClose: () => void;
+  onNewTerminal: (project: Project) => void;
   onEditProject: (project: Project) => void;
   onDeleteProject: (project: Project) => void;
   onEditTerminal: (project: Project, terminal: TerminalEntry) => void;
@@ -21,6 +22,7 @@ export function ContextMenu({ menu, store, onClose, onEditProject, onDeleteProje
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {menu.kind === 'project' && <button onClick={() => onNewTerminal(project)}>New Terminal</button>}
       <button onClick={() => menu.kind === 'project' ? onEditProject(project) : terminal && onEditTerminal(project, terminal)}>Edit</button>
       <button className="dangerItem" onClick={() => menu.kind === 'project' ? onDeleteProject(project) : terminal && onDeleteTerminal(project, terminal)}>Delete</button>
     </div>
@@ -74,6 +76,14 @@ export function ConfirmQuitDialog({ onCancel, onConfirm }: { onCancel: () => voi
   );
 }
 
+export function ConfirmDeleteProjectDialog({ projectName, onCancel, onConfirm }: { projectName: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <ConfirmDialog title="Delete project?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
+      <p>This will remove “{projectName}” and terminate all terminals in this project.</p>
+    </ConfirmDialog>
+  );
+}
+
 export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   dialog: DialogState;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
@@ -88,7 +98,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   return (
     <div className="modalBackdrop" onMouseDown={onCancel}>
       <form
-        className="modal"
+        className={`modal ${dialog.kind === 'terminal' || dialog.kind === 'editTerminal' ? 'terminalDialog' : ''}`}
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
       >
@@ -96,9 +106,16 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
           <>
             <h2>Add Project</h2>
             <label>
-              Project path
+              Name
               <input
                 ref={firstInputRef}
+                value={dialog.name}
+                onChange={(e) => setDialog({ ...dialog, name: e.target.value })}
+              />
+            </label>
+            <label>
+              Directory
+              <input
                 value={dialog.path}
                 placeholder="/Users/rich/Code/my-project"
                 onChange={(e) => setDialog({ ...dialog, path: e.target.value })}

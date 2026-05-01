@@ -72,16 +72,21 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     }));
   }
 
-  async function addProjectFromPath(path: string) {
+  async function addProject(name: string, path: string) {
     const existing = store.projects.find((p) => p.path === path);
     if (existing) {
       selectTerminal(existing.id, existing.terminals[0]?.id ?? null);
-      return;
+      return existing;
     }
     const id = await invoke<string>('new_id');
-    const project: Project = { id, name: basename(path), path, terminals: [], collapsed: false };
+    const project: Project = { id, name, path, terminals: [], collapsed: false };
     setStore((s) => ({ projects: [...s.projects, project] }));
     selectTerminal(id, null);
+    return project;
+  }
+
+  async function addProjectFromPath(path: string) {
+    return addProject(basename(path), path);
   }
 
   async function openProjectDialog() {
@@ -90,7 +95,12 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       return null;
     });
     if (typeof selected !== 'string') return;
-    await addProjectFromPath(selected);
+    const existing = store.projects.find((p) => p.path === selected);
+    if (existing) {
+      selectTerminal(existing.id, existing.terminals[0]?.id ?? null);
+      return;
+    }
+    setDialog({ kind: 'project', name: basename(selected), path: selected, openTerminalAfterCreate: true });
   }
 
   function openTerminalDialog(project: Project) {
@@ -101,10 +111,18 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     if (!dialog) return;
 
     if (dialog.kind === 'project') {
+      const name = dialog.name.trim();
       const path = dialog.path.trim();
-      if (!path) return;
-      await addProjectFromPath(path);
-      setDialog(null);
+      if (!name || !path) return;
+      const project = await addProject(name, path);
+      if (dialog.openTerminalAfterCreate) {
+        setDialog(null);
+        window.setTimeout(() => {
+          setDialog({ kind: 'terminal', projectId: project.id, name: 'Terminal 1', command: '' });
+        }, 200);
+      } else {
+        setDialog(null);
+      }
       return;
     }
 
@@ -140,6 +158,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       projects: s.projects.map((p) => p.id === project.id ? { ...p, collapsed: false, terminals: [...p.terminals, terminal] } : p),
     }));
     selectTerminal(project.id, id);
+    setSidebarFocusedTerminalId(id);
     setDialog(null);
   }
 

@@ -33,7 +33,7 @@ export type PaneSession = {
 };
 
 export type DialogState =
-  | { kind: 'project'; path: string }
+  | { kind: 'project'; name: string; path: string; openTerminalAfterCreate?: boolean }
   | { kind: 'terminal'; projectId: string; name: string; command: string }
   | { kind: 'editProject'; projectId: string; name: string; path: string }
   | { kind: 'editTerminal'; projectId: string; terminalId: string; name: string; command: string };

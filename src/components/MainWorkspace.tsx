@@ -52,7 +52,7 @@ export function MainWorkspace({
                     terminal={terminal}
                     project={project}
                     visible={visible}
-                    activePaneId={activePaneId}
+                    activePaneId={visible ? activePaneId : null}
                     maximizedPaneId={visible ? maximizedPaneId : null}
                     path=""
                     onResizeSplit={(path, ratio) => onResizeSplit(terminal.id, path, ratio)}

@@ -193,7 +193,8 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
   padding: 18px;
 }
 .modal h2 { margin: 0 0 16px; font-size: 18px; }
-.modal label { display: block; color: #b9c5d3; font-size: 13px; margin-bottom: 12px; }
+.modal label { display: block; color: #b9c5d3; font-size: 13px; margin-bottom: 18px; }
+.modal.terminalDialog label { margin-bottom: 26px; }
 .modal label span { color: #8091a5; }
 .modal input {
   width: 100%;
