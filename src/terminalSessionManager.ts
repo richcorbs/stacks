@@ -17,6 +17,11 @@ export function setPaneSession(paneId: string, session: PaneSession) {
   paneSessions.set(paneId, session);
 }
 
+export function jumpSessionToBottom(session: PaneSession) {
+  const bottomLine = Math.max(0, session.term.buffer.active.length - session.term.rows);
+  session.term.scrollToLine(bottomLine);
+}
+
 export function focusPaneSession(paneId: string, reason: string, options: { scrollToBottom?: boolean } = {}) {
   const session = paneSessions.get(paneId);
   if (!session) {
@@ -24,7 +29,7 @@ export function focusPaneSession(paneId: string, reason: string, options: { scro
     return false;
   }
   debugFocus('focus pane session', { paneId, reason, options });
-  if (options.scrollToBottom) session.term.scrollToBottom();
+  if (options.scrollToBottom) jumpSessionToBottom(session);
   session.fit.fit();
   session.term.focus();
   return true;
@@ -33,8 +38,8 @@ export function focusPaneSession(paneId: string, reason: string, options: { scro
 export function scrollPaneSessionToBottom(paneId: string) {
   const session = paneSessions.get(paneId);
   if (!session) return false;
-  debugFocus('scroll pane to bottom', { paneId });
-  session.term.scrollToBottom();
+  debugFocus('jump pane to bottom', { paneId });
+  jumpSessionToBottom(session);
   return true;
 }
 
