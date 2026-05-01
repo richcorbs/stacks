@@ -298,6 +298,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       saveTerminalSplit(terminalId, nextRoot);
       return { ...all, [terminalId]: nextRoot };
     });
+    requestPaneSessionsScrollToBottomAfterFit((panesByTerminalId[terminalId] ?? []).map((pane) => pane.id));
   }
 
   async function closePane(paneId: string) {
