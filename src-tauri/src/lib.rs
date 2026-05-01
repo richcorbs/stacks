@@ -447,7 +447,12 @@ pub fn run() {
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_title("Stacks Tauri");
+                let title = if cfg!(debug_assertions) {
+                    "Stacks Tauri - DEV BUILD"
+                } else {
+                    "Stacks"
+                };
+                let _ = window.set_title(title);
                 if let Some(state) = load_window_state() {
                     let width = state.width.clamp(780, 10_000);
                     let height = state.height.clamp(500, 10_000);

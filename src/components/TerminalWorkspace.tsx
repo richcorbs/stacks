@@ -10,7 +10,7 @@ const encoder = new TextEncoder();
 
 function safeTermSize(term: Terminal): TermSize {
   return {
-    cols: Math.max(2, (term.cols || 80) - 2),
+    cols: Math.max(2, (term.cols || 80) - 1),
     rows: Math.max(2, term.rows || 24),
   };
 }
