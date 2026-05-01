@@ -93,7 +93,9 @@ fn load_store() -> Result<ProjectStore, String> {
 fn save_store(store: ProjectStore) -> Result<(), String> {
     let path = store_path()?;
     let text = serde_json::to_string_pretty(&store).map_err(|e| e.to_string())?;
-    fs::write(path, text).map_err(|e| e.to_string())
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, text).map_err(|e| e.to_string())?;
+    fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -189,6 +191,32 @@ fn kill_pty(registry: State<'_, Mutex<PtyRegistry>>, pane_id: String) -> Result<
         let _ = handle.child.kill();
     }
     Ok(())
+}
+
+#[tauri::command]
+fn pty_cwd(registry: State<'_, Mutex<PtyRegistry>>, pane_id: String) -> Result<Option<String>, String> {
+    let pid = {
+        let guard = registry.lock().map_err(|_| "PTY registry lock poisoned".to_string())?;
+        let handle = guard.panes.get(&pane_id).ok_or_else(|| "Unknown PTY pane".to_string())?;
+        handle.child.process_id()
+    };
+
+    let Some(pid) = pid else { return Ok(None); };
+    let output = Command::new("lsof")
+        .args(["-a", "-d", "cwd", "-p", &pid.to_string(), "-Fn"])
+        .output()
+        .map_err(|err| err.to_string())?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(cwd) = line.strip_prefix('n') {
+            return Ok(Some(cwd.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 fn parse_numstat(text: &str, added: &mut u32, removed: &mut u32) {
@@ -303,6 +331,7 @@ pub fn run() {
             write_pty,
             resize_pty,
             kill_pty,
+            pty_cwd,
             app_stats,
             git_info,
         ])

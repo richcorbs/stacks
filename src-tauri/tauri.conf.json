@@ -16,7 +16,7 @@
         "width": 1200,
         "height": 800,
         "backgroundColor": "#080b10",
-        "titleBarStyle": "transparent",
+        "titleBarStyle": "Transparent",
         "minWidth": 780,
         "minHeight": 500
       }

@@ -1,0 +1,134 @@
+import { useEffect, useRef } from 'react';
+import type { ContextMenuState, DialogState, Project, Store, TerminalEntry } from '../types';
+
+export function ContextMenu({ menu, store, onClose, onEditProject, onDeleteProject, onEditTerminal, onDeleteTerminal }: {
+  menu: ContextMenuState;
+  store: Store;
+  onClose: () => void;
+  onEditProject: (project: Project) => void;
+  onDeleteProject: (project: Project) => void;
+  onEditTerminal: (project: Project, terminal: TerminalEntry) => void;
+  onDeleteTerminal: (project: Project, terminal: TerminalEntry) => void;
+}) {
+  const project = store.projects.find((p) => p.id === menu.projectId);
+  if (!project) return null;
+  const terminal = menu.kind === 'terminal' ? project.terminals.find((t) => t.id === menu.terminalId) : null;
+
+  return (
+    <div
+      className="contextMenu"
+      style={{ left: menu.x, top: menu.y }}
+      onClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button onClick={() => menu.kind === 'project' ? onEditProject(project) : terminal && onEditTerminal(project, terminal)}>Edit</button>
+      <button className="dangerItem" onClick={() => menu.kind === 'project' ? onDeleteProject(project) : terminal && onDeleteTerminal(project, terminal)}>Delete</button>
+    </div>
+  );
+}
+
+export function ConfirmClosePaneDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  const yesRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    requestAnimationFrame(() => yesRef.current?.focus());
+  }, []);
+
+  return (
+    <div className="modalBackdrop" onMouseDown={onCancel}>
+      <form
+        className="modal confirmModal"
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={(e) => { e.preventDefault(); onConfirm(); }}
+      >
+        <h2>Close pane?</h2>
+        <p>This will terminate the process running in this pane.</p>
+        <div className="modalActions">
+          <button type="button" onClick={onCancel}>No</button>
+          <button ref={yesRef} className="primaryAction" type="submit">Yes</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
+  dialog: DialogState;
+  setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const firstInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    requestAnimationFrame(() => firstInputRef.current?.focus());
+  }, []);
+
+  return (
+    <div className="modalBackdrop" onMouseDown={onCancel}>
+      <form
+        className="modal"
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
+      >
+        {dialog.kind === 'project' ? (
+          <>
+            <h2>Add Project</h2>
+            <label>
+              Project path
+              <input
+                ref={firstInputRef}
+                value={dialog.path}
+                placeholder="/Users/rich/Code/my-project"
+                onChange={(e) => setDialog({ ...dialog, path: e.target.value })}
+              />
+            </label>
+          </>
+        ) : dialog.kind === 'editProject' ? (
+          <>
+            <h2>Edit Project</h2>
+            <label>
+              Name
+              <input
+                ref={firstInputRef}
+                value={dialog.name}
+                onChange={(e) => setDialog({ ...dialog, name: e.target.value })}
+              />
+            </label>
+            <label>
+              Directory
+              <input
+                value={dialog.path}
+                placeholder="/Users/rich/Code/my-project"
+                onChange={(e) => setDialog({ ...dialog, path: e.target.value })}
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <h2>{dialog.kind === 'editTerminal' ? 'Edit Terminal' : 'New Terminal'}</h2>
+            <label>
+              Name
+              <input
+                ref={firstInputRef}
+                value={dialog.name}
+                onChange={(e) => setDialog({ ...dialog, name: e.target.value })}
+              />
+            </label>
+            <label>
+              Startup command <span>(optional)</span>
+              <input
+                value={dialog.command}
+                placeholder="pi, claude, npm run dev, ..."
+                onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
+              />
+            </label>
+          </>
+        )}
+        <div className="modalActions">
+          <button type="button" onClick={onCancel}>Cancel</button>
+          <button className="primaryAction" type="submit">{dialog.kind === 'project' || dialog.kind === 'terminal' ? 'Create' : 'Save'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+

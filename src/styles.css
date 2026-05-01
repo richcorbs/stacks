@@ -14,7 +14,7 @@ button { font: inherit; color: inherit; }
   flex: 0 0 auto;
   border-right: 1px solid #1f2a36;
   background: #111821;
-  padding: 14px;
+  padding: 6px 14px 14px;
   overflow: hidden;
   position: relative;
   display: flex;
@@ -42,8 +42,10 @@ body.resizingSidebar * {
   cursor: pointer;
 }
 button:hover:not(:disabled) { background: #243244; }
+.project:hover { background: transparent !important; }
 button:disabled { opacity: .45; cursor: not-allowed; }
-.projectList { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow-y: auto; }
+.projectList { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow-y: auto; margin-left: -14px; margin-right: -14px; }
+.projectBlock { position: relative; padding: 0 14px 6px; border-bottom: 1px solid #223142; }
 .sidebarFooter {
   flex: 0 0 auto;
   padding-top: 10px;
@@ -74,13 +76,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .term.focused { background: #172334; }
 .term.active { background: #203348; color: #d6deeb; }
 .projectBlock.activeProject .term:not(.active) { color: #6f8195; }
-.project { color: #97a6b8 !important; font-size: 13px; }
+.project { color: #97a6b8 !important; font-size: 13px; padding-bottom: 9px; }
 .project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .termList { margin-left: 8px; padding-left: 0; }
-.term { justify-content: space-between; padding-left: 6px; padding-right: 14px; }
+.term { justify-content: space-between; padding-left: 6px; padding-right: 14px; font-size: 13px; }
 .termLabel { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .activitySlot { width: 8px; height: 8px; flex: 0 0 8px; display: grid; place-items: center; }
-.termName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.termName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.03em; }
 .termIndicators { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .shortcutHint { color: #8fa0b3; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
 .dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e66; }
@@ -97,7 +99,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   padding: 0 10px;
 }
 .title { font-weight: 600; color: #9aa8b8; }
-.subtitle { margin-top: 3px; font-size: 12px; color: #5f7083; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.subtitle { margin-top: 3px; font-size: 12px; color: #74869b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .branchDisplay {
   color: #6f8195;
   font-size: 13px;
