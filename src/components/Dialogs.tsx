@@ -27,7 +27,13 @@ export function ContextMenu({ menu, store, onClose, onEditProject, onDeleteProje
   );
 }
 
-export function ConfirmClosePaneDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+function ConfirmDialog({ title, children, confirmLabel = 'Yes', onCancel, onConfirm }: {
+  title: string;
+  children: React.ReactNode;
+  confirmLabel?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
   const yesRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     requestAnimationFrame(() => yesRef.current?.focus());
@@ -40,14 +46,31 @@ export function ConfirmClosePaneDialog({ onCancel, onConfirm }: { onCancel: () =
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => { e.preventDefault(); onConfirm(); }}
       >
-        <h2>Close pane?</h2>
-        <p>This will terminate the process running in this pane.</p>
+        <h2>{title}</h2>
+        {children}
         <div className="modalActions">
           <button type="button" onClick={onCancel}>No</button>
-          <button ref={yesRef} className="primaryAction" type="submit">Yes</button>
+          <button ref={yesRef} className="primaryAction" type="submit">{confirmLabel}</button>
         </div>
       </form>
     </div>
+  );
+}
+
+export function ConfirmClosePaneDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <ConfirmDialog title="Close pane?" onCancel={onCancel} onConfirm={onConfirm}>
+      <p>This will terminate the process running in this pane.</p>
+      <p className="confirmHint">Use ⌘W to close this pane. Use ⌘Q to quit the app.</p>
+    </ConfirmDialog>
+  );
+}
+
+export function ConfirmQuitDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <ConfirmDialog title="Quit Stacks Tauri?" confirmLabel="Quit" onCancel={onCancel} onConfirm={onConfirm}>
+      <p>This will close all panes and terminate their running processes.</p>
+    </ConfirmDialog>
   );
 }
 

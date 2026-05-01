@@ -23,7 +23,7 @@ export function disposePaneSession(paneId: string) {
 
 function safeTermSize(term: Terminal): TermSize {
   return {
-    cols: Math.max(2, (term.cols || 80) - 2),
+    cols: Math.max(2, (term.cols || 80) - 1),
     rows: Math.max(2, term.rows || 24),
   };
 }
@@ -247,7 +247,9 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
 
   return (
     <div className={`pane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`} onMouseDown={onFocus}>
-      <div className="terminalHost" ref={hostRef} />
+      <div className="terminalHostFrame">
+        <div className="terminalHost" ref={hostRef} />
+      </div>
     </div>
   );
 }

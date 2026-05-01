@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
-import { ContextMenu, ConfirmClosePaneDialog, Dialog } from './components/Dialogs';
+import { ContextMenu, ConfirmClosePaneDialog, ConfirmQuitDialog, Dialog } from './components/Dialogs';
 import { Sidebar } from './components/Sidebar';
 import { MainWorkspace } from './components/MainWorkspace';
 import { disposePaneSession } from './components/TerminalWorkspace';
@@ -62,6 +63,7 @@ function App() {
   const resizingSidebarRef = useRef(false);
   const justPointerDraggedRef = useRef(false);
   const [confirmClosePaneId, setConfirmClosePaneId] = useState<string | null>(null);
+  const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
 
   const activeProject = useMemo(
     () => store.projects.find((p) => p.id === activeProjectId) ?? null,
@@ -95,6 +97,16 @@ function App() {
     });
   }, []);
 
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    appWindow.onCloseRequested((event) => {
+      event.preventDefault();
+      setConfirmQuitOpen(true);
+    }).then((fn) => { unlisten = fn; }).catch(console.error);
+    return () => unlisten?.();
+  }, []);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -159,6 +171,7 @@ function App() {
     activateSidebarFocusedTerminal,
     splitPane,
     requestClosePane: setConfirmClosePaneId,
+    requestQuit: () => setConfirmQuitOpen(true),
     cycleSidebarTerminal,
     cyclePane,
   });
@@ -486,6 +499,15 @@ function App() {
             const paneId = confirmClosePaneId;
             setConfirmClosePaneId(null);
             closePane(paneId);
+          }}
+        />
+      )}
+      {confirmQuitOpen && (
+        <ConfirmQuitDialog
+          onCancel={() => setConfirmQuitOpen(false)}
+          onConfirm={() => {
+            setConfirmQuitOpen(false);
+            getCurrentWindow().destroy().catch(console.error);
           }}
         />
       )}

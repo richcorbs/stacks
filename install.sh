@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="Stacks Tauri.app"
+BUNDLE_ID="com.richcorbs.stacks-tauri"
 BUILT_APP="$ROOT_DIR/src-tauri/target/release/bundle/macos/$APP_NAME"
 DEST_DIR="${DEST_DIR:-$HOME/Applications}"
 
@@ -37,7 +38,36 @@ fi
 mkdir -p "$DEST_DIR" 2>/dev/null || true
 DEST_APP="$DEST_DIR/$APP_NAME"
 
+quit_running_app() {
+  if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "Stacks Tauri is running; asking it to quit before installing..."
+  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+
+  for _ in {1..30}; do
+    if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.2
+  done
+
+  echo "Stacks Tauri is still running; terminating it so the app bundle can be replaced..."
+  pkill -x "stacks-tauri" || true
+  for _ in {1..20}; do
+    if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.2
+  done
+
+  echo "error: Stacks Tauri is still running. Quit it manually and rerun ./install.sh" >&2
+  exit 1
+}
+
 copy_app() {
+  quit_running_app
   rm -rf "$DEST_APP"
   ditto "$BUILT_APP" "$DEST_APP"
 }

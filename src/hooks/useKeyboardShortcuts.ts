@@ -12,6 +12,7 @@ type ShortcutHandlers = {
   activateSidebarFocusedTerminal: () => void;
   splitPane: (direction: 'row' | 'column') => void;
   requestClosePane: (paneId: string) => void;
+  requestQuit: () => void;
   cycleSidebarTerminal: (delta: number) => void;
   cyclePane: (delta: number) => void;
 };
@@ -33,6 +34,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         activateSidebarFocusedTerminal,
         splitPane,
         requestClosePane,
+        requestQuit,
         cycleSidebarTerminal,
         cyclePane,
       } = handlersRef.current;
@@ -64,6 +66,10 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         event.preventDefault();
         event.stopPropagation();
         if (activePaneId) requestClosePane(activePaneId);
+      } else if (key === 'q') {
+        event.preventDefault();
+        event.stopPropagation();
+        requestQuit();
       } else if (event.key === ']') {
         event.preventDefault();
         event.stopPropagation();
