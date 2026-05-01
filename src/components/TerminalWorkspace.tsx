@@ -240,7 +240,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
       fit.fit();
       const size = safeTermSize(term);
       invoke('resize_pty', { paneId: pane.id, cols: size.cols, rows: size.rows }).catch(() => {});
-      focusPaneSession(pane.id, maximized ? 'active-maximized' : 'active', { scrollToBottom: maximized });
+      focusPaneSession(pane.id, maximized ? 'active-maximized' : 'active');
     });
   }, [active, visible, maximized, pane.id]);
 

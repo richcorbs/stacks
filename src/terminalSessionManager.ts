@@ -29,8 +29,8 @@ export function focusPaneSession(paneId: string, reason: string, options: { scro
     return false;
   }
   debugFocus('focus pane session', { paneId, reason, options });
-  if (options.scrollToBottom) jumpSessionToBottom(session);
   session.fit.fit();
+  if (options.scrollToBottom) jumpSessionToBottom(session);
   session.term.focus();
   return true;
 }
@@ -41,6 +41,13 @@ export function scrollPaneSessionToBottom(paneId: string) {
   debugFocus('jump pane to bottom', { paneId });
   jumpSessionToBottom(session);
   return true;
+}
+
+export function isPaneSessionAtBottom(paneId: string) {
+  const session = paneSessions.get(paneId);
+  if (!session) return true;
+  const buffer = session.term.buffer.active;
+  return buffer.viewportY >= buffer.baseY;
 }
 
 export function requestPaneSessionsScrollToBottomAfterFit(paneIds: string[]) {
