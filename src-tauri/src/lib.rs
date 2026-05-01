@@ -537,7 +537,7 @@ pub fn run() {
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let title = if cfg!(debug_assertions) {
-                    "Stacks Tauri - DEV BUILD"
+                    "Stacks - DEV BUILD"
                 } else {
                     "Stacks"
                 };

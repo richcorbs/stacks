@@ -43,7 +43,7 @@ Open it with:
 open ~/Applications/Stacks.app
 ```
 
-The installer intentionally installs to `~/Applications`, removes the old `Stacks Tauri.app`, and handles replacing a running app.
+The installer intentionally installs to `~/Applications` and handles replacing a running app.
 
 ## Important architecture
 
@@ -80,7 +80,7 @@ Backend owns:
 Notes:
 
 - Release title is `Stacks`.
-- Debug/dev title is `Stacks Tauri - DEV BUILD`.
+- Debug/dev title is `Stacks - DEV BUILD`.
 - App display name/product name is `Stacks`.
 - Backend is currently macOS/Unix-biased (`lsof`, `ps`, shell behavior, native macOS menus).
 - Startup commands run in an interactive login shell for zsh/bash (`-lic`) so launched `.app` environments can find tools from shell setup, nvm, Homebrew, etc.

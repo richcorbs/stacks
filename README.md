@@ -1,4 +1,4 @@
-# Stacks Tauri
+# Stacks
 
 A Tauri + React terminal workspace app inspired by `~/Code/stacks`, using xterm.js in the webview and a Rust PTY backend (`portable-pty`) instead of AppKit/libvterm.
 

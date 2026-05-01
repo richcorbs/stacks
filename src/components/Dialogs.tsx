@@ -70,7 +70,7 @@ export function ConfirmClosePaneDialog({ onCancel, onConfirm }: { onCancel: () =
 
 export function ConfirmQuitDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
-    <ConfirmDialog title="Quit Stacks Tauri?" confirmLabel="Quit" onCancel={onCancel} onConfirm={onConfirm}>
+    <ConfirmDialog title="Quit Stacks?" confirmLabel="Quit" onCancel={onCancel} onConfirm={onConfirm}>
       <p>This will close all panes and terminate their running processes.</p>
     </ConfirmDialog>
   );

@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="Stacks.app"
-OLD_APP_NAME="Stacks Tauri.app"
 BUNDLE_ID="com.richcorbs.stacks-tauri"
 BUILT_APP="$ROOT_DIR/src-tauri/target/release/bundle/macos/$APP_NAME"
 DEST_DIR="${DEST_DIR:-$HOME/Applications}"
@@ -38,14 +37,13 @@ fi
 
 mkdir -p "$DEST_DIR" 2>/dev/null || true
 DEST_APP="$DEST_DIR/$APP_NAME"
-OLD_DEST_APP="$DEST_DIR/$OLD_APP_NAME"
 
 quit_running_app() {
   if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
     return
   fi
 
-  echo "Stacks Tauri is running; asking it to quit before installing..."
+  echo "Stacks is running; asking it to quit before installing..."
   osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
 
   for _ in {1..30}; do
@@ -55,7 +53,7 @@ quit_running_app() {
     sleep 0.2
   done
 
-  echo "Stacks Tauri is still running; terminating it so the app bundle can be replaced..."
+  echo "Stacks is still running; terminating it so the app bundle can be replaced..."
   pkill -x "stacks-tauri" || true
   for _ in {1..20}; do
     if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
@@ -64,20 +62,20 @@ quit_running_app() {
     sleep 0.2
   done
 
-  echo "error: Stacks Tauri is still running. Quit it manually and rerun ./install.sh" >&2
+  echo "error: Stacks is still running. Quit it manually and rerun ./install.sh" >&2
   exit 1
 }
 
 copy_app() {
   quit_running_app
-  rm -rf "$DEST_APP" "$OLD_DEST_APP"
+  rm -rf "$DEST_APP"
   ditto "$BUILT_APP" "$DEST_APP"
 }
 
 if [[ ! -w "$DEST_DIR" ]]; then
   echo "Installing to $DEST_DIR requires elevated permissions."
   sudo mkdir -p "$DEST_DIR"
-  sudo rm -rf "$DEST_APP" "$OLD_DEST_APP"
+  sudo rm -rf "$DEST_APP"
   sudo ditto "$BUILT_APP" "$DEST_APP"
   sudo xattr -dr com.apple.quarantine "$DEST_APP" 2>/dev/null || true
 else
