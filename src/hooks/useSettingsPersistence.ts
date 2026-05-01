@@ -1,0 +1,13 @@
+import { useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+
+export function usePersistentSidebarWidth(loaded: boolean, sidebarWidth: number, delayMs = 250) {
+  useEffect(() => {
+    if (!loaded) return;
+    window.localStorage.setItem('stacks.sidebarWidth', String(sidebarWidth));
+    const timeout = window.setTimeout(() => {
+      invoke('save_sidebar_width', { width: Math.round(sidebarWidth) }).catch(console.error);
+    }, delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [loaded, sidebarWidth, delayMs]);
+}

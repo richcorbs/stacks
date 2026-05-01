@@ -13,52 +13,53 @@ export function useWindowStatePersistence(delayMs = 300) {
     let unlistenMove: (() => void) | undefined;
     let timeout: number | undefined;
 
-    const persistSoon = () => {
-      const state = stateRef.current;
-      if (!state || state.width < 780 || state.height < 500) return;
-      if (timeout !== undefined) window.clearTimeout(timeout);
-      timeout = window.setTimeout(() => {
-        invoke('save_window_state', {
-          state: {
-            width: Math.round(state.width),
-            height: Math.round(state.height),
-            x: Math.round(state.x),
-            y: Math.round(state.y),
-          },
-        }).catch(console.error);
-      }, delayMs);
-    };
-
-    const loadCurrentState = async () => {
-      const [size, position] = await Promise.all([
+    const readCurrentState = async (): Promise<SavedWindowState> => {
+      const [size, position, scaleFactor] = await Promise.all([
         appWindow.outerSize(),
         appWindow.outerPosition(),
+        appWindow.scaleFactor(),
       ]);
-      stateRef.current = { width: size.width, height: size.height, x: position.x, y: position.y };
+      return {
+        width: size.width / scaleFactor,
+        height: size.height / scaleFactor,
+        x: position.x / scaleFactor,
+        y: position.y / scaleFactor,
+      };
     };
 
-    loadCurrentState().catch(console.error);
+    const save = (state: SavedWindowState) => {
+      if (state.width < 780 || state.height < 500) return;
+      invoke('save_window_state', {
+        state: {
+          width: Math.round(state.width),
+          height: Math.round(state.height),
+          x: Math.round(state.x),
+          y: Math.round(state.y),
+        },
+      }).catch(console.error);
+    };
 
-    appWindow.onResized(({ payload }) => {
-      const current = stateRef.current;
-      stateRef.current = {
-        width: payload.width,
-        height: payload.height,
-        x: current?.x ?? 0,
-        y: current?.y ?? 0,
-      };
-      persistSoon();
+    const persistSoon = () => {
+      const state = stateRef.current;
+      if (!state) return;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => save(state), delayMs);
+    };
+
+    readCurrentState().then((state) => { stateRef.current = state; }).catch(console.error);
+
+    appWindow.onResized(() => {
+      readCurrentState().then((state) => {
+        stateRef.current = state;
+        persistSoon();
+      }).catch(console.error);
     }).then((fn) => { unlistenResize = fn; }).catch(console.error);
 
-    appWindow.onMoved(({ payload }) => {
-      const current = stateRef.current;
-      stateRef.current = {
-        width: current?.width ?? 1200,
-        height: current?.height ?? 800,
-        x: payload.x,
-        y: payload.y,
-      };
-      persistSoon();
+    appWindow.onMoved(() => {
+      readCurrentState().then((state) => {
+        stateRef.current = state;
+        persistSoon();
+      }).catch(console.error);
     }).then((fn) => { unlistenMove = fn; }).catch(console.error);
 
     return () => {

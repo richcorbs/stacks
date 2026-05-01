@@ -1,7 +1,7 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io::{Read, Write}, path::PathBuf, process::Command, sync::Mutex, thread};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, Window};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Window};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -70,6 +70,14 @@ struct WindowState {
     y: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AppSettings {
+    #[serde(default)]
+    window: Option<WindowState>,
+    #[serde(default)]
+    sidebar_width: Option<u32>,
+}
+
 struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
@@ -94,11 +102,12 @@ fn store_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn window_state_path() -> Result<PathBuf, String> {
+fn settings_path() -> Result<PathBuf, String> {
     let mut path = app_data_dir()?;
-    path.push("window.json");
+    path.push("settings.json");
     Ok(path)
 }
+
 
 #[tauri::command]
 fn load_store() -> Result<ProjectStore, String> {
@@ -119,21 +128,66 @@ fn save_store(store: ProjectStore) -> Result<(), String> {
     fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn save_window_state(state: WindowState) -> Result<(), String> {
-    let width = state.width.clamp(780, 10_000);
-    let height = state.height.clamp(500, 10_000);
-    let path = window_state_path()?;
-    let text = serde_json::to_string_pretty(&WindowState { width, height, x: state.x, y: state.y }).map_err(|e| e.to_string())?;
+fn load_settings_from_disk() -> AppSettings {
+    settings_path()
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str::<AppSettings>(&text).ok())
+        .unwrap_or_default()
+}
+
+fn save_settings_to_disk(settings: &AppSettings) -> Result<(), String> {
+    let path = settings_path()?;
+    let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     let tmp_path = path.with_extension("json.tmp");
     fs::write(&tmp_path, text).map_err(|e| e.to_string())?;
     fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn load_settings() -> AppSettings {
+    load_settings_from_disk()
+}
+
+#[tauri::command]
+fn persist_window_state(state: WindowState) -> Result<(), String> {
+    let mut settings = load_settings_from_disk();
+    settings.window = Some(WindowState {
+        width: state.width.clamp(780, 10_000),
+        height: state.height.clamp(500, 10_000),
+        x: state.x,
+        y: state.y,
+    });
+    save_settings_to_disk(&settings)
+}
+
+#[tauri::command]
+fn save_window_state(state: WindowState) -> Result<(), String> {
+    persist_window_state(state)
+}
+
+#[tauri::command]
+fn save_current_window_state(window: Window) -> Result<(), String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    persist_window_state(WindowState {
+        width: ((size.width as f64) / scale).round() as u32,
+        height: ((size.height as f64) / scale).round() as u32,
+        x: Some(((position.x as f64) / scale).round() as i32),
+        y: Some(((position.y as f64) / scale).round() as i32),
+    })
+}
+
+#[tauri::command]
+fn save_sidebar_width(width: u32) -> Result<(), String> {
+    let mut settings = load_settings_from_disk();
+    settings.sidebar_width = Some(width.clamp(180, 420));
+    save_settings_to_disk(&settings)
+}
+
 fn load_window_state() -> Option<WindowState> {
-    let path = window_state_path().ok()?;
-    let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+    load_settings_from_disk().window
 }
 
 #[tauri::command]
@@ -377,7 +431,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
+            load_settings,
             save_window_state,
+            save_current_window_state,
+            save_sidebar_width,
             new_id,
             quit_app,
             spawn_pty,
@@ -394,9 +451,9 @@ pub fn run() {
                 if let Some(state) = load_window_state() {
                     let width = state.width.clamp(780, 10_000);
                     let height = state.height.clamp(500, 10_000);
-                    let _ = window.set_size(PhysicalSize::new(width, height));
+                    let _ = window.set_size(LogicalSize::new(width, height));
                     if let (Some(x), Some(y)) = (state.x, state.y) {
-                        let _ = window.set_position(PhysicalPosition::new(x, y));
+                        let _ = window.set_position(LogicalPosition::new(x, y));
                     }
                 }
             }

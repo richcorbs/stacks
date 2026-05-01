@@ -14,6 +14,8 @@ export type PtyData = { pane_id: string; generation: string; data: number[] };
 export type PtyExit = { pane_id: string; generation: string };
 export type GitInfo = { branch: string; added: number; removed: number };
 export type AppStats = { cpu: number; mem_mb: number; version: string };
+export type WindowState = { width: number; height: number; x?: number | null; y?: number | null };
+export type AppSettings = { window?: WindowState | null; sidebar_width?: number | null };
 export type TermSize = { cols: number; rows: number };
 export type PaneSession = {
   term: Terminal;

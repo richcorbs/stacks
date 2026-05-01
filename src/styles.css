@@ -115,10 +115,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .gitSeparator { color: #455466; }
 .gitAdded { color: #22c55e; }
 .gitRemoved { color: #ef4444; }
-.workspace { flex: 1; min-height: 0; padding: 10px; position: relative; }
+.workspace { flex: 1; min-height: 0; padding: 8px; position: relative; }
 .terminalWorkspace {
   position: absolute;
-  inset: 10px;
+  inset: 8px;
   visibility: hidden;
   pointer-events: none;
 }

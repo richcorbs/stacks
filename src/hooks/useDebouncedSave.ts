@@ -12,8 +12,3 @@ export function useDebouncedStoreSave(loaded: boolean, store: Store, delayMs = 2
   }, [loaded, store, delayMs]);
 }
 
-export function usePersistentSidebarWidth(sidebarWidth: number) {
-  useEffect(() => {
-    window.localStorage.setItem('stacks.sidebarWidth', String(sidebarWidth));
-  }, [sidebarWidth]);
-}

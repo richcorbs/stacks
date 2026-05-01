@@ -3,22 +3,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import type { Pane, PaneSession, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
+import type { Pane, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
+import { getPaneSession, setPaneSession } from '../terminalSessionManager';
 
 const encoder = new TextEncoder();
-const paneSessions = new Map<string, PaneSession>();
-
-export function disposePaneSession(paneId: string) {
-  const session = paneSessions.get(paneId);
-  if (!session) return;
-  window.dispatchEvent(new CustomEvent('pane-running-changed', { detail: { paneId, running: false } }));
-  session.resizeObserver?.disconnect();
-  session.dataDisposable.dispose();
-  session.unlistenData?.();
-  session.unlistenExit?.();
-  session.term.dispose();
-  paneSessions.delete(paneId);
-}
 
 function safeTermSize(term: Terminal): TermSize {
   return {
@@ -134,7 +122,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
     const startupCommand = pane.id === `${terminal.id}:0` ? terminal.command : null;
     const host = hostRef.current!;
     let cancelled = false;
-    let session = paneSessions.get(pane.id);
+    let session = getPaneSession(pane.id);
 
     if (!session) {
       const term = new Terminal({
@@ -160,7 +148,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, onFocus, onC
         }),
         decoder: new TextDecoder(),
       };
-      paneSessions.set(pane.id, session);
+      setPaneSession(pane.id, session);
 
       const generation = `${pane.id}:${Date.now()}:${Math.random()}`;
       const dataPromise = listen<PtyData>('pty-data', (event) => {

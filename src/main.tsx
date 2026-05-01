@@ -2,17 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { open } from '@tauri-apps/plugin-dialog';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 import { ContextMenu, ConfirmClosePaneDialog, ConfirmQuitDialog, Dialog } from './components/Dialogs';
 import { Sidebar } from './components/Sidebar';
 import { MainWorkspace } from './components/MainWorkspace';
-import { disposePaneSession } from './components/TerminalWorkspace';
-import type { ContextMenuState, DialogState, PointerDragState, Project, SplitNode, Store, TerminalEntry } from './types';
-import { basename, collectLeafPaneIds, loadSidebarWidth, normalizeSplitNode, parseDragData, removeLeaf, setSplitRatio, splitLeaf } from './utils';
+import type { AppSettings, ContextMenuState, DialogState, PointerDragState, Store } from './types';
+import { collectLeafPaneIds, loadSidebarWidth, normalizeSplitNode } from './utils';
 import { useAppStats } from './hooks/useAppStats';
-import { useDebouncedStoreSave, usePersistentSidebarWidth } from './hooks/useDebouncedSave';
+import { useDebouncedStoreSave } from './hooks/useDebouncedSave';
+import { usePersistentSidebarWidth } from './hooks/useSettingsPersistence';
 import { useGitInfo } from './hooks/useGitInfo';
 import { usePaneActivity } from './hooks/usePaneActivity';
 import { useWorkspaceState } from './hooks/useWorkspaceState';
@@ -21,6 +20,7 @@ import { usePaneCwd } from './hooks/usePaneCwd';
 import { useSidebarInteractions } from './hooks/useSidebarInteractions';
 import { useImageDropToTerminal } from './hooks/useImageDropToTerminal';
 import { useWindowStatePersistence } from './hooks/useWindowStatePersistence';
+import { useWorkspaceCommands } from './hooks/useWorkspaceCommands';
 
 function App() {
   const [loaded, setLoaded] = useState(false);
@@ -84,12 +84,16 @@ function App() {
   const gitInfo = useGitInfo(activePath);
 
   useDebouncedStoreSave(loaded, store);
-  usePersistentSidebarWidth(sidebarWidth);
+  usePersistentSidebarWidth(loaded, sidebarWidth);
   useWindowStatePersistence();
 
   useEffect(() => {
-    invoke<Store>('load_store').then((loadedStore) => {
+    Promise.all([
+      invoke<Store>('load_store'),
+      invoke<AppSettings>('load_settings').catch(() => null),
+    ]).then(([loadedStore, settings]) => {
       setStore(loadedStore);
+      if (settings?.sidebar_width) setSidebarWidth(Math.min(420, Math.max(180, settings.sidebar_width)));
       const firstProject = loadedStore.projects[0];
       if (firstProject) selectTerminal(firstProject.id, null);
       else setActiveProjectId(null);
@@ -106,6 +110,7 @@ function App() {
     let unlisten: (() => void) | undefined;
     appWindow.onCloseRequested((event) => {
       event.preventDefault();
+      invoke('save_current_window_state').catch(console.error);
       setConfirmQuitOpen(true);
     }).then((fn) => { unlisten = fn; }).catch(console.error);
     return () => unlisten?.();
@@ -121,6 +126,61 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    setSidebarFocusedTerminalId(activeTerminalId);
+  }, [activeTerminalId]);
+
+  usePaneCwd(activePaneId, rememberPaneCwd, setStore);
+  useImageDropToTerminal(activePaneId);
+
+  const commands = useWorkspaceCommands({
+    store,
+    setStore,
+    dialog,
+    setDialog,
+    activeTerminal,
+    activePaneId,
+    maximizedPaneId,
+    sidebarFocusedTerminalId,
+    activeTerminalId,
+    panesByTerminalId,
+    sidebarTerminals,
+    selectTerminal,
+    focusPaneState,
+    toggleMaximizedPaneState,
+    removeTerminalState,
+    removeProjectState,
+    setPanesByTerminalId,
+    setSplitRootsByTerminalId,
+    setActivePaneId,
+    setFocusedPaneByTerminalId,
+    setMaximizedPaneId,
+    setSidebarFocusedTerminalId,
+    setRunningPaneIds,
+    setActivityTerminalIds,
+  });
+  const {
+    openProjectDialog,
+    openTerminalDialog,
+    submitDialog,
+    toggleProject,
+    openEditProjectDialog,
+    openEditTerminalDialog,
+    focusPane,
+    deleteTerminal,
+    moveProject,
+    moveTerminal,
+    deleteProject,
+    splitPane,
+    cyclePane,
+    cycleSidebarTerminal,
+    activateSidebarFocusedTerminal,
+    activateTerminalByIndex,
+    toggleMaximizedPane,
+    resizeSplit,
+    closePane,
+  } = commands;
+
   useSidebarInteractions({
     resizingSidebarRef,
     pointerDragRef,
@@ -129,14 +189,6 @@ function App() {
     moveProject,
     moveTerminal,
   });
-
-  useEffect(() => {
-    setSidebarFocusedTerminalId(activeTerminalId);
-  }, [activeTerminalId]);
-
-  usePaneCwd(activePaneId, rememberPaneCwd, setStore);
-  useImageDropToTerminal(activePaneId);
-
 
   useEffect(() => {
     if (!activeTerminal) {
@@ -179,268 +231,6 @@ function App() {
     cycleSidebarTerminal,
     cyclePane,
   });
-
-  async function openProjectDialog() {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: 'Add Project',
-    }).catch((err) => {
-      console.error(err);
-      return null;
-    });
-    if (typeof selected !== 'string') return;
-    await addProjectFromPath(selected);
-  }
-
-  async function addProjectFromPath(path: string) {
-    const existing = store.projects.find((p) => p.path === path);
-    if (existing) {
-      const terminalId = existing.terminals[0]?.id ?? null;
-      selectTerminal(existing.id, terminalId);
-      return;
-    }
-    const id = await invoke<string>('new_id');
-    const project: Project = { id, name: basename(path), path, terminals: [], collapsed: false };
-    setStore((s) => ({ projects: [...s.projects, project] }));
-    selectTerminal(id, null);
-  }
-
-  function openTerminalDialog(project: Project) {
-    setDialog({ kind: 'terminal', projectId: project.id, name: `Terminal ${project.terminals.length + 1}`, command: '' });
-  }
-
-  async function submitDialog() {
-    if (!dialog) return;
-
-    if (dialog.kind === 'project') {
-      const path = dialog.path.trim();
-      if (!path) return;
-      await addProjectFromPath(path);
-      setDialog(null);
-      return;
-    }
-
-    if (dialog.kind === 'editProject') {
-      const name = dialog.name.trim();
-      const path = dialog.path.trim();
-      if (!name || !path) return;
-      setStore((s) => ({
-        projects: s.projects.map((p) => p.id === dialog.projectId ? { ...p, name, path } : p),
-      }));
-      setDialog(null);
-      return;
-    }
-
-    if (dialog.kind === 'editTerminal') {
-      const name = dialog.name.trim();
-      if (!name) return;
-      setStore((s) => ({
-        projects: s.projects.map((p) => p.id === dialog.projectId ? {
-          ...p,
-          terminals: p.terminals.map((t) => t.id === dialog.terminalId ? { ...t, name, command: dialog.command.trim() || null } : t),
-        } : p),
-      }));
-      setDialog(null);
-      return;
-    }
-
-    const project = store.projects.find((p) => p.id === dialog.projectId);
-    if (!project) return;
-    const name = dialog.name.trim();
-    if (!name) return;
-    const id = await invoke<string>('new_id');
-    const terminal: TerminalEntry = {
-      id,
-      name,
-      command: dialog.command.trim() || null,
-      cwd: project.path,
-    };
-    setStore((s) => ({
-      projects: s.projects.map((p) => p.id === project.id ? { ...p, collapsed: false, terminals: [...p.terminals, terminal] } : p),
-    }));
-    selectTerminal(project.id, id);
-    setDialog(null);
-  }
-
-  function toggleProject(projectId: string) {
-    setStore((s) => ({
-      projects: s.projects.map((p) => p.id === projectId ? { ...p, collapsed: !p.collapsed } : p),
-    }));
-  }
-
-  function openEditProjectDialog(project: Project) {
-    setDialog({ kind: 'editProject', projectId: project.id, name: project.name, path: project.path });
-  }
-
-  function openEditTerminalDialog(project: Project, terminal: TerminalEntry) {
-    setDialog({ kind: 'editTerminal', projectId: project.id, terminalId: terminal.id, name: terminal.name, command: terminal.command ?? '' });
-  }
-
-  function saveTerminalSplit(terminalId: string, root: SplitNode | null) {
-    const normalizedRoot = normalizeSplitNode(root);
-    setStore((s) => ({
-      projects: s.projects.map((p) => ({
-        ...p,
-        terminals: p.terminals.map((t) => t.id === terminalId ? { ...t, splits: normalizedRoot } : t),
-      })),
-    }));
-  }
-
-  function focusPane(terminalId: string, paneId: string) {
-    focusPaneState(terminalId, paneId);
-  }
-
-  function deleteTerminal(projectId: string, terminalId: string) {
-    (panesByTerminalId[terminalId] ?? []).forEach((pane) => {
-      disposePaneSession(pane.id);
-      invoke('kill_pty', { paneId: pane.id }).catch(() => {});
-    });
-    setStore((s) => ({
-      projects: s.projects.map((p) => p.id === projectId ? { ...p, terminals: p.terminals.filter((t) => t.id !== terminalId) } : p),
-    }));
-    removeTerminalState(terminalId);
-    setRunningPaneIds((ids) => ids.filter((id) => !id.startsWith(`${terminalId}:`)));
-    setActivityTerminalIds((ids) => ids.filter((id) => id !== terminalId));
-  }
-
-  function moveProject(draggedProjectId: string, targetProjectId: string) {
-    if (draggedProjectId === targetProjectId) return;
-    setStore((s) => {
-      const projects = [...s.projects];
-      const from = projects.findIndex((p) => p.id === draggedProjectId);
-      const to = projects.findIndex((p) => p.id === targetProjectId);
-      if (from < 0 || to < 0) return s;
-      const [item] = projects.splice(from, 1);
-      projects.splice(to, 0, item);
-      return { projects };
-    });
-  }
-
-  function moveTerminal(projectId: string, draggedTerminalId: string, targetTerminalId: string) {
-    if (draggedTerminalId === targetTerminalId) return;
-    setStore((s) => ({
-      projects: s.projects.map((p) => {
-        if (p.id !== projectId) return p;
-        const terminals = [...p.terminals];
-        const from = terminals.findIndex((t) => t.id === draggedTerminalId);
-        const to = terminals.findIndex((t) => t.id === targetTerminalId);
-        if (from < 0 || to < 0) return p;
-        const [item] = terminals.splice(from, 1);
-        terminals.splice(to, 0, item);
-        return { ...p, terminals };
-      }),
-    }));
-  }
-
-  function deleteProject(projectId: string) {
-    const project = store.projects.find((p) => p.id === projectId);
-    if (!project) return;
-    const terminalIds = project.terminals.map((terminal) => terminal.id);
-    terminalIds.forEach((terminalId) => {
-      (panesByTerminalId[terminalId] ?? []).forEach((pane) => {
-        disposePaneSession(pane.id);
-        invoke('kill_pty', { paneId: pane.id }).catch(() => {});
-      });
-    });
-    setStore((s) => ({ projects: s.projects.filter((p) => p.id !== projectId) }));
-    removeProjectState(projectId, terminalIds);
-    setRunningPaneIds((ids) => ids.filter((id) => !terminalIds.some((terminalId) => id.startsWith(`${terminalId}:`))));
-    setActivityTerminalIds((ids) => ids.filter((id) => !terminalIds.includes(id)));
-  }
-
-  async function splitPane(direction: 'row' | 'column' = 'row') {
-    if (!activeTerminal) return;
-    const focusedPaneId = activePaneId?.startsWith(`${activeTerminal.id}:`) ? activePaneId : `${activeTerminal.id}:0`;
-    const id = `${activeTerminal.id}:${Date.now()}`;
-    setPanesByTerminalId((all) => ({
-      ...all,
-      [activeTerminal.id]: [...(all[activeTerminal.id] ?? []), { id, terminalId: activeTerminal.id }],
-    }));
-    setSplitRootsByTerminalId((all) => {
-      const root = all[activeTerminal.id] ?? { kind: 'leaf' as const, paneId: focusedPaneId };
-      const nextRoot = splitLeaf(root, focusedPaneId, id, direction);
-      saveTerminalSplit(activeTerminal.id, nextRoot);
-      return { ...all, [activeTerminal.id]: nextRoot };
-    });
-    focusPane(activeTerminal.id, id);
-  }
-
-  function cyclePane(delta: number) {
-    if (!activeTerminal) return;
-    const panes = panesByTerminalId[activeTerminal.id] ?? [];
-    if (panes.length === 0) return;
-    const currentPaneId = maximizedPaneId ?? activePaneId;
-    const currentIndex = Math.max(0, panes.findIndex((p) => p.id === currentPaneId));
-    const nextIndex = (currentIndex + delta + panes.length) % panes.length;
-    const nextPaneId = panes[nextIndex].id;
-    focusPane(activeTerminal.id, nextPaneId);
-    if (maximizedPaneId) setMaximizedPaneId(nextPaneId);
-  }
-
-  function cycleSidebarTerminal(delta: number) {
-    if (sidebarTerminals.length === 0) return;
-    const currentId = sidebarFocusedTerminalId ?? activeTerminalId;
-    const currentIndex = Math.max(0, sidebarTerminals.findIndex(({ terminal }) => terminal.id === currentId));
-    const nextIndex = (currentIndex + delta + sidebarTerminals.length) % sidebarTerminals.length;
-    setSidebarFocusedTerminalId(sidebarTerminals[nextIndex].terminal.id);
-  }
-
-  function activateSidebarFocusedTerminal() {
-    if (!sidebarFocusedTerminalId) return;
-    const match = sidebarTerminals.find(({ terminal }) => terminal.id === sidebarFocusedTerminalId);
-    if (!match) return;
-    selectTerminal(match.project.id, match.terminal.id);
-  }
-
-  function activateTerminalByIndex(index: number) {
-    const match = sidebarTerminals[index];
-    if (!match) return;
-    selectTerminal(match.project.id, match.terminal.id);
-  }
-
-  function toggleMaximizedPane() {
-    toggleMaximizedPaneState();
-  }
-
-  function resizeSplit(terminalId: string, path: string, ratio: number) {
-    setSplitRootsByTerminalId((all) => {
-      const root = all[terminalId];
-      if (!root) return all;
-      const nextRoot = setSplitRatio(root, path, ratio);
-      saveTerminalSplit(terminalId, nextRoot);
-      return { ...all, [terminalId]: nextRoot };
-    });
-  }
-
-  async function closePane(paneId: string) {
-    disposePaneSession(paneId);
-    await invoke('kill_pty', { paneId }).catch(() => {});
-    const terminalId = paneId.split(':')[0];
-    const remainingPaneCount = (panesByTerminalId[terminalId] ?? []).filter((p) => p.id !== paneId).length;
-    if (maximizedPaneId === paneId) setMaximizedPaneId(null);
-    setPanesByTerminalId((all) => {
-      const nextPanes = (all[terminalId] ?? []).filter((p) => p.id !== paneId);
-      if (activePaneId === paneId) {
-        const nextPaneId = nextPanes[0]?.id ?? null;
-        setActivePaneId(nextPaneId);
-        setFocusedPaneByTerminalId((focused) => nextPaneId ? { ...focused, [terminalId]: nextPaneId } : focused);
-      }
-      return { ...all, [terminalId]: nextPanes };
-    });
-    setSplitRootsByTerminalId((all) => {
-      const root = all[terminalId];
-      if (!root) return all;
-      if (remainingPaneCount === 0) {
-        saveTerminalSplit(terminalId, null);
-        const { [terminalId]: _removed, ...rest } = all;
-        return rest;
-      }
-      const nextRoot = removeLeaf(root, paneId);
-      saveTerminalSplit(terminalId, nextRoot);
-      return nextRoot ? { ...all, [terminalId]: nextRoot } : all;
-    });
-  }
 
   const visitedTerminalWorkspaces = visitedTerminalIds.flatMap((terminalId) => {
     for (const project of store.projects) {
@@ -511,7 +301,9 @@ function App() {
           onCancel={() => setConfirmQuitOpen(false)}
           onConfirm={() => {
             setConfirmQuitOpen(false);
-            invoke('quit_app').catch(console.error);
+            invoke('save_current_window_state')
+              .catch(console.error)
+              .finally(() => invoke('quit_app').catch(console.error));
           }}
         />
       )}
