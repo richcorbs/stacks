@@ -22,6 +22,7 @@ import { useImageDropToTerminal } from './hooks/useImageDropToTerminal';
 import { useWindowStatePersistence } from './hooks/useWindowStatePersistence';
 import { useWorkspaceCommands } from './hooks/useWorkspaceCommands';
 import { useToast } from './hooks/useToast';
+import { useFocusDebug } from './hooks/useFocusDebug';
 
 function App() {
   const [loaded, setLoaded] = useState(false);
@@ -86,6 +87,8 @@ function App() {
   const appStats = useAppStats();
   const gitInfo = useGitInfo(activePath);
 
+  useFocusDebug({ activeProjectId, activeTerminalId, activePaneId, maximizedPaneId, sidebarFocusedTerminalId });
+
   useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
   useWindowStatePersistence();
@@ -112,8 +115,12 @@ function App() {
     const onToast = (event: Event) => {
       showToast((event as CustomEvent<{ message: string }>).detail.message);
     };
+    const unlistenPromise = getCurrentWindow().listen<string>('app-toast', (event) => showToast(event.payload));
     window.addEventListener('app-toast', onToast);
-    return () => window.removeEventListener('app-toast', onToast);
+    return () => {
+      window.removeEventListener('app-toast', onToast);
+      unlistenPromise.then((unlisten) => unlisten()).catch(console.error);
+    };
   }, [showToast]);
 
   useEffect(() => {
@@ -155,6 +162,7 @@ function App() {
     sidebarFocusedTerminalId,
     activeTerminalId,
     panesByTerminalId,
+    splitRootsByTerminalId,
     sidebarTerminals,
     selectTerminal,
     focusPaneState,

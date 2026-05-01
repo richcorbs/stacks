@@ -167,7 +167,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 }
 .empty { height: 100%; display: grid; place-items: center; color: #8091a5; border: 1px dashed #2d3d4f; border-radius: 12px; }
 
-.split { height: 100%; min-width: 0; min-height: 0; display: flex; }
+.split { height: 100%; min-width: 0; min-height: 0; display: flex; position: relative; }
+.split:has(.pane.maximized) > .splitChild:has(.pane.maximized) { flex: 1 1 100% !important; }
+.split:has(.pane.maximized) > .splitChild:not(:has(.pane.maximized)),
+.split:has(.pane.maximized) > .splitResizeHandle { display: none; }
 .split-row { flex-direction: row; }
 .split-column { flex-direction: column; }
 .splitChild { min-width: 0; min-height: 0; }

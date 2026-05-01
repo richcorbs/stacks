@@ -9,7 +9,7 @@ export type ToastDetail = { message: string };
 export type SplitNode =
   | { kind: 'empty' }
   | { kind: 'leaf'; paneId: string }
-  | { kind: 'split'; direction: 'row' | 'column'; ratio?: number; first: SplitNode; second: SplitNode };
+  | { kind: 'split'; direction: 'row' | 'column'; ratio?: number; manual?: boolean; first: SplitNode; second: SplitNode };
 
 export type PtyData = { pane_id: string; generation: string; data: number[] };
 export type PtyExit = { pane_id: string; generation: string };

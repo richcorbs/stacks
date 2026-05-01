@@ -189,6 +189,19 @@ fn save_sidebar_width(width: u32) -> Result<(), String> {
     save_settings_to_disk(&settings)
 }
 
+fn reset_settings_file() -> Result<(), String> {
+    let path = settings_path()?;
+    if path.exists() {
+        fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn reset_settings() -> Result<(), String> {
+    reset_settings_file()
+}
+
 fn load_window_state() -> Option<WindowState> {
     load_settings_from_disk().window
 }
@@ -237,6 +250,8 @@ fn app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "reset-settings", "Reset Window Settings", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, None)?,
         ])?,
@@ -490,7 +505,14 @@ pub fn run() {
         .menu(|app| app_menu(app))
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
-            if let Some(action) = id.strip_prefix("menu-shortcut-") {
+            if id == "reset-settings" {
+                if let Err(err) = reset_settings_file() {
+                    eprintln!("failed to reset settings: {err}");
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("app-toast", "Window settings reset");
+                }
+            } else if let Some(action) = id.strip_prefix("menu-shortcut-") {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.emit("menu-shortcut", action);
                 }
@@ -506,6 +528,7 @@ pub fn run() {
             save_window_state,
             save_current_window_state,
             save_sidebar_width,
+            reset_settings,
             new_id,
             quit_app,
             spawn_pty,

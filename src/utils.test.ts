@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collectLeafPaneIds, normalizeSplitNode, removeLeaf, setSplitRatio, splitLeaf } from './utils';
+import { collectLeafPaneIds, normalizeSplitNode, rebalanceSplits, removeLeaf, setSplitRatio, splitLeaf } from './utils';
 import type { SplitNode } from './types';
 
 describe('split tree utilities', () => {
@@ -11,6 +11,29 @@ describe('split tree utilities', () => {
       ratio: 0.5,
       first: { kind: 'leaf', paneId: 'a' },
       second: { kind: 'leaf', paneId: 'b' },
+    });
+  });
+
+  it('evenly distributes siblings when splitting in an existing split direction', () => {
+    const root: SplitNode = {
+      kind: 'split',
+      direction: 'row',
+      ratio: 0.5,
+      first: { kind: 'leaf', paneId: 'a' },
+      second: { kind: 'leaf', paneId: 'b' },
+    };
+    expect(splitLeaf(root, 'b', 'c', 'row')).toEqual({
+      kind: 'split',
+      direction: 'row',
+      ratio: 1 / 3,
+      first: { kind: 'leaf', paneId: 'a' },
+      second: {
+        kind: 'split',
+        direction: 'row',
+        ratio: 0.5,
+        first: { kind: 'leaf', paneId: 'b' },
+        second: { kind: 'leaf', paneId: 'c' },
+      },
     });
   });
 
@@ -67,5 +90,98 @@ describe('split tree utilities', () => {
       },
     };
     expect(collectLeafPaneIds(root)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('removes nested leaves while preserving the remaining branch', () => {
+    const root: SplitNode = {
+      kind: 'split',
+      direction: 'row',
+      first: { kind: 'leaf', paneId: 'a' },
+      second: {
+        kind: 'split',
+        direction: 'column',
+        first: { kind: 'leaf', paneId: 'b' },
+        second: { kind: 'leaf', paneId: 'c' },
+      },
+    };
+    expect(removeLeaf(root, 'b')).toEqual({
+      kind: 'split',
+      direction: 'row',
+      first: { kind: 'leaf', paneId: 'a' },
+      second: { kind: 'leaf', paneId: 'c' },
+    });
+  });
+
+  it('returns null when removing the only leaf', () => {
+    expect(removeLeaf({ kind: 'leaf', paneId: 'a' }, 'a')).toBeNull();
+  });
+
+  it('leaves the tree unchanged when removing an unknown leaf', () => {
+    const root: SplitNode = {
+      kind: 'split',
+      direction: 'row',
+      first: { kind: 'leaf', paneId: 'a' },
+      second: { kind: 'leaf', paneId: 'b' },
+    };
+    expect(removeLeaf(root, 'missing')).toEqual(root);
+  });
+
+  it('rebalances automatic splits after pane removal', () => {
+    const root: SplitNode = {
+      kind: 'split',
+      direction: 'row',
+      ratio: 1 / 3,
+      first: { kind: 'leaf', paneId: 'a' },
+      second: {
+        kind: 'split',
+        direction: 'row',
+        ratio: 0.5,
+        first: { kind: 'leaf', paneId: 'b' },
+        second: { kind: 'leaf', paneId: 'c' },
+      },
+    };
+    expect(rebalanceSplits(removeLeaf(root, 'b'), 'b')).toEqual({
+      kind: 'split',
+      direction: 'row',
+      ratio: 0.5,
+      first: { kind: 'leaf', paneId: 'a' },
+      second: { kind: 'leaf', paneId: 'c' },
+    });
+  });
+
+  it('does not rebalance manually resized splits after pane removal', () => {
+    const root: SplitNode = {
+      kind: 'split',
+      direction: 'row',
+      ratio: 0.25,
+      manual: true,
+      first: { kind: 'leaf', paneId: 'a' },
+      second: {
+        kind: 'split',
+        direction: 'row',
+        ratio: 0.5,
+        first: { kind: 'leaf', paneId: 'b' },
+        second: { kind: 'leaf', paneId: 'c' },
+      },
+    };
+    expect(rebalanceSplits(removeLeaf(root, 'b'), 'b')).toEqual({
+      kind: 'split',
+      direction: 'row',
+      ratio: 0.25,
+      manual: true,
+      first: { kind: 'leaf', paneId: 'a' },
+      second: { kind: 'leaf', paneId: 'c' },
+    });
+  });
+
+  it('clamps root split ratios at both ends', () => {
+    const root: SplitNode = {
+      kind: 'split',
+      direction: 'row',
+      first: { kind: 'leaf', paneId: 'a' },
+      second: { kind: 'leaf', paneId: 'b' },
+    };
+    expect((setSplitRatio(root, '', 0.01) as Extract<SplitNode, { kind: 'split' }>).ratio).toBe(0.1);
+    expect((setSplitRatio(root, '', 0.99) as Extract<SplitNode, { kind: 'split' }>).ratio).toBe(0.9);
   });
 });

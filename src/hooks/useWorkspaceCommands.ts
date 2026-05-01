@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type React from 'react';
 import type { DialogState, Pane, Project, SplitNode, Store, TerminalEntry } from '../types';
-import { basename, removeLeaf, normalizeSplitNode, setSplitRatio, splitLeaf } from '../utils';
+import { basename, collectLeafPaneIds, rebalanceSplits, removeLeaf, normalizeSplitNode, setSplitRatio, splitLeaf } from '../utils';
 import { disposePaneSession, disposePaneSessions } from '../terminalSessionManager';
 
 type SidebarTerminal = { project: Project; terminal: TerminalEntry };
@@ -18,6 +18,7 @@ type WorkspaceCommandOptions = {
   sidebarFocusedTerminalId: string | null;
   activeTerminalId: string | null;
   panesByTerminalId: Record<string, Pane[]>;
+  splitRootsByTerminalId: Record<string, SplitNode>;
   sidebarTerminals: SidebarTerminal[];
   selectTerminal: (projectId: string, terminalId: string | null) => void;
   focusPaneState: (terminalId: string, paneId: string) => void;
@@ -44,6 +45,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     activePaneId,
     maximizedPaneId,
     panesByTerminalId,
+    splitRootsByTerminalId,
     sidebarFocusedTerminalId,
     activeTerminalId,
     sidebarTerminals,
@@ -232,7 +234,9 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
 
   async function splitPane(direction: 'row' | 'column' = 'row') {
     if (!activeTerminal) return;
-    const focusedPaneId = activePaneId?.startsWith(`${activeTerminal.id}:`) ? activePaneId : `${activeTerminal.id}:0`;
+    const focusedPaneId = maximizedPaneId?.startsWith(`${activeTerminal.id}:`)
+      ? maximizedPaneId
+      : activePaneId?.startsWith(`${activeTerminal.id}:`) ? activePaneId : `${activeTerminal.id}:0`;
     const id = `${activeTerminal.id}:${Date.now()}`;
     setPanesByTerminalId((all) => ({ ...all, [activeTerminal.id]: [...(all[activeTerminal.id] ?? []), { id, terminalId: activeTerminal.id }] }));
     setSplitRootsByTerminalId((all) => {
@@ -242,16 +246,20 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       return { ...all, [activeTerminal.id]: nextRoot };
     });
     focusPane(activeTerminal.id, id);
+    if (maximizedPaneId) setMaximizedPaneId(id);
   }
 
   function cyclePane(delta: number) {
     if (!activeTerminal) return;
-    const panes = panesByTerminalId[activeTerminal.id] ?? [];
-    if (panes.length === 0) return;
+    const visualPaneIds = collectLeafPaneIds(splitRootsByTerminalId[activeTerminal.id]);
+    const paneIds = visualPaneIds.length > 0
+      ? visualPaneIds
+      : (panesByTerminalId[activeTerminal.id] ?? []).map((pane) => pane.id);
+    if (paneIds.length === 0) return;
     const currentPaneId = maximizedPaneId ?? activePaneId;
-    const currentIndex = Math.max(0, panes.findIndex((p) => p.id === currentPaneId));
-    const nextIndex = (currentIndex + delta + panes.length) % panes.length;
-    const nextPaneId = panes[nextIndex].id;
+    const currentIndex = Math.max(0, paneIds.findIndex((id) => id === currentPaneId));
+    const nextIndex = (currentIndex + delta + paneIds.length) % paneIds.length;
+    const nextPaneId = paneIds[nextIndex];
     focusPane(activeTerminal.id, nextPaneId);
     if (maximizedPaneId) setMaximizedPaneId(nextPaneId);
   }
@@ -292,29 +300,32 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
   }
 
   async function closePane(paneId: string) {
+    const terminalId = paneId.split(':')[0];
+    const currentPanes = panesByTerminalId[terminalId] ?? [];
+    const currentPaneIds = collectLeafPaneIds(options.splitRootsByTerminalId[terminalId]);
+    const visualPaneIds = currentPaneIds.length > 0 ? currentPaneIds : currentPanes.map((pane) => pane.id);
+
     disposePaneSession(paneId);
     await invoke('kill_pty', { paneId }).catch(() => {});
-    const terminalId = paneId.split(':')[0];
-    const remainingPaneCount = (panesByTerminalId[terminalId] ?? []).filter((p) => p.id !== paneId).length;
-    if (maximizedPaneId === paneId) setMaximizedPaneId(null);
-    setPanesByTerminalId((all) => {
-      const nextPanes = (all[terminalId] ?? []).filter((p) => p.id !== paneId);
-      if (activePaneId === paneId) {
-        const nextPaneId = nextPanes[0]?.id ?? null;
-        setActivePaneId(nextPaneId);
-        setFocusedPaneByTerminalId((focused) => nextPaneId ? { ...focused, [terminalId]: nextPaneId } : focused);
-      }
-      return { ...all, [terminalId]: nextPanes };
-    });
+    setRunningPaneIds((ids) => ids.filter((id) => id !== paneId));
+
+    if (currentPanes.length <= 1) {
+      if (maximizedPaneId === paneId) setMaximizedPaneId(null);
+      return;
+    }
+
+    const currentIndex = Math.max(0, visualPaneIds.findIndex((id) => id === paneId));
+    const remainingPaneIds = visualPaneIds.filter((id) => id !== paneId);
+    const nextPaneId = remainingPaneIds[(currentIndex - 1 + remainingPaneIds.length) % remainingPaneIds.length] ?? null;
+
+    if (maximizedPaneId === paneId) setMaximizedPaneId(nextPaneId);
+    setPanesByTerminalId((all) => ({ ...all, [terminalId]: (all[terminalId] ?? []).filter((p) => p.id !== paneId) }));
+    if (nextPaneId) focusPane(terminalId, nextPaneId);
+
     setSplitRootsByTerminalId((all) => {
       const root = all[terminalId];
       if (!root) return all;
-      if (remainingPaneCount === 0) {
-        saveTerminalSplit(terminalId, null);
-        const { [terminalId]: _removed, ...rest } = all;
-        return rest;
-      }
-      const nextRoot = removeLeaf(root, paneId);
+      const nextRoot = rebalanceSplits(removeLeaf(root, paneId), paneId);
       saveTerminalSplit(terminalId, nextRoot);
       return nextRoot ? { ...all, [terminalId]: nextRoot } : all;
     });

@@ -13,7 +13,20 @@ A Tauri + React terminal workspace app inspired by `~/Code/stacks`, using xterm.
 
 ## Data
 
-Projects are saved under the OS data directory in `stacks-tauri/projects.json`.
+User data is saved under the OS data directory in `stacks-tauri/`.
+
+On macOS this is usually:
+
+```text
+~/Library/Application Support/stacks-tauri/
+```
+
+Persisted files:
+
+- `projects.json` — projects, terminals, terminal cwd, and split-tree layout.
+- `settings.json` — window size/position and sidebar width.
+
+To reset local UI preferences without deleting projects, quit the app and remove `settings.json`.
 
 ## Development
 

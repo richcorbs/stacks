@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Pane, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
-import { getPaneSession, setPaneSession } from '../terminalSessionManager';
+import { focusPaneSession, getPaneSession, setPaneSession } from '../terminalSessionManager';
 
 const encoder = new TextEncoder();
 
@@ -29,22 +29,7 @@ export function SplitView({ node, panesById, terminal, project, visible, activeP
   onFocus: (paneId: string) => void;
   onClose: (paneId: string) => void;
 }) {
-  if (maximizedPaneId) {
-    const pane = panesById[maximizedPaneId];
-    if (!pane) return null;
-    return (
-      <TerminalPane
-        pane={pane}
-        terminal={terminal}
-        project={project}
-        active={visible && activePaneId === pane.id}
-        maximized={true}
-        visible={visible}
-        onFocus={() => onFocus(pane.id)}
-        onClose={() => onClose(pane.id)}
-      />
-    );
-  }
+  const effectiveMaximizedPaneId = maximizedPaneId && panesById[maximizedPaneId] ? maximizedPaneId : null;
   if (node.kind === 'empty') return null;
   if (node.kind === 'leaf') {
     const pane = panesById[node.paneId];
@@ -55,7 +40,7 @@ export function SplitView({ node, panesById, terminal, project, visible, activeP
         terminal={terminal}
         project={project}
         active={visible && activePaneId === pane.id}
-        maximized={false}
+        maximized={effectiveMaximizedPaneId === pane.id}
         visible={visible}
         onFocus={() => onFocus(pane.id)}
         onClose={() => onClose(pane.id)}
@@ -66,11 +51,11 @@ export function SplitView({ node, panesById, terminal, project, visible, activeP
   return (
     <div className={`split split-${node.direction}`}>
       <div className="splitChild" style={{ flex: `${ratio} 1 0` }}>
-        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} maximizedPaneId={null} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
       </div>
       <SplitResizeHandle direction={node.direction} onResize={(nextRatio) => onResizeSplit(path, nextRatio)} />
       <div className="splitChild" style={{ flex: `${1 - ratio} 1 0` }}>
-        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} maximizedPaneId={null} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
       </div>
     </div>
   );
@@ -203,7 +188,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
         session!.spawned = true;
         session!.running = true;
         window.dispatchEvent(new CustomEvent('pane-running-changed', { detail: { paneId: pane.id, running: true } }));
-        if (active) term.focus();
+        if (active) focusPaneSession(pane.id, 'spawn-active', { scrollToBottom: false });
       };
       requestAnimationFrame(() => {
         spawn().catch((e) => term.writeln(`\r\nPTY error: ${e}\r\n`));
@@ -248,9 +233,9 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
       fit.fit();
       const size = safeTermSize(term);
       invoke('resize_pty', { paneId: pane.id, cols: size.cols, rows: size.rows }).catch(() => {});
-      term.focus();
+      focusPaneSession(pane.id, maximized ? 'active-maximized' : 'active', { scrollToBottom: maximized });
     });
-  }, [active, visible, pane.id]);
+  }, [active, visible, maximized, pane.id]);
 
   return (
     <div
