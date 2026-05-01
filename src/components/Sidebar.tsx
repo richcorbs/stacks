@@ -218,8 +218,12 @@ function TerminalRow({
         <span className="termName">{terminal.name}</span>
       </span>
       <span className="termIndicators">
-        {metaKeyDown && shortcutIndex >= 0 && shortcutIndex < 9 && <span className="shortcutHint">⌘{shortcutIndex + 1}</span>}
-        {isRunning && <span className="dot" title="Active terminal running" />}
+        {metaKeyDown && shortcutIndex >= 0 && shortcutIndex < 9 ? (
+          <span className="shortcutHint">⌘{shortcutIndex + 1}</span>
+        ) : (
+          <span className="shortcutHintSlot" />
+        )}
+        {!metaKeyDown && isRunning && <span className="dot" title="Active terminal running" />}
       </span>
     </button>
   );

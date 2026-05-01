@@ -84,6 +84,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .activitySlot { width: 8px; height: 8px; flex: 0 0 8px; display: grid; place-items: center; }
 .termName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.03em; }
 .termIndicators { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.shortcutHint, .shortcutHintSlot { width: 28px; text-align: right; }
 .shortcutHint { color: #8fa0b3; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
 .dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e66; }
 .activityDot { background: #3b82f6; box-shadow: 0 0 12px #3b82f666; }
