@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import type React from 'react';
 import type { DialogState, Pane, Project, SplitNode, Store, TerminalEntry } from '../types';
 import { basename, collectLeafPaneIds, rebalanceSplits, removeLeaf, normalizeSplitNode, setSplitRatio, splitLeaf } from '../utils';
-import { disposePaneSession, disposePaneSessions } from '../terminalSessionManager';
+import { disposePaneSession, disposePaneSessions, requestPaneSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 
 type SidebarTerminal = { project: Project; terminal: TerminalEntry };
 
@@ -246,6 +246,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       return { ...all, [activeTerminal.id]: nextRoot };
     });
     focusPane(activeTerminal.id, id);
+    requestPaneSessionsScrollToBottomAfterFit([...(panesByTerminalId[activeTerminal.id] ?? []).map((pane) => pane.id), id]);
     if (maximizedPaneId) setMaximizedPaneId(id);
   }
 
@@ -329,6 +330,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       saveTerminalSplit(terminalId, nextRoot);
       return nextRoot ? { ...all, [terminalId]: nextRoot } : all;
     });
+    requestPaneSessionsScrollToBottomAfterFit(remainingPaneIds);
   }
 
   return {

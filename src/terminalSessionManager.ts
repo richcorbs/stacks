@@ -1,6 +1,7 @@
 import type { PaneSession } from './types';
 
 const paneSessions = new Map<string, PaneSession>();
+const pendingScrollAfterFitPaneIds = new Set<string>();
 
 function debugFocus(message: string, detail?: unknown) {
   if (!import.meta.env.DEV) return;
@@ -35,6 +36,20 @@ export function scrollPaneSessionToBottom(paneId: string) {
   debugFocus('scroll pane to bottom', { paneId });
   session.term.scrollToBottom();
   return true;
+}
+
+export function requestPaneSessionsScrollToBottomAfterFit(paneIds: string[]) {
+  paneIds.forEach((paneId) => pendingScrollAfterFitPaneIds.add(paneId));
+
+  // Fallback in case a pane's ResizeObserver does not fire for the layout change.
+  window.setTimeout(() => paneIds.forEach(scrollPaneSessionToBottom), 100);
+  window.setTimeout(() => paneIds.forEach(scrollPaneSessionToBottom), 250);
+}
+
+export function consumePaneSessionScrollToBottomAfterFit(paneId: string) {
+  const pending = pendingScrollAfterFitPaneIds.delete(paneId);
+  if (pending) debugFocus('consume scroll after fit', { paneId });
+  return pending;
 }
 
 export function disposePaneSession(paneId: string) {

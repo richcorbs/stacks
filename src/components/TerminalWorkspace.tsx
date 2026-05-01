@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Pane, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
-import { focusPaneSession, getPaneSession, setPaneSession } from '../terminalSessionManager';
+import { consumePaneSessionScrollToBottomAfterFit, focusPaneSession, getPaneSession, setPaneSession } from '../terminalSessionManager';
 
 const encoder = new TextEncoder();
 
@@ -202,10 +202,14 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
 
     const resizePtyToXterm = () => {
       session!.fit.fit();
+      const shouldScrollToBottom = consumePaneSessionScrollToBottomAfterFit(pane.id);
       const size = safeTermSize(session!.term);
       if (session!.spawned && (!session!.lastPtySize || session!.lastPtySize.cols !== size.cols || session!.lastPtySize.rows !== size.rows)) {
         session!.lastPtySize = size;
         invoke('resize_pty', { paneId: pane.id, cols: size.cols, rows: size.rows }).catch(() => {});
+      }
+      if (shouldScrollToBottom) {
+        requestAnimationFrame(() => session?.term.scrollToBottom());
       }
     };
 
