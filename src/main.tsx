@@ -15,7 +15,7 @@ import { usePersistentSidebarWidth } from './hooks/useSettingsPersistence';
 import { useGitInfo } from './hooks/useGitInfo';
 import { usePaneActivity } from './hooks/usePaneActivity';
 import { useWorkspaceState } from './hooks/useWorkspaceState';
-import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { runShortcutAction, type ShortcutAction, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { usePaneCwd } from './hooks/usePaneCwd';
 import { useSidebarInteractions } from './hooks/useSidebarInteractions';
 import { useImageDropToTerminal } from './hooks/useImageDropToTerminal';
@@ -222,11 +222,15 @@ function App() {
     setActivePaneId((id) => {
       if (id?.startsWith(`${activeTerminal.id}:`)) return id;
       const rememberedPaneId = focusedPaneByTerminalId[activeTerminal.id];
-      return rememberedPaneId && paneIds.includes(rememberedPaneId) ? rememberedPaneId : paneId;
+      const nextPaneId = rememberedPaneId && paneIds.includes(rememberedPaneId) ? rememberedPaneId : paneIds[0] ?? paneId;
+      setFocusedPaneByTerminalId((focused) => focused[activeTerminal.id] === nextPaneId
+        ? focused
+        : { ...focused, [activeTerminal.id]: nextPaneId });
+      return nextPaneId;
     });
   }, [activeTerminal?.id, focusedPaneByTerminalId]);
 
-  useKeyboardShortcuts({
+  const shortcutHandlers = {
     activeProject,
     activePaneId,
     setMetaKeyDown,
@@ -240,7 +244,16 @@ function App() {
     requestQuit: () => setConfirmQuitOpen(true),
     cycleSidebarTerminal,
     cyclePane,
-  });
+  };
+
+  useKeyboardShortcuts(shortcutHandlers);
+
+  useEffect(() => {
+    const unlistenPromise = getCurrentWindow().listen<string>('menu-shortcut', (event) => {
+      runShortcutAction(event.payload as ShortcutAction, shortcutHandlers);
+    });
+    return () => { unlistenPromise.then((unlisten) => unlisten()).catch(console.error); };
+  }, [shortcutHandlers]);
 
   const visitedTerminalWorkspaces = visitedTerminalIds.flatMap((terminalId) => {
     for (const project of store.projects) {

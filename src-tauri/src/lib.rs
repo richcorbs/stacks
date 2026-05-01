@@ -1,7 +1,10 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io::{Read, Write}, path::PathBuf, process::Command, sync::Mutex, thread};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Window};
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Window,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -188,6 +191,76 @@ fn save_sidebar_width(width: u32) -> Result<(), String> {
 
 fn load_window_state() -> Option<WindowState> {
     load_settings_from_disk().window
+}
+
+fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
+    let items = [
+        ("menu-shortcut-add-project", "Add Project", "Cmd+O", Some("Cmd+O")),
+        ("menu-shortcut-new-terminal", "New Terminal", "Cmd+T", Some("Cmd+T")),
+        ("menu-shortcut-split-right", "Split Right", "Cmd+D", Some("Cmd+D")),
+        ("menu-shortcut-split-down", "Split Down", "Cmd+Shift+D", Some("Cmd+Shift+D")),
+        ("menu-shortcut-close-pane", "Close Focused Pane", "Cmd+W", Some("Cmd+W")),
+        ("menu-shortcut-maximize-pane", "Maximize / Restore Pane", "Cmd+Shift+Enter", Some("Cmd+Shift+Enter")),
+        ("menu-shortcut-focus-next-pane", "Focus Next Pane", "Cmd+]", Some("Cmd+]")),
+        ("menu-shortcut-focus-previous-pane", "Focus Previous Pane", "Cmd+[", Some("Cmd+[")),
+        ("menu-shortcut-focus-next-terminal", "Focus Next Terminal", "Cmd+Shift+]", Some("Cmd+Shift+]")),
+        ("menu-shortcut-focus-previous-terminal", "Focus Previous Terminal", "Cmd+Shift+[", Some("Cmd+Shift+[")),
+        ("menu-shortcut-activate-sidebar", "Activate Sidebar Selection", "Cmd+Enter", Some("Cmd+Enter")),
+        ("menu-shortcut-select-terminal", "Select Terminal 1-9", "Cmd+1 … Cmd+9", None),
+        ("menu-shortcut-drag-image", "Drag Image onto Pane", "Insert image path", None),
+        ("menu-shortcut-select-text", "Select Terminal Text", "Copy to clipboard", None),
+    ];
+
+    let menu_items = items
+        .iter()
+        .map(|(id, name, hint, accelerator)| {
+            if let Some(accelerator) = accelerator {
+                MenuItem::with_id(app, *id, *name, true, Some(*accelerator))
+            } else {
+                MenuItem::with_id(app, *id, format!("{} ({})", name, hint), true, None::<&str>)
+            }
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+
+    let refs = menu_items.iter().map(|item| item as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect::<Vec<_>>();
+    Submenu::with_items(app, "Shortcuts", true, &refs)
+}
+
+fn app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let shortcuts = shortcuts_menu(app)?;
+    let menu = Menu::with_items(app, &[
+        #[cfg(target_os = "macos")]
+        &Submenu::with_items(app, "Stacks", true, &[
+            &PredefinedMenuItem::about(app, None, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::services(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ])?,
+        &Submenu::with_items(app, "Edit", true, &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ])?,
+        &shortcuts,
+        #[cfg(target_os = "macos")]
+        &Submenu::with_items(app, "View", true, &[&PredefinedMenuItem::fullscreen(app, None)?])?,
+        &Submenu::with_items(app, "Window", true, &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::close_window(app, None)?,
+        ])?,
+        &Submenu::with_items(app, "Help", true, &[])?,
+    ])?;
+    Ok(menu)
 }
 
 #[tauri::command]
@@ -426,6 +499,15 @@ fn git_info(path: String) -> Result<Option<GitInfo>, String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .menu(|app| app_menu(app))
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            if let Some(action) = id.strip_prefix("menu-shortcut-") {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("menu-shortcut", action);
+                }
+            }
+        })
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(PtyRegistry::default()))
