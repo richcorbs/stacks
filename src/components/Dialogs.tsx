@@ -98,8 +98,9 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   return (
     <div className="modalBackdrop" onMouseDown={onCancel}>
       <form
-        className={`modal ${dialog.kind === 'terminal' || dialog.kind === 'editTerminal' ? 'terminalDialog' : ''}`}
+        className={`modal ${dialog.kind === 'terminal' || dialog.kind === 'editTerminal' || dialog.kind === 'split' ? 'terminalDialog' : ''}`}
         onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
         onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
       >
         {dialog.kind === 'project' ? (
@@ -142,6 +143,19 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
               />
             </label>
           </>
+        ) : dialog.kind === 'split' ? (
+          <>
+            <h2>Split Pane</h2>
+            <label>
+              Startup command <span>(optional)</span>
+              <input
+                ref={firstInputRef}
+                value={dialog.command}
+                placeholder="pi, claude, npm run dev, ..."
+                onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
+              />
+            </label>
+          </>
         ) : (
           <>
             <h2>{dialog.kind === 'editTerminal' ? 'Edit Terminal' : 'New Terminal'}</h2>
@@ -165,7 +179,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
         )}
         <div className="modalActions">
           <button type="button" onClick={onCancel}>Cancel</button>
-          <button className="primaryAction" type="submit">{dialog.kind === 'project' || dialog.kind === 'terminal' ? 'Create' : 'Save'}</button>
+          <button className="primaryAction" type="submit">{dialog.kind === 'project' || dialog.kind === 'terminal' ? 'Create' : dialog.kind === 'split' ? 'Split' : 'Save'}</button>
         </div>
       </form>
     </div>

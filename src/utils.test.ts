@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collectLeafPaneIds, normalizeSplitNode, rebalanceSplits, removeLeaf, setSplitRatio, splitLeaf } from './utils';
+import { collectLeafPaneIds, collectLeafPanes, normalizeSplitNode, rebalanceSplits, removeLeaf, setSplitRatio, splitLeaf } from './utils';
 import type { SplitNode } from './types';
 
 describe('split tree utilities', () => {
@@ -35,6 +35,27 @@ describe('split tree utilities', () => {
         second: { kind: 'leaf', paneId: 'c' },
       },
     });
+  });
+
+  it('stores startup command on a split leaf', () => {
+    const root: SplitNode = { kind: 'leaf', paneId: 'a' };
+    expect(splitLeaf(root, 'a', 'b', 'row', 'npm run dev')).toEqual({
+      kind: 'split',
+      direction: 'row',
+      ratio: 0.5,
+      first: { kind: 'leaf', paneId: 'a' },
+      second: { kind: 'leaf', paneId: 'b', command: 'npm run dev' },
+    });
+  });
+
+  it('collects leaf pane startup commands', () => {
+    const root: SplitNode = {
+      kind: 'split',
+      direction: 'row',
+      first: { kind: 'leaf', paneId: 'a' },
+      second: { kind: 'leaf', paneId: 'b', command: 'pi' },
+    };
+    expect(collectLeafPanes(root)).toEqual([{ id: 'a', command: null }, { id: 'b', command: 'pi' }]);
   });
 
   it('collapses sibling when removing a leaf', () => {

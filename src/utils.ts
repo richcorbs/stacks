@@ -16,6 +16,12 @@ export function collectLeafPaneIds(node: SplitNode | null | undefined): string[]
   return [...collectLeafPaneIds(node.first), ...collectLeafPaneIds(node.second)];
 }
 
+export function collectLeafPanes(node: SplitNode | null | undefined): { id: string; command?: string | null }[] {
+  if (!node || node.kind === 'empty') return [];
+  if (node.kind === 'leaf') return [{ id: node.paneId, command: node.command ?? null }];
+  return [...collectLeafPanes(node.first), ...collectLeafPanes(node.second)];
+}
+
 export function normalizeSplitNode(node: SplitNode | null | undefined): SplitNode | null {
   if (!node || node.kind === 'empty') return null;
   if (node.kind === 'leaf') return node;
@@ -73,7 +79,7 @@ export function rebalanceSplits(node: SplitNode | null, changedPaneId: string): 
   return normalized;
 }
 
-function splitLeafInner(node: SplitNode, targetPaneId: string, newPaneId: string, direction: 'row' | 'column'): { node: SplitNode; changed: boolean } {
+function splitLeafInner(node: SplitNode, targetPaneId: string, newPaneId: string, direction: 'row' | 'column', command: string | null = null): { node: SplitNode; changed: boolean } {
   if (node.kind === 'empty') return { node, changed: false };
   if (node.kind === 'leaf') {
     if (node.paneId !== targetPaneId) return { node, changed: false };
@@ -84,7 +90,7 @@ function splitLeafInner(node: SplitNode, targetPaneId: string, newPaneId: string
         direction,
         ratio: 0.5,
         first: node,
-        second: { kind: 'leaf', paneId: newPaneId },
+        second: command ? { kind: 'leaf', paneId: newPaneId, command } : { kind: 'leaf', paneId: newPaneId },
       },
     };
   }
@@ -93,25 +99,25 @@ function splitLeafInner(node: SplitNode, targetPaneId: string, newPaneId: string
     const children = flattenSameDirection(node, direction);
     const nextChildren = children.flatMap((child) => {
       if (child.kind === 'leaf' && child.paneId === targetPaneId) {
-        return [child, { kind: 'leaf' as const, paneId: newPaneId }];
+        return [child, command ? { kind: 'leaf' as const, paneId: newPaneId, command } : { kind: 'leaf' as const, paneId: newPaneId }];
       }
       if (containsLeaf(child, targetPaneId)) {
-        return [splitLeafInner(child, targetPaneId, newPaneId, direction).node];
+        return [splitLeafInner(child, targetPaneId, newPaneId, direction, command).node];
       }
       return [child];
     });
     return { node: buildEqualSplit(direction, nextChildren), changed: true };
   }
 
-  const first = splitLeafInner(node.first, targetPaneId, newPaneId, direction);
+  const first = splitLeafInner(node.first, targetPaneId, newPaneId, direction, command);
   if (first.changed) return { node: { ...node, first: first.node }, changed: true };
-  const second = splitLeafInner(node.second, targetPaneId, newPaneId, direction);
+  const second = splitLeafInner(node.second, targetPaneId, newPaneId, direction, command);
   if (second.changed) return { node: { ...node, second: second.node }, changed: true };
   return { node, changed: false };
 }
 
-export function splitLeaf(node: SplitNode, targetPaneId: string, newPaneId: string, direction: 'row' | 'column'): SplitNode {
-  return splitLeafInner(node, targetPaneId, newPaneId, direction).node;
+export function splitLeaf(node: SplitNode, targetPaneId: string, newPaneId: string, direction: 'row' | 'column', command: string | null = null): SplitNode {
+  return splitLeafInner(node, targetPaneId, newPaneId, direction, command).node;
 }
 
 export function setSplitRatio(node: SplitNode, path: string, ratio: number): SplitNode {

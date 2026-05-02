@@ -4,11 +4,11 @@ import type { FitAddon } from '@xterm/addon-fit';
 export type Store = { projects: Project[] };
 export type Project = { id: string; name: string; path: string; terminals: TerminalEntry[]; collapsed?: boolean };
 export type TerminalEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
-export type Pane = { id: string; terminalId: string };
+export type Pane = { id: string; terminalId: string; command?: string | null };
 export type ToastDetail = { message: string };
 export type SplitNode =
   | { kind: 'empty' }
-  | { kind: 'leaf'; paneId: string }
+  | { kind: 'leaf'; paneId: string; command?: string | null }
   | { kind: 'split'; direction: 'row' | 'column'; ratio?: number; manual?: boolean; first: SplitNode; second: SplitNode };
 
 export type PtyData = { pane_id: string; generation: string; data: number[] };
@@ -35,6 +35,7 @@ export type PaneSession = {
 export type DialogState =
   | { kind: 'project'; name: string; path: string; openTerminalAfterCreate?: boolean }
   | { kind: 'terminal'; projectId: string; name: string; command: string }
+  | { kind: 'split'; terminalId: string; targetPaneId: string; direction: 'row' | 'column'; command: string }
   | { kind: 'editProject'; projectId: string; name: string; path: string }
   | { kind: 'editTerminal'; projectId: string; terminalId: string; name: string; command: string };
 export type ContextMenuState =

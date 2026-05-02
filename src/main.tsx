@@ -8,7 +8,7 @@ import { ContextMenu, ConfirmClosePaneDialog, ConfirmDeleteProjectDialog, Confir
 import { Sidebar } from './components/Sidebar';
 import { MainWorkspace } from './components/MainWorkspace';
 import type { AppSettings, ContextMenuState, DialogState, PointerDragState, Store } from './types';
-import { collectLeafPaneIds, loadSidebarWidth, normalizeSplitNode } from './utils';
+import { collectLeafPanes, loadSidebarWidth, normalizeSplitNode } from './utils';
 import { useAppStats } from './hooks/useAppStats';
 import { useDebouncedStoreSave } from './hooks/useDebouncedSave';
 import { usePersistentSidebarWidth } from './hooks/useSettingsPersistence';
@@ -217,12 +217,17 @@ function App() {
 
     const paneId = `${activeTerminal.id}:0`;
     const root = normalizeSplitNode(activeTerminal.splits) ?? { kind: 'leaf' as const, paneId };
-    const leafIds = collectLeafPaneIds(root);
+    const leafPanes = collectLeafPanes(root);
+    const leafIds = leafPanes.map((pane) => pane.id);
     const paneIds = leafIds.length > 0 ? leafIds : [paneId];
     setVisitedTerminalIds((ids) => ids.includes(activeTerminal.id) ? ids : [...ids, activeTerminal.id]);
     setPanesByTerminalId((all) => {
       if (all[activeTerminal.id]?.length) return all;
-      return { ...all, [activeTerminal.id]: paneIds.map((id) => ({ id, terminalId: activeTerminal.id })) };
+      return { ...all, [activeTerminal.id]: paneIds.map((id) => ({
+        id,
+        terminalId: activeTerminal.id,
+        command: leafPanes.find((pane) => pane.id === id)?.command ?? null,
+      })) };
     });
     setSplitRootsByTerminalId((all) => {
       if (all[activeTerminal.id]) return all;

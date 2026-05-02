@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useEffect, useRef } from 'react';
 import type { Project } from '../types';
 
@@ -103,6 +105,19 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       setMetaKeyDown(event.metaKey);
       if (!event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key.toLowerCase();
+      if (key === 'v') {
+        const { activePaneId } = handlersRef.current;
+        if (!activePaneId || event.shiftKey) return;
+        event.preventDefault();
+        event.stopPropagation();
+        readText()
+          .then((text) => {
+            if (!text) return;
+            return invoke('write_pty', { paneId: activePaneId, data: Array.from(new TextEncoder().encode(text)) });
+          })
+          .catch(console.error);
+        return;
+      }
       if (/^[1-9]$/.test(event.key)) {
         event.preventDefault();
         event.stopPropagation();

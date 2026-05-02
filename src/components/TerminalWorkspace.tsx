@@ -108,7 +108,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
   const fitRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
-    const startupCommand = pane.id === `${terminal.id}:0` ? terminal.command : null;
+    const startupCommand = pane.id === `${terminal.id}:0` ? terminal.command : pane.command ?? null;
     const host = hostRef.current!;
     let cancelled = false;
     let session = getPaneSession(pane.id);
@@ -226,7 +226,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
       session?.resizeObserver?.disconnect();
       if (session) session.resizeObserver = undefined;
     };
-  }, [pane.id, terminal.id, project.path, terminal.cwd, terminal.command]);
+  }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command]);
 
   useEffect(() => {
     const term = termRef.current;

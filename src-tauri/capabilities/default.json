@@ -8,6 +8,7 @@
     "core:event:default",
     "core:event:allow-listen",
     "core:window:allow-destroy",
+    "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "dialog:default",
     "dialog:allow-open"

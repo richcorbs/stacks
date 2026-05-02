@@ -128,6 +128,12 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       return;
     }
 
+    if (dialog.kind === 'split') {
+      await completeSplitPane(dialog.terminalId, dialog.targetPaneId, dialog.direction, dialog.command.trim() || null);
+      setDialog(null);
+      return;
+    }
+
     if (dialog.kind === 'editProject') {
       const name = dialog.name.trim();
       const path = dialog.path.trim();
@@ -232,22 +238,26 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setActivityTerminalIds((ids) => ids.filter((id) => !terminalIds.includes(id)));
   }
 
+  async function completeSplitPane(terminalId: string, focusedPaneId: string, direction: 'row' | 'column', command: string | null) {
+    const id = `${terminalId}:${Date.now()}`;
+    setPanesByTerminalId((all) => ({ ...all, [terminalId]: [...(all[terminalId] ?? []), { id, terminalId, command }] }));
+    setSplitRootsByTerminalId((all) => {
+      const root = all[terminalId] ?? { kind: 'leaf' as const, paneId: focusedPaneId };
+      const nextRoot = splitLeaf(root, focusedPaneId, id, direction, command);
+      saveTerminalSplit(terminalId, nextRoot);
+      return { ...all, [terminalId]: nextRoot };
+    });
+    focusPane(terminalId, id);
+    requestPaneSessionsScrollToBottomAfterFit([...(panesByTerminalId[terminalId] ?? []).map((pane) => pane.id), id]);
+    if (maximizedPaneId) setMaximizedPaneId(id);
+  }
+
   async function splitPane(direction: 'row' | 'column' = 'row') {
     if (!activeTerminal) return;
     const focusedPaneId = maximizedPaneId?.startsWith(`${activeTerminal.id}:`)
       ? maximizedPaneId
       : activePaneId?.startsWith(`${activeTerminal.id}:`) ? activePaneId : `${activeTerminal.id}:0`;
-    const id = `${activeTerminal.id}:${Date.now()}`;
-    setPanesByTerminalId((all) => ({ ...all, [activeTerminal.id]: [...(all[activeTerminal.id] ?? []), { id, terminalId: activeTerminal.id }] }));
-    setSplitRootsByTerminalId((all) => {
-      const root = all[activeTerminal.id] ?? { kind: 'leaf' as const, paneId: focusedPaneId };
-      const nextRoot = splitLeaf(root, focusedPaneId, id, direction);
-      saveTerminalSplit(activeTerminal.id, nextRoot);
-      return { ...all, [activeTerminal.id]: nextRoot };
-    });
-    focusPane(activeTerminal.id, id);
-    requestPaneSessionsScrollToBottomAfterFit([...(panesByTerminalId[activeTerminal.id] ?? []).map((pane) => pane.id), id]);
-    if (maximizedPaneId) setMaximizedPaneId(id);
+    setDialog({ kind: 'split', terminalId: activeTerminal.id, targetPaneId: focusedPaneId, direction, command: '' });
   }
 
   function cyclePane(delta: number) {
