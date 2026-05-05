@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
-import { ContextMenu, ConfirmClosePaneDialog, ConfirmDeleteProjectDialog, ConfirmQuitDialog, Dialog } from './components/Dialogs';
+import { ContextMenu, ConfirmClosePaneDialog, ConfirmDeleteProjectDialog, ConfirmDeleteTerminalDialog, ConfirmQuitDialog, Dialog } from './components/Dialogs';
 import { Sidebar } from './components/Sidebar';
 import { MainWorkspace } from './components/MainWorkspace';
 import type { AppSettings, ContextMenuState, DialogState, PointerDragState, Store } from './types';
@@ -68,6 +68,7 @@ function App() {
   const justPointerDraggedRef = useRef(false);
   const [confirmClosePaneId, setConfirmClosePaneId] = useState<string | null>(null);
   const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
+  const [confirmDeleteTerminal, setConfirmDeleteTerminal] = useState<{ projectId: string; terminalId: string } | null>(null);
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
   const { toast, showToast } = useToast();
 
@@ -279,6 +280,11 @@ function App() {
   const confirmDeleteProject = confirmDeleteProjectId
     ? store.projects.find((project) => project.id === confirmDeleteProjectId) ?? null
     : null;
+  const confirmDeleteTerminalEntry = confirmDeleteTerminal
+    ? store.projects
+      .find((project) => project.id === confirmDeleteTerminal.projectId)
+      ?.terminals.find((terminal) => terminal.id === confirmDeleteTerminal.terminalId) ?? null
+    : null;
 
   return (
     <div className="app">
@@ -325,7 +331,7 @@ function App() {
           onEditProject={(project) => { setContextMenu(null); openEditProjectDialog(project); }}
           onDeleteProject={(project) => { setContextMenu(null); setConfirmDeleteProjectId(project.id); }}
           onEditTerminal={(project, terminal) => { setContextMenu(null); openEditTerminalDialog(project, terminal); }}
-          onDeleteTerminal={(project, terminal) => { setContextMenu(null); deleteTerminal(project.id, terminal.id); }}
+          onDeleteTerminal={(project, terminal) => { setContextMenu(null); setConfirmDeleteTerminal({ projectId: project.id, terminalId: terminal.id }); }}
         />
       )}
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={() => setDialog(null)} onSubmit={submitDialog} />}
@@ -348,6 +354,17 @@ function App() {
             const projectId = confirmDeleteProject.id;
             setConfirmDeleteProjectId(null);
             deleteProject(projectId);
+          }}
+        />
+      )}
+      {confirmDeleteTerminal && confirmDeleteTerminalEntry && (
+        <ConfirmDeleteTerminalDialog
+          terminalName={confirmDeleteTerminalEntry.name}
+          onCancel={() => setConfirmDeleteTerminal(null)}
+          onConfirm={() => {
+            const { projectId, terminalId } = confirmDeleteTerminal;
+            setConfirmDeleteTerminal(null);
+            deleteTerminal(projectId, terminalId);
           }}
         />
       )}

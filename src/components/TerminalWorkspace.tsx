@@ -106,6 +106,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const wasVisibleRef = useRef(visible);
 
   useEffect(() => {
     const startupCommand = pane.id === `${terminal.id}:0` ? terminal.command : pane.command ?? null;
@@ -229,6 +230,9 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
   }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command]);
 
   useEffect(() => {
+    const wasVisible = wasVisibleRef.current;
+    wasVisibleRef.current = visible;
+
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term || !fit) return;
@@ -236,11 +240,12 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
     term.options.cursorBlink = active;
     if (!active) return;
 
+    const shouldScrollToBottom = !wasVisible || maximized;
     requestAnimationFrame(() => {
       fit.fit();
       const size = safeTermSize(term);
       invoke('resize_pty', { paneId: pane.id, cols: size.cols, rows: size.rows }).catch(() => {});
-      focusPaneSession(pane.id, maximized ? 'active-maximized' : 'active');
+      focusPaneSession(pane.id, maximized ? 'active-maximized' : 'active', { scrollToBottom: shouldScrollToBottom });
     });
   }, [active, visible, maximized, pane.id]);
 

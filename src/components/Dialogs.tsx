@@ -84,6 +84,14 @@ export function ConfirmDeleteProjectDialog({ projectName, onCancel, onConfirm }:
   );
 }
 
+export function ConfirmDeleteTerminalDialog({ terminalName, onCancel, onConfirm }: { terminalName: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <ConfirmDialog title="Delete terminal?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
+      <p>This will remove “{terminalName}” and terminate its running processes.</p>
+    </ConfirmDialog>
+  );
+}
+
 export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   dialog: DialogState;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
