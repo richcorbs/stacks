@@ -9,6 +9,10 @@ import { consumePaneSessionScrollToBottomAfterFit, focusPaneSession, getPaneSess
 
 const encoder = new TextEncoder();
 
+function trimTrailingHorizontalWhitespace(text: string) {
+  return text.replace(/[^\S\r\n]+$/gm, '');
+}
+
 function safeTermSize(term: Terminal): TermSize {
   return {
     cols: Math.max(2, (term.cols || 80) - 1),
@@ -257,7 +261,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
         window.setTimeout(() => {
           const term = termRef.current;
           if (!term?.hasSelection()) return;
-          const selection = term.getSelection();
+          const selection = trimTrailingHorizontalWhitespace(term.getSelection());
           if (!selection) return;
           writeText(selection)
             .then(() => {
