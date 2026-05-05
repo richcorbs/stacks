@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { useEffect, useRef } from 'react';
 import type { Project } from '../types';
+import { getPaneSession } from '../terminalSessionManager';
 
 export type ShortcutAction =
   | 'add-project'
@@ -9,6 +10,7 @@ export type ShortcutAction =
   | 'split-right'
   | 'split-down'
   | 'close-pane'
+  | 'clear-pane'
   | 'maximize-pane'
   | 'focus-next-pane'
   | 'focus-previous-pane'
@@ -33,6 +35,19 @@ type ShortcutHandlers = {
   cycleSidebarTerminal: (delta: number) => void;
   cyclePane: (delta: number) => void;
 };
+
+export const encoder = new TextEncoder();
+
+function isPaneSessionFocused(paneId: string) {
+  const session = getPaneSession(paneId);
+  const activeElement = document.activeElement;
+  return Boolean(session?.term.element && activeElement && session.term.element.contains(activeElement));
+}
+
+function clearFocusedPane(activePaneId: string | null) {
+  if (!activePaneId || !isPaneSessionFocused(activePaneId)) return;
+  invoke('write_pty', { paneId: activePaneId, data: Array.from(encoder.encode('clear\n')) }).catch(console.error);
+}
 
 export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHandlers) {
   const {
@@ -66,6 +81,9 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'close-pane':
       if (activePaneId) requestClosePane(activePaneId);
+      break;
+    case 'clear-pane':
+      clearFocusedPane(activePaneId);
       break;
     case 'maximize-pane':
       toggleMaximizedPane();
@@ -105,6 +123,12 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       setMetaKeyDown(event.metaKey);
       if (!event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key.toLowerCase();
+      if (key === 'k') {
+        event.preventDefault();
+        event.stopPropagation();
+        runShortcutAction('clear-pane', handlersRef.current);
+        return;
+      }
       if (key === 'v') {
         const { activePaneId } = handlersRef.current;
         if (!activePaneId || event.shiftKey) return;
@@ -113,7 +137,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         readText()
           .then((text) => {
             if (!text) return;
-            return invoke('write_pty', { paneId: activePaneId, data: Array.from(new TextEncoder().encode(text)) });
+            return invoke('write_pty', { paneId: activePaneId, data: Array.from(encoder.encode(text)) });
           })
           .catch(console.error);
         return;

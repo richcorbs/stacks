@@ -214,6 +214,7 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         ("menu-shortcut-split-right", "Split Right", "Cmd+D", Some("Cmd+D")),
         ("menu-shortcut-split-down", "Split Down", "Cmd+Shift+D", Some("Cmd+Shift+D")),
         ("menu-shortcut-close-pane", "Close Focused Pane", "Cmd+W", Some("Cmd+W")),
+        ("menu-shortcut-clear-pane", "Clear Focused Pane", "Cmd+K", Some("Cmd+K")),
         ("menu-shortcut-maximize-pane", "Maximize / Restore Pane", "Cmd+Shift+Enter", Some("Cmd+Shift+Enter")),
         ("menu-shortcut-focus-next-pane", "Focus Next Pane", "Cmd+]", Some("Cmd+]")),
         ("menu-shortcut-focus-previous-pane", "Focus Previous Pane", "Cmd+[", Some("Cmd+[")),
