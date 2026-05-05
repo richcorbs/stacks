@@ -60,6 +60,7 @@ function reducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState
         sidebarFocusedTerminalId: action.terminalId,
       };
     case 'focusPane':
+      if (state.activePaneId === action.paneId && state.focusedPaneByTerminalId[action.terminalId] === action.paneId) return state;
       return {
         ...state,
         activePaneId: action.paneId,

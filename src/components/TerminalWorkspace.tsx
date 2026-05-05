@@ -252,18 +252,20 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
   return (
     <div
       className={`pane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
-      onMouseDown={onFocus}
+      onMouseDown={() => { if (!active) onFocus(); }}
       onMouseUp={() => {
-        const term = termRef.current;
-        if (!term?.hasSelection()) return;
-        const selection = term.getSelection();
-        if (!selection) return;
-        writeText(selection)
-          .then(() => {
-            term.clearSelection();
-            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Copied to clipboard' } }));
-          })
-          .catch(console.error);
+        window.setTimeout(() => {
+          const term = termRef.current;
+          if (!term?.hasSelection()) return;
+          const selection = term.getSelection();
+          if (!selection) return;
+          writeText(selection)
+            .then(() => {
+              term.clearSelection();
+              window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Copied to clipboard' } }));
+            })
+            .catch(console.error);
+        }, 0);
       }}
     >
       <div className="terminalHostFrame">

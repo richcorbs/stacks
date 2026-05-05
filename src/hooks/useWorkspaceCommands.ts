@@ -298,9 +298,17 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
 
   function toggleMaximizedPane() {
     const paneId = activePaneId;
-    const shouldRestoreBottom = paneId ? isPaneSessionAtBottom(paneId) : false;
+    if (!paneId || !activeTerminalId) return;
+
+    const paneCount = panesByTerminalId[activeTerminalId]?.length ?? 0;
+    if (paneCount <= 1) {
+      setMaximizedPaneId(null);
+      return;
+    }
+
+    const shouldRestoreBottom = isPaneSessionAtBottom(paneId);
     toggleMaximizedPaneState();
-    if (paneId && shouldRestoreBottom) {
+    if (shouldRestoreBottom) {
       requestPaneSessionsScrollToBottomAfterFit([paneId]);
     }
   }
@@ -335,7 +343,8 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     const remainingPaneIds = visualPaneIds.filter((id) => id !== paneId);
     const nextPaneId = remainingPaneIds[(currentIndex - 1 + remainingPaneIds.length) % remainingPaneIds.length] ?? null;
 
-    if (maximizedPaneId === paneId) setMaximizedPaneId(nextPaneId);
+    if (remainingPaneIds.length <= 1) setMaximizedPaneId(null);
+    else if (maximizedPaneId === paneId) setMaximizedPaneId(nextPaneId);
     setPanesByTerminalId((all) => ({ ...all, [terminalId]: (all[terminalId] ?? []).filter((p) => p.id !== paneId) }));
     if (nextPaneId) focusPane(terminalId, nextPaneId);
 
