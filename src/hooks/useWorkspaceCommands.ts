@@ -240,6 +240,8 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
 
   async function completeSplitPane(terminalId: string, focusedPaneId: string, direction: 'row' | 'column', command: string | null) {
     const id = `${terminalId}:${Date.now()}`;
+    const existingPaneCount = panesByTerminalId[terminalId]?.length ?? 0;
+    const shouldMaximizeNewPane = existingPaneCount > 1 && Boolean(maximizedPaneId?.startsWith(`${terminalId}:`));
     setPanesByTerminalId((all) => ({ ...all, [terminalId]: [...(all[terminalId] ?? []), { id, terminalId, command }] }));
     setSplitRootsByTerminalId((all) => {
       const root = all[terminalId] ?? { kind: 'leaf' as const, paneId: focusedPaneId };
@@ -249,7 +251,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     });
     focusPane(terminalId, id);
     requestPaneSessionsScrollToBottomAfterFit([...(panesByTerminalId[terminalId] ?? []).map((pane) => pane.id), id]);
-    if (maximizedPaneId) setMaximizedPaneId(id);
+    if (shouldMaximizeNewPane) setMaximizedPaneId(id);
   }
 
   async function splitPane(direction: 'row' | 'column' = 'row') {
