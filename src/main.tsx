@@ -145,10 +145,6 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    setSidebarFocusedTerminalId(activeTerminalId);
-  }, [activeTerminalId]);
-
   usePaneCwd(activePaneId, rememberPaneCwd, setStore);
   useImageDropToTerminal(activePaneId);
 

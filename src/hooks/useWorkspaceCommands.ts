@@ -290,6 +290,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     const match = sidebarTerminals.find(({ terminal }) => terminal.id === sidebarFocusedTerminalId);
     if (!match) return;
     selectTerminal(match.project.id, match.terminal.id);
+    setSidebarFocusedTerminalId(null);
   }
 
   function activateTerminalByIndex(index: number) {

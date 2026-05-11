@@ -73,8 +73,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   gap: 7px;
   align-items: center;
 }
-.term.focused { background: #172334; }
+.term.focused { box-shadow: inset 0 0 0 1px #4b6078; }
 .term.active { background: #203348; color: #d6deeb; }
+.term.active.focused { box-shadow: inset 0 0 0 1px #7ea2c9; }
 .projectBlock.activeProject .term:not(.active) { color: #6f8195; }
 .project { color: #97a6b8 !important; font-size: 13px; padding-bottom: 9px; }
 .project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
