@@ -3,15 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Pane, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
 import { consumePaneSessionScrollToBottomAfterFit, focusPaneSession, getPaneSession, jumpSessionToBottom, setPaneSession } from '../terminalSessionManager';
+import { useTerminalSelectionCopy } from '../hooks/useTerminalSelectionCopy';
 
 const encoder = new TextEncoder();
-
-function trimTrailingHorizontalWhitespace(text: string) {
-  return text.replace(/[^\S\r\n]+$/gm, '');
-}
 
 function safeTermSize(term: Terminal): TermSize {
   return {
@@ -111,7 +107,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wasVisibleRef = useRef(visible);
-  const selectionMouseDownRef = useRef(false);
+  const { beginSelectionCopy } = useTerminalSelectionCopy(termRef);
 
   useEffect(() => {
     const startupCommand = pane.id === `${terminal.id}:0` ? terminal.command : pane.command ?? null;
@@ -235,32 +231,6 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
   }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command]);
 
   useEffect(() => {
-    const copySelectionToClipboard = () => {
-      window.setTimeout(() => {
-        const term = termRef.current;
-        if (!term?.hasSelection()) return;
-        const selection = trimTrailingHorizontalWhitespace(term.getSelection());
-        if (!selection) return;
-        writeText(selection)
-          .then(() => {
-            term.clearSelection();
-            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Copied to clipboard' } }));
-          })
-          .catch(console.error);
-      }, 0);
-    };
-
-    const onMouseUp = () => {
-      if (!selectionMouseDownRef.current) return;
-      selectionMouseDownRef.current = false;
-      copySelectionToClipboard();
-    };
-
-    window.addEventListener('mouseup', onMouseUp);
-    return () => window.removeEventListener('mouseup', onMouseUp);
-  }, []);
-
-  useEffect(() => {
     const wasVisible = wasVisibleRef.current;
     wasVisibleRef.current = visible;
 
@@ -284,7 +254,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
     <div
       className={`pane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
       onMouseDown={() => {
-        selectionMouseDownRef.current = true;
+        beginSelectionCopy();
         if (!active) onFocus();
       }}
     >

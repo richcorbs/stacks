@@ -1,5 +1,6 @@
 import { SplitView } from './TerminalWorkspace';
 import type { GitInfo, Pane, Project, SplitNode, TerminalEntry } from '../types';
+import { effectiveMaximizedPaneId } from '../workspace/selectors';
 
 type TerminalWorkspaceModel = {
   project: Project;
@@ -43,7 +44,8 @@ export function MainWorkspace({
           workspaces.map(({ project, terminal, panes, root }) => {
             const visible = terminal.id === activeTerminalId;
             const panesById = Object.fromEntries(panes.map((pane) => [pane.id, pane]));
-            const effectiveMaximizedPaneId = panes.length > 1 ? maximizedPaneId : null;
+            const visiblePaneIds = panes.map((pane) => pane.id);
+            const visibleMaximizedPaneId = effectiveMaximizedPaneId(maximizedPaneId, visiblePaneIds);
             return (
               <div
                 key={terminal.id}
@@ -58,7 +60,7 @@ export function MainWorkspace({
                     project={project}
                     visible={visible}
                     activePaneId={visible ? activePaneId : null}
-                    maximizedPaneId={visible ? effectiveMaximizedPaneId : null}
+                    maximizedPaneId={visible ? visibleMaximizedPaneId : null}
                     path=""
                     onResizeSplit={(path, ratio) => onResizeSplit(terminal.id, path, ratio)}
                     onFocus={(paneId) => onFocusPane(project.id, terminal.id, paneId)}

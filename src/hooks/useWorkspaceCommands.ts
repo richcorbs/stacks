@@ -2,8 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type React from 'react';
 import type { DialogState, Pane, Project, SplitNode, Store, TerminalEntry } from '../types';
-import { basename, collectLeafPaneIds, rebalanceSplits, removeLeaf, normalizeSplitNode, setSplitRatio, splitLeaf } from '../utils';
+import { basename, rebalanceSplits, removeLeaf, normalizeSplitNode, setSplitRatio, splitLeaf } from '../utils';
 import { disposePaneSession, disposePaneSessions, isPaneSessionAtBottom, requestPaneSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
+import { paneIdsForTerminal, previousPaneIdAfterClose, shouldMaximizeNewSplit } from '../workspace/selectors';
 
 type SidebarTerminal = { project: Project; terminal: TerminalEntry };
 
@@ -240,8 +241,8 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
 
   async function completeSplitPane(terminalId: string, focusedPaneId: string, direction: 'row' | 'column', command: string | null) {
     const id = `${terminalId}:${Date.now()}`;
-    const existingPaneCount = panesByTerminalId[terminalId]?.length ?? 0;
-    const shouldMaximizeNewPane = existingPaneCount > 1 && Boolean(maximizedPaneId?.startsWith(`${terminalId}:`));
+    const existingPaneIds = paneIdsForTerminal(terminalId, panesByTerminalId, splitRootsByTerminalId[terminalId]);
+    const shouldMaximizeNewPane = shouldMaximizeNewSplit(terminalId, existingPaneIds, maximizedPaneId);
     setPanesByTerminalId((all) => ({ ...all, [terminalId]: [...(all[terminalId] ?? []), { id, terminalId, command }] }));
     setSplitRootsByTerminalId((all) => {
       const root = all[terminalId] ?? { kind: 'leaf' as const, paneId: focusedPaneId };
@@ -264,10 +265,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
 
   function cyclePane(delta: number) {
     if (!activeTerminal) return;
-    const visualPaneIds = collectLeafPaneIds(splitRootsByTerminalId[activeTerminal.id]);
-    const paneIds = visualPaneIds.length > 0
-      ? visualPaneIds
-      : (panesByTerminalId[activeTerminal.id] ?? []).map((pane) => pane.id);
+    const paneIds = paneIdsForTerminal(activeTerminal.id, panesByTerminalId, splitRootsByTerminalId[activeTerminal.id]);
     if (paneIds.length === 0) return;
     const currentPaneId = maximizedPaneId ?? activePaneId;
     const currentIndex = Math.max(0, paneIds.findIndex((id) => id === currentPaneId));
@@ -297,14 +295,15 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     const match = sidebarTerminals[index];
     if (!match) return;
     selectTerminal(match.project.id, match.terminal.id);
+    setSidebarFocusedTerminalId(null);
   }
 
   function toggleMaximizedPane() {
     const paneId = activePaneId;
     if (!paneId || !activeTerminalId) return;
 
-    const paneCount = panesByTerminalId[activeTerminalId]?.length ?? 0;
-    if (paneCount <= 1) {
+    const paneIds = paneIdsForTerminal(activeTerminalId, panesByTerminalId, splitRootsByTerminalId[activeTerminalId]);
+    if (paneIds.length <= 1) {
       setMaximizedPaneId(null);
       return;
     }
@@ -330,8 +329,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
   async function closePane(paneId: string) {
     const terminalId = paneId.split(':')[0];
     const currentPanes = panesByTerminalId[terminalId] ?? [];
-    const currentPaneIds = collectLeafPaneIds(options.splitRootsByTerminalId[terminalId]);
-    const visualPaneIds = currentPaneIds.length > 0 ? currentPaneIds : currentPanes.map((pane) => pane.id);
+    const visualPaneIds = paneIdsForTerminal(terminalId, panesByTerminalId, options.splitRootsByTerminalId[terminalId]);
 
     disposePaneSession(paneId);
     await invoke('kill_pty', { paneId }).catch(() => {});
@@ -342,9 +340,8 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       return;
     }
 
-    const currentIndex = Math.max(0, visualPaneIds.findIndex((id) => id === paneId));
     const remainingPaneIds = visualPaneIds.filter((id) => id !== paneId);
-    const nextPaneId = remainingPaneIds[(currentIndex - 1 + remainingPaneIds.length) % remainingPaneIds.length] ?? null;
+    const nextPaneId = previousPaneIdAfterClose(visualPaneIds, paneId);
 
     if (remainingPaneIds.length <= 1) setMaximizedPaneId(null);
     else if (maximizedPaneId === paneId) setMaximizedPaneId(nextPaneId);
