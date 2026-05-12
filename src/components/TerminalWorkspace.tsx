@@ -107,6 +107,8 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wasVisibleRef = useRef(visible);
+  const wasActiveRef = useRef(active);
+  const wasAtBottomWhenDeactivatedRef = useRef(true);
   const { beginSelectionCopy } = useTerminalSelectionCopy(termRef);
 
   useEffect(() => {
@@ -232,16 +234,23 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
 
   useEffect(() => {
     const wasVisible = wasVisibleRef.current;
+    const wasActive = wasActiveRef.current;
     wasVisibleRef.current = visible;
+    wasActiveRef.current = active;
 
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term || !fit) return;
 
+    if (wasActive && !active) {
+      const buffer = term.buffer.active;
+      wasAtBottomWhenDeactivatedRef.current = buffer.viewportY >= buffer.baseY;
+    }
+
     term.options.cursorBlink = active;
     if (!active) return;
 
-    const shouldScrollToBottom = !wasVisible || maximized;
+    const shouldScrollToBottom = !wasVisible || maximized || (!wasActive && wasAtBottomWhenDeactivatedRef.current);
     requestAnimationFrame(() => {
       fit.fit();
       const size = safeTermSize(term);
