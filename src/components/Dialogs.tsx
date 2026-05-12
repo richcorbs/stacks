@@ -100,8 +100,11 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
 }) {
   const firstInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    requestAnimationFrame(() => firstInputRef.current?.focus());
-  }, []);
+    requestAnimationFrame(() => {
+      firstInputRef.current?.focus();
+      if (dialog.kind === 'terminal') firstInputRef.current?.select();
+    });
+  }, [dialog.kind]);
 
   return (
     <div className="modalBackdrop" onMouseDown={onCancel}>
