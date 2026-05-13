@@ -1,6 +1,6 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
-use std::{collections::{HashMap, HashSet}, fs, io::{Read, Write}, path::PathBuf, process::Command, sync::Mutex, thread};
+use std::{collections::{HashMap, HashSet}, fs, io::{Read, Write}, path::PathBuf, process::Command, sync::{Mutex, OnceLock}, thread};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Window,
@@ -95,6 +95,12 @@ struct PtyRegistry {
     panes: HashMap<String, PtyHandle>,
 }
 
+static SETTINGS_FILE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn settings_file_lock() -> &'static Mutex<()> {
+    SETTINGS_FILE_LOCK.get_or_init(|| Mutex::new(()))
+}
+
 fn app_data_dir() -> Result<PathBuf, String> {
     let mut dir = dirs::data_dir().ok_or_else(|| "Could not locate user data directory".to_string())?;
     dir.push("stacks-tauri");
@@ -134,7 +140,7 @@ fn save_store(store: ProjectStore) -> Result<(), String> {
     fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }
 
-fn load_settings_from_disk() -> AppSettings {
+fn read_settings_from_disk_unlocked() -> AppSettings {
     settings_path()
         .ok()
         .and_then(|path| fs::read_to_string(path).ok())
@@ -142,12 +148,24 @@ fn load_settings_from_disk() -> AppSettings {
         .unwrap_or_default()
 }
 
-fn save_settings_to_disk(settings: &AppSettings) -> Result<(), String> {
+fn write_settings_to_disk_unlocked(settings: &AppSettings) -> Result<(), String> {
     let path = settings_path()?;
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     let tmp_path = path.with_extension("json.tmp");
     fs::write(&tmp_path, text).map_err(|e| e.to_string())?;
     fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
+}
+
+fn load_settings_from_disk() -> AppSettings {
+    let _guard = settings_file_lock().lock().ok();
+    read_settings_from_disk_unlocked()
+}
+
+fn update_settings_on_disk(update: impl FnOnce(&mut AppSettings)) -> Result<(), String> {
+    let _guard = settings_file_lock().lock().map_err(|_| "Settings file lock poisoned".to_string())?;
+    let mut settings = read_settings_from_disk_unlocked();
+    update(&mut settings);
+    write_settings_to_disk_unlocked(&settings)
 }
 
 #[tauri::command]
@@ -157,14 +175,14 @@ fn load_settings() -> AppSettings {
 
 #[tauri::command]
 fn persist_window_state(state: WindowState) -> Result<(), String> {
-    let mut settings = load_settings_from_disk();
-    settings.window = Some(WindowState {
-        width: state.width.clamp(780, 10_000),
-        height: state.height.clamp(500, 10_000),
-        x: state.x,
-        y: state.y,
-    });
-    save_settings_to_disk(&settings)
+    update_settings_on_disk(|settings| {
+        settings.window = Some(WindowState {
+            width: state.width.clamp(780, 10_000),
+            height: state.height.clamp(500, 10_000),
+            x: state.x,
+            y: state.y,
+        });
+    })
 }
 
 #[tauri::command]
@@ -187,24 +205,23 @@ fn save_current_window_state(window: Window) -> Result<(), String> {
 
 #[tauri::command]
 fn save_sidebar_width(width: u32) -> Result<(), String> {
-    let mut settings = load_settings_from_disk();
-    settings.sidebar_width = Some(width.clamp(180, 420));
-    save_settings_to_disk(&settings)
+    update_settings_on_disk(|settings| {
+        settings.sidebar_width = Some(width.clamp(180, 420));
+    })
 }
 
 #[tauri::command]
 fn save_terminal_font_size(font_size: u32) -> Result<(), String> {
-    let mut settings = load_settings_from_disk();
-    settings.terminal_font_size = Some(font_size.clamp(8, 32));
-    save_settings_to_disk(&settings)
+    update_settings_on_disk(|settings| {
+        settings.terminal_font_size = Some(font_size.clamp(8, 32));
+    })
 }
 
 fn reset_settings_file() -> Result<(), String> {
-    let path = settings_path()?;
-    if path.exists() {
-        fs::remove_file(path).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    update_settings_on_disk(|settings| {
+        settings.window = None;
+        settings.sidebar_width = None;
+    })
 }
 
 #[tauri::command]

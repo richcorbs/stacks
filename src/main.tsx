@@ -23,12 +23,13 @@ import { useWindowStatePersistence } from './hooks/useWindowStatePersistence';
 import { useWorkspaceCommands } from './hooks/useWorkspaceCommands';
 import { useToast } from './hooks/useToast';
 import { useFocusDebug } from './hooks/useFocusDebug';
+import { clampTerminalFontSize, DEFAULT_TERMINAL_FONT_SIZE } from './settings';
 
 function App() {
   const [loaded, setLoaded] = useState(false);
   const [store, setStore] = useState<Store>({ projects: [] });
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  const [terminalFontSize, setTerminalFontSize] = useState(13);
+  const [terminalFontSize, setTerminalFontSize] = useState(DEFAULT_TERMINAL_FONT_SIZE);
   const { state: workspace, actions: workspaceActions } = useWorkspaceState();
   const {
     activeProjectId,
@@ -103,7 +104,7 @@ function App() {
     ]).then(([loadedStore, settings]) => {
       setStore(loadedStore);
       if (settings?.sidebar_width) setSidebarWidth(Math.min(420, Math.max(180, settings.sidebar_width)));
-      if (settings?.terminal_font_size) setTerminalFontSize(Math.min(32, Math.max(8, settings.terminal_font_size)));
+      if (settings?.terminal_font_size) setTerminalFontSize(clampTerminalFontSize(settings.terminal_font_size));
       const firstProject = loadedStore.projects[0];
       if (firstProject) selectTerminal(firstProject.id, null);
       else setActiveProjectId(null);
@@ -245,7 +246,7 @@ function App() {
   }, [activeTerminal?.id, focusedPaneByTerminalId]);
 
   function adjustTerminalFontSize(delta: number) {
-    setTerminalFontSize((size) => Math.min(32, Math.max(8, size + delta)));
+    setTerminalFontSize((size) => clampTerminalFontSize(size + delta));
   }
 
   const shortcutHandlers = {

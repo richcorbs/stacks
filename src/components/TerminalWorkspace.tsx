@@ -240,7 +240,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
     session.resizeObserver?.disconnect();
     session.resizeObserver = new ResizeObserver(resizePtyToXterm);
     session.resizeObserver.observe(host);
-    window.addEventListener('resize', resizePtyToXterm);
+    if (visible) window.addEventListener('resize', resizePtyToXterm);
     requestAnimationFrame(resizePtyToXterm);
 
     return () => {
@@ -249,7 +249,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
       session?.resizeObserver?.disconnect();
       if (session) session.resizeObserver = undefined;
     };
-  }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command, sessionRestartNonce]);
+  }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command, visible, sessionRestartNonce]);
 
   useEffect(() => {
     const session = getPaneSession(pane.id);
