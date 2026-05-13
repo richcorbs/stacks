@@ -16,6 +16,7 @@ type MainWorkspaceProps = {
   activeTerminalId: string | null;
   activePaneId: string | null;
   maximizedPaneId: string | null;
+  terminalFontSize: number;
   onResizeSplit: (terminalId: string, path: string, ratio: number) => void;
   onFocusPane: (projectId: string, terminalId: string, paneId: string) => void;
   onClosePane: (paneId: string) => void;
@@ -30,6 +31,7 @@ export function MainWorkspace({
   activeTerminalId,
   activePaneId,
   maximizedPaneId,
+  terminalFontSize,
   onResizeSplit,
   onFocusPane,
   onClosePane,
@@ -59,6 +61,7 @@ export function MainWorkspace({
                     terminal={terminal}
                     project={project}
                     visible={visible}
+                    terminalFontSize={terminalFontSize}
                     activePaneId={visible ? activePaneId : null}
                     maximizedPaneId={visible ? visibleMaximizedPaneId : null}
                     path=""

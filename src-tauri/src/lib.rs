@@ -80,6 +80,8 @@ struct AppSettings {
     window: Option<WindowState>,
     #[serde(default)]
     sidebar_width: Option<u32>,
+    #[serde(default)]
+    terminal_font_size: Option<u32>,
 }
 
 struct PtyHandle {
@@ -190,6 +192,13 @@ fn save_sidebar_width(width: u32) -> Result<(), String> {
     save_settings_to_disk(&settings)
 }
 
+#[tauri::command]
+fn save_terminal_font_size(font_size: u32) -> Result<(), String> {
+    let mut settings = load_settings_from_disk();
+    settings.terminal_font_size = Some(font_size.clamp(8, 32));
+    save_settings_to_disk(&settings)
+}
+
 fn reset_settings_file() -> Result<(), String> {
     let path = settings_path()?;
     if path.exists() {
@@ -215,6 +224,8 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         ("menu-shortcut-split-down", "Split Down", "Cmd+Shift+D", Some("Cmd+Shift+D")),
         ("menu-shortcut-close-pane", "Close Focused Pane", "Cmd+W", Some("Cmd+W")),
         ("menu-shortcut-clear-pane", "Clear Focused Pane", "Cmd+K", Some("Cmd+K")),
+        ("menu-shortcut-increase-terminal-font-size", "Increase Terminal Font Size", "Cmd+Plus", Some("Cmd+Plus")),
+        ("menu-shortcut-decrease-terminal-font-size", "Decrease Terminal Font Size", "Cmd+-", Some("Cmd+-")),
         ("menu-shortcut-maximize-pane", "Maximize / Restore Pane", "Cmd+Shift+Enter", Some("Cmd+Shift+Enter")),
         ("menu-shortcut-focus-next-pane", "Focus Next Pane", "Cmd+]", Some("Cmd+]")),
         ("menu-shortcut-focus-previous-pane", "Focus Previous Pane", "Cmd+[", Some("Cmd+[")),
@@ -524,6 +535,7 @@ pub fn run() {
             save_window_state,
             save_current_window_state,
             save_sidebar_width,
+            save_terminal_font_size,
             reset_settings,
             new_id,
             quit_app,

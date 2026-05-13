@@ -16,12 +16,13 @@ function safeTermSize(term: Terminal): TermSize {
   };
 }
 
-export function SplitView({ node, panesById, terminal, project, visible, activePaneId, maximizedPaneId, path, onResizeSplit, onFocus, onClose }: {
+export function SplitView({ node, panesById, terminal, project, visible, terminalFontSize, activePaneId, maximizedPaneId, path, onResizeSplit, onFocus, onClose }: {
   node: SplitNode;
   panesById: Record<string, Pane>;
   terminal: TerminalEntry;
   project: Project;
   visible: boolean;
+  terminalFontSize: number;
   activePaneId: string | null;
   maximizedPaneId: string | null;
   path: string;
@@ -42,6 +43,7 @@ export function SplitView({ node, panesById, terminal, project, visible, activeP
         active={visible && activePaneId === pane.id}
         maximized={effectiveMaximizedPaneId === pane.id}
         visible={visible}
+        terminalFontSize={terminalFontSize}
         onFocus={() => onFocus(pane.id)}
         onClose={() => onClose(pane.id)}
       />
@@ -51,11 +53,11 @@ export function SplitView({ node, panesById, terminal, project, visible, activeP
   return (
     <div className={`split split-${node.direction}`}>
       <div className="splitChild" style={{ flex: `${ratio} 1 0` }}>
-        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
       </div>
       <SplitResizeHandle direction={node.direction} onResize={(nextRatio) => onResizeSplit(path, nextRatio)} />
       <div className="splitChild" style={{ flex: `${1 - ratio} 1 0` }}>
-        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
       </div>
     </div>
   );
@@ -93,13 +95,14 @@ function SplitResizeHandle({ direction, onResize }: { direction: 'row' | 'column
   );
 }
 
-function TerminalPane({ pane, terminal, project, active, maximized, visible, onFocus, onClose }: {
+function TerminalPane({ pane, terminal, project, active, maximized, visible, terminalFontSize, onFocus, onClose }: {
   pane: Pane;
   terminal: TerminalEntry;
   project: Project;
   active: boolean;
   maximized: boolean;
   visible: boolean;
+  terminalFontSize: number;
   onFocus: () => void;
   onClose: () => void;
 }) {
@@ -135,7 +138,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
       const term = new Terminal({
         cursorBlink: true,
         fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
-        fontSize: 13,
+        fontSize: terminalFontSize,
         theme: { background: '#0f141b', foreground: '#d6deeb', cursor: '#80cbc4' },
         scrollback: 10000,
         smoothScrollDuration: 0,
@@ -237,14 +240,32 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
     session.resizeObserver?.disconnect();
     session.resizeObserver = new ResizeObserver(resizePtyToXterm);
     session.resizeObserver.observe(host);
+    window.addEventListener('resize', resizePtyToXterm);
     requestAnimationFrame(resizePtyToXterm);
 
     return () => {
       cancelled = true;
+      window.removeEventListener('resize', resizePtyToXterm);
       session?.resizeObserver?.disconnect();
       if (session) session.resizeObserver = undefined;
     };
   }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command, sessionRestartNonce]);
+
+  useEffect(() => {
+    const session = getPaneSession(pane.id);
+    if (!session || session.term.options.fontSize === terminalFontSize) return;
+    const wasAtBottom = isSessionAtBottom(session);
+    session.term.options.fontSize = terminalFontSize;
+    requestAnimationFrame(() => {
+      fitSessionPreservingBottom(session);
+      const size = safeTermSize(session.term);
+      if (session.spawned && (!session.lastPtySize || session.lastPtySize.cols !== size.cols || session.lastPtySize.rows !== size.rows)) {
+        session.lastPtySize = size;
+        invoke('resize_pty', { paneId: pane.id, cols: size.cols, rows: size.rows }).catch(() => {});
+      }
+      if (wasAtBottom) jumpSessionToBottom(session);
+    });
+  }, [pane.id, terminalFontSize]);
 
   useEffect(() => {
     const onRestartDeadTerminal = (event: Event) => {

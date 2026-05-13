@@ -2,6 +2,7 @@ import type { PaneSession } from './types';
 
 const paneSessions = new Map<string, PaneSession>();
 const pendingScrollAfterFitPaneIds = new Set<string>();
+const stickToBottomUntilBySession = new WeakMap<PaneSession, number>();
 
 function debugFocus(message: string, detail?: unknown) {
   if (!import.meta.env.DEV) return;
@@ -28,12 +29,38 @@ export function isSessionAtBottom(session: PaneSession) {
 }
 
 export function fitSessionPreservingBottom(session: PaneSession) {
+  const buffer = session.term.buffer.active;
+  const previousViewportY = buffer.viewportY;
   const wasAtBottom = isSessionAtBottom(session);
-  session.fit.fit();
-  if (wasAtBottom) {
-    window.requestAnimationFrame(() => jumpSessionToBottom(session));
+  const now = Date.now();
+  const isStickyBottomResize = (stickToBottomUntilBySession.get(session) ?? 0) > now;
+  const shouldStickToBottom = wasAtBottom || isStickyBottomResize;
+
+  if (shouldStickToBottom) {
+    // Window resize/maximize can trigger several fit/PTY-resize/reflow passes.
+    // The first pass starts at the bottom, but intermediate passes may briefly
+    // report as scrolled back. Keep treating the pane as bottom-pinned for a
+    // short resize window so later passes do not preserve that transient offset.
+    stickToBottomUntilBySession.set(session, now + 750);
   }
-  return wasAtBottom;
+
+  session.fit.fit();
+
+  if (shouldStickToBottom) {
+    // Resizing the PTY can make shells/full-screen apps redraw after xterm's
+    // synchronous fit. Keep bottom-pinned panes pinned through that delayed
+    // output instead of only jumping once before the resize settles.
+    jumpSessionToBottom(session);
+    window.requestAnimationFrame(() => jumpSessionToBottom(session));
+    window.setTimeout(() => jumpSessionToBottom(session), 50);
+    window.setTimeout(() => jumpSessionToBottom(session), 150);
+    window.setTimeout(() => jumpSessionToBottom(session), 300);
+    window.setTimeout(() => jumpSessionToBottom(session), 600);
+  } else {
+    window.requestAnimationFrame(() => session.term.scrollToLine(previousViewportY));
+  }
+
+  return shouldStickToBottom;
 }
 
 export function focusPaneSession(paneId: string, reason: string, options: { scrollToBottom?: boolean } = {}) {

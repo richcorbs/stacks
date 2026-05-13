@@ -11,3 +11,13 @@ export function usePersistentSidebarWidth(loaded: boolean, sidebarWidth: number,
     return () => window.clearTimeout(timeout);
   }, [loaded, sidebarWidth, delayMs]);
 }
+
+export function usePersistentTerminalFontSize(loaded: boolean, terminalFontSize: number, delayMs = 250) {
+  useEffect(() => {
+    if (!loaded) return;
+    const timeout = window.setTimeout(() => {
+      invoke('save_terminal_font_size', { fontSize: Math.round(terminalFontSize) }).catch(console.error);
+    }, delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [loaded, terminalFontSize, delayMs]);
+}

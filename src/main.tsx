@@ -11,7 +11,7 @@ import type { AppSettings, ContextMenuState, DialogState, PointerDragState, Stor
 import { collectLeafPanes, loadSidebarWidth, normalizeSplitNode } from './utils';
 import { useAppStats } from './hooks/useAppStats';
 import { useDebouncedStoreSave } from './hooks/useDebouncedSave';
-import { usePersistentSidebarWidth } from './hooks/useSettingsPersistence';
+import { usePersistentSidebarWidth, usePersistentTerminalFontSize } from './hooks/useSettingsPersistence';
 import { useGitInfo } from './hooks/useGitInfo';
 import { usePaneActivity } from './hooks/usePaneActivity';
 import { useWorkspaceState } from './hooks/useWorkspaceState';
@@ -28,6 +28,7 @@ function App() {
   const [loaded, setLoaded] = useState(false);
   const [store, setStore] = useState<Store>({ projects: [] });
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  const [terminalFontSize, setTerminalFontSize] = useState(13);
   const { state: workspace, actions: workspaceActions } = useWorkspaceState();
   const {
     activeProjectId,
@@ -92,6 +93,7 @@ function App() {
 
   useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
+  usePersistentTerminalFontSize(loaded, terminalFontSize);
   useWindowStatePersistence();
 
   useEffect(() => {
@@ -101,6 +103,7 @@ function App() {
     ]).then(([loadedStore, settings]) => {
       setStore(loadedStore);
       if (settings?.sidebar_width) setSidebarWidth(Math.min(420, Math.max(180, settings.sidebar_width)));
+      if (settings?.terminal_font_size) setTerminalFontSize(Math.min(32, Math.max(8, settings.terminal_font_size)));
       const firstProject = loadedStore.projects[0];
       if (firstProject) selectTerminal(firstProject.id, null);
       else setActiveProjectId(null);
@@ -241,6 +244,10 @@ function App() {
     });
   }, [activeTerminal?.id, focusedPaneByTerminalId]);
 
+  function adjustTerminalFontSize(delta: number) {
+    setTerminalFontSize((size) => Math.min(32, Math.max(8, size + delta)));
+  }
+
   const shortcutHandlers = {
     activeProject,
     activePaneId,
@@ -255,6 +262,7 @@ function App() {
     requestQuit: () => setConfirmQuitOpen(true),
     cycleSidebarTerminal,
     cyclePane,
+    adjustTerminalFontSize,
   };
 
   useKeyboardShortcuts(shortcutHandlers);
@@ -309,6 +317,7 @@ function App() {
         activeTerminalId={activeTerminalId}
         activePaneId={activePaneId}
         maximizedPaneId={maximizedPaneId}
+        terminalFontSize={terminalFontSize}
         hasActivePane={Boolean(activeTerminalId && activePaneId)}
         onResizeSplit={resizeSplit}
         onFocusPane={(projectId, terminalId, paneId) => {

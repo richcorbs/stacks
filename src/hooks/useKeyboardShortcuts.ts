@@ -18,6 +18,8 @@ export type ShortcutAction =
   | 'focus-previous-terminal'
   | 'activate-sidebar'
   | 'select-terminal'
+  | 'increase-terminal-font-size'
+  | 'decrease-terminal-font-size'
   | 'quit';
 
 type ShortcutHandlers = {
@@ -34,6 +36,7 @@ type ShortcutHandlers = {
   requestQuit: () => void;
   cycleSidebarTerminal: (delta: number) => void;
   cyclePane: (delta: number) => void;
+  adjustTerminalFontSize: (delta: number) => void;
 };
 
 export const encoder = new TextEncoder();
@@ -63,6 +66,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     requestQuit,
     cycleSidebarTerminal,
     cyclePane,
+    adjustTerminalFontSize,
   } = handlers;
 
   switch (action) {
@@ -106,6 +110,12 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     case 'select-terminal':
       activateTerminalByIndex(0);
       break;
+    case 'increase-terminal-font-size':
+      adjustTerminalFontSize(1);
+      break;
+    case 'decrease-terminal-font-size':
+      adjustTerminalFontSize(-1);
+      break;
     case 'quit':
       requestQuit();
       break;
@@ -123,6 +133,18 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       setMetaKeyDown(event.metaKey);
       if (!event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key.toLowerCase();
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        event.stopPropagation();
+        runShortcutAction('increase-terminal-font-size', handlersRef.current);
+        return;
+      }
+      if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        event.stopPropagation();
+        runShortcutAction('decrease-terminal-font-size', handlersRef.current);
+        return;
+      }
       if (key === 'k') {
         event.preventDefault();
         event.stopPropagation();
