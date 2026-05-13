@@ -22,6 +22,20 @@ export function jumpSessionToBottom(session: PaneSession) {
   session.term.scrollToLine(bottomLine);
 }
 
+export function isSessionAtBottom(session: PaneSession) {
+  const buffer = session.term.buffer.active;
+  return buffer.viewportY >= buffer.baseY;
+}
+
+export function fitSessionPreservingBottom(session: PaneSession) {
+  const wasAtBottom = isSessionAtBottom(session);
+  session.fit.fit();
+  if (wasAtBottom) {
+    window.requestAnimationFrame(() => jumpSessionToBottom(session));
+  }
+  return wasAtBottom;
+}
+
 export function focusPaneSession(paneId: string, reason: string, options: { scrollToBottom?: boolean } = {}) {
   const session = paneSessions.get(paneId);
   if (!session) {
@@ -29,8 +43,8 @@ export function focusPaneSession(paneId: string, reason: string, options: { scro
     return false;
   }
   debugFocus('focus pane session', { paneId, reason, options });
-  session.fit.fit();
-  if (options.scrollToBottom) jumpSessionToBottom(session);
+  const wasAtBottom = fitSessionPreservingBottom(session);
+  if (options.scrollToBottom || wasAtBottom) jumpSessionToBottom(session);
   session.term.focus();
   return true;
 }
@@ -46,8 +60,7 @@ export function scrollPaneSessionToBottom(paneId: string) {
 export function isPaneSessionAtBottom(paneId: string) {
   const session = paneSessions.get(paneId);
   if (!session) return true;
-  const buffer = session.term.buffer.active;
-  return buffer.viewportY >= buffer.baseY;
+  return isSessionAtBottom(session);
 }
 
 export function requestPaneSessionsScrollToBottomAfterFit(paneIds: string[]) {

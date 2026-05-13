@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { Pane, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
-import { consumePaneSessionScrollToBottomAfterFit, focusPaneSession, getPaneSession, jumpSessionToBottom, setPaneSession } from '../terminalSessionManager';
+import { consumePaneSessionScrollToBottomAfterFit, disposePaneSession, fitSessionPreservingBottom, focusPaneSession, getPaneSession, isSessionAtBottom, jumpSessionToBottom, setPaneSession } from '../terminalSessionManager';
 import { useTerminalSelectionCopy } from '../hooks/useTerminalSelectionCopy';
 
 const encoder = new TextEncoder();
@@ -106,10 +106,24 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const [sessionRestartNonce, setSessionRestartNonce] = useState(0);
   const wasVisibleRef = useRef(visible);
   const wasActiveRef = useRef(active);
   const wasAtBottomWhenDeactivatedRef = useRef(true);
   const { beginSelectionCopy } = useTerminalSelectionCopy(termRef);
+
+  function restartPaneSessionIfDead() {
+    const session = getPaneSession(pane.id);
+    if (session && (!session.spawned || session.running)) return false;
+    if (session) {
+      disposePaneSession(pane.id);
+      invoke('kill_pty', { paneId: pane.id }).catch(() => {});
+    }
+    termRef.current = null;
+    fitRef.current = null;
+    setSessionRestartNonce((nonce) => nonce + 1);
+    return true;
+  }
 
   useEffect(() => {
     const startupCommand = pane.id === `${terminal.id}:0` ? terminal.command : pane.command ?? null;
@@ -206,8 +220,8 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
     fitRef.current = session.fit;
 
     const resizePtyToXterm = () => {
-      session!.fit.fit();
-      const shouldScrollToBottom = consumePaneSessionScrollToBottomAfterFit(pane.id);
+      const wasAtBottom = fitSessionPreservingBottom(session!);
+      const shouldScrollToBottom = consumePaneSessionScrollToBottomAfterFit(pane.id) || wasAtBottom;
       const size = safeTermSize(session!.term);
       if (session!.spawned && (!session!.lastPtySize || session!.lastPtySize.cols !== size.cols || session!.lastPtySize.rows !== size.rows)) {
         session!.lastPtySize = size;
@@ -230,7 +244,16 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
       session?.resizeObserver?.disconnect();
       if (session) session.resizeObserver = undefined;
     };
-  }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command]);
+  }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command, sessionRestartNonce]);
+
+  useEffect(() => {
+    const onRestartDeadTerminal = (event: Event) => {
+      const { terminalId } = (event as CustomEvent<{ terminalId: string }>).detail ?? {};
+      if (terminalId === terminal.id && active) restartPaneSessionIfDead();
+    };
+    window.addEventListener('restart-dead-terminal', onRestartDeadTerminal);
+    return () => window.removeEventListener('restart-dead-terminal', onRestartDeadTerminal);
+  }, [active, pane.id, terminal.id]);
 
   useEffect(() => {
     const wasVisible = wasVisibleRef.current;
@@ -240,11 +263,12 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
 
     const term = termRef.current;
     const fit = fitRef.current;
+    if (active && restartPaneSessionIfDead()) return;
     if (!term || !fit) return;
 
     if (wasActive && !active) {
-      const buffer = term.buffer.active;
-      wasAtBottomWhenDeactivatedRef.current = buffer.viewportY >= buffer.baseY;
+      const session = getPaneSession(pane.id);
+      wasAtBottomWhenDeactivatedRef.current = session ? isSessionAtBottom(session) : true;
     }
 
     term.options.cursorBlink = active;
@@ -252,7 +276,9 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
 
     const shouldScrollToBottom = !wasVisible || maximized || (!wasActive && wasAtBottomWhenDeactivatedRef.current);
     requestAnimationFrame(() => {
-      fit.fit();
+      const session = getPaneSession(pane.id);
+      if (!session) return;
+      fitSessionPreservingBottom(session);
       const size = safeTermSize(term);
       invoke('resize_pty', { paneId: pane.id, cols: size.cols, rows: size.rows }).catch(() => {});
       focusPaneSession(pane.id, maximized ? 'active-maximized' : 'active', { scrollToBottom: shouldScrollToBottom });
@@ -264,6 +290,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, onF
       className={`pane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
       onMouseDown={() => {
         beginSelectionCopy();
+        restartPaneSessionIfDead();
         if (!active) onFocus();
       }}
     >

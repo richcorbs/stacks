@@ -209,6 +209,7 @@ function TerminalRow({
           return;
         }
         selectTerminal(project.id, terminal.id);
+        window.dispatchEvent(new CustomEvent('restart-dead-terminal', { detail: { terminalId: terminal.id } }));
       }}
     >
       <span className="termLabel">
