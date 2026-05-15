@@ -7,6 +7,7 @@ import './styles.css';
 import { ContextMenu, ConfirmClosePaneDialog, ConfirmDeleteProjectDialog, ConfirmDeleteTerminalDialog, ConfirmQuitDialog, Dialog } from './components/Dialogs';
 import { Sidebar } from './components/Sidebar';
 import { MainWorkspace } from './components/MainWorkspace';
+import { CommandPalette } from './components/CommandPalette';
 import type { AppSettings, ContextMenuState, DialogState, PointerDragState, Store } from './types';
 import { collectLeafPanes, loadSidebarWidth, normalizeSplitNode } from './utils';
 import { useAppStats } from './hooks/useAppStats';
@@ -15,7 +16,7 @@ import { usePersistentSidebarWidth, usePersistentTerminalFontSize } from './hook
 import { useGitInfo } from './hooks/useGitInfo';
 import { usePaneActivity } from './hooks/usePaneActivity';
 import { useWorkspaceState } from './hooks/useWorkspaceState';
-import { runShortcutAction, type ShortcutAction, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { clearFocusedPane, runShortcutAction, type ShortcutAction, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { usePaneCwd } from './hooks/usePaneCwd';
 import { useSidebarInteractions } from './hooks/useSidebarInteractions';
 import { useImageDropToTerminal } from './hooks/useImageDropToTerminal';
@@ -23,7 +24,9 @@ import { useWindowStatePersistence } from './hooks/useWindowStatePersistence';
 import { useWorkspaceCommands } from './hooks/useWorkspaceCommands';
 import { useToast } from './hooks/useToast';
 import { useFocusDebug } from './hooks/useFocusDebug';
+import { useCommandPaletteItems } from './hooks/useCommandPaletteItems';
 import { clampTerminalFontSize, DEFAULT_TERMINAL_FONT_SIZE } from './settings';
+
 
 function App() {
   const [loaded, setLoaded] = useState(false);
@@ -72,6 +75,9 @@ function App() {
   const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
   const [confirmDeleteTerminal, setConfirmDeleteTerminal] = useState<{ projectId: string; terminalId: string } | null>(null);
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [searchPaneRequest, setSearchPaneRequest] = useState<{ paneId: string; nonce: number } | null>(null);
+  const [restartPaneRequest, setRestartPaneRequest] = useState<{ paneId: string; nonce: number } | null>(null);
   const { toast, showToast } = useToast();
 
   const activeProject = useMemo(
@@ -178,6 +184,7 @@ function App() {
     setSidebarFocusedTerminalId,
     setRunningPaneIds,
     setActivityTerminalIds,
+    requestPaneRestart: (paneId) => setRestartPaneRequest({ paneId, nonce: Date.now() }),
   });
   const {
     openProjectDialog,
@@ -198,6 +205,8 @@ function App() {
     activateTerminalByIndex,
     toggleMaximizedPane,
     resizeSplit,
+    stopPane,
+    restartPane,
     closePane,
   } = commands;
 
@@ -249,6 +258,32 @@ function App() {
     setTerminalFontSize((size) => clampTerminalFontSize(size + delta));
   }
 
+  function openPaneSearch() {
+    if (!activePaneId) return;
+    setSearchPaneRequest({ paneId: activePaneId, nonce: Date.now() });
+  }
+
+  const commandPaletteItems = useCommandPaletteItems({
+    store,
+    sidebarTerminals,
+    panesByTerminalId,
+    activeProject,
+    activeTerminalId,
+    activePaneId,
+    onSelectTerminal: selectTerminal,
+    onNewProject: openProjectDialog,
+    onNewTerminal: openTerminalDialog,
+    onSplitPane: splitPane,
+    onCycleTerminal: cycleSidebarTerminal,
+    onCyclePane: cyclePane,
+    onStopPane: stopPane,
+    onRestartPane: restartPane,
+    onClosePane: setConfirmClosePaneId,
+    onClearPane: () => clearFocusedPane(activePaneId),
+    onToggleMaximizedPane: toggleMaximizedPane,
+    onOpenSearch: openPaneSearch,
+  });
+
   const shortcutHandlers = {
     activeProject,
     activePaneId,
@@ -264,6 +299,8 @@ function App() {
     cycleSidebarTerminal,
     cyclePane,
     adjustTerminalFontSize,
+    openCommandPalette: () => setCommandPaletteOpen(true),
+    openPaneSearch,
   };
 
   useKeyboardShortcuts(shortcutHandlers);
@@ -319,6 +356,8 @@ function App() {
         activePaneId={activePaneId}
         maximizedPaneId={maximizedPaneId}
         terminalFontSize={terminalFontSize}
+        searchPaneRequest={searchPaneRequest}
+        restartPaneRequest={restartPaneRequest}
         hasActivePane={Boolean(activeTerminalId && activePaneId)}
         onResizeSplit={resizeSplit}
         onFocusPane={(projectId, terminalId, paneId) => {
@@ -340,6 +379,11 @@ function App() {
           onDeleteTerminal={(project, terminal) => { setContextMenu(null); setConfirmDeleteTerminal({ projectId: project.id, terminalId: terminal.id }); }}
         />
       )}
+      <CommandPalette
+        open={commandPaletteOpen}
+        items={commandPaletteItems}
+        onClose={() => setCommandPaletteOpen(false)}
+      />
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={() => setDialog(null)} onSubmit={submitDialog} />}
       {confirmClosePaneId && (
         <ConfirmClosePaneDialog

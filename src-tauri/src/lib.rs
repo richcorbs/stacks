@@ -241,6 +241,8 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         ("menu-shortcut-split-down", "Split Down", "Cmd+Shift+D", Some("Cmd+Shift+D")),
         ("menu-shortcut-close-pane", "Close Focused Pane", "Cmd+W", Some("Cmd+W")),
         ("menu-shortcut-clear-pane", "Clear Focused Pane", "Cmd+K", Some("Cmd+K")),
+        ("menu-shortcut-search-pane", "Search Focused Pane", "Cmd+F", Some("Cmd+F")),
+        ("menu-shortcut-command-palette", "Command Palette", "Cmd+P", Some("Cmd+P")),
         ("menu-shortcut-increase-terminal-font-size", "Increase Terminal Font Size", "Cmd+Plus", Some("Cmd+Plus")),
         ("menu-shortcut-decrease-terminal-font-size", "Decrease Terminal Font Size", "Cmd+-", Some("Cmd+-")),
         ("menu-shortcut-maximize-pane", "Maximize / Restore Pane", "Cmd+Shift+Enter", Some("Cmd+Shift+Enter")),
@@ -304,6 +306,35 @@ fn new_id() -> String {
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("Only http:// and https:// URLs can be opened".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&url)
+            .status()
+            .map_err(|err| err.to_string())?
+            .success()
+            .then_some(())
+            .ok_or_else(|| "open failed".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Command::new("xdg-open")
+            .arg(&url)
+            .status()
+            .map_err(|err| err.to_string())?
+            .success()
+            .then_some(())
+            .ok_or_else(|| "xdg-open failed".to_string())
+    }
 }
 
 #[tauri::command]
@@ -556,6 +587,7 @@ pub fn run() {
             reset_settings,
             new_id,
             quit_app,
+            open_url,
             spawn_pty,
             write_pty,
             resize_pty,

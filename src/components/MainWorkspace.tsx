@@ -9,6 +9,8 @@ type TerminalWorkspaceModel = {
   root: SplitNode | undefined;
 };
 
+type PaneRequest = { paneId: string; nonce: number };
+
 type MainWorkspaceProps = {
   activePath: string | null;
   gitInfo: GitInfo | null;
@@ -17,6 +19,8 @@ type MainWorkspaceProps = {
   activePaneId: string | null;
   maximizedPaneId: string | null;
   terminalFontSize: number;
+  searchPaneRequest: PaneRequest | null;
+  restartPaneRequest: PaneRequest | null;
   onResizeSplit: (terminalId: string, path: string, ratio: number) => void;
   onFocusPane: (projectId: string, terminalId: string, paneId: string) => void;
   onClosePane: (paneId: string) => void;
@@ -32,6 +36,8 @@ export function MainWorkspace({
   activePaneId,
   maximizedPaneId,
   terminalFontSize,
+  searchPaneRequest,
+  restartPaneRequest,
   onResizeSplit,
   onFocusPane,
   onClosePane,
@@ -64,6 +70,8 @@ export function MainWorkspace({
                     terminalFontSize={terminalFontSize}
                     activePaneId={visible ? activePaneId : null}
                     maximizedPaneId={visible ? visibleMaximizedPaneId : null}
+                    searchPaneRequest={searchPaneRequest}
+                    restartPaneRequest={restartPaneRequest}
                     path=""
                     onResizeSplit={(path, ratio) => onResizeSplit(terminal.id, path, ratio)}
                     onFocus={(paneId) => onFocusPane(project.id, terminal.id, paneId)}

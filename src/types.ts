@@ -1,5 +1,7 @@
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
+import type { SearchAddon } from '@xterm/addon-search';
+import type { WebLinksAddon } from '@xterm/addon-web-links';
 
 export type Store = { projects: Project[] };
 export type Project = { id: string; name: string; path: string; terminals: TerminalEntry[]; collapsed?: boolean };
@@ -21,6 +23,8 @@ export type TermSize = { cols: number; rows: number };
 export type PaneSession = {
   term: Terminal;
   fit: FitAddon;
+  search: SearchAddon;
+  webLinks: WebLinksAddon;
   spawned: boolean;
   running: boolean;
   lastPtySize: TermSize | null;
