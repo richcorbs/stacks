@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
 import type { ContextMenuState, DialogState, Project, Store, TerminalEntry } from '../types';
 
 export function ContextMenu({ menu, store, onClose, onNewTerminal, onEditProject, onDeleteProject, onEditTerminal, onDeleteTerminal }: {
@@ -106,6 +107,15 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
     });
   }, [dialog.kind]);
 
+  async function chooseEditTerminalDirectory() {
+    if (dialog.kind !== 'editTerminal') return;
+    const selected = await open({ directory: true, multiple: false, title: 'Choose Terminal Directory', defaultPath: dialog.cwd || undefined }).catch((err) => {
+      console.error(err);
+      return null;
+    });
+    if (typeof selected === 'string') setDialog({ ...dialog, cwd: selected });
+  }
+
   return (
     <div className="modalBackdrop" onMouseDown={onCancel}>
       <form
@@ -188,12 +198,16 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
             </label>
             {dialog.kind === 'editTerminal' && (
               <label>
-                Directory
-                <input
-                  value={dialog.cwd}
-                  placeholder="/Users/rich/Code/my-project"
-                  onChange={(e) => setDialog({ ...dialog, cwd: e.target.value })}
-                />
+                Directory <span>(click to choose)</span>
+                <div className="settingsInlineField">
+                  <input
+                    value={dialog.cwd}
+                    placeholder="/Users/rich/Code/my-project"
+                    onClick={chooseEditTerminalDirectory}
+                    onChange={(e) => setDialog({ ...dialog, cwd: e.target.value })}
+                  />
+                  <button type="button" onClick={chooseEditTerminalDirectory}>Choose…</button>
+                </div>
               </label>
             )}
           </>

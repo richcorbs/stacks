@@ -295,6 +295,16 @@ function App() {
     restoreActivePaneFocus('close-settings');
   }
 
+  function closeDialog() {
+    setDialog(null);
+    restoreActivePaneFocus('close-dialog');
+  }
+
+  async function submitActiveDialog() {
+    await submitDialog();
+    restoreActivePaneFocus('submit-dialog');
+  }
+
   const commandPaletteItems = useCommandPaletteItems({
     store,
     sidebarTerminals,
@@ -428,7 +438,7 @@ function App() {
         onRunItem={() => closeCommandPalette({ restoreFocus: false })}
       />
       {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={closeSettings} />}
-      {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={() => setDialog(null)} onSubmit={submitDialog} />}
+      {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={closeDialog} onSubmit={submitActiveDialog} />}
       {confirmClosePaneId && (
         <ConfirmClosePaneDialog
           onCancel={() => setConfirmClosePaneId(null)}
