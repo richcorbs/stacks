@@ -278,12 +278,21 @@ function App() {
     setSearchPaneRequest({ paneId: activePaneId, nonce: Date.now() });
   }
 
+  function restoreActivePaneFocus(reason: string) {
+    if (!activePaneId) return;
+    requestAnimationFrame(() => {
+      focusPaneSession(activePaneId, reason, { scrollToBottom: false });
+    });
+  }
+
   function closeCommandPalette({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
     setCommandPaletteOpen(false);
-    if (!restoreFocus || !activePaneId) return;
-    requestAnimationFrame(() => {
-      focusPaneSession(activePaneId, 'close-command-palette', { scrollToBottom: false });
-    });
+    if (restoreFocus) restoreActivePaneFocus('close-command-palette');
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false);
+    restoreActivePaneFocus('close-settings');
   }
 
   const commandPaletteItems = useCommandPaletteItems({
@@ -415,7 +424,7 @@ function App() {
         onClose={() => closeCommandPalette()}
         onRunItem={() => closeCommandPalette({ restoreFocus: false })}
       />
-      {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={closeSettings} />}
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={() => setDialog(null)} onSubmit={submitDialog} />}
       {confirmClosePaneId && (
         <ConfirmClosePaneDialog
