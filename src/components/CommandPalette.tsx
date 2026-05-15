@@ -13,6 +13,7 @@ type CommandPaletteProps = {
   open: boolean;
   items: PaletteItem[];
   onClose: () => void;
+  onRunItem?: () => void;
 };
 
 export function scorePaletteItem(item: PaletteItem, query: string) {
@@ -29,7 +30,7 @@ export function scorePaletteItem(item: PaletteItem, query: string) {
   return 10;
 }
 
-export function CommandPalette({ open, items, onClose }: CommandPaletteProps) {
+export function CommandPalette({ open, items, onClose, onRunItem }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -57,7 +58,8 @@ export function CommandPalette({ open, items, onClose }: CommandPaletteProps) {
   const runSelected = () => {
     const item = filteredItems[selectedIndex];
     if (!item) return;
-    onClose();
+    onRunItem?.();
+    if (!onRunItem) onClose();
     item.action();
   };
 
@@ -95,7 +97,7 @@ export function CommandPalette({ open, items, onClose }: CommandPaletteProps) {
               type="button"
               className={`${index === selectedIndex ? 'selected' : ''} ${item.danger ? 'danger' : ''}`}
               onMouseEnter={() => setSelectedIndex(index)}
-              onClick={() => { onClose(); item.action(); }}
+              onClick={() => { onRunItem?.(); if (!onRunItem) onClose(); item.action(); }}
             >
               <span>{item.title}</span>
               {item.subtitle && <small>{item.subtitle}</small>}

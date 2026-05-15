@@ -28,6 +28,7 @@ import { useFocusDebug } from './hooks/useFocusDebug';
 import { useCommandPaletteItems } from './hooks/useCommandPaletteItems';
 import { clampTerminalFontSize } from './settings';
 import { DEFAULT_APP_SETTINGS, resolveAppSettings, type ResolvedAppSettings } from './settingsModel';
+import { focusPaneSession } from './terminalSessionManager';
 
 
 function App() {
@@ -277,6 +278,14 @@ function App() {
     setSearchPaneRequest({ paneId: activePaneId, nonce: Date.now() });
   }
 
+  function closeCommandPalette({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+    setCommandPaletteOpen(false);
+    if (!restoreFocus || !activePaneId) return;
+    requestAnimationFrame(() => {
+      focusPaneSession(activePaneId, 'close-command-palette', { scrollToBottom: false });
+    });
+  }
+
   const commandPaletteItems = useCommandPaletteItems({
     store,
     sidebarTerminals,
@@ -403,7 +412,8 @@ function App() {
       <CommandPalette
         open={commandPaletteOpen}
         items={commandPaletteItems}
-        onClose={() => setCommandPaletteOpen(false)}
+        onClose={() => closeCommandPalette()}
+        onRunItem={() => closeCommandPalette({ restoreFocus: false })}
       />
       {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={() => setSettingsOpen(false)} />}
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={() => setDialog(null)} onSubmit={submitDialog} />}
