@@ -3,9 +3,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Pane, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
 import { consumePaneSessionScrollToBottomAfterFit, disposePaneSession, fitSessionPreservingBottom, focusPaneSession, getPaneSession, isSessionAtBottom, jumpSessionToBottom, setPaneSession } from '../terminalSessionManager';
 import { useTerminalSelectionCopy } from '../hooks/useTerminalSelectionCopy';
+import { TerminalSearchOverlay } from './TerminalSearchOverlay';
+import { countSearchMatches } from '../terminalSearch';
 
 const encoder = new TextEncoder();
 
@@ -16,7 +20,7 @@ function safeTermSize(term: Terminal): TermSize {
   };
 }
 
-export function SplitView({ node, panesById, terminal, project, visible, terminalFontSize, activePaneId, maximizedPaneId, path, onResizeSplit, onFocus, onClose }: {
+export function SplitView({ node, panesById, terminal, project, visible, terminalFontSize, activePaneId, maximizedPaneId, searchPaneRequest, restartPaneRequest, path, onResizeSplit, onFocus, onClose }: {
   node: SplitNode;
   panesById: Record<string, Pane>;
   terminal: TerminalEntry;
@@ -25,6 +29,8 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
   terminalFontSize: number;
   activePaneId: string | null;
   maximizedPaneId: string | null;
+  searchPaneRequest: PaneRequest | null;
+  restartPaneRequest: PaneRequest | null;
   path: string;
   onResizeSplit: (path: string, ratio: number) => void;
   onFocus: (paneId: string) => void;
@@ -44,6 +50,8 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
         maximized={effectiveMaximizedPaneId === pane.id}
         visible={visible}
         terminalFontSize={terminalFontSize}
+        searchRequestNonce={searchPaneRequest?.paneId === pane.id ? searchPaneRequest.nonce : 0}
+        restartRequestNonce={restartPaneRequest?.paneId === pane.id ? restartPaneRequest.nonce : 0}
         onFocus={() => onFocus(pane.id)}
         onClose={() => onClose(pane.id)}
       />
@@ -53,11 +61,11 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
   return (
     <div className={`split split-${node.direction}`}>
       <div className="splitChild" style={{ flex: `${ratio} 1 0` }}>
-        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
       </div>
       <SplitResizeHandle direction={node.direction} onResize={(nextRatio) => onResizeSplit(path, nextRatio)} />
       <div className="splitChild" style={{ flex: `${1 - ratio} 1 0` }}>
-        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
       </div>
     </div>
   );
@@ -95,7 +103,9 @@ function SplitResizeHandle({ direction, onResize }: { direction: 'row' | 'column
   );
 }
 
-function TerminalPane({ pane, terminal, project, active, maximized, visible, terminalFontSize, onFocus, onClose }: {
+type PaneRequest = { paneId: string; nonce: number };
+
+function TerminalPane({ pane, terminal, project, active, maximized, visible, terminalFontSize, searchRequestNonce, restartRequestNonce, onFocus, onClose }: {
   pane: Pane;
   terminal: TerminalEntry;
   project: Project;
@@ -103,6 +113,8 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   maximized: boolean;
   visible: boolean;
   terminalFontSize: number;
+  searchRequestNonce: number;
+  restartRequestNonce: number;
   onFocus: () => void;
   onClose: () => void;
 }) {
@@ -110,6 +122,15 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [sessionRestartNonce, setSessionRestartNonce] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResultText, setSearchResultText] = useState('');
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  const searchOpenRef = useRef(searchOpen);
+  const searchTermRef = useRef(searchTerm);
+  searchOpenRef.current = searchOpen;
+  searchTermRef.current = searchTerm;
   const wasVisibleRef = useRef(visible);
   const wasActiveRef = useRef(active);
   const wasAtBottomWhenDeactivatedRef = useRef(true);
@@ -139,12 +160,28 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
         cursorBlink: true,
         fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
         fontSize: terminalFontSize,
-        theme: { background: '#0f141b', foreground: '#d6deeb', cursor: '#80cbc4' },
+        theme: {
+          background: '#0f141b',
+          foreground: '#d6deeb',
+          cursor: '#80cbc4',
+          selectionBackground: '#f59e0b',
+          selectionForeground: '#0b0f14',
+          selectionInactiveBackground: '#b45309',
+        },
         scrollback: 10000,
         smoothScrollDuration: 0,
       });
       const fit = new FitAddon();
+      const search = new SearchAddon();
+      const webLinks = new WebLinksAddon((event, uri) => {
+        if (!event.metaKey) return;
+        event.preventDefault();
+        event.stopPropagation();
+        invoke('open_url', { url: uri }).catch(console.error);
+      }, { urlRegex: /https?:\/\/[^\s"']+/i });
       term.loadAddon(fit);
+      term.loadAddon(search);
+      term.loadAddon(webLinks);
       term.attachCustomKeyEventHandler((event) => {
         if (event.key === 'Enter' && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
           event.preventDefault();
@@ -162,6 +199,8 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
       session = {
         term,
         fit,
+        search,
+        webLinks,
         spawned: false,
         running: false,
         lastPtySize: null,
@@ -222,6 +261,13 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
     termRef.current = session.term;
     fitRef.current = session.fit;
 
+    const resultsDisposable = session.search.onDidChangeResults(({ resultIndex, resultCount }) => {
+      if (!searchOpenRef.current || !searchTermRef.current) return;
+      setSearchMatchCount(resultCount);
+      setSearchMatchIndex(resultCount > 0 && resultIndex >= 0 ? resultIndex + 1 : 0);
+      setSearchResultText(resultCount > 0 && resultIndex >= 0 ? `${resultIndex + 1}/${resultCount}` : '0/0');
+    });
+
     const resizePtyToXterm = () => {
       const wasAtBottom = fitSessionPreservingBottom(session!);
       const shouldScrollToBottom = consumePaneSessionScrollToBottomAfterFit(pane.id) || wasAtBottom;
@@ -247,6 +293,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
       cancelled = true;
       window.removeEventListener('resize', resizePtyToXterm);
       session?.resizeObserver?.disconnect();
+      resultsDisposable.dispose();
       if (session) session.resizeObserver = undefined;
     };
   }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command, visible, sessionRestartNonce]);
@@ -268,13 +315,37 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   }, [pane.id, terminalFontSize]);
 
   useEffect(() => {
-    const onRestartDeadTerminal = (event: Event) => {
-      const { terminalId } = (event as CustomEvent<{ terminalId: string }>).detail ?? {};
-      if (terminalId === terminal.id && active) restartPaneSessionIfDead();
-    };
-    window.addEventListener('restart-dead-terminal', onRestartDeadTerminal);
-    return () => window.removeEventListener('restart-dead-terminal', onRestartDeadTerminal);
-  }, [active, pane.id, terminal.id]);
+    if (searchRequestNonce <= 0) return;
+    setSearchOpen(true);
+  }, [searchRequestNonce]);
+
+  useEffect(() => {
+    const session = getPaneSession(pane.id);
+    if (!session) return;
+    if (!searchOpen || !searchTerm) {
+      if (!searchOpen) session.search.clearDecorations();
+      setSearchResultText('');
+      setSearchMatchCount(0);
+      setSearchMatchIndex(0);
+      return;
+    }
+    const count = countSearchMatches(session.term, searchTerm);
+    setSearchMatchCount(count);
+    setSearchMatchIndex(count > 0 ? 1 : 0);
+    setSearchResultText(count > 0 ? `1/${count}` : '0/0');
+    try {
+      const found = session.search.findNext(searchTerm, { incremental: true });
+      if (!found) setSearchResultText('0/0');
+    } catch (err) {
+      console.error('terminal search failed', err);
+      setSearchResultText('');
+    }
+  }, [pane.id, searchOpen, searchTerm]);
+
+  useEffect(() => {
+    if (restartRequestNonce <= 0) return;
+    restartPaneSessionIfDead();
+  }, [restartRequestNonce]);
 
   useEffect(() => {
     const wasVisible = wasVisibleRef.current;
@@ -315,6 +386,47 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
         if (!active) onFocus();
       }}
     >
+      {searchOpen && (
+        <TerminalSearchOverlay
+          value={searchTerm}
+          resultText={searchResultText}
+          onChange={setSearchTerm}
+          onNext={() => {
+            const session = getPaneSession(pane.id);
+            if (session && searchTerm) {
+              try {
+                const found = session.search.findNext(searchTerm);
+                if (found && searchMatchCount > 0) {
+                  const nextIndex = (searchMatchIndex % searchMatchCount) + 1;
+                  setSearchMatchIndex(nextIndex);
+                  setSearchResultText(`${nextIndex}/${searchMatchCount}`);
+                }
+              }
+              catch (err) { console.error('terminal search failed', err); }
+            }
+          }}
+          onPrevious={() => {
+            const session = getPaneSession(pane.id);
+            if (session && searchTerm) {
+              try {
+                const found = session.search.findPrevious(searchTerm);
+                if (found && searchMatchCount > 0) {
+                  const nextIndex = ((searchMatchIndex - 2 + searchMatchCount) % searchMatchCount) + 1;
+                  setSearchMatchIndex(nextIndex);
+                  setSearchResultText(`${nextIndex}/${searchMatchCount}`);
+                }
+              }
+              catch (err) { console.error('terminal search failed', err); }
+            }
+          }}
+          onClose={() => {
+            getPaneSession(pane.id)?.search.clearDecorations();
+            setSearchOpen(false);
+            setSearchTerm('');
+            focusPaneSession(pane.id, 'close-search', { scrollToBottom: false });
+          }}
+        />
+      )}
       <div className="terminalHostFrame">
         <div className="terminalHost" ref={hostRef} />
       </div>

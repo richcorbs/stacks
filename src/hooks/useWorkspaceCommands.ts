@@ -34,6 +34,7 @@ type WorkspaceCommandOptions = {
   setSidebarFocusedTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   setRunningPaneIds: React.Dispatch<React.SetStateAction<string[]>>;
   setActivityTerminalIds: React.Dispatch<React.SetStateAction<string[]>>;
+  requestPaneRestart: (paneId: string) => void;
 };
 
 export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
@@ -63,6 +64,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setSidebarFocusedTerminalId,
     setRunningPaneIds,
     setActivityTerminalIds,
+    requestPaneRestart,
   } = options;
 
   function saveTerminalSplit(terminalId: string, root: SplitNode | null) {
@@ -326,6 +328,17 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     requestPaneSessionsScrollToBottomAfterFit((panesByTerminalId[terminalId] ?? []).map((pane) => pane.id));
   }
 
+  async function stopPane(paneId: string) {
+    disposePaneSession(paneId);
+    await invoke('kill_pty', { paneId }).catch(() => {});
+    setRunningPaneIds((ids) => ids.filter((id) => id !== paneId));
+  }
+
+  async function restartPane(paneId: string) {
+    await stopPane(paneId);
+    requestPaneRestart(paneId);
+  }
+
   async function closePane(paneId: string) {
     const terminalId = paneId.split(':')[0];
     const currentPanes = panesByTerminalId[terminalId] ?? [];
@@ -378,6 +391,8 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     activateTerminalByIndex,
     toggleMaximizedPane,
     resizeSplit,
+    stopPane,
+    restartPane,
     closePane,
   };
 }

@@ -11,6 +11,8 @@ export type ShortcutAction =
   | 'split-down'
   | 'close-pane'
   | 'clear-pane'
+  | 'search-pane'
+  | 'command-palette'
   | 'maximize-pane'
   | 'focus-next-pane'
   | 'focus-previous-pane'
@@ -37,6 +39,8 @@ type ShortcutHandlers = {
   cycleSidebarTerminal: (delta: number) => void;
   cyclePane: (delta: number) => void;
   adjustTerminalFontSize: (delta: number) => void;
+  openCommandPalette: () => void;
+  openPaneSearch: () => void;
 };
 
 export const encoder = new TextEncoder();
@@ -47,7 +51,7 @@ function isPaneSessionFocused(paneId: string) {
   return Boolean(session?.term.element && activeElement && session.term.element.contains(activeElement));
 }
 
-function clearFocusedPane(activePaneId: string | null) {
+export function clearFocusedPane(activePaneId: string | null) {
   if (!activePaneId || !isPaneSessionFocused(activePaneId)) return;
   invoke('write_pty', { paneId: activePaneId, data: Array.from(encoder.encode('clear\n')) }).catch(console.error);
 }
@@ -67,6 +71,8 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     cycleSidebarTerminal,
     cyclePane,
     adjustTerminalFontSize,
+    openCommandPalette,
+    openPaneSearch,
   } = handlers;
 
   switch (action) {
@@ -88,6 +94,12 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'clear-pane':
       clearFocusedPane(activePaneId);
+      break;
+    case 'search-pane':
+      openPaneSearch();
+      break;
+    case 'command-palette':
+      openCommandPalette();
       break;
     case 'maximize-pane':
       toggleMaximizedPane();
@@ -143,6 +155,18 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         event.preventDefault();
         event.stopPropagation();
         runShortcutAction('decrease-terminal-font-size', handlersRef.current);
+        return;
+      }
+      if (key === 'p') {
+        event.preventDefault();
+        event.stopPropagation();
+        runShortcutAction('command-palette', handlersRef.current);
+        return;
+      }
+      if (key === 'f') {
+        event.preventDefault();
+        event.stopPropagation();
+        runShortcutAction('search-pane', handlersRef.current);
         return;
       }
       if (key === 'k') {
