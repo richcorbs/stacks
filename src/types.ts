@@ -51,7 +51,7 @@ export type DialogState =
   | { kind: 'terminal'; projectId: string; name: string; command: string }
   | { kind: 'split'; terminalId: string; targetPaneId: string; direction: 'row' | 'column'; command: string }
   | { kind: 'editProject'; projectId: string; name: string; path: string }
-  | { kind: 'editTerminal'; projectId: string; terminalId: string; name: string; command: string };
+  | { kind: 'editTerminal'; projectId: string; terminalId: string; name: string; command: string; cwd: string };
 export type ContextMenuState =
   | { kind: 'project'; projectId: string; x: number; y: number }
   | { kind: 'terminal'; projectId: string; terminalId: string; x: number; y: number };

@@ -186,6 +186,16 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
                 onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
               />
             </label>
+            {dialog.kind === 'editTerminal' && (
+              <label>
+                Directory
+                <input
+                  value={dialog.cwd}
+                  placeholder="/Users/rich/Code/my-project"
+                  onChange={(e) => setDialog({ ...dialog, cwd: e.target.value })}
+                />
+              </label>
+            )}
           </>
         )}
         <div className="modalActions">

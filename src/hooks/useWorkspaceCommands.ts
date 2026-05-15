@@ -149,10 +149,11 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     if (dialog.kind === 'editTerminal') {
       const name = dialog.name.trim();
       if (!name) return;
+      const cwd = dialog.cwd.trim() || null;
       setStore((s) => ({
         projects: s.projects.map((p) => p.id === dialog.projectId ? {
           ...p,
-          terminals: p.terminals.map((t) => t.id === dialog.terminalId ? { ...t, name, command: dialog.command.trim() || null } : t),
+          terminals: p.terminals.map((t) => t.id === dialog.terminalId ? { ...t, name, command: dialog.command.trim() || null, cwd } : t),
         } : p),
       }));
       setDialog(null);
@@ -182,7 +183,14 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
   }
 
   function openEditTerminalDialog(project: Project, terminal: TerminalEntry) {
-    setDialog({ kind: 'editTerminal', projectId: project.id, terminalId: terminal.id, name: terminal.name, command: terminal.command ?? '' });
+    setDialog({
+      kind: 'editTerminal',
+      projectId: project.id,
+      terminalId: terminal.id,
+      name: terminal.name,
+      command: terminal.command ?? '',
+      cwd: terminal.cwd || project.path,
+    });
   }
 
   function focusPane(terminalId: string, paneId: string) {
