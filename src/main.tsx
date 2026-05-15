@@ -265,9 +265,10 @@ function App() {
     setAppSettings((settings) => ({ ...settings, terminal_font_size: clampTerminalFontSize(settings.terminal_font_size + delta) }));
   }
 
-  function openProjectInEditor() {
-    if (!activeProject) return;
-    invoke('open_path_in_editor', { path: activeProject.path, editor: appSettings.editor_app })
+  function openDirectoryInEditor() {
+    const path = activePath || activeProject?.path;
+    if (!path) return;
+    invoke('open_path_in_editor', { path, editor: appSettings.editor_app })
       .catch((err) => showToast(`Open editor failed: ${err}`));
   }
 
@@ -296,7 +297,8 @@ function App() {
     onToggleMaximizedPane: toggleMaximizedPane,
     onOpenSearch: openPaneSearch,
     onOpenSettings: () => setSettingsOpen(true),
-    onOpenProjectInEditor: openProjectInEditor,
+    activePath,
+    onOpenDirectoryInEditor: openDirectoryInEditor,
   });
 
   const shortcutHandlers = {

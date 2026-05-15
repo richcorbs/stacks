@@ -11,6 +11,7 @@ type CommandPaletteItemOptions = {
   activeProject: Project | null;
   activeTerminalId: string | null;
   activePaneId: string | null;
+  activePath: string | null;
   onSelectTerminal: (projectId: string, terminalId: string) => void;
   onNewProject: () => void;
   onNewTerminal: (project: Project) => void;
@@ -24,7 +25,7 @@ type CommandPaletteItemOptions = {
   onToggleMaximizedPane: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
-  onOpenProjectInEditor: () => void;
+  onOpenDirectoryInEditor: () => void;
 };
 
 export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
@@ -35,6 +36,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     activeProject,
     activeTerminalId,
     activePaneId,
+    activePath,
     onSelectTerminal,
     onNewProject,
     onNewTerminal,
@@ -48,7 +50,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     onToggleMaximizedPane,
     onOpenSearch,
     onOpenSettings,
-    onOpenProjectInEditor,
+    onOpenDirectoryInEditor,
   } = options;
 
   return useMemo<PaletteItem[]>(() => {
@@ -56,7 +58,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
       { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
       { id: 'new-terminal', title: 'New Terminal', subtitle: activeProject ? activeProject.name : 'Choose or create a project first', keywords: 'create tab shell', action: () => activeProject ? onNewTerminal(activeProject) : onNewProject() },
       { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations', action: onOpenSettings },
-      { id: 'open-project-editor', title: 'Open Project in Editor', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'zed code editor project folder', action: onOpenProjectInEditor },
+      { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a pane first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
       { id: 'split-right', title: 'New Pane: Split Right', subtitle: '⌘D', keywords: 'split pane vertical', action: () => onSplitPane('row') },
       { id: 'split-down', title: 'New Pane: Split Down', subtitle: '⇧⌘D', keywords: 'split pane horizontal', action: () => onSplitPane('column') },
       { id: 'find-pane', title: 'Search Current Pane', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
@@ -111,5 +113,5 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     })) : [];
 
     return [...commandItems, ...terminalItems, ...projectItems, ...paneItems];
-  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminalId, activePaneId, onNewProject, onNewTerminal, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedPane, onOpenSearch, onOpenSettings, onOpenProjectInEditor, onSelectTerminal]);
+  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminalId, activePaneId, activePath, onNewProject, onNewTerminal, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedPane, onOpenSearch, onOpenSettings, onOpenDirectoryInEditor, onSelectTerminal]);
 }
