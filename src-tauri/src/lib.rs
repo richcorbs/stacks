@@ -82,6 +82,18 @@ struct AppSettings {
     sidebar_width: Option<u32>,
     #[serde(default)]
     terminal_font_size: Option<u32>,
+    #[serde(default)]
+    terminal_font_family: Option<String>,
+    #[serde(default)]
+    terminal_scrollback: Option<u32>,
+    #[serde(default)]
+    copy_on_select: Option<bool>,
+    #[serde(default)]
+    confirm_close: Option<bool>,
+    #[serde(default)]
+    confirm_delete: Option<bool>,
+    #[serde(default)]
+    editor_app: Option<String>,
 }
 
 struct PtyHandle {
@@ -217,6 +229,19 @@ fn save_terminal_font_size(font_size: u32) -> Result<(), String> {
     })
 }
 
+#[tauri::command]
+fn save_app_settings(next: AppSettings) -> Result<(), String> {
+    update_settings_on_disk(|settings| {
+        settings.terminal_font_size = next.terminal_font_size.map(|value| value.clamp(8, 32));
+        settings.terminal_font_family = next.terminal_font_family.filter(|value| !value.trim().is_empty());
+        settings.terminal_scrollback = next.terminal_scrollback.map(|value| value.clamp(100, 200_000));
+        settings.copy_on_select = next.copy_on_select;
+        settings.confirm_close = next.confirm_close;
+        settings.confirm_delete = next.confirm_delete;
+        settings.editor_app = next.editor_app.filter(|value| !value.trim().is_empty());
+    })
+}
+
 fn reset_settings_file() -> Result<(), String> {
     update_settings_on_disk(|settings| {
         settings.window = None;
@@ -237,6 +262,7 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let items = [
         ("menu-shortcut-add-project", "Add Project", "Cmd+O", Some("Cmd+O")),
         ("menu-shortcut-new-terminal", "New Terminal", "Cmd+T", Some("Cmd+T")),
+        ("menu-shortcut-settings", "Settings", "Cmd+,", Some("Cmd+,")),
         ("menu-shortcut-split-right", "Split Right", "Cmd+D", Some("Cmd+D")),
         ("menu-shortcut-split-down", "Split Down", "Cmd+Shift+D", Some("Cmd+Shift+D")),
         ("menu-shortcut-close-pane", "Close Focused Pane", "Cmd+W", Some("Cmd+W")),
@@ -306,6 +332,37 @@ fn new_id() -> String {
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn open_path_in_editor(path: String, editor: Option<String>) -> Result<(), String> {
+    let editor = editor
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Zed");
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-a", editor, &path])
+            .status()
+            .map_err(|err| err.to_string())?
+            .success()
+            .then_some(())
+            .ok_or_else(|| "open editor failed".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Command::new(editor)
+            .arg(&path)
+            .status()
+            .map_err(|err| err.to_string())?
+            .success()
+            .then_some(())
+            .ok_or_else(|| "open editor failed".to_string())
+    }
 }
 
 #[tauri::command]
@@ -584,9 +641,11 @@ pub fn run() {
             save_current_window_state,
             save_sidebar_width,
             save_terminal_font_size,
+            save_app_settings,
             reset_settings,
             new_id,
             quit_app,
+            open_path_in_editor,
             open_url,
             spawn_pty,
             write_pty,

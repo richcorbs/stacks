@@ -425,3 +425,48 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
   font-size: 12px;
 }
 .paletteEmpty { padding: 18px; color: #8091a5; text-align: center; }
+
+.settingsModal {
+  max-height: min(760px, calc(100vh - 48px));
+  overflow-y: auto;
+}
+.settingsSection {
+  border-top: 1px solid #263648;
+  padding-top: 14px;
+  margin-top: 14px;
+}
+.settingsSection h3 {
+  margin: 0 0 12px;
+  color: #97a6b8;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.settingsModal .checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  line-height: 1.35;
+}
+.settingsModal input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: #2563eb;
+}
+.settingsInlineField {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.settingsInlineField input { flex: 1; }
+.settingsInlineField button {
+  flex: 0 0 auto;
+  margin-top: 6px;
+  border: 1px solid #2d3d4f;
+  background: #1a2531;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}

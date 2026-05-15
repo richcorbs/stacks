@@ -23,6 +23,8 @@ type CommandPaletteItemOptions = {
   onClearPane: () => void;
   onToggleMaximizedPane: () => void;
   onOpenSearch: () => void;
+  onOpenSettings: () => void;
+  onOpenProjectInEditor: () => void;
 };
 
 export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
@@ -45,12 +47,16 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     onClearPane,
     onToggleMaximizedPane,
     onOpenSearch,
+    onOpenSettings,
+    onOpenProjectInEditor,
   } = options;
 
   return useMemo<PaletteItem[]>(() => {
     const commandItems: PaletteItem[] = [
       { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
       { id: 'new-terminal', title: 'New Terminal', subtitle: activeProject ? activeProject.name : 'Choose or create a project first', keywords: 'create tab shell', action: () => activeProject ? onNewTerminal(activeProject) : onNewProject() },
+      { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations', action: onOpenSettings },
+      { id: 'open-project-editor', title: 'Open Project in Editor', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'zed code editor project folder', action: onOpenProjectInEditor },
       { id: 'split-right', title: 'New Pane: Split Right', subtitle: '⌘D', keywords: 'split pane vertical', action: () => onSplitPane('row') },
       { id: 'split-down', title: 'New Pane: Split Down', subtitle: '⇧⌘D', keywords: 'split pane horizontal', action: () => onSplitPane('column') },
       { id: 'find-pane', title: 'Search Current Pane', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
@@ -105,5 +111,5 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     })) : [];
 
     return [...commandItems, ...terminalItems, ...projectItems, ...paneItems];
-  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminalId, activePaneId, onNewProject, onNewTerminal, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedPane, onOpenSearch, onSelectTerminal]);
+  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminalId, activePaneId, onNewProject, onNewTerminal, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedPane, onOpenSearch, onOpenSettings, onOpenProjectInEditor, onSelectTerminal]);
 }

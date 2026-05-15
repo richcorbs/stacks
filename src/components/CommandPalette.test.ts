@@ -25,4 +25,8 @@ describe('scorePaletteItem', () => {
   it('rejects fuzzy text out of order', () => {
     expect(scorePaletteItem(item, 'zk')).toBe(0);
   });
+
+  it('matches settings keywords', () => {
+    expect(scorePaletteItem({ id: 'settings', title: 'Settings', keywords: 'preferences config', action: () => {} }, 'pref')).toBeGreaterThan(0);
+  });
 });

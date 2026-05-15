@@ -6,7 +6,7 @@ function trimTrailingHorizontalWhitespace(text: string) {
   return text.replace(/[^\S\r\n]+$/gm, '');
 }
 
-export function useTerminalSelectionCopy(termRef: MutableRefObject<Terminal | null>) {
+export function useTerminalSelectionCopy(termRef: MutableRefObject<Terminal | null>, enabled = true) {
   const selectionMouseDownRef = useRef(false);
 
   useEffect(() => {
@@ -26,18 +26,18 @@ export function useTerminalSelectionCopy(termRef: MutableRefObject<Terminal | nu
     };
 
     const onMouseUp = () => {
-      if (!selectionMouseDownRef.current) return;
+      if (!enabled || !selectionMouseDownRef.current) return;
       selectionMouseDownRef.current = false;
       copySelectionToClipboard();
     };
 
     window.addEventListener('mouseup', onMouseUp);
     return () => window.removeEventListener('mouseup', onMouseUp);
-  }, [termRef]);
+  }, [termRef, enabled]);
 
   return {
     beginSelectionCopy: () => {
-      selectionMouseDownRef.current = true;
+      if (enabled) selectionMouseDownRef.current = true;
     },
   };
 }

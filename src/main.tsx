@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 import { ContextMenu, ConfirmClosePaneDialog, ConfirmDeleteProjectDialog, ConfirmDeleteTerminalDialog, ConfirmQuitDialog, Dialog } from './components/Dialogs';
+import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
 import { MainWorkspace } from './components/MainWorkspace';
 import { CommandPalette } from './components/CommandPalette';
@@ -12,7 +13,7 @@ import type { AppSettings, ContextMenuState, DialogState, PointerDragState, Stor
 import { collectLeafPanes, loadSidebarWidth, normalizeSplitNode } from './utils';
 import { useAppStats } from './hooks/useAppStats';
 import { useDebouncedStoreSave } from './hooks/useDebouncedSave';
-import { usePersistentSidebarWidth, usePersistentTerminalFontSize } from './hooks/useSettingsPersistence';
+import { usePersistentAppSettings, usePersistentSidebarWidth } from './hooks/useSettingsPersistence';
 import { useGitInfo } from './hooks/useGitInfo';
 import { usePaneActivity } from './hooks/usePaneActivity';
 import { useWorkspaceState } from './hooks/useWorkspaceState';
@@ -25,14 +26,15 @@ import { useWorkspaceCommands } from './hooks/useWorkspaceCommands';
 import { useToast } from './hooks/useToast';
 import { useFocusDebug } from './hooks/useFocusDebug';
 import { useCommandPaletteItems } from './hooks/useCommandPaletteItems';
-import { clampTerminalFontSize, DEFAULT_TERMINAL_FONT_SIZE } from './settings';
+import { clampTerminalFontSize } from './settings';
+import { DEFAULT_APP_SETTINGS, resolveAppSettings, type ResolvedAppSettings } from './settingsModel';
 
 
 function App() {
   const [loaded, setLoaded] = useState(false);
   const [store, setStore] = useState<Store>({ projects: [] });
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  const [terminalFontSize, setTerminalFontSize] = useState(DEFAULT_TERMINAL_FONT_SIZE);
+  const [appSettings, setAppSettings] = useState<ResolvedAppSettings>(DEFAULT_APP_SETTINGS);
   const { state: workspace, actions: workspaceActions } = useWorkspaceState();
   const {
     activeProjectId,
@@ -76,6 +78,7 @@ function App() {
   const [confirmDeleteTerminal, setConfirmDeleteTerminal] = useState<{ projectId: string; terminalId: string } | null>(null);
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchPaneRequest, setSearchPaneRequest] = useState<{ paneId: string; nonce: number } | null>(null);
   const [restartPaneRequest, setRestartPaneRequest] = useState<{ paneId: string; nonce: number } | null>(null);
   const { toast, showToast } = useToast();
@@ -100,7 +103,7 @@ function App() {
 
   useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
-  usePersistentTerminalFontSize(loaded, terminalFontSize);
+  usePersistentAppSettings(loaded, appSettings);
   useWindowStatePersistence();
 
   useEffect(() => {
@@ -110,7 +113,7 @@ function App() {
     ]).then(([loadedStore, settings]) => {
       setStore(loadedStore);
       if (settings?.sidebar_width) setSidebarWidth(Math.min(420, Math.max(180, settings.sidebar_width)));
-      if (settings?.terminal_font_size) setTerminalFontSize(clampTerminalFontSize(settings.terminal_font_size));
+      setAppSettings(resolveAppSettings(settings));
       const firstProject = loadedStore.projects[0];
       if (firstProject) selectTerminal(firstProject.id, null);
       else setActiveProjectId(null);
@@ -140,10 +143,14 @@ function App() {
     appWindow.onCloseRequested((event) => {
       event.preventDefault();
       invoke('save_current_window_state').catch(console.error);
-      setConfirmQuitOpen(true);
+      if (appSettings.confirm_close) {
+        setConfirmQuitOpen(true);
+      } else {
+        invoke('quit_app').catch(console.error);
+      }
     }).then((fn) => { unlisten = fn; }).catch(console.error);
     return () => unlisten?.();
-  }, []);
+  }, [appSettings.confirm_close]);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -255,7 +262,13 @@ function App() {
   }, [activeTerminal?.id, focusedPaneByTerminalId]);
 
   function adjustTerminalFontSize(delta: number) {
-    setTerminalFontSize((size) => clampTerminalFontSize(size + delta));
+    setAppSettings((settings) => ({ ...settings, terminal_font_size: clampTerminalFontSize(settings.terminal_font_size + delta) }));
+  }
+
+  function openProjectInEditor() {
+    if (!activeProject) return;
+    invoke('open_path_in_editor', { path: activeProject.path, editor: appSettings.editor_app })
+      .catch((err) => showToast(`Open editor failed: ${err}`));
   }
 
   function openPaneSearch() {
@@ -278,10 +291,12 @@ function App() {
     onCyclePane: cyclePane,
     onStopPane: stopPane,
     onRestartPane: restartPane,
-    onClosePane: setConfirmClosePaneId,
+    onClosePane: (paneId) => appSettings.confirm_close ? setConfirmClosePaneId(paneId) : closePane(paneId),
     onClearPane: () => clearFocusedPane(activePaneId),
     onToggleMaximizedPane: toggleMaximizedPane,
     onOpenSearch: openPaneSearch,
+    onOpenSettings: () => setSettingsOpen(true),
+    onOpenProjectInEditor: openProjectInEditor,
   });
 
   const shortcutHandlers = {
@@ -294,13 +309,14 @@ function App() {
     toggleMaximizedPane,
     activateSidebarFocusedTerminal,
     splitPane,
-    requestClosePane: setConfirmClosePaneId,
-    requestQuit: () => setConfirmQuitOpen(true),
+    requestClosePane: (paneId: string) => appSettings.confirm_close ? setConfirmClosePaneId(paneId) : closePane(paneId),
+    requestQuit: () => appSettings.confirm_close ? setConfirmQuitOpen(true) : invoke('quit_app').catch(console.error),
     cycleSidebarTerminal,
     cyclePane,
     adjustTerminalFontSize,
     openCommandPalette: () => setCommandPaletteOpen(true),
     openPaneSearch,
+    openSettings: () => setSettingsOpen(true),
   };
 
   useKeyboardShortcuts(shortcutHandlers);
@@ -355,7 +371,10 @@ function App() {
         activeTerminalId={activeTerminalId}
         activePaneId={activePaneId}
         maximizedPaneId={maximizedPaneId}
-        terminalFontSize={terminalFontSize}
+        terminalFontSize={appSettings.terminal_font_size}
+        terminalFontFamily={appSettings.terminal_font_family}
+        terminalScrollback={appSettings.terminal_scrollback}
+        copyOnSelect={appSettings.copy_on_select}
         searchPaneRequest={searchPaneRequest}
         restartPaneRequest={restartPaneRequest}
         hasActivePane={Boolean(activeTerminalId && activePaneId)}
@@ -364,7 +383,7 @@ function App() {
           selectTerminal(projectId, terminalId);
           focusPane(terminalId, paneId);
         }}
-        onClosePane={closePane}
+        onClosePane={(paneId) => appSettings.confirm_close ? setConfirmClosePaneId(paneId) : closePane(paneId)}
         onSplitPane={splitPane}
       />
       {contextMenu && (
@@ -374,9 +393,9 @@ function App() {
           onClose={() => setContextMenu(null)}
           onNewTerminal={(project) => { setContextMenu(null); openTerminalDialog(project); }}
           onEditProject={(project) => { setContextMenu(null); openEditProjectDialog(project); }}
-          onDeleteProject={(project) => { setContextMenu(null); setConfirmDeleteProjectId(project.id); }}
+          onDeleteProject={(project) => { setContextMenu(null); appSettings.confirm_delete ? setConfirmDeleteProjectId(project.id) : deleteProject(project.id); }}
           onEditTerminal={(project, terminal) => { setContextMenu(null); openEditTerminalDialog(project, terminal); }}
-          onDeleteTerminal={(project, terminal) => { setContextMenu(null); setConfirmDeleteTerminal({ projectId: project.id, terminalId: terminal.id }); }}
+          onDeleteTerminal={(project, terminal) => { setContextMenu(null); appSettings.confirm_delete ? setConfirmDeleteTerminal({ projectId: project.id, terminalId: terminal.id }) : deleteTerminal(project.id, terminal.id); }}
         />
       )}
       <CommandPalette
@@ -384,6 +403,7 @@ function App() {
         items={commandPaletteItems}
         onClose={() => setCommandPaletteOpen(false)}
       />
+      {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={() => setSettingsOpen(false)} />}
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={() => setDialog(null)} onSubmit={submitDialog} />}
       {confirmClosePaneId && (
         <ConfirmClosePaneDialog

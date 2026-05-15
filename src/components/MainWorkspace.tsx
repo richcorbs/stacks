@@ -19,6 +19,9 @@ type MainWorkspaceProps = {
   activePaneId: string | null;
   maximizedPaneId: string | null;
   terminalFontSize: number;
+  terminalFontFamily: string;
+  terminalScrollback: number;
+  copyOnSelect: boolean;
   searchPaneRequest: PaneRequest | null;
   restartPaneRequest: PaneRequest | null;
   onResizeSplit: (terminalId: string, path: string, ratio: number) => void;
@@ -36,6 +39,9 @@ export function MainWorkspace({
   activePaneId,
   maximizedPaneId,
   terminalFontSize,
+  terminalFontFamily,
+  terminalScrollback,
+  copyOnSelect,
   searchPaneRequest,
   restartPaneRequest,
   onResizeSplit,
@@ -68,6 +74,9 @@ export function MainWorkspace({
                     project={project}
                     visible={visible}
                     terminalFontSize={terminalFontSize}
+                    terminalFontFamily={terminalFontFamily}
+                    terminalScrollback={terminalScrollback}
+                    copyOnSelect={copyOnSelect}
                     activePaneId={visible ? activePaneId : null}
                     maximizedPaneId={visible ? visibleMaximizedPaneId : null}
                     searchPaneRequest={searchPaneRequest}

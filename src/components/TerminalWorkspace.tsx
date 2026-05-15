@@ -20,13 +20,16 @@ function safeTermSize(term: Terminal): TermSize {
   };
 }
 
-export function SplitView({ node, panesById, terminal, project, visible, terminalFontSize, activePaneId, maximizedPaneId, searchPaneRequest, restartPaneRequest, path, onResizeSplit, onFocus, onClose }: {
+export function SplitView({ node, panesById, terminal, project, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, activePaneId, maximizedPaneId, searchPaneRequest, restartPaneRequest, path, onResizeSplit, onFocus, onClose }: {
   node: SplitNode;
   panesById: Record<string, Pane>;
   terminal: TerminalEntry;
   project: Project;
   visible: boolean;
   terminalFontSize: number;
+  terminalFontFamily: string;
+  terminalScrollback: number;
+  copyOnSelect: boolean;
   activePaneId: string | null;
   maximizedPaneId: string | null;
   searchPaneRequest: PaneRequest | null;
@@ -50,6 +53,9 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
         maximized={effectiveMaximizedPaneId === pane.id}
         visible={visible}
         terminalFontSize={terminalFontSize}
+        terminalFontFamily={terminalFontFamily}
+        terminalScrollback={terminalScrollback}
+        copyOnSelect={copyOnSelect}
         searchRequestNonce={searchPaneRequest?.paneId === pane.id ? searchPaneRequest.nonce : 0}
         restartRequestNonce={restartPaneRequest?.paneId === pane.id ? restartPaneRequest.nonce : 0}
         onFocus={() => onFocus(pane.id)}
@@ -61,11 +67,11 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
   return (
     <div className={`split split-${node.direction}`}>
       <div className="splitChild" style={{ flex: `${ratio} 1 0` }}>
-        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
       </div>
       <SplitResizeHandle direction={node.direction} onResize={(nextRatio) => onResizeSplit(path, nextRatio)} />
       <div className="splitChild" style={{ flex: `${1 - ratio} 1 0` }}>
-        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
       </div>
     </div>
   );
@@ -105,7 +111,7 @@ function SplitResizeHandle({ direction, onResize }: { direction: 'row' | 'column
 
 type PaneRequest = { paneId: string; nonce: number };
 
-function TerminalPane({ pane, terminal, project, active, maximized, visible, terminalFontSize, searchRequestNonce, restartRequestNonce, onFocus, onClose }: {
+function TerminalPane({ pane, terminal, project, active, maximized, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose }: {
   pane: Pane;
   terminal: TerminalEntry;
   project: Project;
@@ -113,6 +119,9 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   maximized: boolean;
   visible: boolean;
   terminalFontSize: number;
+  terminalFontFamily: string;
+  terminalScrollback: number;
+  copyOnSelect: boolean;
   searchRequestNonce: number;
   restartRequestNonce: number;
   onFocus: () => void;
@@ -134,7 +143,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   const wasVisibleRef = useRef(visible);
   const wasActiveRef = useRef(active);
   const wasAtBottomWhenDeactivatedRef = useRef(true);
-  const { beginSelectionCopy } = useTerminalSelectionCopy(termRef);
+  const { beginSelectionCopy } = useTerminalSelectionCopy(termRef, copyOnSelect);
 
   function restartPaneSessionIfDead() {
     const session = getPaneSession(pane.id);
@@ -158,7 +167,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
     if (!session) {
       const term = new Terminal({
         cursorBlink: true,
-        fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
+        fontFamily: terminalFontFamily,
         fontSize: terminalFontSize,
         theme: {
           background: '#0f141b',
@@ -168,7 +177,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
           selectionForeground: '#0b0f14',
           selectionInactiveBackground: '#b45309',
         },
-        scrollback: 10000,
+        scrollback: terminalScrollback,
         smoothScrollDuration: 0,
       });
       const fit = new FitAddon();
@@ -296,13 +305,21 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
       resultsDisposable.dispose();
       if (session) session.resizeObserver = undefined;
     };
-  }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command, visible, sessionRestartNonce]);
+  }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce]);
 
   useEffect(() => {
     const session = getPaneSession(pane.id);
-    if (!session || session.term.options.fontSize === terminalFontSize) return;
+    if (!session) return;
+    const nextFontFamily = terminalFontFamily;
+    const nextScrollback = terminalScrollback;
+    const fontSizeChanged = session.term.options.fontSize !== terminalFontSize;
+    const fontFamilyChanged = session.term.options.fontFamily !== nextFontFamily;
+    const scrollbackChanged = session.term.options.scrollback !== nextScrollback;
+    if (!fontSizeChanged && !fontFamilyChanged && !scrollbackChanged) return;
     const wasAtBottom = isSessionAtBottom(session);
     session.term.options.fontSize = terminalFontSize;
+    session.term.options.fontFamily = nextFontFamily;
+    session.term.options.scrollback = nextScrollback;
     requestAnimationFrame(() => {
       fitSessionPreservingBottom(session);
       const size = safeTermSize(session.term);
@@ -312,7 +329,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
       }
       if (wasAtBottom) jumpSessionToBottom(session);
     });
-  }, [pane.id, terminalFontSize]);
+  }, [pane.id, terminalFontSize, terminalFontFamily, terminalScrollback]);
 
   useEffect(() => {
     if (searchRequestNonce <= 0) return;

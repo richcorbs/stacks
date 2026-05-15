@@ -13,6 +13,7 @@ export type ShortcutAction =
   | 'clear-pane'
   | 'search-pane'
   | 'command-palette'
+  | 'settings'
   | 'maximize-pane'
   | 'focus-next-pane'
   | 'focus-previous-pane'
@@ -41,6 +42,7 @@ type ShortcutHandlers = {
   adjustTerminalFontSize: (delta: number) => void;
   openCommandPalette: () => void;
   openPaneSearch: () => void;
+  openSettings: () => void;
 };
 
 export const encoder = new TextEncoder();
@@ -73,6 +75,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     adjustTerminalFontSize,
     openCommandPalette,
     openPaneSearch,
+    openSettings,
   } = handlers;
 
   switch (action) {
@@ -100,6 +103,9 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'command-palette':
       openCommandPalette();
+      break;
+    case 'settings':
+      openSettings();
       break;
     case 'maximize-pane':
       toggleMaximizedPane();
@@ -155,6 +161,12 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         event.preventDefault();
         event.stopPropagation();
         runShortcutAction('decrease-terminal-font-size', handlersRef.current);
+        return;
+      }
+      if (event.key === ',') {
+        event.preventDefault();
+        event.stopPropagation();
+        runShortcutAction('settings', handlersRef.current);
         return;
       }
       if (key === 'p') {
