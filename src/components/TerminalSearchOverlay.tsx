@@ -18,7 +18,13 @@ export function TerminalSearchOverlay({ value, resultText, onChange, onNext, onP
   }, []);
 
   return (
-    <div className="terminalSearch" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="terminalSearch"
+      onMouseDown={(e) => e.stopPropagation()}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onClose();
+      }}
+    >
       <input
         ref={inputRef}
         value={value}
