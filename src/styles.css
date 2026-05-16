@@ -57,6 +57,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   text-overflow: ellipsis;
   text-align: center;
 }
+.sidebarFooter:hover { color: #a7b6c8; }
+.sidebarFooter:hover span { color: #6f8195; }
 .sidebarFooter span { color: #3f4d5d; padding: 0 4px; }
 .project, .term {
   width: 100%;
