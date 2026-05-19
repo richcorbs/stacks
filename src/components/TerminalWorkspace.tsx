@@ -138,6 +138,8 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   const [searchMatchIndex, setSearchMatchIndex] = useState(0);
   const searchOpenRef = useRef(searchOpen);
   const searchTermRef = useRef(searchTerm);
+  const lastSearchRequestNonceRef = useRef(searchRequestNonce);
+  const lastRestartRequestNonceRef = useRef(restartRequestNonce);
   searchOpenRef.current = searchOpen;
   searchTermRef.current = searchTerm;
   const wasVisibleRef = useRef(visible);
@@ -332,7 +334,8 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   }, [pane.id, terminalFontSize, terminalFontFamily, terminalScrollback]);
 
   useEffect(() => {
-    if (searchRequestNonce <= 0) return;
+    if (searchRequestNonce <= 0 || searchRequestNonce === lastSearchRequestNonceRef.current) return;
+    lastSearchRequestNonceRef.current = searchRequestNonce;
     setSearchOpen(true);
   }, [searchRequestNonce]);
 
@@ -360,7 +363,8 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   }, [pane.id, searchOpen, searchTerm]);
 
   useEffect(() => {
-    if (restartRequestNonce <= 0) return;
+    if (restartRequestNonce <= 0 || restartRequestNonce === lastRestartRequestNonceRef.current) return;
+    lastRestartRequestNonceRef.current = restartRequestNonce;
     restartPaneSessionIfDead();
   }, [restartRequestNonce]);
 
