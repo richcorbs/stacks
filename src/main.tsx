@@ -396,6 +396,8 @@ function App() {
         toggleProject={toggleProject}
         selectTerminal={selectTerminal}
         setContextMenu={setContextMenu}
+        onAddProject={openProjectDialog}
+        onAddTerminal={openTerminalDialog}
       />
       <MainWorkspace
         activePath={activePath}

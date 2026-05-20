@@ -14,7 +14,7 @@ button { font: inherit; color: inherit; }
   flex: 0 0 auto;
   border-right: 1px solid #1f2a36;
   background: #111821;
-  padding: 6px 14px 14px;
+  padding: 0 14px 14px;
   overflow: hidden;
   position: relative;
   display: flex;
@@ -46,7 +46,37 @@ button:hover:not(:disabled) { background: #2b4058; }
 .term.active:hover:not(:disabled) { background: #203348; }
 .project:hover { background: transparent !important; }
 button:disabled { opacity: .45; cursor: not-allowed; }
-.projectList { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow-y: auto; margin-left: -14px; margin-right: -14px; }
+.sidebarHeader {
+  height: 40px;
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-left: -14px;
+  margin-right: -14px;
+  padding: 0 14px;
+  border-bottom: 1px solid #1f2a36;
+  color: #97a6b8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.sidebarHeader button,
+.projectAddButton {
+  border: 0;
+  background: transparent;
+  color: #7f91a6;
+  border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.sidebarHeader button { width: 24px; height: 24px; font-size: 18px; line-height: 1; }
+.projectAddButton { width: 20px; height: 20px; font-size: 15px; margin-left: auto; flex: 0 0 auto; }
+.sidebarHeader button:hover,
+.projectAddButton:hover { background: #2d4663; color: #d6deeb; }
+.projectList { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow-y: auto; margin-left: -14px; margin-right: -14px; padding-top: 6px; }
 .projectBlock { position: relative; padding: 0 14px 6px; border-bottom: 1px solid #223142; }
 .sidebarFooter {
   flex: 0 0 auto;

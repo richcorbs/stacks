@@ -20,6 +20,8 @@ type SidebarProps = {
   toggleProject: (projectId: string) => void;
   selectTerminal: (projectId: string, terminalId: string) => void;
   setContextMenu: (menu: ContextMenuState) => void;
+  onAddProject: () => void;
+  onAddTerminal: (project: Project) => void;
 };
 
 export function Sidebar({
@@ -39,9 +41,15 @@ export function Sidebar({
   toggleProject,
   selectTerminal,
   setContextMenu,
+  onAddProject,
+  onAddTerminal,
 }: SidebarProps) {
   return (
     <aside className="sidebar" style={{ width }}>
+      <div className="sidebarHeader">
+        <span>Projects</span>
+        <button type="button" onClick={onAddProject} title="Add Project" aria-label="Add Project">+</button>
+      </div>
       <div className="projectList">
         {store.projects.map((project) => (
           <ProjectSection
@@ -59,6 +67,7 @@ export function Sidebar({
             toggleProject={toggleProject}
             selectTerminal={selectTerminal}
             setContextMenu={setContextMenu}
+            onAddTerminal={onAddTerminal}
           />
         ))}
       </div>
@@ -95,6 +104,7 @@ function ProjectSection({
   toggleProject,
   selectTerminal,
   setContextMenu,
+  onAddTerminal,
 }: {
   project: Project;
   active: boolean;
@@ -109,6 +119,7 @@ function ProjectSection({
   toggleProject: (projectId: string) => void;
   selectTerminal: (projectId: string, terminalId: string) => void;
   setContextMenu: (menu: ContextMenuState) => void;
+  onAddTerminal: (project: Project) => void;
 }) {
   return (
     <div className={`projectBlock ${active ? 'activeProject' : ''}`} data-project-row-id={project.id}>
@@ -132,6 +143,25 @@ function ProjectSection({
         }}
       >
         <strong>{project.name}</strong>
+        <span
+          className="projectAddButton"
+          role="button"
+          tabIndex={0}
+          title="New Terminal"
+          aria-label={`New terminal in ${project.name}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onAddTerminal(project);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            e.stopPropagation();
+            onAddTerminal(project);
+          }}
+        >+</span>
       </button>
       {!project.collapsed && (
         <div className="termList">
