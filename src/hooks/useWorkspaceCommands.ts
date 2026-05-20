@@ -108,7 +108,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
   }
 
   function openTerminalDialog(project: Project) {
-    setDialog({ kind: 'terminal', projectId: project.id, name: `Terminal ${project.terminals.length + 1}`, command: '' });
+    setDialog({ kind: 'terminal', projectId: project.id, name: `Workspace ${project.terminals.length + 1}`, command: '' });
   }
 
   async function submitDialog() {
@@ -122,7 +122,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
       if (dialog.openTerminalAfterCreate) {
         setDialog(null);
         window.setTimeout(() => {
-          setDialog({ kind: 'terminal', projectId: project.id, name: 'Terminal 1', command: '' });
+          setDialog({ kind: 'terminal', projectId: project.id, name: 'Workspace 1', command: '' });
         }, 200);
       } else {
         setDialog(null);

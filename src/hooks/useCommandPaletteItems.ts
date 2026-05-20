@@ -62,37 +62,37 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
   return useMemo<PaletteItem[]>(() => {
     const commandItems: PaletteItem[] = [
       { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
-      { id: 'new-terminal', title: 'New Terminal', subtitle: activeProject ? activeProject.name : 'Choose or create a project first', keywords: 'create tab shell', action: () => activeProject ? onNewTerminal(activeProject) : onNewProject() },
+      { id: 'new-terminal', title: 'New Workspace', subtitle: activeProject ? activeProject.name : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewTerminal(activeProject) : onNewProject() },
       { id: 'edit-project', title: 'Edit Project', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'rename path directory workspace', action: () => { if (activeProject) onEditProject(activeProject); } },
-      { id: 'edit-terminal', title: 'Edit Terminal', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a terminal first', keywords: 'rename command startup shell', action: () => { if (activeProject && activeTerminal) onEditTerminal(activeProject, activeTerminal); } },
+      { id: 'edit-terminal', title: 'Edit Workspace', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeTerminal) onEditTerminal(activeProject, activeTerminal); } },
       { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations', action: onOpenSettings },
-      { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a pane first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
-      { id: 'split-right', title: 'New Pane: Split Right', subtitle: '⌘D', keywords: 'split pane vertical', action: () => onSplitPane('row') },
-      { id: 'split-down', title: 'New Pane: Split Down', subtitle: '⇧⌘D', keywords: 'split pane horizontal', action: () => onSplitPane('column') },
-      { id: 'find-pane', title: 'Search Current Pane', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
-      { id: 'next-terminal', title: 'Next Terminal', subtitle: '⇧⌘]', keywords: 'switch terminal forward', action: () => {
+      { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
+      { id: 'split-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split pane terminal vertical', action: () => onSplitPane('row') },
+      { id: 'split-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split pane terminal horizontal', action: () => onSplitPane('column') },
+      { id: 'find-pane', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
+      { id: 'next-terminal', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch terminal workspace forward', action: () => {
         const currentIndex = Math.max(0, sidebarTerminals.findIndex(({ terminal }) => terminal.id === activeTerminalId));
         const next = sidebarTerminals[(currentIndex + 1) % sidebarTerminals.length];
         if (next) onSelectTerminal(next.project.id, next.terminal.id);
         else onCycleTerminal(1);
       } },
-      { id: 'previous-terminal', title: 'Previous Terminal', subtitle: '⇧⌘[', keywords: 'switch terminal backward', action: () => {
+      { id: 'previous-terminal', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch terminal workspace backward', action: () => {
         const currentIndex = Math.max(0, sidebarTerminals.findIndex(({ terminal }) => terminal.id === activeTerminalId));
         const next = sidebarTerminals[(currentIndex - 1 + sidebarTerminals.length) % sidebarTerminals.length];
         if (next) onSelectTerminal(next.project.id, next.terminal.id);
         else onCycleTerminal(-1);
       } },
-      { id: 'next-pane', title: 'Next Pane', subtitle: '⌘]', keywords: 'focus pane forward', action: () => onCyclePane(1) },
-      { id: 'previous-pane', title: 'Previous Pane', subtitle: '⌘[', keywords: 'focus pane backward', action: () => onCyclePane(-1) },
-      { id: 'maximize-terminal', title: 'Maximize / Restore Terminal', subtitle: '⇧⌘↩', keywords: 'zoom pane terminal maximize', action: onToggleMaximizedTerminal },
-      { id: 'clear-pane', title: 'Clear Pane', subtitle: '⌘K', keywords: 'clear terminal', action: onClearPane },
+      { id: 'next-pane', title: 'Next Terminal', subtitle: '⌘]', keywords: 'focus pane terminal forward', action: () => onCyclePane(1) },
+      { id: 'previous-pane', title: 'Previous Terminal', subtitle: '⌘[', keywords: 'focus pane terminal backward', action: () => onCyclePane(-1) },
+      { id: 'maximize-terminal', title: 'Maximize / Restore Workspace', subtitle: '⇧⌘↩', keywords: 'zoom pane terminal workspace maximize', action: onToggleMaximizedTerminal },
+      { id: 'clear-pane', title: 'Clear Terminal', subtitle: '⌘K', keywords: 'clear terminal', action: onClearPane },
     ];
 
     if (activePaneId) {
       commandItems.push(
-        { id: 'restart-pane', title: 'Restart Current Pane', subtitle: 'Rerun the shell/process in the active pane', keywords: 'rerun shell process', action: () => onRestartPane(activePaneId) },
-        { id: 'stop-pane', title: 'Stop Current Pane', subtitle: 'Terminate the active pane process', keywords: 'kill terminate process', danger: true, action: () => onStopPane(activePaneId) },
-        { id: 'close-pane', title: 'Close Current Pane', subtitle: 'Close the active pane', keywords: 'remove kill', danger: true, action: () => onClosePane(activePaneId) },
+        { id: 'restart-pane', title: 'Restart Current Terminal', subtitle: 'Rerun the shell/process in the active terminal', keywords: 'rerun shell process terminal', action: () => onRestartPane(activePaneId) },
+        { id: 'stop-pane', title: 'Stop Current Terminal', subtitle: 'Terminate the active terminal process', keywords: 'kill terminate process terminal', danger: true, action: () => onStopPane(activePaneId) },
+        { id: 'close-pane', title: 'Close Current Terminal', subtitle: 'Close the active terminal', keywords: 'remove kill terminal', danger: true, action: () => onClosePane(activePaneId) },
       );
     }
 
@@ -106,17 +106,17 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
 
     const projectItems = store.projects.map((project) => ({
       id: `project-terminal-${project.id}`,
-      title: `New Terminal in ${project.name}`,
+      title: `New Workspace in ${project.name}`,
       subtitle: project.path,
-      keywords: 'new terminal project shell',
+      keywords: 'new terminal workspace project shell',
       action: () => onNewTerminal(project),
     }));
 
     const paneItems = activeTerminalId ? (panesByTerminalId[activeTerminalId] ?? []).map((pane, index) => ({
       id: `pane-${pane.id}`,
-      title: `Focus Pane ${index + 1}`,
-      subtitle: pane.command || (pane.id === activePaneId ? 'Current pane' : undefined),
-      keywords: 'focus switch pane',
+      title: `Focus Terminal ${index + 1}`,
+      subtitle: pane.command || (pane.id === activePaneId ? 'Current terminal' : undefined),
+      keywords: 'focus switch pane terminal',
       action: () => onCyclePane(index - Math.max(0, (panesByTerminalId[activeTerminalId] ?? []).findIndex((p) => p.id === activePaneId))),
     })) : [];
 

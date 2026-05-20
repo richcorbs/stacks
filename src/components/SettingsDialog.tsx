@@ -106,7 +106,7 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               checked={draft.confirm_close}
               onChange={(e) => update({ confirm_close: e.target.checked })}
             />
-            Confirm closing panes and quitting
+            Confirm closing terminals and quitting
           </label>
           <label className="checkboxLabel">
             <input
@@ -114,13 +114,13 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               checked={draft.confirm_delete}
               onChange={(e) => update({ confirm_delete: e.target.checked })}
             />
-            Confirm deleting projects and terminals
+            Confirm deleting projects and workspaces
           </label>
         </section>
         <section className="settingsSection">
           <h3>Editor</h3>
           <label>
-            Open projects with
+            Open directories with
             <div className="settingsInlineField">
               <input
                 value={draft.editor_app}

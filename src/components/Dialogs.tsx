@@ -23,7 +23,7 @@ export function ContextMenu({ menu, store, onClose, onNewTerminal, onEditProject
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {menu.kind === 'project' && <button onClick={() => onNewTerminal(project)}>New Terminal</button>}
+      {menu.kind === 'project' && <button onClick={() => onNewTerminal(project)}>New Workspace</button>}
       <button onClick={() => menu.kind === 'project' ? onEditProject(project) : terminal && onEditTerminal(project, terminal)}>Edit</button>
       <button className="dangerItem" onClick={() => menu.kind === 'project' ? onDeleteProject(project) : terminal && onDeleteTerminal(project, terminal)}>Delete</button>
     </div>
@@ -62,9 +62,9 @@ function ConfirmDialog({ title, children, confirmLabel = 'Yes', onCancel, onConf
 
 export function ConfirmClosePaneDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
-    <ConfirmDialog title="Close pane?" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will terminate the process running in this pane.</p>
-      <p className="confirmHint">Use ⌘W to close this pane. Use ⌘Q to quit the app.</p>
+    <ConfirmDialog title="Close terminal?" onCancel={onCancel} onConfirm={onConfirm}>
+      <p>This will terminate the process running in this terminal.</p>
+      <p className="confirmHint">Use ⌘W to close this terminal. Use ⌘Q to quit the app.</p>
     </ConfirmDialog>
   );
 }
@@ -72,7 +72,7 @@ export function ConfirmClosePaneDialog({ onCancel, onConfirm }: { onCancel: () =
 export function ConfirmQuitDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
     <ConfirmDialog title="Quit Stacks?" confirmLabel="Quit" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will close all panes and terminate their running processes.</p>
+      <p>This will close all terminals and terminate their running processes.</p>
     </ConfirmDialog>
   );
 }
@@ -80,15 +80,15 @@ export function ConfirmQuitDialog({ onCancel, onConfirm }: { onCancel: () => voi
 export function ConfirmDeleteProjectDialog({ projectName, onCancel, onConfirm }: { projectName: string; onCancel: () => void; onConfirm: () => void }) {
   return (
     <ConfirmDialog title="Delete project?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will remove “{projectName}” and terminate all terminals in this project.</p>
+      <p>This will remove “{projectName}” and terminate all workspaces in this project.</p>
     </ConfirmDialog>
   );
 }
 
 export function ConfirmDeleteTerminalDialog({ terminalName, onCancel, onConfirm }: { terminalName: string; onCancel: () => void; onConfirm: () => void }) {
   return (
-    <ConfirmDialog title="Delete terminal?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will remove “{terminalName}” and terminate its running processes.</p>
+    <ConfirmDialog title="Delete workspace?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
+      <p>This will remove “{terminalName}” and terminate its running terminals.</p>
     </ConfirmDialog>
   );
 }
@@ -109,7 +109,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
 
   async function chooseEditTerminalDirectory() {
     if (dialog.kind !== 'editTerminal') return;
-    const selected = await open({ directory: true, multiple: false, title: 'Choose Terminal Directory', defaultPath: dialog.cwd || undefined }).catch((err) => {
+    const selected = await open({ directory: true, multiple: false, title: 'Choose Workspace Directory', defaultPath: dialog.cwd || undefined }).catch((err) => {
       console.error(err);
       return null;
     });
@@ -166,7 +166,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
           </>
         ) : dialog.kind === 'split' ? (
           <>
-            <h2>Split Pane</h2>
+            <h2>Split Terminal</h2>
             <label>
               Startup command <span>(optional)</span>
               <input
@@ -179,7 +179,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
           </>
         ) : (
           <>
-            <h2>{dialog.kind === 'editTerminal' ? 'Edit Terminal' : 'New Terminal'}</h2>
+            <h2>{dialog.kind === 'editTerminal' ? 'Edit Workspace' : 'New Workspace'}</h2>
             <label>
               Name
               <input

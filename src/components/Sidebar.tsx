@@ -147,8 +147,8 @@ function ProjectSection({
           className="projectAddButton"
           role="button"
           tabIndex={0}
-          title="New Terminal"
-          aria-label={`New terminal in ${project.name}`}
+          title="New Workspace"
+          aria-label={`New workspace in ${project.name}`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.preventDefault();

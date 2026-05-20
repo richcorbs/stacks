@@ -95,7 +95,7 @@ export function MainWorkspace({
             );
           })
         ) : (
-          <div className="empty">Create or select a terminal. Shortcuts: ⌘O project, ⌘T terminal, ⌘D split.</div>
+          <div className="empty">Create or select a workspace. Shortcuts: ⌘O project, ⌘T workspace, ⌘D split terminal.</div>
         )}
       </section>
     </main>
@@ -111,7 +111,7 @@ function Topbar({ activePath, gitInfo, hasActivePane, onSplitPane }: { activePat
   return (
     <header className="topbar">
       <div>
-        <div className="subtitle">{hasActivePane ? activePath : 'Select a terminal'}</div>
+        <div className="subtitle">{hasActivePane ? activePath : 'Select a workspace'}</div>
       </div>
       {hasActivePane && (
         <div className="branchDisplay">
@@ -130,10 +130,10 @@ function Topbar({ activePath, gitInfo, hasActivePane, onSplitPane }: { activePat
         )}
         <span className="topbarSeparator">•</span>
         <span className="splitControls">
-          <button className="splitButton" title="Split right (⌘D)" onClick={() => onSplitPane('row')} aria-label="Split right">
+          <button className="splitButton" title="Split terminal right (⌘D)" onClick={() => onSplitPane('row')} aria-label="Split terminal right">
             <span className="splitIcon splitIconVertical" />
           </button>
-          <button className="splitButton" title="Split down (⇧⌘D)" onClick={() => onSplitPane('column')} aria-label="Split down">
+          <button className="splitButton" title="Split terminal down (⇧⌘D)" onClick={() => onSplitPane('column')} aria-label="Split terminal down">
             <span className="splitIcon splitIconHorizontal" />
           </button>
         </span>

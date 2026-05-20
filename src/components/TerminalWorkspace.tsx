@@ -413,8 +413,8 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
       <button
         className="paneMaximizeButton"
         type="button"
-        title={maximized ? 'Restore pane (⇧⌘↩)' : 'Maximize pane (⇧⌘↩)'}
-        aria-label={maximized ? 'Restore pane' : 'Maximize pane'}
+        title={maximized ? 'Restore workspace (⇧⌘↩)' : 'Maximize workspace (⇧⌘↩)'}
+        aria-label={maximized ? 'Restore workspace' : 'Maximize workspace'}
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
