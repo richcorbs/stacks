@@ -417,6 +417,7 @@ function App() {
           focusPane(terminalId, paneId);
         }}
         onClosePane={(paneId) => appSettings.confirm_close ? setConfirmClosePaneId(paneId) : closePane(paneId)}
+        canToggleMaximizedTerminal={(terminalId) => (panesByTerminalId[terminalId] ?? []).length > 1}
         onToggleMaximizedTerminal={toggleMaximizedTerminal}
         onSplitPane={splitPane}
       />

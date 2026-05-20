@@ -206,7 +206,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         activateTerminalByIndex(Number(event.key) - 1);
         return;
       }
-      if (key === 't') {
+      if (key === 'n') {
         event.preventDefault();
         event.stopPropagation();
         runShortcutAction('new-terminal', handlersRef.current);

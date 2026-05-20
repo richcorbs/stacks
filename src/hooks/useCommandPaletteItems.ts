@@ -62,7 +62,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
   return useMemo<PaletteItem[]>(() => {
     const commandItems: PaletteItem[] = [
       { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
-      { id: 'new-terminal', title: 'New Workspace', subtitle: activeProject ? activeProject.name : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewTerminal(activeProject) : onNewProject() },
+      { id: 'new-terminal', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewTerminal(activeProject) : onNewProject() },
       { id: 'edit-project', title: 'Edit Project', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'rename path directory workspace', action: () => { if (activeProject) onEditProject(activeProject); } },
       { id: 'edit-terminal', title: 'Edit Workspace', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeTerminal) onEditTerminal(activeProject, activeTerminal); } },
       { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations', action: onOpenSettings },

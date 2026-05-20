@@ -261,7 +261,7 @@ fn load_window_state() -> Option<WindowState> {
 fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let items = [
         ("menu-shortcut-add-project", "Add Project", "Cmd+O", Some("Cmd+O")),
-        ("menu-shortcut-new-terminal", "New Workspace", "Cmd+T", Some("Cmd+T")),
+        ("menu-shortcut-new-terminal", "New Workspace", "Cmd+N", Some("Cmd+N")),
         ("menu-shortcut-settings", "Settings", "Cmd+,", Some("Cmd+,")),
         ("menu-shortcut-split-right", "Split Terminal Right", "Cmd+D", Some("Cmd+D")),
         ("menu-shortcut-split-down", "Split Terminal Down", "Cmd+Shift+D", Some("Cmd+Shift+D")),

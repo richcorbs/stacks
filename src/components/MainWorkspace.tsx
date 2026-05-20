@@ -27,6 +27,7 @@ type MainWorkspaceProps = {
   onResizeSplit: (terminalId: string, path: string, ratio: number) => void;
   onFocusPane: (projectId: string, terminalId: string, paneId: string) => void;
   onClosePane: (paneId: string) => void;
+  canToggleMaximizedTerminal: (terminalId: string) => boolean;
   onToggleMaximizedTerminal: (paneId: string) => void;
   onSplitPane: (direction: 'row' | 'column') => void;
   hasActivePane: boolean;
@@ -48,6 +49,7 @@ export function MainWorkspace({
   onResizeSplit,
   onFocusPane,
   onClosePane,
+  canToggleMaximizedTerminal,
   onToggleMaximizedTerminal,
   onSplitPane,
   hasActivePane,
@@ -88,6 +90,7 @@ export function MainWorkspace({
                     onResizeSplit={(path, ratio) => onResizeSplit(terminal.id, path, ratio)}
                     onFocus={(paneId) => onFocusPane(project.id, terminal.id, paneId)}
                     onClose={onClosePane}
+                    canToggleMaximize={canToggleMaximizedTerminal(terminal.id)}
                     onToggleMaximize={onToggleMaximizedTerminal}
                   />
                 )}
@@ -95,7 +98,7 @@ export function MainWorkspace({
             );
           })
         ) : (
-          <div className="empty">Create or select a workspace. Shortcuts: ⌘O project, ⌘T workspace, ⌘D split terminal.</div>
+          <div className="empty">Create or select a workspace. Shortcuts: ⌘O project, ⌘N workspace, ⌘D split terminal.</div>
         )}
       </section>
     </main>

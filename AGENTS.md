@@ -6,6 +6,14 @@ Guidance for future coding agents working in this repository.
 
 This is a Tauri v2 + React + Vite terminal workspace app named **Stacks**.
 
+User-facing naming convention:
+
+```text
+Project → Workspace → Terminal
+```
+
+Internally, much of the legacy code still uses `TerminalEntry`/`terminalId` for user-facing workspaces and `Pane`/`paneId` for user-facing terminals. Prefer the user-facing terms in UI copy and product discussions unless doing a dedicated internal refactor.
+
 - Frontend: React/TypeScript/xterm.js
 - Backend: Rust/Tauri/portable-pty
 - Current primary platform: macOS
@@ -167,10 +175,10 @@ localStorage.removeItem('stacks.debugFocus')
 
 Focus-related state includes:
 
-- `activeTerminalId`
-- `activePaneId`
-- `focusedPaneByTerminalId`
-- `maximizedPaneId`
+- `activeTerminalId` (currently the selected user-facing workspace)
+- `activePaneId` (currently the focused user-facing terminal)
+- `focusedPaneByTerminalId` (focused terminal by workspace)
+- `maximizedTerminalId` (the user-facing workspace that is maximized)
 - `sidebarFocusedTerminalId`
 - actual DOM/xterm focus
 
@@ -180,15 +188,16 @@ Be careful when changing maximize/split/close behavior.
 
 Current expected behavior:
 
-- `Cmd+D`: split right/side-by-side (`row`).
-- `Shift+Cmd+D`: split down/stacked (`column`).
+- `Cmd+D`: split terminal right/side-by-side (`row`).
+- `Shift+Cmd+D`: split terminal down/stacked (`column`).
 - Splitting uses visual split-tree order and evenly distributes siblings in the split direction when auto-sized.
 - Manual resize marks split nodes with `manual: true`; manually resized splits should not be auto-rebalanced.
-- Closing a pane selects the previous pane in visual order, equivalent to `Cmd+[`.
-- Closing the last pane in a terminal must **not** remove the pane. It should kill the process/session and remove the running green dot until the terminal is activated again.
-- If splitting while maximized, split the underlying tree as if unmaximized, select the new pane, and keep the new pane maximized.
-- Maximizing a pane scrolls it to the bottom.
-- While maximized, `Cmd+[` / `Cmd+]` cycle which pane is maximized.
+- Closing a terminal selects the previous terminal in visual order, equivalent to `Cmd+[`.
+- Closing the last terminal in a workspace must **not** remove the terminal. It should kill the process/session and remove the running green dot until the workspace is activated again.
+- Maximization is workspace-level: `maximizedTerminalId` stores the maximized workspace id, not an individual terminal/pane id.
+- If a workspace is maximized, the focused terminal inside it is displayed maximized; `Cmd+[` / `Cmd+]` changes the focused terminal and the maximized display follows.
+- If splitting while maximized, split the underlying tree as if unmaximized, select the new terminal, and keep the workspace maximized.
+- Maximizing/restoring a workspace scrolls the displayed terminal to the bottom.
 
 Pure split tree logic lives in `src/utils.ts`; update/add tests in `src/utils.test.ts` for changes.
 
@@ -221,17 +230,17 @@ Do not re-add generic `Edit`, `View`, or `Help` menus unless requested.
 ## Dialog/product UX preferences
 
 - Dark, subdued blue-ish UI.
-- Project titles toggle collapse and are not selectable terminals.
-- Right-click project menu includes `New Terminal`, `Edit`, `Delete`.
+- Project titles toggle collapse and are not selectable workspaces.
+- Right-click project menu includes `New Workspace`, `Edit`, `Delete`.
 - Deleting a project requires confirmation.
 - Closing a pane requires confirmation, with “Yes” focused by default.
 - New project flow:
   1. User picks directory.
   2. Show Add Project dialog with name prefilled from basename and path prefilled.
   3. On submit, create project.
-  4. After a short 200ms delay, open New Terminal dialog for that project.
-  5. Created terminal should be selected/focused in the sidebar/workspace.
-- Terminal/new/edit dialog input spacing is intentionally larger than generic dialogs.
+  4. After a short 200ms delay, open New Workspace dialog for that project.
+  5. Created workspace should be selected/focused in the sidebar/workspace.
+- Workspace/new/edit dialog input spacing is intentionally larger than generic dialogs.
 
 ## Clipboard and drag/drop behavior
 
@@ -252,7 +261,7 @@ On macOS usually:
 
 Files:
 
-- `projects.json`: projects, terminals, cwd, split trees.
+- `projects.json`: projects, workspaces (legacy key: `terminals`), cwd, split trees.
 - `settings.json`: window size/position and sidebar width.
 
 There is no need to preserve backward compatibility for old local data unless the user specifically asks. The user is currently the only user.
@@ -265,11 +274,11 @@ Stacks > Reset Window Settings
 
 ## UI details to preserve
 
-- Sidebar terminal shortcut hints align vertically while Cmd is held.
+- Sidebar workspace shortcut hints align vertically while Cmd is held.
 - Running green dot is hidden/replaced while shortcut hints are visible.
 - Header/topbar:
-  - Shows `Select a terminal` when no active pane.
-  - Only shows path/git/split buttons when there is an active terminal pane.
+  - Shows `Select a workspace` when no active terminal.
+  - Only shows path/git/split buttons when there is an active terminal.
   - Shows split buttons to right of git status.
 - Split buttons are CSS-drawn icons, not Unicode glyphs.
 - Terminal frame uses custom padding and xterm scrollbar hiding. Be careful changing terminal dimensions; xterm/PTY width mismatch can cause wrapping or right-side gaps.
