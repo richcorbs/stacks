@@ -428,7 +428,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
           onToggleMaximize();
         }}
       >
-        <span className="paneMaximizeIcon" />
+        <span className="paneMaximizeIcon">⇅</span>
       </button>}
       {searchOpen && (
         <TerminalSearchOverlay

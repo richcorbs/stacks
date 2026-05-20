@@ -270,23 +270,11 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
 .paneMaximizeButton:focus-visible { opacity: 1; pointer-events: auto; }
 .paneMaximizeButton:hover { background: #203348; color: #d6deeb; }
 .paneMaximizeIcon {
-  width: 12px;
-  height: 12px;
-  border: 1px solid currentColor;
-  border-radius: 2px;
-  position: relative;
+  font-size: 18px;
+  line-height: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  transform: translateY(-1px);
 }
-.paneMaximizeIcon::before,
-.paneMaximizeIcon::after {
-  content: '';
-  position: absolute;
-  width: 4px;
-  height: 4px;
-  border-color: currentColor;
-  opacity: .9;
-}
-.paneMaximizeIcon::before { top: -1px; right: -1px; border-top: 1px solid currentColor; border-right: 1px solid currentColor; }
-.paneMaximizeIcon::after { bottom: -1px; left: -1px; border-bottom: 1px solid currentColor; border-left: 1px solid currentColor; }
 .terminalHostFrame { flex: 1; min-height: 0; padding: 6px 0 4px 6px; overflow: hidden; background: #0f141b; }
 .terminalHost { width: 100%; height: 100%; min-height: 0; background: #0f141b; }
 .xterm { height: 100%; background: #0f141b; }
