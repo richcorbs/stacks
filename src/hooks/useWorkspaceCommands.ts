@@ -4,7 +4,8 @@ import type React from 'react';
 import type { DialogState, Pane, Project, SplitNode, Store, TerminalEntry } from '../types';
 import { basename, rebalanceSplits, removeLeaf, normalizeSplitNode, setSplitRatio, splitLeaf } from '../utils';
 import { disposePaneSession, disposePaneSessions, isPaneSessionAtBottom, requestPaneSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
-import { paneIdsForTerminal, previousPaneIdAfterClose, shouldMaximizeNewSplit } from '../workspace/selectors';
+import { paneIdsForTerminal, previousPaneIdAfterClose, shouldMaximizeTerminalAfterNewSplit } from '../workspace/selectors';
+import { nextPaneIdForCycle, shouldClearMaximizedTerminalAfterClose, toggleMaximizedTerminalId } from '../workspace/maximize';
 
 type SidebarTerminal = { project: Project; terminal: TerminalEntry };
 
@@ -15,7 +16,7 @@ type WorkspaceCommandOptions = {
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   activeTerminal: TerminalEntry | null;
   activePaneId: string | null;
-  maximizedPaneId: string | null;
+  maximizedTerminalId: string | null;
   sidebarFocusedTerminalId: string | null;
   activeTerminalId: string | null;
   panesByTerminalId: Record<string, Pane[]>;
@@ -23,14 +24,13 @@ type WorkspaceCommandOptions = {
   sidebarTerminals: SidebarTerminal[];
   selectTerminal: (projectId: string, terminalId: string | null) => void;
   focusPaneState: (terminalId: string, paneId: string) => void;
-  toggleMaximizedPaneState: () => void;
   removeTerminalState: (terminalId: string) => void;
   removeProjectState: (projectId: string, terminalIds: string[]) => void;
   setPanesByTerminalId: React.Dispatch<React.SetStateAction<Record<string, Pane[]>>>;
   setSplitRootsByTerminalId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
   setActivePaneId: React.Dispatch<React.SetStateAction<string | null>>;
   setFocusedPaneByTerminalId: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  setMaximizedPaneId: React.Dispatch<React.SetStateAction<string | null>>;
+  setMaximizedTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   setSidebarFocusedTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   setRunningPaneIds: React.Dispatch<React.SetStateAction<string[]>>;
   setActivityTerminalIds: React.Dispatch<React.SetStateAction<string[]>>;
@@ -45,7 +45,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setDialog,
     activeTerminal,
     activePaneId,
-    maximizedPaneId,
+    maximizedTerminalId,
     panesByTerminalId,
     splitRootsByTerminalId,
     sidebarFocusedTerminalId,
@@ -53,14 +53,13 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     sidebarTerminals,
     selectTerminal,
     focusPaneState,
-    toggleMaximizedPaneState,
     removeTerminalState,
     removeProjectState,
     setPanesByTerminalId,
     setSplitRootsByTerminalId,
     setActivePaneId,
     setFocusedPaneByTerminalId,
-    setMaximizedPaneId,
+    setMaximizedTerminalId,
     setSidebarFocusedTerminalId,
     setRunningPaneIds,
     setActivityTerminalIds,
@@ -252,7 +251,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
   async function completeSplitPane(terminalId: string, focusedPaneId: string, direction: 'row' | 'column', command: string | null) {
     const id = `${terminalId}:${Date.now()}`;
     const existingPaneIds = paneIdsForTerminal(terminalId, panesByTerminalId, splitRootsByTerminalId[terminalId]);
-    const shouldMaximizeNewPane = shouldMaximizeNewSplit(terminalId, existingPaneIds, maximizedPaneId);
+    const shouldMaximizeNewPane = shouldMaximizeTerminalAfterNewSplit(terminalId, existingPaneIds, maximizedTerminalId);
     setPanesByTerminalId((all) => ({ ...all, [terminalId]: [...(all[terminalId] ?? []), { id, terminalId, command }] }));
     setSplitRootsByTerminalId((all) => {
       const root = all[terminalId] ?? { kind: 'leaf' as const, paneId: focusedPaneId };
@@ -262,27 +261,22 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     });
     focusPane(terminalId, id);
     requestPaneSessionsScrollToBottomAfterFit([...(panesByTerminalId[terminalId] ?? []).map((pane) => pane.id), id]);
-    if (shouldMaximizeNewPane) setMaximizedPaneId(id);
+    if (shouldMaximizeNewPane) setMaximizedTerminalId(terminalId);
   }
 
   async function splitPane(direction: 'row' | 'column' = 'row') {
     if (!activeTerminal) return;
-    const focusedPaneId = maximizedPaneId?.startsWith(`${activeTerminal.id}:`)
-      ? maximizedPaneId
-      : activePaneId?.startsWith(`${activeTerminal.id}:`) ? activePaneId : `${activeTerminal.id}:0`;
+    const focusedPaneId = activePaneId?.startsWith(`${activeTerminal.id}:`) ? activePaneId : `${activeTerminal.id}:0`; 
     setDialog({ kind: 'split', terminalId: activeTerminal.id, targetPaneId: focusedPaneId, direction, command: '' });
   }
 
   function cyclePane(delta: number) {
     if (!activeTerminal) return;
     const paneIds = paneIdsForTerminal(activeTerminal.id, panesByTerminalId, splitRootsByTerminalId[activeTerminal.id]);
-    if (paneIds.length === 0) return;
-    const currentPaneId = maximizedPaneId ?? activePaneId;
-    const currentIndex = Math.max(0, paneIds.findIndex((id) => id === currentPaneId));
-    const nextIndex = (currentIndex + delta + paneIds.length) % paneIds.length;
-    const nextPaneId = paneIds[nextIndex];
+    const nextPaneId = nextPaneIdForCycle(paneIds, activePaneId, delta);
+    if (!nextPaneId) return;
     focusPane(activeTerminal.id, nextPaneId);
-    if (maximizedPaneId) setMaximizedPaneId(nextPaneId);
+    if (maximizedTerminalId === activeTerminal.id) requestPaneSessionsScrollToBottomAfterFit([nextPaneId]);
   }
 
   function cycleSidebarTerminal(delta: number) {
@@ -308,18 +302,20 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setSidebarFocusedTerminalId(null);
   }
 
-  function toggleMaximizedPane() {
-    const paneId = activePaneId;
-    if (!paneId || !activeTerminalId) return;
+  function toggleMaximizedTerminal(targetPaneId = activePaneId) {
+    const paneId = targetPaneId;
+    const terminalId = paneId?.split(':')[0] ?? activeTerminalId;
+    if (!paneId || !terminalId) return;
 
-    const paneIds = paneIdsForTerminal(activeTerminalId, panesByTerminalId, splitRootsByTerminalId[activeTerminalId]);
+    const paneIds = paneIdsForTerminal(terminalId, panesByTerminalId, splitRootsByTerminalId[terminalId]);
     if (paneIds.length <= 1) {
-      setMaximizedPaneId(null);
+      setMaximizedTerminalId(null);
       return;
     }
 
     const shouldRestoreBottom = isPaneSessionAtBottom(paneId);
-    toggleMaximizedPaneState();
+    setMaximizedTerminalId((current) => toggleMaximizedTerminalId(current, terminalId));
+    focusPane(terminalId, paneId);
     if (shouldRestoreBottom) {
       requestPaneSessionsScrollToBottomAfterFit([paneId]);
     }
@@ -357,15 +353,14 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setRunningPaneIds((ids) => ids.filter((id) => id !== paneId));
 
     if (currentPanes.length <= 1) {
-      if (maximizedPaneId === paneId) setMaximizedPaneId(null);
+      if (maximizedTerminalId === terminalId) setMaximizedTerminalId(null);
       return;
     }
 
     const remainingPaneIds = visualPaneIds.filter((id) => id !== paneId);
     const nextPaneId = previousPaneIdAfterClose(visualPaneIds, paneId);
 
-    if (remainingPaneIds.length <= 1) setMaximizedPaneId(null);
-    else if (maximizedPaneId === paneId) setMaximizedPaneId(nextPaneId);
+    if (shouldClearMaximizedTerminalAfterClose(remainingPaneIds.length)) setMaximizedTerminalId(null);
     setPanesByTerminalId((all) => ({ ...all, [terminalId]: (all[terminalId] ?? []).filter((p) => p.id !== paneId) }));
     if (nextPaneId) focusPane(terminalId, nextPaneId);
 
@@ -397,7 +392,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     cycleSidebarTerminal,
     activateSidebarFocusedTerminal,
     activateTerminalByIndex,
-    toggleMaximizedPane,
+    toggleMaximizedTerminal,
     resizeSplit,
     stopPane,
     restartPane,

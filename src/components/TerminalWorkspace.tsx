@@ -20,7 +20,7 @@ function safeTermSize(term: Terminal): TermSize {
   };
 }
 
-export function SplitView({ node, panesById, terminal, project, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, activePaneId, maximizedPaneId, searchPaneRequest, restartPaneRequest, path, onResizeSplit, onFocus, onClose }: {
+export function SplitView({ node, panesById, terminal, project, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, activePaneId, displayedMaximizedPaneId, searchPaneRequest, restartPaneRequest, path, onResizeSplit, onFocus, onClose, onToggleMaximize }: {
   node: SplitNode;
   panesById: Record<string, Pane>;
   terminal: TerminalEntry;
@@ -31,15 +31,16 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
   terminalScrollback: number;
   copyOnSelect: boolean;
   activePaneId: string | null;
-  maximizedPaneId: string | null;
+  displayedMaximizedPaneId: string | null;
   searchPaneRequest: PaneRequest | null;
   restartPaneRequest: PaneRequest | null;
   path: string;
   onResizeSplit: (path: string, ratio: number) => void;
   onFocus: (paneId: string) => void;
   onClose: (paneId: string) => void;
+  onToggleMaximize: (paneId: string) => void;
 }) {
-  const effectiveMaximizedPaneId = maximizedPaneId && panesById[maximizedPaneId] ? maximizedPaneId : null;
+  const effectiveDisplayedMaximizedPaneId = displayedMaximizedPaneId && panesById[displayedMaximizedPaneId] ? displayedMaximizedPaneId : null;
   if (node.kind === 'empty') return null;
   if (node.kind === 'leaf') {
     const pane = panesById[node.paneId];
@@ -50,7 +51,7 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
         terminal={terminal}
         project={project}
         active={visible && activePaneId === pane.id}
-        maximized={effectiveMaximizedPaneId === pane.id}
+        maximized={effectiveDisplayedMaximizedPaneId === pane.id}
         visible={visible}
         terminalFontSize={terminalFontSize}
         terminalFontFamily={terminalFontFamily}
@@ -60,6 +61,7 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
         restartRequestNonce={restartPaneRequest?.paneId === pane.id ? restartPaneRequest.nonce : 0}
         onFocus={() => onFocus(pane.id)}
         onClose={() => onClose(pane.id)}
+        onToggleMaximize={() => onToggleMaximize(pane.id)}
       />
     );
   }
@@ -67,11 +69,11 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
   return (
     <div className={`split split-${node.direction}`}>
       <div className="splitChild" style={{ flex: `${ratio} 1 0` }}>
-        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.first} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activePaneId={activePaneId} displayedMaximizedPaneId={effectiveDisplayedMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} onToggleMaximize={onToggleMaximize} />
       </div>
       <SplitResizeHandle direction={node.direction} onResize={(nextRatio) => onResizeSplit(path, nextRatio)} />
       <div className="splitChild" style={{ flex: `${1 - ratio} 1 0` }}>
-        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activePaneId={activePaneId} maximizedPaneId={effectiveMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} />
+        <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activePaneId={activePaneId} displayedMaximizedPaneId={effectiveDisplayedMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} onToggleMaximize={onToggleMaximize} />
       </div>
     </div>
   );
@@ -111,7 +113,7 @@ function SplitResizeHandle({ direction, onResize }: { direction: 'row' | 'column
 
 type PaneRequest = { paneId: string; nonce: number };
 
-function TerminalPane({ pane, terminal, project, active, maximized, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose }: {
+function TerminalPane({ pane, terminal, project, active, maximized, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onToggleMaximize }: {
   pane: Pane;
   terminal: TerminalEntry;
   project: Project;
@@ -126,6 +128,7 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
   restartRequestNonce: number;
   onFocus: () => void;
   onClose: () => void;
+  onToggleMaximize: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -407,6 +410,23 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
         if (!active) onFocus();
       }}
     >
+      <button
+        className="paneMaximizeButton"
+        type="button"
+        title={maximized ? 'Restore pane (⇧⌘↩)' : 'Maximize pane (⇧⌘↩)'}
+        aria-label={maximized ? 'Restore pane' : 'Maximize pane'}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleMaximize();
+        }}
+      >
+        <span className="paneMaximizeIcon" />
+      </button>
       {searchOpen && (
         <TerminalSearchOverlay
           value={searchTerm}

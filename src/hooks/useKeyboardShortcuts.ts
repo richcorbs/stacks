@@ -32,7 +32,7 @@ type ShortcutHandlers = {
   activateTerminalByIndex: (index: number) => void;
   openTerminalDialog: (project: Project) => void;
   openProjectDialog: () => void;
-  toggleMaximizedPane: () => void;
+  toggleMaximizedTerminal: () => void;
   activateSidebarFocusedTerminal: () => void;
   splitPane: (direction: 'row' | 'column') => void;
   requestClosePane: (paneId: string) => void;
@@ -65,7 +65,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     activateTerminalByIndex,
     openTerminalDialog,
     openProjectDialog,
-    toggleMaximizedPane,
+    toggleMaximizedTerminal,
     activateSidebarFocusedTerminal,
     splitPane,
     requestClosePane,
@@ -108,7 +108,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       openSettings();
       break;
     case 'maximize-pane':
-      toggleMaximizedPane();
+      toggleMaximizedTerminal();
       break;
     case 'focus-next-pane':
       cyclePane(1);

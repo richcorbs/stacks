@@ -12,13 +12,13 @@ export function paneIdsForTerminal(
     : (panesByTerminalId[terminalId] ?? []).map((pane) => pane.id);
 }
 
-export function effectiveMaximizedPaneId(maximizedPaneId: string | null, paneIds: string[]) {
-  if (paneIds.length <= 1) return null;
-  return maximizedPaneId && paneIds.includes(maximizedPaneId) ? maximizedPaneId : null;
+export function effectiveDisplayedMaximizedPaneId(maximizedTerminalId: string | null, terminalId: string, focusedPaneId: string | null, paneIds: string[]) {
+  if (paneIds.length <= 1 || maximizedTerminalId !== terminalId) return null;
+  return focusedPaneId && paneIds.includes(focusedPaneId) ? focusedPaneId : paneIds[0] ?? null;
 }
 
-export function shouldMaximizeNewSplit(terminalId: string, existingPaneIds: string[], maximizedPaneId: string | null) {
-  return existingPaneIds.length > 1 && Boolean(maximizedPaneId?.startsWith(`${terminalId}:`));
+export function shouldMaximizeTerminalAfterNewSplit(terminalId: string, existingPaneIds: string[], maximizedTerminalId: string | null) {
+  return existingPaneIds.length > 1 && maximizedTerminalId === terminalId;
 }
 
 export function previousPaneIdAfterClose(paneIds: string[], closingPaneId: string) {

@@ -1,6 +1,6 @@
 import { SplitView } from './TerminalWorkspace';
 import type { GitInfo, Pane, Project, SplitNode, TerminalEntry } from '../types';
-import { effectiveMaximizedPaneId } from '../workspace/selectors';
+import { effectiveDisplayedMaximizedPaneId } from '../workspace/selectors';
 
 type TerminalWorkspaceModel = {
   project: Project;
@@ -17,7 +17,7 @@ type MainWorkspaceProps = {
   workspaces: TerminalWorkspaceModel[];
   activeTerminalId: string | null;
   activePaneId: string | null;
-  maximizedPaneId: string | null;
+  maximizedTerminalId: string | null;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -27,6 +27,7 @@ type MainWorkspaceProps = {
   onResizeSplit: (terminalId: string, path: string, ratio: number) => void;
   onFocusPane: (projectId: string, terminalId: string, paneId: string) => void;
   onClosePane: (paneId: string) => void;
+  onToggleMaximizedTerminal: (paneId: string) => void;
   onSplitPane: (direction: 'row' | 'column') => void;
   hasActivePane: boolean;
 };
@@ -37,7 +38,7 @@ export function MainWorkspace({
   workspaces,
   activeTerminalId,
   activePaneId,
-  maximizedPaneId,
+  maximizedTerminalId,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
@@ -47,6 +48,7 @@ export function MainWorkspace({
   onResizeSplit,
   onFocusPane,
   onClosePane,
+  onToggleMaximizedTerminal,
   onSplitPane,
   hasActivePane,
 }: MainWorkspaceProps) {
@@ -59,7 +61,8 @@ export function MainWorkspace({
             const visible = terminal.id === activeTerminalId;
             const panesById = Object.fromEntries(panes.map((pane) => [pane.id, pane]));
             const visiblePaneIds = panes.map((pane) => pane.id);
-            const visibleMaximizedPaneId = effectiveMaximizedPaneId(maximizedPaneId, visiblePaneIds);
+            const terminalFocusedPaneId = focusedPaneForTerminal(terminal.id, activePaneId, panes.map((pane) => pane.id));
+            const visibleMaximizedPaneId = effectiveDisplayedMaximizedPaneId(maximizedTerminalId, terminal.id, terminalFocusedPaneId, visiblePaneIds);
             return (
               <div
                 key={terminal.id}
@@ -78,13 +81,14 @@ export function MainWorkspace({
                     terminalScrollback={terminalScrollback}
                     copyOnSelect={copyOnSelect}
                     activePaneId={visible ? activePaneId : null}
-                    maximizedPaneId={visible ? visibleMaximizedPaneId : null}
+                    displayedMaximizedPaneId={visible ? visibleMaximizedPaneId : null}
                     searchPaneRequest={searchPaneRequest}
                     restartPaneRequest={restartPaneRequest}
                     path=""
                     onResizeSplit={(path, ratio) => onResizeSplit(terminal.id, path, ratio)}
                     onFocus={(paneId) => onFocusPane(project.id, terminal.id, paneId)}
                     onClose={onClosePane}
+                    onToggleMaximize={onToggleMaximizedTerminal}
                   />
                 )}
               </div>
@@ -96,6 +100,11 @@ export function MainWorkspace({
       </section>
     </main>
   );
+}
+
+function focusedPaneForTerminal(terminalId: string, activePaneId: string | null, paneIds: string[]) {
+  if (activePaneId?.startsWith(`${terminalId}:`) && paneIds.includes(activePaneId)) return activePaneId;
+  return paneIds[0] ?? null;
 }
 
 function Topbar({ activePath, gitInfo, hasActivePane, onSplitPane }: { activePath: string | null; gitInfo: GitInfo | null; hasActivePane: boolean; onSplitPane: (direction: 'row' | 'column') => void }) {

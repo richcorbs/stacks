@@ -25,7 +25,7 @@ type CommandPaletteItemOptions = {
   onRestartPane: (paneId: string) => void;
   onClosePane: (paneId: string) => void;
   onClearPane: () => void;
-  onToggleMaximizedPane: () => void;
+  onToggleMaximizedTerminal: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenDirectoryInEditor: () => void;
@@ -53,7 +53,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     onRestartPane,
     onClosePane,
     onClearPane,
-    onToggleMaximizedPane,
+    onToggleMaximizedTerminal,
     onOpenSearch,
     onOpenSettings,
     onOpenDirectoryInEditor,
@@ -84,7 +84,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
       } },
       { id: 'next-pane', title: 'Next Pane', subtitle: '⌘]', keywords: 'focus pane forward', action: () => onCyclePane(1) },
       { id: 'previous-pane', title: 'Previous Pane', subtitle: '⌘[', keywords: 'focus pane backward', action: () => onCyclePane(-1) },
-      { id: 'maximize-pane', title: 'Maximize / Restore Pane', subtitle: '⇧⌘↩', keywords: 'zoom pane', action: onToggleMaximizedPane },
+      { id: 'maximize-terminal', title: 'Maximize / Restore Terminal', subtitle: '⇧⌘↩', keywords: 'zoom pane terminal maximize', action: onToggleMaximizedTerminal },
       { id: 'clear-pane', title: 'Clear Pane', subtitle: '⌘K', keywords: 'clear terminal', action: onClearPane },
     ];
 
@@ -121,5 +121,5 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     })) : [];
 
     return [...commandItems, ...terminalItems, ...projectItems, ...paneItems];
-  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminal, activeTerminalId, activePaneId, activePath, onNewProject, onNewTerminal, onEditProject, onEditTerminal, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedPane, onOpenSearch, onOpenSettings, onOpenDirectoryInEditor, onSelectTerminal]);
+  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminal, activeTerminalId, activePaneId, activePath, onNewProject, onNewTerminal, onEditProject, onEditTerminal, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedTerminal, onOpenSearch, onOpenSettings, onOpenDirectoryInEditor, onSelectTerminal]);
 }

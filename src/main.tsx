@@ -45,7 +45,7 @@ function App() {
     visitedTerminalIds,
     activePaneId,
     focusedPaneByTerminalId,
-    maximizedPaneId,
+    maximizedTerminalId,
     sidebarFocusedTerminalId,
     paneCwds,
   } = workspace;
@@ -57,11 +57,10 @@ function App() {
     setVisitedTerminalIds,
     setActivePaneId,
     setFocusedPaneByTerminalId,
-    setMaximizedPaneId,
+    setMaximizedTerminalId,
     setSidebarFocusedTerminalId,
     selectTerminal,
     focusPane: focusPaneState,
-    toggleMaximizedPane: toggleMaximizedPaneState,
     removeTerminalState,
     removeProjectState,
     rememberPaneCwd,
@@ -100,7 +99,7 @@ function App() {
   const appStats = useAppStats();
   const gitInfo = useGitInfo(activePath);
 
-  useFocusDebug({ activeProjectId, activeTerminalId, activePaneId, maximizedPaneId, sidebarFocusedTerminalId });
+  useFocusDebug({ activeProjectId, activeTerminalId, activePaneId, maximizedTerminalId, sidebarFocusedTerminalId });
 
   useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
@@ -173,7 +172,7 @@ function App() {
     setDialog,
     activeTerminal,
     activePaneId,
-    maximizedPaneId,
+    maximizedTerminalId,
     sidebarFocusedTerminalId,
     activeTerminalId,
     panesByTerminalId,
@@ -181,14 +180,13 @@ function App() {
     sidebarTerminals,
     selectTerminal,
     focusPaneState,
-    toggleMaximizedPaneState,
     removeTerminalState,
     removeProjectState,
     setPanesByTerminalId,
     setSplitRootsByTerminalId,
     setActivePaneId,
     setFocusedPaneByTerminalId,
-    setMaximizedPaneId,
+    setMaximizedTerminalId,
     setSidebarFocusedTerminalId,
     setRunningPaneIds,
     setActivityTerminalIds,
@@ -211,7 +209,7 @@ function App() {
     cycleSidebarTerminal,
     activateSidebarFocusedTerminal,
     activateTerminalByIndex,
-    toggleMaximizedPane,
+    toggleMaximizedTerminal,
     resizeSplit,
     stopPane,
     restartPane,
@@ -325,7 +323,7 @@ function App() {
     onRestartPane: restartPane,
     onClosePane: (paneId) => appSettings.confirm_close ? setConfirmClosePaneId(paneId) : closePane(paneId),
     onClearPane: () => clearFocusedPane(activePaneId),
-    onToggleMaximizedPane: toggleMaximizedPane,
+    onToggleMaximizedTerminal: toggleMaximizedTerminal,
     onOpenSearch: openPaneSearch,
     onOpenSettings: () => setSettingsOpen(true),
     activePath,
@@ -339,7 +337,7 @@ function App() {
     activateTerminalByIndex,
     openTerminalDialog,
     openProjectDialog,
-    toggleMaximizedPane,
+    toggleMaximizedTerminal,
     activateSidebarFocusedTerminal,
     splitPane,
     requestClosePane: (paneId: string) => appSettings.confirm_close ? setConfirmClosePaneId(paneId) : closePane(paneId),
@@ -405,7 +403,7 @@ function App() {
         workspaces={visitedTerminalWorkspaces}
         activeTerminalId={activeTerminalId}
         activePaneId={activePaneId}
-        maximizedPaneId={maximizedPaneId}
+        maximizedTerminalId={maximizedTerminalId}
         terminalFontSize={appSettings.terminal_font_size}
         terminalFontFamily={appSettings.terminal_font_family}
         terminalScrollback={appSettings.terminal_scrollback}
@@ -419,6 +417,7 @@ function App() {
           focusPane(terminalId, paneId);
         }}
         onClosePane={(paneId) => appSettings.confirm_close ? setConfirmClosePaneId(paneId) : closePane(paneId)}
+        onToggleMaximizedTerminal={toggleMaximizedTerminal}
         onSplitPane={splitPane}
       />
       {contextMenu && (

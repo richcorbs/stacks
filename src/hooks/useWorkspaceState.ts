@@ -11,7 +11,7 @@ export type WorkspaceState = {
   visitedTerminalIds: string[];
   activePaneId: string | null;
   focusedPaneByTerminalId: Record<string, string>;
-  maximizedPaneId: string | null;
+  maximizedTerminalId: string | null;
   sidebarFocusedTerminalId: string | null;
   paneCwds: Record<string, string>;
 };
@@ -21,7 +21,6 @@ type WorkspaceAction =
   | { type: 'selectTerminal'; projectId: string; terminalId: string | null }
   | { type: 'focusPane'; terminalId: string; paneId: string }
   | { type: 'rememberPaneCwd'; paneId: string; cwd: string }
-  | { type: 'toggleMaximizedPane' }
   | { type: 'removeTerminal'; terminalId: string }
   | { type: 'removeProject'; projectId: string; terminalIds: string[] };
 
@@ -33,7 +32,7 @@ const initialWorkspaceState: WorkspaceState = {
   visitedTerminalIds: [],
   activePaneId: null,
   focusedPaneByTerminalId: {},
-  maximizedPaneId: null,
+  maximizedTerminalId: null,
   sidebarFocusedTerminalId: null,
   paneCwds: {},
 };
@@ -69,9 +68,6 @@ function reducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState
     case 'rememberPaneCwd':
       if (state.paneCwds[action.paneId] === action.cwd) return state;
       return { ...state, paneCwds: { ...state.paneCwds, [action.paneId]: action.cwd } };
-    case 'toggleMaximizedPane':
-      if (!state.activePaneId) return state;
-      return { ...state, maximizedPaneId: state.maximizedPaneId === state.activePaneId ? null : state.activePaneId };
     case 'removeTerminal':
       return {
         ...state,
@@ -82,7 +78,7 @@ function reducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState
         focusedPaneByTerminalId: omitKeys(state.focusedPaneByTerminalId, [action.terminalId]),
         visitedTerminalIds: state.visitedTerminalIds.filter((id) => id !== action.terminalId),
         activePaneId: state.activePaneId?.startsWith(`${action.terminalId}:`) ? null : state.activePaneId,
-        maximizedPaneId: state.maximizedPaneId?.startsWith(`${action.terminalId}:`) ? null : state.maximizedPaneId,
+        maximizedTerminalId: state.maximizedTerminalId === action.terminalId ? null : state.maximizedTerminalId,
       };
     case 'removeProject':
       return {
@@ -94,6 +90,8 @@ function reducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState
         splitRootsByTerminalId: omitKeys(state.splitRootsByTerminalId, action.terminalIds),
         focusedPaneByTerminalId: omitKeys(state.focusedPaneByTerminalId, action.terminalIds),
         visitedTerminalIds: state.visitedTerminalIds.filter((id) => !action.terminalIds.includes(id)),
+        activePaneId: action.terminalIds.some((terminalId) => state.activePaneId?.startsWith(`${terminalId}:`)) ? null : state.activePaneId,
+        maximizedTerminalId: action.terminalIds.includes(state.maximizedTerminalId ?? '') ? null : state.maximizedTerminalId,
       };
     default:
       return state;
@@ -116,13 +114,12 @@ export function useWorkspaceState() {
       setVisitedTerminalIds: (value: Setter<string[]>) => setField('visitedTerminalIds', value),
       setActivePaneId: (value: Setter<string | null>) => setField('activePaneId', value),
       setFocusedPaneByTerminalId: (value: Setter<Record<string, string>>) => setField('focusedPaneByTerminalId', value),
-      setMaximizedPaneId: (value: Setter<string | null>) => setField('maximizedPaneId', value),
+      setMaximizedTerminalId: (value: Setter<string | null>) => setField('maximizedTerminalId', value),
       setSidebarFocusedTerminalId: (value: Setter<string | null>) => setField('sidebarFocusedTerminalId', value),
       setPaneCwds: (value: Setter<Record<string, string>>) => setField('paneCwds', value),
       selectTerminal: (projectId: string, terminalId: string | null) => dispatch({ type: 'selectTerminal', projectId, terminalId }),
       focusPane: (terminalId: string, paneId: string) => dispatch({ type: 'focusPane', terminalId, paneId }),
       rememberPaneCwd: (paneId: string, cwd: string) => dispatch({ type: 'rememberPaneCwd', paneId, cwd }),
-      toggleMaximizedPane: () => dispatch({ type: 'toggleMaximizedPane' }),
       removeTerminalState: (terminalId: string) => dispatch({ type: 'removeTerminal', terminalId }),
       removeProjectState: (projectId: string, terminalIds: string[]) => dispatch({ type: 'removeProject', projectId, terminalIds }),
     },
