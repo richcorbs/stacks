@@ -43,6 +43,9 @@ export type PaneSession = {
   dataDisposable: { dispose: () => void };
   selectionDisposable: { dispose: () => void };
   decoder: TextDecoder;
+  outputQueue: string[];
+  outputWriteInProgress: boolean;
+  outputActivityFrame: number | null;
   resizeObserver?: ResizeObserver;
   unlistenData?: () => void;
   unlistenExit?: () => void;

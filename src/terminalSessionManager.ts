@@ -113,6 +113,8 @@ export function disposePaneSession(paneId: string) {
   session.selectionDisposable.dispose();
   session.unlistenData?.();
   session.unlistenExit?.();
+  if (session.outputActivityFrame !== null) window.cancelAnimationFrame(session.outputActivityFrame);
+  session.outputQueue = [];
   session.term.dispose();
   paneSessions.delete(paneId);
 }

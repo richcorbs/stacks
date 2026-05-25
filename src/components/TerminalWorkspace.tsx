@@ -5,13 +5,48 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import type { Pane, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
+import type { Pane, PaneSession, Project, PtyData, PtyExit, SplitNode, TerminalEntry, TermSize } from '../types';
 import { consumePaneSessionScrollToBottomAfterFit, disposePaneSession, fitSessionPreservingBottom, focusPaneSession, getPaneSession, isSessionAtBottom, jumpSessionToBottom, setPaneSession } from '../terminalSessionManager';
 import { useTerminalSelectionCopy } from '../hooks/useTerminalSelectionCopy';
 import { TerminalSearchOverlay } from './TerminalSearchOverlay';
 import { countSearchMatches } from '../terminalSearch';
 
 const encoder = new TextEncoder();
+const MAX_OUTPUT_BATCH_CHARS = 256 * 1024;
+
+function enqueuePaneActivityEvent(session: PaneSession, terminalId: string, paneId: string) {
+  if (session.outputActivityFrame !== null) return;
+  session.outputActivityFrame = window.requestAnimationFrame(() => {
+    session.outputActivityFrame = null;
+    window.dispatchEvent(new CustomEvent('pane-output', { detail: { terminalId, paneId } }));
+  });
+}
+
+function nextOutputBatch(queue: string[]) {
+  let batch = '';
+  while (queue.length > 0 && (batch.length === 0 || batch.length + queue[0].length <= MAX_OUTPUT_BATCH_CHARS)) {
+    batch += queue.shift();
+  }
+  return batch;
+}
+
+function flushPaneOutput(session: PaneSession) {
+  if (session.outputWriteInProgress) return;
+  const batch = nextOutputBatch(session.outputQueue);
+  if (!batch) return;
+  session.outputWriteInProgress = true;
+  session.term.write(batch, () => {
+    session.outputWriteInProgress = false;
+    flushPaneOutput(session);
+  });
+}
+
+function enqueuePaneOutput(session: PaneSession, text: string, terminalId: string, paneId: string) {
+  if (!text) return;
+  session.outputQueue.push(text);
+  enqueuePaneActivityEvent(session, terminalId, paneId);
+  flushPaneOutput(session);
+}
 
 function safeTermSize(term: Terminal): TermSize {
   return {
@@ -227,23 +262,24 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
         }),
         selectionDisposable: term.onSelectionChange(() => {}),
         decoder: new TextDecoder(),
+        outputQueue: [],
+        outputWriteInProgress: false,
+        outputActivityFrame: null,
       };
       setPaneSession(pane.id, session);
 
       const generation = `${pane.id}:${Date.now()}:${Math.random()}`;
       const dataPromise = listen<PtyData>('pty-data', (event) => {
         if (event.payload.pane_id === pane.id && event.payload.generation === generation) {
-          term.write(session!.decoder.decode(new Uint8Array(event.payload.data), { stream: true }));
-          window.dispatchEvent(new CustomEvent('pane-output', { detail: { terminalId: terminal.id, paneId: pane.id } }));
+          enqueuePaneOutput(session!, session!.decoder.decode(new Uint8Array(event.payload.data), { stream: true }), terminal.id, pane.id);
         }
       }).then((fn) => { session!.unlistenData = fn; });
       const exitPromise = listen<PtyExit>('pty-exit', (event) => {
         if (event.payload.pane_id === pane.id && event.payload.generation === generation) {
           session!.running = false;
           const remaining = session!.decoder.decode();
-          if (remaining) term.write(remaining);
+          enqueuePaneOutput(session!, `${remaining}\r\n[process exited]\r\n`, terminal.id, pane.id);
           window.dispatchEvent(new CustomEvent('pane-running-changed', { detail: { paneId: pane.id, running: false } }));
-          term.writeln('\r\n[process exited]');
         }
       }).then((fn) => { session!.unlistenExit = fn; });
 
