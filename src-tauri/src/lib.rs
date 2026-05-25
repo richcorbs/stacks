@@ -94,6 +94,10 @@ struct AppSettings {
     confirm_delete: Option<bool>,
     #[serde(default)]
     editor_app: Option<String>,
+    #[serde(default)]
+    focused_terminal_border_color: Option<String>,
+    #[serde(default)]
+    maximized_terminal_border_color: Option<String>,
 }
 
 struct PtyHandle {
@@ -239,6 +243,8 @@ fn save_app_settings(next: AppSettings) -> Result<(), String> {
         settings.confirm_close = next.confirm_close;
         settings.confirm_delete = next.confirm_delete;
         settings.editor_app = next.editor_app.filter(|value| !value.trim().is_empty());
+        settings.focused_terminal_border_color = next.focused_terminal_border_color.filter(|value| !value.trim().is_empty());
+        settings.maximized_terminal_border_color = next.maximized_terminal_border_color.filter(|value| !value.trim().is_empty());
     })
 }
 

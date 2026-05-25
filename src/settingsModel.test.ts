@@ -24,4 +24,15 @@ describe('settingsModel', () => {
     expect(persisted.terminal_font_family).toBe(DEFAULT_APP_SETTINGS.terminal_font_family);
     expect(persisted.editor_app).toBe(DEFAULT_APP_SETTINGS.editor_app);
   });
+
+  it('defaults terminal border colors to the current blue and green', () => {
+    expect(DEFAULT_APP_SETTINGS.focused_terminal_border_color).toBe('#3b82f6');
+    expect(DEFAULT_APP_SETTINGS.maximized_terminal_border_color).toBe('#84cc16');
+  });
+
+  it('normalizes invalid colors to defaults', () => {
+    const settings = resolveAppSettings({ focused_terminal_border_color: 'blue', maximized_terminal_border_color: '#abc' });
+    expect(settings.focused_terminal_border_color).toBe(DEFAULT_APP_SETTINGS.focused_terminal_border_color);
+    expect(settings.maximized_terminal_border_color).toBe(DEFAULT_APP_SETTINGS.maximized_terminal_border_color);
+  });
 });

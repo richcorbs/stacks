@@ -29,6 +29,7 @@ type CommandPaletteItemOptions = {
   onToggleMaximizedTerminal: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
+  onOpenColors: () => void;
   onOpenDirectoryInEditor: () => void;
 };
 
@@ -58,6 +59,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     onToggleMaximizedTerminal,
     onOpenSearch,
     onOpenSettings,
+    onOpenColors,
     onOpenDirectoryInEditor,
   } = options;
 
@@ -69,6 +71,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
       { id: 'edit-terminal', title: 'Edit Workspace', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeTerminal) onEditTerminal(activeProject, activeTerminal); } },
       { id: 'delete-workspace', title: 'Delete Workspace', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace terminal', danger: true, action: () => { if (activeProject && activeTerminal) onDeleteWorkspace(activeProject.id, activeTerminal.id); } },
       { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations', action: onOpenSettings },
+      { id: 'edit-colors', title: 'Edit Colors', subtitle: 'Focused and maximized terminal borders', keywords: 'theme color focused terminal border maximized green blue', action: onOpenColors },
       { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
       { id: 'split-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split pane terminal vertical', action: () => onSplitPane('row') },
       { id: 'split-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split pane terminal horizontal', action: () => onSplitPane('column') },
@@ -124,5 +127,5 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     })) : [];
 
     return [...commandItems, ...terminalItems, ...projectItems, ...paneItems];
-  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminal, activeTerminalId, activePaneId, activePath, onNewProject, onNewTerminal, onEditProject, onEditTerminal, onDeleteWorkspace, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedTerminal, onOpenSearch, onOpenSettings, onOpenDirectoryInEditor, onSelectTerminal]);
+  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminal, activeTerminalId, activePaneId, activePath, onNewProject, onNewTerminal, onEditProject, onEditTerminal, onDeleteWorkspace, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedTerminal, onOpenSearch, onOpenSettings, onOpenColors, onOpenDirectoryInEditor, onSelectTerminal]);
 }

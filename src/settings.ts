@@ -9,6 +9,14 @@ export const DEFAULT_COPY_ON_SELECT = true;
 export const DEFAULT_CONFIRM_CLOSE = true;
 export const DEFAULT_CONFIRM_DELETE = true;
 export const DEFAULT_EDITOR_APP = 'Zed';
+export const DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR = '#3b82f6';
+export const DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR = '#84cc16';
+
+export function normalizeColor(value: string | null | undefined, fallback: string) {
+  const trimmed = value?.trim() ?? '';
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed.toLowerCase();
+  return fallback;
+}
 
 export function clampTerminalFontSize(fontSize: number) {
   return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(fontSize)));

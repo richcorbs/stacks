@@ -2,10 +2,13 @@ import type { AppSettings } from './types';
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
+  normalizeColor,
   DEFAULT_CONFIRM_CLOSE,
   DEFAULT_CONFIRM_DELETE,
   DEFAULT_COPY_ON_SELECT,
   DEFAULT_EDITOR_APP,
+  DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR,
+  DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR,
   DEFAULT_TERMINAL_FONT_FAMILY,
   DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_TERMINAL_SCROLLBACK,
@@ -19,6 +22,8 @@ export type ResolvedAppSettings = {
   confirm_close: boolean;
   confirm_delete: boolean;
   editor_app: string;
+  focused_terminal_border_color: string;
+  maximized_terminal_border_color: string;
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
@@ -29,6 +34,8 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   confirm_close: DEFAULT_CONFIRM_CLOSE,
   confirm_delete: DEFAULT_CONFIRM_DELETE,
   editor_app: DEFAULT_EDITOR_APP,
+  focused_terminal_border_color: DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR,
+  maximized_terminal_border_color: DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR,
 };
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
@@ -40,6 +47,8 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     confirm_close: settings?.confirm_close ?? DEFAULT_APP_SETTINGS.confirm_close,
     confirm_delete: settings?.confirm_delete ?? DEFAULT_APP_SETTINGS.confirm_delete,
     editor_app: settings?.editor_app?.trim() || DEFAULT_APP_SETTINGS.editor_app,
+    focused_terminal_border_color: normalizeColor(settings?.focused_terminal_border_color, DEFAULT_APP_SETTINGS.focused_terminal_border_color),
+    maximized_terminal_border_color: normalizeColor(settings?.maximized_terminal_border_color, DEFAULT_APP_SETTINGS.maximized_terminal_border_color),
   };
 }
 
@@ -52,5 +61,7 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     confirm_close: settings.confirm_close,
     confirm_delete: settings.confirm_delete,
     editor_app: settings.editor_app.trim() || DEFAULT_APP_SETTINGS.editor_app,
+    focused_terminal_border_color: normalizeColor(settings.focused_terminal_border_color, DEFAULT_APP_SETTINGS.focused_terminal_border_color),
+    maximized_terminal_border_color: normalizeColor(settings.maximized_terminal_border_color, DEFAULT_APP_SETTINGS.maximized_terminal_border_color),
   };
 }
