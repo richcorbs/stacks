@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { ResolvedAppSettings } from '../settingsModel';
 import { DEFAULT_APP_SETTINGS } from '../settingsModel';
-import { clampTerminalFontSize, clampTerminalScrollback, MAX_TERMINAL_FONT_SIZE, MAX_TERMINAL_SCROLLBACK, MIN_TERMINAL_FONT_SIZE, MIN_TERMINAL_SCROLLBACK } from '../settings';
+import { clampTerminalFontSize, clampTerminalScrollback, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR, MAX_TERMINAL_FONT_SIZE, MAX_TERMINAL_SCROLLBACK, MIN_TERMINAL_FONT_SIZE, MIN_TERMINAL_SCROLLBACK, normalizeColor } from '../settings';
 
 export function SettingsDialog({ settings, onChange, onClose }: {
   settings: ResolvedAppSettings;
@@ -31,6 +31,8 @@ export function SettingsDialog({ settings, onChange, onClose }: {
       terminal_font_family: draft.terminal_font_family.trim() || DEFAULT_APP_SETTINGS.terminal_font_family,
       terminal_scrollback: clampTerminalScrollback(draft.terminal_scrollback),
       editor_app: draft.editor_app.trim() || DEFAULT_APP_SETTINGS.editor_app,
+      focused_terminal_border_color: normalizeColor(draft.focused_terminal_border_color, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR),
+      maximized_terminal_border_color: normalizeColor(draft.maximized_terminal_border_color, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR),
     });
     onClose();
   }
@@ -96,6 +98,39 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               onChange={(e) => update({ copy_on_select: e.target.checked })}
             />
             Copy terminal selection to clipboard on mouse up
+          </label>
+        </section>
+        <section className="settingsSection">
+          <h3>Colors</h3>
+          <label>
+            Focused terminal border
+            <div className="colorField">
+              <input
+                type="color"
+                value={normalizeColor(draft.focused_terminal_border_color, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR)}
+                onChange={(e) => update({ focused_terminal_border_color: e.target.value })}
+              />
+              <input
+                value={draft.focused_terminal_border_color}
+                placeholder={DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR}
+                onChange={(e) => update({ focused_terminal_border_color: e.target.value })}
+              />
+            </div>
+          </label>
+          <label>
+            Maximized terminal border
+            <div className="colorField">
+              <input
+                type="color"
+                value={normalizeColor(draft.maximized_terminal_border_color, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR)}
+                onChange={(e) => update({ maximized_terminal_border_color: e.target.value })}
+              />
+              <input
+                value={draft.maximized_terminal_border_color}
+                placeholder={DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR}
+                onChange={(e) => update({ maximized_terminal_border_color: e.target.value })}
+              />
+            </div>
           </label>
         </section>
         <section className="settingsSection">

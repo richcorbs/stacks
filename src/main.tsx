@@ -6,7 +6,6 @@ import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 import { ContextMenu, ConfirmClosePaneDialog, ConfirmDeleteProjectDialog, ConfirmDeleteTerminalDialog, ConfirmQuitDialog, Dialog } from './components/Dialogs';
 import { SettingsDialog } from './components/SettingsDialog';
-import { ColorsDialog } from './components/ColorsDialog';
 import { Sidebar } from './components/Sidebar';
 import { MainWorkspace } from './components/MainWorkspace';
 import { CommandPalette } from './components/CommandPalette';
@@ -80,7 +79,6 @@ function App() {
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [colorsOpen, setColorsOpen] = useState(false);
   const [searchPaneRequest, setSearchPaneRequest] = useState<{ paneId: string; nonce: number } | null>(null);
   const [restartPaneRequest, setRestartPaneRequest] = useState<{ paneId: string; nonce: number } | null>(null);
   const { toast, showToast } = useToast();
@@ -295,11 +293,6 @@ function App() {
     restoreActivePaneFocus('close-settings');
   }
 
-  function closeColors() {
-    setColorsOpen(false);
-    restoreActivePaneFocus('close-colors');
-  }
-
   function closeDialog() {
     setDialog(null);
     restoreActivePaneFocus('close-dialog');
@@ -334,7 +327,6 @@ function App() {
     onToggleMaximizedTerminal: toggleMaximizedTerminal,
     onOpenSearch: openPaneSearch,
     onOpenSettings: () => setSettingsOpen(true),
-    onOpenColors: () => setColorsOpen(true),
     activePath,
     onOpenDirectoryInEditor: openDirectoryInEditor,
   });
@@ -454,13 +446,6 @@ function App() {
         onRunItem={() => closeCommandPalette({ restoreFocus: false })}
       />
       {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={closeSettings} />}
-      {colorsOpen && (
-        <ColorsDialog
-          settings={appSettings}
-          onChange={(colors) => setAppSettings((settings) => ({ ...settings, ...colors }))}
-          onClose={closeColors}
-        />
-      )}
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={closeDialog} onSubmit={submitActiveDialog} />}
       {confirmClosePaneId && (
         <ConfirmClosePaneDialog
