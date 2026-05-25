@@ -99,9 +99,6 @@ export function SettingsDialog({ settings, onChange, onClose }: {
             />
             Copy terminal selection to clipboard on mouse up
           </label>
-        </section>
-        <section className="settingsSection">
-          <h3>Colors</h3>
           <label>
             Focused terminal border
             <div className="colorField">
