@@ -316,6 +316,7 @@ function App() {
     onNewTerminal: openTerminalDialog,
     onEditProject: openEditProjectDialog,
     onEditTerminal: openEditTerminalDialog,
+    onDeleteWorkspace: (projectId, terminalId) => appSettings.confirm_delete ? setConfirmDeleteTerminal({ projectId, terminalId }) : deleteTerminal(projectId, terminalId),
     onSplitPane: splitPane,
     onCycleTerminal: cycleSidebarTerminal,
     onCyclePane: cyclePane,

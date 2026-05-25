@@ -18,6 +18,7 @@ type CommandPaletteItemOptions = {
   onNewTerminal: (project: Project) => void;
   onEditProject: (project: Project) => void;
   onEditTerminal: (project: Project, terminal: TerminalEntry) => void;
+  onDeleteWorkspace: (projectId: string, terminalId: string) => void;
   onSplitPane: (direction: 'row' | 'column') => void;
   onCycleTerminal: (delta: number) => void;
   onCyclePane: (delta: number) => void;
@@ -46,6 +47,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     onNewTerminal,
     onEditProject,
     onEditTerminal,
+    onDeleteWorkspace,
     onSplitPane,
     onCycleTerminal,
     onCyclePane,
@@ -65,6 +67,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
       { id: 'new-terminal', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewTerminal(activeProject) : onNewProject() },
       { id: 'edit-project', title: 'Edit Project', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'rename path directory workspace', action: () => { if (activeProject) onEditProject(activeProject); } },
       { id: 'edit-terminal', title: 'Edit Workspace', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeTerminal) onEditTerminal(activeProject, activeTerminal); } },
+      { id: 'delete-workspace', title: 'Delete Workspace', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace terminal', danger: true, action: () => { if (activeProject && activeTerminal) onDeleteWorkspace(activeProject.id, activeTerminal.id); } },
       { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations', action: onOpenSettings },
       { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
       { id: 'split-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split pane terminal vertical', action: () => onSplitPane('row') },
@@ -121,5 +124,5 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     })) : [];
 
     return [...commandItems, ...terminalItems, ...projectItems, ...paneItems];
-  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminal, activeTerminalId, activePaneId, activePath, onNewProject, onNewTerminal, onEditProject, onEditTerminal, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedTerminal, onOpenSearch, onOpenSettings, onOpenDirectoryInEditor, onSelectTerminal]);
+  }, [store, sidebarTerminals, panesByTerminalId, activeProject, activeTerminal, activeTerminalId, activePaneId, activePath, onNewProject, onNewTerminal, onEditProject, onEditTerminal, onDeleteWorkspace, onSplitPane, onCycleTerminal, onCyclePane, onStopPane, onRestartPane, onClosePane, onClearPane, onToggleMaximizedTerminal, onOpenSearch, onOpenSettings, onOpenDirectoryInEditor, onSelectTerminal]);
 }
