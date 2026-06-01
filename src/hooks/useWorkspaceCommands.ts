@@ -264,10 +264,11 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     if (shouldMaximizeNewPane) setMaximizedTerminalId(terminalId);
   }
 
-  async function splitPane(direction: 'row' | 'column' = 'row') {
-    if (!activeTerminal) return;
-    const focusedPaneId = activePaneId?.startsWith(`${activeTerminal.id}:`) ? activePaneId : `${activeTerminal.id}:0`; 
-    setDialog({ kind: 'split', terminalId: activeTerminal.id, targetPaneId: focusedPaneId, direction, command: '' });
+  async function splitPane(direction: 'row' | 'column' = 'row', targetPaneId?: string) {
+    const terminalId = targetPaneId?.split(':')[0] ?? activeTerminal?.id;
+    if (!terminalId) return;
+    const focusedPaneId = targetPaneId ?? (activePaneId?.startsWith(`${terminalId}:`) ? activePaneId : `${terminalId}:0`);
+    setDialog({ kind: 'split', terminalId, targetPaneId: focusedPaneId, direction, command: '' });
   }
 
   function cyclePane(delta: number) {

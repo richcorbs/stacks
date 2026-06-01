@@ -29,7 +29,7 @@ type MainWorkspaceProps = {
   onClosePane: (paneId: string) => void;
   canToggleMaximizedTerminal: (terminalId: string) => boolean;
   onToggleMaximizedTerminal: (paneId: string) => void;
-  onSplitPane: (direction: 'row' | 'column') => void;
+  onSplitPane: (direction: 'row' | 'column', targetPaneId?: string) => void;
   hasActivePane: boolean;
 };
 
@@ -90,6 +90,7 @@ export function MainWorkspace({
                     onResizeSplit={(path, ratio) => onResizeSplit(terminal.id, path, ratio)}
                     onFocus={(paneId) => onFocusPane(project.id, terminal.id, paneId)}
                     onClose={onClosePane}
+                    onSplitPane={onSplitPane}
                     canToggleMaximize={canToggleMaximizedTerminal(terminal.id)}
                     onToggleMaximize={onToggleMaximizedTerminal}
                   />
