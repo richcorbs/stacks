@@ -449,23 +449,44 @@ function TerminalPane({ pane, terminal, project, active, maximized, visible, ter
         if (!active) onFocus();
       }}
     >
-      {canToggleMaximize && <button
-        className="paneMaximizeButton"
-        type="button"
-        title={maximized ? 'Restore workspace (⇧⌘↩)' : 'Maximize workspace (⇧⌘↩)'}
-        aria-label={maximized ? 'Restore workspace' : 'Maximize workspace'}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onToggleMaximize();
-        }}
-      >
-        <span className="paneMaximizeIcon">⇅</span>
-      </button>}
+      {canToggleMaximize && (
+        <div className="paneControls" onMouseDown={(e) => e.stopPropagation()}>
+          <button
+            className="paneControlButton"
+            type="button"
+            title={maximized ? 'Restore workspace (⇧⌘↩)' : 'Maximize workspace (⇧⌘↩)'}
+            aria-label={maximized ? 'Restore workspace' : 'Maximize workspace'}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleMaximize();
+            }}
+          >
+            <span className="paneMaximizeIcon">⇅</span>
+          </button>
+          <button
+            className="paneControlButton paneCloseButton"
+            type="button"
+            title="Close terminal (⌘W)"
+            aria-label="Close terminal"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+          >
+            <span className="paneCloseIcon">&times;</span>
+          </button>
+        </div>
+      )}
       {searchOpen && (
         <TerminalSearchOverlay
           value={searchTerm}

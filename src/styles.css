@@ -247,34 +247,48 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
 }
 .pane.active { opacity: 1; border-color: var(--focused-terminal-border, #3b82f6); border-radius: 4px; box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6); }
 .pane.maximized { border-color: var(--maximized-terminal-border, #84cc16); box-shadow: 0 0 0 1px var(--maximized-terminal-border, #84cc16); }
-.paneMaximizeButton {
+.paneControls {
   position: absolute;
   top: 7px;
   right: 8px;
   z-index: 15;
-  width: 24px;
-  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
   border: 1px solid #334155;
-  border-radius: 7px;
+  border-radius: 999px;
   background: #111821dd;
+  box-shadow: 0 8px 24px #0006;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease, background .12s ease, border-color .12s ease;
+}
+.pane:hover .paneControls,
+.paneControls:focus-within { opacity: 1; pointer-events: auto; }
+.paneControls:hover { background: #172232ee; border-color: #40536b; }
+.paneControlButton {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
   color: #9aa8b8;
   display: grid;
   place-items: center;
   padding: 0;
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .12s ease, background .12s ease, color .12s ease;
+  transition: background .12s ease, color .12s ease;
 }
-.pane:hover .paneMaximizeButton,
-.paneMaximizeButton:focus-visible { opacity: 1; pointer-events: auto; }
-.paneMaximizeButton:hover { background: #203348; color: #d6deeb; }
-.paneMaximizeIcon {
-  font-size: 18px;
+.paneControlButton:hover { background: #203348; color: #d6deeb; }
+.paneCloseButton:hover { background: #3b1f2a; color: #fca5a5; }
+.paneMaximizeIcon,
+.paneCloseIcon {
   line-height: 1;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  transform: translateY(-1px);
 }
+.paneMaximizeIcon { font-size: 17px; transform: translateY(-1px); }
+.paneCloseIcon { font-size: 18px; transform: translateY(-1px); }
 .terminalHostFrame { flex: 1; min-height: 0; padding: 6px 0 4px 6px; overflow: hidden; background: #0f141b; }
 .terminalHost { width: 100%; height: 100%; min-height: 0; background: #0f141b; }
 .xterm { height: 100%; background: #0f141b; }
