@@ -56,7 +56,7 @@ export function MainWorkspace({
 }: MainWorkspaceProps) {
   return (
     <main className="main">
-      <Topbar activePath={activePath} gitInfo={gitInfo} hasActivePane={hasActivePane} onSplitPane={onSplitPane} />
+      <Topbar activePath={activePath} gitInfo={gitInfo} hasActivePane={hasActivePane} />
       <section className="workspace">
         {workspaces.length > 0 ? (
           workspaces.map(({ project, terminal, panes, root }) => {
@@ -111,7 +111,7 @@ function focusedPaneForTerminal(terminalId: string, activePaneId: string | null,
   return paneIds[0] ?? null;
 }
 
-function Topbar({ activePath, gitInfo, hasActivePane, onSplitPane }: { activePath: string | null; gitInfo: GitInfo | null; hasActivePane: boolean; onSplitPane: (direction: 'row' | 'column') => void }) {
+function Topbar({ activePath, gitInfo, hasActivePane }: { activePath: string | null; gitInfo: GitInfo | null; hasActivePane: boolean }) {
   return (
     <header className="topbar">
       <div>
@@ -119,28 +119,19 @@ function Topbar({ activePath, gitInfo, hasActivePane, onSplitPane }: { activePat
       </div>
       {hasActivePane && (
         <div className="branchDisplay">
-        {gitInfo && (
-          <>
-            <span className="branchName"> {gitInfo.branch}</span>
-            {(gitInfo.created > 0 || gitInfo.changed > 0 || gitInfo.deleted > 0) && (
-              <span className="gitStats" title="Files created / changed / deleted">
-                <span className="gitSeparator">•</span>
-                {gitInfo.created > 0 && <span className="gitAdded">+{gitInfo.created}</span>}
-                {gitInfo.changed > 0 && <span className="gitChanged">~{gitInfo.changed}</span>}
-                {gitInfo.deleted > 0 && <span className="gitRemoved">-{gitInfo.deleted}</span>}
-              </span>
-            )}
-          </>
-        )}
-        <span className="topbarSeparator">•</span>
-        <span className="splitControls">
-          <button className="splitButton" title="Split terminal right (⌘D)" onClick={() => onSplitPane('row')} aria-label="Split terminal right">
-            <span className="splitIcon splitIconVertical" />
-          </button>
-          <button className="splitButton" title="Split terminal down (⇧⌘D)" onClick={() => onSplitPane('column')} aria-label="Split terminal down">
-            <span className="splitIcon splitIconHorizontal" />
-          </button>
-        </span>
+          {gitInfo && (
+            <>
+              <span className="branchName"> {gitInfo.branch}</span>
+              {(gitInfo.created > 0 || gitInfo.changed > 0 || gitInfo.deleted > 0) && (
+                <span className="gitStats" title="Files created / changed / deleted">
+                  <span className="gitSeparator">•</span>
+                  {gitInfo.created > 0 && <span className="gitAdded">+{gitInfo.created}</span>}
+                  {gitInfo.changed > 0 && <span className="gitChanged">~{gitInfo.changed}</span>}
+                  {gitInfo.deleted > 0 && <span className="gitRemoved">-{gitInfo.deleted}</span>}
+                </span>
+              )}
+            </>
+          )}
         </div>
       )}
     </header>
