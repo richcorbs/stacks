@@ -115,7 +115,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .project { color: #97a6b8 !important; font-size: 13px; padding: 7px 0 9px 8px; }
 .project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .termList { margin-left: 8px; padding-left: 0; }
-.term { justify-content: space-between; padding-left: 14px; padding-right: 14px; font-size: 13px; }
+.term { justify-content: space-between; padding-left: 11px; padding-right: 11px; font-size: 13px; }
 .termLabel { display: flex; align-items: center; min-width: 0; }
 .termName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.03em; }
 .termIndicators { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
