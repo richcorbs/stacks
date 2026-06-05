@@ -115,16 +115,16 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .project { color: #97a6b8 !important; font-size: 13px; padding: 7px 0 9px 8px; }
 .project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .termList { margin-left: 8px; padding-left: 0; }
-.term { justify-content: space-between; padding-left: 4px; padding-right: 14px; font-size: 13px; }
+.term { justify-content: space-between; padding-left: 14px; padding-right: 14px; font-size: 13px; }
 .termLabel { display: flex; align-items: center; min-width: 0; }
 .termName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.03em; }
 .termIndicators { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .shortcutHint, .shortcutHintSlot { width: 28px; text-align: right; }
 .shortcutHint { color: #8fa0b3; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
 .dot {
-  --dot-color: #22c55e;
-  --dot-ring: #22c55e99;
-  --dot-glow: #22c55e66;
+  --dot-color: #4ade80;
+  --dot-ring: #4ade80bb;
+  --dot-glow: #4ade8088;
   flex: 0 0 auto;
   width: 10px;
   height: 10px;
@@ -138,13 +138,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .dot::after {
   content: '';
   position: absolute;
-  inset: 3px;
+  inset: 2px;
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 8px var(--dot-glow);
 }
-.activityDot { --dot-color: #3b82f6; --dot-ring: #3b82f699; --dot-glow: #3b82f666; }
-.activityDotFresh { --dot-color: #facc15; --dot-ring: #facc1599; --dot-glow: #facc1566; }
+.activityDot { --dot-color: #60a5fa; --dot-ring: #60a5fabb; --dot-glow: #60a5fa88; }
+.activityDotFresh { --dot-color: #fde047; --dot-ring: #fde047bb; --dot-glow: #fde04788; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
