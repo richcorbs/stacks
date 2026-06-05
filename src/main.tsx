@@ -67,7 +67,7 @@ function App() {
   } = workspaceActions;
   const [metaKeyDown, setMetaKeyDown] = useState(false);
 
-  const { runningPaneIds, setRunningPaneIds, activityTerminalIds, setActivityTerminalIds } = usePaneActivity(activeTerminalId);
+  const { runningPaneIds, setRunningPaneIds, activityTerminalIds, setActivityTerminalIds, activityTerminalLastOutputAtById, activityNow } = usePaneActivity(activeTerminalId);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const pointerDragRef = useRef<PointerDragState | null>(null);
@@ -397,6 +397,8 @@ function App() {
         sidebarTerminals={sidebarTerminals}
         runningPaneIds={runningPaneIds}
         activityTerminalIds={activityTerminalIds}
+        activityTerminalLastOutputAtById={activityTerminalLastOutputAtById}
+        activityNow={activityNow}
         metaKeyDown={metaKeyDown}
         appStats={appStats}
         justPointerDraggedRef={justPointerDraggedRef}

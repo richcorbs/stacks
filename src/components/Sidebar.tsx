@@ -12,6 +12,8 @@ type SidebarProps = {
   sidebarTerminals: SidebarTerminal[];
   runningPaneIds: string[];
   activityTerminalIds: string[];
+  activityTerminalLastOutputAtById: Record<string, number>;
+  activityNow: number;
   metaKeyDown: boolean;
   appStats: AppStats | null;
   justPointerDraggedRef: MutableRefObject<boolean>;
@@ -33,6 +35,8 @@ export function Sidebar({
   sidebarTerminals,
   runningPaneIds,
   activityTerminalIds,
+  activityTerminalLastOutputAtById,
+  activityNow,
   metaKeyDown,
   appStats,
   justPointerDraggedRef,
@@ -61,6 +65,8 @@ export function Sidebar({
             sidebarTerminals={sidebarTerminals}
             runningPaneIds={runningPaneIds}
             activityTerminalIds={activityTerminalIds}
+            activityTerminalLastOutputAtById={activityTerminalLastOutputAtById}
+            activityNow={activityNow}
             metaKeyDown={metaKeyDown}
             justPointerDraggedRef={justPointerDraggedRef}
             pointerDragRef={pointerDragRef}
@@ -98,6 +104,8 @@ function ProjectSection({
   sidebarTerminals,
   runningPaneIds,
   activityTerminalIds,
+  activityTerminalLastOutputAtById,
+  activityNow,
   metaKeyDown,
   justPointerDraggedRef,
   pointerDragRef,
@@ -113,6 +121,8 @@ function ProjectSection({
   sidebarTerminals: SidebarTerminal[];
   runningPaneIds: string[];
   activityTerminalIds: string[];
+  activityTerminalLastOutputAtById: Record<string, number>;
+  activityNow: number;
   metaKeyDown: boolean;
   justPointerDraggedRef: MutableRefObject<boolean>;
   pointerDragRef: MutableRefObject<PointerDragState | null>;
@@ -179,6 +189,8 @@ function ProjectSection({
               sidebarTerminals={sidebarTerminals}
               runningPaneIds={runningPaneIds}
               activityTerminalIds={activityTerminalIds}
+              activityTerminalLastOutputAtById={activityTerminalLastOutputAtById}
+              activityNow={activityNow}
               metaKeyDown={metaKeyDown}
               justPointerDraggedRef={justPointerDraggedRef}
               pointerDragRef={pointerDragRef}
@@ -200,6 +212,8 @@ function TerminalRow({
   sidebarTerminals,
   runningPaneIds,
   activityTerminalIds,
+  activityTerminalLastOutputAtById,
+  activityNow,
   metaKeyDown,
   justPointerDraggedRef,
   pointerDragRef,
@@ -213,6 +227,8 @@ function TerminalRow({
   sidebarTerminals: SidebarTerminal[];
   runningPaneIds: string[];
   activityTerminalIds: string[];
+  activityTerminalLastOutputAtById: Record<string, number>;
+  activityNow: number;
   metaKeyDown: boolean;
   justPointerDraggedRef: MutableRefObject<boolean>;
   pointerDragRef: MutableRefObject<PointerDragState | null>;
@@ -221,6 +237,8 @@ function TerminalRow({
 }) {
   const isRunning = runningPaneIds.some((paneId) => paneId.startsWith(`${terminal.id}:`));
   const hasBackgroundActivity = terminal.id !== activeTerminalId && activityTerminalIds.includes(terminal.id);
+  const activityAge = activityNow - (activityTerminalLastOutputAtById[terminal.id] ?? 0);
+  const activityFresh = hasBackgroundActivity && activityAge < 5000;
   const shortcutIndex = sidebarTerminals.findIndex(({ terminal: t }) => t.id === terminal.id);
 
   return (
@@ -251,7 +269,7 @@ function TerminalRow({
     >
       <span className="termLabel">
         <span className="activitySlot">
-          {hasBackgroundActivity && <span className="dot activityDot" title="Background output" />}
+          {hasBackgroundActivity && <span className={`dot activityDot ${activityFresh ? 'activityDotFresh' : ''}`} title={activityFresh ? 'Recent background output' : 'Background output'} />}
         </span>
         <span className="termName">{terminal.name}</span>
       </span>
