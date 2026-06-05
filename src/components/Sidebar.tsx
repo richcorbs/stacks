@@ -239,6 +239,8 @@ function TerminalRow({
   const hasBackgroundActivity = terminal.id !== activeTerminalId && activityTerminalIds.includes(terminal.id);
   const activityAge = activityNow - (activityTerminalLastOutputAtById[terminal.id] ?? 0);
   const activityFresh = hasBackgroundActivity && activityAge < 5000;
+  const activityDotClass = activityFresh ? 'activityDotFresh' : 'activityDot';
+  const activityDotTitle = activityFresh ? 'Recent background output' : 'Background output';
   const shortcutIndex = sidebarTerminals.findIndex(({ terminal: t }) => t.id === terminal.id);
 
   return (
@@ -268,9 +270,6 @@ function TerminalRow({
       }}
     >
       <span className="termLabel">
-        <span className="activitySlot">
-          {hasBackgroundActivity && <span className={`dot activityDot ${activityFresh ? 'activityDotFresh' : ''}`} title={activityFresh ? 'Recent background output' : 'Background output'} />}
-        </span>
         <span className="termName">{terminal.name}</span>
       </span>
       <span className="termIndicators">
@@ -279,7 +278,11 @@ function TerminalRow({
         ) : (
           <span className="shortcutHintSlot" />
         )}
-        {!metaKeyDown && isRunning && <span className="dot" title="Active terminal running" />}
+        {!metaKeyDown && (hasBackgroundActivity ? (
+          <span className={`dot ${activityDotClass}`} title={activityDotTitle} />
+        ) : isRunning ? (
+          <span className="dot" title="Active terminal running" />
+        ) : null)}
       </span>
     </button>
   );
