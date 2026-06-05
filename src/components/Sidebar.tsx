@@ -126,7 +126,10 @@ function ProjectSection({
       <button
         className="project"
         onPointerDown={(e) => {
-          if (e.button !== 0) return;
+          if (e.button !== 0) {
+            e.preventDefault();
+            return;
+          }
           e.currentTarget.setPointerCapture(e.pointerId);
           pointerDragRef.current = { kind: 'project', projectId: project.id, startX: e.clientX, startY: e.clientY, dragging: false };
         }}
@@ -139,6 +142,7 @@ function ProjectSection({
         }}
         onContextMenu={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setContextMenu({ kind: 'project', projectId: project.id, x: e.clientX, y: e.clientY });
         }}
       >
@@ -225,12 +229,16 @@ function TerminalRow({
       data-project-id={project.id}
       data-terminal-id={terminal.id}
       onPointerDown={(e) => {
-        if (e.button !== 0) return;
+        if (e.button !== 0) {
+          e.preventDefault();
+          return;
+        }
         e.currentTarget.setPointerCapture(e.pointerId);
         pointerDragRef.current = { kind: 'terminal', projectId: project.id, terminalId: terminal.id, startX: e.clientX, startY: e.clientY, dragging: false };
       }}
       onContextMenu={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         setContextMenu({ kind: 'terminal', projectId: project.id, terminalId: terminal.id, x: e.clientX, y: e.clientY });
       }}
       onClick={(e) => {

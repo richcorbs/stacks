@@ -288,6 +288,11 @@ function App() {
     if (restoreFocus) restoreActivePaneFocus('close-command-palette');
   }
 
+  function closeContextMenu({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+    setContextMenu(null);
+    if (restoreFocus) restoreActivePaneFocus('close-context-menu');
+  }
+
   function closeSettings() {
     setSettingsOpen(false);
     restoreActivePaneFocus('close-settings');
@@ -431,12 +436,30 @@ function App() {
         <ContextMenu
           menu={contextMenu}
           store={store}
-          onClose={() => setContextMenu(null)}
-          onNewTerminal={(project) => { setContextMenu(null); openTerminalDialog(project); }}
-          onEditProject={(project) => { setContextMenu(null); openEditProjectDialog(project); }}
-          onDeleteProject={(project) => { setContextMenu(null); appSettings.confirm_delete ? setConfirmDeleteProjectId(project.id) : deleteProject(project.id); }}
-          onEditTerminal={(project, terminal) => { setContextMenu(null); openEditTerminalDialog(project, terminal); }}
-          onDeleteTerminal={(project, terminal) => { setContextMenu(null); appSettings.confirm_delete ? setConfirmDeleteTerminal({ projectId: project.id, terminalId: terminal.id }) : deleteTerminal(project.id, terminal.id); }}
+          onClose={() => closeContextMenu()}
+          onNewTerminal={(project) => { closeContextMenu({ restoreFocus: false }); openTerminalDialog(project); }}
+          onEditProject={(project) => { closeContextMenu({ restoreFocus: false }); openEditProjectDialog(project); }}
+          onDeleteProject={(project) => {
+            closeContextMenu({ restoreFocus: false });
+            if (appSettings.confirm_delete) {
+              setConfirmDeleteProjectId(project.id);
+            } else {
+              const deletingActiveProject = project.id === activeProjectId;
+              deleteProject(project.id);
+              if (!deletingActiveProject) restoreActivePaneFocus('delete-inactive-project');
+            }
+          }}
+          onEditTerminal={(project, terminal) => { closeContextMenu({ restoreFocus: false }); openEditTerminalDialog(project, terminal); }}
+          onDeleteTerminal={(project, terminal) => {
+            closeContextMenu({ restoreFocus: false });
+            if (appSettings.confirm_delete) {
+              setConfirmDeleteTerminal({ projectId: project.id, terminalId: terminal.id });
+            } else {
+              const deletingActiveTerminal = terminal.id === activeTerminalId;
+              deleteTerminal(project.id, terminal.id);
+              if (!deletingActiveTerminal) restoreActivePaneFocus('delete-inactive-workspace');
+            }
+          }}
         />
       )}
       <CommandPalette
@@ -461,22 +484,32 @@ function App() {
       {confirmDeleteProject && (
         <ConfirmDeleteProjectDialog
           projectName={confirmDeleteProject.name}
-          onCancel={() => setConfirmDeleteProjectId(null)}
+          onCancel={() => {
+            setConfirmDeleteProjectId(null);
+            restoreActivePaneFocus('cancel-delete-project');
+          }}
           onConfirm={() => {
             const projectId = confirmDeleteProject.id;
+            const deletingActiveProject = projectId === activeProjectId;
             setConfirmDeleteProjectId(null);
             deleteProject(projectId);
+            if (!deletingActiveProject) restoreActivePaneFocus('delete-inactive-project');
           }}
         />
       )}
       {confirmDeleteTerminal && confirmDeleteTerminalEntry && (
         <ConfirmDeleteTerminalDialog
           terminalName={confirmDeleteTerminalEntry.name}
-          onCancel={() => setConfirmDeleteTerminal(null)}
+          onCancel={() => {
+            setConfirmDeleteTerminal(null);
+            restoreActivePaneFocus('cancel-delete-workspace');
+          }}
           onConfirm={() => {
             const { projectId, terminalId } = confirmDeleteTerminal;
+            const deletingActiveTerminal = terminalId === activeTerminalId;
             setConfirmDeleteTerminal(null);
             deleteTerminal(projectId, terminalId);
+            if (!deletingActiveTerminal) restoreActivePaneFocus('delete-inactive-workspace');
           }}
         />
       )}
