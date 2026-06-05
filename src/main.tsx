@@ -384,6 +384,9 @@ function App() {
   const appStyle = {
     '--focused-terminal-border': appSettings.focused_terminal_border_color,
     '--maximized-terminal-border': appSettings.maximized_terminal_border_color,
+    '--alive-dot-color': appSettings.alive_dot_color,
+    '--active-dot-color': appSettings.active_dot_color,
+    '--unseen-dot-color': appSettings.unseen_dot_color,
   } as React.CSSProperties;
 
   return (

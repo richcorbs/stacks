@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { ResolvedAppSettings } from '../settingsModel';
 import { DEFAULT_APP_SETTINGS } from '../settingsModel';
-import { clampTerminalFontSize, clampTerminalScrollback, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR, MAX_TERMINAL_FONT_SIZE, MAX_TERMINAL_SCROLLBACK, MIN_TERMINAL_FONT_SIZE, MIN_TERMINAL_SCROLLBACK, normalizeColor } from '../settings';
+import { clampTerminalFontSize, clampTerminalScrollback, DEFAULT_ACTIVE_DOT_COLOR, DEFAULT_ALIVE_DOT_COLOR, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR, DEFAULT_UNSEEN_DOT_COLOR, MAX_TERMINAL_FONT_SIZE, MAX_TERMINAL_SCROLLBACK, MIN_TERMINAL_FONT_SIZE, MIN_TERMINAL_SCROLLBACK, normalizeColor } from '../settings';
 
 export function SettingsDialog({ settings, onChange, onClose }: {
   settings: ResolvedAppSettings;
@@ -33,6 +33,9 @@ export function SettingsDialog({ settings, onChange, onClose }: {
       editor_app: draft.editor_app.trim() || DEFAULT_APP_SETTINGS.editor_app,
       focused_terminal_border_color: normalizeColor(draft.focused_terminal_border_color, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR),
       maximized_terminal_border_color: normalizeColor(draft.maximized_terminal_border_color, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR),
+      alive_dot_color: normalizeColor(draft.alive_dot_color, DEFAULT_ALIVE_DOT_COLOR),
+      active_dot_color: normalizeColor(draft.active_dot_color, DEFAULT_ACTIVE_DOT_COLOR),
+      unseen_dot_color: normalizeColor(draft.unseen_dot_color, DEFAULT_UNSEEN_DOT_COLOR),
     });
     onClose();
   }
@@ -126,6 +129,54 @@ export function SettingsDialog({ settings, onChange, onClose }: {
                 value={draft.maximized_terminal_border_color}
                 placeholder={DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR}
                 onChange={(e) => update({ maximized_terminal_border_color: e.target.value })}
+              />
+            </div>
+          </label>
+        </section>
+        <section className="settingsSection">
+          <h3>Workspace status dots</h3>
+          <label>
+            Alive
+            <div className="colorField">
+              <input
+                type="color"
+                value={normalizeColor(draft.alive_dot_color, DEFAULT_ALIVE_DOT_COLOR)}
+                onChange={(e) => update({ alive_dot_color: e.target.value })}
+              />
+              <input
+                value={draft.alive_dot_color}
+                placeholder={DEFAULT_ALIVE_DOT_COLOR}
+                onChange={(e) => update({ alive_dot_color: e.target.value })}
+              />
+            </div>
+          </label>
+          <label>
+            Active
+            <div className="colorField">
+              <input
+                type="color"
+                value={normalizeColor(draft.active_dot_color, DEFAULT_ACTIVE_DOT_COLOR)}
+                onChange={(e) => update({ active_dot_color: e.target.value })}
+              />
+              <input
+                value={draft.active_dot_color}
+                placeholder={DEFAULT_ACTIVE_DOT_COLOR}
+                onChange={(e) => update({ active_dot_color: e.target.value })}
+              />
+            </div>
+          </label>
+          <label>
+            Unseen
+            <div className="colorField">
+              <input
+                type="color"
+                value={normalizeColor(draft.unseen_dot_color, DEFAULT_UNSEEN_DOT_COLOR)}
+                onChange={(e) => update({ unseen_dot_color: e.target.value })}
+              />
+              <input
+                value={draft.unseen_dot_color}
+                placeholder={DEFAULT_UNSEEN_DOT_COLOR}
+                onChange={(e) => update({ unseen_dot_color: e.target.value })}
               />
             </div>
           </label>

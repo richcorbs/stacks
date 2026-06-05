@@ -11,6 +11,9 @@ export const DEFAULT_CONFIRM_DELETE = true;
 export const DEFAULT_EDITOR_APP = 'Zed';
 export const DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR = '#3b82f6';
 export const DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR = '#84cc16';
+export const DEFAULT_ALIVE_DOT_COLOR = '#4ade80';
+export const DEFAULT_ACTIVE_DOT_COLOR = '#fde047';
+export const DEFAULT_UNSEEN_DOT_COLOR = '#60a5fa';
 
 export function normalizeColor(value: string | null | undefined, fallback: string) {
   const trimmed = value?.trim() ?? '';

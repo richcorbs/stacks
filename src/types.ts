@@ -30,6 +30,9 @@ export type AppSettings = {
   editor_app?: string | null;
   focused_terminal_border_color?: string | null;
   maximized_terminal_border_color?: string | null;
+  alive_dot_color?: string | null;
+  active_dot_color?: string | null;
+  unseen_dot_color?: string | null;
 };
 export type TermSize = { cols: number; rows: number };
 export type PaneSession = {

@@ -9,6 +9,9 @@ import {
   DEFAULT_EDITOR_APP,
   DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR,
   DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR,
+  DEFAULT_ALIVE_DOT_COLOR,
+  DEFAULT_ACTIVE_DOT_COLOR,
+  DEFAULT_UNSEEN_DOT_COLOR,
   DEFAULT_TERMINAL_FONT_FAMILY,
   DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_TERMINAL_SCROLLBACK,
@@ -24,6 +27,9 @@ export type ResolvedAppSettings = {
   editor_app: string;
   focused_terminal_border_color: string;
   maximized_terminal_border_color: string;
+  alive_dot_color: string;
+  active_dot_color: string;
+  unseen_dot_color: string;
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
@@ -36,6 +42,9 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   editor_app: DEFAULT_EDITOR_APP,
   focused_terminal_border_color: DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR,
   maximized_terminal_border_color: DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR,
+  alive_dot_color: DEFAULT_ALIVE_DOT_COLOR,
+  active_dot_color: DEFAULT_ACTIVE_DOT_COLOR,
+  unseen_dot_color: DEFAULT_UNSEEN_DOT_COLOR,
 };
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
@@ -49,6 +58,9 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     editor_app: settings?.editor_app?.trim() || DEFAULT_APP_SETTINGS.editor_app,
     focused_terminal_border_color: normalizeColor(settings?.focused_terminal_border_color, DEFAULT_APP_SETTINGS.focused_terminal_border_color),
     maximized_terminal_border_color: normalizeColor(settings?.maximized_terminal_border_color, DEFAULT_APP_SETTINGS.maximized_terminal_border_color),
+    alive_dot_color: normalizeColor(settings?.alive_dot_color, DEFAULT_APP_SETTINGS.alive_dot_color),
+    active_dot_color: normalizeColor(settings?.active_dot_color, DEFAULT_APP_SETTINGS.active_dot_color),
+    unseen_dot_color: normalizeColor(settings?.unseen_dot_color, DEFAULT_APP_SETTINGS.unseen_dot_color),
   };
 }
 
@@ -63,5 +75,8 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     editor_app: settings.editor_app.trim() || DEFAULT_APP_SETTINGS.editor_app,
     focused_terminal_border_color: normalizeColor(settings.focused_terminal_border_color, DEFAULT_APP_SETTINGS.focused_terminal_border_color),
     maximized_terminal_border_color: normalizeColor(settings.maximized_terminal_border_color, DEFAULT_APP_SETTINGS.maximized_terminal_border_color),
+    alive_dot_color: normalizeColor(settings.alive_dot_color, DEFAULT_APP_SETTINGS.alive_dot_color),
+    active_dot_color: normalizeColor(settings.active_dot_color, DEFAULT_APP_SETTINGS.active_dot_color),
+    unseen_dot_color: normalizeColor(settings.unseen_dot_color, DEFAULT_APP_SETTINGS.unseen_dot_color),
   };
 }

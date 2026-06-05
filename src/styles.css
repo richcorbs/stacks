@@ -122,9 +122,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .shortcutHint, .shortcutHintSlot { width: 28px; text-align: right; }
 .shortcutHint { color: #8fa0b3; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
 .dot {
-  --dot-color: #4ade80;
-  --dot-ring: #4ade80bb;
-  --dot-glow: #4ade8088;
+  --dot-color: var(--alive-dot-color, #4ade80);
+  --dot-ring: color-mix(in srgb, var(--dot-color) 72%, transparent);
+  --dot-glow: color-mix(in srgb, var(--dot-color) 52%, transparent);
   flex: 0 0 auto;
   width: 10px;
   height: 10px;
@@ -143,8 +143,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   background: currentColor;
   box-shadow: 0 0 8px var(--dot-glow);
 }
-.activityDot { --dot-color: #60a5fa; --dot-ring: #60a5fabb; --dot-glow: #60a5fa88; }
-.activityDotFresh { --dot-color: #fde047; --dot-ring: #fde047bb; --dot-glow: #fde04788; }
+.activityDot { --dot-color: var(--unseen-dot-color, #60a5fa); }
+.activityDotFresh { --dot-color: var(--active-dot-color, #fde047); }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
