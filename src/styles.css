@@ -73,7 +73,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   display: grid;
   place-items: center;
 }
-.sidebarHeader button { width: 28px; height: 24px; font-size: 18px; line-height: 1; justify-self: end; margin-right: 0; }
+.sidebarHeader button { width: 28px; height: 24px; font-size: 18px; line-height: 1; justify-self: end; margin-right: 2px; }
 .projectAddButton { width: 28px; height: 20px; font-size: 15px; margin-left: auto; margin-right: 2px; flex: 0 0 28px; }
 .sidebarHeader button:hover,
 .projectAddButton:hover { background: #2d4663; color: #d6deeb; }
