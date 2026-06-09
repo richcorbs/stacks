@@ -58,7 +58,11 @@ export function SettingsDialog({ settings, onChange, onClose }: {
       <form
         className="modal settingsModal"
         onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Escape') return;
+          e.preventDefault();
+          onClose();
+        }}
         onSubmit={(e) => { e.preventDefault(); save(); }}
       >
         <h2>Settings</h2>

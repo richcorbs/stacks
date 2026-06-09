@@ -47,6 +47,11 @@ function ConfirmDialog({ title, children, confirmLabel = 'Yes', onCancel, onConf
       <form
         className="modal confirmModal"
         onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key !== 'Escape') return;
+          e.preventDefault();
+          onCancel();
+        }}
         onSubmit={(e) => { e.preventDefault(); onConfirm(); }}
       >
         <h2>{title}</h2>
@@ -121,7 +126,11 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
       <form
         className={`modal ${dialog.kind === 'terminal' || dialog.kind === 'editTerminal' || dialog.kind === 'split' ? 'terminalDialog' : ''}`}
         onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Escape') return;
+          e.preventDefault();
+          onCancel();
+        }}
         onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
       >
         {dialog.kind === 'project' ? (
