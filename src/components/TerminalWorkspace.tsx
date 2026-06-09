@@ -10,6 +10,7 @@ import { consumePaneSessionScrollToBottomAfterFit, disposePaneSession, fitSessio
 import { useTerminalSelectionCopy } from '../hooks/useTerminalSelectionCopy';
 import { TerminalSearchOverlay } from './TerminalSearchOverlay';
 import { PaneControls } from './PaneControls';
+import { SplitResizeHandle } from './SplitResizeHandle';
 import { countSearchMatches } from '../terminalSearch';
 
 const encoder = new TextEncoder();
@@ -116,38 +117,6 @@ export function SplitView({ node, panesById, terminal, project, visible, termina
         <SplitView node={node.second} panesById={panesById} terminal={terminal} project={project} visible={visible} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activePaneId={activePaneId} displayedMaximizedPaneId={effectiveDisplayedMaximizedPaneId} searchPaneRequest={searchPaneRequest} restartPaneRequest={restartPaneRequest} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} onSplitPane={onSplitPane} canToggleMaximize={canToggleMaximize} onToggleMaximize={onToggleMaximize} />
       </div>
     </div>
-  );
-}
-
-function SplitResizeHandle({ direction, onResize }: { direction: 'row' | 'column'; onResize: (ratio: number) => void }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  return (
-    <div
-      ref={ref}
-      className={`splitResizeHandle splitResizeHandle-${direction}`}
-      onPointerDown={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const split = ref.current?.parentElement;
-        if (!split) return;
-        const rect = split.getBoundingClientRect();
-        const update = (event: PointerEvent) => {
-          const raw = direction === 'row'
-            ? (event.clientX - rect.left) / rect.width
-            : (event.clientY - rect.top) / rect.height;
-          onResize(Math.min(0.9, Math.max(0.1, raw)));
-        };
-        const stop = () => {
-          window.removeEventListener('pointermove', update);
-          window.removeEventListener('pointerup', stop);
-          document.body.classList.remove('resizingSplit');
-        };
-        document.body.classList.add('resizingSplit');
-        window.addEventListener('pointermove', update);
-        window.addEventListener('pointerup', stop);
-      }}
-    />
   );
 }
 
