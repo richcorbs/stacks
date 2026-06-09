@@ -98,6 +98,12 @@ struct AppSettings {
     focused_terminal_border_color: Option<String>,
     #[serde(default)]
     maximized_terminal_border_color: Option<String>,
+    #[serde(default)]
+    alive_dot_color: Option<String>,
+    #[serde(default)]
+    active_dot_color: Option<String>,
+    #[serde(default)]
+    unseen_dot_color: Option<String>,
 }
 
 struct PtyHandle {
@@ -245,6 +251,9 @@ fn save_app_settings(next: AppSettings) -> Result<(), String> {
         settings.editor_app = next.editor_app.filter(|value| !value.trim().is_empty());
         settings.focused_terminal_border_color = next.focused_terminal_border_color.filter(|value| !value.trim().is_empty());
         settings.maximized_terminal_border_color = next.maximized_terminal_border_color.filter(|value| !value.trim().is_empty());
+        settings.alive_dot_color = next.alive_dot_color.filter(|value| !value.trim().is_empty());
+        settings.active_dot_color = next.active_dot_color.filter(|value| !value.trim().is_empty());
+        settings.unseen_dot_color = next.unseen_dot_color.filter(|value| !value.trim().is_empty());
     })
 }
 

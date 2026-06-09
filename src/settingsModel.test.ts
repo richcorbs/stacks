@@ -30,9 +30,16 @@ describe('settingsModel', () => {
     expect(DEFAULT_APP_SETTINGS.maximized_terminal_border_color).toBe('#84cc16');
   });
 
+  it('defaults workspace status dot colors', () => {
+    expect(DEFAULT_APP_SETTINGS.alive_dot_color).toBe('#4ade80');
+    expect(DEFAULT_APP_SETTINGS.active_dot_color).toBe('#fde047');
+    expect(DEFAULT_APP_SETTINGS.unseen_dot_color).toBe('#60a5fa');
+  });
+
   it('normalizes invalid colors to defaults', () => {
-    const settings = resolveAppSettings({ focused_terminal_border_color: 'blue', maximized_terminal_border_color: '#abc' });
+    const settings = resolveAppSettings({ focused_terminal_border_color: 'blue', maximized_terminal_border_color: '#abc', alive_dot_color: 'green' });
     expect(settings.focused_terminal_border_color).toBe(DEFAULT_APP_SETTINGS.focused_terminal_border_color);
     expect(settings.maximized_terminal_border_color).toBe(DEFAULT_APP_SETTINGS.maximized_terminal_border_color);
+    expect(settings.alive_dot_color).toBe(DEFAULT_APP_SETTINGS.alive_dot_color);
   });
 });

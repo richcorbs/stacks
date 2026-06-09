@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react';
 import type { AppStats, ContextMenuState, DragState, PointerDragState, Project, Store, TerminalEntry } from '../types';
+import { workspaceStatusDot } from '../workspace/statusDots';
 
 type SidebarTerminal = { project: Project; terminal: TerminalEntry };
 
@@ -238,9 +239,9 @@ function TerminalRow({
   const isRunning = runningPaneIds.some((paneId) => paneId.startsWith(`${terminal.id}:`));
   const hasBackgroundActivity = terminal.id !== activeTerminalId && activityTerminalIds.includes(terminal.id);
   const activityAge = activityNow - (activityTerminalLastOutputAtById[terminal.id] ?? 0);
-  const activityFresh = hasBackgroundActivity && activityAge < 5000;
-  const activityDotClass = activityFresh ? 'activityDotFresh' : 'activityDot';
-  const activityDotTitle = activityFresh ? 'Recent background output' : 'Background output';
+  const statusDot = workspaceStatusDot({ isRunning, hasUnacknowledgedActivity: hasBackgroundActivity, activityAgeMs: activityAge });
+  const statusDotClass = statusDot === 'active' ? 'activityDotFresh' : statusDot === 'unseen' ? 'activityDot' : '';
+  const statusDotTitle = statusDot === 'active' ? 'Recent background output' : statusDot === 'unseen' ? 'Background output' : 'Active terminal running';
   const shortcutIndex = sidebarTerminals.findIndex(({ terminal: t }) => t.id === terminal.id);
 
   return (
@@ -275,10 +276,8 @@ function TerminalRow({
       <span className="termIndicators">
         {metaKeyDown ? (
           shortcutIndex >= 0 && shortcutIndex < 9 ? <span className="shortcutHint">⌘{shortcutIndex + 1}</span> : <span className="shortcutHintSlot" />
-        ) : hasBackgroundActivity ? (
-          <span className={`dot ${activityDotClass}`} title={activityDotTitle} />
-        ) : isRunning ? (
-          <span className="dot" title="Active terminal running" />
+        ) : statusDot ? (
+          <span className={`dot ${statusDotClass}`} title={statusDotTitle} />
         ) : null}
       </span>
     </button>
