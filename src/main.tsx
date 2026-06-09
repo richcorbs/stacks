@@ -172,6 +172,7 @@ function App() {
     setDialog,
     activeTerminal,
     activePaneId,
+    focusedPaneByTerminalId,
     maximizedTerminalId,
     sidebarFocusedTerminalId,
     activeTerminalId,
@@ -477,7 +478,10 @@ function App() {
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={closeDialog} onSubmit={submitActiveDialog} />}
       {confirmClosePaneId && (
         <ConfirmClosePaneDialog
-          onCancel={() => setConfirmClosePaneId(null)}
+          onCancel={() => {
+            setConfirmClosePaneId(null);
+            restoreActivePaneFocus('cancel-close-pane');
+          }}
           onConfirm={() => {
             const paneId = confirmClosePaneId;
             setConfirmClosePaneId(null);
@@ -520,7 +524,10 @@ function App() {
       )}
       {confirmQuitOpen && (
         <ConfirmQuitDialog
-          onCancel={() => setConfirmQuitOpen(false)}
+          onCancel={() => {
+            setConfirmQuitOpen(false);
+            restoreActivePaneFocus('cancel-quit');
+          }}
           onConfirm={() => {
             setConfirmQuitOpen(false);
             invoke('save_current_window_state')

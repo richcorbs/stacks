@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import type React from 'react';
 import type { DialogState, Pane, Project, SplitNode, Store, TerminalEntry } from '../types';
 import { basename, rebalanceSplits, removeLeaf, normalizeSplitNode, setSplitRatio, splitLeaf } from '../utils';
-import { disposePaneSession, disposePaneSessions, isPaneSessionAtBottom, requestPaneSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
+import { disposePaneSession, disposePaneSessions, focusPaneSession, isPaneSessionAtBottom, requestPaneSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { paneIdsForTerminal, previousPaneIdAfterClose, shouldMaximizeTerminalAfterNewSplit } from '../workspace/selectors';
 import { nextPaneIdForCycle, shouldClearMaximizedTerminalAfterClose, toggleMaximizedTerminalId } from '../workspace/maximize';
 
@@ -16,6 +16,7 @@ type WorkspaceCommandOptions = {
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   activeTerminal: TerminalEntry | null;
   activePaneId: string | null;
+  focusedPaneByTerminalId: Record<string, string>;
   maximizedTerminalId: string | null;
   sidebarFocusedTerminalId: string | null;
   activeTerminalId: string | null;
@@ -45,6 +46,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setDialog,
     activeTerminal,
     activePaneId,
+    focusedPaneByTerminalId,
     maximizedTerminalId,
     panesByTerminalId,
     splitRootsByTerminalId,
@@ -288,18 +290,37 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setSidebarFocusedTerminalId(sidebarTerminals[nextIndex].terminal.id);
   }
 
+  function paneIdToFocusForTerminal(terminalId: string) {
+    const paneIds = paneIdsForTerminal(terminalId, panesByTerminalId, splitRootsByTerminalId[terminalId]);
+    const rememberedPaneId = focusedPaneByTerminalId[terminalId];
+    if (rememberedPaneId && paneIds.includes(rememberedPaneId)) return rememberedPaneId;
+    if (activeTerminalId === terminalId && activePaneId?.startsWith(`${terminalId}:`)) return activePaneId;
+    return paneIds[0] ?? `${terminalId}:0`;
+  }
+
+  function activateTerminal(projectId: string, terminalId: string) {
+    const paneId = paneIdToFocusForTerminal(terminalId);
+    selectTerminal(projectId, terminalId);
+    focusPane(terminalId, paneId);
+    requestAnimationFrame(() => {
+      if (focusPaneSession(paneId, 'activate-terminal-shortcut', { scrollToBottom: false })) return;
+      requestAnimationFrame(() => focusPaneSession(paneId, 'activate-terminal-shortcut-delayed', { scrollToBottom: false }));
+    });
+  }
+
   function activateSidebarFocusedTerminal() {
-    if (!sidebarFocusedTerminalId) return;
-    const match = sidebarTerminals.find(({ terminal }) => terminal.id === sidebarFocusedTerminalId);
+    const terminalId = sidebarFocusedTerminalId ?? activeTerminalId;
+    if (!terminalId) return;
+    const match = sidebarTerminals.find(({ terminal }) => terminal.id === terminalId);
     if (!match) return;
-    selectTerminal(match.project.id, match.terminal.id);
+    activateTerminal(match.project.id, match.terminal.id);
     setSidebarFocusedTerminalId(null);
   }
 
   function activateTerminalByIndex(index: number) {
     const match = sidebarTerminals[index];
     if (!match) return;
-    selectTerminal(match.project.id, match.terminal.id);
+    activateTerminal(match.project.id, match.terminal.id);
     setSidebarFocusedTerminalId(null);
   }
 
