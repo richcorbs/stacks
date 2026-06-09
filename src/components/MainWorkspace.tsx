@@ -1,6 +1,6 @@
-import { SplitView } from './TerminalWorkspace';
 import type { GitInfo, Pane, Project, SplitNode, TerminalEntry } from '../types';
-import { effectiveDisplayedMaximizedPaneId } from '../workspace/selectors';
+import { WorkspaceTopbar } from './WorkspaceTopbar';
+import { WorkspaceViews } from './WorkspaceViews';
 
 type TerminalWorkspaceModel = {
   project: Project;
@@ -56,84 +56,27 @@ export function MainWorkspace({
 }: MainWorkspaceProps) {
   return (
     <main className="main">
-      <Topbar activePath={activePath} gitInfo={gitInfo} hasActivePane={hasActivePane} />
+      <WorkspaceTopbar activePath={activePath} gitInfo={gitInfo} hasActivePane={hasActivePane} />
       <section className="workspace">
-        {workspaces.length > 0 ? (
-          workspaces.map(({ project, terminal, panes, root }) => {
-            const visible = terminal.id === activeTerminalId;
-            const panesById = Object.fromEntries(panes.map((pane) => [pane.id, pane]));
-            const visiblePaneIds = panes.map((pane) => pane.id);
-            const terminalFocusedPaneId = focusedPaneForTerminal(terminal.id, activePaneId, panes.map((pane) => pane.id));
-            const visibleMaximizedPaneId = effectiveDisplayedMaximizedPaneId(maximizedTerminalId, terminal.id, terminalFocusedPaneId, visiblePaneIds);
-            return (
-              <div
-                key={terminal.id}
-                className={`terminalWorkspace ${visible ? 'visible' : ''}`}
-                aria-hidden={!visible}
-              >
-                {root && (
-                  <SplitView
-                    node={root}
-                    panesById={panesById}
-                    terminal={terminal}
-                    project={project}
-                    visible={visible}
-                    terminalFontSize={terminalFontSize}
-                    terminalFontFamily={terminalFontFamily}
-                    terminalScrollback={terminalScrollback}
-                    copyOnSelect={copyOnSelect}
-                    activePaneId={visible ? activePaneId : null}
-                    displayedMaximizedPaneId={visible ? visibleMaximizedPaneId : null}
-                    searchPaneRequest={searchPaneRequest}
-                    restartPaneRequest={restartPaneRequest}
-                    path=""
-                    onResizeSplit={(path, ratio) => onResizeSplit(terminal.id, path, ratio)}
-                    onFocus={(paneId) => onFocusPane(project.id, terminal.id, paneId)}
-                    onClose={onClosePane}
-                    onSplitPane={onSplitPane}
-                    canToggleMaximize={canToggleMaximizedTerminal(terminal.id)}
-                    onToggleMaximize={onToggleMaximizedTerminal}
-                  />
-                )}
-              </div>
-            );
-          })
-        ) : (
-          <div className="empty">Create or select a workspace. Shortcuts: ⌘O project, ⌘N workspace, ⌘D split terminal.</div>
-        )}
+        <WorkspaceViews
+          workspaces={workspaces}
+          activeTerminalId={activeTerminalId}
+          activePaneId={activePaneId}
+          maximizedTerminalId={maximizedTerminalId}
+          terminalFontSize={terminalFontSize}
+          terminalFontFamily={terminalFontFamily}
+          terminalScrollback={terminalScrollback}
+          copyOnSelect={copyOnSelect}
+          searchPaneRequest={searchPaneRequest}
+          restartPaneRequest={restartPaneRequest}
+          onResizeSplit={onResizeSplit}
+          onFocusPane={onFocusPane}
+          onClosePane={onClosePane}
+          canToggleMaximizedTerminal={canToggleMaximizedTerminal}
+          onToggleMaximizedTerminal={onToggleMaximizedTerminal}
+          onSplitPane={onSplitPane}
+        />
       </section>
     </main>
-  );
-}
-
-function focusedPaneForTerminal(terminalId: string, activePaneId: string | null, paneIds: string[]) {
-  if (activePaneId?.startsWith(`${terminalId}:`) && paneIds.includes(activePaneId)) return activePaneId;
-  return paneIds[0] ?? null;
-}
-
-function Topbar({ activePath, gitInfo, hasActivePane }: { activePath: string | null; gitInfo: GitInfo | null; hasActivePane: boolean }) {
-  return (
-    <header className="topbar">
-      <div>
-        <div className="subtitle">{hasActivePane ? activePath : 'Select a workspace'}</div>
-      </div>
-      {hasActivePane && (
-        <div className="branchDisplay">
-          {gitInfo && (
-            <>
-              <span className="branchName"> {gitInfo.branch}</span>
-              {(gitInfo.created > 0 || gitInfo.changed > 0 || gitInfo.deleted > 0) && (
-                <span className="gitStats" title="Files created / changed / deleted">
-                  <span className="gitSeparator">•</span>
-                  {gitInfo.created > 0 && <span className="gitAdded">+{gitInfo.created}</span>}
-                  {gitInfo.changed > 0 && <span className="gitChanged">~{gitInfo.changed}</span>}
-                  {gitInfo.deleted > 0 && <span className="gitRemoved">-{gitInfo.deleted}</span>}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </header>
   );
 }

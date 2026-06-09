@@ -2,7 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { ResolvedAppSettings } from '../settingsModel';
 import { DEFAULT_APP_SETTINGS } from '../settingsModel';
-import { clampTerminalFontSize, clampTerminalScrollback, DEFAULT_ACTIVE_DOT_COLOR, DEFAULT_ALIVE_DOT_COLOR, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR, DEFAULT_UNSEEN_DOT_COLOR, MAX_TERMINAL_FONT_SIZE, MAX_TERMINAL_SCROLLBACK, MIN_TERMINAL_FONT_SIZE, MIN_TERMINAL_SCROLLBACK, normalizeColor } from '../settings';
+import {
+  clampTerminalFontSize,
+  clampTerminalScrollback,
+  DEFAULT_ACTIVE_DOT_COLOR,
+  DEFAULT_ALIVE_DOT_COLOR,
+  DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR,
+  DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR,
+  DEFAULT_UNSEEN_DOT_COLOR,
+  normalizeColor,
+} from '../settings';
+import {
+  ConfirmationSettingsSection,
+  EditorSettingsSection,
+  TerminalSettingsSection,
+  WorkspaceStatusDotSettingsSection,
+} from './SettingsSections';
 
 export function SettingsDialog({ settings, onChange, onClose }: {
   settings: ResolvedAppSettings;
@@ -66,158 +81,10 @@ export function SettingsDialog({ settings, onChange, onClose }: {
         onSubmit={(e) => { e.preventDefault(); save(); }}
       >
         <h2>Settings</h2>
-        <section className="settingsSection">
-          <h3>Terminal</h3>
-          <label>
-            Font size
-            <input
-              ref={firstInputRef}
-              type="number"
-              min={MIN_TERMINAL_FONT_SIZE}
-              max={MAX_TERMINAL_FONT_SIZE}
-              value={draft.terminal_font_size}
-              onChange={(e) => update({ terminal_font_size: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            Font family
-            <input
-              value={draft.terminal_font_family}
-              placeholder={DEFAULT_APP_SETTINGS.terminal_font_family}
-              onChange={(e) => update({ terminal_font_family: e.target.value })}
-            />
-          </label>
-          <label>
-            Scrollback lines
-            <input
-              type="number"
-              min={MIN_TERMINAL_SCROLLBACK}
-              max={MAX_TERMINAL_SCROLLBACK}
-              step={100}
-              value={draft.terminal_scrollback}
-              onChange={(e) => update({ terminal_scrollback: Number(e.target.value) })}
-            />
-          </label>
-          <label className="checkboxLabel">
-            <input
-              type="checkbox"
-              checked={draft.copy_on_select}
-              onChange={(e) => update({ copy_on_select: e.target.checked })}
-            />
-            Copy terminal selection to clipboard on mouse up
-          </label>
-          <label>
-            Focused terminal border
-            <div className="colorField">
-              <input
-                type="color"
-                value={normalizeColor(draft.focused_terminal_border_color, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR)}
-                onChange={(e) => update({ focused_terminal_border_color: e.target.value })}
-              />
-              <input
-                value={draft.focused_terminal_border_color}
-                placeholder={DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR}
-                onChange={(e) => update({ focused_terminal_border_color: e.target.value })}
-              />
-            </div>
-          </label>
-          <label>
-            Maximized terminal border
-            <div className="colorField">
-              <input
-                type="color"
-                value={normalizeColor(draft.maximized_terminal_border_color, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR)}
-                onChange={(e) => update({ maximized_terminal_border_color: e.target.value })}
-              />
-              <input
-                value={draft.maximized_terminal_border_color}
-                placeholder={DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR}
-                onChange={(e) => update({ maximized_terminal_border_color: e.target.value })}
-              />
-            </div>
-          </label>
-        </section>
-        <section className="settingsSection">
-          <h3>Workspace status dots</h3>
-          <label>
-            Alive
-            <div className="colorField">
-              <input
-                type="color"
-                value={normalizeColor(draft.alive_dot_color, DEFAULT_ALIVE_DOT_COLOR)}
-                onChange={(e) => update({ alive_dot_color: e.target.value })}
-              />
-              <input
-                value={draft.alive_dot_color}
-                placeholder={DEFAULT_ALIVE_DOT_COLOR}
-                onChange={(e) => update({ alive_dot_color: e.target.value })}
-              />
-            </div>
-          </label>
-          <label>
-            Active
-            <div className="colorField">
-              <input
-                type="color"
-                value={normalizeColor(draft.active_dot_color, DEFAULT_ACTIVE_DOT_COLOR)}
-                onChange={(e) => update({ active_dot_color: e.target.value })}
-              />
-              <input
-                value={draft.active_dot_color}
-                placeholder={DEFAULT_ACTIVE_DOT_COLOR}
-                onChange={(e) => update({ active_dot_color: e.target.value })}
-              />
-            </div>
-          </label>
-          <label>
-            Unseen
-            <div className="colorField">
-              <input
-                type="color"
-                value={normalizeColor(draft.unseen_dot_color, DEFAULT_UNSEEN_DOT_COLOR)}
-                onChange={(e) => update({ unseen_dot_color: e.target.value })}
-              />
-              <input
-                value={draft.unseen_dot_color}
-                placeholder={DEFAULT_UNSEEN_DOT_COLOR}
-                onChange={(e) => update({ unseen_dot_color: e.target.value })}
-              />
-            </div>
-          </label>
-        </section>
-        <section className="settingsSection">
-          <h3>Confirmations</h3>
-          <label className="checkboxLabel">
-            <input
-              type="checkbox"
-              checked={draft.confirm_close}
-              onChange={(e) => update({ confirm_close: e.target.checked })}
-            />
-            Confirm closing terminals and quitting
-          </label>
-          <label className="checkboxLabel">
-            <input
-              type="checkbox"
-              checked={draft.confirm_delete}
-              onChange={(e) => update({ confirm_delete: e.target.checked })}
-            />
-            Confirm deleting projects and workspaces
-          </label>
-        </section>
-        <section className="settingsSection">
-          <h3>Editor</h3>
-          <label>
-            Open directories with
-            <div className="settingsInlineField">
-              <input
-                value={draft.editor_app}
-                placeholder="Zed"
-                onChange={(e) => update({ editor_app: e.target.value })}
-              />
-              <button type="button" onClick={chooseEditorApp}>Choose…</button>
-            </div>
-          </label>
-        </section>
+        <TerminalSettingsSection draft={draft} firstInputRef={firstInputRef} update={update} />
+        <WorkspaceStatusDotSettingsSection draft={draft} update={update} />
+        <ConfirmationSettingsSection draft={draft} update={update} />
+        <EditorSettingsSection draft={draft} update={update} chooseEditorApp={chooseEditorApp} />
         <div className="modalActions">
           <button type="button" onClick={onClose}>Cancel</button>
           <button type="button" onClick={() => setDraft(DEFAULT_APP_SETTINGS)}>Defaults</button>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { CommandPaletteResults } from './CommandPaletteResults';
 
 export type PaletteItem = {
   id: string;
@@ -91,20 +92,13 @@ export function CommandPalette({ open, items, onClose, onRunItem }: CommandPalet
           }}
         />
         <div className="paletteResults">
-          {filteredItems.length > 0 ? filteredItems.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`${index === selectedIndex ? 'selected' : ''} ${item.danger ? 'danger' : ''}`}
-              onMouseEnter={() => setSelectedIndex(index)}
-              onClick={() => { onRunItem?.(); if (!onRunItem) onClose(); item.action(); }}
-            >
-              <span>{item.title}</span>
-              {item.subtitle && <small>{item.subtitle}</small>}
-            </button>
-          )) : (
-            <div className="paletteEmpty">No matches</div>
-          )}
+          <CommandPaletteResults
+            items={filteredItems}
+            selectedIndex={selectedIndex}
+            setSelectedIndex={setSelectedIndex}
+            onRunItem={onRunItem}
+            onClose={onClose}
+          />
         </div>
       </div>
     </div>
