@@ -265,9 +265,12 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
   background: #0f141b;
   opacity: .76;
   position: relative;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .pane.active { opacity: 1; border-color: var(--focused-terminal-border, #3b82f6); border-radius: 4px; box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6); }
 .pane.maximized { border-color: var(--maximized-terminal-border, #84cc16); box-shadow: 0 0 0 1px var(--maximized-terminal-border, #84cc16); }
+body.appWindowInactive .pane.active { border-color: var(--focused-terminal-border-inactive, #295081); box-shadow: 0 0 0 1px var(--focused-terminal-border-inactive, #295081); }
+body.appWindowInactive .pane.maximized { border-color: var(--maximized-terminal-border-inactive, #426923); box-shadow: 0 0 0 1px var(--maximized-terminal-border-inactive, #426923); }
 .paneControls {
   position: absolute;
   top: 7px;

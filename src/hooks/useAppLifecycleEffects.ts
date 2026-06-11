@@ -10,6 +10,7 @@ import { useContextMenuDismissal } from './useContextMenuDismissal';
 import { usePaneCwd } from './usePaneCwd';
 import { useImageDropToTerminal } from './useImageDropToTerminal';
 import { useFocusDebug } from './useFocusDebug';
+import { useAppWindowFocusClass } from './useAppWindowFocusClass';
 import type { ContextMenuState } from '../types';
 
 export function useAppLifecycleEffects({
@@ -54,6 +55,7 @@ export function useAppLifecycleEffects({
   showToast: (message: string) => void;
 }) {
   useFocusDebug({ activeProjectId, activeTerminalId, activePaneId, maximizedTerminalId, sidebarFocusedTerminalId });
+  useAppWindowFocusClass();
 
   useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
