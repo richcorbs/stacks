@@ -19,6 +19,8 @@ export function useAppRootModel() {
     setStore,
     sidebarWidth,
     setSidebarWidth,
+    sidebarVisible,
+    setSidebarVisible,
     appSettings,
     setAppSettings,
     metaKeyDown,
@@ -224,6 +226,7 @@ export function useAppRootModel() {
     activePath,
     appSettings,
     setMetaKeyDown,
+    toggleSidebar: () => setSidebarVisible((visible) => !visible),
     setConfirmClosePaneId,
     setConfirmDeleteTerminal,
     setConfirmQuitOpen,
@@ -251,6 +254,7 @@ export function useAppRootModel() {
 
   const { confirmDeleteProject, confirmDeleteTerminalEntry } = useAppOverlayModels({ store, confirmDeleteProjectId, confirmDeleteTerminal });
   const layoutProps = useAppLayoutProps({
+    sidebarVisible,
     sidebarWidth,
     store,
     activeProjectId,
@@ -285,6 +289,7 @@ export function useAppRootModel() {
     setConfirmClosePaneId,
     toggleMaximizedTerminal,
     splitPane,
+    toggleSidebar: () => setSidebarVisible((visible) => !visible),
     setAppSettings,
     contextMenu,
     commandPaletteOpen,

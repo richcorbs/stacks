@@ -18,6 +18,7 @@ export function useAppShortcutHandlers({
   activePath,
   appSettings,
   setMetaKeyDown,
+  toggleSidebar,
   setConfirmClosePaneId,
   setConfirmDeleteTerminal,
   setConfirmQuitOpen,
@@ -88,6 +89,7 @@ export function useAppShortcutHandlers({
     openCommandPalette: () => setCommandPaletteOpen(true),
     openPaneSearch,
     openSettings: () => setSettingsOpen(true),
+    toggleSidebar,
   };
 
   useKeyboardShortcuts(shortcutHandlers);

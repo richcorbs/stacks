@@ -17,7 +17,7 @@ export function AppLayout({
 }) {
   return (
     <div className="app" style={appStyle}>
-      <Sidebar
+      {sidebar.visible && <Sidebar
         width={sidebar.width}
         store={sidebar.store}
         activeProjectId={sidebar.activeProjectId}
@@ -38,10 +38,11 @@ export function AppLayout({
         setContextMenu={sidebar.setContextMenu}
         onAddProject={sidebar.openProjectDialog}
         onAddTerminal={sidebar.openTerminalDialog}
-      />
+      />}
       <MainWorkspace
         activePath={main.activePath}
         gitInfo={main.gitInfo}
+        onToggleSidebar={main.toggleSidebar}
         workspaces={main.visitedTerminalWorkspaces}
         activeTerminalId={main.activeTerminalId}
         activePaneId={main.activePaneId}
@@ -52,7 +53,7 @@ export function AppLayout({
         copyOnSelect={main.appSettings.copy_on_select}
         searchPaneRequest={main.searchPaneRequest}
         restartPaneRequest={main.restartPaneRequest}
-        hasActivePane={Boolean(main.activeTerminalId && main.activePaneId)}
+        hasActivePane={Boolean(main.activeTerminalId)}
         onResizeSplit={main.resizeSplit}
         onFocusPane={(projectId, terminalId, paneId) => {
           main.selectTerminal(projectId, terminalId);

@@ -11,6 +11,7 @@ export function useAppStateBundle() {
   const [loaded, setLoaded] = useState(false);
   const [store, setStore] = useState<Store>({ projects: [] });
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
   const [appSettings, setAppSettings] = useState<ResolvedAppSettings>(DEFAULT_APP_SETTINGS);
   const [metaKeyDown, setMetaKeyDown] = useState(false);
   const { state: workspace, actions: workspaceActions } = useWorkspaceState();
@@ -25,6 +26,8 @@ export function useAppStateBundle() {
     setStore,
     sidebarWidth,
     setSidebarWidth,
+    sidebarVisible,
+    setSidebarVisible,
     appSettings,
     setAppSettings,
     metaKeyDown,

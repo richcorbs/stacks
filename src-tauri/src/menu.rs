@@ -8,6 +8,7 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         ("menu-shortcut-add-project", "Add Project", "Cmd+O", Some("Cmd+O")),
         ("menu-shortcut-new-terminal", "New Workspace", "Cmd+N", Some("Cmd+N")),
         ("menu-shortcut-settings", "Settings", "Cmd+,", Some("Cmd+,")),
+        ("menu-shortcut-toggle-sidebar", "Toggle Sidebar", "Cmd+B", Some("Cmd+B")),
         ("menu-shortcut-split-right", "Split Terminal Right", "Cmd+D", Some("Cmd+D")),
         ("menu-shortcut-split-down", "Split Terminal Down", "Cmd+Shift+D", Some("Cmd+Shift+D")),
         ("menu-shortcut-close-pane", "Close Focused Terminal", "Cmd+W", Some("Cmd+W")),

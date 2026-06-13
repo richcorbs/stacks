@@ -8,6 +8,7 @@ import { useAppStyle } from './useAppStyle';
 type ConfirmDeleteTerminal = { projectId: string; terminalId: string };
 
 type UseAppLayoutPropsOptions = {
+  sidebarVisible: boolean;
   sidebarWidth: number;
   store: Store;
   activeProjectId: string | null;
@@ -42,6 +43,7 @@ type UseAppLayoutPropsOptions = {
   setConfirmClosePaneId: React.Dispatch<React.SetStateAction<string | null>>;
   toggleMaximizedTerminal: (paneId?: string | null) => void;
   splitPane: (direction: 'row' | 'column', targetPaneId?: string) => void;
+  toggleSidebar: () => void;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   contextMenu: ContextMenuState | null;
   commandPaletteOpen: boolean;
@@ -80,6 +82,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
   return {
     appStyle,
     sidebar: {
+      visible: options.sidebarVisible,
       width: options.sidebarWidth,
       store: options.store,
       activeProjectId: options.activeProjectId,
@@ -118,6 +121,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       setConfirmClosePaneId: options.setConfirmClosePaneId,
       toggleMaximizedTerminal: options.toggleMaximizedTerminal,
       splitPane: options.splitPane,
+      toggleSidebar: options.toggleSidebar,
     },
     overlays: {
       store: options.store,

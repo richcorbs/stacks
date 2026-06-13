@@ -31,6 +31,7 @@ type MainWorkspaceProps = {
   onToggleMaximizedTerminal: (paneId: string) => void;
   onSplitPane: (direction: 'row' | 'column', targetPaneId?: string) => void;
   hasActivePane: boolean;
+  onToggleSidebar: () => void;
 };
 
 export function MainWorkspace({
@@ -53,10 +54,11 @@ export function MainWorkspace({
   onToggleMaximizedTerminal,
   onSplitPane,
   hasActivePane,
+  onToggleSidebar,
 }: MainWorkspaceProps) {
   return (
     <main className="main">
-      <WorkspaceTopbar activePath={activePath} gitInfo={gitInfo} hasActivePane={hasActivePane} />
+      <WorkspaceTopbar activePath={activePath} gitInfo={gitInfo} hasActivePane={hasActivePane} onToggleSidebar={onToggleSidebar} />
       <section className="workspace">
         <WorkspaceViews
           workspaces={workspaces}

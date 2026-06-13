@@ -1,14 +1,27 @@
 import type { GitInfo } from '../types';
 
-export function WorkspaceTopbar({ activePath, gitInfo, hasActivePane }: {
+export function WorkspaceTopbar({ activePath, gitInfo, hasActivePane, onToggleSidebar }: {
   activePath: string | null;
   gitInfo: GitInfo | null;
   hasActivePane: boolean;
+  onToggleSidebar: () => void;
 }) {
   return (
     <header className="topbar">
-      <div>
-        <div className="subtitle">{hasActivePane ? activePath : 'Select a workspace'}</div>
+      <div className="topbarTitleArea">
+        {hasActivePane && (
+          <button
+            className="sidebarToggleButton"
+            type="button"
+            title="Toggle sidebar (⌘B)"
+            aria-label="Toggle sidebar"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={onToggleSidebar}
+          >
+            <span className="sidebarIcon" />
+          </button>
+        )}
+        <div className="subtitle">{hasActivePane ? (activePath ?? '') : 'Select a workspace'}</div>
       </div>
       {hasActivePane && (
         <div className="branchDisplay">

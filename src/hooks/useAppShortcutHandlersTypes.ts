@@ -13,6 +13,7 @@ export type AppShortcutHandlerOptions = {
   activePath: string | null;
   appSettings: ResolvedAppSettings;
   setMetaKeyDown: (down: boolean) => void;
+  toggleSidebar: () => void;
   setConfirmClosePaneId: Dispatch<SetStateAction<string | null>>;
   setConfirmDeleteTerminal: Dispatch<SetStateAction<{ projectId: string; terminalId: string } | null>>;
   setConfirmQuitOpen: Dispatch<SetStateAction<boolean>>;

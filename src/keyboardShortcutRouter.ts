@@ -29,6 +29,10 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     runHandledShortcut(event, () => runShortcutAction('search-pane', handlers));
     return;
   }
+  if (key === 'b') {
+    runHandledShortcut(event, () => runShortcutAction('toggle-sidebar', handlers));
+    return;
+  }
   if (key === 'k') {
     runHandledShortcut(event, () => runShortcutAction('clear-pane', handlers));
     return;

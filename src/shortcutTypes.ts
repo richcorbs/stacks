@@ -10,6 +10,7 @@ export type ShortcutAction =
   | 'search-pane'
   | 'command-palette'
   | 'settings'
+  | 'toggle-sidebar'
   | 'maximize-pane'
   | 'focus-next-pane'
   | 'focus-previous-pane'
@@ -39,4 +40,5 @@ export type ShortcutHandlers = {
   openCommandPalette: () => void;
   openPaneSearch: () => void;
   openSettings: () => void;
+  toggleSidebar: () => void;
 };

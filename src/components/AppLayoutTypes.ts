@@ -13,6 +13,7 @@ export type TerminalWorkspaceModel = {
 export type ConfirmDeleteTerminal = { projectId: string; terminalId: string };
 
 export type SidebarLayoutProps = {
+  visible: boolean;
   width: number;
   store: Store;
   activeProjectId: string | null;
@@ -52,6 +53,7 @@ export type MainLayoutProps = {
   setConfirmClosePaneId: React.Dispatch<React.SetStateAction<string | null>>;
   toggleMaximizedTerminal: (paneId?: string | null) => void;
   splitPane: (direction: 'row' | 'column', targetPaneId?: string) => void;
+  toggleSidebar: () => void;
 };
 
 export type OverlayLayoutProps = {

@@ -33,6 +33,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     openCommandPalette,
     openPaneSearch,
     openSettings,
+    toggleSidebar,
   } = handlers;
 
   switch (action) {
@@ -63,6 +64,9 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'settings':
       openSettings();
+      break;
+    case 'toggle-sidebar':
+      toggleSidebar();
       break;
     case 'maximize-pane':
       toggleMaximizedTerminal();
