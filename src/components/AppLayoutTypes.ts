@@ -19,7 +19,7 @@ export type SidebarLayoutProps = {
   activeProjectId: string | null;
   activeWorkspaceId: string | null;
   sidebarFocusedWorkspaceId: string | null;
-  sidebarWorkspaces: { project: Project; terminal: WorkspaceEntry }[];
+  sidebarWorkspaces: { project: Project; workspace: WorkspaceEntry }[];
   runningTerminalIds: string[];
   activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;

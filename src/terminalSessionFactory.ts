@@ -66,6 +66,7 @@ export function createTerminalSession({
     search,
     webLinks,
     spawned: false,
+    starting: false,
     running: false,
     lastPtySize: null,
     dataDisposable: term.onData((data) => {
@@ -75,6 +76,8 @@ export function createTerminalSession({
     selectionDisposable: term.onSelectionChange(() => {}),
     decoder: new TextDecoder(),
     outputQueue: [],
+    outputQueuedChars: 0,
+    outputDroppedChars: 0,
     outputWriteInProgress: false,
     outputActivityFrame: null,
   };

@@ -1,7 +1,7 @@
 import type React from 'react';
 import type { DialogState, TerminalEntry, Project, SplitNode, Store, WorkspaceEntry } from '../types';
 
-type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
+type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 export type WorkspaceCommandOptions = {
   store: Store;

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
@@ -92,14 +92,17 @@ export function useAppShortcutHandlers({
     toggleSidebar,
   };
 
+  const shortcutHandlersRef = useRef(shortcutHandlers);
+  shortcutHandlersRef.current = shortcutHandlers;
+
   useKeyboardShortcuts(shortcutHandlers);
 
   useEffect(() => {
     const unlistenPromise = getCurrentWindow().listen<string>('menu-shortcut', (event) => {
-      runShortcutAction(event.payload as ShortcutAction, shortcutHandlers);
+      runShortcutAction(event.payload as ShortcutAction, shortcutHandlersRef.current);
     });
     return () => { unlistenPromise.then((unlisten) => unlisten()).catch(console.error); };
-  }, [shortcutHandlers]);
+  }, []);
 
   return { commandPaletteItems };
 }

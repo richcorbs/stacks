@@ -2,7 +2,7 @@ import type { MutableRefObject } from 'react';
 import type { AppStats, ContextMenuState, PointerDragState, Project, Store, WorkspaceEntry } from '../types';
 import { SidebarProjectSection } from './SidebarProjectSection';
 
-type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
+type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 type SidebarProps = {
   width: number;

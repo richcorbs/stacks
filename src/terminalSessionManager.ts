@@ -115,6 +115,7 @@ export function disposeTerminalSession(terminalId: string) {
   session.unlistenExit?.();
   if (session.outputActivityFrame !== null) window.cancelAnimationFrame(session.outputActivityFrame);
   session.outputQueue = [];
+  session.outputQueuedChars = 0;
   session.term.dispose();
   terminalSessions.delete(terminalId);
 }

@@ -32,17 +32,17 @@ export function useAppWorkspaceModels({
     [store, activeProjectId]
   );
   const activeWorkspace = useMemo(
-    () => activeProject?.workspaces.find((t) => t.id === activeWorkspaceId) ?? null,
+    () => activeProject?.workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
     [activeProject, activeWorkspaceId]
   );
   const sidebarWorkspaces = useMemo(
-    () => store.projects.flatMap((project) => project.workspaces.map((terminal) => ({ project, terminal }))),
+    () => store.projects.flatMap((project) => project.workspaces.map((workspace) => ({ project, workspace }))),
     [store]
   );
   const activePath = (activeTerminalId && terminalCwds[activeTerminalId]) || activeWorkspace?.cwd || activeProject?.path || null;
   const visitedWorkspaceTerminalTrees = useMemo<WorkspaceViewModel[]>(() => visitedWorkspaceIds.flatMap((workspaceId) => {
     for (const project of store.projects) {
-      const workspace = project.workspaces.find((t) => t.id === workspaceId);
+      const workspace = project.workspaces.find((candidate) => candidate.id === workspaceId);
       if (workspace) return [{ project, workspace, terminals: terminalsByWorkspaceId[workspaceId] ?? [], root: splitRootsByWorkspaceId[workspaceId] }];
     }
     return [];

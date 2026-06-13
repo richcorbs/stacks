@@ -4,7 +4,7 @@ import type { ResolvedAppSettings } from '../settingsModel';
 
 export type AppShortcutHandlerOptions = {
   store: Store;
-  sidebarWorkspaces: { project: Project; terminal: WorkspaceEntry }[];
+  sidebarWorkspaces: { project: Project; workspace: WorkspaceEntry }[];
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
   activeProject: Project | null;
   activeWorkspace: WorkspaceEntry | null;

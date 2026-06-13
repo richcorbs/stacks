@@ -2,7 +2,7 @@ import type { TerminalEntry, Project, Store, WorkspaceEntry } from './types';
 import type { PaletteItem } from './components/CommandPalette';
 import { commandPaletteCoreItems } from './commandPaletteCoreItems';
 
-type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
+type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 export type CommandPaletteItemOptions = {
   store: Store;
@@ -43,12 +43,12 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
 }
 
 function workspaceItems(sidebarWorkspaces: SidebarWorkspace[], activeWorkspaceId: string | null, onSelectWorkspace: (projectId: string, workspaceId: string) => void): PaletteItem[] {
-  return sidebarWorkspaces.map(({ project, terminal }, index) => ({
-    id: `terminal-${terminal.id}`,
-    title: terminal.name,
-    subtitle: `${project.name}${terminal.id === activeWorkspaceId ? ' • current' : ''}`,
-    keywords: `terminal project ${project.path} ${index < 9 ? `cmd ${index + 1}` : ''}`,
-    action: () => onSelectWorkspace(project.id, terminal.id),
+  return sidebarWorkspaces.map(({ project, workspace }, index) => ({
+    id: `workspace-${workspace.id}`,
+    title: workspace.name,
+    subtitle: `${project.name}${workspace.id === activeWorkspaceId ? ' • current' : ''}`,
+    keywords: `workspace project ${project.path} ${index < 9 ? `cmd ${index + 1}` : ''}`,
+    action: () => onSelectWorkspace(project.id, workspace.id),
   }));
 }
 

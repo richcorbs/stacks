@@ -4,7 +4,7 @@ import { focusTerminalSession, isTerminalSessionAtBottom, requestTerminalSession
 import { terminalIdsForWorkspace } from '../workspace/selectors';
 import { nextTerminalIdForCycle, toggleMaximizedWorkspaceId } from '../workspace/maximize';
 
-type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
+type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 export function useWorkspaceTerminalNavigationCommands({
   activeWorkspace,
@@ -47,9 +47,9 @@ export function useWorkspaceTerminalNavigationCommands({
   function cycleSidebarWorkspace(delta: number) {
     if (sidebarWorkspaces.length === 0) return;
     const currentId = sidebarFocusedWorkspaceId ?? activeWorkspaceId;
-    const currentIndex = Math.max(0, sidebarWorkspaces.findIndex(({ terminal }) => terminal.id === currentId));
+    const currentIndex = Math.max(0, sidebarWorkspaces.findIndex(({ workspace }) => workspace.id === currentId));
     const nextIndex = (currentIndex + delta + sidebarWorkspaces.length) % sidebarWorkspaces.length;
-    setSidebarFocusedWorkspaceId(sidebarWorkspaces[nextIndex].terminal.id);
+    setSidebarFocusedWorkspaceId(sidebarWorkspaces[nextIndex].workspace.id);
   }
 
   function terminalIdToFocusForTerminal(workspaceId: string) {
@@ -73,16 +73,16 @@ export function useWorkspaceTerminalNavigationCommands({
   function activateSidebarFocusedWorkspace() {
     const workspaceId = sidebarFocusedWorkspaceId ?? activeWorkspaceId;
     if (!workspaceId) return;
-    const match = sidebarWorkspaces.find(({ terminal }) => terminal.id === workspaceId);
+    const match = sidebarWorkspaces.find(({ workspace }) => workspace.id === workspaceId);
     if (!match) return;
-    activateTerminal(match.project.id, match.terminal.id);
+    activateTerminal(match.project.id, match.workspace.id);
     setSidebarFocusedWorkspaceId(null);
   }
 
   function activateWorkspaceByIndex(index: number) {
     const match = sidebarWorkspaces[index];
     if (!match) return;
-    activateTerminal(match.project.id, match.terminal.id);
+    activateTerminal(match.project.id, match.workspace.id);
     setSidebarFocusedWorkspaceId(null);
   }
 

@@ -57,22 +57,26 @@ export async function spawnTerminalPty({
   active: boolean;
   isCancelled: () => boolean;
 }) {
-  if (isCancelled()) return;
-  await document.fonts?.ready.catch(() => undefined);
-  if (isCancelled()) return;
-  fit.fit();
-  const size = safeTermSize(term);
-  session.lastPtySize = size;
-  await invoke('spawn_pty', {
-    terminalId,
-    generation,
-    cwd,
-    command,
-    cols: size.cols,
-    rows: size.rows,
-  });
-  session.spawned = true;
-  session.running = true;
-  window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: true } }));
-  if (active) focusTerminalSession(terminalId, 'spawn-active', { scrollToBottom: false });
+  try {
+    if (isCancelled()) return;
+    await document.fonts?.ready.catch(() => undefined);
+    if (isCancelled()) return;
+    fit.fit();
+    const size = safeTermSize(term);
+    session.lastPtySize = size;
+    await invoke('spawn_pty', {
+      terminalId,
+      generation,
+      cwd,
+      command,
+      cols: size.cols,
+      rows: size.rows,
+    });
+    session.spawned = true;
+    session.running = true;
+    window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: true } }));
+    if (active) focusTerminalSession(terminalId, 'spawn-active', { scrollToBottom: false });
+  } finally {
+    session.starting = false;
+  }
 }

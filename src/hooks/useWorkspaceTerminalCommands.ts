@@ -3,7 +3,7 @@ import type { TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types
 import { useWorkspaceTerminalLifecycleCommands } from './useWorkspaceTerminalLifecycleCommands';
 import { useWorkspaceTerminalNavigationCommands } from './useWorkspaceTerminalNavigationCommands';
 
-type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
+type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 type WorkspaceTerminalCommandOptions = {
   activeWorkspace: WorkspaceEntry | null;

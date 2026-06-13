@@ -2,7 +2,7 @@ import type { MutableRefObject } from 'react';
 import type { ContextMenuState, PointerDragState, Project, WorkspaceEntry } from '../types';
 import { SidebarWorkspaceRow } from './SidebarWorkspaceRow';
 
-type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
+type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 export function SidebarProjectSection({
   project,
@@ -87,11 +87,11 @@ export function SidebarProjectSection({
       </button>
       {!project.collapsed && (
         <div className="termList">
-          {project.workspaces.map((term) => (
+          {project.workspaces.map((workspace) => (
             <SidebarWorkspaceRow
-              key={term.id}
+              key={workspace.id}
               project={project}
-              terminal={term}
+              workspace={workspace}
               activeWorkspaceId={activeWorkspaceId}
               sidebarFocusedWorkspaceId={sidebarFocusedWorkspaceId}
               sidebarWorkspaces={sidebarWorkspaces}

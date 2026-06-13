@@ -41,12 +41,15 @@ export type TerminalSession = {
   search: SearchAddon;
   webLinks: WebLinksAddon;
   spawned: boolean;
+  starting: boolean;
   running: boolean;
   lastPtySize: TermSize | null;
   dataDisposable: { dispose: () => void };
   selectionDisposable: { dispose: () => void };
   decoder: TextDecoder;
   outputQueue: string[];
+  outputQueuedChars: number;
+  outputDroppedChars: number;
   outputWriteInProgress: boolean;
   outputActivityFrame: number | null;
   resizeObserver?: ResizeObserver;

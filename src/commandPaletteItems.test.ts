@@ -10,7 +10,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
   const store: Store = { projects: [{ ...project, workspaces: [workspace] }] };
   return buildCommandPaletteItems({
     store,
-    sidebarWorkspaces: [{ project, terminal: workspace }],
+    sidebarWorkspaces: [{ project, workspace }],
     terminalsByWorkspaceId: { t1: [terminal] },
     activeProject: project,
     activeWorkspace: workspace,
@@ -48,7 +48,7 @@ describe('buildCommandPaletteItems', () => {
       'split-terminal-down',
       'find-terminal',
       'restart-terminal',
-      'terminal-t1',
+      'workspace-t1',
       'project-terminal-p1',
       'terminal-t1:0',
     ]));
@@ -60,7 +60,7 @@ describe('buildCommandPaletteItems', () => {
     const onCycleTerminal = vi.fn();
     const items = palette({ onSelectWorkspace, onNewWorkspace, onCycleTerminal });
 
-    items.find((item) => item.id === 'terminal-t1')?.action();
+    items.find((item) => item.id === 'workspace-t1')?.action();
     expect(onSelectWorkspace).toHaveBeenCalledWith('p1', 't1');
 
     items.find((item) => item.id === 'project-terminal-p1')?.action();

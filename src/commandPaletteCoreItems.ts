@@ -1,7 +1,7 @@
 import type { Project, WorkspaceEntry } from './types';
 import type { PaletteItem } from './components/CommandPalette';
 
-type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
+type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 export function commandPaletteCoreItems({
   activeProject,
@@ -83,8 +83,8 @@ export function commandPaletteCoreItems({
 }
 
 function selectRelativeWorkspace(sidebarWorkspaces: SidebarWorkspace[], activeWorkspaceId: string | null, delta: number, onSelectWorkspace: (projectId: string, workspaceId: string) => void, onCycleWorkspace: (delta: number) => void) {
-  const currentIndex = Math.max(0, sidebarWorkspaces.findIndex(({ terminal }) => terminal.id === activeWorkspaceId));
+  const currentIndex = Math.max(0, sidebarWorkspaces.findIndex(({ workspace }) => workspace.id === activeWorkspaceId));
   const next = sidebarWorkspaces[(currentIndex + delta + sidebarWorkspaces.length) % sidebarWorkspaces.length];
-  if (next) onSelectWorkspace(next.project.id, next.terminal.id);
+  if (next) onSelectWorkspace(next.project.id, next.workspace.id);
   else onCycleWorkspace(delta);
 }

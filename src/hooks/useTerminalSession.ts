@@ -36,7 +36,7 @@ export function useTerminalSession({
 
   const restartTerminalSessionIfDead = useCallback(() => {
     const session = getTerminalSession(terminal.id);
-    if (session && (!session.spawned || session.running)) return false;
+    if (session && (session.starting || session.running)) return false;
     if (session) {
       disposeTerminalSession(terminal.id);
       invoke('kill_pty', { terminalId: terminal.id }).catch(() => {});
@@ -53,6 +53,12 @@ export function useTerminalSession({
     let cancelled = false;
     let session = getTerminalSession(terminal.id);
 
+    if (session && !session.spawned && !session.starting) {
+      disposeTerminalSession(terminal.id);
+      invoke('kill_pty', { terminalId: terminal.id }).catch(() => {});
+      session = undefined;
+    }
+
     if (!session) {
       session = createTerminalSession({
         terminalId: terminal.id,
@@ -65,6 +71,7 @@ export function useTerminalSession({
       setTerminalSession(terminal.id, session);
 
       const generation = `${terminal.id}:${Date.now()}:${Math.random()}`;
+      session.starting = true;
       const listenersReady = attachTerminalPtyListeners({ session, terminalId: terminal.id, workspaceId: workspace.id, generation });
       requestAnimationFrame(() => {
         listenersReady
@@ -79,7 +86,10 @@ export function useTerminalSession({
             active,
             isCancelled: () => cancelled,
           }))
-          .catch((e) => term.writeln(`\r\nPTY error: ${e}\r\n`));
+          .catch((e) => {
+            session!.starting = false;
+            term.writeln(`\r\nPTY error: ${e}\r\n`);
+          });
       });
     } else if (session.term.element && session.term.element.parentElement !== host) {
       host.replaceChildren(session.term.element);
