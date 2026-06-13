@@ -171,6 +171,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   padding: 0;
   cursor: pointer;
   flex: 0 0 auto;
+  margin-top: 3px;
 }
 .sidebarToggleButton:hover { background: #1a2531; color: #c4d0dd; }
 .sidebarIcon {
