@@ -1,12 +1,12 @@
-import type { PaneSession } from './types';
+import type { TerminalSession } from './types';
 
 const MAX_OUTPUT_BATCH_CHARS = 256 * 1024;
 
-function enqueuePaneActivityEvent(session: PaneSession, terminalId: string, paneId: string) {
+function enqueueTerminalActivityEvent(session: TerminalSession, workspaceId: string, terminalId: string) {
   if (session.outputActivityFrame !== null) return;
   session.outputActivityFrame = window.requestAnimationFrame(() => {
     session.outputActivityFrame = null;
-    window.dispatchEvent(new CustomEvent('pane-output', { detail: { terminalId, paneId } }));
+    window.dispatchEvent(new CustomEvent('terminal-output', { detail: { workspaceId, terminalId } }));
   });
 }
 
@@ -18,20 +18,20 @@ function nextOutputBatch(queue: string[]) {
   return batch;
 }
 
-function flushPaneOutput(session: PaneSession) {
+function flushTerminalOutput(session: TerminalSession) {
   if (session.outputWriteInProgress) return;
   const batch = nextOutputBatch(session.outputQueue);
   if (!batch) return;
   session.outputWriteInProgress = true;
   session.term.write(batch, () => {
     session.outputWriteInProgress = false;
-    flushPaneOutput(session);
+    flushTerminalOutput(session);
   });
 }
 
-export function enqueuePaneOutput(session: PaneSession, text: string, terminalId: string, paneId: string) {
+export function enqueueTerminalOutput(session: TerminalSession, text: string, workspaceId: string, terminalId: string) {
   if (!text) return;
   session.outputQueue.push(text);
-  enqueuePaneActivityEvent(session, terminalId, paneId);
-  flushPaneOutput(session);
+  enqueueTerminalActivityEvent(session, workspaceId, terminalId);
+  flushTerminalOutput(session);
 }

@@ -1,16 +1,16 @@
 import { useMemo } from 'react';
 import type { Store } from '../types';
 
-export type ConfirmDeleteTerminalState = { projectId: string; terminalId: string };
+export type ConfirmDeleteWorkspaceState = { projectId: string; workspaceId: string };
 
 export function useAppOverlayModels({
   store,
   confirmDeleteProjectId,
-  confirmDeleteTerminal,
+  confirmDeleteWorkspace,
 }: {
   store: Store;
   confirmDeleteProjectId: string | null;
-  confirmDeleteTerminal: ConfirmDeleteTerminalState | null;
+  confirmDeleteWorkspace: ConfirmDeleteWorkspaceState | null;
 }) {
   const confirmDeleteProject = useMemo(
     () => confirmDeleteProjectId
@@ -19,14 +19,14 @@ export function useAppOverlayModels({
     [store, confirmDeleteProjectId]
   );
 
-  const confirmDeleteTerminalEntry = useMemo(
-    () => confirmDeleteTerminal
+  const confirmDeleteWorkspaceEntry = useMemo(
+    () => confirmDeleteWorkspace
       ? store.projects
-        .find((project) => project.id === confirmDeleteTerminal.projectId)
-        ?.terminals.find((terminal) => terminal.id === confirmDeleteTerminal.terminalId) ?? null
+        .find((project) => project.id === confirmDeleteWorkspace.projectId)
+        ?.workspaces.find((terminal) => terminal.id === confirmDeleteWorkspace.workspaceId) ?? null
       : null,
-    [store, confirmDeleteTerminal]
+    [store, confirmDeleteWorkspace]
   );
 
-  return { confirmDeleteProject, confirmDeleteTerminalEntry };
+  return { confirmDeleteProject, confirmDeleteWorkspaceEntry };
 }

@@ -4,7 +4,7 @@ import { encoder, runShortcutAction } from './shortcutActions';
 import type { ShortcutHandlers } from './shortcutTypes';
 
 export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: ShortcutHandlers) {
-  const { setMetaKeyDown, activateTerminalByIndex } = handlers;
+  const { setMetaKeyDown, activateWorkspaceByIndex } = handlers;
 
   setMetaKeyDown(event.metaKey);
   if (!event.metaKey || event.ctrlKey || event.altKey) return;
@@ -26,7 +26,7 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     return;
   }
   if (key === 'f') {
-    runHandledShortcut(event, () => runShortcutAction('search-pane', handlers));
+    runHandledShortcut(event, () => runShortcutAction('search-terminal', handlers));
     return;
   }
   if (key === 'b') {
@@ -34,31 +34,31 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     return;
   }
   if (key === 'k') {
-    runHandledShortcut(event, () => runShortcutAction('clear-pane', handlers));
+    runHandledShortcut(event, () => runShortcutAction('clear-terminal', handlers));
     return;
   }
   if (key === 'v') {
-    pasteIntoActivePane(event, handlers.activePaneId);
+    pasteIntoActiveTerminal(event, handlers.activeTerminalId);
     return;
   }
   if (/^[1-9]$/.test(event.key)) {
-    runHandledShortcut(event, () => activateTerminalByIndex(Number(event.key) - 1));
+    runHandledShortcut(event, () => activateWorkspaceByIndex(Number(event.key) - 1));
     return;
   }
   if (key === 'n') {
-    runHandledShortcut(event, () => runShortcutAction('new-terminal', handlers));
+    runHandledShortcut(event, () => runShortcutAction('new-workspace', handlers));
   } else if (event.key === 'Enter') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'maximize-pane' : 'activate-sidebar', handlers));
+    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'maximize-workspace' : 'activate-sidebar', handlers));
   } else if (key === 'd') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'split-down' : 'split-right', handlers));
+    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'split-terminal-down' : 'split-terminal-right', handlers));
   } else if (key === 'w') {
-    runHandledShortcut(event, () => runShortcutAction('close-pane', handlers));
+    runHandledShortcut(event, () => runShortcutAction('close-terminal', handlers));
   } else if (key === 'q') {
     runHandledShortcut(event, () => runShortcutAction('quit', handlers));
   } else if (event.key === ']') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-next-terminal' : 'focus-next-pane', handlers));
+    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-next-workspace' : 'focus-next-terminal', handlers));
   } else if (event.key === '[') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-previous-terminal' : 'focus-previous-pane', handlers));
+    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-previous-workspace' : 'focus-previous-terminal', handlers));
   } else if (key === 'o') {
     runHandledShortcut(event, () => runShortcutAction('add-project', handlers));
   }
@@ -70,14 +70,14 @@ function runHandledShortcut(event: KeyboardEvent, action: () => void) {
   action();
 }
 
-function pasteIntoActivePane(event: KeyboardEvent, activePaneId: string | null) {
-  if (!activePaneId || event.shiftKey) return;
+function pasteIntoActiveTerminal(event: KeyboardEvent, activeTerminalId: string | null) {
+  if (!activeTerminalId || event.shiftKey) return;
   event.preventDefault();
   event.stopPropagation();
   readText()
     .then((text) => {
       if (!text) return;
-      return invoke('write_pty', { paneId: activePaneId, data: Array.from(encoder.encode(text)) });
+      return invoke('write_pty', { terminalId: activeTerminalId, data: Array.from(encoder.encode(text)) });
     })
     .catch(console.error);
 }

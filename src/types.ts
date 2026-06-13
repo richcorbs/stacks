@@ -4,17 +4,17 @@ import type { SearchAddon } from '@xterm/addon-search';
 import type { WebLinksAddon } from '@xterm/addon-web-links';
 
 export type Store = { projects: Project[] };
-export type Project = { id: string; name: string; path: string; terminals: TerminalEntry[]; collapsed?: boolean };
-export type TerminalEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
-export type Pane = { id: string; terminalId: string; command?: string | null };
+export type Project = { id: string; name: string; path: string; workspaces: WorkspaceEntry[]; collapsed?: boolean };
+export type WorkspaceEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
+export type TerminalEntry = { id: string; workspaceId: string; command?: string | null };
 export type ToastDetail = { message: string };
 export type SplitNode =
   | { kind: 'empty' }
-  | { kind: 'leaf'; paneId: string; command?: string | null }
+  | { kind: 'leaf'; terminalId: string; command?: string | null }
   | { kind: 'split'; direction: 'row' | 'column'; ratio?: number; manual?: boolean; first: SplitNode; second: SplitNode };
 
-export type PtyData = { pane_id: string; generation: string; data: number[] };
-export type PtyExit = { pane_id: string; generation: string };
+export type PtyData = { terminal_id: string; generation: string; data: number[] };
+export type PtyExit = { terminal_id: string; generation: string };
 export type GitInfo = { branch: string; created: number; changed: number; deleted: number };
 export type AppStats = { cpu: number; mem_mb: number; version: string };
 export type WindowState = { width: number; height: number; x?: number | null; y?: number | null };
@@ -35,7 +35,7 @@ export type AppSettings = {
   unseen_dot_color?: string | null;
 };
 export type TermSize = { cols: number; rows: number };
-export type PaneSession = {
+export type TerminalSession = {
   term: Terminal;
   fit: FitAddon;
   search: SearchAddon;
@@ -56,14 +56,14 @@ export type PaneSession = {
 
 export type DialogState =
   | { kind: 'project'; name: string; path: string; openTerminalAfterCreate?: boolean }
-  | { kind: 'terminal'; projectId: string; name: string; command: string }
-  | { kind: 'split'; terminalId: string; targetPaneId: string; direction: 'row' | 'column'; command: string }
+  | { kind: 'workspace'; projectId: string; name: string; command: string }
+  | { kind: 'split'; workspaceId: string; targetTerminalId: string; direction: 'row' | 'column'; command: string }
   | { kind: 'editProject'; projectId: string; name: string; path: string }
-  | { kind: 'editTerminal'; projectId: string; terminalId: string; name: string; command: string; cwd: string };
+  | { kind: 'editWorkspace'; projectId: string; workspaceId: string; name: string; command: string; cwd: string };
 export type ContextMenuState =
   | { kind: 'project'; projectId: string; x: number; y: number }
-  | { kind: 'terminal'; projectId: string; terminalId: string; x: number; y: number };
+  | { kind: 'workspace'; projectId: string; workspaceId: string; x: number; y: number };
 export type DragState =
   | { kind: 'project'; projectId: string }
-  | { kind: 'terminal'; projectId: string; terminalId: string };
+  | { kind: 'workspace'; projectId: string; workspaceId: string };
 export type PointerDragState = DragState & { startX: number; startY: number; dragging: boolean };

@@ -21,11 +21,11 @@ export function AppLayout({
         width={sidebar.width}
         store={sidebar.store}
         activeProjectId={sidebar.activeProjectId}
-        activeTerminalId={sidebar.activeTerminalId}
-        sidebarFocusedTerminalId={sidebar.sidebarFocusedTerminalId}
-        sidebarTerminals={sidebar.sidebarTerminals}
-        runningPaneIds={sidebar.runningPaneIds}
-        activityTerminalIds={sidebar.activityTerminalIds}
+        activeWorkspaceId={sidebar.activeWorkspaceId}
+        sidebarFocusedWorkspaceId={sidebar.sidebarFocusedWorkspaceId}
+        sidebarWorkspaces={sidebar.sidebarWorkspaces}
+        runningTerminalIds={sidebar.runningTerminalIds}
+        activityWorkspaceIds={sidebar.activityWorkspaceIds}
         activityTerminalLastOutputAtById={sidebar.activityTerminalLastOutputAtById}
         activityNow={sidebar.activityNow}
         metaKeyDown={sidebar.metaKeyDown}
@@ -34,35 +34,35 @@ export function AppLayout({
         pointerDragRef={sidebar.pointerDragRef}
         resizingSidebarRef={sidebar.resizingSidebarRef}
         toggleProject={sidebar.toggleProject}
-        selectTerminal={sidebar.selectTerminal}
+        selectWorkspace={sidebar.selectWorkspace}
         setContextMenu={sidebar.setContextMenu}
         onAddProject={sidebar.openProjectDialog}
-        onAddTerminal={sidebar.openTerminalDialog}
+        onAddTerminal={sidebar.openWorkspaceDialog}
       />}
       <MainWorkspace
         activePath={main.activePath}
         gitInfo={main.gitInfo}
         onToggleSidebar={main.toggleSidebar}
-        workspaces={main.visitedTerminalWorkspaces}
+        workspaces={main.visitedWorkspaceTerminalTrees}
+        activeWorkspaceId={main.activeWorkspaceId}
         activeTerminalId={main.activeTerminalId}
-        activePaneId={main.activePaneId}
-        maximizedTerminalId={main.maximizedTerminalId}
+        maximizedWorkspaceId={main.maximizedWorkspaceId}
         terminalFontSize={main.appSettings.terminal_font_size}
         terminalFontFamily={main.appSettings.terminal_font_family}
         terminalScrollback={main.appSettings.terminal_scrollback}
         copyOnSelect={main.appSettings.copy_on_select}
-        searchPaneRequest={main.searchPaneRequest}
-        restartPaneRequest={main.restartPaneRequest}
-        hasActivePane={Boolean(main.activeTerminalId)}
+        searchTerminalRequest={main.searchTerminalRequest}
+        restartTerminalRequest={main.restartTerminalRequest}
+        hasActiveTerminal={Boolean(main.activeWorkspaceId)}
         onResizeSplit={main.resizeSplit}
-        onFocusPane={(projectId, terminalId, paneId) => {
-          main.selectTerminal(projectId, terminalId);
-          main.focusPane(terminalId, paneId);
+        onFocusTerminal={(projectId, workspaceId, terminalId) => {
+          main.selectWorkspace(projectId, workspaceId);
+          main.focusTerminal(workspaceId, terminalId);
         }}
-        onClosePane={(paneId) => main.appSettings.confirm_close ? main.setConfirmClosePaneId(paneId) : main.closePane(paneId)}
-        canToggleMaximizedTerminal={(terminalId) => (main.visitedTerminalWorkspaces.find(({ terminal }) => terminal.id === terminalId)?.panes.length ?? 0) > 1}
+        onCloseTerminal={(terminalId) => main.appSettings.confirm_close ? main.setConfirmCloseTerminalId(terminalId) : main.closeTerminal(terminalId)}
+        canToggleMaximizedTerminal={(workspaceId) => (main.visitedWorkspaceTerminalTrees.find(({ workspace }) => workspace.id === workspaceId)?.terminals.length ?? 0) > 1}
         onToggleMaximizedTerminal={main.toggleMaximizedTerminal}
-        onSplitPane={main.splitPane}
+        onSplitTerminal={main.splitTerminal}
       />
       <AppOverlays {...overlays} />
     </div>

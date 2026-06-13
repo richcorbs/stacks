@@ -2,55 +2,55 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
-import type { PaneSession, PtyData, PtyExit } from './types';
-import { focusPaneSession } from './terminalSessionManager';
-import { enqueuePaneOutput } from './terminalOutput';
+import type { TerminalSession, PtyData, PtyExit } from './types';
+import { focusTerminalSession } from './terminalSessionManager';
+import { enqueueTerminalOutput } from './terminalOutput';
 import { safeTermSize } from './terminalSizing';
 
-export function attachPanePtyListeners({
+export function attachTerminalPtyListeners({
   session,
-  paneId,
   terminalId,
+  workspaceId,
   generation,
 }: {
-  session: PaneSession;
-  paneId: string;
+  session: TerminalSession;
   terminalId: string;
+  workspaceId: string;
   generation: string;
 }) {
   const dataPromise = listen<PtyData>('pty-data', (event) => {
-    if (event.payload.pane_id === paneId && event.payload.generation === generation) {
-      enqueuePaneOutput(session, session.decoder.decode(new Uint8Array(event.payload.data), { stream: true }), terminalId, paneId);
+    if (event.payload.terminal_id === terminalId && event.payload.generation === generation) {
+      enqueueTerminalOutput(session, session.decoder.decode(new Uint8Array(event.payload.data), { stream: true }), workspaceId, terminalId);
     }
   }).then((fn) => { session.unlistenData = fn; });
 
   const exitPromise = listen<PtyExit>('pty-exit', (event) => {
-    if (event.payload.pane_id === paneId && event.payload.generation === generation) {
+    if (event.payload.terminal_id === terminalId && event.payload.generation === generation) {
       session.running = false;
       const remaining = session.decoder.decode();
-      enqueuePaneOutput(session, `${remaining}\r\n[process exited]\r\n`, terminalId, paneId);
-      window.dispatchEvent(new CustomEvent('pane-running-changed', { detail: { paneId, running: false } }));
+      enqueueTerminalOutput(session, `${remaining}\r\n[process exited]\r\n`, workspaceId, terminalId);
+      window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: false } }));
     }
   }).then((fn) => { session.unlistenExit = fn; });
 
   return Promise.all([dataPromise, exitPromise]);
 }
 
-export async function spawnPanePty({
+export async function spawnTerminalPty({
   session,
   term,
   fit,
-  paneId,
+  terminalId,
   generation,
   cwd,
   command,
   active,
   isCancelled,
 }: {
-  session: PaneSession;
+  session: TerminalSession;
   term: Terminal;
   fit: FitAddon;
-  paneId: string;
+  terminalId: string;
   generation: string;
   cwd: string;
   command: string | null;
@@ -64,7 +64,7 @@ export async function spawnPanePty({
   const size = safeTermSize(term);
   session.lastPtySize = size;
   await invoke('spawn_pty', {
-    paneId,
+    terminalId,
     generation,
     cwd,
     command,
@@ -73,6 +73,6 @@ export async function spawnPanePty({
   });
   session.spawned = true;
   session.running = true;
-  window.dispatchEvent(new CustomEvent('pane-running-changed', { detail: { paneId, running: true } }));
-  if (active) focusPaneSession(paneId, 'spawn-active', { scrollToBottom: false });
+  window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: true } }));
+  if (active) focusTerminalSession(terminalId, 'spawn-active', { scrollToBottom: false });
 }

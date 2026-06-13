@@ -13,12 +13,12 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   useEffect(() => {
     requestAnimationFrame(() => {
       firstInputRef.current?.focus();
-      if (dialog.kind === 'terminal') firstInputRef.current?.select();
+      if (dialog.kind === 'workspace') firstInputRef.current?.select();
     });
   }, [dialog.kind]);
 
-  async function chooseEditTerminalDirectory() {
-    if (dialog.kind !== 'editTerminal') return;
+  async function chooseEditWorkspaceDirectory() {
+    if (dialog.kind !== 'editWorkspace') return;
     const selected = await open({ directory: true, multiple: false, title: 'Choose Workspace Directory', defaultPath: dialog.cwd || undefined }).catch((err) => {
       console.error(err);
       return null;
@@ -29,7 +29,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   return (
     <div className="modalBackdrop" onMouseDown={onCancel}>
       <form
-        className={`modal ${dialog.kind === 'terminal' || dialog.kind === 'editTerminal' || dialog.kind === 'split' ? 'terminalDialog' : ''}`}
+        className={`modal ${dialog.kind === 'workspace' || dialog.kind === 'editWorkspace' || dialog.kind === 'split' ? 'terminalDialog' : ''}`}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key !== 'Escape') return;
@@ -42,7 +42,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
           dialog={dialog}
           setDialog={setDialog}
           firstInputRef={firstInputRef}
-          chooseEditTerminalDirectory={chooseEditTerminalDirectory}
+          chooseEditWorkspaceDirectory={chooseEditWorkspaceDirectory}
         />
         <div className="modalActions">
           <button type="button" onClick={onCancel}>Cancel</button>

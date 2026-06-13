@@ -1,90 +1,90 @@
-import type { Project, TerminalEntry } from './types';
+import type { Project, WorkspaceEntry } from './types';
 import type { PaletteItem } from './components/CommandPalette';
 
-type SidebarTerminal = { project: Project; terminal: TerminalEntry };
+type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
 
 export function commandPaletteCoreItems({
   activeProject,
-  activeTerminal,
+  activeWorkspace,
+  activeWorkspaceId,
   activeTerminalId,
-  activePaneId,
   activePath,
-  sidebarTerminals,
+  sidebarWorkspaces,
   onNewProject,
-  onNewTerminal,
+  onNewWorkspace,
   onEditProject,
-  onEditTerminal,
+  onEditWorkspace,
   onDeleteWorkspace,
-  onSplitPane,
+  onSplitTerminal,
+  onCycleWorkspace,
   onCycleTerminal,
-  onCyclePane,
-  onStopPane,
-  onRestartPane,
-  onClosePane,
-  onClearPane,
+  onStopTerminal,
+  onRestartTerminal,
+  onCloseTerminal,
+  onClearTerminal,
   onToggleMaximizedTerminal,
   onOpenSearch,
   onOpenSettings,
   onOpenDirectoryInEditor,
-  onSelectTerminal,
+  onSelectWorkspace,
 }: {
   activeProject: Project | null;
-  activeTerminal: TerminalEntry | null;
+  activeWorkspace: WorkspaceEntry | null;
+  activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  activePaneId: string | null;
   activePath: string | null;
-  sidebarTerminals: SidebarTerminal[];
+  sidebarWorkspaces: SidebarWorkspace[];
   onNewProject: () => void;
-  onNewTerminal: (project: Project) => void;
+  onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
-  onEditTerminal: (project: Project, terminal: TerminalEntry) => void;
-  onDeleteWorkspace: (projectId: string, terminalId: string) => void;
-  onSplitPane: (direction: 'row' | 'column') => void;
+  onEditWorkspace: (project: Project, terminal: WorkspaceEntry) => void;
+  onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
+  onSplitTerminal: (direction: 'row' | 'column') => void;
+  onCycleWorkspace: (delta: number) => void;
   onCycleTerminal: (delta: number) => void;
-  onCyclePane: (delta: number) => void;
-  onStopPane: (paneId: string) => void;
-  onRestartPane: (paneId: string) => void;
-  onClosePane: (paneId: string) => void;
-  onClearPane: () => void;
+  onStopTerminal: (terminalId: string) => void;
+  onRestartTerminal: (terminalId: string) => void;
+  onCloseTerminal: (terminalId: string) => void;
+  onClearTerminal: () => void;
   onToggleMaximizedTerminal: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenDirectoryInEditor: () => void;
-  onSelectTerminal: (projectId: string, terminalId: string) => void;
+  onSelectWorkspace: (projectId: string, workspaceId: string) => void;
 }): PaletteItem[] {
   const items: PaletteItem[] = [
     { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
-    { id: 'new-terminal', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewTerminal(activeProject) : onNewProject() },
+    { id: 'new-workspace', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewWorkspace(activeProject) : onNewProject() },
     { id: 'edit-project', title: 'Edit Project', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'rename path directory workspace', action: () => { if (activeProject) onEditProject(activeProject); } },
-    { id: 'edit-terminal', title: 'Edit Workspace', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeTerminal) onEditTerminal(activeProject, activeTerminal); } },
-    { id: 'delete-workspace', title: 'Delete Workspace', subtitle: activeTerminal ? `${activeTerminal.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace terminal', danger: true, action: () => { if (activeProject && activeTerminal) onDeleteWorkspace(activeProject.id, activeTerminal.id); } },
+    { id: 'edit-workspace', title: 'Edit Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeWorkspace) onEditWorkspace(activeProject, activeWorkspace); } },
+    { id: 'delete-workspace', title: 'Delete Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace terminal', danger: true, action: () => { if (activeProject && activeWorkspace) onDeleteWorkspace(activeProject.id, activeWorkspace.id); } },
     { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color focused terminal border maximized green blue', action: onOpenSettings },
     { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
-    { id: 'split-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split pane terminal vertical', action: () => onSplitPane('row') },
-    { id: 'split-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split pane terminal horizontal', action: () => onSplitPane('column') },
-    { id: 'find-pane', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
-    { id: 'next-terminal', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch terminal workspace forward', action: () => selectRelativeTerminal(sidebarTerminals, activeTerminalId, 1, onSelectTerminal, onCycleTerminal) },
-    { id: 'previous-terminal', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch terminal workspace backward', action: () => selectRelativeTerminal(sidebarTerminals, activeTerminalId, -1, onSelectTerminal, onCycleTerminal) },
-    { id: 'next-pane', title: 'Next Terminal', subtitle: '⌘]', keywords: 'focus pane terminal forward', action: () => onCyclePane(1) },
-    { id: 'previous-pane', title: 'Previous Terminal', subtitle: '⌘[', keywords: 'focus pane terminal backward', action: () => onCyclePane(-1) },
-    { id: 'maximize-terminal', title: 'Maximize / Restore Workspace', subtitle: '⇧⌘↩', keywords: 'zoom pane terminal workspace maximize', action: onToggleMaximizedTerminal },
-    { id: 'clear-pane', title: 'Clear Terminal', subtitle: '⌘K', keywords: 'clear terminal', action: onClearPane },
+    { id: 'split-terminal-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split terminal terminal vertical', action: () => onSplitTerminal('row') },
+    { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal terminal horizontal', action: () => onSplitTerminal('column') },
+    { id: 'find-terminal', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
+    { id: 'next-workspace', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch terminal workspace forward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, 1, onSelectWorkspace, onCycleWorkspace) },
+    { id: 'previous-workspace', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch terminal workspace backward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, -1, onSelectWorkspace, onCycleWorkspace) },
+    { id: 'next-terminal', title: 'Next Terminal', subtitle: '⌘]', keywords: 'focus terminal terminal forward', action: () => onCycleTerminal(1) },
+    { id: 'previous-terminal', title: 'Previous Terminal', subtitle: '⌘[', keywords: 'focus terminal terminal backward', action: () => onCycleTerminal(-1) },
+    { id: 'maximize-terminal', title: 'Maximize / Restore Workspace', subtitle: '⇧⌘↩', keywords: 'zoom terminal terminal workspace maximize', action: onToggleMaximizedTerminal },
+    { id: 'clear-terminal', title: 'Clear Terminal', subtitle: '⌘K', keywords: 'clear terminal', action: onClearTerminal },
   ];
 
-  if (activePaneId) {
+  if (activeTerminalId) {
     items.push(
-      { id: 'restart-pane', title: 'Restart Current Terminal', subtitle: 'Rerun the shell/process in the active terminal', keywords: 'rerun shell process terminal', action: () => onRestartPane(activePaneId) },
-      { id: 'stop-pane', title: 'Stop Current Terminal', subtitle: 'Terminate the active terminal process', keywords: 'kill terminate process terminal', danger: true, action: () => onStopPane(activePaneId) },
-      { id: 'close-pane', title: 'Close Current Terminal', subtitle: 'Close the active terminal', keywords: 'remove kill terminal', danger: true, action: () => onClosePane(activePaneId) },
+      { id: 'restart-terminal', title: 'Restart Current Terminal', subtitle: 'Rerun the shell/process in the active terminal', keywords: 'rerun shell process terminal', action: () => onRestartTerminal(activeTerminalId) },
+      { id: 'stop-terminal', title: 'Stop Current Terminal', subtitle: 'Terminate the active terminal process', keywords: 'kill terminate process terminal', danger: true, action: () => onStopTerminal(activeTerminalId) },
+      { id: 'close-terminal', title: 'Close Current Terminal', subtitle: 'Close the active terminal', keywords: 'remove kill terminal', danger: true, action: () => onCloseTerminal(activeTerminalId) },
     );
   }
 
   return items;
 }
 
-function selectRelativeTerminal(sidebarTerminals: SidebarTerminal[], activeTerminalId: string | null, delta: number, onSelectTerminal: (projectId: string, terminalId: string) => void, onCycleTerminal: (delta: number) => void) {
-  const currentIndex = Math.max(0, sidebarTerminals.findIndex(({ terminal }) => terminal.id === activeTerminalId));
-  const next = sidebarTerminals[(currentIndex + delta + sidebarTerminals.length) % sidebarTerminals.length];
-  if (next) onSelectTerminal(next.project.id, next.terminal.id);
-  else onCycleTerminal(delta);
+function selectRelativeWorkspace(sidebarWorkspaces: SidebarWorkspace[], activeWorkspaceId: string | null, delta: number, onSelectWorkspace: (projectId: string, workspaceId: string) => void, onCycleWorkspace: (delta: number) => void) {
+  const currentIndex = Math.max(0, sidebarWorkspaces.findIndex(({ terminal }) => terminal.id === activeWorkspaceId));
+  const next = sidebarWorkspaces[(currentIndex + delta + sidebarWorkspaces.length) % sidebarWorkspaces.length];
+  if (next) onSelectWorkspace(next.project.id, next.terminal.id);
+  else onCycleWorkspace(delta);
 }

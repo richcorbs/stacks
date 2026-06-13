@@ -4,10 +4,10 @@ import { Dialog } from './Dialogs';
 import { SettingsDialog } from './SettingsDialog';
 import { AppContextMenu } from './AppContextMenu';
 import { AppConfirmDialogs } from './AppConfirmDialogs';
-import type { ContextMenuState, DialogState, Project, Store, TerminalEntry } from '../types';
+import type { ContextMenuState, DialogState, Project, Store, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
-type ConfirmDeleteTerminal = { projectId: string; terminalId: string };
+type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
 
 export function AppOverlays({
   store,
@@ -18,31 +18,31 @@ export function AppOverlays({
   commandPaletteItems,
   settingsOpen,
   dialog,
-  confirmClosePaneId,
+  confirmCloseTerminalId,
   confirmDeleteProject,
-  confirmDeleteTerminal,
-  confirmDeleteTerminalEntry,
+  confirmDeleteWorkspace,
+  confirmDeleteWorkspaceEntry,
   confirmQuitOpen,
   toast,
   activeProjectId,
-  activeTerminalId,
+  activeWorkspaceId,
   setDialog,
-  setConfirmClosePaneId,
+  setConfirmCloseTerminalId,
   setConfirmDeleteProjectId,
-  setConfirmDeleteTerminal,
+  setConfirmDeleteWorkspace,
   setConfirmQuitOpen,
   closeContextMenu,
   closeCommandPalette,
   closeSettings,
   closeDialog,
   submitActiveDialog,
-  openTerminalDialog,
+  openWorkspaceDialog,
   openEditProjectDialog,
-  openEditTerminalDialog,
+  openEditWorkspaceDialog,
   deleteProject,
-  deleteTerminal,
-  closePane,
-  restoreActivePaneFocus,
+  deleteWorkspace,
+  closeTerminal,
+  restoreActiveTerminalFocus,
 }: {
   store: Store;
   appSettings: ResolvedAppSettings;
@@ -52,31 +52,31 @@ export function AppOverlays({
   commandPaletteItems: PaletteItem[];
   settingsOpen: boolean;
   dialog: DialogState | null;
-  confirmClosePaneId: string | null;
+  confirmCloseTerminalId: string | null;
   confirmDeleteProject: Project | null;
-  confirmDeleteTerminal: ConfirmDeleteTerminal | null;
-  confirmDeleteTerminalEntry: TerminalEntry | null;
+  confirmDeleteWorkspace: ConfirmDeleteWorkspace | null;
+  confirmDeleteWorkspaceEntry: WorkspaceEntry | null;
   confirmQuitOpen: boolean;
   toast: string | null;
   activeProjectId: string | null;
-  activeTerminalId: string | null;
+  activeWorkspaceId: string | null;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
-  setConfirmClosePaneId: React.Dispatch<React.SetStateAction<string | null>>;
+  setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   setConfirmDeleteProjectId: React.Dispatch<React.SetStateAction<string | null>>;
-  setConfirmDeleteTerminal: React.Dispatch<React.SetStateAction<ConfirmDeleteTerminal | null>>;
+  setConfirmDeleteWorkspace: React.Dispatch<React.SetStateAction<ConfirmDeleteWorkspace | null>>;
   setConfirmQuitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   closeContextMenu: (options?: { restoreFocus?: boolean }) => void;
   closeCommandPalette: (options?: { restoreFocus?: boolean }) => void;
   closeSettings: () => void;
   closeDialog: () => void;
   submitActiveDialog: () => void;
-  openTerminalDialog: (project: Project) => void;
+  openWorkspaceDialog: (project: Project) => void;
   openEditProjectDialog: (project: Project) => void;
-  openEditTerminalDialog: (project: Project, terminal: TerminalEntry) => void;
+  openEditWorkspaceDialog: (project: Project, terminal: WorkspaceEntry) => void;
   deleteProject: (projectId: string) => void;
-  deleteTerminal: (projectId: string, terminalId: string) => void;
-  closePane: (paneId: string) => void;
-  restoreActivePaneFocus: (reason: string) => void;
+  deleteWorkspace: (projectId: string, workspaceId: string) => void;
+  closeTerminal: (terminalId: string) => void;
+  restoreActiveTerminalFocus: (reason: string) => void;
 }) {
   return (
     <>
@@ -85,16 +85,16 @@ export function AppOverlays({
         store={store}
         appSettings={appSettings}
         activeProjectId={activeProjectId}
-        activeTerminalId={activeTerminalId}
+        activeWorkspaceId={activeWorkspaceId}
         closeContextMenu={closeContextMenu}
-        openTerminalDialog={openTerminalDialog}
+        openWorkspaceDialog={openWorkspaceDialog}
         openEditProjectDialog={openEditProjectDialog}
-        openEditTerminalDialog={openEditTerminalDialog}
+        openEditWorkspaceDialog={openEditWorkspaceDialog}
         setConfirmDeleteProjectId={setConfirmDeleteProjectId}
-        setConfirmDeleteTerminal={setConfirmDeleteTerminal}
+        setConfirmDeleteWorkspace={setConfirmDeleteWorkspace}
         deleteProject={deleteProject}
-        deleteTerminal={deleteTerminal}
-        restoreActivePaneFocus={restoreActivePaneFocus}
+        deleteWorkspace={deleteWorkspace}
+        restoreActiveTerminalFocus={restoreActiveTerminalFocus}
       />
       <CommandPalette
         open={commandPaletteOpen}
@@ -106,21 +106,21 @@ export function AppOverlays({
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={closeDialog} onSubmit={submitActiveDialog} />}
       {toast && <div className="toast">{toast}</div>}
       <AppConfirmDialogs
-        confirmClosePaneId={confirmClosePaneId}
+        confirmCloseTerminalId={confirmCloseTerminalId}
         confirmDeleteProject={confirmDeleteProject}
-        confirmDeleteTerminal={confirmDeleteTerminal}
-        confirmDeleteTerminalEntry={confirmDeleteTerminalEntry}
+        confirmDeleteWorkspace={confirmDeleteWorkspace}
+        confirmDeleteWorkspaceEntry={confirmDeleteWorkspaceEntry}
         confirmQuitOpen={confirmQuitOpen}
         activeProjectId={activeProjectId}
-        activeTerminalId={activeTerminalId}
-        setConfirmClosePaneId={setConfirmClosePaneId}
+        activeWorkspaceId={activeWorkspaceId}
+        setConfirmCloseTerminalId={setConfirmCloseTerminalId}
         setConfirmDeleteProjectId={setConfirmDeleteProjectId}
-        setConfirmDeleteTerminal={setConfirmDeleteTerminal}
+        setConfirmDeleteWorkspace={setConfirmDeleteWorkspace}
         setConfirmQuitOpen={setConfirmQuitOpen}
-        closePane={closePane}
+        closeTerminal={closeTerminal}
         deleteProject={deleteProject}
-        deleteTerminal={deleteTerminal}
-        restoreActivePaneFocus={restoreActivePaneFocus}
+        deleteWorkspace={deleteWorkspace}
+        restoreActiveTerminalFocus={restoreActiveTerminalFocus}
       />
     </>
   );

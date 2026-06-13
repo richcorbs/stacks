@@ -1,72 +1,72 @@
 import type { MutableRefObject } from 'react';
-import type { ContextMenuState, PointerDragState, Project, TerminalEntry } from '../types';
+import type { ContextMenuState, PointerDragState, Project, WorkspaceEntry } from '../types';
 import { workspaceStatusDot } from '../workspace/statusDots';
 
-type SidebarTerminal = { project: Project; terminal: TerminalEntry };
+type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
 
-export function SidebarTerminalRow({
+export function SidebarWorkspaceRow({
   project,
   terminal,
-  activeTerminalId,
-  sidebarFocusedTerminalId,
-  sidebarTerminals,
-  runningPaneIds,
-  activityTerminalIds,
+  activeWorkspaceId,
+  sidebarFocusedWorkspaceId,
+  sidebarWorkspaces,
+  runningTerminalIds,
+  activityWorkspaceIds,
   activityTerminalLastOutputAtById,
   activityNow,
   metaKeyDown,
   justPointerDraggedRef,
   pointerDragRef,
-  selectTerminal,
+  selectWorkspace,
   setContextMenu,
 }: {
   project: Project;
-  terminal: TerminalEntry;
-  activeTerminalId: string | null;
-  sidebarFocusedTerminalId: string | null;
-  sidebarTerminals: SidebarTerminal[];
-  runningPaneIds: string[];
-  activityTerminalIds: string[];
+  terminal: WorkspaceEntry;
+  activeWorkspaceId: string | null;
+  sidebarFocusedWorkspaceId: string | null;
+  sidebarWorkspaces: SidebarWorkspace[];
+  runningTerminalIds: string[];
+  activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
   activityNow: number;
   metaKeyDown: boolean;
   justPointerDraggedRef: MutableRefObject<boolean>;
   pointerDragRef: MutableRefObject<PointerDragState | null>;
-  selectTerminal: (projectId: string, terminalId: string) => void;
+  selectWorkspace: (projectId: string, workspaceId: string) => void;
   setContextMenu: (menu: ContextMenuState) => void;
 }) {
-  const isRunning = runningPaneIds.some((paneId) => paneId.startsWith(`${terminal.id}:`));
-  const hasBackgroundActivity = terminal.id !== activeTerminalId && activityTerminalIds.includes(terminal.id);
+  const isRunning = runningTerminalIds.some((terminalId) => terminalId.startsWith(`${terminal.id}:`));
+  const hasBackgroundActivity = terminal.id !== activeWorkspaceId && activityWorkspaceIds.includes(terminal.id);
   const activityAge = activityNow - (activityTerminalLastOutputAtById[terminal.id] ?? 0);
   const statusDot = workspaceStatusDot({ isRunning, hasUnacknowledgedActivity: hasBackgroundActivity, activityAgeMs: activityAge });
   const statusDotClass = statusDot === 'active' ? 'activityDotFresh' : statusDot === 'unseen' ? 'activityDot' : '';
   const statusDotTitle = statusDot === 'active' ? 'Recent background output' : statusDot === 'unseen' ? 'Background output' : 'Active terminal running';
-  const shortcutIndex = sidebarTerminals.findIndex(({ terminal: t }) => t.id === terminal.id);
+  const shortcutIndex = sidebarWorkspaces.findIndex(({ terminal: t }) => t.id === terminal.id);
 
   return (
     <button
-      className={`term ${activeTerminalId === terminal.id ? 'active' : ''} ${sidebarFocusedTerminalId === terminal.id ? 'focused' : ''}`}
+      className={`term ${activeWorkspaceId === terminal.id ? 'active' : ''} ${sidebarFocusedWorkspaceId === terminal.id ? 'focused' : ''}`}
       data-project-id={project.id}
-      data-terminal-id={terminal.id}
+      data-workspace-id={terminal.id}
       onPointerDown={(e) => {
         if (e.button !== 0) {
           e.preventDefault();
           return;
         }
         e.currentTarget.setPointerCapture(e.pointerId);
-        pointerDragRef.current = { kind: 'terminal', projectId: project.id, terminalId: terminal.id, startX: e.clientX, startY: e.clientY, dragging: false };
+        pointerDragRef.current = { kind: 'workspace', projectId: project.id, workspaceId: terminal.id, startX: e.clientX, startY: e.clientY, dragging: false };
       }}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        setContextMenu({ kind: 'terminal', projectId: project.id, terminalId: terminal.id, x: e.clientX, y: e.clientY });
+        setContextMenu({ kind: 'workspace', projectId: project.id, workspaceId: terminal.id, x: e.clientX, y: e.clientY });
       }}
       onClick={(e) => {
         if (justPointerDraggedRef.current) {
           e.preventDefault();
           return;
         }
-        selectTerminal(project.id, terminal.id);
+        selectWorkspace(project.id, terminal.id);
       }}
     >
       <span className="termLabel">

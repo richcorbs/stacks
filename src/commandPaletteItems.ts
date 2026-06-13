@@ -1,31 +1,31 @@
-import type { Pane, Project, Store, TerminalEntry } from './types';
+import type { TerminalEntry, Project, Store, WorkspaceEntry } from './types';
 import type { PaletteItem } from './components/CommandPalette';
 import { commandPaletteCoreItems } from './commandPaletteCoreItems';
 
-type SidebarTerminal = { project: Project; terminal: TerminalEntry };
+type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
 
 export type CommandPaletteItemOptions = {
   store: Store;
-  sidebarTerminals: SidebarTerminal[];
-  panesByTerminalId: Record<string, Pane[]>;
+  sidebarWorkspaces: SidebarWorkspace[];
+  terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
   activeProject: Project | null;
-  activeTerminal: TerminalEntry | null;
+  activeWorkspace: WorkspaceEntry | null;
+  activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  activePaneId: string | null;
   activePath: string | null;
-  onSelectTerminal: (projectId: string, terminalId: string) => void;
+  onSelectWorkspace: (projectId: string, workspaceId: string) => void;
   onNewProject: () => void;
-  onNewTerminal: (project: Project) => void;
+  onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
-  onEditTerminal: (project: Project, terminal: TerminalEntry) => void;
-  onDeleteWorkspace: (projectId: string, terminalId: string) => void;
-  onSplitPane: (direction: 'row' | 'column') => void;
+  onEditWorkspace: (project: Project, terminal: WorkspaceEntry) => void;
+  onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
+  onSplitTerminal: (direction: 'row' | 'column') => void;
+  onCycleWorkspace: (delta: number) => void;
   onCycleTerminal: (delta: number) => void;
-  onCyclePane: (delta: number) => void;
-  onStopPane: (paneId: string) => void;
-  onRestartPane: (paneId: string) => void;
-  onClosePane: (paneId: string) => void;
-  onClearPane: () => void;
+  onStopTerminal: (terminalId: string) => void;
+  onRestartTerminal: (terminalId: string) => void;
+  onCloseTerminal: (terminalId: string) => void;
+  onClearTerminal: () => void;
   onToggleMaximizedTerminal: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
@@ -33,43 +33,43 @@ export type CommandPaletteItemOptions = {
 };
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
-  const { store, sidebarTerminals, panesByTerminalId, activeTerminalId, activePaneId, onSelectTerminal, onNewTerminal, onCyclePane } = options;
+  const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeWorkspaceId, activeTerminalId, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
   return [
     ...commandPaletteCoreItems(options),
-    ...terminalItems(sidebarTerminals, activeTerminalId, onSelectTerminal),
-    ...projectItems(store.projects, onNewTerminal),
-    ...paneItems(activeTerminalId, activePaneId, panesByTerminalId, onCyclePane),
+    ...workspaceItems(sidebarWorkspaces, activeWorkspaceId, onSelectWorkspace),
+    ...projectItems(store.projects, onNewWorkspace),
+    ...terminalItems(activeWorkspaceId, activeTerminalId, terminalsByWorkspaceId, onCycleTerminal),
   ];
 }
 
-function terminalItems(sidebarTerminals: SidebarTerminal[], activeTerminalId: string | null, onSelectTerminal: (projectId: string, terminalId: string) => void): PaletteItem[] {
-  return sidebarTerminals.map(({ project, terminal }, index) => ({
+function workspaceItems(sidebarWorkspaces: SidebarWorkspace[], activeWorkspaceId: string | null, onSelectWorkspace: (projectId: string, workspaceId: string) => void): PaletteItem[] {
+  return sidebarWorkspaces.map(({ project, terminal }, index) => ({
     id: `terminal-${terminal.id}`,
     title: terminal.name,
-    subtitle: `${project.name}${terminal.id === activeTerminalId ? ' • current' : ''}`,
+    subtitle: `${project.name}${terminal.id === activeWorkspaceId ? ' • current' : ''}`,
     keywords: `terminal project ${project.path} ${index < 9 ? `cmd ${index + 1}` : ''}`,
-    action: () => onSelectTerminal(project.id, terminal.id),
+    action: () => onSelectWorkspace(project.id, terminal.id),
   }));
 }
 
-function projectItems(projects: Project[], onNewTerminal: (project: Project) => void): PaletteItem[] {
+function projectItems(projects: Project[], onNewWorkspace: (project: Project) => void): PaletteItem[] {
   return projects.map((project) => ({
     id: `project-terminal-${project.id}`,
     title: `New Workspace in ${project.name}`,
     subtitle: project.path,
     keywords: 'new terminal workspace project shell',
-    action: () => onNewTerminal(project),
+    action: () => onNewWorkspace(project),
   }));
 }
 
-function paneItems(activeTerminalId: string | null, activePaneId: string | null, panesByTerminalId: Record<string, Pane[]>, onCyclePane: (delta: number) => void): PaletteItem[] {
-  if (!activeTerminalId) return [];
-  const panes = panesByTerminalId[activeTerminalId] ?? [];
-  return panes.map((pane, index) => ({
-    id: `pane-${pane.id}`,
+function terminalItems(activeWorkspaceId: string | null, activeTerminalId: string | null, terminalsByWorkspaceId: Record<string, TerminalEntry[]>, onCycleTerminal: (delta: number) => void): PaletteItem[] {
+  if (!activeWorkspaceId) return [];
+  const terminals = terminalsByWorkspaceId[activeWorkspaceId] ?? [];
+  return terminals.map((terminal, index) => ({
+    id: `terminal-${terminal.id}`,
     title: `Focus Terminal ${index + 1}`,
-    subtitle: pane.command || (pane.id === activePaneId ? 'Current terminal' : undefined),
-    keywords: 'focus switch pane terminal',
-    action: () => onCyclePane(index - Math.max(0, panes.findIndex((p) => p.id === activePaneId))),
+    subtitle: terminal.command || (terminal.id === activeTerminalId ? 'Current terminal' : undefined),
+    keywords: 'focus switch terminal',
+    action: () => onCycleTerminal(index - Math.max(0, terminals.findIndex((t) => t.id === activeTerminalId))),
   }));
 }

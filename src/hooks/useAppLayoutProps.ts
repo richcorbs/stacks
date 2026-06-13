@@ -1,22 +1,22 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, DialogState, Pane, PointerDragState, Project, SplitNode, Store, TerminalEntry } from '../types';
+import type { AppStats, ContextMenuState, DialogState, TerminalEntry, PointerDragState, Project, SplitNode, Store, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from '../components/CommandPalette';
 import type { MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
 import { useAppStyle } from './useAppStyle';
 
-type ConfirmDeleteTerminal = { projectId: string; terminalId: string };
+type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
 
 type UseAppLayoutPropsOptions = {
   sidebarVisible: boolean;
   sidebarWidth: number;
   store: Store;
   activeProjectId: string | null;
-  activeTerminalId: string | null;
-  sidebarFocusedTerminalId: string | null;
-  sidebarTerminals: { project: Project; terminal: TerminalEntry }[];
-  runningPaneIds: string[];
-  activityTerminalIds: string[];
+  activeWorkspaceId: string | null;
+  sidebarFocusedWorkspaceId: string | null;
+  sidebarWorkspaces: { project: Project; terminal: WorkspaceEntry }[];
+  runningTerminalIds: string[];
+  activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
   activityNow: number;
   metaKeyDown: boolean;
@@ -25,24 +25,24 @@ type UseAppLayoutPropsOptions = {
   pointerDragRef: React.MutableRefObject<PointerDragState | null>;
   resizingSidebarRef: React.MutableRefObject<boolean>;
   toggleProject: (projectId: string) => void;
-  selectTerminal: (projectId: string, terminalId: string | null) => void;
+  selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
   openProjectDialog: () => void;
-  openTerminalDialog: (project: Project) => void;
+  openWorkspaceDialog: (project: Project) => void;
   activePath: string | null;
   gitInfo: { branch: string; created: number; changed: number; deleted: number } | null;
-  visitedTerminalWorkspaces: { project: Project; terminal: TerminalEntry; panes: Pane[]; root: SplitNode | undefined }[];
-  activePaneId: string | null;
-  maximizedTerminalId: string | null;
+  visitedWorkspaceTerminalTrees: { project: Project; workspace: WorkspaceEntry; terminals: TerminalEntry[]; root: SplitNode | undefined }[];
+  activeTerminalId: string | null;
+  maximizedWorkspaceId: string | null;
   appSettings: ResolvedAppSettings;
-  searchPaneRequest: { paneId: string; nonce: number } | null;
-  restartPaneRequest: { paneId: string; nonce: number } | null;
-  resizeSplit: (terminalId: string, path: string, ratio: number) => void;
-  focusPane: (terminalId: string, paneId: string) => void;
-  closePane: (paneId: string) => void;
-  setConfirmClosePaneId: React.Dispatch<React.SetStateAction<string | null>>;
-  toggleMaximizedTerminal: (paneId?: string | null) => void;
-  splitPane: (direction: 'row' | 'column', targetPaneId?: string) => void;
+  searchTerminalRequest: { terminalId: string; nonce: number } | null;
+  restartTerminalRequest: { terminalId: string; nonce: number } | null;
+  resizeSplit: (workspaceId: string, path: string, ratio: number) => void;
+  focusTerminal: (workspaceId: string, terminalId: string) => void;
+  closeTerminal: (terminalId: string) => void;
+  setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
+  toggleMaximizedTerminal: (terminalId?: string | null) => void;
+  splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   contextMenu: ContextMenuState | null;
@@ -50,15 +50,15 @@ type UseAppLayoutPropsOptions = {
   commandPaletteItems: PaletteItem[];
   settingsOpen: boolean;
   dialog: DialogState | null;
-  confirmClosePaneId: string | null;
+  confirmCloseTerminalId: string | null;
   confirmDeleteProject: Project | null;
-  confirmDeleteTerminal: ConfirmDeleteTerminal | null;
-  confirmDeleteTerminalEntry: TerminalEntry | null;
+  confirmDeleteWorkspace: ConfirmDeleteWorkspace | null;
+  confirmDeleteWorkspaceEntry: WorkspaceEntry | null;
   confirmQuitOpen: boolean;
   toast: string | null;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   setConfirmDeleteProjectId: React.Dispatch<React.SetStateAction<string | null>>;
-  setConfirmDeleteTerminal: React.Dispatch<React.SetStateAction<ConfirmDeleteTerminal | null>>;
+  setConfirmDeleteWorkspace: React.Dispatch<React.SetStateAction<ConfirmDeleteWorkspace | null>>;
   setConfirmQuitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   closeContextMenu: (options?: { restoreFocus?: boolean }) => void;
   closeCommandPalette: (options?: { restoreFocus?: boolean }) => void;
@@ -66,10 +66,10 @@ type UseAppLayoutPropsOptions = {
   closeDialog: () => void;
   submitActiveDialog: () => void;
   openEditProjectDialog: (project: Project) => void;
-  openEditTerminalDialog: (project: Project, terminal: TerminalEntry) => void;
+  openEditWorkspaceDialog: (project: Project, terminal: WorkspaceEntry) => void;
   deleteProject: (projectId: string) => void;
-  deleteTerminal: (projectId: string, terminalId: string) => void;
-  restoreActivePaneFocus: (reason: string) => void;
+  deleteWorkspace: (projectId: string, workspaceId: string) => void;
+  restoreActiveTerminalFocus: (reason: string) => void;
 };
 
 export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
@@ -86,11 +86,11 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       width: options.sidebarWidth,
       store: options.store,
       activeProjectId: options.activeProjectId,
-      activeTerminalId: options.activeTerminalId,
-      sidebarFocusedTerminalId: options.sidebarFocusedTerminalId,
-      sidebarTerminals: options.sidebarTerminals,
-      runningPaneIds: options.runningPaneIds,
-      activityTerminalIds: options.activityTerminalIds,
+      activeWorkspaceId: options.activeWorkspaceId,
+      sidebarFocusedWorkspaceId: options.sidebarFocusedWorkspaceId,
+      sidebarWorkspaces: options.sidebarWorkspaces,
+      runningTerminalIds: options.runningTerminalIds,
+      activityWorkspaceIds: options.activityWorkspaceIds,
       activityTerminalLastOutputAtById: options.activityTerminalLastOutputAtById,
       activityNow: options.activityNow,
       metaKeyDown: options.metaKeyDown,
@@ -99,28 +99,28 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       pointerDragRef: options.pointerDragRef,
       resizingSidebarRef: options.resizingSidebarRef,
       toggleProject: options.toggleProject,
-      selectTerminal: options.selectTerminal,
+      selectWorkspace: options.selectWorkspace,
       setContextMenu: options.setContextMenu,
       openProjectDialog: options.openProjectDialog,
-      openTerminalDialog: options.openTerminalDialog,
+      openWorkspaceDialog: options.openWorkspaceDialog,
     },
     main: {
       activePath: options.activePath,
       gitInfo: options.gitInfo,
-      visitedTerminalWorkspaces: options.visitedTerminalWorkspaces,
+      visitedWorkspaceTerminalTrees: options.visitedWorkspaceTerminalTrees,
+      activeWorkspaceId: options.activeWorkspaceId,
       activeTerminalId: options.activeTerminalId,
-      activePaneId: options.activePaneId,
-      maximizedTerminalId: options.maximizedTerminalId,
+      maximizedWorkspaceId: options.maximizedWorkspaceId,
       appSettings: options.appSettings,
-      searchPaneRequest: options.searchPaneRequest,
-      restartPaneRequest: options.restartPaneRequest,
+      searchTerminalRequest: options.searchTerminalRequest,
+      restartTerminalRequest: options.restartTerminalRequest,
       resizeSplit: options.resizeSplit,
-      selectTerminal: options.selectTerminal,
-      focusPane: options.focusPane,
-      closePane: options.closePane,
-      setConfirmClosePaneId: options.setConfirmClosePaneId,
+      selectWorkspace: options.selectWorkspace,
+      focusTerminal: options.focusTerminal,
+      closeTerminal: options.closeTerminal,
+      setConfirmCloseTerminalId: options.setConfirmCloseTerminalId,
       toggleMaximizedTerminal: options.toggleMaximizedTerminal,
-      splitPane: options.splitPane,
+      splitTerminal: options.splitTerminal,
       toggleSidebar: options.toggleSidebar,
     },
     overlays: {
@@ -132,31 +132,31 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       commandPaletteItems: options.commandPaletteItems,
       settingsOpen: options.settingsOpen,
       dialog: options.dialog,
-      confirmClosePaneId: options.confirmClosePaneId,
+      confirmCloseTerminalId: options.confirmCloseTerminalId,
       confirmDeleteProject: options.confirmDeleteProject,
-      confirmDeleteTerminal: options.confirmDeleteTerminal,
-      confirmDeleteTerminalEntry: options.confirmDeleteTerminalEntry,
+      confirmDeleteWorkspace: options.confirmDeleteWorkspace,
+      confirmDeleteWorkspaceEntry: options.confirmDeleteWorkspaceEntry,
       confirmQuitOpen: options.confirmQuitOpen,
       toast: options.toast,
       activeProjectId: options.activeProjectId,
-      activeTerminalId: options.activeTerminalId,
+      activeWorkspaceId: options.activeWorkspaceId,
       setDialog: options.setDialog,
-      setConfirmClosePaneId: options.setConfirmClosePaneId,
+      setConfirmCloseTerminalId: options.setConfirmCloseTerminalId,
       setConfirmDeleteProjectId: options.setConfirmDeleteProjectId,
-      setConfirmDeleteTerminal: options.setConfirmDeleteTerminal,
+      setConfirmDeleteWorkspace: options.setConfirmDeleteWorkspace,
       setConfirmQuitOpen: options.setConfirmQuitOpen,
       closeContextMenu: options.closeContextMenu,
       closeCommandPalette: options.closeCommandPalette,
       closeSettings: options.closeSettings,
       closeDialog: options.closeDialog,
       submitActiveDialog: options.submitActiveDialog,
-      openTerminalDialog: options.openTerminalDialog,
+      openWorkspaceDialog: options.openWorkspaceDialog,
       openEditProjectDialog: options.openEditProjectDialog,
-      openEditTerminalDialog: options.openEditTerminalDialog,
+      openEditWorkspaceDialog: options.openEditWorkspaceDialog,
       deleteProject: options.deleteProject,
-      deleteTerminal: options.deleteTerminal,
-      closePane: options.closePane,
-      restoreActivePaneFocus: options.restoreActivePaneFocus,
+      deleteWorkspace: options.deleteWorkspace,
+      closeTerminal: options.closeTerminal,
+      restoreActiveTerminalFocus: options.restoreActiveTerminalFocus,
     },
   };
 }

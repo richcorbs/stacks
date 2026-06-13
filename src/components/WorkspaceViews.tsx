@@ -1,88 +1,88 @@
-import { SplitView } from './TerminalWorkspace';
-import type { Pane, Project, SplitNode, TerminalEntry } from '../types';
-import { effectiveDisplayedMaximizedPaneId } from '../workspace/selectors';
+import { SplitView } from './WorkspaceTerminalTree';
+import type { TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
+import { effectiveDisplayedMaximizedTerminalId } from '../workspace/selectors';
 
-type TerminalWorkspaceModel = {
+type WorkspaceViewModel = {
   project: Project;
-  terminal: TerminalEntry;
-  panes: Pane[];
+  workspace: WorkspaceEntry;
+  terminals: TerminalEntry[];
   root: SplitNode | undefined;
 };
 
-type PaneRequest = { paneId: string; nonce: number };
+type TerminalRequest = { terminalId: string; nonce: number };
 
 export function WorkspaceViews({
   workspaces,
+  activeWorkspaceId,
   activeTerminalId,
-  activePaneId,
-  maximizedTerminalId,
+  maximizedWorkspaceId,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
   copyOnSelect,
-  searchPaneRequest,
-  restartPaneRequest,
+  searchTerminalRequest,
+  restartTerminalRequest,
   onResizeSplit,
-  onFocusPane,
-  onClosePane,
+  onFocusTerminal,
+  onCloseTerminal,
   canToggleMaximizedTerminal,
   onToggleMaximizedTerminal,
-  onSplitPane,
+  onSplitTerminal,
 }: {
-  workspaces: TerminalWorkspaceModel[];
+  workspaces: WorkspaceViewModel[];
+  activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  activePaneId: string | null;
-  maximizedTerminalId: string | null;
+  maximizedWorkspaceId: string | null;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
   copyOnSelect: boolean;
-  searchPaneRequest: PaneRequest | null;
-  restartPaneRequest: PaneRequest | null;
-  onResizeSplit: (terminalId: string, path: string, ratio: number) => void;
-  onFocusPane: (projectId: string, terminalId: string, paneId: string) => void;
-  onClosePane: (paneId: string) => void;
-  canToggleMaximizedTerminal: (terminalId: string) => boolean;
-  onToggleMaximizedTerminal: (paneId: string) => void;
-  onSplitPane: (direction: 'row' | 'column', targetPaneId?: string) => void;
+  searchTerminalRequest: TerminalRequest | null;
+  restartTerminalRequest: TerminalRequest | null;
+  onResizeSplit: (workspaceId: string, path: string, ratio: number) => void;
+  onFocusTerminal: (projectId: string, workspaceId: string, terminalId: string) => void;
+  onCloseTerminal: (terminalId: string) => void;
+  canToggleMaximizedTerminal: (workspaceId: string) => boolean;
+  onToggleMaximizedTerminal: (terminalId: string) => void;
+  onSplitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
 }) {
   if (workspaces.length === 0) {
     return <div className="empty">Create or select a workspace. Shortcuts: ⌘O project, ⌘N workspace, ⌘D split terminal.</div>;
   }
 
-  return workspaces.map(({ project, terminal, panes, root }) => {
-    const visible = terminal.id === activeTerminalId;
-    const panesById = Object.fromEntries(panes.map((pane) => [pane.id, pane]));
-    const visiblePaneIds = panes.map((pane) => pane.id);
-    const terminalFocusedPaneId = focusedPaneForTerminal(terminal.id, activePaneId, visiblePaneIds);
-    const visibleMaximizedPaneId = effectiveDisplayedMaximizedPaneId(maximizedTerminalId, terminal.id, terminalFocusedPaneId, visiblePaneIds);
+  return workspaces.map(({ project, workspace, terminals, root }) => {
+    const visible = workspace.id === activeWorkspaceId;
+    const terminalsById = Object.fromEntries(terminals.map((terminal) => [terminal.id, terminal]));
+    const visibleTerminalIds = terminals.map((terminal) => terminal.id);
+    const terminalFocusedTerminalId = focusedTerminalForWorkspace(workspace.id, activeTerminalId, visibleTerminalIds);
+    const visibleMaximizedTerminalId = effectiveDisplayedMaximizedTerminalId(maximizedWorkspaceId, workspace.id, terminalFocusedTerminalId, visibleTerminalIds);
     return (
       <div
-        key={terminal.id}
+        key={workspace.id}
         className={`terminalWorkspace ${visible ? 'visible' : ''}`}
         aria-hidden={!visible}
       >
         {root && (
           <SplitView
             node={root}
-            panesById={panesById}
-            terminal={terminal}
+            terminalsById={terminalsById}
+            workspace={workspace}
             project={project}
             visible={visible}
             terminalFontSize={terminalFontSize}
             terminalFontFamily={terminalFontFamily}
             terminalScrollback={terminalScrollback}
             copyOnSelect={copyOnSelect}
-            activePaneId={visible ? activePaneId : null}
-            displayedMaximizedPaneId={visible ? visibleMaximizedPaneId : null}
-            searchPaneRequest={searchPaneRequest}
-            restartPaneRequest={restartPaneRequest}
+            activeTerminalId={visible ? activeTerminalId : null}
+            displayedMaximizedTerminalId={visible ? visibleMaximizedTerminalId : null}
+            searchTerminalRequest={searchTerminalRequest}
+            restartTerminalRequest={restartTerminalRequest}
             path=""
-            onResizeSplit={(path, ratio) => onResizeSplit(terminal.id, path, ratio)}
-            onFocus={(paneId) => onFocusPane(project.id, terminal.id, paneId)}
-            onClose={onClosePane}
-            onSplitPane={onSplitPane}
-            canToggleMaximize={canToggleMaximizedTerminal(terminal.id)}
+            onResizeSplit={(path, ratio) => onResizeSplit(workspace.id, path, ratio)}
+            onFocus={(terminalId) => onFocusTerminal(project.id, workspace.id, terminalId)}
+            onClose={onCloseTerminal}
+            onSplitTerminal={onSplitTerminal}
+            canToggleMaximize={canToggleMaximizedTerminal(workspace.id)}
             onToggleMaximize={onToggleMaximizedTerminal}
           />
         )}
@@ -91,7 +91,7 @@ export function WorkspaceViews({
   });
 }
 
-function focusedPaneForTerminal(terminalId: string, activePaneId: string | null, paneIds: string[]) {
-  if (activePaneId?.startsWith(`${terminalId}:`) && paneIds.includes(activePaneId)) return activePaneId;
-  return paneIds[0] ?? null;
+function focusedTerminalForWorkspace(workspaceId: string, activeTerminalId: string | null, terminalIds: string[]) {
+  if (activeTerminalId?.startsWith(`${workspaceId}:`) && terminalIds.includes(activeTerminalId)) return activeTerminalId;
+  return terminalIds[0] ?? null;
 }

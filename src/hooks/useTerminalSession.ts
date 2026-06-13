@@ -2,15 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
-import type { Pane, Project, TerminalEntry } from '../types';
-import { disposePaneSession, getPaneSession, setPaneSession } from '../terminalSessionManager';
-import { createPaneSession } from '../terminalPaneFactory';
-import { attachPanePtyListeners, spawnPanePty } from '../terminalPty';
-import { attachPaneResizeObserver } from '../terminalResizeObserver';
+import type { TerminalEntry, Project, WorkspaceEntry } from '../types';
+import { disposeTerminalSession, getTerminalSession, setTerminalSession } from '../terminalSessionManager';
+import { createTerminalSession } from '../terminalSessionFactory';
+import { attachTerminalPtyListeners, spawnTerminalPty } from '../terminalPty';
+import { attachTerminalResizeObserver } from '../terminalResizeObserver';
 
-export function useTerminalPaneSession({
-  pane,
+export function useTerminalSession({
   terminal,
+  workspace,
   project,
   active,
   visible,
@@ -19,8 +19,8 @@ export function useTerminalPaneSession({
   terminalScrollback,
   onSearchResultsChange,
 }: {
-  pane: Pane;
   terminal: TerminalEntry;
+  workspace: WorkspaceEntry;
   project: Project;
   active: boolean;
   visible: boolean;
@@ -34,47 +34,47 @@ export function useTerminalPaneSession({
   const fitRef = useRef<FitAddon | null>(null);
   const [sessionRestartNonce, setSessionRestartNonce] = useState(0);
 
-  const restartPaneSessionIfDead = useCallback(() => {
-    const session = getPaneSession(pane.id);
+  const restartTerminalSessionIfDead = useCallback(() => {
+    const session = getTerminalSession(terminal.id);
     if (session && (!session.spawned || session.running)) return false;
     if (session) {
-      disposePaneSession(pane.id);
-      invoke('kill_pty', { paneId: pane.id }).catch(() => {});
+      disposeTerminalSession(terminal.id);
+      invoke('kill_pty', { terminalId: terminal.id }).catch(() => {});
     }
     termRef.current = null;
     fitRef.current = null;
     setSessionRestartNonce((nonce) => nonce + 1);
     return true;
-  }, [pane.id]);
+  }, [terminal.id]);
 
   useEffect(() => {
-    const startupCommand = pane.id === `${terminal.id}:0` ? terminal.command : pane.command ?? null;
+    const startupCommand = terminal.id === `${workspace.id}:0` ? workspace.command : terminal.command ?? null;
     const host = hostRef.current!;
     let cancelled = false;
-    let session = getPaneSession(pane.id);
+    let session = getTerminalSession(terminal.id);
 
     if (!session) {
-      session = createPaneSession({
-        paneId: pane.id,
+      session = createTerminalSession({
+        terminalId: terminal.id,
         host,
         terminalFontFamily,
         terminalFontSize,
         terminalScrollback,
       });
       const { term, fit } = session;
-      setPaneSession(pane.id, session);
+      setTerminalSession(terminal.id, session);
 
-      const generation = `${pane.id}:${Date.now()}:${Math.random()}`;
-      const listenersReady = attachPanePtyListeners({ session, paneId: pane.id, terminalId: terminal.id, generation });
+      const generation = `${terminal.id}:${Date.now()}:${Math.random()}`;
+      const listenersReady = attachTerminalPtyListeners({ session, terminalId: terminal.id, workspaceId: workspace.id, generation });
       requestAnimationFrame(() => {
         listenersReady
-          .then(() => spawnPanePty({
+          .then(() => spawnTerminalPty({
             session: session!,
             term,
             fit,
-            paneId: pane.id,
+            terminalId: terminal.id,
             generation,
-            cwd: terminal.cwd || project.path,
+            cwd: workspace.cwd || project.path,
             command: startupCommand || null,
             active,
             isCancelled: () => cancelled,
@@ -90,14 +90,14 @@ export function useTerminalPaneSession({
 
     const resultsDisposable = session.search.onDidChangeResults(onSearchResultsChange);
 
-    const detachResizeObserver = attachPaneResizeObserver({ session, host, paneId: pane.id, visible });
+    const detachResizeObserver = attachTerminalResizeObserver({ session, host, terminalId: terminal.id, visible });
 
     return () => {
       cancelled = true;
       detachResizeObserver();
       resultsDisposable.dispose();
     };
-  }, [pane.id, pane.command, terminal.id, project.path, terminal.cwd, terminal.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce, onSearchResultsChange]);
+  }, [terminal.id, terminal.command, workspace.id, project.path, workspace.cwd, workspace.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce, onSearchResultsChange]);
 
-  return { hostRef, termRef, fitRef, restartPaneSessionIfDead };
+  return { hostRef, termRef, fitRef, restartTerminalSessionIfDead };
 }

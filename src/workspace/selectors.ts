@@ -1,29 +1,29 @@
-import type { Pane, SplitNode } from '../types';
-import { collectLeafPaneIds } from '../utils';
+import type { TerminalEntry, SplitNode } from '../types';
+import { collectLeafTerminalIds } from '../utils';
 
-export function paneIdsForTerminal(
-  terminalId: string,
-  panesByTerminalId: Record<string, Pane[]>,
+export function terminalIdsForWorkspace(
+  workspaceId: string,
+  terminalsByWorkspaceId: Record<string, TerminalEntry[]>,
   splitRoot?: SplitNode | null,
 ) {
-  const visualPaneIds = collectLeafPaneIds(splitRoot);
-  return visualPaneIds.length > 0
-    ? visualPaneIds
-    : (panesByTerminalId[terminalId] ?? []).map((pane) => pane.id);
+  const visualTerminalIds = collectLeafTerminalIds(splitRoot);
+  return visualTerminalIds.length > 0
+    ? visualTerminalIds
+    : (terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id);
 }
 
-export function effectiveDisplayedMaximizedPaneId(maximizedTerminalId: string | null, terminalId: string, focusedPaneId: string | null, paneIds: string[]) {
-  if (paneIds.length <= 1 || maximizedTerminalId !== terminalId) return null;
-  return focusedPaneId && paneIds.includes(focusedPaneId) ? focusedPaneId : paneIds[0] ?? null;
+export function effectiveDisplayedMaximizedTerminalId(maximizedWorkspaceId: string | null, workspaceId: string, focusedTerminalId: string | null, terminalIds: string[]) {
+  if (terminalIds.length <= 1 || maximizedWorkspaceId !== workspaceId) return null;
+  return focusedTerminalId && terminalIds.includes(focusedTerminalId) ? focusedTerminalId : terminalIds[0] ?? null;
 }
 
-export function shouldMaximizeTerminalAfterNewSplit(terminalId: string, existingPaneIds: string[], maximizedTerminalId: string | null) {
-  return existingPaneIds.length > 1 && maximizedTerminalId === terminalId;
+export function shouldMaximizeTerminalAfterNewSplit(workspaceId: string, existingTerminalIds: string[], maximizedWorkspaceId: string | null) {
+  return existingTerminalIds.length > 1 && maximizedWorkspaceId === workspaceId;
 }
 
-export function previousPaneIdAfterClose(paneIds: string[], closingPaneId: string) {
-  const remainingPaneIds = paneIds.filter((id) => id !== closingPaneId);
-  if (remainingPaneIds.length === 0) return null;
-  const currentIndex = Math.max(0, paneIds.findIndex((id) => id === closingPaneId));
-  return remainingPaneIds[(currentIndex - 1 + remainingPaneIds.length) % remainingPaneIds.length] ?? null;
+export function previousTerminalIdAfterClose(terminalIds: string[], closingTerminalId: string) {
+  const remainingTerminalIds = terminalIds.filter((id) => id !== closingTerminalId);
+  if (remainingTerminalIds.length === 0) return null;
+  const currentIndex = Math.max(0, terminalIds.findIndex((id) => id === closingTerminalId));
+  return remainingTerminalIds[(currentIndex - 1 + remainingTerminalIds.length) % remainingTerminalIds.length] ?? null;
 }

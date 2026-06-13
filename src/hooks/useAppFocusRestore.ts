@@ -1,10 +1,10 @@
-import { focusPaneSession } from '../terminalSessionManager';
+import { focusTerminalSession } from '../terminalSessionManager';
 
-export function useAppFocusRestore(activePaneId: string | null) {
-  function restoreActivePaneFocus(reason: string) {
-    if (!activePaneId) return;
-    const paneId = activePaneId;
-    const restore = (suffix: string) => focusPaneSession(paneId, `${reason}${suffix}`, { scrollToBottom: false });
+export function useAppFocusRestore(activeTerminalId: string | null) {
+  function restoreActiveTerminalFocus(reason: string) {
+    if (!activeTerminalId) return;
+    const terminalId = activeTerminalId;
+    const restore = (suffix: string) => focusTerminalSession(terminalId, `${reason}${suffix}`, { scrollToBottom: false });
     requestAnimationFrame(() => {
       if (restore('')) return;
       requestAnimationFrame(() => restore('-delayed'));
@@ -12,5 +12,5 @@ export function useAppFocusRestore(activePaneId: string | null) {
     });
   }
 
-  return { restoreActivePaneFocus };
+  return { restoreActiveTerminalFocus };
 }

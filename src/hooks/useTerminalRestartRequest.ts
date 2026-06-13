@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
 
-export function useTerminalPaneRestartRequest(restartRequestNonce: number, restartPaneSessionIfDead: () => boolean) {
+export function useTerminalRestartRequest(restartRequestNonce: number, restartTerminalSessionIfDead: () => boolean) {
   const lastRestartRequestNonceRef = useRef(restartRequestNonce);
 
   useEffect(() => {
     if (restartRequestNonce <= 0 || restartRequestNonce === lastRestartRequestNonceRef.current) return;
     lastRestartRequestNonceRef.current = restartRequestNonce;
-    restartPaneSessionIfDead();
-  }, [restartRequestNonce, restartPaneSessionIfDead]);
+    restartTerminalSessionIfDead();
+  }, [restartRequestNonce, restartTerminalSessionIfDead]);
 }

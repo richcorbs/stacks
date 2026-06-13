@@ -7,14 +7,14 @@ export function useAppOverlayState() {
   const pointerDragRef = useRef<PointerDragState | null>(null);
   const resizingSidebarRef = useRef(false);
   const justPointerDraggedRef = useRef(false);
-  const [confirmClosePaneId, setConfirmClosePaneId] = useState<string | null>(null);
+  const [confirmCloseTerminalId, setConfirmCloseTerminalId] = useState<string | null>(null);
   const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
-  const [confirmDeleteTerminal, setConfirmDeleteTerminal] = useState<{ projectId: string; terminalId: string } | null>(null);
+  const [confirmDeleteWorkspace, setConfirmDeleteWorkspace] = useState<{ projectId: string; workspaceId: string } | null>(null);
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [searchPaneRequest, setSearchPaneRequest] = useState<{ paneId: string; nonce: number } | null>(null);
-  const [restartPaneRequest, setRestartPaneRequest] = useState<{ paneId: string; nonce: number } | null>(null);
+  const [searchTerminalRequest, setSearchTerminalRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
+  const [restartTerminalRequest, setRestartTerminalRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
 
   return {
     dialog,
@@ -24,21 +24,21 @@ export function useAppOverlayState() {
     pointerDragRef,
     resizingSidebarRef,
     justPointerDraggedRef,
-    confirmClosePaneId,
-    setConfirmClosePaneId,
+    confirmCloseTerminalId,
+    setConfirmCloseTerminalId,
     confirmDeleteProjectId,
     setConfirmDeleteProjectId,
-    confirmDeleteTerminal,
-    setConfirmDeleteTerminal,
+    confirmDeleteWorkspace,
+    setConfirmDeleteWorkspace,
     confirmQuitOpen,
     setConfirmQuitOpen,
     commandPaletteOpen,
     setCommandPaletteOpen,
     settingsOpen,
     setSettingsOpen,
-    searchPaneRequest,
-    setSearchPaneRequest,
-    restartPaneRequest,
-    setRestartPaneRequest,
+    searchTerminalRequest,
+    setSearchTerminalRequest,
+    restartTerminalRequest,
+    setRestartTerminalRequest,
   };
 }

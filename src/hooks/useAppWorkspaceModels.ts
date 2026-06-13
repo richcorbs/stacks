@@ -1,52 +1,52 @@
 import { useMemo } from 'react';
-import type { Pane, Project, SplitNode, Store, TerminalEntry } from '../types';
+import type { TerminalEntry, Project, SplitNode, Store, WorkspaceEntry } from '../types';
 
-type TerminalWorkspaceModel = {
+type WorkspaceViewModel = {
   project: Project;
-  terminal: TerminalEntry;
-  panes: Pane[];
+  workspace: WorkspaceEntry;
+  terminals: TerminalEntry[];
   root: SplitNode | undefined;
 };
 
 export function useAppWorkspaceModels({
   store,
   activeProjectId,
+  activeWorkspaceId,
   activeTerminalId,
-  activePaneId,
-  paneCwds,
-  visitedTerminalIds,
-  panesByTerminalId,
-  splitRootsByTerminalId,
+  terminalCwds,
+  visitedWorkspaceIds,
+  terminalsByWorkspaceId,
+  splitRootsByWorkspaceId,
 }: {
   store: Store;
   activeProjectId: string | null;
+  activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  activePaneId: string | null;
-  paneCwds: Record<string, string>;
-  visitedTerminalIds: string[];
-  panesByTerminalId: Record<string, Pane[]>;
-  splitRootsByTerminalId: Record<string, SplitNode>;
+  terminalCwds: Record<string, string>;
+  visitedWorkspaceIds: string[];
+  terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
+  splitRootsByWorkspaceId: Record<string, SplitNode>;
 }) {
   const activeProject = useMemo(
     () => store.projects.find((p) => p.id === activeProjectId) ?? null,
     [store, activeProjectId]
   );
-  const activeTerminal = useMemo(
-    () => activeProject?.terminals.find((t) => t.id === activeTerminalId) ?? null,
-    [activeProject, activeTerminalId]
+  const activeWorkspace = useMemo(
+    () => activeProject?.workspaces.find((t) => t.id === activeWorkspaceId) ?? null,
+    [activeProject, activeWorkspaceId]
   );
-  const sidebarTerminals = useMemo(
-    () => store.projects.flatMap((project) => project.terminals.map((terminal) => ({ project, terminal }))),
+  const sidebarWorkspaces = useMemo(
+    () => store.projects.flatMap((project) => project.workspaces.map((terminal) => ({ project, terminal }))),
     [store]
   );
-  const activePath = (activePaneId && paneCwds[activePaneId]) || activeTerminal?.cwd || activeProject?.path || null;
-  const visitedTerminalWorkspaces = useMemo<TerminalWorkspaceModel[]>(() => visitedTerminalIds.flatMap((terminalId) => {
+  const activePath = (activeTerminalId && terminalCwds[activeTerminalId]) || activeWorkspace?.cwd || activeProject?.path || null;
+  const visitedWorkspaceTerminalTrees = useMemo<WorkspaceViewModel[]>(() => visitedWorkspaceIds.flatMap((workspaceId) => {
     for (const project of store.projects) {
-      const terminal = project.terminals.find((t) => t.id === terminalId);
-      if (terminal) return [{ project, terminal, panes: panesByTerminalId[terminalId] ?? [], root: splitRootsByTerminalId[terminalId] }];
+      const workspace = project.workspaces.find((t) => t.id === workspaceId);
+      if (workspace) return [{ project, workspace, terminals: terminalsByWorkspaceId[workspaceId] ?? [], root: splitRootsByWorkspaceId[workspaceId] }];
     }
     return [];
-  }), [visitedTerminalIds, store, panesByTerminalId, splitRootsByTerminalId]);
+  }), [visitedWorkspaceIds, store, terminalsByWorkspaceId, splitRootsByWorkspaceId]);
 
-  return { activeProject, activeTerminal, sidebarTerminals, activePath, visitedTerminalWorkspaces };
+  return { activeProject, activeWorkspace, sidebarWorkspaces, activePath, visitedWorkspaceTerminalTrees };
 }

@@ -8,14 +8,14 @@ export function useAppBootstrap({
   setStore,
   setSidebarWidth,
   setAppSettings,
-  selectTerminal,
+  selectWorkspace,
   setActiveProjectId,
 }: {
   setLoaded: (loaded: boolean) => void;
   setStore: React.Dispatch<React.SetStateAction<Store>>;
   setSidebarWidth: React.Dispatch<React.SetStateAction<number>>;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
-  selectTerminal: (projectId: string, terminalId: string | null) => void;
+  selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   setActiveProjectId: (projectId: string | null) => void;
 }) {
   useEffect(() => {
@@ -27,7 +27,7 @@ export function useAppBootstrap({
       if (settings?.sidebar_width) setSidebarWidth(Math.min(420, Math.max(180, settings.sidebar_width)));
       setAppSettings(resolveAppSettings(settings));
       const firstProject = loadedStore.projects[0];
-      if (firstProject) selectTerminal(firstProject.id, null);
+      if (firstProject) selectWorkspace(firstProject.id, null);
       else setActiveProjectId(null);
       setLoaded(true);
     }).catch((err) => {

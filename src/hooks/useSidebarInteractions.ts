@@ -7,7 +7,7 @@ type SidebarInteractionOptions = {
   justPointerDraggedRef: MutableRefObject<boolean>;
   setSidebarWidth: (width: number | ((width: number) => number)) => void;
   moveProject: (draggedProjectId: string, targetProjectId: string) => void;
-  moveTerminal: (projectId: string, draggedTerminalId: string, targetTerminalId: string) => void;
+  moveTerminal: (projectId: string, draggedWorkspaceId: string, targetWorkspaceId: string) => void;
 };
 
 export function useSidebarInteractions(options: SidebarInteractionOptions) {
@@ -37,11 +37,11 @@ export function useSidebarInteractions(options: SidebarInteractionOptions) {
         const targetProjectId = projectEl?.dataset.projectRowId;
         if (targetProjectId && targetProjectId !== drag.projectId) moveProject(drag.projectId, targetProjectId);
       } else {
-        const termEl = target?.closest<HTMLElement>('[data-terminal-id][data-project-id]');
-        const targetProjectId = termEl?.dataset.projectId;
-        const targetTerminalId = termEl?.dataset.terminalId;
-        if (targetProjectId === drag.projectId && targetTerminalId && targetTerminalId !== drag.terminalId) {
-          moveTerminal(drag.projectId, drag.terminalId, targetTerminalId);
+        const workspaceEl = target?.closest<HTMLElement>('[data-workspace-id][data-project-id]');
+        const targetProjectId = workspaceEl?.dataset.projectId;
+        const targetWorkspaceId = workspaceEl?.dataset.workspaceId;
+        if (targetProjectId === drag.projectId && targetWorkspaceId && targetWorkspaceId !== drag.workspaceId) {
+          moveTerminal(drag.projectId, drag.workspaceId, targetWorkspaceId);
         }
       }
     };

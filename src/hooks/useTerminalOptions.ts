@@ -1,21 +1,21 @@
 import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { fitSessionPreservingBottom, getPaneSession, isSessionAtBottom, jumpSessionToBottom } from '../terminalSessionManager';
+import { fitSessionPreservingBottom, getTerminalSession, isSessionAtBottom, jumpSessionToBottom } from '../terminalSessionManager';
 import { safeTermSize } from '../terminalSizing';
 
-export function useTerminalPaneOptions({
-  paneId,
+export function useTerminalOptions({
+  terminalId,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
 }: {
-  paneId: string;
+  terminalId: string;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
 }) {
   useEffect(() => {
-    const session = getPaneSession(paneId);
+    const session = getTerminalSession(terminalId);
     if (!session) return;
     const fontSizeChanged = session.term.options.fontSize !== terminalFontSize;
     const fontFamilyChanged = session.term.options.fontFamily !== terminalFontFamily;
@@ -30,9 +30,9 @@ export function useTerminalPaneOptions({
       const size = safeTermSize(session.term);
       if (session.spawned && (!session.lastPtySize || session.lastPtySize.cols !== size.cols || session.lastPtySize.rows !== size.rows)) {
         session.lastPtySize = size;
-        invoke('resize_pty', { paneId, cols: size.cols, rows: size.rows }).catch(() => {});
+        invoke('resize_pty', { terminalId, cols: size.cols, rows: size.rows }).catch(() => {});
       }
       if (wasAtBottom) jumpSessionToBottom(session);
     });
-  }, [paneId, terminalFontSize, terminalFontFamily, terminalScrollback]);
+  }, [terminalId, terminalFontSize, terminalFontFamily, terminalScrollback]);
 }

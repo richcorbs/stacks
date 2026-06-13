@@ -2,25 +2,25 @@ import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
-import { fitSessionPreservingBottom, focusPaneSession, getPaneSession, isSessionAtBottom } from '../terminalSessionManager';
+import { fitSessionPreservingBottom, focusTerminalSession, getTerminalSession, isSessionAtBottom } from '../terminalSessionManager';
 import { safeTermSize } from '../terminalSizing';
 
-export function useTerminalPaneActivation({
-  paneId,
+export function useTerminalActivation({
+  terminalId,
   active,
   visible,
   maximized,
   termRef,
   fitRef,
-  restartPaneSessionIfDead,
+  restartTerminalSessionIfDead,
 }: {
-  paneId: string;
+  terminalId: string;
   active: boolean;
   visible: boolean;
   maximized: boolean;
   termRef: React.MutableRefObject<Terminal | null>;
   fitRef: React.MutableRefObject<FitAddon | null>;
-  restartPaneSessionIfDead: () => boolean;
+  restartTerminalSessionIfDead: () => boolean;
 }) {
   const wasVisibleRef = useRef(visible);
   const wasActiveRef = useRef(active);
@@ -34,11 +34,11 @@ export function useTerminalPaneActivation({
 
     const term = termRef.current;
     const fit = fitRef.current;
-    if (active && restartPaneSessionIfDead()) return;
+    if (active && restartTerminalSessionIfDead()) return;
     if (!term || !fit) return;
 
     if (wasActive && !active) {
-      const session = getPaneSession(paneId);
+      const session = getTerminalSession(terminalId);
       wasAtBottomWhenDeactivatedRef.current = session ? isSessionAtBottom(session) : true;
     }
 
@@ -47,12 +47,12 @@ export function useTerminalPaneActivation({
 
     const shouldScrollToBottom = !wasVisible || maximized || (!wasActive && wasAtBottomWhenDeactivatedRef.current);
     requestAnimationFrame(() => {
-      const session = getPaneSession(paneId);
+      const session = getTerminalSession(terminalId);
       if (!session) return;
       fitSessionPreservingBottom(session);
       const size = safeTermSize(term);
-      invoke('resize_pty', { paneId, cols: size.cols, rows: size.rows }).catch(() => {});
-      focusPaneSession(paneId, maximized ? 'active-maximized' : 'active', { scrollToBottom: shouldScrollToBottom });
+      invoke('resize_pty', { terminalId, cols: size.cols, rows: size.rows }).catch(() => {});
+      focusTerminalSession(terminalId, maximized ? 'active-maximized' : 'active', { scrollToBottom: shouldScrollToBottom });
     });
-  }, [active, visible, maximized, paneId, termRef, fitRef, restartPaneSessionIfDead]);
+  }, [active, visible, maximized, terminalId, termRef, fitRef, restartTerminalSessionIfDead]);
 }

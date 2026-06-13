@@ -1,16 +1,16 @@
-import type { Pane, Project, TerminalEntry } from '../types';
+import type { TerminalEntry, Project, WorkspaceEntry } from '../types';
 import { useTerminalSelectionCopy } from '../hooks/useTerminalSelectionCopy';
-import { useTerminalPaneSearch } from '../hooks/useTerminalPaneSearch';
-import { useTerminalPaneOptions } from '../hooks/useTerminalPaneOptions';
-import { useTerminalPaneRestartRequest } from '../hooks/useTerminalPaneRestartRequest';
-import { useTerminalPaneActivation } from '../hooks/useTerminalPaneActivation';
-import { useTerminalPaneSession } from '../hooks/useTerminalPaneSession';
+import { useTerminalSearch } from '../hooks/useTerminalSearch';
+import { useTerminalOptions } from '../hooks/useTerminalOptions';
+import { useTerminalRestartRequest } from '../hooks/useTerminalRestartRequest';
+import { useTerminalActivation } from '../hooks/useTerminalActivation';
+import { useTerminalSession } from '../hooks/useTerminalSession';
 import { TerminalSearchOverlay } from './TerminalSearchOverlay';
-import { PaneControls } from './PaneControls';
+import { TerminalControls } from './TerminalControls';
 
-export function TerminalPane({ pane, terminal, project, active, maximized, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitPane, canToggleMaximize, onToggleMaximize }: {
-  pane: Pane;
+export function TerminalView({ terminal, workspace, project, active, maximized, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, canToggleMaximize, onToggleMaximize }: {
   terminal: TerminalEntry;
+  workspace: WorkspaceEntry;
   project: Project;
   active: boolean;
   maximized: boolean;
@@ -23,14 +23,14 @@ export function TerminalPane({ pane, terminal, project, active, maximized, visib
   restartRequestNonce: number;
   onFocus: () => void;
   onClose: () => void;
-  onSplitPane: (direction: 'row' | 'column') => void;
+  onSplitTerminal: (direction: 'row' | 'column') => void;
   canToggleMaximize: boolean;
   onToggleMaximize: () => void;
 }) {
-  const search = useTerminalPaneSearch(pane.id, searchRequestNonce);
-  const { hostRef, termRef, fitRef, restartPaneSessionIfDead } = useTerminalPaneSession({
-    pane,
+  const search = useTerminalSearch(terminal.id, searchRequestNonce);
+  const { hostRef, termRef, fitRef, restartTerminalSessionIfDead } = useTerminalSession({
     terminal,
+    workspace,
     project,
     active,
     visible,
@@ -40,23 +40,23 @@ export function TerminalPane({ pane, terminal, project, active, maximized, visib
     onSearchResultsChange: search.onSearchResultsChange,
   });
   const { beginSelectionCopy } = useTerminalSelectionCopy(termRef, copyOnSelect);
-  useTerminalPaneOptions({ paneId: pane.id, terminalFontSize, terminalFontFamily, terminalScrollback });
-  useTerminalPaneRestartRequest(restartRequestNonce, restartPaneSessionIfDead);
-  useTerminalPaneActivation({ paneId: pane.id, active, visible, maximized, termRef, fitRef, restartPaneSessionIfDead });
+  useTerminalOptions({ terminalId: terminal.id, terminalFontSize, terminalFontFamily, terminalScrollback });
+  useTerminalRestartRequest(restartRequestNonce, restartTerminalSessionIfDead);
+  useTerminalActivation({ terminalId: terminal.id, active, visible, maximized, termRef, fitRef, restartTerminalSessionIfDead });
 
   return (
     <div
-      className={`pane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
+      className={`terminal ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
       onMouseDown={() => {
         beginSelectionCopy();
-        restartPaneSessionIfDead();
+        restartTerminalSessionIfDead();
         if (!active) onFocus();
       }}
     >
-      <PaneControls
+      <TerminalControls
         maximized={maximized}
         canToggleMaximize={canToggleMaximize}
-        onSplitPane={onSplitPane}
+        onSplitTerminal={onSplitTerminal}
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
       />
