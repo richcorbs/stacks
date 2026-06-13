@@ -10,9 +10,9 @@ type WorkspaceDialogCommandOptions = {
   setStore: React.Dispatch<React.SetStateAction<Store>>;
   dialog: DialogState | null;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
-  selectTerminal: (projectId: string, terminalId: string | null) => void;
-  setSidebarFocusedTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
-  completeSplitPane: (terminalId: string, focusedPaneId: string, direction: 'row' | 'column', command: string | null) => Promise<void>;
+  selectWorkspace: (projectId: string, workspaceId: string | null) => void;
+  setSidebarFocusedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
+  completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) => Promise<void>;
 };
 
 export function useWorkspaceDialogCommands({
@@ -20,20 +20,20 @@ export function useWorkspaceDialogCommands({
   setStore,
   dialog,
   setDialog,
-  selectTerminal,
-  setSidebarFocusedTerminalId,
-  completeSplitPane,
+  selectWorkspace,
+  setSidebarFocusedWorkspaceId,
+  completeSplitTerminal,
 }: WorkspaceDialogCommandOptions) {
   async function addProject(name: string, path: string) {
     const existing = store.projects.find((p) => p.path === path);
     if (existing) {
-      selectTerminal(existing.id, existing.terminals[0]?.id ?? null);
+      selectWorkspace(existing.id, existing.workspaces[0]?.id ?? null);
       return existing;
     }
     const id = await invoke<string>('new_id');
-    const project: Project = { id, name, path, terminals: [], collapsed: false };
+    const project: Project = { id, name, path, workspaces: [], collapsed: false };
     setStore((s) => ({ projects: [...s.projects, project] }));
-    selectTerminal(id, null);
+    selectWorkspace(id, null);
     return project;
   }
 
@@ -49,14 +49,14 @@ export function useWorkspaceDialogCommands({
     if (typeof selected !== 'string') return;
     const existing = store.projects.find((p) => p.path === selected);
     if (existing) {
-      selectTerminal(existing.id, existing.terminals[0]?.id ?? null);
+      selectWorkspace(existing.id, existing.workspaces[0]?.id ?? null);
       return;
     }
     setDialog({ kind: 'project', name: basename(selected), path: selected, openTerminalAfterCreate: true });
   }
 
-  function openTerminalDialog(project: Project) {
-    setDialog({ kind: 'terminal', projectId: project.id, name: `Workspace ${project.terminals.length + 1}`, command: '' });
+  function openWorkspaceDialog(project: Project) {
+    setDialog({ kind: 'workspace', projectId: project.id, name: `Workspace ${project.workspaces.length + 1}`, command: '' });
   }
 
   async function submitDialog() {
@@ -65,9 +65,9 @@ export function useWorkspaceDialogCommands({
       store,
       setStore,
       setDialog,
-      selectTerminal,
-      setSidebarFocusedTerminalId,
-      completeSplitPane,
+      selectWorkspace,
+      setSidebarFocusedWorkspaceId,
+      completeSplitTerminal,
       addProject,
     });
   }
@@ -75,7 +75,7 @@ export function useWorkspaceDialogCommands({
   return {
     openProjectDialog,
     addProjectFromPath,
-    openTerminalDialog,
+    openWorkspaceDialog,
     submitDialog,
   };
 }

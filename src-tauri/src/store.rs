@@ -13,14 +13,14 @@ struct Project {
     id: String,
     name: String,
     path: String,
-    #[serde(default)]
-    terminals: Vec<TerminalEntry>,
+    #[serde(default, alias = "terminals")]
+    workspaces: Vec<WorkspaceEntry>,
     #[serde(default)]
     collapsed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct TerminalEntry {
+struct WorkspaceEntry {
     id: String,
     name: String,
     #[serde(default)]

@@ -1,15 +1,15 @@
 import type { GitInfo } from '../types';
 
-export function WorkspaceTopbar({ activePath, gitInfo, hasActivePane, onToggleSidebar }: {
+export function WorkspaceTopbar({ activePath, gitInfo, hasActiveTerminal, onToggleSidebar }: {
   activePath: string | null;
   gitInfo: GitInfo | null;
-  hasActivePane: boolean;
+  hasActiveTerminal: boolean;
   onToggleSidebar: () => void;
 }) {
   return (
     <header className="topbar">
       <div className="topbarTitleArea">
-        {hasActivePane && (
+        {hasActiveTerminal && (
           <button
             className="sidebarToggleButton"
             type="button"
@@ -21,9 +21,9 @@ export function WorkspaceTopbar({ activePath, gitInfo, hasActivePane, onToggleSi
             <span className="sidebarIcon" />
           </button>
         )}
-        <div className="subtitle">{hasActivePane ? (activePath ?? '') : 'Select a workspace'}</div>
+        <div className="subtitle">{hasActiveTerminal ? (activePath ?? '') : 'Select a workspace'}</div>
       </div>
-      {hasActivePane && (
+      {hasActiveTerminal && (
         <div className="branchDisplay">
           {gitInfo && (
             <>

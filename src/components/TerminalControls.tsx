@@ -1,14 +1,14 @@
-export function PaneControls({ maximized, canToggleMaximize, onSplitPane, onToggleMaximize, onClose }: {
+export function TerminalControls({ maximized, canToggleMaximize, onSplitTerminal, onToggleMaximize, onClose }: {
   maximized: boolean;
   canToggleMaximize: boolean;
-  onSplitPane: (direction: 'row' | 'column') => void;
+  onSplitTerminal: (direction: 'row' | 'column') => void;
   onToggleMaximize: () => void;
   onClose: () => void;
 }) {
   return (
-    <div className="paneControls" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="terminalControls" onMouseDown={(e) => e.stopPropagation()}>
       <button
-        className="paneControlButton"
+        className="terminalControlButton"
         type="button"
         title="Split terminal right (⌘D)"
         aria-label="Split terminal right"
@@ -19,13 +19,13 @@ export function PaneControls({ maximized, canToggleMaximize, onSplitPane, onTogg
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onSplitPane('row');
+          onSplitTerminal('row');
         }}
       >
         <span className="splitIcon splitIconVertical" />
       </button>
       <button
-        className="paneControlButton"
+        className="terminalControlButton"
         type="button"
         title="Split terminal down (⇧⌘D)"
         aria-label="Split terminal down"
@@ -36,7 +36,7 @@ export function PaneControls({ maximized, canToggleMaximize, onSplitPane, onTogg
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onSplitPane('column');
+          onSplitTerminal('column');
         }}
       >
         <span className="splitIcon splitIconHorizontal" />
@@ -44,7 +44,7 @@ export function PaneControls({ maximized, canToggleMaximize, onSplitPane, onTogg
       {canToggleMaximize && (
         <>
           <button
-            className="paneControlButton"
+            className="terminalControlButton"
             type="button"
             title={maximized ? 'Restore workspace (⇧⌘↩)' : 'Maximize workspace (⇧⌘↩)'}
             aria-label={maximized ? 'Restore workspace' : 'Maximize workspace'}
@@ -58,10 +58,10 @@ export function PaneControls({ maximized, canToggleMaximize, onSplitPane, onTogg
               onToggleMaximize();
             }}
           >
-            <span className="paneMaximizeIcon" />
+            <span className="terminalMaximizeIcon" />
           </button>
           <button
-            className="paneControlButton paneCloseButton"
+            className="terminalControlButton terminalCloseButton"
             type="button"
             title="Close terminal (⌘W)"
             aria-label="Close terminal"
@@ -75,7 +75,7 @@ export function PaneControls({ maximized, canToggleMaximize, onSplitPane, onTogg
               onClose();
             }}
           >
-            <span className="paneCloseIcon">&times;</span>
+            <span className="terminalCloseIcon">&times;</span>
           </button>
         </>
       )}

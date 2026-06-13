@@ -1,7 +1,7 @@
 import type React from 'react';
-import type { Pane, PointerDragState, SplitNode, TerminalEntry } from '../types';
+import type { TerminalEntry, PointerDragState, SplitNode, WorkspaceEntry } from '../types';
 import { useSidebarInteractions } from './useSidebarInteractions';
-import { useActiveTerminalInitialization } from './useActiveTerminalInitialization';
+import { useActiveWorkspaceInitialization } from './useActiveWorkspaceInitialization';
 
 export function useAppInteractionEffects({
   resizingSidebarRef,
@@ -10,27 +10,27 @@ export function useAppInteractionEffects({
   setSidebarWidth,
   moveProject,
   moveTerminal,
-  activeTerminal,
-  focusedPaneByTerminalId,
-  setVisitedTerminalIds,
-  setPanesByTerminalId,
-  setSplitRootsByTerminalId,
-  setActivePaneId,
-  setFocusedPaneByTerminalId,
+  activeWorkspace,
+  focusedTerminalByWorkspaceId,
+  setVisitedWorkspaceIds,
+  setTerminalsByWorkspaceId,
+  setSplitRootsByWorkspaceId,
+  setActiveTerminalId,
+  setFocusedTerminalByWorkspaceId,
 }: {
   resizingSidebarRef: React.MutableRefObject<boolean>;
   pointerDragRef: React.MutableRefObject<PointerDragState | null>;
   justPointerDraggedRef: React.MutableRefObject<boolean>;
   setSidebarWidth: React.Dispatch<React.SetStateAction<number>>;
   moveProject: (projectId: string, targetProjectId: string) => void;
-  moveTerminal: (projectId: string, draggedTerminalId: string, targetTerminalId: string) => void;
-  activeTerminal: TerminalEntry | null;
-  focusedPaneByTerminalId: Record<string, string>;
-  setVisitedTerminalIds: React.Dispatch<React.SetStateAction<string[]>>;
-  setPanesByTerminalId: React.Dispatch<React.SetStateAction<Record<string, Pane[]>>>;
-  setSplitRootsByTerminalId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  setActivePaneId: React.Dispatch<React.SetStateAction<string | null>>;
-  setFocusedPaneByTerminalId: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  moveTerminal: (projectId: string, draggedWorkspaceId: string, targetWorkspaceId: string) => void;
+  activeWorkspace: WorkspaceEntry | null;
+  focusedTerminalByWorkspaceId: Record<string, string>;
+  setVisitedWorkspaceIds: React.Dispatch<React.SetStateAction<string[]>>;
+  setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
+  setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
+  setActiveTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
+  setFocusedTerminalByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }) {
   useSidebarInteractions({
     resizingSidebarRef,
@@ -40,13 +40,13 @@ export function useAppInteractionEffects({
     moveProject,
     moveTerminal,
   });
-  useActiveTerminalInitialization({
-    activeTerminal,
-    focusedPaneByTerminalId,
-    setVisitedTerminalIds,
-    setPanesByTerminalId,
-    setSplitRootsByTerminalId,
-    setActivePaneId,
-    setFocusedPaneByTerminalId,
+  useActiveWorkspaceInitialization({
+    activeWorkspace,
+    focusedTerminalByWorkspaceId,
+    setVisitedWorkspaceIds,
+    setTerminalsByWorkspaceId,
+    setSplitRootsByWorkspaceId,
+    setActiveTerminalId,
+    setFocusedTerminalByWorkspaceId,
   });
 }

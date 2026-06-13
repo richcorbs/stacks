@@ -1,41 +1,41 @@
 import type { MutableRefObject } from 'react';
-import type { ContextMenuState, PointerDragState, Project, TerminalEntry } from '../types';
-import { SidebarTerminalRow } from './SidebarTerminalRow';
+import type { ContextMenuState, PointerDragState, Project, WorkspaceEntry } from '../types';
+import { SidebarWorkspaceRow } from './SidebarWorkspaceRow';
 
-type SidebarTerminal = { project: Project; terminal: TerminalEntry };
+type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
 
 export function SidebarProjectSection({
   project,
   active,
-  activeTerminalId,
-  sidebarFocusedTerminalId,
-  sidebarTerminals,
-  runningPaneIds,
-  activityTerminalIds,
+  activeWorkspaceId,
+  sidebarFocusedWorkspaceId,
+  sidebarWorkspaces,
+  runningTerminalIds,
+  activityWorkspaceIds,
   activityTerminalLastOutputAtById,
   activityNow,
   metaKeyDown,
   justPointerDraggedRef,
   pointerDragRef,
   toggleProject,
-  selectTerminal,
+  selectWorkspace,
   setContextMenu,
   onAddTerminal,
 }: {
   project: Project;
   active: boolean;
-  activeTerminalId: string | null;
-  sidebarFocusedTerminalId: string | null;
-  sidebarTerminals: SidebarTerminal[];
-  runningPaneIds: string[];
-  activityTerminalIds: string[];
+  activeWorkspaceId: string | null;
+  sidebarFocusedWorkspaceId: string | null;
+  sidebarWorkspaces: SidebarWorkspace[];
+  runningTerminalIds: string[];
+  activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
   activityNow: number;
   metaKeyDown: boolean;
   justPointerDraggedRef: MutableRefObject<boolean>;
   pointerDragRef: MutableRefObject<PointerDragState | null>;
   toggleProject: (projectId: string) => void;
-  selectTerminal: (projectId: string, terminalId: string) => void;
+  selectWorkspace: (projectId: string, workspaceId: string) => void;
   setContextMenu: (menu: ContextMenuState) => void;
   onAddTerminal: (project: Project) => void;
 }) {
@@ -87,22 +87,22 @@ export function SidebarProjectSection({
       </button>
       {!project.collapsed && (
         <div className="termList">
-          {project.terminals.map((term) => (
-            <SidebarTerminalRow
+          {project.workspaces.map((term) => (
+            <SidebarWorkspaceRow
               key={term.id}
               project={project}
               terminal={term}
-              activeTerminalId={activeTerminalId}
-              sidebarFocusedTerminalId={sidebarFocusedTerminalId}
-              sidebarTerminals={sidebarTerminals}
-              runningPaneIds={runningPaneIds}
-              activityTerminalIds={activityTerminalIds}
+              activeWorkspaceId={activeWorkspaceId}
+              sidebarFocusedWorkspaceId={sidebarFocusedWorkspaceId}
+              sidebarWorkspaces={sidebarWorkspaces}
+              runningTerminalIds={runningTerminalIds}
+              activityWorkspaceIds={activityWorkspaceIds}
               activityTerminalLastOutputAtById={activityTerminalLastOutputAtById}
               activityNow={activityNow}
               metaKeyDown={metaKeyDown}
               justPointerDraggedRef={justPointerDraggedRef}
               pointerDragRef={pointerDragRef}
-              selectTerminal={selectTerminal}
+              selectWorkspace={selectWorkspace}
               setContextMenu={setContextMenu}
             />
           ))}

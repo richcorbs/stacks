@@ -1,26 +1,26 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { PaneSession } from './types';
-import { consumePaneSessionScrollToBottomAfterFit, fitSessionPreservingBottom, jumpSessionToBottom } from './terminalSessionManager';
+import type { TerminalSession } from './types';
+import { consumeTerminalSessionScrollToBottomAfterFit, fitSessionPreservingBottom, jumpSessionToBottom } from './terminalSessionManager';
 import { safeTermSize } from './terminalSizing';
 
-export function attachPaneResizeObserver({
+export function attachTerminalResizeObserver({
   session,
   host,
-  paneId,
+  terminalId,
   visible,
 }: {
-  session: PaneSession;
+  session: TerminalSession;
   host: HTMLElement;
-  paneId: string;
+  terminalId: string;
   visible: boolean;
 }) {
   const resizePtyToXterm = () => {
     const wasAtBottom = fitSessionPreservingBottom(session);
-    const shouldScrollToBottom = consumePaneSessionScrollToBottomAfterFit(paneId) || wasAtBottom;
+    const shouldScrollToBottom = consumeTerminalSessionScrollToBottomAfterFit(terminalId) || wasAtBottom;
     const size = safeTermSize(session.term);
     if (session.spawned && (!session.lastPtySize || session.lastPtySize.cols !== size.cols || session.lastPtySize.rows !== size.rows)) {
       session.lastPtySize = size;
-      invoke('resize_pty', { paneId, cols: size.cols, rows: size.rows }).catch(() => {});
+      invoke('resize_pty', { terminalId, cols: size.cols, rows: size.rows }).catch(() => {});
     }
     if (shouldScrollToBottom) {
       requestAnimationFrame(() => jumpSessionToBottom(session));

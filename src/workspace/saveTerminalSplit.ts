@@ -4,14 +4,14 @@ import { normalizeSplitNode } from '../utils';
 
 export function saveTerminalSplitToStore(
   setStore: React.Dispatch<React.SetStateAction<Store>>,
-  terminalId: string,
+  workspaceId: string,
   root: SplitNode | null,
 ) {
   const normalizedRoot = normalizeSplitNode(root);
   setStore((s) => ({
     projects: s.projects.map((p) => ({
       ...p,
-      terminals: p.terminals.map((t) => t.id === terminalId ? { ...t, splits: normalizedRoot } : t),
+      workspaces: p.workspaces.map((t) => t.id === workspaceId ? { ...t, splits: normalizedRoot } : t),
     })),
   }));
 }

@@ -17,9 +17,9 @@ function shellEscapePath(path: string) {
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
-export function useImageDropToTerminal(activePaneId: string | null) {
-  const activePaneIdRef = useRef(activePaneId);
-  activePaneIdRef.current = activePaneId;
+export function useImageDropToTerminal(activeTerminalId: string | null) {
+  const activeTerminalIdRef = useRef(activeTerminalId);
+  activeTerminalIdRef.current = activeTerminalId;
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -32,14 +32,14 @@ export function useImageDropToTerminal(activePaneId: string | null) {
 
     getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type !== 'drop') return;
-      const paneId = activePaneIdRef.current;
-      if (!paneId) return;
+      const terminalId = activeTerminalIdRef.current;
+      if (!terminalId) return;
 
       const imagePaths = event.payload.paths.filter(isImagePath);
       if (imagePaths.length === 0) return;
 
       const text = imagePaths.map(shellEscapePath).join(' ');
-      invoke('write_pty', { paneId, data: Array.from(encoder.encode(text)) }).catch(console.error);
+      invoke('write_pty', { terminalId, data: Array.from(encoder.encode(text)) }).catch(console.error);
     }).then((fn) => { unlisten = fn; }).catch(console.error);
 
     return () => {

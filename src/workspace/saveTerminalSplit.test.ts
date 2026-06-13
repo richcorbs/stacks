@@ -3,12 +3,12 @@ import type React from 'react';
 import { saveTerminalSplitToStore } from './saveTerminalSplit';
 import type { Store } from '../types';
 
-function applySave(store: Store, terminalId: string, root: Parameters<typeof saveTerminalSplitToStore>[2]) {
+function applySave(store: Store, workspaceId: string, root: Parameters<typeof saveTerminalSplitToStore>[2]) {
   let nextStore = store;
   const setStore: React.Dispatch<React.SetStateAction<Store>> = (next) => {
     nextStore = typeof next === 'function' ? next(nextStore) : next;
   };
-  saveTerminalSplitToStore(setStore, terminalId, root);
+  saveTerminalSplitToStore(setStore, workspaceId, root);
   return nextStore;
 }
 
@@ -19,9 +19,9 @@ describe('saveTerminalSplitToStore', () => {
         id: 'p1',
         name: 'Project',
         path: '/repo',
-        terminals: [
+        workspaces: [
           { id: 't1', name: 'One' },
-          { id: 't2', name: 'Two', splits: { kind: 'leaf', paneId: 't2:0' } },
+          { id: 't2', name: 'Two', splits: { kind: 'leaf', terminalId: 't2:0' } },
         ],
       }],
     };
@@ -31,20 +31,20 @@ describe('saveTerminalSplitToStore', () => {
       direction: 'row',
       ratio: 0.4,
       manual: false,
-      first: { kind: 'leaf', paneId: 't1:0', command: undefined },
+      first: { kind: 'leaf', terminalId: 't1:0', command: undefined },
       second: { kind: 'empty' },
     });
 
-    expect(result.projects[0].terminals[0].splits).toEqual({
+    expect(result.projects[0].workspaces[0].splits).toEqual({
       kind: 'leaf',
-      paneId: 't1:0',
+      terminalId: 't1:0',
       command: undefined,
     });
-    expect(result.projects[0].terminals[1].splits).toEqual({ kind: 'leaf', paneId: 't2:0' });
+    expect(result.projects[0].workspaces[1].splits).toEqual({ kind: 'leaf', terminalId: 't2:0' });
   });
 
   it('stores null when the root is empty', () => {
-    const result = applySave({ projects: [{ id: 'p1', name: 'Project', path: '/repo', terminals: [{ id: 't1', name: 'One' }] }] }, 't1', { kind: 'empty' });
-    expect(result.projects[0].terminals[0].splits).toBeNull();
+    const result = applySave({ projects: [{ id: 'p1', name: 'Project', path: '/repo', workspaces: [{ id: 't1', name: 'One' }] }] }, 't1', { kind: 'empty' });
+    expect(result.projects[0].workspaces[0].splits).toBeNull();
   });
 });

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { focusPaneSession, getPaneSession } from '../terminalSessionManager';
+import { focusTerminalSession, getTerminalSession } from '../terminalSessionManager';
 import { countSearchMatches } from '../terminalSearch';
 
-export function useTerminalPaneSearch(paneId: string, searchRequestNonce: number) {
+export function useTerminalSearch(terminalId: string, searchRequestNonce: number) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResultText, setSearchResultText] = useState('');
@@ -28,7 +28,7 @@ export function useTerminalPaneSearch(paneId: string, searchRequestNonce: number
   }, [searchRequestNonce]);
 
   useEffect(() => {
-    const session = getPaneSession(paneId);
+    const session = getTerminalSession(terminalId);
     if (!session) return;
     if (!searchOpen || !searchTerm) {
       if (!searchOpen) session.search.clearDecorations();
@@ -48,10 +48,10 @@ export function useTerminalPaneSearch(paneId: string, searchRequestNonce: number
       console.error('terminal search failed', err);
       setSearchResultText('');
     }
-  }, [paneId, searchOpen, searchTerm]);
+  }, [terminalId, searchOpen, searchTerm]);
 
   function onNext() {
-    const session = getPaneSession(paneId);
+    const session = getTerminalSession(terminalId);
     if (session && searchTerm) {
       try {
         const found = session.search.findNext(searchTerm);
@@ -65,7 +65,7 @@ export function useTerminalPaneSearch(paneId: string, searchRequestNonce: number
   }
 
   function onPrevious() {
-    const session = getPaneSession(paneId);
+    const session = getTerminalSession(terminalId);
     if (session && searchTerm) {
       try {
         const found = session.search.findPrevious(searchTerm);
@@ -79,10 +79,10 @@ export function useTerminalPaneSearch(paneId: string, searchRequestNonce: number
   }
 
   function onClose() {
-    getPaneSession(paneId)?.search.clearDecorations();
+    getTerminalSession(terminalId)?.search.clearDecorations();
     setSearchOpen(false);
     setSearchTerm('');
-    focusPaneSession(paneId, 'close-search', { scrollToBottom: false });
+    focusTerminalSession(terminalId, 'close-search', { scrollToBottom: false });
   }
 
   return {

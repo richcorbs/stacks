@@ -253,7 +253,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   visibility: visible;
   pointer-events: auto;
 }
-.terminalWorkspace > .pane,
+.terminalWorkspace > .terminal,
 .terminalWorkspace > .split {
   width: 100%;
   height: 100%;
@@ -261,9 +261,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .empty { height: 100%; display: grid; place-items: center; color: #8091a5; border: 1px dashed #2d3d4f; border-radius: 12px; }
 
 .split { height: 100%; min-width: 0; min-height: 0; display: flex; position: relative; }
-.split:has(.pane.maximized) > .splitChild:has(.pane.maximized) { flex: 1 1 100% !important; }
-.split:has(.pane.maximized) > .splitChild:not(:has(.pane.maximized)),
-.split:has(.pane.maximized) > .splitResizeHandle { display: none; }
+.split:has(.terminal.maximized) > .splitChild:has(.terminal.maximized) { flex: 1 1 100% !important; }
+.split:has(.terminal.maximized) > .splitChild:not(:has(.terminal.maximized)),
+.split:has(.terminal.maximized) > .splitResizeHandle { display: none; }
 .split-row { flex-direction: row; }
 .split-column { flex-direction: column; }
 .splitChild { min-width: 0; min-height: 0; }
@@ -286,7 +286,7 @@ body.resizingSplit .splitResizeHandle-row,
 body.resizingSplit .splitResizeHandle-row * { cursor: col-resize !important; }
 body.resizingSplit .splitResizeHandle-column,
 body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; }
-.pane {
+.terminal {
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -301,11 +301,11 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
   position: relative;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.pane.active { opacity: 1; border-color: var(--focused-terminal-border, #3b82f6); border-radius: 4px; box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6); }
-.pane.maximized { border-color: var(--maximized-terminal-border, #84cc16); box-shadow: 0 0 0 1px var(--maximized-terminal-border, #84cc16); }
-body.appWindowInactive .pane.active { border-color: var(--focused-terminal-border-inactive, #295081); box-shadow: 0 0 0 1px var(--focused-terminal-border-inactive, #295081); }
-body.appWindowInactive .pane.maximized { border-color: var(--maximized-terminal-border-inactive, #426923); box-shadow: 0 0 0 1px var(--maximized-terminal-border-inactive, #426923); }
-.paneControls {
+.terminal.active { opacity: 1; border-color: var(--focused-terminal-border, #3b82f6); border-radius: 4px; box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6); }
+.terminal.maximized { border-color: var(--maximized-terminal-border, #84cc16); box-shadow: 0 0 0 1px var(--maximized-terminal-border, #84cc16); }
+body.appWindowInactive .terminal.active { border-color: var(--focused-terminal-border-inactive, #295081); box-shadow: 0 0 0 1px var(--focused-terminal-border-inactive, #295081); }
+body.appWindowInactive .terminal.maximized { border-color: var(--maximized-terminal-border-inactive, #426923); box-shadow: 0 0 0 1px var(--maximized-terminal-border-inactive, #426923); }
+.terminalControls {
   position: absolute;
   top: 7px;
   right: 8px;
@@ -322,10 +322,10 @@ body.appWindowInactive .pane.maximized { border-color: var(--maximized-terminal-
   pointer-events: none;
   transition: opacity .12s ease, background .12s ease, border-color .12s ease;
 }
-.pane:hover .paneControls,
-.paneControls:focus-within { opacity: 1; pointer-events: auto; }
-.paneControls:hover { background: #172232ee; border-color: #40536b; }
-.paneControlButton {
+.terminal:hover .terminalControls,
+.terminalControls:focus-within { opacity: 1; pointer-events: auto; }
+.terminalControls:hover { background: #172232ee; border-color: #40536b; }
+.terminalControlButton {
   width: 22px;
   height: 22px;
   border: 0;
@@ -338,9 +338,9 @@ body.appWindowInactive .pane.maximized { border-color: var(--maximized-terminal-
   cursor: pointer;
   transition: background .12s ease, color .12s ease;
 }
-.paneControlButton:hover { background: #203348; color: #d6deeb; }
-.paneCloseButton:hover { background: #3b1f2a; color: #fca5a5; }
-.paneMaximizeIcon {
+.terminalControlButton:hover { background: #203348; color: #d6deeb; }
+.terminalCloseButton:hover { background: #3b1f2a; color: #fca5a5; }
+.terminalMaximizeIcon {
   width: 14px;
   height: 14px;
   border: 1px solid currentColor;
@@ -348,8 +348,8 @@ body.appWindowInactive .pane.maximized { border-color: var(--maximized-terminal-
   opacity: .9;
   position: relative;
 }
-.paneMaximizeIcon::before,
-.paneMaximizeIcon::after {
+.terminalMaximizeIcon::before,
+.terminalMaximizeIcon::after {
   content: '';
   position: absolute;
   width: 5px;
@@ -357,13 +357,13 @@ body.appWindowInactive .pane.maximized { border-color: var(--maximized-terminal-
   border-color: currentColor;
   opacity: .85;
 }
-.paneMaximizeIcon::before { top: 2px; left: 2px; border-top: 1px solid; border-left: 1px solid; }
-.paneMaximizeIcon::after { right: 2px; bottom: 2px; border-right: 1px solid; border-bottom: 1px solid; }
-.paneCloseIcon {
+.terminalMaximizeIcon::before { top: 2px; left: 2px; border-top: 1px solid; border-left: 1px solid; }
+.terminalMaximizeIcon::after { right: 2px; bottom: 2px; border-right: 1px solid; border-bottom: 1px solid; }
+.terminalCloseIcon {
   line-height: 1;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 }
-.paneCloseIcon { font-size: 18px; transform: translateY(-1px); }
+.terminalCloseIcon { font-size: 18px; transform: translateY(-1px); }
 .terminalHostFrame { flex: 1; min-height: 0; padding: 6px 0 4px 6px; overflow: hidden; background: #0f141b; }
 .terminalHost { width: 100%; height: 100%; min-height: 0; background: #0f141b; }
 .xterm { height: 100%; background: #0f141b; }

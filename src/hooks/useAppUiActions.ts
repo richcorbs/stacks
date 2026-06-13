@@ -5,32 +5,32 @@ import type { ResolvedAppSettings } from '../settingsModel';
 import { clampTerminalFontSize } from '../settings';
 
 export function useAppUiActions({
-  activePaneId,
+  activeTerminalId,
   activePath,
   activeProjectPath,
   editorApp,
   setAppSettings,
-  setSearchPaneRequest,
+  setSearchTerminalRequest,
   setCommandPaletteOpen,
   setContextMenu,
   setSettingsOpen,
   setDialog,
   submitDialog,
-  restoreActivePaneFocus,
+  restoreActiveTerminalFocus,
   showToast,
 }: {
-  activePaneId: string | null;
+  activeTerminalId: string | null;
   activePath: string | null;
   activeProjectPath: string | null | undefined;
   editorApp: string;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
-  setSearchPaneRequest: React.Dispatch<React.SetStateAction<{ paneId: string; nonce: number } | null>>;
+  setSearchTerminalRequest: React.Dispatch<React.SetStateAction<{ terminalId: string; nonce: number } | null>>;
   setCommandPaletteOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
   setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   submitDialog: () => Promise<void>;
-  restoreActivePaneFocus: (reason: string) => void;
+  restoreActiveTerminalFocus: (reason: string) => void;
   showToast: (message: string) => void;
 }) {
   function adjustTerminalFontSize(delta: number) {
@@ -44,40 +44,40 @@ export function useAppUiActions({
       .catch((err) => showToast(`Open editor failed: ${err}`));
   }
 
-  function openPaneSearch() {
-    if (!activePaneId) return;
-    setSearchPaneRequest({ paneId: activePaneId, nonce: Date.now() });
+  function openTerminalSearch() {
+    if (!activeTerminalId) return;
+    setSearchTerminalRequest({ terminalId: activeTerminalId, nonce: Date.now() });
   }
 
   function closeCommandPalette({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
     setCommandPaletteOpen(false);
-    if (restoreFocus) restoreActivePaneFocus('close-command-palette');
+    if (restoreFocus) restoreActiveTerminalFocus('close-command-palette');
   }
 
   function closeContextMenu({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
     setContextMenu(null);
-    if (restoreFocus) restoreActivePaneFocus('close-context-menu');
+    if (restoreFocus) restoreActiveTerminalFocus('close-context-menu');
   }
 
   function closeSettings() {
     setSettingsOpen(false);
-    restoreActivePaneFocus('close-settings');
+    restoreActiveTerminalFocus('close-settings');
   }
 
   function closeDialog() {
     setDialog(null);
-    restoreActivePaneFocus('close-dialog');
+    restoreActiveTerminalFocus('close-dialog');
   }
 
   async function submitActiveDialog() {
     await submitDialog();
-    restoreActivePaneFocus('submit-dialog');
+    restoreActiveTerminalFocus('submit-dialog');
   }
 
   return {
     adjustTerminalFontSize,
     openDirectoryInEditor,
-    openPaneSearch,
+    openTerminalSearch,
     closeCommandPalette,
     closeContextMenu,
     closeSettings,

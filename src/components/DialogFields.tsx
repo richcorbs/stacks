@@ -5,10 +5,10 @@ type DialogFieldsProps = {
   dialog: DialogState;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   firstInputRef: React.MutableRefObject<HTMLInputElement | null>;
-  chooseEditTerminalDirectory: () => void;
+  chooseEditWorkspaceDirectory: () => void;
 };
 
-export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditTerminalDirectory }: DialogFieldsProps) {
+export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorkspaceDirectory }: DialogFieldsProps) {
   if (dialog.kind === 'project' || dialog.kind === 'editProject') {
     return (
       <>
@@ -52,7 +52,7 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditTermi
 
   return (
     <>
-      <h2>{dialog.kind === 'editTerminal' ? 'Edit Workspace' : 'New Workspace'}</h2>
+      <h2>{dialog.kind === 'editWorkspace' ? 'Edit Workspace' : 'New Workspace'}</h2>
       <label>
         Name
         <input
@@ -69,17 +69,17 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditTermi
           onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
         />
       </label>
-      {dialog.kind === 'editTerminal' && (
+      {dialog.kind === 'editWorkspace' && (
         <label>
           Directory <span>(click to choose)</span>
           <div className="settingsInlineField">
             <input
               value={dialog.cwd}
               placeholder="/Users/rich/Code/my-project"
-              onClick={chooseEditTerminalDirectory}
+              onClick={chooseEditWorkspaceDirectory}
               onChange={(e) => setDialog({ ...dialog, cwd: e.target.value })}
             />
-            <button type="button" onClick={chooseEditTerminalDirectory}>Choose…</button>
+            <button type="button" onClick={chooseEditWorkspaceDirectory}>Choose…</button>
           </div>
         </label>
       )}
@@ -88,7 +88,7 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditTermi
 }
 
 export function dialogSubmitLabel(kind: DialogState['kind']) {
-  if (kind === 'project' || kind === 'terminal') return 'Create';
+  if (kind === 'project' || kind === 'workspace') return 'Create';
   if (kind === 'split') return 'Split';
   return 'Save';
 }

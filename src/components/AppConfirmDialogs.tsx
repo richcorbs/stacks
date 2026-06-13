@@ -1,54 +1,54 @@
 import { invoke } from '@tauri-apps/api/core';
-import { ConfirmClosePaneDialog, ConfirmDeleteProjectDialog, ConfirmDeleteTerminalDialog, ConfirmQuitDialog } from './ConfirmDialogs';
-import type { Project, TerminalEntry } from '../types';
+import { ConfirmCloseTerminalDialog, ConfirmDeleteProjectDialog, ConfirmDeleteWorkspaceDialog, ConfirmQuitDialog } from './ConfirmDialogs';
+import type { Project, WorkspaceEntry } from '../types';
 
-type ConfirmDeleteTerminal = { projectId: string; terminalId: string };
+type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
 
 export function AppConfirmDialogs({
-  confirmClosePaneId,
+  confirmCloseTerminalId,
   confirmDeleteProject,
-  confirmDeleteTerminal,
-  confirmDeleteTerminalEntry,
+  confirmDeleteWorkspace,
+  confirmDeleteWorkspaceEntry,
   confirmQuitOpen,
   activeProjectId,
-  activeTerminalId,
-  setConfirmClosePaneId,
+  activeWorkspaceId,
+  setConfirmCloseTerminalId,
   setConfirmDeleteProjectId,
-  setConfirmDeleteTerminal,
+  setConfirmDeleteWorkspace,
   setConfirmQuitOpen,
-  closePane,
+  closeTerminal,
   deleteProject,
-  deleteTerminal,
-  restoreActivePaneFocus,
+  deleteWorkspace,
+  restoreActiveTerminalFocus,
 }: {
-  confirmClosePaneId: string | null;
+  confirmCloseTerminalId: string | null;
   confirmDeleteProject: Project | null;
-  confirmDeleteTerminal: ConfirmDeleteTerminal | null;
-  confirmDeleteTerminalEntry: TerminalEntry | null;
+  confirmDeleteWorkspace: ConfirmDeleteWorkspace | null;
+  confirmDeleteWorkspaceEntry: WorkspaceEntry | null;
   confirmQuitOpen: boolean;
   activeProjectId: string | null;
-  activeTerminalId: string | null;
-  setConfirmClosePaneId: React.Dispatch<React.SetStateAction<string | null>>;
+  activeWorkspaceId: string | null;
+  setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   setConfirmDeleteProjectId: React.Dispatch<React.SetStateAction<string | null>>;
-  setConfirmDeleteTerminal: React.Dispatch<React.SetStateAction<ConfirmDeleteTerminal | null>>;
+  setConfirmDeleteWorkspace: React.Dispatch<React.SetStateAction<ConfirmDeleteWorkspace | null>>;
   setConfirmQuitOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  closePane: (paneId: string) => void;
+  closeTerminal: (terminalId: string) => void;
   deleteProject: (projectId: string) => void;
-  deleteTerminal: (projectId: string, terminalId: string) => void;
-  restoreActivePaneFocus: (reason: string) => void;
+  deleteWorkspace: (projectId: string, workspaceId: string) => void;
+  restoreActiveTerminalFocus: (reason: string) => void;
 }) {
   return (
     <>
-      {confirmClosePaneId && (
-        <ConfirmClosePaneDialog
+      {confirmCloseTerminalId && (
+        <ConfirmCloseTerminalDialog
           onCancel={() => {
-            setConfirmClosePaneId(null);
-            restoreActivePaneFocus('cancel-close-pane');
+            setConfirmCloseTerminalId(null);
+            restoreActiveTerminalFocus('cancel-close-terminal');
           }}
           onConfirm={() => {
-            const paneId = confirmClosePaneId;
-            setConfirmClosePaneId(null);
-            closePane(paneId);
+            const terminalId = confirmCloseTerminalId;
+            setConfirmCloseTerminalId(null);
+            closeTerminal(terminalId);
           }}
         />
       )}
@@ -57,30 +57,30 @@ export function AppConfirmDialogs({
           projectName={confirmDeleteProject.name}
           onCancel={() => {
             setConfirmDeleteProjectId(null);
-            restoreActivePaneFocus('cancel-delete-project');
+            restoreActiveTerminalFocus('cancel-delete-project');
           }}
           onConfirm={() => {
             const projectId = confirmDeleteProject.id;
             const deletingActiveProject = projectId === activeProjectId;
             setConfirmDeleteProjectId(null);
             deleteProject(projectId);
-            if (!deletingActiveProject) restoreActivePaneFocus('delete-inactive-project');
+            if (!deletingActiveProject) restoreActiveTerminalFocus('delete-inactive-project');
           }}
         />
       )}
-      {confirmDeleteTerminal && confirmDeleteTerminalEntry && (
-        <ConfirmDeleteTerminalDialog
-          terminalName={confirmDeleteTerminalEntry.name}
+      {confirmDeleteWorkspace && confirmDeleteWorkspaceEntry && (
+        <ConfirmDeleteWorkspaceDialog
+          terminalName={confirmDeleteWorkspaceEntry.name}
           onCancel={() => {
-            setConfirmDeleteTerminal(null);
-            restoreActivePaneFocus('cancel-delete-workspace');
+            setConfirmDeleteWorkspace(null);
+            restoreActiveTerminalFocus('cancel-delete-workspace');
           }}
           onConfirm={() => {
-            const { projectId, terminalId } = confirmDeleteTerminal;
-            const deletingActiveTerminal = terminalId === activeTerminalId;
-            setConfirmDeleteTerminal(null);
-            deleteTerminal(projectId, terminalId);
-            if (!deletingActiveTerminal) restoreActivePaneFocus('delete-inactive-workspace');
+            const { projectId, workspaceId } = confirmDeleteWorkspace;
+            const deletingActiveWorkspace = workspaceId === activeWorkspaceId;
+            setConfirmDeleteWorkspace(null);
+            deleteWorkspace(projectId, workspaceId);
+            if (!deletingActiveWorkspace) restoreActiveTerminalFocus('delete-inactive-workspace');
           }}
         />
       )}
@@ -88,7 +88,7 @@ export function AppConfirmDialogs({
         <ConfirmQuitDialog
           onCancel={() => {
             setConfirmQuitOpen(false);
-            restoreActivePaneFocus('cancel-quit');
+            restoreActiveTerminalFocus('cancel-quit');
           }}
           onConfirm={() => {
             setConfirmQuitOpen(false);

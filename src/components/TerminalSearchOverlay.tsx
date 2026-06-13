@@ -28,7 +28,7 @@ export function TerminalSearchOverlay({ value, resultText, onChange, onNext, onP
       <input
         ref={inputRef}
         value={value}
-        placeholder="Search pane"
+        placeholder="Search terminal"
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}

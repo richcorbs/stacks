@@ -5,7 +5,7 @@ import { DEFAULT_APP_SETTINGS, type ResolvedAppSettings } from '../settingsModel
 import { useWorkspaceState } from './useWorkspaceState';
 import { useAppOverlayState } from './useAppOverlayState';
 import { useToast } from './useToast';
-import { usePaneActivity } from './usePaneActivity';
+import { useTerminalActivity } from './useTerminalActivity';
 
 export function useAppStateBundle() {
   const [loaded, setLoaded] = useState(false);
@@ -17,7 +17,7 @@ export function useAppStateBundle() {
   const { state: workspace, actions: workspaceActions } = useWorkspaceState();
   const overlayState = useAppOverlayState();
   const toastState = useToast();
-  const paneActivity = usePaneActivity(workspace.activeTerminalId);
+  const terminalActivity = useTerminalActivity(workspace.activeWorkspaceId);
 
   return {
     loaded,
@@ -36,6 +36,6 @@ export function useAppStateBundle() {
     workspaceActions,
     overlayState,
     toastState,
-    paneActivity,
+    terminalActivity,
   };
 }

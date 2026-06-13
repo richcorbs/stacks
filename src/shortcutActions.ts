@@ -1,37 +1,37 @@
 import { invoke } from '@tauri-apps/api/core';
-import { getPaneSession } from './terminalSessionManager';
+import { getTerminalSession } from './terminalSessionManager';
 import type { ShortcutAction, ShortcutHandlers } from './shortcutTypes';
 
 export const encoder = new TextEncoder();
 
-function isPaneSessionFocused(paneId: string) {
-  const session = getPaneSession(paneId);
+function isTerminalSessionFocused(terminalId: string) {
+  const session = getTerminalSession(terminalId);
   const activeElement = document.activeElement;
   return Boolean(session?.term.element && activeElement && session.term.element.contains(activeElement));
 }
 
-export function clearFocusedPane(activePaneId: string | null) {
-  if (!activePaneId || !isPaneSessionFocused(activePaneId)) return;
-  invoke('write_pty', { paneId: activePaneId, data: Array.from(encoder.encode('clear\n')) }).catch(console.error);
+export function clearFocusedTerminal(activeTerminalId: string | null) {
+  if (!activeTerminalId || !isTerminalSessionFocused(activeTerminalId)) return;
+  invoke('write_pty', { terminalId: activeTerminalId, data: Array.from(encoder.encode('clear\n')) }).catch(console.error);
 }
 
 export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHandlers) {
   const {
     activeProject,
-    activePaneId,
-    activateTerminalByIndex,
-    openTerminalDialog,
+    activeTerminalId,
+    activateWorkspaceByIndex,
+    openWorkspaceDialog,
     openProjectDialog,
     toggleMaximizedTerminal,
-    activateSidebarFocusedTerminal,
-    splitPane,
-    requestClosePane,
+    activateSidebarFocusedWorkspace,
+    splitTerminal,
+    requestCloseTerminal,
     requestQuit,
-    cycleSidebarTerminal,
-    cyclePane,
+    cycleSidebarWorkspace,
+    cycleTerminal,
     adjustTerminalFontSize,
     openCommandPalette,
-    openPaneSearch,
+    openTerminalSearch,
     openSettings,
     toggleSidebar,
   } = handlers;
@@ -40,24 +40,24 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     case 'add-project':
       openProjectDialog();
       break;
-    case 'new-terminal':
-      if (activeProject) openTerminalDialog(activeProject);
+    case 'new-workspace':
+      if (activeProject) openWorkspaceDialog(activeProject);
       else openProjectDialog();
       break;
-    case 'split-right':
-      splitPane('row');
+    case 'split-terminal-right':
+      splitTerminal('row');
       break;
-    case 'split-down':
-      splitPane('column');
+    case 'split-terminal-down':
+      splitTerminal('column');
       break;
-    case 'close-pane':
-      if (activePaneId) requestClosePane(activePaneId);
+    case 'close-terminal':
+      if (activeTerminalId) requestCloseTerminal(activeTerminalId);
       break;
-    case 'clear-pane':
-      clearFocusedPane(activePaneId);
+    case 'clear-terminal':
+      clearFocusedTerminal(activeTerminalId);
       break;
-    case 'search-pane':
-      openPaneSearch();
+    case 'search-terminal':
+      openTerminalSearch();
       break;
     case 'command-palette':
       openCommandPalette();
@@ -68,26 +68,26 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     case 'toggle-sidebar':
       toggleSidebar();
       break;
-    case 'maximize-pane':
+    case 'maximize-workspace':
       toggleMaximizedTerminal();
       break;
-    case 'focus-next-pane':
-      cyclePane(1);
-      break;
-    case 'focus-previous-pane':
-      cyclePane(-1);
-      break;
     case 'focus-next-terminal':
-      cycleSidebarTerminal(1);
+      cycleTerminal(1);
       break;
     case 'focus-previous-terminal':
-      cycleSidebarTerminal(-1);
+      cycleTerminal(-1);
+      break;
+    case 'focus-next-workspace':
+      cycleSidebarWorkspace(1);
+      break;
+    case 'focus-previous-workspace':
+      cycleSidebarWorkspace(-1);
       break;
     case 'activate-sidebar':
-      activateSidebarFocusedTerminal();
+      activateSidebarFocusedWorkspace();
       break;
-    case 'select-terminal':
-      activateTerminalByIndex(0);
+    case 'select-workspace':
+      activateWorkspaceByIndex(0);
       break;
     case 'increase-terminal-font-size':
       adjustTerminalFontSize(1);

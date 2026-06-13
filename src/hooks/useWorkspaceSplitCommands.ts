@@ -1,69 +1,69 @@
 import type React from 'react';
-import type { DialogState, Pane, SplitNode, TerminalEntry } from '../types';
+import type { DialogState, TerminalEntry, SplitNode, WorkspaceEntry } from '../types';
 import { setSplitRatio, splitLeaf } from '../utils';
-import { requestPaneSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
-import { paneIdsForTerminal, shouldMaximizeTerminalAfterNewSplit } from '../workspace/selectors';
+import { requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
+import { terminalIdsForWorkspace, shouldMaximizeTerminalAfterNewSplit } from '../workspace/selectors';
 
 type WorkspaceSplitCommandOptions = {
-  activeTerminal: TerminalEntry | null;
-  activePaneId: string | null;
-  maximizedTerminalId: string | null;
-  panesByTerminalId: Record<string, Pane[]>;
-  splitRootsByTerminalId: Record<string, SplitNode>;
+  activeWorkspace: WorkspaceEntry | null;
+  activeTerminalId: string | null;
+  maximizedWorkspaceId: string | null;
+  terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
+  splitRootsByWorkspaceId: Record<string, SplitNode>;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
-  setPanesByTerminalId: React.Dispatch<React.SetStateAction<Record<string, Pane[]>>>;
-  setSplitRootsByTerminalId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  setMaximizedTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
-  focusPane: (terminalId: string, paneId: string) => void;
-  saveTerminalSplit: (terminalId: string, root: SplitNode | null) => void;
+  setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
+  setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
+  setMaximizedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
+  focusTerminal: (workspaceId: string, terminalId: string) => void;
+  saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
 };
 
 export function useWorkspaceSplitCommands({
-  activeTerminal,
-  activePaneId,
-  maximizedTerminalId,
-  panesByTerminalId,
-  splitRootsByTerminalId,
+  activeWorkspace,
+  activeTerminalId,
+  maximizedWorkspaceId,
+  terminalsByWorkspaceId,
+  splitRootsByWorkspaceId,
   setDialog,
-  setPanesByTerminalId,
-  setSplitRootsByTerminalId,
-  setMaximizedTerminalId,
-  focusPane,
+  setTerminalsByWorkspaceId,
+  setSplitRootsByWorkspaceId,
+  setMaximizedWorkspaceId,
+  focusTerminal,
   saveTerminalSplit,
 }: WorkspaceSplitCommandOptions) {
-  async function completeSplitPane(terminalId: string, focusedPaneId: string, direction: 'row' | 'column', command: string | null) {
-    const id = `${terminalId}:${Date.now()}`;
-    const existingPaneIds = paneIdsForTerminal(terminalId, panesByTerminalId, splitRootsByTerminalId[terminalId]);
-    const shouldMaximizeNewPane = shouldMaximizeTerminalAfterNewSplit(terminalId, existingPaneIds, maximizedTerminalId);
-    setPanesByTerminalId((all) => ({ ...all, [terminalId]: [...(all[terminalId] ?? []), { id, terminalId, command }] }));
-    setSplitRootsByTerminalId((all) => {
-      const root = all[terminalId] ?? { kind: 'leaf' as const, paneId: focusedPaneId };
-      const nextRoot = splitLeaf(root, focusedPaneId, id, direction, command);
-      saveTerminalSplit(terminalId, nextRoot);
-      return { ...all, [terminalId]: nextRoot };
+  async function completeSplitTerminal(workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) {
+    const id = `${workspaceId}:${Date.now()}`;
+    const existingTerminalIds = terminalIdsForWorkspace(workspaceId, terminalsByWorkspaceId, splitRootsByWorkspaceId[workspaceId]);
+    const shouldMaximizeNewTerminal = shouldMaximizeTerminalAfterNewSplit(workspaceId, existingTerminalIds, maximizedWorkspaceId);
+    setTerminalsByWorkspaceId((all) => ({ ...all, [workspaceId]: [...(all[workspaceId] ?? []), { id, workspaceId, command }] }));
+    setSplitRootsByWorkspaceId((all) => {
+      const root = all[workspaceId] ?? { kind: 'leaf' as const, terminalId: focusedTerminalId };
+      const nextRoot = splitLeaf(root, focusedTerminalId, id, direction, command);
+      saveTerminalSplit(workspaceId, nextRoot);
+      return { ...all, [workspaceId]: nextRoot };
     });
-    focusPane(terminalId, id);
-    requestPaneSessionsScrollToBottomAfterFit([...(panesByTerminalId[terminalId] ?? []).map((pane) => pane.id), id]);
-    if (shouldMaximizeNewPane) setMaximizedTerminalId(terminalId);
+    focusTerminal(workspaceId, id);
+    requestTerminalSessionsScrollToBottomAfterFit([...(terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id), id]);
+    if (shouldMaximizeNewTerminal) setMaximizedWorkspaceId(workspaceId);
   }
 
-  async function splitPane(direction: 'row' | 'column' = 'row', targetPaneId?: string) {
-    const terminalId = targetPaneId?.split(':')[0] ?? activeTerminal?.id;
-    if (!terminalId) return;
-    const focusedPaneId = targetPaneId ?? (activePaneId?.startsWith(`${terminalId}:`) ? activePaneId : `${terminalId}:0`);
-    setDialog({ kind: 'split', terminalId, targetPaneId: focusedPaneId, direction, command: '' });
+  async function splitTerminal(direction: 'row' | 'column' = 'row', targetTerminalId?: string) {
+    const workspaceId = targetTerminalId?.split(':')[0] ?? activeWorkspace?.id;
+    if (!workspaceId) return;
+    const focusedTerminalId = targetTerminalId ?? (activeTerminalId?.startsWith(`${workspaceId}:`) ? activeTerminalId : `${workspaceId}:0`);
+    setDialog({ kind: 'split', workspaceId, targetTerminalId: focusedTerminalId, direction, command: '' });
   }
 
-  function resizeSplit(terminalId: string, path: string, ratio: number) {
-    setSplitRootsByTerminalId((all) => {
-      const root = all[terminalId];
+  function resizeSplit(workspaceId: string, path: string, ratio: number) {
+    setSplitRootsByWorkspaceId((all) => {
+      const root = all[workspaceId];
       if (!root) return all;
       const nextRoot = setSplitRatio(root, path, ratio);
-      saveTerminalSplit(terminalId, nextRoot);
-      return { ...all, [terminalId]: nextRoot };
+      saveTerminalSplit(workspaceId, nextRoot);
+      return { ...all, [workspaceId]: nextRoot };
     });
-    requestPaneSessionsScrollToBottomAfterFit((panesByTerminalId[terminalId] ?? []).map((pane) => pane.id));
+    requestTerminalSessionsScrollToBottomAfterFit((terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id));
   }
 
-  return { completeSplitPane, splitPane, resizeSplit };
+  return { completeSplitTerminal, splitTerminal, resizeSplit };
 }

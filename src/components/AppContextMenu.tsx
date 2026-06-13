@@ -1,39 +1,39 @@
 import { ContextMenu } from './ContextMenu';
-import type { ContextMenuState, Project, Store, TerminalEntry } from '../types';
+import type { ContextMenuState, Project, Store, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
-type ConfirmDeleteTerminal = { projectId: string; terminalId: string };
+type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
 
 export function AppContextMenu({
   contextMenu,
   store,
   appSettings,
   activeProjectId,
-  activeTerminalId,
+  activeWorkspaceId,
   closeContextMenu,
-  openTerminalDialog,
+  openWorkspaceDialog,
   openEditProjectDialog,
-  openEditTerminalDialog,
+  openEditWorkspaceDialog,
   setConfirmDeleteProjectId,
-  setConfirmDeleteTerminal,
+  setConfirmDeleteWorkspace,
   deleteProject,
-  deleteTerminal,
-  restoreActivePaneFocus,
+  deleteWorkspace,
+  restoreActiveTerminalFocus,
 }: {
   contextMenu: ContextMenuState | null;
   store: Store;
   appSettings: ResolvedAppSettings;
   activeProjectId: string | null;
-  activeTerminalId: string | null;
+  activeWorkspaceId: string | null;
   closeContextMenu: (options?: { restoreFocus?: boolean }) => void;
-  openTerminalDialog: (project: Project) => void;
+  openWorkspaceDialog: (project: Project) => void;
   openEditProjectDialog: (project: Project) => void;
-  openEditTerminalDialog: (project: Project, terminal: TerminalEntry) => void;
+  openEditWorkspaceDialog: (project: Project, terminal: WorkspaceEntry) => void;
   setConfirmDeleteProjectId: React.Dispatch<React.SetStateAction<string | null>>;
-  setConfirmDeleteTerminal: React.Dispatch<React.SetStateAction<ConfirmDeleteTerminal | null>>;
+  setConfirmDeleteWorkspace: React.Dispatch<React.SetStateAction<ConfirmDeleteWorkspace | null>>;
   deleteProject: (projectId: string) => void;
-  deleteTerminal: (projectId: string, terminalId: string) => void;
-  restoreActivePaneFocus: (reason: string) => void;
+  deleteWorkspace: (projectId: string, workspaceId: string) => void;
+  restoreActiveTerminalFocus: (reason: string) => void;
 }) {
   if (!contextMenu) return null;
 
@@ -42,7 +42,7 @@ export function AppContextMenu({
       menu={contextMenu}
       store={store}
       onClose={() => closeContextMenu()}
-      onNewTerminal={(project) => { closeContextMenu({ restoreFocus: false }); openTerminalDialog(project); }}
+      onNewWorkspace={(project) => { closeContextMenu({ restoreFocus: false }); openWorkspaceDialog(project); }}
       onEditProject={(project) => { closeContextMenu({ restoreFocus: false }); openEditProjectDialog(project); }}
       onDeleteProject={(project) => {
         closeContextMenu({ restoreFocus: false });
@@ -51,18 +51,18 @@ export function AppContextMenu({
         } else {
           const deletingActiveProject = project.id === activeProjectId;
           deleteProject(project.id);
-          if (!deletingActiveProject) restoreActivePaneFocus('delete-inactive-project');
+          if (!deletingActiveProject) restoreActiveTerminalFocus('delete-inactive-project');
         }
       }}
-      onEditTerminal={(project, terminal) => { closeContextMenu({ restoreFocus: false }); openEditTerminalDialog(project, terminal); }}
-      onDeleteTerminal={(project, terminal) => {
+      onEditWorkspace={(project, terminal) => { closeContextMenu({ restoreFocus: false }); openEditWorkspaceDialog(project, terminal); }}
+      onDeleteWorkspace={(project, terminal) => {
         closeContextMenu({ restoreFocus: false });
         if (appSettings.confirm_delete) {
-          setConfirmDeleteTerminal({ projectId: project.id, terminalId: terminal.id });
+          setConfirmDeleteWorkspace({ projectId: project.id, workspaceId: terminal.id });
         } else {
-          const deletingActiveTerminal = terminal.id === activeTerminalId;
-          deleteTerminal(project.id, terminal.id);
-          if (!deletingActiveTerminal) restoreActivePaneFocus('delete-inactive-workspace');
+          const deletingActiveWorkspace = terminal.id === activeWorkspaceId;
+          deleteWorkspace(project.id, terminal.id);
+          if (!deletingActiveWorkspace) restoreActiveTerminalFocus('delete-inactive-workspace');
         }
       }}
     />

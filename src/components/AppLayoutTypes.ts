@@ -1,27 +1,27 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, DialogState, Pane, PointerDragState, Project, SplitNode, Store, TerminalEntry } from '../types';
+import type { AppStats, ContextMenuState, DialogState, TerminalEntry, PointerDragState, Project, SplitNode, Store, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from './CommandPalette';
 
-export type TerminalWorkspaceModel = {
+export type WorkspaceViewModel = {
   project: Project;
-  terminal: TerminalEntry;
-  panes: Pane[];
+  workspace: WorkspaceEntry;
+  terminals: TerminalEntry[];
   root: SplitNode | undefined;
 };
 
-export type ConfirmDeleteTerminal = { projectId: string; terminalId: string };
+export type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
 
 export type SidebarLayoutProps = {
   visible: boolean;
   width: number;
   store: Store;
   activeProjectId: string | null;
-  activeTerminalId: string | null;
-  sidebarFocusedTerminalId: string | null;
-  sidebarTerminals: { project: Project; terminal: TerminalEntry }[];
-  runningPaneIds: string[];
-  activityTerminalIds: string[];
+  activeWorkspaceId: string | null;
+  sidebarFocusedWorkspaceId: string | null;
+  sidebarWorkspaces: { project: Project; terminal: WorkspaceEntry }[];
+  runningTerminalIds: string[];
+  activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
   activityNow: number;
   metaKeyDown: boolean;
@@ -30,29 +30,29 @@ export type SidebarLayoutProps = {
   pointerDragRef: React.MutableRefObject<PointerDragState | null>;
   resizingSidebarRef: React.MutableRefObject<boolean>;
   toggleProject: (projectId: string) => void;
-  selectTerminal: (projectId: string, terminalId: string | null) => void;
+  selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
   openProjectDialog: () => void;
-  openTerminalDialog: (project: Project) => void;
+  openWorkspaceDialog: (project: Project) => void;
 };
 
 export type MainLayoutProps = {
   activePath: string | null;
   gitInfo: { branch: string; created: number; changed: number; deleted: number } | null;
-  visitedTerminalWorkspaces: TerminalWorkspaceModel[];
+  visitedWorkspaceTerminalTrees: WorkspaceViewModel[];
+  activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  activePaneId: string | null;
-  maximizedTerminalId: string | null;
+  maximizedWorkspaceId: string | null;
   appSettings: ResolvedAppSettings;
-  searchPaneRequest: { paneId: string; nonce: number } | null;
-  restartPaneRequest: { paneId: string; nonce: number } | null;
-  resizeSplit: (terminalId: string, path: string, ratio: number) => void;
-  selectTerminal: (projectId: string, terminalId: string | null) => void;
-  focusPane: (terminalId: string, paneId: string) => void;
-  closePane: (paneId: string) => void;
-  setConfirmClosePaneId: React.Dispatch<React.SetStateAction<string | null>>;
-  toggleMaximizedTerminal: (paneId?: string | null) => void;
-  splitPane: (direction: 'row' | 'column', targetPaneId?: string) => void;
+  searchTerminalRequest: { terminalId: string; nonce: number } | null;
+  restartTerminalRequest: { terminalId: string; nonce: number } | null;
+  resizeSplit: (workspaceId: string, path: string, ratio: number) => void;
+  selectWorkspace: (projectId: string, workspaceId: string | null) => void;
+  focusTerminal: (workspaceId: string, terminalId: string) => void;
+  closeTerminal: (terminalId: string) => void;
+  setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
+  toggleMaximizedTerminal: (terminalId?: string | null) => void;
+  splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;
 };
 
@@ -65,29 +65,29 @@ export type OverlayLayoutProps = {
   commandPaletteItems: PaletteItem[];
   settingsOpen: boolean;
   dialog: DialogState | null;
-  confirmClosePaneId: string | null;
+  confirmCloseTerminalId: string | null;
   confirmDeleteProject: Project | null;
-  confirmDeleteTerminal: ConfirmDeleteTerminal | null;
-  confirmDeleteTerminalEntry: TerminalEntry | null;
+  confirmDeleteWorkspace: ConfirmDeleteWorkspace | null;
+  confirmDeleteWorkspaceEntry: WorkspaceEntry | null;
   confirmQuitOpen: boolean;
   toast: string | null;
   activeProjectId: string | null;
-  activeTerminalId: string | null;
+  activeWorkspaceId: string | null;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
-  setConfirmClosePaneId: React.Dispatch<React.SetStateAction<string | null>>;
+  setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   setConfirmDeleteProjectId: React.Dispatch<React.SetStateAction<string | null>>;
-  setConfirmDeleteTerminal: React.Dispatch<React.SetStateAction<ConfirmDeleteTerminal | null>>;
+  setConfirmDeleteWorkspace: React.Dispatch<React.SetStateAction<ConfirmDeleteWorkspace | null>>;
   setConfirmQuitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   closeContextMenu: (options?: { restoreFocus?: boolean }) => void;
   closeCommandPalette: (options?: { restoreFocus?: boolean }) => void;
   closeSettings: () => void;
   closeDialog: () => void;
   submitActiveDialog: () => void;
-  openTerminalDialog: (project: Project) => void;
+  openWorkspaceDialog: (project: Project) => void;
   openEditProjectDialog: (project: Project) => void;
-  openEditTerminalDialog: (project: Project, terminal: TerminalEntry) => void;
+  openEditWorkspaceDialog: (project: Project, terminal: WorkspaceEntry) => void;
   deleteProject: (projectId: string) => void;
-  deleteTerminal: (projectId: string, terminalId: string) => void;
-  closePane: (paneId: string) => void;
-  restoreActivePaneFocus: (reason: string) => void;
+  deleteWorkspace: (projectId: string, workspaceId: string) => void;
+  closeTerminal: (terminalId: string) => void;
+  restoreActiveTerminalFocus: (reason: string) => void;
 };

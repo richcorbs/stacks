@@ -1,18 +1,18 @@
 import type { MutableRefObject } from 'react';
-import type { AppStats, ContextMenuState, PointerDragState, Project, Store, TerminalEntry } from '../types';
+import type { AppStats, ContextMenuState, PointerDragState, Project, Store, WorkspaceEntry } from '../types';
 import { SidebarProjectSection } from './SidebarProjectSection';
 
-type SidebarTerminal = { project: Project; terminal: TerminalEntry };
+type SidebarWorkspace = { project: Project; terminal: WorkspaceEntry };
 
 type SidebarProps = {
   width: number;
   store: Store;
   activeProjectId: string | null;
-  activeTerminalId: string | null;
-  sidebarFocusedTerminalId: string | null;
-  sidebarTerminals: SidebarTerminal[];
-  runningPaneIds: string[];
-  activityTerminalIds: string[];
+  activeWorkspaceId: string | null;
+  sidebarFocusedWorkspaceId: string | null;
+  sidebarWorkspaces: SidebarWorkspace[];
+  runningTerminalIds: string[];
+  activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
   activityNow: number;
   metaKeyDown: boolean;
@@ -21,7 +21,7 @@ type SidebarProps = {
   pointerDragRef: MutableRefObject<PointerDragState | null>;
   resizingSidebarRef: MutableRefObject<boolean>;
   toggleProject: (projectId: string) => void;
-  selectTerminal: (projectId: string, terminalId: string) => void;
+  selectWorkspace: (projectId: string, workspaceId: string) => void;
   setContextMenu: (menu: ContextMenuState) => void;
   onAddProject: () => void;
   onAddTerminal: (project: Project) => void;
@@ -31,11 +31,11 @@ export function Sidebar({
   width,
   store,
   activeProjectId,
-  activeTerminalId,
-  sidebarFocusedTerminalId,
-  sidebarTerminals,
-  runningPaneIds,
-  activityTerminalIds,
+  activeWorkspaceId,
+  sidebarFocusedWorkspaceId,
+  sidebarWorkspaces,
+  runningTerminalIds,
+  activityWorkspaceIds,
   activityTerminalLastOutputAtById,
   activityNow,
   metaKeyDown,
@@ -44,7 +44,7 @@ export function Sidebar({
   pointerDragRef,
   resizingSidebarRef,
   toggleProject,
-  selectTerminal,
+  selectWorkspace,
   setContextMenu,
   onAddProject,
   onAddTerminal,
@@ -61,18 +61,18 @@ export function Sidebar({
             key={project.id}
             project={project}
             active={activeProjectId === project.id}
-            activeTerminalId={activeTerminalId}
-            sidebarFocusedTerminalId={sidebarFocusedTerminalId}
-            sidebarTerminals={sidebarTerminals}
-            runningPaneIds={runningPaneIds}
-            activityTerminalIds={activityTerminalIds}
+            activeWorkspaceId={activeWorkspaceId}
+            sidebarFocusedWorkspaceId={sidebarFocusedWorkspaceId}
+            sidebarWorkspaces={sidebarWorkspaces}
+            runningTerminalIds={runningTerminalIds}
+            activityWorkspaceIds={activityWorkspaceIds}
             activityTerminalLastOutputAtById={activityTerminalLastOutputAtById}
             activityNow={activityNow}
             metaKeyDown={metaKeyDown}
             justPointerDraggedRef={justPointerDraggedRef}
             pointerDragRef={pointerDragRef}
             toggleProject={toggleProject}
-            selectTerminal={selectTerminal}
+            selectWorkspace={selectWorkspace}
             setContextMenu={setContextMenu}
             onAddTerminal={onAddTerminal}
           />

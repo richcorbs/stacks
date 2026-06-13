@@ -3,23 +3,23 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import type { PaneSession } from './types';
+import type { TerminalSession } from './types';
 
 const encoder = new TextEncoder();
 
-export function createPaneSession({
-  paneId,
+export function createTerminalSession({
+  terminalId,
   host,
   terminalFontFamily,
   terminalFontSize,
   terminalScrollback,
 }: {
-  paneId: string;
+  terminalId: string;
   host: HTMLElement;
   terminalFontFamily: string;
   terminalFontSize: number;
   terminalScrollback: number;
-}): PaneSession {
+}): TerminalSession {
   const term = new Terminal({
     cursorBlink: true,
     fontFamily: terminalFontFamily,
@@ -51,7 +51,7 @@ export function createPaneSession({
       event.preventDefault();
       event.stopPropagation();
       if (event.type === 'keydown') {
-        invoke('write_pty', { paneId, data: Array.from(encoder.encode('\n')) })
+        invoke('write_pty', { terminalId, data: Array.from(encoder.encode('\n')) })
           .catch((e) => term.writeln(`\r\nwrite_pty error: ${e}\r\n`));
       }
       return false;
@@ -69,7 +69,7 @@ export function createPaneSession({
     running: false,
     lastPtySize: null,
     dataDisposable: term.onData((data) => {
-      invoke('write_pty', { paneId, data: Array.from(encoder.encode(data)) })
+      invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) })
         .catch((e) => term.writeln(`\r\nwrite_pty error: ${e}\r\n`));
     }),
     selectionDisposable: term.onSelectionChange(() => {}),

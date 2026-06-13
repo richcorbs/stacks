@@ -1,36 +1,36 @@
-import type { GitInfo, Pane, Project, SplitNode, TerminalEntry } from '../types';
+import type { GitInfo, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import { WorkspaceTopbar } from './WorkspaceTopbar';
 import { WorkspaceViews } from './WorkspaceViews';
 
-type TerminalWorkspaceModel = {
+type WorkspaceViewModel = {
   project: Project;
-  terminal: TerminalEntry;
-  panes: Pane[];
+  workspace: WorkspaceEntry;
+  terminals: TerminalEntry[];
   root: SplitNode | undefined;
 };
 
-type PaneRequest = { paneId: string; nonce: number };
+type TerminalRequest = { terminalId: string; nonce: number };
 
 type MainWorkspaceProps = {
   activePath: string | null;
   gitInfo: GitInfo | null;
-  workspaces: TerminalWorkspaceModel[];
+  workspaces: WorkspaceViewModel[];
+  activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  activePaneId: string | null;
-  maximizedTerminalId: string | null;
+  maximizedWorkspaceId: string | null;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
   copyOnSelect: boolean;
-  searchPaneRequest: PaneRequest | null;
-  restartPaneRequest: PaneRequest | null;
-  onResizeSplit: (terminalId: string, path: string, ratio: number) => void;
-  onFocusPane: (projectId: string, terminalId: string, paneId: string) => void;
-  onClosePane: (paneId: string) => void;
-  canToggleMaximizedTerminal: (terminalId: string) => boolean;
-  onToggleMaximizedTerminal: (paneId: string) => void;
-  onSplitPane: (direction: 'row' | 'column', targetPaneId?: string) => void;
-  hasActivePane: boolean;
+  searchTerminalRequest: TerminalRequest | null;
+  restartTerminalRequest: TerminalRequest | null;
+  onResizeSplit: (workspaceId: string, path: string, ratio: number) => void;
+  onFocusTerminal: (projectId: string, workspaceId: string, terminalId: string) => void;
+  onCloseTerminal: (terminalId: string) => void;
+  canToggleMaximizedTerminal: (workspaceId: string) => boolean;
+  onToggleMaximizedTerminal: (terminalId: string) => void;
+  onSplitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
+  hasActiveTerminal: boolean;
   onToggleSidebar: () => void;
 };
 
@@ -38,45 +38,45 @@ export function MainWorkspace({
   activePath,
   gitInfo,
   workspaces,
+  activeWorkspaceId,
   activeTerminalId,
-  activePaneId,
-  maximizedTerminalId,
+  maximizedWorkspaceId,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
   copyOnSelect,
-  searchPaneRequest,
-  restartPaneRequest,
+  searchTerminalRequest,
+  restartTerminalRequest,
   onResizeSplit,
-  onFocusPane,
-  onClosePane,
+  onFocusTerminal,
+  onCloseTerminal,
   canToggleMaximizedTerminal,
   onToggleMaximizedTerminal,
-  onSplitPane,
-  hasActivePane,
+  onSplitTerminal,
+  hasActiveTerminal,
   onToggleSidebar,
 }: MainWorkspaceProps) {
   return (
     <main className="main">
-      <WorkspaceTopbar activePath={activePath} gitInfo={gitInfo} hasActivePane={hasActivePane} onToggleSidebar={onToggleSidebar} />
+      <WorkspaceTopbar activePath={activePath} gitInfo={gitInfo} hasActiveTerminal={hasActiveTerminal} onToggleSidebar={onToggleSidebar} />
       <section className="workspace">
         <WorkspaceViews
           workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
           activeTerminalId={activeTerminalId}
-          activePaneId={activePaneId}
-          maximizedTerminalId={maximizedTerminalId}
+          maximizedWorkspaceId={maximizedWorkspaceId}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}
           terminalScrollback={terminalScrollback}
           copyOnSelect={copyOnSelect}
-          searchPaneRequest={searchPaneRequest}
-          restartPaneRequest={restartPaneRequest}
+          searchTerminalRequest={searchTerminalRequest}
+          restartTerminalRequest={restartTerminalRequest}
           onResizeSplit={onResizeSplit}
-          onFocusPane={onFocusPane}
-          onClosePane={onClosePane}
+          onFocusTerminal={onFocusTerminal}
+          onCloseTerminal={onCloseTerminal}
           canToggleMaximizedTerminal={canToggleMaximizedTerminal}
           onToggleMaximizedTerminal={onToggleMaximizedTerminal}
-          onSplitPane={onSplitPane}
+          onSplitTerminal={onSplitTerminal}
         />
       </section>
     </main>

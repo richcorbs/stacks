@@ -7,7 +7,7 @@ import { useWindowStatePersistence } from './useWindowStatePersistence';
 import { useAppBootstrap } from './useAppBootstrap';
 import { useAppCloseRequest, useAppToastEvents } from './useAppWindowEvents';
 import { useContextMenuDismissal } from './useContextMenuDismissal';
-import { usePaneCwd } from './usePaneCwd';
+import { useTerminalCwd } from './useTerminalCwd';
 import { useImageDropToTerminal } from './useImageDropToTerminal';
 import { useFocusDebug } from './useFocusDebug';
 import { useAppWindowFocusClass } from './useAppWindowFocusClass';
@@ -22,16 +22,16 @@ export function useAppLifecycleEffects({
   setStore,
   setSidebarWidth,
   setAppSettings,
-  selectTerminal,
+  selectWorkspace,
   setActiveProjectId,
   activeProjectId,
+  activeWorkspaceId,
   activeTerminalId,
-  activePaneId,
-  maximizedTerminalId,
-  sidebarFocusedTerminalId,
+  maximizedWorkspaceId,
+  sidebarFocusedWorkspaceId,
   setConfirmQuitOpen,
   setContextMenu,
-  rememberPaneCwd,
+  rememberTerminalCwd,
   showToast,
 }: {
   loaded: boolean;
@@ -42,29 +42,29 @@ export function useAppLifecycleEffects({
   setStore: React.Dispatch<React.SetStateAction<Store>>;
   setSidebarWidth: React.Dispatch<React.SetStateAction<number>>;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
-  selectTerminal: (projectId: string, terminalId: string | null) => void;
+  selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   setActiveProjectId: React.Dispatch<React.SetStateAction<string | null>>;
   activeProjectId: string | null;
+  activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  activePaneId: string | null;
-  maximizedTerminalId: string | null;
-  sidebarFocusedTerminalId: string | null;
+  maximizedWorkspaceId: string | null;
+  sidebarFocusedWorkspaceId: string | null;
   setConfirmQuitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
-  rememberPaneCwd: (paneId: string, cwd: string) => void;
+  rememberTerminalCwd: (terminalId: string, cwd: string) => void;
   showToast: (message: string) => void;
 }) {
-  useFocusDebug({ activeProjectId, activeTerminalId, activePaneId, maximizedTerminalId, sidebarFocusedTerminalId });
+  useFocusDebug({ activeProjectId, activeWorkspaceId, activeTerminalId, maximizedWorkspaceId, sidebarFocusedWorkspaceId });
   useAppWindowFocusClass();
 
   useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
   usePersistentAppSettings(loaded, appSettings);
   useWindowStatePersistence();
-  useAppBootstrap({ setLoaded, setStore, setSidebarWidth, setAppSettings, selectTerminal, setActiveProjectId });
+  useAppBootstrap({ setLoaded, setStore, setSidebarWidth, setAppSettings, selectWorkspace, setActiveProjectId });
   useAppToastEvents(showToast);
   useAppCloseRequest(appSettings.confirm_close, setConfirmQuitOpen);
   useContextMenuDismissal(setContextMenu);
-  usePaneCwd(activePaneId, rememberPaneCwd, setStore);
-  useImageDropToTerminal(activePaneId);
+  useTerminalCwd(activeTerminalId, rememberTerminalCwd, setStore);
+  useImageDropToTerminal(activeTerminalId);
 }

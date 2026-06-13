@@ -35,7 +35,7 @@ function ConfirmDialog({ title, children, confirmLabel = 'Yes', onCancel, onConf
   );
 }
 
-export function ConfirmClosePaneDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+export function ConfirmCloseTerminalDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
     <ConfirmDialog title="Close terminal?" onCancel={onCancel} onConfirm={onConfirm}>
       <p>This will terminate the process running in this terminal.</p>
@@ -60,7 +60,7 @@ export function ConfirmDeleteProjectDialog({ projectName, onCancel, onConfirm }:
   );
 }
 
-export function ConfirmDeleteTerminalDialog({ terminalName, onCancel, onConfirm }: { terminalName: string; onCancel: () => void; onConfirm: () => void }) {
+export function ConfirmDeleteWorkspaceDialog({ terminalName, onCancel, onConfirm }: { terminalName: string; onCancel: () => void; onConfirm: () => void }) {
   return (
     <ConfirmDialog title="Delete workspace?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
       <p>This will remove “{terminalName}” and terminate its running terminals.</p>
