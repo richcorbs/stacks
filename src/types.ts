@@ -16,7 +16,15 @@ export type SplitNode =
 export type PtyData = { terminal_id: string; generation: string; data: number[] };
 export type PtyExit = { terminal_id: string; generation: string };
 export type GitInfo = { branch: string; created: number; changed: number; deleted: number };
-export type AppStats = { cpu: number; mem_mb: number; version: string };
+export type AppStats = {
+  cpu: number;
+  mem_mb: number;
+  version: string;
+  terminal_sessions: number;
+  running_terminals: number;
+  queued_output_chars: number;
+  dropped_output_chars: number;
+};
 export type WindowState = { width: number; height: number; x?: number | null; y?: number | null };
 export type AppSettings = {
   window?: WindowState | null;

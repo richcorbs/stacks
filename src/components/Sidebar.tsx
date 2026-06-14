@@ -80,9 +80,9 @@ export function Sidebar({
       </div>
       <div className="sidebarFooter">
         {appStats ? (
-          <>CPU {Math.round(appStats.cpu)}% <span>•</span> MEM {appStats.mem_mb}MB <span>•</span> v{appStats.version}</>
+          <>CPU {Math.round(appStats.cpu)}% <span>•</span> MEM {appStats.mem_mb}MB <span>•</span> TERM {appStats.running_terminals}/{appStats.terminal_sessions} <span>•</span> v{appStats.version}</>
         ) : (
-          <>CPU --% <span>•</span> MEM --MB <span>•</span> v--</>
+          <>CPU --% <span>•</span> MEM --MB <span>•</span> TERM --/-- <span>•</span> v--</>
         )}
       </div>
       <div
