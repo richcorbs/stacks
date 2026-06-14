@@ -37,7 +37,7 @@ export function commandPaletteCoreItems({
   onNewProject: () => void;
   onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
-  onEditWorkspace: (project: Project, terminal: WorkspaceEntry) => void;
+  onEditWorkspace: (project: Project, workspace: WorkspaceEntry) => void;
   onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
   onCycleWorkspace: (delta: number) => void;
@@ -57,17 +57,17 @@ export function commandPaletteCoreItems({
     { id: 'new-workspace', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewWorkspace(activeProject) : onNewProject() },
     { id: 'edit-project', title: 'Edit Project', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'rename path directory workspace', action: () => { if (activeProject) onEditProject(activeProject); } },
     { id: 'edit-workspace', title: 'Edit Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeWorkspace) onEditWorkspace(activeProject, activeWorkspace); } },
-    { id: 'delete-workspace', title: 'Delete Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace terminal', danger: true, action: () => { if (activeProject && activeWorkspace) onDeleteWorkspace(activeProject.id, activeWorkspace.id); } },
+    { id: 'delete-workspace', title: 'Delete Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace', danger: true, action: () => { if (activeProject && activeWorkspace) onDeleteWorkspace(activeProject.id, activeWorkspace.id); } },
     { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color focused terminal border maximized green blue', action: onOpenSettings },
     { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
-    { id: 'split-terminal-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split terminal terminal vertical', action: () => onSplitTerminal('row') },
-    { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal terminal horizontal', action: () => onSplitTerminal('column') },
+    { id: 'split-terminal-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split terminal vertical', action: () => onSplitTerminal('row') },
+    { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal horizontal', action: () => onSplitTerminal('column') },
     { id: 'find-terminal', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
-    { id: 'next-workspace', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch terminal workspace forward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, 1, onSelectWorkspace, onCycleWorkspace) },
-    { id: 'previous-workspace', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch terminal workspace backward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, -1, onSelectWorkspace, onCycleWorkspace) },
-    { id: 'next-terminal', title: 'Next Terminal', subtitle: '⌘]', keywords: 'focus terminal terminal forward', action: () => onCycleTerminal(1) },
-    { id: 'previous-terminal', title: 'Previous Terminal', subtitle: '⌘[', keywords: 'focus terminal terminal backward', action: () => onCycleTerminal(-1) },
-    { id: 'maximize-terminal', title: 'Maximize / Restore Workspace', subtitle: '⇧⌘↩', keywords: 'zoom terminal terminal workspace maximize', action: onToggleMaximizedTerminal },
+    { id: 'next-workspace', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch workspace forward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, 1, onSelectWorkspace, onCycleWorkspace) },
+    { id: 'previous-workspace', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch workspace backward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, -1, onSelectWorkspace, onCycleWorkspace) },
+    { id: 'next-terminal', title: 'Next Terminal', subtitle: '⌘]', keywords: 'focus terminal forward', action: () => onCycleTerminal(1) },
+    { id: 'previous-terminal', title: 'Previous Terminal', subtitle: '⌘[', keywords: 'focus terminal backward', action: () => onCycleTerminal(-1) },
+    { id: 'maximize-terminal', title: 'Maximize / Restore Workspace', subtitle: '⇧⌘↩', keywords: 'zoom terminal workspace maximize', action: onToggleMaximizedTerminal },
     { id: 'clear-terminal', title: 'Clear Terminal', subtitle: '⌘K', keywords: 'clear terminal', action: onClearTerminal },
   ];
 

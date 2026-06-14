@@ -49,7 +49,7 @@ describe('buildCommandPaletteItems', () => {
       'find-terminal',
       'restart-terminal',
       'workspace-t1',
-      'project-terminal-p1',
+      'project-workspace-p1',
       'terminal-t1:0',
     ]));
   });
@@ -63,7 +63,7 @@ describe('buildCommandPaletteItems', () => {
     items.find((item) => item.id === 'workspace-t1')?.action();
     expect(onSelectWorkspace).toHaveBeenCalledWith('p1', 't1');
 
-    items.find((item) => item.id === 'project-terminal-p1')?.action();
+    items.find((item) => item.id === 'project-workspace-p1')?.action();
     expect(onNewWorkspace).toHaveBeenCalledWith({ ...project, workspaces: [workspace] });
 
     items.find((item) => item.id === 'terminal-t1:0')?.action();

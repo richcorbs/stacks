@@ -17,7 +17,7 @@ export type CommandPaletteItemOptions = {
   onNewProject: () => void;
   onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
-  onEditWorkspace: (project: Project, terminal: WorkspaceEntry) => void;
+  onEditWorkspace: (project: Project, workspace: WorkspaceEntry) => void;
   onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
   onCycleWorkspace: (delta: number) => void;
@@ -54,10 +54,10 @@ function workspaceItems(sidebarWorkspaces: SidebarWorkspace[], activeWorkspaceId
 
 function projectItems(projects: Project[], onNewWorkspace: (project: Project) => void): PaletteItem[] {
   return projects.map((project) => ({
-    id: `project-terminal-${project.id}`,
+    id: `project-workspace-${project.id}`,
     title: `New Workspace in ${project.name}`,
     subtitle: project.path,
-    keywords: 'new terminal workspace project shell',
+    keywords: 'new workspace project shell',
     action: () => onNewWorkspace(project),
   }));
 }

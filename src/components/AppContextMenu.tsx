@@ -28,7 +28,7 @@ export function AppContextMenu({
   closeContextMenu: (options?: { restoreFocus?: boolean }) => void;
   openWorkspaceDialog: (project: Project) => void;
   openEditProjectDialog: (project: Project) => void;
-  openEditWorkspaceDialog: (project: Project, terminal: WorkspaceEntry) => void;
+  openEditWorkspaceDialog: (project: Project, workspace: WorkspaceEntry) => void;
   setConfirmDeleteProjectId: React.Dispatch<React.SetStateAction<string | null>>;
   setConfirmDeleteWorkspace: React.Dispatch<React.SetStateAction<ConfirmDeleteWorkspace | null>>;
   deleteProject: (projectId: string) => void;
@@ -54,14 +54,14 @@ export function AppContextMenu({
           if (!deletingActiveProject) restoreActiveTerminalFocus('delete-inactive-project');
         }
       }}
-      onEditWorkspace={(project, terminal) => { closeContextMenu({ restoreFocus: false }); openEditWorkspaceDialog(project, terminal); }}
-      onDeleteWorkspace={(project, terminal) => {
+      onEditWorkspace={(project, workspace) => { closeContextMenu({ restoreFocus: false }); openEditWorkspaceDialog(project, workspace); }}
+      onDeleteWorkspace={(project, workspace) => {
         closeContextMenu({ restoreFocus: false });
         if (appSettings.confirm_delete) {
-          setConfirmDeleteWorkspace({ projectId: project.id, workspaceId: terminal.id });
+          setConfirmDeleteWorkspace({ projectId: project.id, workspaceId: workspace.id });
         } else {
-          const deletingActiveWorkspace = terminal.id === activeWorkspaceId;
-          deleteWorkspace(project.id, terminal.id);
+          const deletingActiveWorkspace = workspace.id === activeWorkspaceId;
+          deleteWorkspace(project.id, workspace.id);
           if (!deletingActiveWorkspace) restoreActiveTerminalFocus('delete-inactive-workspace');
         }
       }}

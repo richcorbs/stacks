@@ -7,12 +7,12 @@ export function ContextMenu({ menu, store, onClose, onNewWorkspace, onEditProjec
   onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
   onDeleteProject: (project: Project) => void;
-  onEditWorkspace: (project: Project, terminal: WorkspaceEntry) => void;
-  onDeleteWorkspace: (project: Project, terminal: WorkspaceEntry) => void;
+  onEditWorkspace: (project: Project, workspace: WorkspaceEntry) => void;
+  onDeleteWorkspace: (project: Project, workspace: WorkspaceEntry) => void;
 }) {
   const project = store.projects.find((p) => p.id === menu.projectId);
   if (!project) return null;
-  const terminal = menu.kind === 'workspace' ? project.workspaces.find((t) => t.id === menu.workspaceId) : null;
+  const workspace = menu.kind === 'workspace' ? project.workspaces.find((candidate) => candidate.id === menu.workspaceId) : null;
 
   return (
     <div
@@ -22,8 +22,8 @@ export function ContextMenu({ menu, store, onClose, onNewWorkspace, onEditProjec
       onContextMenu={(e) => e.preventDefault()}
     >
       {menu.kind === 'project' && <button onClick={() => onNewWorkspace(project)}>New Workspace</button>}
-      <button onClick={() => menu.kind === 'project' ? onEditProject(project) : terminal && onEditWorkspace(project, terminal)}>Edit</button>
-      <button className="dangerItem" onClick={() => menu.kind === 'project' ? onDeleteProject(project) : terminal && onDeleteWorkspace(project, terminal)}>Delete</button>
+      <button onClick={() => menu.kind === 'project' ? onEditProject(project) : workspace && onEditWorkspace(project, workspace)}>Edit</button>
+      <button className="dangerItem" onClick={() => menu.kind === 'project' ? onDeleteProject(project) : workspace && onDeleteWorkspace(project, workspace)}>Delete</button>
     </div>
   );
 }

@@ -72,7 +72,7 @@ export function AppOverlays({
   submitActiveDialog: () => void;
   openWorkspaceDialog: (project: Project) => void;
   openEditProjectDialog: (project: Project) => void;
-  openEditWorkspaceDialog: (project: Project, terminal: WorkspaceEntry) => void;
+  openEditWorkspaceDialog: (project: Project, workspace: WorkspaceEntry) => void;
   deleteProject: (projectId: string) => void;
   deleteWorkspace: (projectId: string, workspaceId: string) => void;
   closeTerminal: (terminalId: string) => void;

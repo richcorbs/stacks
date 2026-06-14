@@ -20,10 +20,10 @@ export function useTerminalCwd(activeTerminalId: string | null, rememberTerminal
             let changed = false;
             const projects = s.projects.map((p) => ({
               ...p,
-              workspaces: p.workspaces.map((t) => {
-                if (t.id !== workspaceId || t.cwd === cwd) return t;
+              workspaces: p.workspaces.map((workspace) => {
+                if (workspace.id !== workspaceId || workspace.cwd === cwd) return workspace;
                 changed = true;
-                return { ...t, cwd };
+                return { ...workspace, cwd };
               }),
             }));
             return changed ? { projects } : s;

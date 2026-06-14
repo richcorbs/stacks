@@ -63,7 +63,7 @@ export async function submitWorkspaceDialog({
     setStore((s) => ({
       projects: s.projects.map((p) => p.id === dialog.projectId ? {
         ...p,
-        workspaces: p.workspaces.map((t) => t.id === dialog.workspaceId ? { ...t, name, command: dialog.command.trim() || null, cwd } : t),
+        workspaces: p.workspaces.map((workspace) => workspace.id === dialog.workspaceId ? { ...workspace, name, command: dialog.command.trim() || null, cwd } : workspace),
       } : p),
     }));
     setDialog(null);
@@ -75,9 +75,9 @@ export async function submitWorkspaceDialog({
   const name = dialog.name.trim();
   if (!name) return;
   const id = await invoke<string>('new_id');
-  const terminal: WorkspaceEntry = { id, name, command: dialog.command.trim() || null, cwd: project.path };
+  const workspace: WorkspaceEntry = { id, name, command: dialog.command.trim() || null, cwd: project.path };
   setStore((s) => ({
-    projects: s.projects.map((p) => p.id === project.id ? { ...p, collapsed: false, workspaces: [...p.workspaces, terminal] } : p),
+    projects: s.projects.map((p) => p.id === project.id ? { ...p, collapsed: false, workspaces: [...p.workspaces, workspace] } : p),
   }));
   selectWorkspace(project.id, id);
   setSidebarFocusedWorkspaceId(id);

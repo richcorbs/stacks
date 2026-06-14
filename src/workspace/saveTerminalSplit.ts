@@ -11,7 +11,7 @@ export function saveTerminalSplitToStore(
   setStore((s) => ({
     projects: s.projects.map((p) => ({
       ...p,
-      workspaces: p.workspaces.map((t) => t.id === workspaceId ? { ...t, splits: normalizedRoot } : t),
+      workspaces: p.workspaces.map((workspace) => workspace.id === workspaceId ? { ...workspace, splits: normalizedRoot } : workspace),
     })),
   }));
 }
