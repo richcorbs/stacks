@@ -292,7 +292,7 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
   min-width: 0;
   min-height: 0;
   border: 1px solid #223044;
-  border-radius: 10px;
+  border-radius: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -301,7 +301,7 @@ body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; 
   position: relative;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.terminal.active { opacity: 1; border-color: var(--focused-terminal-border, #3b82f6); border-radius: 4px; box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6); }
+.terminal.active { opacity: 1; border-color: var(--focused-terminal-border, #3b82f6); box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6); }
 .terminal.maximized { border-color: var(--maximized-terminal-border, #84cc16); box-shadow: 0 0 0 1px var(--maximized-terminal-border, #84cc16); }
 body.appWindowInactive .terminal.active { border-color: var(--focused-terminal-border-inactive, #295081); box-shadow: 0 0 0 1px var(--focused-terminal-border-inactive, #295081); }
 body.appWindowInactive .terminal.maximized { border-color: var(--maximized-terminal-border-inactive, #426923); box-shadow: 0 0 0 1px var(--maximized-terminal-border-inactive, #426923); }
