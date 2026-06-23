@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react';
 import type { ContextMenuState, PointerDragState, Project, WorkspaceEntry } from '../types';
+import { collectLeafTerminalIds } from '../utils';
 import { workspaceStatusDot } from '../workspace/statusDots';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
@@ -42,6 +43,7 @@ export function SidebarWorkspaceRow({
   const statusDotClass = statusDot === 'active' ? 'activityDotFresh' : statusDot === 'unseen' ? 'activityDot' : '';
   const statusDotTitle = statusDot === 'active' ? 'Recent background output' : statusDot === 'unseen' ? 'Background output' : 'Active terminal running';
   const shortcutIndex = sidebarWorkspaces.findIndex(({ workspace: w }) => w.id === workspace.id);
+  const terminalCount = collectLeafTerminalIds(workspace.splits).length;
 
   return (
     <button
@@ -70,7 +72,7 @@ export function SidebarWorkspaceRow({
       }}
     >
       <span className="termLabel">
-        <span className="termName">{workspace.name}</span>
+        <span className="termName">{workspace.name}{terminalCount > 1 ? ` (${terminalCount})` : ''}</span>
       </span>
       <span className="termIndicators">
         {metaKeyDown ? (
