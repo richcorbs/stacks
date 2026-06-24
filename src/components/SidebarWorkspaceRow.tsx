@@ -44,6 +44,7 @@ export function SidebarWorkspaceRow({
   const statusDotTitle = statusDot === 'active' ? 'Recent background output' : statusDot === 'unseen' ? 'Background output' : 'Active terminal running';
   const shortcutIndex = sidebarWorkspaces.findIndex(({ workspace: w }) => w.id === workspace.id);
   const terminalCount = collectLeafTerminalIds(workspace.splits).length;
+  const terminalCountLabel = terminalCount > 1 ? ` (${terminalCount})` : '';
 
   return (
     <button
@@ -71,8 +72,9 @@ export function SidebarWorkspaceRow({
         selectWorkspace(project.id, workspace.id);
       }}
     >
-      <span className="termLabel">
-        <span className="termName">{workspace.name}{terminalCount > 1 ? ` (${terminalCount})` : ''}</span>
+      <span className="termLabel" title={`${workspace.name}${terminalCountLabel}`}>
+        <span className="termName">{workspace.name}</span>
+        {terminalCountLabel ? <span className="termCount">{terminalCountLabel}</span> : null}
       </span>
       <span className="termIndicators">
         {metaKeyDown ? (
