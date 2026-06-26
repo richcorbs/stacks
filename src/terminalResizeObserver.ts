@@ -28,9 +28,14 @@ export function attachTerminalResizeObserver({
   };
 
   session.resizeObserver?.disconnect();
+  if (!visible) {
+    session.resizeObserver = undefined;
+    return () => {};
+  }
+
   session.resizeObserver = new ResizeObserver(resizePtyToXterm);
   session.resizeObserver.observe(host);
-  if (visible) window.addEventListener('resize', resizePtyToXterm);
+  window.addEventListener('resize', resizePtyToXterm);
   requestAnimationFrame(resizePtyToXterm);
 
   return () => {

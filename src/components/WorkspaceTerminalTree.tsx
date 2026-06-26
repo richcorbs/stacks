@@ -29,14 +29,15 @@ export function SplitView({ node, terminalsById, workspace, project, visible, te
   if (node.kind === 'leaf') {
     const terminal = terminalsById[node.terminalId];
     if (!terminal) return null;
+    const isDisplayed = visible && (!effectiveDisplayedMaximizedTerminalId || effectiveDisplayedMaximizedTerminalId === terminal.id);
     return (
       <TerminalView
         terminal={terminal}
         workspace={workspace}
         project={project}
-        active={visible && activeTerminalId === terminal.id}
+        active={isDisplayed && activeTerminalId === terminal.id}
         maximized={effectiveDisplayedMaximizedTerminalId === terminal.id}
-        visible={visible}
+        visible={isDisplayed}
         terminalFontSize={terminalFontSize}
         terminalFontFamily={terminalFontFamily}
         terminalScrollback={terminalScrollback}
