@@ -13,6 +13,8 @@ type TerminalRequest = { terminalId: string; nonce: number };
 
 type MainWorkspaceProps = {
   activePath: string | null;
+  activeProjectName: string | null;
+  activeWorkspaceName: string | null;
   gitInfo: GitInfo | null;
   workspaces: WorkspaceViewModel[];
   activeWorkspaceId: string | null;
@@ -36,6 +38,8 @@ type MainWorkspaceProps = {
 
 export function MainWorkspace({
   activePath,
+  activeProjectName,
+  activeWorkspaceName,
   gitInfo,
   workspaces,
   activeWorkspaceId,
@@ -58,7 +62,14 @@ export function MainWorkspace({
 }: MainWorkspaceProps) {
   return (
     <main className="main">
-      <WorkspaceTopbar activePath={activePath} gitInfo={gitInfo} hasActiveTerminal={hasActiveTerminal} onToggleSidebar={onToggleSidebar} />
+      <WorkspaceTopbar
+        activePath={activePath}
+        activeProjectName={activeProjectName}
+        activeWorkspaceName={activeWorkspaceName}
+        gitInfo={gitInfo}
+        hasActiveTerminal={hasActiveTerminal}
+        onToggleSidebar={onToggleSidebar}
+      />
       <section className="workspace">
         <WorkspaceViews
           workspaces={workspaces}

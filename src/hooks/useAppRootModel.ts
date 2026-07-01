@@ -276,6 +276,8 @@ export function useAppRootModel() {
     openProjectDialog,
     openWorkspaceDialog,
     activePath,
+    activeProjectName: activeProject?.name ?? null,
+    activeWorkspaceName: activeWorkspace?.name ?? null,
     gitInfo,
     visitedWorkspaceTerminalTrees,
     activeTerminalId,

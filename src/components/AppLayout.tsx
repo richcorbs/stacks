@@ -41,6 +41,8 @@ export function AppLayout({
       />}
       <MainWorkspace
         activePath={main.activePath}
+        activeProjectName={main.activeProjectName}
+        activeWorkspaceName={main.activeWorkspaceName}
         gitInfo={main.gitInfo}
         onToggleSidebar={main.toggleSidebar}
         workspaces={main.visitedWorkspaceTerminalTrees}
