@@ -118,7 +118,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .term { justify-content: space-between; padding-left: 11px; padding-right: 11px; font-size: 13px; }
 .termLabel { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; }
 .termName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.03em; }
-.termCount { flex: 0 0 auto; white-space: nowrap; letter-spacing: 0.03em; }
+.termCount { flex: 0 0 auto; margin-left: 0.35em; white-space: nowrap; letter-spacing: 0.03em; }
 .termIndicators { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .shortcutHint, .shortcutHintSlot { width: 28px; text-align: right; }
 .shortcutHint { color: #8fa0b3; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
@@ -448,7 +448,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   padding: 16px 24px;
   border: 1px solid #304154;
   border-radius: 14px;
-  background: #111821ee;
+  background: #1a2430ee;
   color: #d6deeb;
   font-size: 14px;
   text-align: center;
