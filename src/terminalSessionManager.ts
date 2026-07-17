@@ -50,6 +50,8 @@ export function isSessionAtBottom(session: TerminalSession) {
 export function fitSessionPreservingBottom(session: TerminalSession) {
   const buffer = session.term.buffer.active;
   const previousViewportY = buffer.viewportY;
+  const previousBaseY = buffer.baseY;
+  const previousBufferLength = buffer.length;
   const wasAtBottom = isSessionAtBottom(session);
   const now = Date.now();
   const isStickyBottomResize = (stickToBottomUntilBySession.get(session) ?? 0) > now;
@@ -76,7 +78,23 @@ export function fitSessionPreservingBottom(session: TerminalSession) {
     window.setTimeout(() => jumpSessionToBottom(session), 300);
     window.setTimeout(() => jumpSessionToBottom(session), 600);
   } else {
-    window.requestAnimationFrame(() => session.term.scrollToLine(previousViewportY));
+    window.requestAnimationFrame(() => {
+      const currentBuffer = session.term.buffer.active;
+      const outputAdvanced = currentBuffer.baseY !== previousBaseY || currentBuffer.length !== previousBufferLength;
+      if (outputAdvanced || session.outputWriteInProgress || session.outputQueue.length > 0) {
+        debugFocus('skip stale viewport restore after output advanced', {
+          previousViewportY,
+          previousBaseY,
+          currentBaseY: currentBuffer.baseY,
+          previousBufferLength,
+          currentBufferLength: currentBuffer.length,
+          queued: session.outputQueue.length,
+          writeInProgress: session.outputWriteInProgress,
+        });
+        return;
+      }
+      session.term.scrollToLine(previousViewportY);
+    });
   }
 
   return shouldStickToBottom;
