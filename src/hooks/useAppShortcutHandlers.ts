@@ -42,6 +42,8 @@ export function useAppShortcutHandlers({
   adjustTerminalFontSize,
   openTerminalSearch,
   openDirectoryInEditor,
+  broadcastEnabled,
+  onToggleBroadcast,
 }: AppShortcutHandlerOptions) {
   const commandPaletteItems = useCommandPaletteItems({
     store,
@@ -69,6 +71,8 @@ export function useAppShortcutHandlers({
     onOpenSettings: () => setSettingsOpen(true),
     activePath,
     onOpenDirectoryInEditor: openDirectoryInEditor,
+    broadcastEnabled,
+    onToggleBroadcast,
   });
 
   const shortcutHandlers = {

@@ -20,6 +20,7 @@ type MainWorkspaceProps = {
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
   maximizedWorkspaceId: string | null;
+  broadcastWorkspaceIds: Record<string, boolean>;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -29,6 +30,8 @@ type MainWorkspaceProps = {
   onResizeSplit: (workspaceId: string, path: string, ratio: number) => void;
   onFocusTerminal: (projectId: string, workspaceId: string, terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
+  onToggleBroadcast: (workspaceId: string) => void;
+  onInput: (terminalId: string, data: string) => void;
   canToggleMaximizedTerminal: (workspaceId: string) => boolean;
   onToggleMaximizedTerminal: (terminalId: string) => void;
   onSplitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
@@ -45,6 +48,7 @@ export function MainWorkspace({
   activeWorkspaceId,
   activeTerminalId,
   maximizedWorkspaceId,
+  broadcastWorkspaceIds,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
@@ -54,6 +58,8 @@ export function MainWorkspace({
   onResizeSplit,
   onFocusTerminal,
   onCloseTerminal,
+  onToggleBroadcast,
+  onInput,
   canToggleMaximizedTerminal,
   onToggleMaximizedTerminal,
   onSplitTerminal,
@@ -76,6 +82,7 @@ export function MainWorkspace({
           activeWorkspaceId={activeWorkspaceId}
           activeTerminalId={activeTerminalId}
           maximizedWorkspaceId={maximizedWorkspaceId}
+          broadcastWorkspaceIds={broadcastWorkspaceIds}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}
           terminalScrollback={terminalScrollback}
@@ -85,6 +92,8 @@ export function MainWorkspace({
           onResizeSplit={onResizeSplit}
           onFocusTerminal={onFocusTerminal}
           onCloseTerminal={onCloseTerminal}
+          onToggleBroadcast={onToggleBroadcast}
+          onInput={onInput}
           canToggleMaximizedTerminal={canToggleMaximizedTerminal}
           onToggleMaximizedTerminal={onToggleMaximizedTerminal}
           onSplitTerminal={onSplitTerminal}

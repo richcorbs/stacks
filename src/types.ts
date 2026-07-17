@@ -54,6 +54,7 @@ export type TerminalSession = {
   lastPtySize: TermSize | null;
   dataDisposable: { dispose: () => void };
   selectionDisposable: { dispose: () => void };
+  inputHandler: (data: string) => void;
   decoder: TextDecoder;
   outputQueue: string[];
   outputQueuedChars: number;

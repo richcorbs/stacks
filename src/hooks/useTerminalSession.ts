@@ -18,6 +18,7 @@ export function useTerminalSession({
   terminalFontFamily,
   terminalScrollback,
   onSearchResultsChange,
+  onInput,
 }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
@@ -28,6 +29,7 @@ export function useTerminalSession({
   terminalFontFamily: string;
   terminalScrollback: number;
   onSearchResultsChange: (event: { resultIndex: number; resultCount: number }) => void;
+  onInput: (terminalId: string, data: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -66,6 +68,7 @@ export function useTerminalSession({
         terminalFontFamily,
         terminalFontSize,
         terminalScrollback,
+        onInput: (data) => onInput(terminal.id, data),
       });
       const { term, fit } = session;
       setTerminalSession(terminal.id, session);
@@ -95,6 +98,7 @@ export function useTerminalSession({
       host.replaceChildren(session.term.element);
     }
 
+    session.inputHandler = (data) => onInput(terminal.id, data);
     termRef.current = session.term;
     fitRef.current = session.fit;
 
@@ -107,7 +111,7 @@ export function useTerminalSession({
       detachResizeObserver();
       resultsDisposable.dispose();
     };
-  }, [terminal.id, terminal.command, workspace.id, project.path, workspace.cwd, workspace.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce, onSearchResultsChange]);
+  }, [terminal.id, terminal.command, workspace.id, project.path, workspace.cwd, workspace.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce, onSearchResultsChange, onInput]);
 
   return { hostRef, termRef, fitRef, restartTerminalSessionIfDead };
 }

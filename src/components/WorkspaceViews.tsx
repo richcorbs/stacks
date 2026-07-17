@@ -16,6 +16,7 @@ export function WorkspaceViews({
   activeWorkspaceId,
   activeTerminalId,
   maximizedWorkspaceId,
+  broadcastWorkspaceIds,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
@@ -25,6 +26,8 @@ export function WorkspaceViews({
   onResizeSplit,
   onFocusTerminal,
   onCloseTerminal,
+  onToggleBroadcast,
+  onInput,
   canToggleMaximizedTerminal,
   onToggleMaximizedTerminal,
   onSplitTerminal,
@@ -33,6 +36,7 @@ export function WorkspaceViews({
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
   maximizedWorkspaceId: string | null;
+  broadcastWorkspaceIds: Record<string, boolean>;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -42,6 +46,8 @@ export function WorkspaceViews({
   onResizeSplit: (workspaceId: string, path: string, ratio: number) => void;
   onFocusTerminal: (projectId: string, workspaceId: string, terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
+  onToggleBroadcast: (workspaceId: string) => void;
+  onInput: (terminalId: string, data: string) => void;
   canToggleMaximizedTerminal: (workspaceId: string) => boolean;
   onToggleMaximizedTerminal: (terminalId: string) => void;
   onSplitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
@@ -69,6 +75,7 @@ export function WorkspaceViews({
             workspace={workspace}
             project={project}
             visible={visible}
+            broadcast={Boolean(broadcastWorkspaceIds[workspace.id])}
             terminalFontSize={terminalFontSize}
             terminalFontFamily={terminalFontFamily}
             terminalScrollback={terminalScrollback}
@@ -82,6 +89,8 @@ export function WorkspaceViews({
             onFocus={(terminalId) => onFocusTerminal(project.id, workspace.id, terminalId)}
             onClose={onCloseTerminal}
             onSplitTerminal={onSplitTerminal}
+            onToggleBroadcast={onToggleBroadcast}
+            onInput={onInput}
             canToggleMaximize={canToggleMaximizedTerminal(workspace.id)}
             onToggleMaximize={onToggleMaximizedTerminal}
           />

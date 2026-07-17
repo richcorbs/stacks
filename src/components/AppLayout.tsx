@@ -49,6 +49,7 @@ export function AppLayout({
         activeWorkspaceId={main.activeWorkspaceId}
         activeTerminalId={main.activeTerminalId}
         maximizedWorkspaceId={main.maximizedWorkspaceId}
+        broadcastWorkspaceIds={main.broadcastWorkspaceIds}
         terminalFontSize={main.appSettings.terminal_font_size}
         terminalFontFamily={main.appSettings.terminal_font_family}
         terminalScrollback={main.appSettings.terminal_scrollback}
@@ -62,6 +63,8 @@ export function AppLayout({
           main.focusTerminal(workspaceId, terminalId);
         }}
         onCloseTerminal={(terminalId) => main.appSettings.confirm_close ? main.setConfirmCloseTerminalId(terminalId) : main.closeTerminal(terminalId)}
+        onToggleBroadcast={main.toggleBroadcast}
+        onInput={main.handleTerminalInput}
         canToggleMaximizedTerminal={(workspaceId) => (main.visitedWorkspaceTerminalTrees.find(({ workspace }) => workspace.id === workspaceId)?.terminals.length ?? 0) > 1}
         onToggleMaximizedTerminal={main.toggleMaximizedTerminal}
         onSplitTerminal={main.splitTerminal}

@@ -8,13 +8,15 @@ import { useTerminalSession } from '../hooks/useTerminalSession';
 import { TerminalSearchOverlay } from './TerminalSearchOverlay';
 import { TerminalControls } from './TerminalControls';
 
-export function TerminalView({ terminal, workspace, project, active, maximized, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, canToggleMaximize, onToggleMaximize }: {
+export function TerminalView({ terminal, workspace, project, active, maximized, visible, broadcast, canBroadcast, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, onToggleBroadcast, onInput, canToggleMaximize, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
   active: boolean;
   maximized: boolean;
   visible: boolean;
+  broadcast: boolean;
+  canBroadcast: boolean;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -24,6 +26,8 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
   onFocus: () => void;
   onClose: () => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
+  onToggleBroadcast: () => void;
+  onInput: (terminalId: string, data: string) => void;
   canToggleMaximize: boolean;
   onToggleMaximize: () => void;
 }) {
@@ -38,6 +42,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
     terminalFontFamily,
     terminalScrollback,
     onSearchResultsChange: search.onSearchResultsChange,
+    onInput,
   });
   const { beginSelectionCopy } = useTerminalSelectionCopy(termRef, copyOnSelect);
   useTerminalOptions({ terminalId: terminal.id, terminalFontSize, terminalFontFamily, terminalScrollback });
@@ -46,7 +51,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
 
   return (
     <div
-      className={`terminal ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
+      className={`terminal ${active ? 'active' : ''} ${maximized ? 'maximized' : ''} ${broadcast ? 'broadcast' : ''}`}
       onMouseDown={() => {
         beginSelectionCopy();
         restartTerminalSessionIfDead();
@@ -56,7 +61,10 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
       <TerminalControls
         maximized={maximized}
         canToggleMaximize={canToggleMaximize}
+        broadcast={broadcast}
+        canBroadcast={canBroadcast}
         onSplitTerminal={onSplitTerminal}
+        onToggleBroadcast={onToggleBroadcast}
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
       />

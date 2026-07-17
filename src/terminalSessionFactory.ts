@@ -5,20 +5,20 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { TerminalSession } from './types';
 
-const encoder = new TextEncoder();
-
 export function createTerminalSession({
   terminalId,
   host,
   terminalFontFamily,
   terminalFontSize,
   terminalScrollback,
+  onInput,
 }: {
   terminalId: string;
   host: HTMLElement;
   terminalFontFamily: string;
   terminalFontSize: number;
   terminalScrollback: number;
+  onInput: (data: string) => void;
 }): TerminalSession {
   const term = new Terminal({
     cursorBlink: true,
@@ -35,6 +35,7 @@ export function createTerminalSession({
     scrollback: terminalScrollback,
     smoothScrollDuration: 0,
   });
+  let session: TerminalSession;
   const fit = new FitAddon();
   const search = new SearchAddon();
   const webLinks = new WebLinksAddon((event, uri) => {
@@ -50,17 +51,14 @@ export function createTerminalSession({
     if (event.key === 'Enter' && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       event.stopPropagation();
-      if (event.type === 'keydown') {
-        invoke('write_pty', { terminalId, data: Array.from(encoder.encode('\n')) })
-          .catch((e) => term.writeln(`\r\nwrite_pty error: ${e}\r\n`));
-      }
+      if (event.type === 'keydown') session.inputHandler('\n');
       return false;
     }
     return true;
   });
   term.open(host);
 
-  return {
+  session = {
     term,
     fit,
     search,
@@ -69,11 +67,9 @@ export function createTerminalSession({
     starting: false,
     running: false,
     lastPtySize: null,
-    dataDisposable: term.onData((data) => {
-      invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) })
-        .catch((e) => term.writeln(`\r\nwrite_pty error: ${e}\r\n`));
-    }),
+    dataDisposable: term.onData((data) => session.inputHandler(data)),
     selectionDisposable: term.onSelectionChange(() => {}),
+    inputHandler: onInput,
     decoder: new TextDecoder(),
     outputQueue: [],
     outputQueuedChars: 0,
@@ -81,4 +77,5 @@ export function createTerminalSession({
     outputWriteInProgress: false,
     outputActivityFrame: null,
   };
+  return session;
 }

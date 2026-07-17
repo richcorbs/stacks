@@ -27,6 +27,9 @@ export function commandPaletteCoreItems({
   onOpenSettings,
   onOpenDirectoryInEditor,
   onSelectWorkspace,
+  broadcastEnabled,
+  activeWorkspaceTerminalCount,
+  onToggleBroadcast,
 }: {
   activeProject: Project | null;
   activeWorkspace: WorkspaceEntry | null;
@@ -51,6 +54,9 @@ export function commandPaletteCoreItems({
   onOpenSettings: () => void;
   onOpenDirectoryInEditor: () => void;
   onSelectWorkspace: (projectId: string, workspaceId: string) => void;
+  broadcastEnabled: boolean;
+  activeWorkspaceTerminalCount: number;
+  onToggleBroadcast: () => void;
 }): PaletteItem[] {
   const items: PaletteItem[] = [
     { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
@@ -70,6 +76,16 @@ export function commandPaletteCoreItems({
     { id: 'maximize-terminal', title: 'Maximize / Restore Workspace', subtitle: '⇧⌘↩', keywords: 'zoom terminal workspace maximize', action: onToggleMaximizedTerminal },
     { id: 'clear-terminal', title: 'Clear Terminal', subtitle: '⌘K', keywords: 'clear terminal', action: onClearTerminal },
   ];
+
+  if (activeWorkspaceId && activeTerminalId && activeWorkspaceTerminalCount > 1) {
+    items.push({
+      id: 'broadcast-workspace',
+      title: 'Toggle Broadcast Mode Within the Workspace',
+      subtitle: broadcastEnabled ? 'Enabled' : 'Send input from any terminal to every terminal',
+      keywords: 'broadcast all terminals workspace megaphone input',
+      action: onToggleBroadcast,
+    });
+  }
 
   if (activeTerminalId) {
     items.push(

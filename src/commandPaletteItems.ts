@@ -30,12 +30,15 @@ export type CommandPaletteItemOptions = {
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenDirectoryInEditor: () => void;
+  broadcastEnabled: boolean;
+  onToggleBroadcast: () => void;
 };
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
   const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeWorkspaceId, activeTerminalId, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
+  const activeWorkspaceTerminalCount = activeWorkspaceId ? (terminalsByWorkspaceId[activeWorkspaceId] ?? []).length : 0;
   return [
-    ...commandPaletteCoreItems(options),
+    ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount }),
     ...workspaceItems(sidebarWorkspaces, activeWorkspaceId, onSelectWorkspace),
     ...projectItems(store.projects, onNewWorkspace),
     ...terminalItems(activeWorkspaceId, activeTerminalId, terminalsByWorkspaceId, onCycleTerminal),

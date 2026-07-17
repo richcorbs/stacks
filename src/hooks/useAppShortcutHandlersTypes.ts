@@ -37,4 +37,6 @@ export type AppShortcutHandlerOptions = {
   adjustTerminalFontSize: (delta: number) => void;
   openTerminalSearch: () => void;
   openDirectoryInEditor: () => void;
+  broadcastEnabled: boolean;
+  onToggleBroadcast: () => void;
 };

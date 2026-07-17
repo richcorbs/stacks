@@ -36,6 +36,7 @@ type UseAppLayoutPropsOptions = {
   visitedWorkspaceTerminalTrees: { project: Project; workspace: WorkspaceEntry; terminals: TerminalEntry[]; root: SplitNode | undefined }[];
   activeTerminalId: string | null;
   maximizedWorkspaceId: string | null;
+  broadcastWorkspaceIds: Record<string, boolean>;
   appSettings: ResolvedAppSettings;
   searchTerminalRequest: { terminalId: string; nonce: number } | null;
   restartTerminalRequest: { terminalId: string; nonce: number } | null;
@@ -43,6 +44,8 @@ type UseAppLayoutPropsOptions = {
   focusTerminal: (workspaceId: string, terminalId: string) => void;
   closeTerminal: (terminalId: string) => void;
   setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
+  toggleBroadcast: (workspaceId: string) => void;
+  handleTerminalInput: (terminalId: string, data: string) => void;
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;
@@ -115,6 +118,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       activeWorkspaceId: options.activeWorkspaceId,
       activeTerminalId: options.activeTerminalId,
       maximizedWorkspaceId: options.maximizedWorkspaceId,
+      broadcastWorkspaceIds: options.broadcastWorkspaceIds,
       appSettings: options.appSettings,
       searchTerminalRequest: options.searchTerminalRequest,
       restartTerminalRequest: options.restartTerminalRequest,
@@ -123,6 +127,8 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       focusTerminal: options.focusTerminal,
       closeTerminal: options.closeTerminal,
       setConfirmCloseTerminalId: options.setConfirmCloseTerminalId,
+      toggleBroadcast: options.toggleBroadcast,
+      handleTerminalInput: options.handleTerminalInput,
       toggleMaximizedTerminal: options.toggleMaximizedTerminal,
       splitTerminal: options.splitTerminal,
       toggleSidebar: options.toggleSidebar,

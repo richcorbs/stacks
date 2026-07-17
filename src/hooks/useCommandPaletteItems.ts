@@ -29,5 +29,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     options.onOpenSettings,
     options.onOpenDirectoryInEditor,
     options.onSelectWorkspace,
+    options.broadcastEnabled,
+    options.onToggleBroadcast,
   ]);
 }

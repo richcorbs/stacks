@@ -45,6 +45,7 @@ export type MainLayoutProps = {
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
   maximizedWorkspaceId: string | null;
+  broadcastWorkspaceIds: Record<string, boolean>;
   appSettings: ResolvedAppSettings;
   searchTerminalRequest: { terminalId: string; nonce: number } | null;
   restartTerminalRequest: { terminalId: string; nonce: number } | null;
@@ -53,6 +54,8 @@ export type MainLayoutProps = {
   focusTerminal: (workspaceId: string, terminalId: string) => void;
   closeTerminal: (terminalId: string) => void;
   setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
+  toggleBroadcast: (workspaceId: string) => void;
+  handleTerminalInput: (terminalId: string, data: string) => void;
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;

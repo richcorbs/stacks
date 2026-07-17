@@ -1,3 +1,5 @@
+import { useCallback, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useAppStats } from './useAppStats';
 import { useGitInfo } from './useGitInfo';
 import { useWorkspaceCommands } from './useWorkspaceCommands';
@@ -10,6 +12,8 @@ import { useAppLifecycleEffects } from './useAppLifecycleEffects';
 import { useAppInteractionEffects } from './useAppInteractionEffects';
 import { useAppStateBundle } from './useAppStateBundle';
 import { useAppLayoutProps } from './useAppLayoutProps';
+
+const encoder = new TextEncoder();
 
 export function useAppRootModel() {
   const {
@@ -85,6 +89,7 @@ export function useAppRootModel() {
     setRestartTerminalRequest,
   } = overlayState;
   const { toast, showToast } = toastState;
+  const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
 
   const { activeProject, activeWorkspace, sidebarWorkspaces, activePath, visitedWorkspaceTerminalTrees } = useAppWorkspaceModels({
     store,
@@ -215,6 +220,31 @@ export function useAppRootModel() {
     showToast,
   });
 
+  const toggleBroadcast = useCallback((workspaceId: string) => {
+    setBroadcastWorkspaceIds((current) => ({ ...current, [workspaceId]: !current[workspaceId] }));
+    restoreActiveTerminalFocus('toggle-broadcast');
+  }, [restoreActiveTerminalFocus]);
+
+  const toggleActiveWorkspaceBroadcast = useCallback(() => {
+    if (!activeWorkspaceId) return;
+    setBroadcastWorkspaceIds((current) => {
+      const enabled = !current[activeWorkspaceId];
+      showToast(enabled ? 'Broadcast enabled' : 'Broadcast disabled');
+      return { ...current, [activeWorkspaceId]: enabled };
+    });
+    restoreActiveTerminalFocus('toggle-broadcast');
+  }, [activeWorkspaceId, restoreActiveTerminalFocus, showToast]);
+
+  const handleTerminalInput = useCallback((terminalId: string, data: string) => {
+    const workspaceId = terminalId.split(':')[0];
+    const targetIds = broadcastWorkspaceIds[workspaceId]
+      ? (terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id)
+      : [terminalId];
+    for (const targetId of targetIds) {
+      invoke('write_pty', { terminalId: targetId, data: Array.from(encoder.encode(data)) }).catch(console.error);
+    }
+  }, [broadcastWorkspaceIds, terminalsByWorkspaceId]);
+
   const { commandPaletteItems } = useAppShortcutHandlers({
     store,
     sidebarWorkspaces,
@@ -250,6 +280,8 @@ export function useAppRootModel() {
     adjustTerminalFontSize,
     openTerminalSearch,
     openDirectoryInEditor,
+    broadcastEnabled: activeWorkspaceId ? Boolean(broadcastWorkspaceIds[activeWorkspaceId]) : false,
+    onToggleBroadcast: toggleActiveWorkspaceBroadcast,
   });
 
   const { confirmDeleteProject, confirmDeleteWorkspaceEntry } = useAppOverlayModels({ store, confirmDeleteProjectId, confirmDeleteWorkspace });
@@ -282,6 +314,7 @@ export function useAppRootModel() {
     visitedWorkspaceTerminalTrees,
     activeTerminalId,
     maximizedWorkspaceId,
+    broadcastWorkspaceIds,
     appSettings,
     searchTerminalRequest,
     restartTerminalRequest,
@@ -289,6 +322,8 @@ export function useAppRootModel() {
     focusTerminal,
     closeTerminal,
     setConfirmCloseTerminalId,
+    toggleBroadcast,
+    handleTerminalInput,
     toggleMaximizedTerminal,
     splitTerminal,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),

@@ -330,6 +330,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   transition: opacity .12s ease, background .12s ease, border-color .12s ease;
 }
 .terminal:hover .terminalControls,
+.terminal.broadcast .terminalControls,
 .terminalControls:focus-within { opacity: 1; pointer-events: auto; }
 .terminalControls:hover { background: #172232ee; border-color: #40536b; }
 .terminalControlButton {
@@ -346,6 +347,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   transition: background .12s ease, color .12s ease;
 }
 .terminalControlButton:hover { background: #203348; color: #d6deeb; }
+.terminalBroadcastButton.active { background: #1d4ed8; color: #dbeafe; }
+.terminalBroadcastIcon { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .terminalCloseButton:hover { background: #3b1f2a; color: #fca5a5; }
 .terminalMaximizeIcon {
   width: 14px;

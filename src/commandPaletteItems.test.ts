@@ -34,6 +34,8 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onOpenSearch: vi.fn(),
     onOpenSettings: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
+    broadcastEnabled: false,
+    onToggleBroadcast: vi.fn(),
     ...overrides,
   });
 }
@@ -52,6 +54,21 @@ describe('buildCommandPaletteItems', () => {
       'project-workspace-p1',
       'terminal-t1:0',
     ]));
+  });
+
+  it('shows broadcast command only when active workspace has multiple terminals', () => {
+    expect(palette().some((item) => item.id === 'broadcast-workspace')).toBe(false);
+
+    const onToggleBroadcast = vi.fn();
+    const items = palette({
+      terminalsByWorkspaceId: { t1: [terminal, { id: 't1:1', workspaceId: 't1' }] },
+      onToggleBroadcast,
+    });
+
+    const broadcast = items.find((item) => item.id === 'broadcast-workspace');
+    expect(broadcast?.title).toBe('Toggle Broadcast Mode Within the Workspace');
+    broadcast?.action();
+    expect(onToggleBroadcast).toHaveBeenCalled();
   });
 
   it('runs dynamic terminal/project/terminal actions', () => {
