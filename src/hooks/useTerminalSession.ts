@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
@@ -49,7 +49,7 @@ export function useTerminalSession({
     return true;
   }, [terminal.id]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const startupCommand = terminal.id === `${workspace.id}:0` ? workspace.command : terminal.command ?? null;
     const host = hostRef.current!;
     let cancelled = false;

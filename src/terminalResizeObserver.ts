@@ -15,6 +15,9 @@ export function attachTerminalResizeObserver({
   visible: boolean;
 }) {
   const resizePtyToXterm = () => {
+    const rect = host.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
     const wasAtBottom = fitSessionPreservingBottom(session);
     const shouldScrollToBottom = consumeTerminalSessionScrollToBottomAfterFit(terminalId) || wasAtBottom;
     const size = safeTermSize(session.term);

@@ -47,8 +47,16 @@ export function isSessionAtBottom(session: TerminalSession) {
   return buffer.viewportY >= buffer.baseY;
 }
 
+function isSessionHostMeasurable(session: TerminalSession) {
+  const host = session.term.element?.parentElement;
+  if (!host) return false;
+  const rect = host.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
 export function fitSessionPreservingBottom(session: TerminalSession) {
   const buffer = session.term.buffer.active;
+  if (!isSessionHostMeasurable(session)) return isSessionAtBottom(session);
   const previousViewportY = buffer.viewportY;
   const previousBaseY = buffer.baseY;
   const previousBufferLength = buffer.length;
@@ -104,6 +112,10 @@ export function focusTerminalSession(terminalId: string, reason: string, options
   const session = terminalSessions.get(terminalId);
   if (!session) {
     debugFocus('focus skipped; no session', { terminalId, reason });
+    return false;
+  }
+  if (!isSessionHostMeasurable(session)) {
+    debugFocus('focus skipped; terminal host is not measurable', { terminalId, reason, options });
     return false;
   }
   debugFocus('focus terminal session', { terminalId, reason, options });

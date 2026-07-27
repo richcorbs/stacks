@@ -46,13 +46,25 @@ export function useTerminalActivation({
     if (!active) return;
 
     const shouldScrollToBottom = !wasVisible || maximized || (!wasActive && wasAtBottomWhenDeactivatedRef.current);
-    requestAnimationFrame(() => {
+    const fitAndResize = () => {
       const session = getTerminalSession(terminalId);
-      if (!session) return;
+      const host = session?.term.element?.parentElement;
+      if (!session || !host) return;
+      const rect = host.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
       fitSessionPreservingBottom(session);
       const size = safeTermSize(term);
-      invoke('resize_pty', { terminalId, cols: size.cols, rows: size.rows }).catch(() => {});
+      if (!session.lastPtySize || session.lastPtySize.cols !== size.cols || session.lastPtySize.rows !== size.rows) {
+        session.lastPtySize = size;
+        invoke('resize_pty', { terminalId, cols: size.cols, rows: size.rows }).catch(() => {});
+      }
+    };
+
+    requestAnimationFrame(() => {
+      fitAndResize();
       focusTerminalSession(terminalId, maximized ? 'active-maximized' : 'active', { scrollToBottom: shouldScrollToBottom });
+      window.setTimeout(fitAndResize, 50);
+      window.setTimeout(fitAndResize, 150);
     });
   }, [active, visible, maximized, terminalId, termRef, fitRef, restartTerminalSessionIfDead]);
 }
