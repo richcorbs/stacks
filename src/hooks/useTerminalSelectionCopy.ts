@@ -19,7 +19,14 @@ export function useTerminalSelectionCopy(termRef: MutableRefObject<Terminal | nu
         writeText(selection)
           .then(() => {
             term.clearSelection();
-            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Copied to clipboard' } }));
+            const rect = term.element?.closest('.terminal')?.getBoundingClientRect();
+            window.dispatchEvent(new CustomEvent('app-toast', {
+              detail: {
+                message: 'Copied to clipboard',
+                x: rect ? rect.left + rect.width / 2 : undefined,
+                y: rect ? rect.top + rect.height / 2 : undefined,
+              },
+            }));
           })
           .catch(console.error);
       }, 0);

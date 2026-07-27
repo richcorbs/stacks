@@ -4,7 +4,7 @@ import { Dialog } from './Dialogs';
 import { SettingsDialog } from './SettingsDialog';
 import { AppContextMenu } from './AppContextMenu';
 import { AppConfirmDialogs } from './AppConfirmDialogs';
-import type { ContextMenuState, DialogState, Project, Store, WorkspaceEntry } from '../types';
+import type { ContextMenuState, DialogState, Project, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
 type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
@@ -57,7 +57,7 @@ export function AppOverlays({
   confirmDeleteWorkspace: ConfirmDeleteWorkspace | null;
   confirmDeleteWorkspaceEntry: WorkspaceEntry | null;
   confirmQuitOpen: boolean;
-  toast: string | null;
+  toast: ToastState | null;
   activeProjectId: string | null;
   activeWorkspaceId: string | null;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
@@ -104,7 +104,14 @@ export function AppOverlays({
       />
       {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={closeSettings} />}
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={closeDialog} onSubmit={submitActiveDialog} />}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div
+          className="toast"
+          style={toast.x !== undefined && toast.y !== undefined ? { left: toast.x, top: toast.y } : undefined}
+        >
+          {toast.message}
+        </div>
+      )}
       <AppConfirmDialogs
         confirmCloseTerminalId={confirmCloseTerminalId}
         confirmDeleteProject={confirmDeleteProject}

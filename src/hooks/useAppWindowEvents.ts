@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import type { ToastDetail } from '../types';
 
-export function useAppToastEvents(showToast: (message: string) => void) {
+export function useAppToastEvents(showToast: (toast: string | ToastDetail) => void) {
   useEffect(() => {
     const onToast = (event: Event) => {
-      showToast((event as CustomEvent<{ message: string }>).detail.message);
+      showToast((event as CustomEvent<ToastDetail>).detail);
     };
     const unlistenPromise = getCurrentWindow().listen<string>('app-toast', (event) => showToast(event.payload));
     window.addEventListener('app-toast', onToast);

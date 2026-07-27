@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, DialogState, TerminalEntry, PointerDragState, Project, SplitNode, Store, WorkspaceEntry } from '../types';
+import type { AppStats, ContextMenuState, DialogState, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from './CommandPalette';
 
@@ -75,7 +75,7 @@ export type OverlayLayoutProps = {
   confirmDeleteWorkspace: ConfirmDeleteWorkspace | null;
   confirmDeleteWorkspaceEntry: WorkspaceEntry | null;
   confirmQuitOpen: boolean;
-  toast: string | null;
+  toast: ToastState | null;
   activeProjectId: string | null;
   activeWorkspaceId: string | null;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;

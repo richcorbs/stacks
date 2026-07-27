@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, DialogState, TerminalEntry, PointerDragState, Project, SplitNode, Store, WorkspaceEntry } from '../types';
+import type { AppStats, ContextMenuState, DialogState, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from '../components/CommandPalette';
 import type { MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
@@ -60,7 +60,7 @@ type UseAppLayoutPropsOptions = {
   confirmDeleteWorkspace: ConfirmDeleteWorkspace | null;
   confirmDeleteWorkspaceEntry: WorkspaceEntry | null;
   confirmQuitOpen: boolean;
-  toast: string | null;
+  toast: ToastState | null;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   setConfirmDeleteProjectId: React.Dispatch<React.SetStateAction<string | null>>;
   setConfirmDeleteWorkspace: React.Dispatch<React.SetStateAction<ConfirmDeleteWorkspace | null>>;

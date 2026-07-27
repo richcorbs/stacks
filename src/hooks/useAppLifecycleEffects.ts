@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { Store } from '../types';
+import type { Store, ToastDetail } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import { useDebouncedStoreSave } from './useDebouncedSave';
 import { usePersistentAppSettings, usePersistentSidebarWidth } from './useSettingsPersistence';
@@ -52,7 +52,7 @@ export function useAppLifecycleEffects({
   setConfirmQuitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
   rememberTerminalCwd: (terminalId: string, cwd: string) => void;
-  showToast: (message: string) => void;
+  showToast: (toast: string | ToastDetail) => void;
 }) {
   useFocusDebug({ activeProjectId, activeWorkspaceId, activeTerminalId, maximizedWorkspaceId, sidebarFocusedWorkspaceId });
   useAppWindowFocusClass();

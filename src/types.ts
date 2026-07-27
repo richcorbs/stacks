@@ -7,7 +7,8 @@ export type Store = { projects: Project[] };
 export type Project = { id: string; name: string; path: string; workspaces: WorkspaceEntry[]; collapsed?: boolean };
 export type WorkspaceEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
 export type TerminalEntry = { id: string; workspaceId: string; command?: string | null };
-export type ToastDetail = { message: string };
+export type ToastDetail = { message: string; x?: number; y?: number };
+export type ToastState = ToastDetail;
 export type SplitNode =
   | { kind: 'empty' }
   | { kind: 'leaf'; terminalId: string; command?: string | null }
