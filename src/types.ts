@@ -69,7 +69,7 @@ export type TerminalSession = {
 
 export type DialogState =
   | { kind: 'project'; name: string; path: string; openTerminalAfterCreate?: boolean }
-  | { kind: 'workspace'; projectId: string; name: string; command: string }
+  | { kind: 'workspace'; projectId: string; name: string; command: string; rows: number; columns: number }
   | { kind: 'split'; workspaceId: string; targetTerminalId: string; direction: 'row' | 'column'; command: string }
   | { kind: 'editProject'; projectId: string; name: string; path: string }
   | { kind: 'editWorkspace'; projectId: string; workspaceId: string; name: string; command: string; cwd: string };

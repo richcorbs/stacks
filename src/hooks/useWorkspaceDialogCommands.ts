@@ -56,7 +56,7 @@ export function useWorkspaceDialogCommands({
   }
 
   function openWorkspaceDialog(project: Project) {
-    setDialog({ kind: 'workspace', projectId: project.id, name: `Workspace ${project.workspaces.length + 1}`, command: '' });
+    setDialog({ kind: 'workspace', projectId: project.id, name: `Workspace ${project.workspaces.length + 1}`, command: '', rows: 1, columns: 1 });
   }
 
   async function submitDialog() {

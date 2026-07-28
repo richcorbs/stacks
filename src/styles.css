@@ -397,7 +397,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .modal label { display: block; color: #b9c5d3; font-size: 13px; margin-bottom: 18px; }
 .modal.terminalDialog label { margin-bottom: 26px; }
 .modal label span { color: #8091a5; }
-.modal input {
+.modal input,
+.modal select {
   width: 100%;
   margin-top: 6px;
   border: 1px solid #2d3d4f;
@@ -408,7 +409,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   outline: none;
   font: inherit;
 }
-.modal input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f633; }
+.modal input:focus,
+.modal select:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f633; }
+.dialogGridFields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modalActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .modalActions button {
   border: 1px solid #2d3d4f;

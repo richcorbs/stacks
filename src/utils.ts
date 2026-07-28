@@ -77,6 +77,19 @@ function buildEqualSplit(direction: 'row' | 'column', children: SplitNode[]): Sp
   };
 }
 
+export function buildGridSplit(terminalIds: string[], rows: number, columns: number): SplitNode {
+  const safeRows = Math.min(5, Math.max(1, Math.floor(rows || 1)));
+  const safeColumns = Math.min(5, Math.max(1, Math.floor(columns || 1)));
+  const cells = terminalIds.length > 0 ? terminalIds : ['terminal:0'];
+  const rowNodes = Array.from({ length: safeRows }, (_, rowIndex) => {
+    const start = rowIndex * safeColumns;
+    const rowTerminalIds = cells.slice(start, start + safeColumns);
+    const leaves = rowTerminalIds.map((terminalId) => ({ kind: 'leaf' as const, terminalId }));
+    return buildEqualSplit('row', leaves.length > 0 ? leaves : [{ kind: 'leaf' as const, terminalId: cells[cells.length - 1] }]);
+  });
+  return buildEqualSplit('column', rowNodes);
+}
+
 export function rebalanceSplits(node: SplitNode | null, changedTerminalId: string): SplitNode | null {
   if (!node || node.kind !== 'split') return node;
 

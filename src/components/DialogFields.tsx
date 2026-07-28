@@ -69,6 +69,28 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
           onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
         />
       </label>
+      {dialog.kind === 'workspace' && (
+        <div className="dialogGridFields">
+          <label>
+            Rows
+            <select
+              value={dialog.rows}
+              onChange={(e) => setDialog({ ...dialog, rows: Number(e.target.value) })}
+            >
+              {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label>
+            Columns
+            <select
+              value={dialog.columns}
+              onChange={(e) => setDialog({ ...dialog, columns: Number(e.target.value) })}
+            >
+              {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
       {dialog.kind === 'editWorkspace' && (
         <label>
           Directory <span>(click to choose)</span>

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type React from 'react';
 import type { DialogState, Project, Store, WorkspaceEntry } from '../types';
+import { buildGridSplit } from '../utils';
 
 type SubmitWorkspaceDialogOptions = {
   dialog: DialogState | null;
@@ -33,7 +34,7 @@ export async function submitWorkspaceDialog({
     if (dialog.openTerminalAfterCreate) {
       setDialog(null);
       window.setTimeout(() => {
-        setDialog({ kind: 'workspace', projectId: project.id, name: 'Workspace 1', command: '' });
+        setDialog({ kind: 'workspace', projectId: project.id, name: 'Workspace 1', command: '', rows: 1, columns: 1 });
       }, 200);
     } else {
       setDialog(null);
@@ -75,7 +76,11 @@ export async function submitWorkspaceDialog({
   const name = dialog.name.trim();
   if (!name) return;
   const id = await invoke<string>('new_id');
-  const workspace: WorkspaceEntry = { id, name, command: dialog.command.trim() || null, cwd: project.path };
+  const rows = Math.min(5, Math.max(1, Math.floor(dialog.rows || 1)));
+  const columns = Math.min(5, Math.max(1, Math.floor(dialog.columns || 1)));
+  const terminalIds = Array.from({ length: rows * columns }, (_, index) => `${id}:${index}`);
+  const splits = buildGridSplit(terminalIds, rows, columns);
+  const workspace: WorkspaceEntry = { id, name, command: dialog.command.trim() || null, cwd: project.path, splits };
   setStore((s) => ({
     projects: s.projects.map((p) => p.id === project.id ? { ...p, collapsed: false, workspaces: [...p.workspaces, workspace] } : p),
   }));

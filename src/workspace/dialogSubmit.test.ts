@@ -32,7 +32,7 @@ describe('submitWorkspaceDialog', () => {
     const setSidebarFocusedWorkspaceId = vi.fn();
 
     await submitWorkspaceDialog({
-      dialog: { kind: 'workspace', projectId: 'p1', name: ' Dev ', command: ' npm test ' },
+      dialog: { kind: 'workspace', projectId: 'p1', name: ' Dev ', command: ' npm test ', rows: 1, columns: 1 },
       store: state.store,
       setStore: state.setStore,
       setDialog: state.setDialog,
@@ -45,9 +45,57 @@ describe('submitWorkspaceDialog', () => {
     expect(invokeMock).toHaveBeenCalledWith('new_id');
     expect(state.store.projects[0].collapsed).toBe(false);
     expect(state.store.projects[0].workspaces[0]).toMatchObject({ id: 'new-workspace-id', name: 'Dev', command: 'npm test', cwd: '/repo' });
+    expect(state.store.projects[0].workspaces[0].splits).toEqual({ kind: 'leaf', terminalId: 'new-workspace-id:0' });
     expect(selectWorkspace).toHaveBeenCalledWith('p1', 'new-workspace-id');
     expect(setSidebarFocusedWorkspaceId).toHaveBeenCalledWith('new-workspace-id');
     expect(state.dialog).toBeNull();
+  });
+
+  it('creates a workspace with a row/column terminal grid', async () => {
+    const state = stateHarness({ projects: [{ id: 'p1', name: 'Stacks', path: '/repo', workspaces: [], collapsed: true }] });
+
+    await submitWorkspaceDialog({
+      dialog: { kind: 'workspace', projectId: 'p1', name: ' Grid ', command: '', rows: 2, columns: 3 },
+      store: state.store,
+      setStore: state.setStore,
+      setDialog: state.setDialog,
+      selectWorkspace: vi.fn(),
+      setSidebarFocusedWorkspaceId: vi.fn(),
+      completeSplitTerminal: vi.fn(),
+      addProject: vi.fn(),
+    });
+
+    expect(state.store.projects[0].workspaces[0].splits).toEqual({
+      kind: 'split',
+      direction: 'column',
+      ratio: 0.5,
+      first: {
+        kind: 'split',
+        direction: 'row',
+        ratio: 1 / 3,
+        first: { kind: 'leaf', terminalId: 'new-workspace-id:0' },
+        second: {
+          kind: 'split',
+          direction: 'row',
+          ratio: 0.5,
+          first: { kind: 'leaf', terminalId: 'new-workspace-id:1' },
+          second: { kind: 'leaf', terminalId: 'new-workspace-id:2' },
+        },
+      },
+      second: {
+        kind: 'split',
+        direction: 'row',
+        ratio: 1 / 3,
+        first: { kind: 'leaf', terminalId: 'new-workspace-id:3' },
+        second: {
+          kind: 'split',
+          direction: 'row',
+          ratio: 0.5,
+          first: { kind: 'leaf', terminalId: 'new-workspace-id:4' },
+          second: { kind: 'leaf', terminalId: 'new-workspace-id:5' },
+        },
+      },
+    });
   });
 
   it('edits a project and trims values', async () => {
