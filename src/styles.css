@@ -411,7 +411,15 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 }
 .modal input:focus,
 .modal select:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f633; }
-.dialogGridFields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dialogGridPickerField { margin-bottom: 26px; }
+.dialogGridPickerHeader { display: flex; justify-content: space-between; align-items: baseline; color: #b9c5d3; font-size: 13px; }
+.dialogGridPickerHeader strong { color: #d6deeb; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+.dialogGridPickerHint { margin-top: 5px; color: #8091a5; font-size: 12px; }
+.dialogGridPicker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(5, 22px); gap: 0; width: 50%; margin-top: 10px; user-select: none; }
+.dialogGridCell { border: 1px solid #2d3d4f; border-radius: 0; background: #0b1118; cursor: pointer; padding: 0; margin: 0 -1px -1px 0; }
+.dialogGridCell.selected { background: #64748b; border-color: #94a3b8; box-shadow: inset 0 0 0 1px #cbd5e133; }
+.dialogGridCell:hover { border-color: #94a3b8; }
+.dialogGridCell:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
 .modalActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .modalActions button {
   border: 1px solid #2d3d4f;
