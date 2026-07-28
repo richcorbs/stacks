@@ -1,9 +1,10 @@
-export function TerminalControls({ maximized, canToggleMaximize, broadcast, canBroadcast, onSplitTerminal, onToggleBroadcast, onToggleMaximize, onClose }: {
+export function TerminalControls({ maximized, canToggleMaximize, broadcast, canBroadcast, onSplitTerminal, onEditTerminal, onToggleBroadcast, onToggleMaximize, onClose }: {
   maximized: boolean;
   canToggleMaximize: boolean;
   broadcast: boolean;
   canBroadcast: boolean;
   onSplitTerminal: (direction: 'row' | 'column') => void;
+  onEditTerminal: () => void;
   onToggleBroadcast: () => void;
   onToggleMaximize: () => void;
   onClose: () => void;
@@ -43,6 +44,23 @@ export function TerminalControls({ maximized, canToggleMaximize, broadcast, canB
         }}
       >
         <span className="splitIcon splitIconHorizontal" />
+      </button>
+      <button
+        className="terminalControlButton"
+        type="button"
+        title="Edit terminal startup command"
+        aria-label="Edit terminal startup command"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onEditTerminal();
+        }}
+      >
+        <span className="terminalEditIcon">✎</span>
       </button>
       {canBroadcast && (
         <button

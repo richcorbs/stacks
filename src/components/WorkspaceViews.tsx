@@ -27,6 +27,7 @@ export function WorkspaceViews({
   onFocusTerminal,
   onCloseTerminal,
   onToggleBroadcast,
+  onEditTerminal,
   onInput,
   canToggleMaximizedTerminal,
   onToggleMaximizedTerminal,
@@ -47,6 +48,7 @@ export function WorkspaceViews({
   onFocusTerminal: (projectId: string, workspaceId: string, terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
   onToggleBroadcast: (workspaceId: string) => void;
+  onEditTerminal: (workspaceId: string, terminalId: string) => void;
   onInput: (terminalId: string, data: string) => void;
   canToggleMaximizedTerminal: (workspaceId: string) => boolean;
   onToggleMaximizedTerminal: (terminalId: string) => void;
@@ -89,6 +91,7 @@ export function WorkspaceViews({
             onFocus={(terminalId) => onFocusTerminal(project.id, workspace.id, terminalId)}
             onClose={onCloseTerminal}
             onSplitTerminal={onSplitTerminal}
+            onEditTerminal={onEditTerminal}
             onToggleBroadcast={onToggleBroadcast}
             onInput={onInput}
             canToggleMaximize={canToggleMaximizedTerminal(workspace.id)}

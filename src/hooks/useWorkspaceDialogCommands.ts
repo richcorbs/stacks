@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type React from 'react';
-import type { DialogState, Project, Store } from '../types';
+import type { DialogState, Project, SplitNode, Store, TerminalEntry } from '../types';
 import { basename } from '../utils';
 import { submitWorkspaceDialog } from '../workspace/dialogSubmit';
 
@@ -11,8 +11,13 @@ type WorkspaceDialogCommandOptions = {
   dialog: DialogState | null;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
+  terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
+  splitRootsByWorkspaceId: Record<string, SplitNode>;
+  setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
+  setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
   setSidebarFocusedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
   completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) => Promise<void>;
+  saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
 };
 
 export function useWorkspaceDialogCommands({
@@ -21,8 +26,13 @@ export function useWorkspaceDialogCommands({
   dialog,
   setDialog,
   selectWorkspace,
+  terminalsByWorkspaceId,
+  splitRootsByWorkspaceId,
+  setTerminalsByWorkspaceId,
+  setSplitRootsByWorkspaceId,
   setSidebarFocusedWorkspaceId,
   completeSplitTerminal,
+  saveTerminalSplit,
 }: WorkspaceDialogCommandOptions) {
   async function addProject(name: string, path: string) {
     const existing = store.projects.find((p) => p.path === path);
@@ -59,6 +69,13 @@ export function useWorkspaceDialogCommands({
     setDialog({ kind: 'workspace', projectId: project.id, name: `Workspace ${project.workspaces.length + 1}`, command: '', rows: 1, columns: 1 });
   }
 
+  function openEditTerminalDialog(workspaceId: string, terminalId: string) {
+    const workspace = store.projects.flatMap((project) => project.workspaces).find((candidate) => candidate.id === workspaceId);
+    const terminal = (terminalsByWorkspaceId[workspaceId] ?? []).find((candidate) => candidate.id === terminalId);
+    const command = terminal?.command ?? (terminalId === `${workspaceId}:0` ? workspace?.command ?? '' : '');
+    setDialog({ kind: 'editTerminal', workspaceId, terminalId, command });
+  }
+
   async function submitDialog() {
     await submitWorkspaceDialog({
       dialog,
@@ -69,6 +86,10 @@ export function useWorkspaceDialogCommands({
       setSidebarFocusedWorkspaceId,
       completeSplitTerminal,
       addProject,
+      setTerminalsByWorkspaceId,
+      splitRootsByWorkspaceId,
+      setSplitRootsByWorkspaceId,
+      saveTerminalSplit,
     });
   }
 
@@ -76,6 +97,7 @@ export function useWorkspaceDialogCommands({
     openProjectDialog,
     addProjectFromPath,
     openWorkspaceDialog,
+    openEditTerminalDialog,
     submitDialog,
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collectLeafTerminalIds, collectLeafTerminals, normalizeSplitNode, rebalanceSplits, removeLeaf, setSplitRatio, splitLeaf } from './utils';
+import { collectLeafTerminalIds, collectLeafTerminals, normalizeSplitNode, rebalanceSplits, removeLeaf, setLeafCommand, setSplitRatio, splitLeaf } from './utils';
 import type { SplitNode } from './types';
 
 describe('split tree utilities', () => {
@@ -51,6 +51,21 @@ describe('split tree utilities', () => {
       kind: 'split',
       direction: 'row',
       ratio: 0.5,
+      first: { kind: 'leaf', terminalId: 'a' },
+      second: { kind: 'leaf', terminalId: 'b', command: 'npm run dev' },
+    });
+  });
+
+  it('updates a leaf terminal startup command', () => {
+    const root: SplitNode = {
+      kind: 'split',
+      direction: 'row',
+      first: { kind: 'leaf', terminalId: 'a' },
+      second: { kind: 'leaf', terminalId: 'b', command: 'pi' },
+    };
+    expect(setLeafCommand(root, 'b', 'npm run dev')).toEqual({
+      kind: 'split',
+      direction: 'row',
       first: { kind: 'leaf', terminalId: 'a' },
       second: { kind: 'leaf', terminalId: 'b', command: 'npm run dev' },
     });

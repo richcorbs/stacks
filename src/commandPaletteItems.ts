@@ -18,6 +18,7 @@ export type CommandPaletteItemOptions = {
   onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
   onEditWorkspace: (project: Project, workspace: WorkspaceEntry) => void;
+  onEditTerminal: (workspaceId: string, terminalId: string) => void;
   onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
   onCycleWorkspace: (delta: number) => void;

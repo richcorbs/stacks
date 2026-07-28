@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type React from 'react';
-import type { DialogState, Project, Store, WorkspaceEntry } from '../types';
-import { buildGridSplit } from '../utils';
+import type { DialogState, Project, SplitNode, Store, TerminalEntry, WorkspaceEntry } from '../types';
+import { buildGridSplit, setLeafCommand } from '../utils';
 
 type SubmitWorkspaceDialogOptions = {
   dialog: DialogState | null;
@@ -12,6 +12,10 @@ type SubmitWorkspaceDialogOptions = {
   setSidebarFocusedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
   completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) => Promise<void>;
   addProject: (name: string, path: string) => Promise<Project>;
+  setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
+  splitRootsByWorkspaceId: Record<string, SplitNode>;
+  setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
+  saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
 };
 
 export async function submitWorkspaceDialog({
@@ -23,6 +27,10 @@ export async function submitWorkspaceDialog({
   setSidebarFocusedWorkspaceId,
   completeSplitTerminal,
   addProject,
+  setTerminalsByWorkspaceId,
+  splitRootsByWorkspaceId,
+  setSplitRootsByWorkspaceId,
+  saveTerminalSplit,
 }: SubmitWorkspaceDialogOptions) {
   if (!dialog) return;
 
@@ -53,6 +61,31 @@ export async function submitWorkspaceDialog({
     const path = dialog.path.trim();
     if (!name || !path) return;
     setStore((s) => ({ projects: s.projects.map((p) => p.id === dialog.projectId ? { ...p, name, path } : p) }));
+    setDialog(null);
+    return;
+  }
+
+  if (dialog.kind === 'editTerminal') {
+    const command = dialog.command.trim() || null;
+    setTerminalsByWorkspaceId((all) => ({
+      ...all,
+      [dialog.workspaceId]: (all[dialog.workspaceId] ?? []).map((terminal) => terminal.id === dialog.terminalId ? { ...terminal, command } : terminal),
+    }));
+    setSplitRootsByWorkspaceId((all) => {
+      const root = all[dialog.workspaceId] ?? splitRootsByWorkspaceId[dialog.workspaceId];
+      if (!root) return all;
+      const nextRoot = setLeafCommand(root, dialog.terminalId, command);
+      saveTerminalSplit(dialog.workspaceId, nextRoot);
+      return { ...all, [dialog.workspaceId]: nextRoot };
+    });
+    if (dialog.terminalId === `${dialog.workspaceId}:0`) {
+      setStore((s) => ({
+        projects: s.projects.map((p) => ({
+          ...p,
+          workspaces: p.workspaces.map((workspace) => workspace.id === dialog.workspaceId ? { ...workspace, command } : workspace),
+        })),
+      }));
+    }
     setDialog(null);
     return;
   }

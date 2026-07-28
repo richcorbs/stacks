@@ -13,7 +13,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   useEffect(() => {
     requestAnimationFrame(() => {
       firstInputRef.current?.focus();
-      if (dialog.kind === 'workspace') firstInputRef.current?.select();
+      if (dialog.kind === 'workspace' || dialog.kind === 'editTerminal') firstInputRef.current?.select();
     });
   }, [dialog.kind]);
 
@@ -29,7 +29,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   return (
     <div className="modalBackdrop" onMouseDown={onCancel}>
       <form
-        className={`modal ${dialog.kind === 'workspace' || dialog.kind === 'editWorkspace' || dialog.kind === 'split' ? 'terminalDialog' : ''}`}
+        className={`modal ${dialog.kind === 'workspace' || dialog.kind === 'editWorkspace' || dialog.kind === 'split' || dialog.kind === 'editTerminal' ? 'terminalDialog' : ''}`}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key !== 'Escape') return;

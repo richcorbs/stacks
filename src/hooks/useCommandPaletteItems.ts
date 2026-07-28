@@ -16,6 +16,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     options.onNewWorkspace,
     options.onEditProject,
     options.onEditWorkspace,
+    options.onEditTerminal,
     options.onDeleteWorkspace,
     options.onSplitTerminal,
     options.onCycleWorkspace,

@@ -8,7 +8,7 @@ import { useTerminalSession } from '../hooks/useTerminalSession';
 import { TerminalSearchOverlay } from './TerminalSearchOverlay';
 import { TerminalControls } from './TerminalControls';
 
-export function TerminalView({ terminal, workspace, project, active, maximized, visible, broadcast, canBroadcast, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, onToggleBroadcast, onInput, canToggleMaximize, onToggleMaximize }: {
+export function TerminalView({ terminal, workspace, project, active, maximized, visible, broadcast, canBroadcast, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleBroadcast, onInput, canToggleMaximize, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -26,6 +26,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
   onFocus: () => void;
   onClose: () => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
+  onEditTerminal: () => void;
   onToggleBroadcast: () => void;
   onInput: (terminalId: string, data: string) => void;
   canToggleMaximize: boolean;
@@ -64,6 +65,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
         broadcast={broadcast}
         canBroadcast={canBroadcast}
         onSplitTerminal={onSplitTerminal}
+        onEditTerminal={onEditTerminal}
         onToggleBroadcast={onToggleBroadcast}
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}

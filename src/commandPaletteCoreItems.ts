@@ -14,6 +14,7 @@ export function commandPaletteCoreItems({
   onNewWorkspace,
   onEditProject,
   onEditWorkspace,
+  onEditTerminal,
   onDeleteWorkspace,
   onSplitTerminal,
   onCycleWorkspace,
@@ -41,6 +42,7 @@ export function commandPaletteCoreItems({
   onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
   onEditWorkspace: (project: Project, workspace: WorkspaceEntry) => void;
+  onEditTerminal: (workspaceId: string, terminalId: string) => void;
   onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
   onCycleWorkspace: (delta: number) => void;
@@ -89,7 +91,8 @@ export function commandPaletteCoreItems({
 
   if (activeTerminalId) {
     items.push(
-      { id: 'restart-terminal', title: 'Restart Current Terminal', subtitle: 'Rerun the shell/process in the active terminal', keywords: 'rerun shell process terminal', action: () => onRestartTerminal(activeTerminalId) },
+      { id: 'edit-terminal', title: 'Edit Current Terminal', subtitle: 'Set the startup command for the active terminal', keywords: 'edit terminal startup command shell process', action: () => { if (activeWorkspaceId) onEditTerminal(activeWorkspaceId, activeTerminalId); } },
+      { id: 'restart-terminal', title: 'Restart Current Terminal', subtitle: 'Rerun the shell/process in the active terminal', keywords: 'restart rerun shell process terminal', action: () => onRestartTerminal(activeTerminalId) },
       { id: 'stop-terminal', title: 'Stop Current Terminal', subtitle: 'Terminate the active terminal process', keywords: 'kill terminate process terminal', danger: true, action: () => onStopTerminal(activeTerminalId) },
       { id: 'close-terminal', title: 'Close Current Terminal', subtitle: 'Close the active terminal', keywords: 'remove kill terminal', danger: true, action: () => onCloseTerminal(activeTerminalId) },
     );

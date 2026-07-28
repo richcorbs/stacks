@@ -146,6 +146,12 @@ export function splitLeaf(node: SplitNode, targetTerminalId: string, newTerminal
   return splitLeafInner(node, targetTerminalId, newTerminalId, direction, command).node;
 }
 
+export function setLeafCommand(node: SplitNode, terminalId: string, command: string | null): SplitNode {
+  if (node.kind === 'empty') return node;
+  if (node.kind === 'leaf') return node.terminalId === terminalId ? { ...node, command } : node;
+  return { ...node, first: setLeafCommand(node.first, terminalId, command), second: setLeafCommand(node.second, terminalId, command) };
+}
+
 export function setSplitRatio(node: SplitNode, path: string, ratio: number): SplitNode {
   if (node.kind !== 'split') return node;
   if (path === '') return { ...node, ratio: Math.min(0.9, Math.max(0.1, ratio)), manual: true };

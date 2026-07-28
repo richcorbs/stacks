@@ -72,7 +72,8 @@ export type DialogState =
   | { kind: 'workspace'; projectId: string; name: string; command: string; rows: number; columns: number }
   | { kind: 'split'; workspaceId: string; targetTerminalId: string; direction: 'row' | 'column'; command: string }
   | { kind: 'editProject'; projectId: string; name: string; path: string }
-  | { kind: 'editWorkspace'; projectId: string; workspaceId: string; name: string; command: string; cwd: string };
+  | { kind: 'editWorkspace'; projectId: string; workspaceId: string; name: string; command: string; cwd: string }
+  | { kind: 'editTerminal'; workspaceId: string; terminalId: string; command: string };
 export type ContextMenuState =
   | { kind: 'project'; projectId: string; x: number; y: number }
   | { kind: 'workspace'; projectId: string; workspaceId: string; x: number; y: number };

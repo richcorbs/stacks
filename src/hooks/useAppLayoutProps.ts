@@ -45,6 +45,7 @@ type UseAppLayoutPropsOptions = {
   closeTerminal: (terminalId: string) => void;
   setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   toggleBroadcast: (workspaceId: string) => void;
+  openEditTerminalDialog: (workspaceId: string, terminalId: string) => void;
   handleTerminalInput: (terminalId: string, data: string) => void;
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
@@ -128,6 +129,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       closeTerminal: options.closeTerminal,
       setConfirmCloseTerminalId: options.setConfirmCloseTerminalId,
       toggleBroadcast: options.toggleBroadcast,
+      openEditTerminalDialog: options.openEditTerminalDialog,
       handleTerminalInput: options.handleTerminalInput,
       toggleMaximizedTerminal: options.toggleMaximizedTerminal,
       splitTerminal: options.splitTerminal,

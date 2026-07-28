@@ -50,7 +50,7 @@ export function useTerminalSession({
   }, [terminal.id]);
 
   useLayoutEffect(() => {
-    const startupCommand = terminal.id === `${workspace.id}:0` ? workspace.command : terminal.command ?? null;
+    const startupCommand = terminal.command ?? (terminal.id === `${workspace.id}:0` ? workspace.command : null);
     const host = hostRef.current!;
     let cancelled = false;
     let session = getTerminalSession(terminal.id);

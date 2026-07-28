@@ -64,6 +64,7 @@ export function AppLayout({
         }}
         onCloseTerminal={(terminalId) => main.appSettings.confirm_close ? main.setConfirmCloseTerminalId(terminalId) : main.closeTerminal(terminalId)}
         onToggleBroadcast={main.toggleBroadcast}
+        onEditTerminal={main.openEditTerminalDialog}
         onInput={main.handleTerminalInput}
         canToggleMaximizedTerminal={(workspaceId) => (main.visitedWorkspaceTerminalTrees.find(({ workspace }) => workspace.id === workspaceId)?.terminals.length ?? 0) > 1}
         onToggleMaximizedTerminal={main.toggleMaximizedTerminal}

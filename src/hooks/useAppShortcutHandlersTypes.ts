@@ -24,6 +24,7 @@ export type AppShortcutHandlerOptions = {
   openWorkspaceDialog: (project: Project) => void;
   openEditProjectDialog: (project: Project) => void;
   openEditWorkspaceDialog: (project: Project, workspace: WorkspaceEntry) => void;
+  openEditTerminalDialog: (workspaceId: string, terminalId: string) => void;
   deleteWorkspace: (projectId: string, workspaceId: string) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   cycleSidebarWorkspace: (delta: number) => void;

@@ -34,10 +34,10 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
     );
   }
 
-  if (dialog.kind === 'split') {
+  if (dialog.kind === 'split' || dialog.kind === 'editTerminal') {
     return (
       <>
-        <h2>Split Terminal</h2>
+        <h2>{dialog.kind === 'split' ? 'Split Terminal' : 'Edit Terminal'}</h2>
         <label>
           Startup command <span>(optional)</span>
           <input

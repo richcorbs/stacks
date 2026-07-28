@@ -40,6 +40,10 @@ describe('submitWorkspaceDialog', () => {
       setSidebarFocusedWorkspaceId,
       completeSplitTerminal: vi.fn(),
       addProject: vi.fn(),
+      setTerminalsByWorkspaceId: vi.fn(),
+      splitRootsByWorkspaceId: {},
+      setSplitRootsByWorkspaceId: vi.fn(),
+      saveTerminalSplit: vi.fn(),
     });
 
     expect(invokeMock).toHaveBeenCalledWith('new_id');
@@ -63,6 +67,10 @@ describe('submitWorkspaceDialog', () => {
       setSidebarFocusedWorkspaceId: vi.fn(),
       completeSplitTerminal: vi.fn(),
       addProject: vi.fn(),
+      setTerminalsByWorkspaceId: vi.fn(),
+      splitRootsByWorkspaceId: {},
+      setSplitRootsByWorkspaceId: vi.fn(),
+      saveTerminalSplit: vi.fn(),
     });
 
     expect(state.store.projects[0].workspaces[0].splits).toEqual({
@@ -110,6 +118,10 @@ describe('submitWorkspaceDialog', () => {
       setSidebarFocusedWorkspaceId: vi.fn(),
       completeSplitTerminal: vi.fn(),
       addProject: vi.fn(),
+      setTerminalsByWorkspaceId: vi.fn(),
+      splitRootsByWorkspaceId: {},
+      setSplitRootsByWorkspaceId: vi.fn(),
+      saveTerminalSplit: vi.fn(),
     });
 
     expect(state.store.projects[0]).toMatchObject({ name: 'New', path: '/new' });
@@ -129,6 +141,10 @@ describe('submitWorkspaceDialog', () => {
       setSidebarFocusedWorkspaceId: vi.fn(),
       completeSplitTerminal,
       addProject: vi.fn(),
+      setTerminalsByWorkspaceId: vi.fn(),
+      splitRootsByWorkspaceId: {},
+      setSplitRootsByWorkspaceId: vi.fn(),
+      saveTerminalSplit: vi.fn(),
     });
 
     expect(completeSplitTerminal).toHaveBeenCalledWith('t1', 't1:0', 'column', 'npm run dev');

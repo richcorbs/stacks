@@ -55,6 +55,7 @@ export type MainLayoutProps = {
   closeTerminal: (terminalId: string) => void;
   setConfirmCloseTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   toggleBroadcast: (workspaceId: string) => void;
+  openEditTerminalDialog: (workspaceId: string, terminalId: string) => void;
   handleTerminalInput: (terminalId: string, data: string) => void;
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;

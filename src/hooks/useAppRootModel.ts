@@ -158,6 +158,7 @@ export function useAppRootModel() {
   const {
     openProjectDialog,
     openWorkspaceDialog,
+    openEditTerminalDialog,
     submitDialog,
     toggleProject,
     openEditProjectDialog,
@@ -267,6 +268,7 @@ export function useAppRootModel() {
     openWorkspaceDialog,
     openEditProjectDialog,
     openEditWorkspaceDialog,
+    openEditTerminalDialog,
     deleteWorkspace,
     splitTerminal,
     cycleSidebarWorkspace,
@@ -323,6 +325,7 @@ export function useAppRootModel() {
     closeTerminal,
     setConfirmCloseTerminalId,
     toggleBroadcast,
+    openEditTerminalDialog,
     handleTerminalInput,
     toggleMaximizedTerminal,
     splitTerminal,

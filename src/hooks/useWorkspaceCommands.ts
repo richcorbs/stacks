@@ -92,14 +92,20 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     dialog,
     setDialog,
     selectWorkspace,
+    terminalsByWorkspaceId,
+    splitRootsByWorkspaceId,
+    setTerminalsByWorkspaceId,
+    setSplitRootsByWorkspaceId,
     setSidebarFocusedWorkspaceId,
     completeSplitTerminal: splitCommands.completeSplitTerminal,
+    saveTerminalSplit,
   });
 
   const {
     openProjectDialog,
     addProjectFromPath,
     openWorkspaceDialog,
+    openEditTerminalDialog,
     submitDialog,
   } = dialogCommands;
   const {
@@ -128,6 +134,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     openProjectDialog,
     addProjectFromPath,
     openWorkspaceDialog,
+    openEditTerminalDialog,
     submitDialog,
     toggleProject,
     openEditProjectDialog,
