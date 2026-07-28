@@ -72,7 +72,7 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
       {dialog.kind === 'workspace' && (
         <div className="dialogGridFields">
           <label>
-            Rows
+            Split rows
             <select
               value={dialog.rows}
               onChange={(e) => setDialog({ ...dialog, rows: Number(e.target.value) })}
@@ -81,7 +81,7 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
             </select>
           </label>
           <label>
-            Columns
+            Split columns
             <select
               value={dialog.columns}
               onChange={(e) => setDialog({ ...dialog, columns: Number(e.target.value) })}
