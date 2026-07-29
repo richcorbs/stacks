@@ -17,8 +17,9 @@ export function AppLayout({
 }) {
   return (
     <div className="app" style={appStyle}>
-      {sidebar.visible && <Sidebar
-        width={sidebar.width}
+      <Sidebar
+        width={sidebar.visible ? sidebar.width : 52}
+        compact={!sidebar.visible}
         store={sidebar.store}
         activeProjectId={sidebar.activeProjectId}
         activeWorkspaceId={sidebar.activeWorkspaceId}
@@ -38,7 +39,7 @@ export function AppLayout({
         setContextMenu={sidebar.setContextMenu}
         onAddProject={sidebar.openProjectDialog}
         onAddTerminal={sidebar.openWorkspaceDialog}
-      />}
+      />
       <MainWorkspace
         activePath={main.activePath}
         activeProjectName={main.activeProjectName}
