@@ -12,6 +12,8 @@ import { useAppLifecycleEffects } from './useAppLifecycleEffects';
 import { useAppInteractionEffects } from './useAppInteractionEffects';
 import { useAppStateBundle } from './useAppStateBundle';
 import { useAppLayoutProps } from './useAppLayoutProps';
+import { useAutomationRequests } from './useAutomationRequests';
+import { useWorkspaceCreation } from './useWorkspaceCreation';
 
 const encoder = new TextEncoder();
 
@@ -105,7 +107,7 @@ export function useAppRootModel() {
   const gitInfo = useGitInfo(activePath);
   const { restoreActiveTerminalFocus } = useAppFocusRestore(activeTerminalId);
 
-  useAppLifecycleEffects({
+  const { saveStoreNow } = useAppLifecycleEffects({
     loaded,
     store,
     sidebarWidth,
@@ -125,6 +127,18 @@ export function useAppRootModel() {
     setContextMenu,
     rememberTerminalCwd,
     showToast,
+  });
+
+  const { createWorkspace, rollbackWorkspace } = useWorkspaceCreation({
+    store,
+    setStore,
+    saveStoreNow,
+    selectWorkspace,
+    focusTerminal: focusTerminalState,
+    removeTerminalState,
+    setTerminalsByWorkspaceId,
+    setSplitRootsByWorkspaceId,
+    setSidebarFocusedWorkspaceId,
   });
 
   const commands = useWorkspaceCommands({
@@ -154,6 +168,7 @@ export function useAppRootModel() {
     setRunningTerminalIds,
     setActivityWorkspaceIds,
     requestTerminalRestart: (terminalId) => setRestartTerminalRequest({ terminalId, nonce: Date.now() }),
+    createWorkspace,
   });
   const {
     openProjectDialog,
@@ -179,6 +194,13 @@ export function useAppRootModel() {
     restartTerminal,
     closeTerminal,
   } = commands;
+
+  useAutomationRequests({
+    loaded,
+    activeProjectId,
+    createWorkspace,
+    rollbackWorkspace,
+  });
 
   useAppInteractionEffects({
     resizingSidebarRef,

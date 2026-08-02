@@ -46,6 +46,32 @@ Frontend-only build check:
 npm run build
 ```
 
+## Command-line automation
+
+When Stacks is running, its app executable can create a one-terminal workspace in the currently selected project:
+
+```bash
+~/Applications/Stacks.app/Contents/MacOS/stacks-tauri \
+  workspace create \
+  --name "Run API" \
+  --startup-command "npm run dev"
+```
+
+For a shorter command, add an alias:
+
+```bash
+alias stacks="$HOME/Applications/Stacks.app/Contents/MacOS/stacks-tauri"
+stacks workspace create --name "Run API" --startup-command "npm run dev"
+```
+
+Use `--startup-command` for a persisted command that runs now and whenever the terminal restarts. The older `--command` spelling remains an alias. Use `--run` to execute a command once in the newly created shell and return its exit status:
+
+```bash
+stacks workspace create --name "One-off tests" --run "npm test"
+```
+
+Startup and run-once commands are mutually exclusive. The command selects the new workspace, focuses its terminal, and brings Stacks to the foreground. It reports success only after the workspace is persisted, its PTY has started, and any run-once command has completed successfully. Infrastructure failures roll back an automation-created workspace; a run-once command that completes with a nonzero status leaves the workspace in place and returns that status. A second GUI launch activates the existing Stacks instance instead of opening another instance.
+
 ## Notes
 
 This intentionally delegates terminal emulation to xterm.js. The Tauri backend only owns PTY process lifecycle and byte transport, which should make the terminal side much simpler than the Swift/AppKit/Zig version.

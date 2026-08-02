@@ -4,6 +4,7 @@ import type React from 'react';
 import type { DialogState, Project, SplitNode, Store, TerminalEntry } from '../types';
 import { basename } from '../utils';
 import { submitWorkspaceDialog } from '../workspace/dialogSubmit';
+import type { CreateWorkspace } from '../workspace/createWorkspace';
 
 type WorkspaceDialogCommandOptions = {
   store: Store;
@@ -15,9 +16,9 @@ type WorkspaceDialogCommandOptions = {
   splitRootsByWorkspaceId: Record<string, SplitNode>;
   setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
   setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  setSidebarFocusedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
   completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) => Promise<void>;
   saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
+  createWorkspace: CreateWorkspace;
 };
 
 export function useWorkspaceDialogCommands({
@@ -30,9 +31,9 @@ export function useWorkspaceDialogCommands({
   splitRootsByWorkspaceId,
   setTerminalsByWorkspaceId,
   setSplitRootsByWorkspaceId,
-  setSidebarFocusedWorkspaceId,
   completeSplitTerminal,
   saveTerminalSplit,
+  createWorkspace,
 }: WorkspaceDialogCommandOptions) {
   async function addProject(name: string, path: string) {
     const existing = store.projects.find((p) => p.path === path);
@@ -82,14 +83,13 @@ export function useWorkspaceDialogCommands({
       store,
       setStore,
       setDialog,
-      selectWorkspace,
-      setSidebarFocusedWorkspaceId,
       completeSplitTerminal,
       addProject,
       setTerminalsByWorkspaceId,
       splitRootsByWorkspaceId,
       setSplitRootsByWorkspaceId,
       saveTerminalSplit,
+      createWorkspace,
     });
   }
 

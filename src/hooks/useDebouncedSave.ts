@@ -1,14 +1,27 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Store } from '../types';
 
-export function useDebouncedStoreSave(loaded: boolean, store: Store, delayMs = 250) {
+export type SaveStoreNow = (store: Store) => Promise<void>;
+
+export function useDebouncedStoreSave(loaded: boolean, store: Store, delayMs = 250): SaveStoreNow {
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  const saveStoreNow = useCallback<SaveStoreNow>((nextStore) => {
+    const save = saveChainRef.current
+      .catch(() => undefined)
+      .then(() => invoke<void>('save_store', { store: nextStore }));
+    saveChainRef.current = save;
+    return save;
+  }, []);
+
   useEffect(() => {
     if (!loaded) return;
     const timeout = window.setTimeout(() => {
-      invoke('save_store', { store }).catch(console.error);
+      saveStoreNow(store).catch(console.error);
     }, delayMs);
     return () => window.clearTimeout(timeout);
-  }, [loaded, store, delayMs]);
-}
+  }, [loaded, store, delayMs, saveStoreNow]);
 
+  return saveStoreNow;
+}

@@ -3,10 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { TerminalEntry, Project, WorkspaceEntry } from '../types';
-import { disposeTerminalSession, getTerminalSession, setTerminalSession } from '../terminalSessionManager';
+import { consumeOneTimeStartupCommand, disposeTerminalSession, getTerminalSession, setTerminalSession } from '../terminalSessionManager';
 import { createTerminalSession } from '../terminalSessionFactory';
 import { attachTerminalPtyListeners, spawnTerminalPty } from '../terminalPty';
 import { attachTerminalResizeObserver } from '../terminalResizeObserver';
+import { notifyTerminalStartup } from '../terminalStartup';
 
 export function useTerminalSession({
   terminal,
@@ -50,7 +51,7 @@ export function useTerminalSession({
   }, [terminal.id]);
 
   useLayoutEffect(() => {
-    const startupCommand = terminal.command ?? (terminal.id === `${workspace.id}:0` ? workspace.command : null);
+    const persistedStartupCommand = terminal.command ?? (terminal.id === `${workspace.id}:0` ? workspace.command : null);
     const host = hostRef.current!;
     let cancelled = false;
     let session = getTerminalSession(terminal.id);
@@ -62,6 +63,7 @@ export function useTerminalSession({
     }
 
     if (!session) {
+      const startupCommand = consumeOneTimeStartupCommand(terminal.id) ?? persistedStartupCommand;
       session = createTerminalSession({
         terminalId: terminal.id,
         host,
@@ -75,6 +77,7 @@ export function useTerminalSession({
 
       const generation = `${terminal.id}:${Date.now()}:${Math.random()}`;
       session.starting = true;
+      session.startupError = null;
       const listenersReady = attachTerminalPtyListeners({ session, terminalId: terminal.id, workspaceId: workspace.id, generation });
       requestAnimationFrame(() => {
         listenersReady
@@ -89,9 +92,21 @@ export function useTerminalSession({
             active,
             isCancelled: () => cancelled,
           }))
+          .then(() => {
+            if (session!.running) {
+              notifyTerminalStartup({ terminalId: terminal.id, ok: true });
+              return;
+            }
+            const error = 'Terminal startup was cancelled';
+            session!.startupError = error;
+            notifyTerminalStartup({ terminalId: terminal.id, ok: false, error });
+          })
           .catch((e) => {
+            const error = e instanceof Error ? e.message : String(e);
             session!.starting = false;
-            term.writeln(`\r\nPTY error: ${e}\r\n`);
+            session!.startupError = error;
+            term.writeln(`\r\nPTY error: ${error}\r\n`);
+            notifyTerminalStartup({ terminalId: terminal.id, ok: false, error });
           });
       });
     } else if (session.term.element && session.term.element.parentElement !== host) {

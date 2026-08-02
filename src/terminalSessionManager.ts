@@ -1,6 +1,7 @@
 import type { TerminalSession } from './types';
 
 const terminalSessions = new Map<string, TerminalSession>();
+const oneTimeStartupCommands = new Map<string, string>();
 const pendingScrollAfterFitTerminalIds = new Set<string>();
 const stickToBottomUntilBySession = new WeakMap<TerminalSession, number>();
 
@@ -16,6 +17,20 @@ export function getTerminalSession(terminalId: string) {
 
 export function setTerminalSession(terminalId: string, session: TerminalSession) {
   terminalSessions.set(terminalId, session);
+}
+
+export function registerOneTimeStartupCommand(terminalId: string, command: string) {
+  oneTimeStartupCommands.set(terminalId, command);
+}
+
+export function consumeOneTimeStartupCommand(terminalId: string) {
+  const command = oneTimeStartupCommands.get(terminalId);
+  oneTimeStartupCommands.delete(terminalId);
+  return command;
+}
+
+export function clearOneTimeStartupCommand(terminalId: string) {
+  oneTimeStartupCommands.delete(terminalId);
 }
 
 export function terminalRuntimeStats() {

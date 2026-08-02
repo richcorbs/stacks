@@ -34,6 +34,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setRunningTerminalIds,
     setActivityWorkspaceIds,
     requestTerminalRestart,
+    createWorkspace,
   } = options;
 
   function saveTerminalSplit(workspaceId: string, root: SplitNode | null) {
@@ -96,9 +97,9 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     splitRootsByWorkspaceId,
     setTerminalsByWorkspaceId,
     setSplitRootsByWorkspaceId,
-    setSidebarFocusedWorkspaceId,
     completeSplitTerminal: splitCommands.completeSplitTerminal,
     saveTerminalSplit,
+    createWorkspace,
   });
 
   const {

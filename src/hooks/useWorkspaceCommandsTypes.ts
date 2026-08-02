@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { DialogState, TerminalEntry, Project, SplitNode, Store, WorkspaceEntry } from '../types';
+import type { CreateWorkspace } from '../workspace/createWorkspace';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
@@ -30,4 +31,5 @@ export type WorkspaceCommandOptions = {
   setRunningTerminalIds: React.Dispatch<React.SetStateAction<string[]>>;
   setActivityWorkspaceIds: React.Dispatch<React.SetStateAction<string[]>>;
   requestTerminalRestart: (terminalId: string) => void;
+  createWorkspace: CreateWorkspace;
 };

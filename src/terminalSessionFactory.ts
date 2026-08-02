@@ -66,6 +66,7 @@ export function createTerminalSession({
     spawned: false,
     starting: false,
     running: false,
+    startupError: null,
     lastPtySize: null,
     dataDisposable: term.onData((data) => session.inputHandler(data)),
     selectionDisposable: term.onSelectionChange(() => {}),

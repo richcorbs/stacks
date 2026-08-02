@@ -52,6 +52,7 @@ export type TerminalSession = {
   spawned: boolean;
   starting: boolean;
   running: boolean;
+  startupError: string | null;
   lastPtySize: TermSize | null;
   dataDisposable: { dispose: () => void };
   selectionDisposable: { dispose: () => void };

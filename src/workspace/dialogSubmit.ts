@@ -1,21 +1,20 @@
-import { invoke } from '@tauri-apps/api/core';
 import type React from 'react';
-import type { DialogState, Project, SplitNode, Store, TerminalEntry, WorkspaceEntry } from '../types';
-import { buildGridSplit, setLeafCommand } from '../utils';
+import type { DialogState, Project, SplitNode, Store, TerminalEntry } from '../types';
+import { setLeafCommand } from '../utils';
+import type { CreateWorkspace } from './createWorkspace';
 
 type SubmitWorkspaceDialogOptions = {
   dialog: DialogState | null;
   store: Store;
   setStore: React.Dispatch<React.SetStateAction<Store>>;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
-  selectWorkspace: (projectId: string, workspaceId: string | null) => void;
-  setSidebarFocusedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
   completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) => Promise<void>;
   addProject: (name: string, path: string) => Promise<Project>;
   setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
   splitRootsByWorkspaceId: Record<string, SplitNode>;
   setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
   saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
+  createWorkspace: CreateWorkspace;
 };
 
 export async function submitWorkspaceDialog({
@@ -23,14 +22,13 @@ export async function submitWorkspaceDialog({
   store,
   setStore,
   setDialog,
-  selectWorkspace,
-  setSidebarFocusedWorkspaceId,
   completeSplitTerminal,
   addProject,
   setTerminalsByWorkspaceId,
   splitRootsByWorkspaceId,
   setSplitRootsByWorkspaceId,
   saveTerminalSplit,
+  createWorkspace,
 }: SubmitWorkspaceDialogOptions) {
   if (!dialog) return;
 
@@ -104,20 +102,12 @@ export async function submitWorkspaceDialog({
     return;
   }
 
-  const project = store.projects.find((p) => p.id === dialog.projectId);
-  if (!project) return;
-  const name = dialog.name.trim();
-  if (!name) return;
-  const id = await invoke<string>('new_id');
-  const rows = Math.min(5, Math.max(1, Math.floor(dialog.rows || 1)));
-  const columns = Math.min(5, Math.max(1, Math.floor(dialog.columns || 1)));
-  const terminalIds = Array.from({ length: rows * columns }, (_, index) => `${id}:${index}`);
-  const splits = buildGridSplit(terminalIds, rows, columns);
-  const workspace: WorkspaceEntry = { id, name, command: dialog.command.trim() || null, cwd: project.path, splits };
-  setStore((s) => ({
-    projects: s.projects.map((p) => p.id === project.id ? { ...p, collapsed: false, workspaces: [...p.workspaces, workspace] } : p),
-  }));
-  selectWorkspace(project.id, id);
-  setSidebarFocusedWorkspaceId(id);
+  await createWorkspace({
+    projectId: dialog.projectId,
+    name: dialog.name,
+    command: dialog.command,
+    rows: dialog.rows,
+    columns: dialog.columns,
+  });
   setDialog(null);
 }

@@ -57,7 +57,7 @@ export function useAppLifecycleEffects({
   useFocusDebug({ activeProjectId, activeWorkspaceId, activeTerminalId, maximizedWorkspaceId, sidebarFocusedWorkspaceId });
   useAppWindowFocusClass();
 
-  useDebouncedStoreSave(loaded, store);
+  const saveStoreNow = useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
   usePersistentAppSettings(loaded, appSettings);
   useWindowStatePersistence();
@@ -67,4 +67,6 @@ export function useAppLifecycleEffects({
   useContextMenuDismissal(setContextMenu);
   useTerminalCwd(activeTerminalId, rememberTerminalCwd, setStore);
   useImageDropToTerminal(activeTerminalId);
+
+  return { saveStoreNow };
 }

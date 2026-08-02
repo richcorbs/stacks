@@ -6,6 +6,7 @@ import type { TerminalSession, PtyData, PtyExit } from './types';
 import { focusTerminalSession } from './terminalSessionManager';
 import { enqueueTerminalOutput } from './terminalOutput';
 import { safeTermSize } from './terminalSizing';
+import { publishTerminalRawOutput } from './terminalRawOutput';
 
 export function attachTerminalPtyListeners({
   session,
@@ -20,7 +21,9 @@ export function attachTerminalPtyListeners({
 }) {
   const dataPromise = listen<PtyData>('pty-data', (event) => {
     if (event.payload.terminal_id === terminalId && event.payload.generation === generation) {
-      enqueueTerminalOutput(session, session.decoder.decode(new Uint8Array(event.payload.data), { stream: true }), workspaceId, terminalId);
+      const data = session.decoder.decode(new Uint8Array(event.payload.data), { stream: true });
+      publishTerminalRawOutput(terminalId, data);
+      enqueueTerminalOutput(session, data, workspaceId, terminalId);
     }
   }).then((fn) => { session.unlistenData = fn; });
 

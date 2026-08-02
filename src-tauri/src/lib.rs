@@ -1,9 +1,10 @@
 use std::sync::Mutex;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 mod app_events;
 mod app_stats;
+mod automation;
 mod fs_paths;
 mod git;
 mod menu;
@@ -16,12 +17,16 @@ mod settings_model;
 mod store;
 use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
+use automation::{complete_automation_request, drain_automation_requests, AutomationState};
 use git::git_info;
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
-use settings::{load_settings, save_window_state, save_current_window_state, save_sidebar_width, save_terminal_font_size, save_app_settings, reset_settings};
+use settings::{
+    load_settings, reset_settings, save_app_settings, save_current_window_state,
+    save_sidebar_width, save_terminal_font_size, save_window_state,
+};
 use store::{load_store, save_store};
 
 #[tauri::command]
@@ -35,12 +40,21 @@ fn quit_app(app: AppHandle) {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    if let Some(exit_code) = automation::handle_cli_invocation() {
+        std::process::exit(exit_code);
+    }
+    if automation::activate_existing_instance() {
+        return;
+    }
+
+    let automation_state = AutomationState::default();
+    let run_result = tauri::Builder::default()
         .menu(|app| app_menu(app))
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(PtyRegistry::default()))
+        .manage(automation_state.clone())
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
@@ -62,8 +76,19 @@ pub fn run() {
             pty_cwd,
             app_stats,
             git_info,
+            drain_automation_requests,
+            complete_automation_request,
         ])
-        .setup(setup_main_window)
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .setup(|app| {
+            setup_main_window(app)?;
+            let state = app.state::<AutomationState>().inner().clone();
+            if let Err(err) = automation::start_server(app.handle().clone(), state) {
+                eprintln!("Stacks automation is unavailable: {err}");
+            }
+            Ok(())
+        })
+        .run(tauri::generate_context!());
+
+    automation::cleanup_server(&automation_state);
+    run_result.expect("error while running tauri application");
 }
