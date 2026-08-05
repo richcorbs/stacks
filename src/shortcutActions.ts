@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import { getTerminalSession } from './terminalSessionManager';
 import type { ShortcutAction, ShortcutHandlers } from './shortcutTypes';
 
@@ -12,7 +11,15 @@ function isTerminalSessionFocused(terminalId: string) {
 
 export function clearFocusedTerminal(activeTerminalId: string | null) {
   if (!activeTerminalId || !isTerminalSessionFocused(activeTerminalId)) return;
-  invoke('write_pty', { terminalId: activeTerminalId, data: Array.from(encoder.encode('clear\n')) }).catch(console.error);
+  const session = getTerminalSession(activeTerminalId);
+  if (!session) return;
+
+  // Clear xterm itself instead of sending `clear` to the PTY. A foreground
+  // process such as `tail -f` does not run shell commands, so sending
+  // `clear\n` only leaves input queued for that process or the shell.
+  session.term.clearSelection();
+  session.term.clear();
+  session.term.scrollToBottom();
 }
 
 export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHandlers) {

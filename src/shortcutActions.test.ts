@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runShortcutAction } from './shortcutActions';
+import { clearFocusedTerminal, runShortcutAction } from './shortcutActions';
+import { getTerminalSession } from './terminalSessionManager';
 import type { ShortcutHandlers } from './shortcutTypes';
 import type { Project } from './types';
+
+vi.mock('./terminalSessionManager', () => ({ getTerminalSession: vi.fn() }));
 
 const project: Project = { id: 'p1', name: 'Stacks', path: '/repo', workspaces: [] };
 
@@ -70,5 +73,28 @@ describe('runShortcutAction', () => {
     const active = handlers({ activeTerminalId: 't1:0' });
     runShortcutAction('close-terminal', active);
     expect(active.requestCloseTerminal).toHaveBeenCalledWith('t1:0');
+  });
+
+  it('clears the focused xterm display and scrollback locally', () => {
+    const activeElement = {};
+    const clearSelection = vi.fn();
+    const clear = vi.fn();
+    const scrollToBottom = vi.fn();
+    vi.stubGlobal('document', { activeElement });
+    vi.mocked(getTerminalSession).mockReturnValue({
+      term: {
+        element: { contains: (element: unknown) => element === activeElement },
+        clearSelection,
+        clear,
+        scrollToBottom,
+      },
+    } as never);
+
+    clearFocusedTerminal('t1:0');
+
+    expect(clearSelection).toHaveBeenCalledOnce();
+    expect(clear).toHaveBeenCalledOnce();
+    expect(scrollToBottom).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
   });
 });
