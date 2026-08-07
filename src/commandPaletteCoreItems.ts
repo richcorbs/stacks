@@ -27,6 +27,7 @@ export function commandPaletteCoreItems({
   onOpenSearch,
   onOpenSettings,
   onOpenDirectoryInEditor,
+  onRunOneTimeCommand,
   onSelectWorkspace,
   broadcastEnabled,
   activeWorkspaceTerminalCount,
@@ -55,6 +56,7 @@ export function commandPaletteCoreItems({
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenDirectoryInEditor: () => void;
+  onRunOneTimeCommand: () => void;
   onSelectWorkspace: (projectId: string, workspaceId: string) => void;
   broadcastEnabled: boolean;
   activeWorkspaceTerminalCount: number;
@@ -68,6 +70,7 @@ export function commandPaletteCoreItems({
     { id: 'delete-workspace', title: 'Delete Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace', danger: true, action: () => { if (activeProject && activeWorkspace) onDeleteWorkspace(activeProject.id, activeWorkspace.id); } },
     { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color focused terminal border maximized green blue', action: onOpenSettings },
     { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
+    { id: 'run-one-time-command', title: 'Run One-Time Command', subtitle: activeTerminalId ? `From ${activePath || 'the focused terminal directory'}` : 'Select a terminal first', keywords: 'execute temporary command task current directory cwd', action: () => { if (activeTerminalId) onRunOneTimeCommand(); } },
     { id: 'split-terminal-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split terminal vertical', action: () => onSplitTerminal('row') },
     { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal horizontal', action: () => onSplitTerminal('column') },
     { id: 'find-terminal', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },

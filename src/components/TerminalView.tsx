@@ -59,17 +59,19 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
         if (!active) onFocus();
       }}
     >
-      <TerminalControls
-        maximized={maximized}
-        canToggleMaximize={canToggleMaximize}
-        broadcast={broadcast}
-        canBroadcast={canBroadcast}
-        onSplitTerminal={onSplitTerminal}
-        onEditTerminal={onEditTerminal}
-        onToggleBroadcast={onToggleBroadcast}
-        onToggleMaximize={onToggleMaximize}
-        onClose={onClose}
-      />
+      {!terminal.temporary && (
+        <TerminalControls
+          maximized={maximized}
+          canToggleMaximize={canToggleMaximize}
+          broadcast={broadcast}
+          canBroadcast={canBroadcast}
+          onSplitTerminal={onSplitTerminal}
+          onEditTerminal={onEditTerminal}
+          onToggleBroadcast={onToggleBroadcast}
+          onToggleMaximize={onToggleMaximize}
+          onClose={onClose}
+        />
+      )}
       {search.searchOpen && (
         <TerminalSearchOverlay
           value={search.searchTerm}

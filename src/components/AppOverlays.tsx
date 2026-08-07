@@ -4,6 +4,7 @@ import { Dialog } from './Dialogs';
 import { SettingsDialog } from './SettingsDialog';
 import { AppContextMenu } from './AppContextMenu';
 import { AppConfirmDialogs } from './AppConfirmDialogs';
+import { OneTimeCommandDialog } from './OneTimeCommandDialog';
 import type { ContextMenuState, DialogState, Project, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
@@ -17,6 +18,10 @@ export function AppOverlays({
   commandPaletteOpen,
   commandPaletteItems,
   settingsOpen,
+  oneTimeCommandOpen,
+  oneTimeCommandCwd,
+  setOneTimeCommandOpen,
+  runOneTimeCommand,
   dialog,
   confirmCloseTerminalId,
   confirmDeleteProject,
@@ -51,6 +56,10 @@ export function AppOverlays({
   commandPaletteOpen: boolean;
   commandPaletteItems: PaletteItem[];
   settingsOpen: boolean;
+  oneTimeCommandOpen: boolean;
+  oneTimeCommandCwd: string | null;
+  setOneTimeCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  runOneTimeCommand: (command: string) => Promise<boolean>;
   dialog: DialogState | null;
   confirmCloseTerminalId: string | null;
   confirmDeleteProject: Project | null;
@@ -103,6 +112,18 @@ export function AppOverlays({
         onRunItem={() => closeCommandPalette({ restoreFocus: false })}
       />
       {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={closeSettings} />}
+      <OneTimeCommandDialog
+        open={oneTimeCommandOpen}
+        cwd={oneTimeCommandCwd}
+        onCancel={() => {
+          setOneTimeCommandOpen(false);
+          restoreActiveTerminalFocus('cancel-one-time-command');
+        }}
+        onRun={(command) => {
+          setOneTimeCommandOpen(false);
+          runOneTimeCommand(command).catch((error) => console.error('one-time command failed', error));
+        }}
+      />
       {dialog && <Dialog dialog={dialog} setDialog={setDialog} onCancel={closeDialog} onSubmit={submitActiveDialog} />}
       {toast && (
         <div

@@ -31,13 +31,14 @@ export type CommandPaletteItemOptions = {
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenDirectoryInEditor: () => void;
+  onRunOneTimeCommand: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;
 };
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
   const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeWorkspaceId, activeTerminalId, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
-  const activeWorkspaceTerminalCount = activeWorkspaceId ? (terminalsByWorkspaceId[activeWorkspaceId] ?? []).length : 0;
+  const activeWorkspaceTerminalCount = activeWorkspaceId ? (terminalsByWorkspaceId[activeWorkspaceId] ?? []).filter((terminal) => !terminal.temporary).length : 0;
   return [
     ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount }),
     ...workspaceItems(sidebarWorkspaces, activeWorkspaceId, onSelectWorkspace),
@@ -68,7 +69,7 @@ function projectItems(projects: Project[], onNewWorkspace: (project: Project) =>
 
 function terminalItems(activeWorkspaceId: string | null, activeTerminalId: string | null, terminalsByWorkspaceId: Record<string, TerminalEntry[]>, onCycleTerminal: (delta: number) => void): PaletteItem[] {
   if (!activeWorkspaceId) return [];
-  const terminals = terminalsByWorkspaceId[activeWorkspaceId] ?? [];
+  const terminals = (terminalsByWorkspaceId[activeWorkspaceId] ?? []).filter((terminal) => !terminal.temporary);
   return terminals.map((terminal, index) => ({
     id: `terminal-${terminal.id}`,
     title: `Focus Terminal ${index + 1}`,

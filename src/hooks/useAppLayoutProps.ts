@@ -55,6 +55,9 @@ type UseAppLayoutPropsOptions = {
   commandPaletteOpen: boolean;
   commandPaletteItems: PaletteItem[];
   settingsOpen: boolean;
+  oneTimeCommandOpen: boolean;
+  setOneTimeCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  runOneTimeCommand: (command: string) => Promise<boolean>;
   dialog: DialogState | null;
   confirmCloseTerminalId: string | null;
   confirmDeleteProject: Project | null;
@@ -143,6 +146,10 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       commandPaletteOpen: options.commandPaletteOpen,
       commandPaletteItems: options.commandPaletteItems,
       settingsOpen: options.settingsOpen,
+      oneTimeCommandOpen: options.oneTimeCommandOpen,
+      oneTimeCommandCwd: options.activePath,
+      setOneTimeCommandOpen: options.setOneTimeCommandOpen,
+      runOneTimeCommand: options.runOneTimeCommand,
       dialog: options.dialog,
       confirmCloseTerminalId: options.confirmCloseTerminalId,
       confirmDeleteProject: options.confirmDeleteProject,

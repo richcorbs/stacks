@@ -14,6 +14,7 @@ import { useAppStateBundle } from './useAppStateBundle';
 import { useAppLayoutProps } from './useAppLayoutProps';
 import { useAutomationRequests } from './useAutomationRequests';
 import { useWorkspaceCreation } from './useWorkspaceCreation';
+import { useOneTimeCommand } from './useOneTimeCommand';
 
 const encoder = new TextEncoder();
 
@@ -89,6 +90,8 @@ export function useAppRootModel() {
     setSearchTerminalRequest,
     restartTerminalRequest,
     setRestartTerminalRequest,
+    oneTimeCommandOpen,
+    setOneTimeCommandOpen,
   } = overlayState;
   const { toast, showToast } = toastState;
   const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
@@ -243,6 +246,22 @@ export function useAppRootModel() {
     showToast,
   });
 
+  const { runOneTimeCommand } = useOneTimeCommand({
+    activeProjectId,
+    activeWorkspaceId,
+    activeTerminalId,
+    activePath,
+    fallbackPath: activeWorkspace?.cwd || activeProject?.path || null,
+    maximizedWorkspaceId,
+    terminalsByWorkspaceId,
+    splitRootsByWorkspaceId,
+    selectWorkspace,
+    focusTerminal: focusTerminalState,
+    setTerminalsByWorkspaceId,
+    setSplitRootsByWorkspaceId,
+    setMaximizedWorkspaceId,
+  });
+
   const toggleBroadcast = useCallback((workspaceId: string) => {
     setBroadcastWorkspaceIds((current) => ({ ...current, [workspaceId]: !current[workspaceId] }));
     restoreActiveTerminalFocus('toggle-broadcast');
@@ -260,8 +279,9 @@ export function useAppRootModel() {
 
   const handleTerminalInput = useCallback((terminalId: string, data: string) => {
     const workspaceId = terminalId.split(':')[0];
-    const targetIds = broadcastWorkspaceIds[workspaceId]
-      ? (terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id)
+    const sourceTerminal = (terminalsByWorkspaceId[workspaceId] ?? []).find((terminal) => terminal.id === terminalId);
+    const targetIds = broadcastWorkspaceIds[workspaceId] && !sourceTerminal?.temporary
+      ? (terminalsByWorkspaceId[workspaceId] ?? []).filter((terminal) => !terminal.temporary).map((terminal) => terminal.id)
       : [terminalId];
     for (const targetId of targetIds) {
       invoke('write_pty', { terminalId: targetId, data: Array.from(encoder.encode(data)) }).catch(console.error);
@@ -304,6 +324,7 @@ export function useAppRootModel() {
     adjustTerminalFontSize,
     openTerminalSearch,
     openDirectoryInEditor,
+    openOneTimeCommand: () => setOneTimeCommandOpen(true),
     broadcastEnabled: activeWorkspaceId ? Boolean(broadcastWorkspaceIds[activeWorkspaceId]) : false,
     onToggleBroadcast: toggleActiveWorkspaceBroadcast,
   });
@@ -357,6 +378,16 @@ export function useAppRootModel() {
     commandPaletteOpen,
     commandPaletteItems,
     settingsOpen,
+    oneTimeCommandOpen,
+    setOneTimeCommandOpen,
+    runOneTimeCommand: async (command) => {
+      try {
+        return await runOneTimeCommand(command);
+      } catch (error) {
+        showToast(`One-time command failed: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+    },
     dialog,
     confirmCloseTerminalId,
     confirmDeleteProject,

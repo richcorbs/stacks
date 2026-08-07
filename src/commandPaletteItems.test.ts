@@ -35,6 +35,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onOpenSearch: vi.fn(),
     onOpenSettings: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
+    onRunOneTimeCommand: vi.fn(),
     broadcastEnabled: false,
     onToggleBroadcast: vi.fn(),
     ...overrides,
@@ -50,6 +51,7 @@ describe('buildCommandPaletteItems', () => {
       'split-terminal-right',
       'split-terminal-down',
       'find-terminal',
+      'run-one-time-command',
       'edit-terminal',
       'restart-terminal',
       'workspace-t1',
@@ -87,6 +89,15 @@ describe('buildCommandPaletteItems', () => {
 
     items.find((item) => item.id === 'terminal-t1:0')?.action();
     expect(onCycleTerminal).toHaveBeenCalledWith(0);
+  });
+
+  it('opens the one-time command prompt from the palette', () => {
+    const onRunOneTimeCommand = vi.fn();
+    const items = palette({ onRunOneTimeCommand });
+
+    items.find((item) => item.id === 'run-one-time-command')?.action();
+
+    expect(onRunOneTimeCommand).toHaveBeenCalledOnce();
   });
 
   it('falls back to project creation for new workspace when no project is active', () => {

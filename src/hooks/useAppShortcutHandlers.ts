@@ -43,6 +43,7 @@ export function useAppShortcutHandlers({
   adjustTerminalFontSize,
   openTerminalSearch,
   openDirectoryInEditor,
+  openOneTimeCommand,
   broadcastEnabled,
   onToggleBroadcast,
 }: AppShortcutHandlerOptions) {
@@ -73,6 +74,7 @@ export function useAppShortcutHandlers({
     onOpenSettings: () => setSettingsOpen(true),
     activePath,
     onOpenDirectoryInEditor: openDirectoryInEditor,
+    onRunOneTimeCommand: openOneTimeCommand,
     broadcastEnabled,
     onToggleBroadcast,
   });

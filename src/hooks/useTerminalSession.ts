@@ -87,7 +87,7 @@ export function useTerminalSession({
             fit,
             terminalId: terminal.id,
             generation,
-            cwd: workspace.cwd || project.path,
+            cwd: terminal.cwd || workspace.cwd || project.path,
             command: startupCommand || null,
             active,
             isCancelled: () => cancelled,
@@ -107,6 +107,7 @@ export function useTerminalSession({
             session!.startupError = error;
             term.writeln(`\r\nPTY error: ${error}\r\n`);
             notifyTerminalStartup({ terminalId: terminal.id, ok: false, error });
+            window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId: terminal.id, running: false } }));
           });
       });
     } else if (session.term.element && session.term.element.parentElement !== host) {
@@ -126,7 +127,7 @@ export function useTerminalSession({
       detachResizeObserver();
       resultsDisposable.dispose();
     };
-  }, [terminal.id, terminal.command, workspace.id, project.path, workspace.cwd, workspace.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce, onSearchResultsChange, onInput]);
+  }, [terminal.id, terminal.command, terminal.cwd, workspace.id, project.path, workspace.cwd, workspace.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce, onSearchResultsChange, onInput]);
 
   return { hostRef, termRef, fitRef, restartTerminalSessionIfDead };
 }

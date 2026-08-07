@@ -70,6 +70,10 @@ export type OverlayLayoutProps = {
   commandPaletteOpen: boolean;
   commandPaletteItems: PaletteItem[];
   settingsOpen: boolean;
+  oneTimeCommandOpen: boolean;
+  oneTimeCommandCwd: string | null;
+  setOneTimeCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  runOneTimeCommand: (command: string) => Promise<boolean>;
   dialog: DialogState | null;
   confirmCloseTerminalId: string | null;
   confirmDeleteProject: Project | null;

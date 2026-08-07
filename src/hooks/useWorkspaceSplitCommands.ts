@@ -51,6 +51,7 @@ export function useWorkspaceSplitCommands({
     const workspaceId = targetTerminalId?.split(':')[0] ?? activeWorkspace?.id;
     if (!workspaceId) return;
     const focusedTerminalId = targetTerminalId ?? (activeTerminalId?.startsWith(`${workspaceId}:`) ? activeTerminalId : `${workspaceId}:0`);
+    if ((terminalsByWorkspaceId[workspaceId] ?? []).some((terminal) => terminal.id === focusedTerminalId && terminal.temporary)) return;
     setDialog({ kind: 'split', workspaceId, targetTerminalId: focusedTerminalId, direction, command: '' });
   }
 

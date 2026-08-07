@@ -13,6 +13,7 @@ export function useAppOverlayState() {
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [oneTimeCommandOpen, setOneTimeCommandOpen] = useState(false);
   const [searchTerminalRequest, setSearchTerminalRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
   const [restartTerminalRequest, setRestartTerminalRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
 
@@ -36,6 +37,8 @@ export function useAppOverlayState() {
     setCommandPaletteOpen,
     settingsOpen,
     setSettingsOpen,
+    oneTimeCommandOpen,
+    setOneTimeCommandOpen,
     searchTerminalRequest,
     setSearchTerminalRequest,
     restartTerminalRequest,
