@@ -1,10 +1,6 @@
-import type { GitInfo } from '../types';
-
-export function WorkspaceTopbar({ activePath, activeProjectName, activeWorkspaceName, gitInfo, hasActiveTerminal, onToggleSidebar }: {
-  activePath: string | null;
+export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, onToggleSidebar }: {
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
-  gitInfo: GitInfo | null;
   hasActiveTerminal: boolean;
   onToggleSidebar: () => void;
 }) {
@@ -23,39 +19,14 @@ export function WorkspaceTopbar({ activePath, activeProjectName, activeWorkspace
             <span className="sidebarIcon" />
           </button>
         )}
-        {hasActiveTerminal ? (
-          <div className="topbarTextContent">
-            {activeProjectName && activeWorkspaceName && (
-              <>
-                <div className="workspaceCrumbs" title={`${activeProjectName} > ${activeWorkspaceName}`}>
-                  {activeProjectName} &gt; {activeWorkspaceName}
-                </div>
-                <span className="topbarSeparator">•</span>
-              </>
-            )}
-            <div className="subtitle" title={activePath ?? undefined}>{activePath ?? ''}</div>
+        {hasActiveTerminal && activeProjectName && activeWorkspaceName ? (
+          <div className="workspaceCrumbs" title={`${activeProjectName} > ${activeWorkspaceName}`}>
+            {activeProjectName} &gt; {activeWorkspaceName}
           </div>
         ) : (
           <div className="subtitle">Select a workspace</div>
         )}
       </div>
-      {hasActiveTerminal && (
-        <div className="branchDisplay">
-          {gitInfo && (
-            <>
-              <span className="branchName"> {gitInfo.branch}</span>
-              {(gitInfo.created > 0 || gitInfo.changed > 0 || gitInfo.deleted > 0) && (
-                <span className="gitStats" title="Files created / changed / deleted">
-                  <span className="gitSeparator">•</span>
-                  {gitInfo.created > 0 && <span className="gitAdded">+{gitInfo.created}</span>}
-                  {gitInfo.changed > 0 && <span className="gitChanged">~{gitInfo.changed}</span>}
-                  {gitInfo.deleted > 0 && <span className="gitRemoved">-{gitInfo.deleted}</span>}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-      )}
     </header>
   );
 }

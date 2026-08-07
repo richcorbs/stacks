@@ -1,4 +1,5 @@
 import type { GitInfo, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
+import { WorkspaceStatusbar } from './WorkspaceStatusbar';
 import { WorkspaceTopbar } from './WorkspaceTopbar';
 import { WorkspaceViews } from './WorkspaceViews';
 
@@ -71,10 +72,8 @@ export function MainWorkspace({
   return (
     <main className="main">
       <WorkspaceTopbar
-        activePath={activePath}
         activeProjectName={activeProjectName}
         activeWorkspaceName={activeWorkspaceName}
-        gitInfo={gitInfo}
         hasActiveTerminal={hasActiveTerminal}
         onToggleSidebar={onToggleSidebar}
       />
@@ -102,6 +101,7 @@ export function MainWorkspace({
           onSplitTerminal={onSplitTerminal}
         />
       </section>
+      {hasActiveTerminal && <WorkspaceStatusbar activePath={activePath} gitInfo={gitInfo} />}
     </main>
   );
 }
