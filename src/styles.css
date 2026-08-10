@@ -193,7 +193,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #9aa8b8;
+  color: #6f8195;
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
