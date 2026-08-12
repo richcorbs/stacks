@@ -17,6 +17,7 @@ export type CommandPaletteItemOptions = {
   onNewProject: () => void;
   onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
+  onDeleteProject: (projectId: string) => void;
   onEditWorkspace: (project: Project, workspace: WorkspaceEntry) => void;
   onEditTerminal: (workspaceId: string, terminalId: string) => void;
   onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
@@ -32,6 +33,7 @@ export type CommandPaletteItemOptions = {
   onOpenSettings: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
+  onDeleteMultipleWorkspaces: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;
 };

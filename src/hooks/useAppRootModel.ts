@@ -15,6 +15,7 @@ import { useAppLayoutProps } from './useAppLayoutProps';
 import { useAutomationRequests } from './useAutomationRequests';
 import { useWorkspaceCreation } from './useWorkspaceCreation';
 import { useOneTimeCommand } from './useOneTimeCommand';
+import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 
 const encoder = new TextEncoder();
 
@@ -92,6 +93,8 @@ export function useAppRootModel() {
     setRestartTerminalRequest,
     oneTimeCommandOpen,
     setOneTimeCommandOpen,
+    deleteMultipleWorkspacesOpen,
+    setDeleteMultipleWorkspacesOpen,
   } = overlayState;
   const { toast, showToast } = toastState;
   const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
@@ -301,6 +304,7 @@ export function useAppRootModel() {
     setMetaKeyDown,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
     setConfirmCloseTerminalId,
+    setConfirmDeleteProjectId,
     setConfirmDeleteWorkspace,
     setConfirmQuitOpen,
     setCommandPaletteOpen,
@@ -311,6 +315,7 @@ export function useAppRootModel() {
     openEditProjectDialog,
     openEditWorkspaceDialog,
     openEditTerminalDialog,
+    deleteProject,
     deleteWorkspace,
     splitTerminal,
     cycleSidebarWorkspace,
@@ -325,6 +330,7 @@ export function useAppRootModel() {
     openTerminalSearch,
     openDirectoryInEditor,
     openOneTimeCommand: () => setOneTimeCommandOpen(true),
+    openDeleteMultipleWorkspaces: () => setDeleteMultipleWorkspacesOpen(true),
     broadcastEnabled: activeWorkspaceId ? Boolean(broadcastWorkspaceIds[activeWorkspaceId]) : false,
     onToggleBroadcast: toggleActiveWorkspaceBroadcast,
   });
@@ -380,6 +386,14 @@ export function useAppRootModel() {
     settingsOpen,
     oneTimeCommandOpen,
     setOneTimeCommandOpen,
+    deleteMultipleWorkspacesOpen,
+    setDeleteMultipleWorkspacesOpen,
+    deleteMultipleWorkspaces: (query) => {
+      const targets = matchingWorkspaceDeleteTargets(store, query);
+      targets.forEach(({ projectId, workspaceId }) => deleteWorkspace(projectId, workspaceId));
+      setDeleteMultipleWorkspacesOpen(false);
+      showToast(targets.length === 1 ? 'Deleted 1 workspace' : `Deleted ${targets.length} workspaces`);
+    },
     runOneTimeCommand: async (command) => {
       try {
         return await runOneTimeCommand(command);

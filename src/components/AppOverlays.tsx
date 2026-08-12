@@ -5,6 +5,7 @@ import { SettingsDialog } from './SettingsDialog';
 import { AppContextMenu } from './AppContextMenu';
 import { AppConfirmDialogs } from './AppConfirmDialogs';
 import { OneTimeCommandDialog } from './OneTimeCommandDialog';
+import { DeleteMultipleWorkspacesDialog } from './DeleteMultipleWorkspacesDialog';
 import type { ContextMenuState, DialogState, Project, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
@@ -21,6 +22,9 @@ export function AppOverlays({
   oneTimeCommandOpen,
   oneTimeCommandCwd,
   setOneTimeCommandOpen,
+  deleteMultipleWorkspacesOpen,
+  setDeleteMultipleWorkspacesOpen,
+  deleteMultipleWorkspaces,
   runOneTimeCommand,
   dialog,
   confirmCloseTerminalId,
@@ -59,6 +63,9 @@ export function AppOverlays({
   oneTimeCommandOpen: boolean;
   oneTimeCommandCwd: string | null;
   setOneTimeCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  deleteMultipleWorkspacesOpen: boolean;
+  setDeleteMultipleWorkspacesOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  deleteMultipleWorkspaces: (query: string) => void;
   runOneTimeCommand: (command: string) => Promise<boolean>;
   dialog: DialogState | null;
   confirmCloseTerminalId: string | null;
@@ -112,6 +119,14 @@ export function AppOverlays({
         onRunItem={() => closeCommandPalette({ restoreFocus: false })}
       />
       {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={closeSettings} />}
+      <DeleteMultipleWorkspacesDialog
+        open={deleteMultipleWorkspacesOpen}
+        onCancel={() => {
+          setDeleteMultipleWorkspacesOpen(false);
+          restoreActiveTerminalFocus('cancel-delete-multiple-workspaces');
+        }}
+        onDelete={deleteMultipleWorkspaces}
+      />
       <OneTimeCommandDialog
         open={oneTimeCommandOpen}
         cwd={oneTimeCommandCwd}

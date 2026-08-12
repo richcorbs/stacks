@@ -73,6 +73,9 @@ export type OverlayLayoutProps = {
   oneTimeCommandOpen: boolean;
   oneTimeCommandCwd: string | null;
   setOneTimeCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  deleteMultipleWorkspacesOpen: boolean;
+  setDeleteMultipleWorkspacesOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  deleteMultipleWorkspaces: (query: string) => void;
   runOneTimeCommand: (command: string) => Promise<boolean>;
   dialog: DialogState | null;
   confirmCloseTerminalId: string | null;

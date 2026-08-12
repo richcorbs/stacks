@@ -21,6 +21,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onNewProject: vi.fn(),
     onNewWorkspace: vi.fn(),
     onEditProject: vi.fn(),
+    onDeleteProject: vi.fn(),
     onEditWorkspace: vi.fn(),
     onEditTerminal: vi.fn(),
     onDeleteWorkspace: vi.fn(),
@@ -36,6 +37,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onOpenSettings: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
     onRunOneTimeCommand: vi.fn(),
+    onDeleteMultipleWorkspaces: vi.fn(),
     broadcastEnabled: false,
     onToggleBroadcast: vi.fn(),
     ...overrides,
@@ -89,6 +91,28 @@ describe('buildCommandPaletteItems', () => {
 
     items.find((item) => item.id === 'terminal-t1:0')?.action();
     expect(onCycleTerminal).toHaveBeenCalledWith(0);
+  });
+
+  it('requests deletion of the active project from the palette', () => {
+    const onDeleteProject = vi.fn();
+    const items = palette({ onDeleteProject });
+
+    const deleteProject = items.find((item) => item.id === 'delete-project');
+    expect(deleteProject?.danger).toBe(true);
+    deleteProject?.action();
+
+    expect(onDeleteProject).toHaveBeenCalledWith('p1');
+  });
+
+  it('opens bulk workspace deletion from the palette', () => {
+    const onDeleteMultipleWorkspaces = vi.fn();
+    const items = palette({ onDeleteMultipleWorkspaces });
+
+    const bulkDelete = items.find((item) => item.id === 'delete-multiple-workspaces');
+    expect(bulkDelete?.danger).toBe(true);
+    bulkDelete?.action();
+
+    expect(onDeleteMultipleWorkspaces).toHaveBeenCalledOnce();
   });
 
   it('opens the one-time command prompt from the palette', () => {

@@ -57,6 +57,9 @@ type UseAppLayoutPropsOptions = {
   settingsOpen: boolean;
   oneTimeCommandOpen: boolean;
   setOneTimeCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  deleteMultipleWorkspacesOpen: boolean;
+  setDeleteMultipleWorkspacesOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  deleteMultipleWorkspaces: (query: string) => void;
   runOneTimeCommand: (command: string) => Promise<boolean>;
   dialog: DialogState | null;
   confirmCloseTerminalId: string | null;
@@ -149,6 +152,9 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       oneTimeCommandOpen: options.oneTimeCommandOpen,
       oneTimeCommandCwd: options.activePath,
       setOneTimeCommandOpen: options.setOneTimeCommandOpen,
+      deleteMultipleWorkspacesOpen: options.deleteMultipleWorkspacesOpen,
+      setDeleteMultipleWorkspacesOpen: options.setDeleteMultipleWorkspacesOpen,
+      deleteMultipleWorkspaces: options.deleteMultipleWorkspaces,
       runOneTimeCommand: options.runOneTimeCommand,
       dialog: options.dialog,
       confirmCloseTerminalId: options.confirmCloseTerminalId,

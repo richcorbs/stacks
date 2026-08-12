@@ -15,6 +15,7 @@ export type AppShortcutHandlerOptions = {
   setMetaKeyDown: (down: boolean) => void;
   toggleSidebar: () => void;
   setConfirmCloseTerminalId: Dispatch<SetStateAction<string | null>>;
+  setConfirmDeleteProjectId: Dispatch<SetStateAction<string | null>>;
   setConfirmDeleteWorkspace: Dispatch<SetStateAction<{ projectId: string; workspaceId: string } | null>>;
   setConfirmQuitOpen: Dispatch<SetStateAction<boolean>>;
   setCommandPaletteOpen: Dispatch<SetStateAction<boolean>>;
@@ -25,6 +26,7 @@ export type AppShortcutHandlerOptions = {
   openEditProjectDialog: (project: Project) => void;
   openEditWorkspaceDialog: (project: Project, workspace: WorkspaceEntry) => void;
   openEditTerminalDialog: (workspaceId: string, terminalId: string) => void;
+  deleteProject: (projectId: string) => void;
   deleteWorkspace: (projectId: string, workspaceId: string) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   cycleSidebarWorkspace: (delta: number) => void;
@@ -39,6 +41,7 @@ export type AppShortcutHandlerOptions = {
   openTerminalSearch: () => void;
   openDirectoryInEditor: () => void;
   openOneTimeCommand: () => void;
+  openDeleteMultipleWorkspaces: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;
 };
