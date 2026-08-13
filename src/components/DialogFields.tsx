@@ -118,7 +118,7 @@ function WorkspaceGridPicker({ rows, columns, onChange }: {
     <div className="dialogGridPickerField">
       <div className="dialogGridPickerHeader">
         <span>Split layout</span>
-        <strong>{rows} × {columns}</strong>
+        <strong>{columns} × {rows}</strong>
       </div>
       <div className="dialogGridPickerHint">Drag from the top-left to choose terminal rows and columns.</div>
       <div className="dialogGridPicker" role="grid" aria-label="Workspace terminal split layout">

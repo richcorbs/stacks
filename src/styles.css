@@ -447,7 +447,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .modal select:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f633; }
 .dialogGridPickerField { margin-bottom: 26px; }
 .dialogGridPickerHeader { display: flex; justify-content: space-between; align-items: baseline; color: #b9c5d3; font-size: 13px; }
-.dialogGridPickerHeader strong { color: #d6deeb; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+.dialogGridPickerHeader strong { color: #8091a5; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
 .dialogGridPickerHint { margin-top: 5px; color: #8091a5; font-size: 12px; }
 .dialogGridPicker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(5, 22px); gap: 0; width: 50%; margin-top: 10px; user-select: none; }
 .dialogGridCell { border: 1px solid #2d3d4f; border-radius: 0; background: #0b1118; cursor: pointer; padding: 0; margin: 0 -1px -1px 0; }
