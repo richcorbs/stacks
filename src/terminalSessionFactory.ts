@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { TerminalSession } from './types';
 
@@ -38,6 +39,7 @@ export function createTerminalSession({
   let session: TerminalSession;
   const fit = new FitAddon();
   const search = new SearchAddon();
+  const unicode11 = new Unicode11Addon();
   const webLinks = new WebLinksAddon((event, uri) => {
     if (!event.metaKey) return;
     event.preventDefault();
@@ -46,6 +48,10 @@ export function createTerminalSession({
   }, { urlRegex: /https?:\/\/[^\s"']+/i });
   term.loadAddon(fit);
   term.loadAddon(search);
+  term.loadAddon(unicode11);
+  // xterm's built-in Unicode 6 table treats many emoji as one cell. Modern
+  // terminal apps reserve two, so use matching width rules to avoid clipping.
+  term.unicode.activeVersion = '11';
   term.loadAddon(webLinks);
   term.attachCustomKeyEventHandler((event) => {
     if (event.key === 'Enter' && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
