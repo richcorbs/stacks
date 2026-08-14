@@ -27,17 +27,17 @@ describe('workspace selectors', () => {
   });
 
   it('returns the focused terminal when the terminal is maximized', () => {
-    expect(effectiveDisplayedMaximizedTerminalId('term', 'term', 'term:0', ['term:0'])).toBeNull();
-    expect(effectiveDisplayedMaximizedTerminalId('term', 'term', 'term:1', ['term:0', 'term:1'])).toBe('term:1');
-    expect(effectiveDisplayedMaximizedTerminalId('term', 'term', null, ['term:0', 'term:1'])).toBe('term:0');
-    expect(effectiveDisplayedMaximizedTerminalId('other', 'term', 'term:1', ['term:0', 'term:1'])).toBeNull();
+    expect(effectiveDisplayedMaximizedTerminalId({ term: true }, 'term', 'term:0', ['term:0'])).toBeNull();
+    expect(effectiveDisplayedMaximizedTerminalId({ term: true }, 'term', 'term:1', ['term:0', 'term:1'])).toBe('term:1');
+    expect(effectiveDisplayedMaximizedTerminalId({ term: true }, 'term', null, ['term:0', 'term:1'])).toBe('term:0');
+    expect(effectiveDisplayedMaximizedTerminalId({ other: true }, 'term', 'term:1', ['term:0', 'term:1'])).toBeNull();
   });
 
   it('keeps a new split maximized only when the terminal was already maximized with multiple terminals', () => {
-    expect(shouldMaximizeTerminalAfterNewSplit('term', ['term:0'], 'term')).toBe(false);
-    expect(shouldMaximizeTerminalAfterNewSplit('term', ['term:0', 'term:1'], null)).toBe(false);
-    expect(shouldMaximizeTerminalAfterNewSplit('term', ['term:0', 'term:1'], 'other')).toBe(false);
-    expect(shouldMaximizeTerminalAfterNewSplit('term', ['term:0', 'term:1'], 'term')).toBe(true);
+    expect(shouldMaximizeTerminalAfterNewSplit('term', ['term:0'], { term: true })).toBe(false);
+    expect(shouldMaximizeTerminalAfterNewSplit('term', ['term:0', 'term:1'], {})).toBe(false);
+    expect(shouldMaximizeTerminalAfterNewSplit('term', ['term:0', 'term:1'], { other: true })).toBe(false);
+    expect(shouldMaximizeTerminalAfterNewSplit('term', ['term:0', 'term:1'], { term: true })).toBe(true);
   });
 
   it('selects previous visual terminal after close with wraparound', () => {

@@ -1,4 +1,4 @@
-import type { TerminalEntry, SplitNode } from '../types';
+import type { MaximizedWorkspaceIds, TerminalEntry, SplitNode } from '../types';
 import { collectLeafTerminalIds } from '../utils';
 
 export function terminalIdsForWorkspace(
@@ -12,13 +12,13 @@ export function terminalIdsForWorkspace(
     : (terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id);
 }
 
-export function effectiveDisplayedMaximizedTerminalId(maximizedWorkspaceId: string | null, workspaceId: string, focusedTerminalId: string | null, terminalIds: string[]) {
-  if (terminalIds.length <= 1 || maximizedWorkspaceId !== workspaceId) return null;
+export function effectiveDisplayedMaximizedTerminalId(maximizedWorkspaceIds: MaximizedWorkspaceIds, workspaceId: string, focusedTerminalId: string | null, terminalIds: string[]) {
+  if (terminalIds.length <= 1 || !maximizedWorkspaceIds[workspaceId]) return null;
   return focusedTerminalId && terminalIds.includes(focusedTerminalId) ? focusedTerminalId : terminalIds[0] ?? null;
 }
 
-export function shouldMaximizeTerminalAfterNewSplit(workspaceId: string, existingTerminalIds: string[], maximizedWorkspaceId: string | null) {
-  return existingTerminalIds.length > 1 && maximizedWorkspaceId === workspaceId;
+export function shouldMaximizeTerminalAfterNewSplit(workspaceId: string, existingTerminalIds: string[], maximizedWorkspaceIds: MaximizedWorkspaceIds) {
+  return existingTerminalIds.length > 1 && Boolean(maximizedWorkspaceIds[workspaceId]);
 }
 
 export function previousTerminalIdAfterClose(terminalIds: string[], closingTerminalId: string) {

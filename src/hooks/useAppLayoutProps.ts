@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, DialogState, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
+import type { AppStats, ContextMenuState, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from '../components/CommandPalette';
 import type { MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
@@ -35,7 +35,7 @@ type UseAppLayoutPropsOptions = {
   gitInfo: { branch: string; created: number; changed: number; deleted: number } | null;
   visitedWorkspaceTerminalTrees: { project: Project; workspace: WorkspaceEntry; terminals: TerminalEntry[]; root: SplitNode | undefined }[];
   activeTerminalId: string | null;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   broadcastWorkspaceIds: Record<string, boolean>;
   appSettings: ResolvedAppSettings;
   searchTerminalRequest: { terminalId: string; nonce: number } | null;
@@ -124,7 +124,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       visitedWorkspaceTerminalTrees: options.visitedWorkspaceTerminalTrees,
       activeWorkspaceId: options.activeWorkspaceId,
       activeTerminalId: options.activeTerminalId,
-      maximizedWorkspaceId: options.maximizedWorkspaceId,
+      maximizedWorkspaceIds: options.maximizedWorkspaceIds,
       broadcastWorkspaceIds: options.broadcastWorkspaceIds,
       appSettings: options.appSettings,
       searchTerminalRequest: options.searchTerminalRequest,

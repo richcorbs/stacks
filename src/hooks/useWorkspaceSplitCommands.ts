@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { DialogState, TerminalEntry, SplitNode, WorkspaceEntry } from '../types';
+import type { DialogState, MaximizedWorkspaceIds, TerminalEntry, SplitNode, WorkspaceEntry } from '../types';
 import { setSplitRatio, splitLeaf } from '../utils';
 import { requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { terminalIdsForWorkspace, shouldMaximizeTerminalAfterNewSplit } from '../workspace/selectors';
@@ -7,13 +7,13 @@ import { terminalIdsForWorkspace, shouldMaximizeTerminalAfterNewSplit } from '..
 type WorkspaceSplitCommandOptions = {
   activeWorkspace: WorkspaceEntry | null;
   activeTerminalId: string | null;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
   splitRootsByWorkspaceId: Record<string, SplitNode>;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
   setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  setMaximizedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
+  setMaximizedWorkspaceIds: React.Dispatch<React.SetStateAction<MaximizedWorkspaceIds>>;
   focusTerminal: (workspaceId: string, terminalId: string) => void;
   saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
 };
@@ -21,20 +21,20 @@ type WorkspaceSplitCommandOptions = {
 export function useWorkspaceSplitCommands({
   activeWorkspace,
   activeTerminalId,
-  maximizedWorkspaceId,
+  maximizedWorkspaceIds,
   terminalsByWorkspaceId,
   splitRootsByWorkspaceId,
   setDialog,
   setTerminalsByWorkspaceId,
   setSplitRootsByWorkspaceId,
-  setMaximizedWorkspaceId,
+  setMaximizedWorkspaceIds,
   focusTerminal,
   saveTerminalSplit,
 }: WorkspaceSplitCommandOptions) {
   async function completeSplitTerminal(workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) {
     const id = `${workspaceId}:${Date.now()}`;
     const existingTerminalIds = terminalIdsForWorkspace(workspaceId, terminalsByWorkspaceId, splitRootsByWorkspaceId[workspaceId]);
-    const shouldMaximizeNewTerminal = shouldMaximizeTerminalAfterNewSplit(workspaceId, existingTerminalIds, maximizedWorkspaceId);
+    const shouldMaximizeNewTerminal = shouldMaximizeTerminalAfterNewSplit(workspaceId, existingTerminalIds, maximizedWorkspaceIds);
     setTerminalsByWorkspaceId((all) => ({ ...all, [workspaceId]: [...(all[workspaceId] ?? []), { id, workspaceId, command }] }));
     setSplitRootsByWorkspaceId((all) => {
       const root = all[workspaceId] ?? { kind: 'leaf' as const, terminalId: focusedTerminalId };
@@ -44,7 +44,7 @@ export function useWorkspaceSplitCommands({
     });
     focusTerminal(workspaceId, id);
     requestTerminalSessionsScrollToBottomAfterFit([...(terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id), id]);
-    if (shouldMaximizeNewTerminal) setMaximizedWorkspaceId(workspaceId);
+    if (shouldMaximizeNewTerminal) setMaximizedWorkspaceIds((current) => ({ ...current, [workspaceId]: true }));
   }
 
   async function splitTerminal(direction: 'row' | 'column' = 'row', targetTerminalId?: string) {

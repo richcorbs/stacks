@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextTerminalIdForCycle, shouldClearMaximizedTerminalAfterClose, toggleMaximizedWorkspaceId } from './maximize';
+import { nextTerminalIdForCycle, shouldClearMaximizedTerminalAfterClose, toggleMaximizedWorkspace } from './maximize';
 
 describe('workspace maximize helpers', () => {
   it('cycles terminal focus with wraparound', () => {
@@ -12,10 +12,15 @@ describe('workspace maximize helpers', () => {
     expect(nextTerminalIdForCycle([], 'missing', 1)).toBeNull();
   });
 
-  it('toggles maximized terminal state at terminal granularity', () => {
-    expect(toggleMaximizedWorkspaceId(null, 'term')).toBe('term');
-    expect(toggleMaximizedWorkspaceId('other', 'term')).toBe('term');
-    expect(toggleMaximizedWorkspaceId('term', 'term')).toBeNull();
+  it('toggles maximized state independently for each workspace', () => {
+    expect(toggleMaximizedWorkspace({}, 'workspace-a')).toEqual({ 'workspace-a': true });
+    expect(toggleMaximizedWorkspace({ 'workspace-a': true }, 'workspace-b')).toEqual({
+      'workspace-a': true,
+      'workspace-b': true,
+    });
+    expect(toggleMaximizedWorkspace({ 'workspace-a': true, 'workspace-b': true }, 'workspace-a')).toEqual({
+      'workspace-b': true,
+    });
   });
 
   it('clears maximized terminal when only one terminal remains', () => {

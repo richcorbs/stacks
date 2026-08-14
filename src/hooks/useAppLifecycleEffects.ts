@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { Store, ToastDetail } from '../types';
+import type { MaximizedWorkspaceIds, Store, ToastDetail } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import { useDebouncedStoreSave } from './useDebouncedSave';
 import { usePersistentAppSettings, usePersistentSidebarWidth } from './useSettingsPersistence';
@@ -27,7 +27,7 @@ export function useAppLifecycleEffects({
   activeProjectId,
   activeWorkspaceId,
   activeTerminalId,
-  maximizedWorkspaceId,
+  maximizedWorkspaceIds,
   sidebarFocusedWorkspaceId,
   setConfirmQuitOpen,
   setContextMenu,
@@ -47,14 +47,14 @@ export function useAppLifecycleEffects({
   activeProjectId: string | null;
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   sidebarFocusedWorkspaceId: string | null;
   setConfirmQuitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
   rememberTerminalCwd: (terminalId: string, cwd: string) => void;
   showToast: (toast: string | ToastDetail) => void;
 }) {
-  useFocusDebug({ activeProjectId, activeWorkspaceId, activeTerminalId, maximizedWorkspaceId, sidebarFocusedWorkspaceId });
+  useFocusDebug({ activeProjectId, activeWorkspaceId, activeTerminalId, maximizedWorkspaceIds, sidebarFocusedWorkspaceId });
   useAppWindowFocusClass();
 
   const saveStoreNow = useDebouncedStoreSave(loaded, store);

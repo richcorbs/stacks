@@ -1,4 +1,4 @@
-import type { GitInfo, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
+import type { GitInfo, MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import { WorkspaceStatusbar } from './WorkspaceStatusbar';
 import { WorkspaceTopbar } from './WorkspaceTopbar';
 import { WorkspaceViews } from './WorkspaceViews';
@@ -20,7 +20,7 @@ type MainWorkspaceProps = {
   workspaces: WorkspaceViewModel[];
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   broadcastWorkspaceIds: Record<string, boolean>;
   terminalFontSize: number;
   terminalFontFamily: string;
@@ -49,7 +49,7 @@ export function MainWorkspace({
   workspaces,
   activeWorkspaceId,
   activeTerminalId,
-  maximizedWorkspaceId,
+  maximizedWorkspaceIds,
   broadcastWorkspaceIds,
   terminalFontSize,
   terminalFontFamily,
@@ -82,7 +82,7 @@ export function MainWorkspace({
           workspaces={workspaces}
           activeWorkspaceId={activeWorkspaceId}
           activeTerminalId={activeTerminalId}
-          maximizedWorkspaceId={maximizedWorkspaceId}
+          maximizedWorkspaceIds={maximizedWorkspaceIds}
           broadcastWorkspaceIds={broadcastWorkspaceIds}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}

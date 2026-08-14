@@ -1,8 +1,8 @@
 import type React from 'react';
-import type { TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
+import type { MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import { focusTerminalSession, isTerminalSessionAtBottom, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { terminalIdsForWorkspace } from '../workspace/selectors';
-import { nextTerminalIdForCycle, toggleMaximizedWorkspaceId } from '../workspace/maximize';
+import { isWorkspaceMaximized, nextTerminalIdForCycle, setWorkspaceMaximized, toggleMaximizedWorkspace } from '../workspace/maximize';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
@@ -10,7 +10,7 @@ export function useWorkspaceTerminalNavigationCommands({
   activeWorkspace,
   activeTerminalId,
   focusedTerminalByWorkspaceId,
-  maximizedWorkspaceId,
+  maximizedWorkspaceIds,
   sidebarFocusedWorkspaceId,
   activeWorkspaceId,
   terminalsByWorkspaceId,
@@ -18,13 +18,13 @@ export function useWorkspaceTerminalNavigationCommands({
   sidebarWorkspaces,
   selectWorkspace,
   focusTerminal,
-  setMaximizedWorkspaceId,
+  setMaximizedWorkspaceIds,
   setSidebarFocusedWorkspaceId,
 }: {
   activeWorkspace: WorkspaceEntry | null;
   activeTerminalId: string | null;
   focusedTerminalByWorkspaceId: Record<string, string>;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   sidebarFocusedWorkspaceId: string | null;
   activeWorkspaceId: string | null;
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
@@ -32,7 +32,7 @@ export function useWorkspaceTerminalNavigationCommands({
   sidebarWorkspaces: SidebarWorkspace[];
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   focusTerminal: (workspaceId: string, terminalId: string) => void;
-  setMaximizedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
+  setMaximizedWorkspaceIds: React.Dispatch<React.SetStateAction<MaximizedWorkspaceIds>>;
   setSidebarFocusedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
   function cycleTerminal(delta: number) {
@@ -41,7 +41,7 @@ export function useWorkspaceTerminalNavigationCommands({
     const nextTerminalId = nextTerminalIdForCycle(terminalIds, activeTerminalId, delta);
     if (!nextTerminalId) return;
     focusTerminal(activeWorkspace.id, nextTerminalId);
-    if (maximizedWorkspaceId === activeWorkspace.id) requestTerminalSessionsScrollToBottomAfterFit([nextTerminalId]);
+    if (isWorkspaceMaximized(maximizedWorkspaceIds, activeWorkspace.id)) requestTerminalSessionsScrollToBottomAfterFit([nextTerminalId]);
   }
 
   function cycleSidebarWorkspace(delta: number) {
@@ -93,12 +93,12 @@ export function useWorkspaceTerminalNavigationCommands({
 
     const terminalIds = terminalIdsForWorkspace(workspaceId, terminalsByWorkspaceId, splitRootsByWorkspaceId[workspaceId]);
     if (terminalIds.length <= 1) {
-      setMaximizedWorkspaceId(null);
+      setMaximizedWorkspaceIds((current) => setWorkspaceMaximized(current, workspaceId, false));
       return;
     }
 
     const shouldRestoreBottom = isTerminalSessionAtBottom(terminalId);
-    setMaximizedWorkspaceId((current) => toggleMaximizedWorkspaceId(current, workspaceId));
+    setMaximizedWorkspaceIds((current) => toggleMaximizedWorkspace(current, workspaceId));
     focusTerminal(workspaceId, terminalId);
     if (shouldRestoreBottom) requestTerminalSessionsScrollToBottomAfterFit([terminalId]);
   }

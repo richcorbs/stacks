@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, DialogState, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
+import type { AppStats, ContextMenuState, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from './CommandPalette';
 
@@ -44,7 +44,7 @@ export type MainLayoutProps = {
   visitedWorkspaceTerminalTrees: WorkspaceViewModel[];
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   broadcastWorkspaceIds: Record<string, boolean>;
   appSettings: ResolvedAppSettings;
   searchTerminalRequest: { terminalId: string; nonce: number } | null;

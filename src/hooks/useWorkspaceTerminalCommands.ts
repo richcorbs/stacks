@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
+import type { MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import { useWorkspaceTerminalLifecycleCommands } from './useWorkspaceTerminalLifecycleCommands';
 import { useWorkspaceTerminalNavigationCommands } from './useWorkspaceTerminalNavigationCommands';
 
@@ -9,7 +9,7 @@ type WorkspaceTerminalCommandOptions = {
   activeWorkspace: WorkspaceEntry | null;
   activeTerminalId: string | null;
   focusedTerminalByWorkspaceId: Record<string, string>;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   sidebarFocusedWorkspaceId: string | null;
   activeWorkspaceId: string | null;
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
@@ -19,7 +19,7 @@ type WorkspaceTerminalCommandOptions = {
   focusTerminalState: (workspaceId: string, terminalId: string) => void;
   setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
   setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  setMaximizedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
+  setMaximizedWorkspaceIds: React.Dispatch<React.SetStateAction<MaximizedWorkspaceIds>>;
   setSidebarFocusedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
   setRunningTerminalIds: React.Dispatch<React.SetStateAction<string[]>>;
   requestTerminalRestart: (terminalId: string) => void;
@@ -30,7 +30,7 @@ export function useWorkspaceTerminalCommands({
   activeWorkspace,
   activeTerminalId,
   focusedTerminalByWorkspaceId,
-  maximizedWorkspaceId,
+  maximizedWorkspaceIds,
   sidebarFocusedWorkspaceId,
   activeWorkspaceId,
   terminalsByWorkspaceId,
@@ -40,7 +40,7 @@ export function useWorkspaceTerminalCommands({
   focusTerminalState,
   setTerminalsByWorkspaceId,
   setSplitRootsByWorkspaceId,
-  setMaximizedWorkspaceId,
+  setMaximizedWorkspaceIds,
   setSidebarFocusedWorkspaceId,
   setRunningTerminalIds,
   requestTerminalRestart,
@@ -54,7 +54,7 @@ export function useWorkspaceTerminalCommands({
     activeWorkspace,
     activeTerminalId,
     focusedTerminalByWorkspaceId,
-    maximizedWorkspaceId,
+    maximizedWorkspaceIds,
     sidebarFocusedWorkspaceId,
     activeWorkspaceId,
     terminalsByWorkspaceId,
@@ -62,17 +62,17 @@ export function useWorkspaceTerminalCommands({
     sidebarWorkspaces,
     selectWorkspace,
     focusTerminal,
-    setMaximizedWorkspaceId,
+    setMaximizedWorkspaceIds,
     setSidebarFocusedWorkspaceId,
   });
 
   const lifecycleCommands = useWorkspaceTerminalLifecycleCommands({
-    maximizedWorkspaceId,
+    maximizedWorkspaceIds,
     terminalsByWorkspaceId,
     splitRootsByWorkspaceId,
     setTerminalsByWorkspaceId,
     setSplitRootsByWorkspaceId,
-    setMaximizedWorkspaceId,
+    setMaximizedWorkspaceIds,
     setRunningTerminalIds,
     requestTerminalRestart,
     focusTerminal,

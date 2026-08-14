@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { DialogState, TerminalEntry, Project, SplitNode, Store, WorkspaceEntry } from '../types';
+import type { DialogState, MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, Store, WorkspaceEntry } from '../types';
 import type { CreateWorkspace } from '../workspace/createWorkspace';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
@@ -12,7 +12,7 @@ export type WorkspaceCommandOptions = {
   activeWorkspace: WorkspaceEntry | null;
   activeTerminalId: string | null;
   focusedTerminalByWorkspaceId: Record<string, string>;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   sidebarFocusedWorkspaceId: string | null;
   activeWorkspaceId: string | null;
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
@@ -26,7 +26,7 @@ export type WorkspaceCommandOptions = {
   setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
   setActiveTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
   setFocusedTerminalByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  setMaximizedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
+  setMaximizedWorkspaceIds: React.Dispatch<React.SetStateAction<MaximizedWorkspaceIds>>;
   setSidebarFocusedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
   setRunningTerminalIds: React.Dispatch<React.SetStateAction<string[]>>;
   setActivityWorkspaceIds: React.Dispatch<React.SetStateAction<string[]>>;

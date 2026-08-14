@@ -1,29 +1,29 @@
 import { invoke } from '@tauri-apps/api/core';
 import type React from 'react';
-import type { TerminalEntry, SplitNode } from '../types';
+import type { MaximizedWorkspaceIds, TerminalEntry, SplitNode } from '../types';
 import { rebalanceSplits, removeLeaf } from '../utils';
 import { disposeTerminalSession, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { terminalIdsForWorkspace, previousTerminalIdAfterClose } from '../workspace/selectors';
-import { shouldClearMaximizedTerminalAfterClose } from '../workspace/maximize';
+import { isWorkspaceMaximized, setWorkspaceMaximized, shouldClearMaximizedTerminalAfterClose } from '../workspace/maximize';
 
 export function useWorkspaceTerminalLifecycleCommands({
-  maximizedWorkspaceId,
+  maximizedWorkspaceIds,
   terminalsByWorkspaceId,
   splitRootsByWorkspaceId,
   setTerminalsByWorkspaceId,
   setSplitRootsByWorkspaceId,
-  setMaximizedWorkspaceId,
+  setMaximizedWorkspaceIds,
   setRunningTerminalIds,
   requestTerminalRestart,
   focusTerminal,
   saveTerminalSplit,
 }: {
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
   splitRootsByWorkspaceId: Record<string, SplitNode>;
   setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
   setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  setMaximizedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
+  setMaximizedWorkspaceIds: React.Dispatch<React.SetStateAction<MaximizedWorkspaceIds>>;
   setRunningTerminalIds: React.Dispatch<React.SetStateAction<string[]>>;
   requestTerminalRestart: (terminalId: string) => void;
   focusTerminal: (workspaceId: string, terminalId: string) => void;
@@ -50,14 +50,18 @@ export function useWorkspaceTerminalLifecycleCommands({
     setRunningTerminalIds((ids) => ids.filter((id) => id !== terminalId));
 
     if (currentTerminals.length <= 1) {
-      if (maximizedWorkspaceId === workspaceId) setMaximizedWorkspaceId(null);
+      if (isWorkspaceMaximized(maximizedWorkspaceIds, workspaceId)) {
+        setMaximizedWorkspaceIds((current) => setWorkspaceMaximized(current, workspaceId, false));
+      }
       return;
     }
 
     const remainingTerminalIds = visualTerminalIds.filter((id) => id !== terminalId);
     const nextTerminalId = previousTerminalIdAfterClose(visualTerminalIds, terminalId);
 
-    if (shouldClearMaximizedTerminalAfterClose(remainingTerminalIds.length)) setMaximizedWorkspaceId(null);
+    if (shouldClearMaximizedTerminalAfterClose(remainingTerminalIds.length)) {
+      setMaximizedWorkspaceIds((current) => setWorkspaceMaximized(current, workspaceId, false));
+    }
     setTerminalsByWorkspaceId((all) => ({ ...all, [workspaceId]: (all[workspaceId] ?? []).filter((p) => p.id !== terminalId) }));
     if (nextTerminalId) focusTerminal(workspaceId, nextTerminalId);
 

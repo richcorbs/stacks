@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type React from 'react';
-import type { SplitNode, TerminalEntry } from '../types';
+import type { MaximizedWorkspaceIds, SplitNode, TerminalEntry } from '../types';
 import { splitLeaf } from '../utils';
 import {
   clearOneTimeStartupCommand,
@@ -10,13 +10,14 @@ import {
   requestTerminalSessionsScrollToBottomAfterFit,
 } from '../terminalSessionManager';
 import { buildOneTimeCommandScript } from '../oneTimeCommand';
+import { setWorkspaceMaximized } from '../workspace/maximize';
 
 type TemporaryRun = {
   projectId: string;
   workspaceId: string;
   previousTerminalId: string;
   previousRoot: SplitNode;
-  previousMaximizedWorkspaceId: string | null;
+  wasWorkspaceMaximized: boolean;
 };
 
 export function useOneTimeCommand({
@@ -25,28 +26,28 @@ export function useOneTimeCommand({
   activeTerminalId,
   activePath,
   fallbackPath,
-  maximizedWorkspaceId,
+  maximizedWorkspaceIds,
   terminalsByWorkspaceId,
   splitRootsByWorkspaceId,
   selectWorkspace,
   focusTerminal,
   setTerminalsByWorkspaceId,
   setSplitRootsByWorkspaceId,
-  setMaximizedWorkspaceId,
+  setMaximizedWorkspaceIds,
 }: {
   activeProjectId: string | null;
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
   activePath: string | null;
   fallbackPath: string | null;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
   splitRootsByWorkspaceId: Record<string, SplitNode>;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   focusTerminal: (workspaceId: string, terminalId: string) => void;
   setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
   setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  setMaximizedWorkspaceId: React.Dispatch<React.SetStateAction<string | null>>;
+  setMaximizedWorkspaceIds: React.Dispatch<React.SetStateAction<MaximizedWorkspaceIds>>;
 }) {
   const runsRef = useRef(new Map<string, TemporaryRun>());
 
@@ -63,11 +64,11 @@ export function useOneTimeCommand({
       [run.workspaceId]: (all[run.workspaceId] ?? []).filter((terminal) => terminal.id !== terminalId),
     }));
     setSplitRootsByWorkspaceId((all) => ({ ...all, [run.workspaceId]: run.previousRoot }));
-    setMaximizedWorkspaceId(run.previousMaximizedWorkspaceId);
+    setMaximizedWorkspaceIds((current) => setWorkspaceMaximized(current, run.workspaceId, run.wasWorkspaceMaximized));
     selectWorkspace(run.projectId, run.workspaceId);
     focusTerminal(run.workspaceId, run.previousTerminalId);
     requestTerminalSessionsScrollToBottomAfterFit([run.previousTerminalId]);
-  }, [focusTerminal, selectWorkspace, setMaximizedWorkspaceId, setSplitRootsByWorkspaceId, setTerminalsByWorkspaceId]);
+  }, [focusTerminal, selectWorkspace, setMaximizedWorkspaceIds, setSplitRootsByWorkspaceId, setTerminalsByWorkspaceId]);
 
   useEffect(() => {
     const onRunningChanged = (event: Event) => {
@@ -106,7 +107,7 @@ export function useOneTimeCommand({
       workspaceId: activeWorkspaceId,
       previousTerminalId: activeTerminalId,
       previousRoot,
-      previousMaximizedWorkspaceId: maximizedWorkspaceId,
+      wasWorkspaceMaximized: Boolean(maximizedWorkspaceIds[activeWorkspaceId]),
     });
     registerOneTimeStartupCommand(terminalId, buildOneTimeCommandScript(trimmedCommand));
     setTerminalsByWorkspaceId((all) => ({
@@ -118,10 +119,10 @@ export function useOneTimeCommand({
       [activeWorkspaceId]: splitLeaf(previousRoot, activeTerminalId, terminalId, 'row', null),
     }));
     focusTerminal(activeWorkspaceId, terminalId);
-    setMaximizedWorkspaceId(activeWorkspaceId);
+    setMaximizedWorkspaceIds((current) => setWorkspaceMaximized(current, activeWorkspaceId, true));
     requestTerminalSessionsScrollToBottomAfterFit([terminalId]);
     return true;
-  }, [activePath, activeProjectId, activeTerminalId, activeWorkspaceId, fallbackPath, focusTerminal, maximizedWorkspaceId, setMaximizedWorkspaceId, setSplitRootsByWorkspaceId, setTerminalsByWorkspaceId, splitRootsByWorkspaceId, terminalsByWorkspaceId]);
+  }, [activePath, activeProjectId, activeTerminalId, activeWorkspaceId, fallbackPath, focusTerminal, maximizedWorkspaceIds, setMaximizedWorkspaceIds, setSplitRootsByWorkspaceId, setTerminalsByWorkspaceId, splitRootsByWorkspaceId, terminalsByWorkspaceId]);
 
   return { runOneTimeCommand };
 }

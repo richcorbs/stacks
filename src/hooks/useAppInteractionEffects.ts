@@ -11,12 +11,8 @@ export function useAppInteractionEffects({
   moveProject,
   moveTerminal,
   activeWorkspace,
-  focusedTerminalByWorkspaceId,
-  setVisitedWorkspaceIds,
-  setTerminalsByWorkspaceId,
-  setSplitRootsByWorkspaceId,
+  initializeWorkspace,
   setActiveTerminalId,
-  setFocusedTerminalByWorkspaceId,
 }: {
   resizingSidebarRef: React.MutableRefObject<boolean>;
   pointerDragRef: React.MutableRefObject<PointerDragState | null>;
@@ -25,12 +21,8 @@ export function useAppInteractionEffects({
   moveProject: (projectId: string, targetProjectId: string) => void;
   moveTerminal: (projectId: string, draggedWorkspaceId: string, targetWorkspaceId: string) => void;
   activeWorkspace: WorkspaceEntry | null;
-  focusedTerminalByWorkspaceId: Record<string, string>;
-  setVisitedWorkspaceIds: React.Dispatch<React.SetStateAction<string[]>>;
-  setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
-  setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
+  initializeWorkspace: (workspaceId: string, terminals: TerminalEntry[], root: SplitNode) => void;
   setActiveTerminalId: React.Dispatch<React.SetStateAction<string | null>>;
-  setFocusedTerminalByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }) {
   useSidebarInteractions({
     resizingSidebarRef,
@@ -42,11 +34,7 @@ export function useAppInteractionEffects({
   });
   useActiveWorkspaceInitialization({
     activeWorkspace,
-    focusedTerminalByWorkspaceId,
-    setVisitedWorkspaceIds,
-    setTerminalsByWorkspaceId,
-    setSplitRootsByWorkspaceId,
+    initializeWorkspace,
     setActiveTerminalId,
-    setFocusedTerminalByWorkspaceId,
   });
 }

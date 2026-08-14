@@ -49,7 +49,7 @@ export function AppLayout({
         workspaces={main.visitedWorkspaceTerminalTrees}
         activeWorkspaceId={main.activeWorkspaceId}
         activeTerminalId={main.activeTerminalId}
-        maximizedWorkspaceId={main.maximizedWorkspaceId}
+        maximizedWorkspaceIds={main.maximizedWorkspaceIds}
         broadcastWorkspaceIds={main.broadcastWorkspaceIds}
         terminalFontSize={main.appSettings.terminal_font_size}
         terminalFontFamily={main.appSettings.terminal_font_family}

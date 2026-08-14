@@ -1,5 +1,5 @@
 import { useReducer } from 'react';
-import type { TerminalEntry, SplitNode } from '../types';
+import type { MaximizedWorkspaceIds, TerminalEntry, SplitNode } from '../types';
 
 type Setter<T> = T | ((value: T) => T);
 
@@ -11,7 +11,7 @@ export type WorkspaceState = {
   visitedWorkspaceIds: string[];
   activeTerminalId: string | null;
   focusedTerminalByWorkspaceId: Record<string, string>;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   sidebarFocusedWorkspaceId: string | null;
   terminalCwds: Record<string, string>;
 };
@@ -19,6 +19,7 @@ export type WorkspaceState = {
 type WorkspaceAction =
   | { type: 'set'; field: keyof WorkspaceState; value: Setter<any> }
   | { type: 'selectWorkspace'; projectId: string; workspaceId: string | null }
+  | { type: 'initializeWorkspace'; workspaceId: string; terminals: TerminalEntry[]; root: SplitNode }
   | { type: 'focusTerminal'; workspaceId: string; terminalId: string }
   | { type: 'rememberTerminalCwd'; terminalId: string; cwd: string }
   | { type: 'removeTerminal'; workspaceId: string }
@@ -32,7 +33,7 @@ const initialWorkspaceState: WorkspaceState = {
   visitedWorkspaceIds: [],
   activeTerminalId: null,
   focusedTerminalByWorkspaceId: {},
-  maximizedWorkspaceId: null,
+  maximizedWorkspaceIds: {},
   sidebarFocusedWorkspaceId: null,
   terminalCwds: {},
 };
@@ -51,13 +52,56 @@ function reducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState
   switch (action.type) {
     case 'set':
       return { ...state, [action.field]: applySetter(state[action.field], action.value) };
-    case 'selectWorkspace':
+    case 'selectWorkspace': {
+      const terminalIds = action.workspaceId
+        ? (state.terminalsByWorkspaceId[action.workspaceId] ?? []).map((terminal) => terminal.id)
+        : [];
+      const rememberedTerminalId = action.workspaceId ? state.focusedTerminalByWorkspaceId[action.workspaceId] : undefined;
+      const nextTerminalId = rememberedTerminalId && terminalIds.includes(rememberedTerminalId)
+        ? rememberedTerminalId
+        : terminalIds[0] ?? null;
       return {
         ...state,
         activeProjectId: action.projectId,
         activeWorkspaceId: action.workspaceId,
         sidebarFocusedWorkspaceId: action.workspaceId,
+        // Previously initialized workspaces can be activated immediately. This
+        // prevents a render where the newly visible workspace has the previous
+        // workspace's active terminal and every terminal appears disabled.
+        activeTerminalId: action.workspaceId ? nextTerminalId : null,
       };
+    }
+    case 'initializeWorkspace': {
+      const isActiveWorkspace = state.activeWorkspaceId === action.workspaceId;
+      const terminals = state.terminalsByWorkspaceId[action.workspaceId]?.length
+        ? state.terminalsByWorkspaceId[action.workspaceId]
+        : action.terminals;
+      const terminalIds = terminals.map((terminal) => terminal.id);
+      const currentTerminalId = state.activeTerminalId?.startsWith(`${action.workspaceId}:`) && terminalIds.includes(state.activeTerminalId)
+        ? state.activeTerminalId
+        : null;
+      const rememberedTerminalId = state.focusedTerminalByWorkspaceId[action.workspaceId];
+      const nextTerminalId = currentTerminalId
+        ?? (rememberedTerminalId && terminalIds.includes(rememberedTerminalId) ? rememberedTerminalId : null)
+        ?? terminalIds[0]
+        ?? null;
+      return {
+        ...state,
+        visitedWorkspaceIds: state.visitedWorkspaceIds.includes(action.workspaceId)
+          ? state.visitedWorkspaceIds
+          : [...state.visitedWorkspaceIds, action.workspaceId],
+        terminalsByWorkspaceId: state.terminalsByWorkspaceId[action.workspaceId]?.length
+          ? state.terminalsByWorkspaceId
+          : { ...state.terminalsByWorkspaceId, [action.workspaceId]: terminals },
+        splitRootsByWorkspaceId: state.splitRootsByWorkspaceId[action.workspaceId]
+          ? state.splitRootsByWorkspaceId
+          : { ...state.splitRootsByWorkspaceId, [action.workspaceId]: action.root },
+        activeTerminalId: isActiveWorkspace ? nextTerminalId : state.activeTerminalId,
+        focusedTerminalByWorkspaceId: nextTerminalId
+          ? { ...state.focusedTerminalByWorkspaceId, [action.workspaceId]: nextTerminalId }
+          : state.focusedTerminalByWorkspaceId,
+      };
+    }
     case 'focusTerminal':
       if (state.activeTerminalId === action.terminalId && state.focusedTerminalByWorkspaceId[action.workspaceId] === action.terminalId) return state;
       return {
@@ -78,7 +122,7 @@ function reducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState
         focusedTerminalByWorkspaceId: omitKeys(state.focusedTerminalByWorkspaceId, [action.workspaceId]),
         visitedWorkspaceIds: state.visitedWorkspaceIds.filter((id) => id !== action.workspaceId),
         activeTerminalId: state.activeTerminalId?.startsWith(`${action.workspaceId}:`) ? null : state.activeTerminalId,
-        maximizedWorkspaceId: state.maximizedWorkspaceId === action.workspaceId ? null : state.maximizedWorkspaceId,
+        maximizedWorkspaceIds: omitKeys(state.maximizedWorkspaceIds, [action.workspaceId]),
       };
     case 'removeProject':
       return {
@@ -91,7 +135,7 @@ function reducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState
         focusedTerminalByWorkspaceId: omitKeys(state.focusedTerminalByWorkspaceId, action.workspaceIds),
         visitedWorkspaceIds: state.visitedWorkspaceIds.filter((id) => !action.workspaceIds.includes(id)),
         activeTerminalId: action.workspaceIds.some((workspaceId) => state.activeTerminalId?.startsWith(`${workspaceId}:`)) ? null : state.activeTerminalId,
-        maximizedWorkspaceId: action.workspaceIds.includes(state.maximizedWorkspaceId ?? '') ? null : state.maximizedWorkspaceId,
+        maximizedWorkspaceIds: omitKeys(state.maximizedWorkspaceIds, action.workspaceIds),
       };
     default:
       return state;
@@ -111,13 +155,13 @@ export function useWorkspaceState() {
       setActiveWorkspaceId: (value: Setter<string | null>) => setField('activeWorkspaceId', value),
       setTerminalsByWorkspaceId: (value: Setter<Record<string, TerminalEntry[]>>) => setField('terminalsByWorkspaceId', value),
       setSplitRootsByWorkspaceId: (value: Setter<Record<string, SplitNode>>) => setField('splitRootsByWorkspaceId', value),
-      setVisitedWorkspaceIds: (value: Setter<string[]>) => setField('visitedWorkspaceIds', value),
       setActiveTerminalId: (value: Setter<string | null>) => setField('activeTerminalId', value),
       setFocusedTerminalByWorkspaceId: (value: Setter<Record<string, string>>) => setField('focusedTerminalByWorkspaceId', value),
-      setMaximizedWorkspaceId: (value: Setter<string | null>) => setField('maximizedWorkspaceId', value),
+      setMaximizedWorkspaceIds: (value: Setter<MaximizedWorkspaceIds>) => setField('maximizedWorkspaceIds', value),
       setSidebarFocusedWorkspaceId: (value: Setter<string | null>) => setField('sidebarFocusedWorkspaceId', value),
       setTerminalCwds: (value: Setter<Record<string, string>>) => setField('terminalCwds', value),
       selectWorkspace: (projectId: string, workspaceId: string | null) => dispatch({ type: 'selectWorkspace', projectId, workspaceId }),
+      initializeWorkspace: (workspaceId: string, terminals: TerminalEntry[], root: SplitNode) => dispatch({ type: 'initializeWorkspace', workspaceId, terminals, root }),
       focusTerminal: (workspaceId: string, terminalId: string) => dispatch({ type: 'focusTerminal', workspaceId, terminalId }),
       rememberTerminalCwd: (terminalId: string, cwd: string) => dispatch({ type: 'rememberTerminalCwd', terminalId, cwd }),
       removeTerminalState: (workspaceId: string) => dispatch({ type: 'removeTerminal', workspaceId }),

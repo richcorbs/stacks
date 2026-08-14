@@ -1,5 +1,5 @@
 import { SplitView } from './WorkspaceTerminalTree';
-import type { TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
+import type { MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import { effectiveDisplayedMaximizedTerminalId } from '../workspace/selectors';
 
 type WorkspaceViewModel = {
@@ -15,7 +15,7 @@ export function WorkspaceViews({
   workspaces,
   activeWorkspaceId,
   activeTerminalId,
-  maximizedWorkspaceId,
+  maximizedWorkspaceIds,
   broadcastWorkspaceIds,
   terminalFontSize,
   terminalFontFamily,
@@ -36,7 +36,7 @@ export function WorkspaceViews({
   workspaces: WorkspaceViewModel[];
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
-  maximizedWorkspaceId: string | null;
+  maximizedWorkspaceIds: MaximizedWorkspaceIds;
   broadcastWorkspaceIds: Record<string, boolean>;
   terminalFontSize: number;
   terminalFontFamily: string;
@@ -63,7 +63,7 @@ export function WorkspaceViews({
     const terminalsById = Object.fromEntries(terminals.map((terminal) => [terminal.id, terminal]));
     const visibleTerminalIds = terminals.map((terminal) => terminal.id);
     const terminalFocusedTerminalId = focusedTerminalForWorkspace(workspace.id, activeTerminalId, visibleTerminalIds);
-    const visibleMaximizedTerminalId = effectiveDisplayedMaximizedTerminalId(maximizedWorkspaceId, workspace.id, terminalFocusedTerminalId, visibleTerminalIds);
+    const visibleMaximizedTerminalId = effectiveDisplayedMaximizedTerminalId(maximizedWorkspaceIds, workspace.id, terminalFocusedTerminalId, visibleTerminalIds);
     return (
       <div
         key={workspace.id}
