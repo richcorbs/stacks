@@ -22,6 +22,7 @@ export function createTerminalSession({
   onInput: (data: string) => void;
 }): TerminalSession {
   const term = new Terminal({
+    allowProposedApi: true,
     cursorBlink: true,
     fontFamily: terminalFontFamily,
     fontSize: terminalFontSize,
