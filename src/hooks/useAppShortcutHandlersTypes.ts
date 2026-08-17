@@ -29,6 +29,7 @@ export type AppShortcutHandlerOptions = {
   deleteProject: (projectId: string) => void;
   deleteWorkspace: (projectId: string, workspaceId: string) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
+  splitTerminalWithCommand: (direction: 'row' | 'column', command: string) => void;
   cycleSidebarWorkspace: (delta: number) => void;
   cycleTerminal: (delta: number) => void;
   stopTerminal: (terminalId: string) => void;

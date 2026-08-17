@@ -48,11 +48,23 @@ export function useWorkspaceSplitCommands({
   }
 
   async function splitTerminal(direction: 'row' | 'column' = 'row', targetTerminalId?: string) {
+    const target = splitTarget(targetTerminalId);
+    if (!target) return;
+    setDialog({ kind: 'split', workspaceId: target.workspaceId, targetTerminalId: target.terminalId, direction, command: '' });
+  }
+
+  async function splitTerminalWithCommand(direction: 'row' | 'column', command: string) {
+    const target = splitTarget();
+    if (!target) return;
+    await completeSplitTerminal(target.workspaceId, target.terminalId, direction, command);
+  }
+
+  function splitTarget(targetTerminalId?: string) {
     const workspaceId = targetTerminalId?.split(':')[0] ?? activeWorkspace?.id;
-    if (!workspaceId) return;
-    const focusedTerminalId = targetTerminalId ?? (activeTerminalId?.startsWith(`${workspaceId}:`) ? activeTerminalId : `${workspaceId}:0`);
-    if ((terminalsByWorkspaceId[workspaceId] ?? []).some((terminal) => terminal.id === focusedTerminalId && terminal.temporary)) return;
-    setDialog({ kind: 'split', workspaceId, targetTerminalId: focusedTerminalId, direction, command: '' });
+    if (!workspaceId) return null;
+    const terminalId = targetTerminalId ?? (activeTerminalId?.startsWith(`${workspaceId}:`) ? activeTerminalId : `${workspaceId}:0`);
+    if ((terminalsByWorkspaceId[workspaceId] ?? []).some((terminal) => terminal.id === terminalId && terminal.temporary)) return null;
+    return { workspaceId, terminalId };
   }
 
   function resizeSplit(workspaceId: string, path: string, ratio: number) {
@@ -66,5 +78,5 @@ export function useWorkspaceSplitCommands({
     requestTerminalSessionsScrollToBottomAfterFit((terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id));
   }
 
-  return { completeSplitTerminal, splitTerminal, resizeSplit };
+  return { completeSplitTerminal, splitTerminal, splitTerminalWithCommand, resizeSplit };
 }

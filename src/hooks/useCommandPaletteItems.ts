@@ -20,6 +20,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     options.onEditTerminal,
     options.onDeleteWorkspace,
     options.onSplitTerminal,
+    options.onSplitTerminalWithCommand,
     options.onCycleWorkspace,
     options.onCycleTerminal,
     options.onStopTerminal,

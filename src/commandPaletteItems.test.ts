@@ -26,6 +26,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onEditTerminal: vi.fn(),
     onDeleteWorkspace: vi.fn(),
     onSplitTerminal: vi.fn(),
+    onSplitTerminalWithCommand: vi.fn(),
     onCycleWorkspace: vi.fn(),
     onCycleTerminal: vi.fn(),
     onStopTerminal: vi.fn(),
@@ -52,6 +53,8 @@ describe('buildCommandPaletteItems', () => {
       'new-workspace',
       'split-terminal-right',
       'split-terminal-down',
+      'split-start-rails-server',
+      'split-start-rails-console',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -60,6 +63,17 @@ describe('buildCommandPaletteItems', () => {
       'project-workspace-p1',
       'terminal-t1:0',
     ]));
+  });
+
+  it('splits down and starts Rails commands from the palette', () => {
+    const onSplitTerminalWithCommand = vi.fn();
+    const items = palette({ onSplitTerminalWithCommand });
+
+    items.find((item) => item.id === 'split-start-rails-server')?.action();
+    items.find((item) => item.id === 'split-start-rails-console')?.action();
+
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', 'bd');
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'column', 'bin/rails console');
   });
 
   it('shows broadcast command only when active workspace has multiple terminals', () => {

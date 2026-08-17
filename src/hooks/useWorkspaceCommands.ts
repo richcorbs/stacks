@@ -129,7 +129,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     restartTerminal,
     closeTerminal,
   } = paneCommands;
-  const { splitTerminal, resizeSplit } = splitCommands;
+  const { splitTerminal, splitTerminalWithCommand, resizeSplit } = splitCommands;
 
   return {
     openProjectDialog,
@@ -146,6 +146,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     moveTerminal,
     deleteProject,
     splitTerminal,
+    splitTerminalWithCommand,
     cycleTerminal,
     cycleSidebarWorkspace,
     activateSidebarFocusedWorkspace,

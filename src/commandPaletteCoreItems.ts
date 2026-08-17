@@ -18,6 +18,7 @@ export function commandPaletteCoreItems({
   onEditTerminal,
   onDeleteWorkspace,
   onSplitTerminal,
+  onSplitTerminalWithCommand,
   onCycleWorkspace,
   onCycleTerminal,
   onStopTerminal,
@@ -49,6 +50,7 @@ export function commandPaletteCoreItems({
   onEditTerminal: (workspaceId: string, terminalId: string) => void;
   onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
+  onSplitTerminalWithCommand: (direction: 'row' | 'column', command: string) => void;
   onCycleWorkspace: (delta: number) => void;
   onCycleTerminal: (delta: number) => void;
   onStopTerminal: (terminalId: string) => void;
@@ -79,6 +81,8 @@ export function commandPaletteCoreItems({
     { id: 'run-one-time-command', title: 'Run One-Time Command', subtitle: activeTerminalId ? `From ${activePath || 'the focused terminal directory'}` : 'Select a terminal first', keywords: 'execute temporary command task current directory cwd', action: () => { if (activeTerminalId) onRunOneTimeCommand(); } },
     { id: 'split-terminal-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split terminal vertical', action: () => onSplitTerminal('row') },
     { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal horizontal', action: () => onSplitTerminal('column') },
+    { id: 'split-start-rails-server', title: 'Split and Start Rails Server', subtitle: 'Horizontal split • bd', keywords: 'split terminal horizontal rails server bin dev bd', action: () => onSplitTerminalWithCommand('column', 'bd') },
+    { id: 'split-start-rails-console', title: 'Split and Start Rails Console', subtitle: 'Horizontal split • bin/rails console', keywords: 'split terminal horizontal rails console', action: () => onSplitTerminalWithCommand('column', 'bin/rails console') },
     { id: 'find-terminal', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
     { id: 'next-workspace', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch workspace forward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, 1, onSelectWorkspace, onCycleWorkspace) },
     { id: 'previous-workspace', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch workspace backward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, -1, onSelectWorkspace, onCycleWorkspace) },
