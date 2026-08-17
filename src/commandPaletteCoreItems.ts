@@ -68,6 +68,8 @@ export function commandPaletteCoreItems({
   activeWorkspaceTerminalCount: number;
   onToggleBroadcast: () => void;
 }): PaletteItem[] {
+  const stagingNumber = fourDigitNumber(activeWorkspace?.name);
+  const stagingSubtitle = stagingNumber ? `Horizontal split • staging ${stagingNumber}` : 'Requires a 4-digit number in the workspace name';
   const items: PaletteItem[] = [
     { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
     { id: 'new-workspace', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewWorkspace(activeProject) : onNewProject() },
@@ -83,6 +85,10 @@ export function commandPaletteCoreItems({
     { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal horizontal', action: () => onSplitTerminal('column') },
     { id: 'split-start-rails-server', title: 'Split and Start Rails Server', subtitle: 'Horizontal split • bd', keywords: 'split terminal horizontal rails server bin dev bd', action: () => onSplitTerminalWithCommand('column', 'bd') },
     { id: 'split-start-rails-console', title: 'Split and Start Rails Console', subtitle: 'Horizontal split • bin/rails console', keywords: 'split terminal horizontal rails console', action: () => onSplitTerminalWithCommand('column', 'bin/rails console') },
+    { id: 'ssh-production-shell', title: 'SSH Production Shell', subtitle: 'Horizontal split • ssh a → shell', keywords: 'split terminal down ssh production shell', action: () => onSplitTerminalWithCommand('column', `ssh -t a 'bash -ic "shell"'`) },
+    { id: 'ssh-production-console', title: 'SSH Production Console', subtitle: 'Horizontal split • ssh a → rc', keywords: 'split terminal down ssh production rails console rc', action: () => onSplitTerminalWithCommand('column', `ssh -t a 'bash -ic "rc"'`) },
+    { id: 'ssh-staging-shell', title: 'SSH Staging Shell', subtitle: stagingSubtitle, keywords: 'split terminal down ssh staging shell fes', action: () => { if (stagingNumber) onSplitTerminalWithCommand('column', `ssh -t as 'bash -ic "fes ${stagingNumber}"'`); } },
+    { id: 'ssh-staging-console', title: 'SSH Staging Console', subtitle: stagingSubtitle, keywords: 'split terminal down ssh staging rails console fec', action: () => { if (stagingNumber) onSplitTerminalWithCommand('column', `ssh -t as 'bash -ic "fec ${stagingNumber}"'`); } },
     { id: 'find-terminal', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
     { id: 'next-workspace', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch workspace forward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, 1, onSelectWorkspace, onCycleWorkspace) },
     { id: 'previous-workspace', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch workspace backward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, -1, onSelectWorkspace, onCycleWorkspace) },
@@ -112,6 +118,10 @@ export function commandPaletteCoreItems({
   }
 
   return items;
+}
+
+function fourDigitNumber(value: string | undefined) {
+  return value?.match(/(?:^|\D)(\d{4})(?!\d)/)?.[1] ?? null;
 }
 
 function selectRelativeWorkspace(sidebarWorkspaces: SidebarWorkspace[], activeWorkspaceId: string | null, delta: number, onSelectWorkspace: (projectId: string, workspaceId: string) => void, onCycleWorkspace: (delta: number) => void) {

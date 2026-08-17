@@ -55,6 +55,10 @@ describe('buildCommandPaletteItems', () => {
       'split-terminal-down',
       'split-start-rails-server',
       'split-start-rails-console',
+      'ssh-production-shell',
+      'ssh-production-console',
+      'ssh-staging-shell',
+      'ssh-staging-console',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -74,6 +78,40 @@ describe('buildCommandPaletteItems', () => {
 
     expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', 'bd');
     expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'column', 'bin/rails console');
+  });
+
+  it('splits down and starts production SSH commands', () => {
+    const onSplitTerminalWithCommand = vi.fn();
+    const items = palette({ onSplitTerminalWithCommand });
+
+    items.find((item) => item.id === 'ssh-production-shell')?.action();
+    items.find((item) => item.id === 'ssh-production-console')?.action();
+
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', `ssh -t a 'bash -ic "shell"'`);
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'column', `ssh -t a 'bash -ic "rc"'`);
+  });
+
+  it('uses the four-digit workspace number for staging SSH commands', () => {
+    const onSplitTerminalWithCommand = vi.fn();
+    const numberedWorkspace = { ...workspace, name: 'Feature 4821 billing' };
+    const items = palette({ activeWorkspace: numberedWorkspace, onSplitTerminalWithCommand });
+
+    items.find((item) => item.id === 'ssh-staging-shell')?.action();
+    items.find((item) => item.id === 'ssh-staging-console')?.action();
+
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', `ssh -t as 'bash -ic "fes 4821"'`);
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'column', `ssh -t as 'bash -ic "fec 4821"'`);
+  });
+
+  it('does not start a staging SSH command without a four-digit workspace number', () => {
+    const onSplitTerminalWithCommand = vi.fn();
+    const items = palette({ onSplitTerminalWithCommand });
+
+    const stagingShell = items.find((item) => item.id === 'ssh-staging-shell');
+    expect(stagingShell?.subtitle).toBe('Requires a 4-digit number in the workspace name');
+    stagingShell?.action();
+
+    expect(onSplitTerminalWithCommand).not.toHaveBeenCalled();
   });
 
   it('shows broadcast command only when active workspace has multiple terminals', () => {
