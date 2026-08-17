@@ -1,7 +1,7 @@
 import type React from 'react';
 import type { DialogState, MaximizedWorkspaceIds, TerminalEntry, SplitNode, WorkspaceEntry } from '../types';
 import { setSplitRatio, splitLeaf } from '../utils';
-import { requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
+import { registerOneTimeInitialInput, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { terminalIdsForWorkspace, shouldMaximizeTerminalAfterNewSplit } from '../workspace/selectors';
 
 type WorkspaceSplitCommandOptions = {
@@ -31,8 +31,9 @@ export function useWorkspaceSplitCommands({
   focusTerminal,
   saveTerminalSplit,
 }: WorkspaceSplitCommandOptions) {
-  async function completeSplitTerminal(workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) {
+  async function completeSplitTerminal(workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null, initialInput?: string) {
     const id = `${workspaceId}:${Date.now()}`;
+    if (initialInput) registerOneTimeInitialInput(id, initialInput);
     const existingTerminalIds = terminalIdsForWorkspace(workspaceId, terminalsByWorkspaceId, splitRootsByWorkspaceId[workspaceId]);
     const shouldMaximizeNewTerminal = shouldMaximizeTerminalAfterNewSplit(workspaceId, existingTerminalIds, maximizedWorkspaceIds);
     setTerminalsByWorkspaceId((all) => ({ ...all, [workspaceId]: [...(all[workspaceId] ?? []), { id, workspaceId, command }] }));
@@ -53,10 +54,10 @@ export function useWorkspaceSplitCommands({
     setDialog({ kind: 'split', workspaceId: target.workspaceId, targetTerminalId: target.terminalId, direction, command: '' });
   }
 
-  async function splitTerminalWithCommand(direction: 'row' | 'column', command: string) {
+  async function splitTerminalWithCommand(direction: 'row' | 'column', command: string, execute = true) {
     const target = splitTarget();
     if (!target) return;
-    await completeSplitTerminal(target.workspaceId, target.terminalId, direction, command);
+    await completeSplitTerminal(target.workspaceId, target.terminalId, direction, execute ? command : null, execute ? undefined : command);
   }
 
   function splitTarget(targetTerminalId?: string) {

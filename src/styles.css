@@ -445,6 +445,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 }
 .modal input:focus,
 .modal select:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f633; }
+.modal .checkboxLabel { display: flex; align-items: center; gap: 9px; }
+.modal .checkboxLabel input { width: auto; margin: 0; }
 .dialogGridPickerField { margin-bottom: 26px; }
 .dialogGridPickerHeader { display: flex; justify-content: space-between; align-items: baseline; color: #b9c5d3; font-size: 13px; }
 .dialogGridPickerHeader strong { color: #8091a5; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }

@@ -38,14 +38,15 @@ function trimOutputQueue(session: TerminalSession) {
   session.outputQueuedChars += notice.length;
 }
 
-function flushTerminalOutput(session: TerminalSession) {
+function flushTerminalOutput(session: TerminalSession, terminalId: string) {
   if (session.outputWriteInProgress) return;
   const batch = nextOutputBatch(session);
   if (!batch) return;
   session.outputWriteInProgress = true;
   session.term.write(batch, () => {
     session.outputWriteInProgress = false;
-    flushTerminalOutput(session);
+    window.dispatchEvent(new CustomEvent('terminal-output-rendered', { detail: { terminalId } }));
+    flushTerminalOutput(session, terminalId);
   });
 }
 
@@ -55,5 +56,5 @@ export function enqueueTerminalOutput(session: TerminalSession, text: string, wo
   session.outputQueuedChars += text.length;
   trimOutputQueue(session);
   enqueueTerminalActivityEvent(session, workspaceId, terminalId);
-  flushTerminalOutput(session);
+  flushTerminalOutput(session, terminalId);
 }

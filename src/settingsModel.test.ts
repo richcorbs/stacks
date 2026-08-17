@@ -25,6 +25,20 @@ describe('settingsModel', () => {
     expect(persisted.editor_app).toBe(DEFAULT_APP_SETTINGS.editor_app);
   });
 
+  it('preserves valid custom Cmd-P commands and removes invalid entries', () => {
+    const settings = resolveAppSettings({
+      custom_cmd_p_commands: [
+        { id: ' dev ', label: ' Start server ', command: ' npm run dev ', direction: 'column', execute: false },
+        { id: 'bad', label: '', command: 'false', direction: 'row', execute: true },
+      ],
+    });
+
+    expect(settings.custom_cmd_p_commands).toEqual([
+      { id: 'dev', label: 'Start server', command: 'npm run dev', direction: 'column', execute: false },
+    ]);
+  });
+
+
   it('defaults terminal border colors to the current blue and green', () => {
     expect(DEFAULT_APP_SETTINGS.focused_terminal_border_color).toBe('#3b82f6');
     expect(DEFAULT_APP_SETTINGS.maximized_terminal_border_color).toBe('#84cc16');

@@ -93,6 +93,12 @@ export function useAppRootModel() {
     setRestartTerminalRequest,
     oneTimeCommandOpen,
     setOneTimeCommandOpen,
+    addCmdPCommandOpen,
+    setAddCmdPCommandOpen,
+    editingCmdPCommand,
+    setEditingCmdPCommand,
+    deletingCmdPCommand,
+    setDeletingCmdPCommand,
     deleteMultipleWorkspacesOpen,
     setDeleteMultipleWorkspacesOpen,
   } = overlayState;
@@ -328,6 +334,9 @@ export function useAppRootModel() {
     openTerminalSearch,
     openDirectoryInEditor,
     openOneTimeCommand: () => setOneTimeCommandOpen(true),
+    openAddCmdPCommand: () => setAddCmdPCommandOpen(true),
+    openEditCmdPCommand: setEditingCmdPCommand,
+    openDeleteCmdPCommand: setDeletingCmdPCommand,
     openDeleteMultipleWorkspaces: () => setDeleteMultipleWorkspacesOpen(true),
     broadcastEnabled: activeWorkspaceId ? Boolean(broadcastWorkspaceIds[activeWorkspaceId]) : false,
     onToggleBroadcast: toggleActiveWorkspaceBroadcast,
@@ -384,6 +393,39 @@ export function useAppRootModel() {
     settingsOpen,
     oneTimeCommandOpen,
     setOneTimeCommandOpen,
+    addCmdPCommandOpen,
+    setAddCmdPCommandOpen,
+    editingCmdPCommand,
+    setEditingCmdPCommand,
+    deletingCmdPCommand,
+    setDeletingCmdPCommand,
+    addCmdPCommand: (item) => {
+      setAppSettings((current) => ({
+        ...current,
+        custom_cmd_p_commands: [...current.custom_cmd_p_commands, { ...item, id: crypto.randomUUID() }],
+      }));
+      setAddCmdPCommandOpen(false);
+      showToast('Cmd-P command saved');
+    },
+    editCmdPCommand: (item) => {
+      if (!editingCmdPCommand) return;
+      setAppSettings((current) => ({
+        ...current,
+        custom_cmd_p_commands: current.custom_cmd_p_commands.map((command) =>
+          command.id === editingCmdPCommand.id ? { ...item, id: command.id } : command),
+      }));
+      setEditingCmdPCommand(null);
+      showToast('Cmd-P command updated');
+    },
+    deleteCmdPCommand: () => {
+      if (!deletingCmdPCommand) return;
+      setAppSettings((current) => ({
+        ...current,
+        custom_cmd_p_commands: current.custom_cmd_p_commands.filter((command) => command.id !== deletingCmdPCommand.id),
+      }));
+      setDeletingCmdPCommand(null);
+      showToast('Cmd-P command deleted');
+    },
     deleteMultipleWorkspacesOpen,
     setDeleteMultipleWorkspacesOpen,
     deleteMultipleWorkspaces: (query) => {

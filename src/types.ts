@@ -4,6 +4,7 @@ import type { SearchAddon } from '@xterm/addon-search';
 import type { WebLinksAddon } from '@xterm/addon-web-links';
 
 export type Store = { projects: Project[] };
+export type CustomCmdPCommand = { id: string; label: string; command: string; direction: 'row' | 'column'; execute: boolean };
 export type Project = { id: string; name: string; path: string; workspaces: WorkspaceEntry[]; collapsed?: boolean };
 export type WorkspaceEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
 export type TerminalEntry = { id: string; workspaceId: string; command?: string | null; cwd?: string | null; temporary?: boolean };
@@ -43,6 +44,7 @@ export type AppSettings = {
   alive_dot_color?: string | null;
   active_dot_color?: string | null;
   unseen_dot_color?: string | null;
+  custom_cmd_p_commands?: CustomCmdPCommand[] | null;
 };
 export type TermSize = { cols: number; rows: number };
 export type TerminalSession = {
@@ -67,6 +69,7 @@ export type TerminalSession = {
   resizeObserver?: ResizeObserver;
   unlistenData?: () => void;
   unlistenExit?: () => void;
+  pendingInitialInputCleanup?: () => void;
 };
 
 export type DialogState =

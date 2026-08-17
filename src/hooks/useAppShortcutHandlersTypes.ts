@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { TerminalEntry, Project, Store, WorkspaceEntry } from '../types';
+import type { CustomCmdPCommand, TerminalEntry, Project, Store, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
 export type AppShortcutHandlerOptions = {
@@ -29,7 +29,7 @@ export type AppShortcutHandlerOptions = {
   deleteProject: (projectId: string) => void;
   deleteWorkspace: (projectId: string, workspaceId: string) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
-  splitTerminalWithCommand: (direction: 'row' | 'column', command: string) => void;
+  splitTerminalWithCommand: (direction: 'row' | 'column', command: string, execute?: boolean) => void;
   cycleSidebarWorkspace: (delta: number) => void;
   cycleTerminal: (delta: number) => void;
   stopTerminal: (terminalId: string) => void;
@@ -42,6 +42,9 @@ export type AppShortcutHandlerOptions = {
   openTerminalSearch: () => void;
   openDirectoryInEditor: () => void;
   openOneTimeCommand: () => void;
+  openAddCmdPCommand: () => void;
+  openEditCmdPCommand: (command: CustomCmdPCommand) => void;
+  openDeleteCmdPCommand: (command: CustomCmdPCommand) => void;
   openDeleteMultipleWorkspaces: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;

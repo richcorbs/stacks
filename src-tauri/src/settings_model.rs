@@ -10,6 +10,16 @@ pub struct WindowState {
     y: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomCmdPCommand {
+    pub id: String,
+    pub label: String,
+    pub command: String,
+    pub direction: String,
+    #[serde(default = "default_true")]
+    pub execute: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppSettings {
     #[serde(default)]
@@ -40,6 +50,8 @@ pub struct AppSettings {
     pub active_dot_color: Option<String>,
     #[serde(default)]
     pub unseen_dot_color: Option<String>,
+    #[serde(default)]
+    pub custom_cmd_p_commands: Option<Vec<CustomCmdPCommand>>,
 }
 
 impl AppSettings {
@@ -56,6 +68,14 @@ impl AppSettings {
         self.alive_dot_color = non_empty(next.alive_dot_color);
         self.active_dot_color = non_empty(next.active_dot_color);
         self.unseen_dot_color = non_empty(next.unseen_dot_color);
+        self.custom_cmd_p_commands = next.custom_cmd_p_commands.map(|commands| {
+            commands.into_iter().filter(|item| {
+                !item.id.trim().is_empty()
+                    && !item.label.trim().is_empty()
+                    && !item.command.trim().is_empty()
+                    && matches!(item.direction.as_str(), "row" | "column")
+            }).collect()
+        });
     }
 }
 
@@ -78,6 +98,8 @@ impl WindowState {
     pub fn x(&self) -> Option<i32> { self.x }
     pub fn y(&self) -> Option<i32> { self.y }
 }
+
+fn default_true() -> bool { true }
 
 fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())

@@ -2,6 +2,7 @@ import type { TerminalSession } from './types';
 
 const terminalSessions = new Map<string, TerminalSession>();
 const oneTimeStartupCommands = new Map<string, string>();
+const oneTimeInitialInputs = new Map<string, string>();
 const pendingScrollAfterFitTerminalIds = new Set<string>();
 const stickToBottomUntilBySession = new WeakMap<TerminalSession, number>();
 
@@ -31,6 +32,16 @@ export function consumeOneTimeStartupCommand(terminalId: string) {
 
 export function clearOneTimeStartupCommand(terminalId: string) {
   oneTimeStartupCommands.delete(terminalId);
+}
+
+export function registerOneTimeInitialInput(terminalId: string, input: string) {
+  oneTimeInitialInputs.set(terminalId, input);
+}
+
+export function consumeOneTimeInitialInput(terminalId: string) {
+  const input = oneTimeInitialInputs.get(terminalId);
+  oneTimeInitialInputs.delete(terminalId);
+  return input;
 }
 
 export function terminalRuntimeStats() {
@@ -169,6 +180,7 @@ export function consumeTerminalSessionScrollToBottomAfterFit(terminalId: string)
 }
 
 export function disposeTerminalSession(terminalId: string) {
+  oneTimeInitialInputs.delete(terminalId);
   const session = terminalSessions.get(terminalId);
   if (!session) return;
   window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: false } }));
@@ -177,6 +189,7 @@ export function disposeTerminalSession(terminalId: string) {
   session.selectionDisposable.dispose();
   session.unlistenData?.();
   session.unlistenExit?.();
+  session.pendingInitialInputCleanup?.();
   if (session.outputActivityFrame !== null) window.cancelAnimationFrame(session.outputActivityFrame);
   session.outputQueue = [];
   session.outputQueuedChars = 0;

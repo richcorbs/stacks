@@ -1,4 +1,4 @@
-import type { TerminalEntry, Project, Store, WorkspaceEntry } from './types';
+import type { CustomCmdPCommand, TerminalEntry, Project, Store, WorkspaceEntry } from './types';
 import type { PaletteItem } from './components/CommandPalette';
 import { commandPaletteCoreItems } from './commandPaletteCoreItems';
 
@@ -22,7 +22,7 @@ export type CommandPaletteItemOptions = {
   onEditTerminal: (workspaceId: string, terminalId: string) => void;
   onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
-  onSplitTerminalWithCommand: (direction: 'row' | 'column', command: string) => void;
+  onSplitTerminalWithCommand: (direction: 'row' | 'column', command: string, execute?: boolean) => void;
   onCycleWorkspace: (delta: number) => void;
   onCycleTerminal: (delta: number) => void;
   onStopTerminal: (terminalId: string) => void;
@@ -34,20 +34,61 @@ export type CommandPaletteItemOptions = {
   onOpenSettings: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
+  customCmdPCommands: CustomCmdPCommand[];
+  onAddCmdPCommand: () => void;
+  onEditCmdPCommand: (command: CustomCmdPCommand) => void;
+  onDeleteCmdPCommand: (command: CustomCmdPCommand) => void;
   onDeleteMultipleWorkspaces: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;
 };
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
-  const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeWorkspaceId, activeTerminalId, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
+  const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeWorkspaceId, activeTerminalId, customCmdPCommands, onSplitTerminalWithCommand, onEditCmdPCommand, onDeleteCmdPCommand, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
   const activeWorkspaceTerminalCount = activeWorkspaceId ? (terminalsByWorkspaceId[activeWorkspaceId] ?? []).filter((terminal) => !terminal.temporary).length : 0;
   return [
     ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount }),
+    ...customCommandItems(customCmdPCommands, onSplitTerminalWithCommand),
+    ...customCommandEditItems(customCmdPCommands, onEditCmdPCommand),
+    ...customCommandDeleteItems(customCmdPCommands, onDeleteCmdPCommand),
     ...workspaceItems(sidebarWorkspaces, activeWorkspaceId, onSelectWorkspace),
     ...projectItems(store.projects, onNewWorkspace),
     ...terminalItems(activeWorkspaceId, activeTerminalId, terminalsByWorkspaceId, onCycleTerminal),
   ];
+}
+
+function customCommandItems(
+  commands: CustomCmdPCommand[],
+  onSplitTerminalWithCommand: (direction: 'row' | 'column', command: string, execute?: boolean) => void,
+): PaletteItem[] {
+  return commands.map((item) => ({
+    id: `custom-cmd-p-${item.id}`,
+    title: item.label,
+    subtitle: `${item.direction === 'row' ? 'Split right' : 'Split down'} • ${item.execute ? 'Execute' : 'Insert without executing'} • ${item.command}`,
+    keywords: `custom saved command split ${item.execute ? 'execute run' : 'insert without enter'} ${item.command}`,
+    action: () => onSplitTerminalWithCommand(item.direction, item.command, item.execute),
+  }));
+}
+
+function customCommandEditItems(commands: CustomCmdPCommand[], onEditCmdPCommand: (command: CustomCmdPCommand) => void): PaletteItem[] {
+  return commands.map((item) => ({
+    id: `edit-custom-cmd-p-${item.id}`,
+    title: `Edit Cmd-P Command: ${item.label}`,
+    subtitle: item.command,
+    keywords: 'edit modify custom saved command',
+    action: () => onEditCmdPCommand(item),
+  }));
+}
+
+function customCommandDeleteItems(commands: CustomCmdPCommand[], onDeleteCmdPCommand: (command: CustomCmdPCommand) => void): PaletteItem[] {
+  return commands.map((item) => ({
+    id: `delete-custom-cmd-p-${item.id}`,
+    title: `Delete Cmd-P Command: ${item.label}`,
+    subtitle: item.command,
+    keywords: 'delete remove custom saved command',
+    danger: true,
+    action: () => onDeleteCmdPCommand(item),
+  }));
 }
 
 function workspaceItems(sidebarWorkspaces: SidebarWorkspace[], activeWorkspaceId: string | null, onSelectWorkspace: (projectId: string, workspaceId: string) => void): PaletteItem[] {

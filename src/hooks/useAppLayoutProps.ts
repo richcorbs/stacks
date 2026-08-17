@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
+import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from '../components/CommandPalette';
 import type { MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
@@ -57,6 +57,15 @@ type UseAppLayoutPropsOptions = {
   settingsOpen: boolean;
   oneTimeCommandOpen: boolean;
   setOneTimeCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  addCmdPCommandOpen: boolean;
+  setAddCmdPCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  editingCmdPCommand: CustomCmdPCommand | null;
+  setEditingCmdPCommand: React.Dispatch<React.SetStateAction<CustomCmdPCommand | null>>;
+  deletingCmdPCommand: CustomCmdPCommand | null;
+  setDeletingCmdPCommand: React.Dispatch<React.SetStateAction<CustomCmdPCommand | null>>;
+  addCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
+  editCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
+  deleteCmdPCommand: () => void;
   deleteMultipleWorkspacesOpen: boolean;
   setDeleteMultipleWorkspacesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   deleteMultipleWorkspaces: (query: string) => void;
@@ -152,6 +161,15 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       oneTimeCommandOpen: options.oneTimeCommandOpen,
       oneTimeCommandCwd: options.activePath,
       setOneTimeCommandOpen: options.setOneTimeCommandOpen,
+      addCmdPCommandOpen: options.addCmdPCommandOpen,
+      setAddCmdPCommandOpen: options.setAddCmdPCommandOpen,
+      editingCmdPCommand: options.editingCmdPCommand,
+      setEditingCmdPCommand: options.setEditingCmdPCommand,
+      deletingCmdPCommand: options.deletingCmdPCommand,
+      setDeletingCmdPCommand: options.setDeletingCmdPCommand,
+      addCmdPCommand: options.addCmdPCommand,
+      editCmdPCommand: options.editCmdPCommand,
+      deleteCmdPCommand: options.deleteCmdPCommand,
       deleteMultipleWorkspacesOpen: options.deleteMultipleWorkspacesOpen,
       setDeleteMultipleWorkspacesOpen: options.setDeleteMultipleWorkspacesOpen,
       deleteMultipleWorkspaces: options.deleteMultipleWorkspaces,

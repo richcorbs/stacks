@@ -38,6 +38,10 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onOpenSettings: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
     onRunOneTimeCommand: vi.fn(),
+    customCmdPCommands: [],
+    onAddCmdPCommand: vi.fn(),
+    onEditCmdPCommand: vi.fn(),
+    onDeleteCmdPCommand: vi.fn(),
     onDeleteMultipleWorkspaces: vi.fn(),
     broadcastEnabled: false,
     onToggleBroadcast: vi.fn(),
@@ -53,12 +57,7 @@ describe('buildCommandPaletteItems', () => {
       'new-workspace',
       'split-terminal-right',
       'split-terminal-down',
-      'split-start-rails-server',
-      'split-start-rails-console',
-      'ssh-production-shell',
-      'ssh-production-console',
-      'ssh-staging-shell',
-      'ssh-staging-console',
+      'add-cmd-p-command',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -69,49 +68,42 @@ describe('buildCommandPaletteItems', () => {
     ]));
   });
 
-  it('splits down and starts Rails commands from the palette', () => {
+  it('runs saved commands using their configured behavior', () => {
     const onSplitTerminalWithCommand = vi.fn();
-    const items = palette({ onSplitTerminalWithCommand });
+    const items = palette({
+      customCmdPCommands: [
+        { id: 'down', label: 'Start server', command: 'npm run dev', direction: 'column', execute: true },
+        { id: 'right', label: 'Open console', command: 'npm run console', direction: 'row', execute: true },
+        { id: 'insert', label: 'Prepare deploy', command: 'git push', direction: 'column', execute: false },
+      ],
+      onSplitTerminalWithCommand,
+    });
 
-    items.find((item) => item.id === 'split-start-rails-server')?.action();
-    items.find((item) => item.id === 'split-start-rails-console')?.action();
+    items.find((item) => item.id === 'custom-cmd-p-down')?.action();
+    items.find((item) => item.id === 'custom-cmd-p-right')?.action();
+    items.find((item) => item.id === 'custom-cmd-p-insert')?.action();
 
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', 'bd');
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'column', 'bin/rails console');
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', 'npm run dev', true);
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'row', 'npm run console', true);
+    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(3, 'column', 'git push', false);
   });
 
-  it('splits down and starts production SSH commands', () => {
-    const onSplitTerminalWithCommand = vi.fn();
-    const items = palette({ onSplitTerminalWithCommand });
+  it('opens add, edit, and delete Cmd-P command dialogs from the palette', () => {
+    const onAddCmdPCommand = vi.fn();
+    const onEditCmdPCommand = vi.fn();
+    const onDeleteCmdPCommand = vi.fn();
+    const command = { id: 'dev', label: 'Start server', command: 'npm run dev', direction: 'column' as const, execute: true };
+    const items = palette({ customCmdPCommands: [command], onAddCmdPCommand, onEditCmdPCommand, onDeleteCmdPCommand });
 
-    items.find((item) => item.id === 'ssh-production-shell')?.action();
-    items.find((item) => item.id === 'ssh-production-console')?.action();
+    items.find((item) => item.id === 'add-cmd-p-command')?.action();
+    items.find((item) => item.id === 'edit-custom-cmd-p-dev')?.action();
+    const deleteItem = items.find((item) => item.id === 'delete-custom-cmd-p-dev');
+    deleteItem?.action();
 
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', `ssh -t a 'bash -ic "shell"'`);
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'column', `ssh -t a 'bash -ic "rc"'`);
-  });
-
-  it('uses the four-digit workspace number for staging SSH commands', () => {
-    const onSplitTerminalWithCommand = vi.fn();
-    const numberedWorkspace = { ...workspace, name: 'Feature 4821 billing' };
-    const items = palette({ activeWorkspace: numberedWorkspace, onSplitTerminalWithCommand });
-
-    items.find((item) => item.id === 'ssh-staging-shell')?.action();
-    items.find((item) => item.id === 'ssh-staging-console')?.action();
-
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', `ssh -t as 'bash -ic "fes 4821"'`);
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'column', `ssh -t as 'bash -ic "fec 4821"'`);
-  });
-
-  it('does not start a staging SSH command without a four-digit workspace number', () => {
-    const onSplitTerminalWithCommand = vi.fn();
-    const items = palette({ onSplitTerminalWithCommand });
-
-    const stagingShell = items.find((item) => item.id === 'ssh-staging-shell');
-    expect(stagingShell?.subtitle).toBe('Requires a 4-digit number in the workspace name');
-    stagingShell?.action();
-
-    expect(onSplitTerminalWithCommand).not.toHaveBeenCalled();
+    expect(onAddCmdPCommand).toHaveBeenCalledOnce();
+    expect(onEditCmdPCommand).toHaveBeenCalledWith(command);
+    expect(deleteItem?.danger).toBe(true);
+    expect(onDeleteCmdPCommand).toHaveBeenCalledWith(command);
   });
 
   it('shows broadcast command only when active workspace has multiple terminals', () => {

@@ -1,4 +1,4 @@
-import type { AppSettings } from './types';
+import type { AppSettings, CustomCmdPCommand } from './types';
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -30,6 +30,7 @@ export type ResolvedAppSettings = {
   alive_dot_color: string;
   active_dot_color: string;
   unseen_dot_color: string;
+  custom_cmd_p_commands: CustomCmdPCommand[];
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
@@ -45,6 +46,7 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   alive_dot_color: DEFAULT_ALIVE_DOT_COLOR,
   active_dot_color: DEFAULT_ACTIVE_DOT_COLOR,
   unseen_dot_color: DEFAULT_UNSEEN_DOT_COLOR,
+  custom_cmd_p_commands: [],
 };
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
@@ -61,6 +63,7 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     alive_dot_color: normalizeColor(settings?.alive_dot_color, DEFAULT_APP_SETTINGS.alive_dot_color),
     active_dot_color: normalizeColor(settings?.active_dot_color, DEFAULT_APP_SETTINGS.active_dot_color),
     unseen_dot_color: normalizeColor(settings?.unseen_dot_color, DEFAULT_APP_SETTINGS.unseen_dot_color),
+    custom_cmd_p_commands: normalizeCustomCmdPCommands(settings?.custom_cmd_p_commands),
   };
 }
 
@@ -78,5 +81,17 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     alive_dot_color: normalizeColor(settings.alive_dot_color, DEFAULT_APP_SETTINGS.alive_dot_color),
     active_dot_color: normalizeColor(settings.active_dot_color, DEFAULT_APP_SETTINGS.active_dot_color),
     unseen_dot_color: normalizeColor(settings.unseen_dot_color, DEFAULT_APP_SETTINGS.unseen_dot_color),
+    custom_cmd_p_commands: normalizeCustomCmdPCommands(settings.custom_cmd_p_commands),
   };
+}
+
+function normalizeCustomCmdPCommands(commands: CustomCmdPCommand[] | null | undefined): CustomCmdPCommand[] {
+  if (!Array.isArray(commands)) return [];
+  return commands.flatMap((item) => {
+    const id = typeof item?.id === 'string' ? item.id.trim() : '';
+    const label = typeof item?.label === 'string' ? item.label.trim() : '';
+    const command = typeof item?.command === 'string' ? item.command.trim() : '';
+    if (!id || !label || !command || (item.direction !== 'row' && item.direction !== 'column')) return [];
+    return [{ id, label, command, direction: item.direction, execute: item.execute !== false }];
+  });
 }

@@ -5,8 +5,10 @@ import { SettingsDialog } from './SettingsDialog';
 import { AppContextMenu } from './AppContextMenu';
 import { AppConfirmDialogs } from './AppConfirmDialogs';
 import { OneTimeCommandDialog } from './OneTimeCommandDialog';
+import { AddCmdPCommandDialog } from './AddCmdPCommandDialog';
+import { DeleteCmdPCommandDialog } from './DeleteCmdPCommandDialog';
 import { DeleteMultipleWorkspacesDialog } from './DeleteMultipleWorkspacesDialog';
-import type { ContextMenuState, DialogState, Project, Store, ToastState, WorkspaceEntry } from '../types';
+import type { ContextMenuState, CustomCmdPCommand, DialogState, Project, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
 type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
@@ -22,6 +24,15 @@ export function AppOverlays({
   oneTimeCommandOpen,
   oneTimeCommandCwd,
   setOneTimeCommandOpen,
+  addCmdPCommandOpen,
+  setAddCmdPCommandOpen,
+  editingCmdPCommand,
+  setEditingCmdPCommand,
+  deletingCmdPCommand,
+  setDeletingCmdPCommand,
+  addCmdPCommand,
+  editCmdPCommand,
+  deleteCmdPCommand,
   deleteMultipleWorkspacesOpen,
   setDeleteMultipleWorkspacesOpen,
   deleteMultipleWorkspaces,
@@ -63,6 +74,15 @@ export function AppOverlays({
   oneTimeCommandOpen: boolean;
   oneTimeCommandCwd: string | null;
   setOneTimeCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  addCmdPCommandOpen: boolean;
+  setAddCmdPCommandOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  editingCmdPCommand: CustomCmdPCommand | null;
+  setEditingCmdPCommand: React.Dispatch<React.SetStateAction<CustomCmdPCommand | null>>;
+  deletingCmdPCommand: CustomCmdPCommand | null;
+  setDeletingCmdPCommand: React.Dispatch<React.SetStateAction<CustomCmdPCommand | null>>;
+  addCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
+  editCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
+  deleteCmdPCommand: () => void;
   deleteMultipleWorkspacesOpen: boolean;
   setDeleteMultipleWorkspacesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   deleteMultipleWorkspaces: (query: string) => void;
@@ -119,6 +139,31 @@ export function AppOverlays({
         onRunItem={() => closeCommandPalette({ restoreFocus: false })}
       />
       {settingsOpen && <SettingsDialog settings={appSettings} onChange={setAppSettings} onClose={closeSettings} />}
+      <AddCmdPCommandDialog
+        open={addCmdPCommandOpen}
+        onCancel={() => {
+          setAddCmdPCommandOpen(false);
+          restoreActiveTerminalFocus('cancel-add-cmd-p-command');
+        }}
+        onSave={addCmdPCommand}
+      />
+      <AddCmdPCommandDialog
+        open={Boolean(editingCmdPCommand)}
+        commandToEdit={editingCmdPCommand}
+        onCancel={() => {
+          setEditingCmdPCommand(null);
+          restoreActiveTerminalFocus('cancel-edit-cmd-p-command');
+        }}
+        onSave={editCmdPCommand}
+      />
+      <DeleteCmdPCommandDialog
+        command={deletingCmdPCommand}
+        onCancel={() => {
+          setDeletingCmdPCommand(null);
+          restoreActiveTerminalFocus('cancel-delete-cmd-p-command');
+        }}
+        onDelete={deleteCmdPCommand}
+      />
       <DeleteMultipleWorkspacesDialog
         open={deleteMultipleWorkspacesOpen}
         onCancel={() => {
