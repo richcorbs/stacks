@@ -15,6 +15,12 @@ export function SuperthreadPanel({ visible, projects, spaces, workspaceSlug, onS
 }) {
   const superthread = useSuperthreadCache(workspaceSlug, spaces);
   const [pendingWorkCard, setPendingWorkCard] = useState<SuperthreadCard | null>(null);
+  const selectedCardStatus = superthread.selectedCard
+    ? superthread.boards
+      .find((board) => board.id === superthread.selectedCard?.board_id)
+      ?.lists.find((list) => list.id === superthread.selectedCard?.list_id)
+      ?.behavior
+    : undefined;
 
   return (
     <aside className={`superthreadPanel${visible ? '' : ' superthreadPanelHidden'}`} aria-label="Superthread">
@@ -61,6 +67,7 @@ export function SuperthreadPanel({ visible, projects, spaces, workspaceSlug, onS
       {superthread.selectedCard && (
         <SuperthreadCardDialog
           card={superthread.selectedCard}
+          status={selectedCardStatus}
           loading={superthread.cardLoading}
           error={superthread.cardError}
           onRequestStartWork={(card) => {

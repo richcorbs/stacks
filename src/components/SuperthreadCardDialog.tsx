@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import DOMPurify from 'dompurify';
+import { canStartSuperthreadWork } from '../superthread/status';
 import type { SuperthreadCard } from '../superthread/types';
 
-export function SuperthreadCardDialog({ card, loading, error, onRequestStartWork, onClose }: {
+export function SuperthreadCardDialog({ card, status, loading, error, onRequestStartWork, onClose }: {
   card: SuperthreadCard;
+  status: string | undefined;
   loading: boolean;
   error: string | null;
   onRequestStartWork: (card: SuperthreadCard) => void;
@@ -70,7 +72,9 @@ export function SuperthreadCardDialog({ card, loading, error, onRequestStartWork
         )}
         <div className="modalActions">
           <button ref={closeRef} type="button" onClick={onClose}>Close</button>
-          <button className="primaryAction" type="button" onClick={() => onRequestStartWork(card)}>Start Work</button>
+          {canStartSuperthreadWork(status) && (
+            <button className="primaryAction" type="button" onClick={() => onRequestStartWork(card)}>Start Work</button>
+          )}
         </div>
       </div>
     </div>

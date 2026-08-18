@@ -55,6 +55,8 @@ struct CardsResponse {
 pub struct SuperthreadList {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub behavior: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -598,7 +600,7 @@ mod tests {
 case "$1 $2" in
   "spaces list") echo '[{"id":"s1","title":"Product"},{"id":"s2","title":"Product"},{"id":"s3","title":"Engineering"}]' ;;
   "boards list") if [ "$4" = "s2" ]; then echo 'access denied' >&2; exit 1; else echo '[{"id":"b1","title":"Roadmap"}]'; fi ;;
-  "boards get") echo '{"lists":[{"id":"l1","title":"Doing"}]}' ;;
+  "boards get") echo '{"lists":[{"id":"l1","title":"Doing","behavior":"started"}]}' ;;
   "cards list") echo '{"cards":[{"id":"2067","title":"Example","list_id":"l1"}]}' ;;
   "cards get") echo '{"id":"2067","title":"Example","list_id":"l1","assignees":[{"user_id":"u1"}]}' ;;
   "users list") echo '[{"user_id":"u1","display_name":"Ada"}]' ;;
@@ -613,7 +615,9 @@ esac
         let boards = service.boards(&["Product".to_string()]).unwrap();
         assert_eq!(boards.boards.len(), 1);
         assert_eq!(boards.warnings.len(), 1);
-        assert_eq!(service.board_lists("b1").unwrap()[0].title, "Doing");
+        let list = &service.board_lists("b1").unwrap()[0];
+        assert_eq!(list.title, "Doing");
+        assert_eq!(list.behavior, "started");
         assert_eq!(
             service.board_cards("b1", Some("arcasa")).unwrap()[0].card_url,
             "https://app.superthread.com/arcasa/card-2067"

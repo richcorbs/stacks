@@ -1,6 +1,9 @@
+export type SuperthreadCardStatus = 'backlog' | 'committed' | 'started' | 'completed' | 'cancelled';
+
 export type SuperthreadList = {
   id: string;
   title: string;
+  behavior: SuperthreadCardStatus | string;
 };
 
 export type SuperthreadCard = {
