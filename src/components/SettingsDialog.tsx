@@ -51,6 +51,10 @@ export function SettingsDialog({ settings, onChange, onClose }: {
       alive_dot_color: normalizeColor(draft.alive_dot_color, DEFAULT_ALIVE_DOT_COLOR),
       active_dot_color: normalizeColor(draft.active_dot_color, DEFAULT_ACTIVE_DOT_COLOR),
       unseen_dot_color: normalizeColor(draft.unseen_dot_color, DEFAULT_UNSEEN_DOT_COLOR),
+      superthread_workspace_slug: draft.superthread_workspace_slug.trim(),
+      superthread_spaces: draft.superthread_spaces.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
+      superthread_start_work_command: draft.superthread_start_work_command.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
+      superthread_workspace_name_template: draft.superthread_workspace_name_template.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
     });
     onClose();
   }
@@ -85,6 +89,58 @@ export function SettingsDialog({ settings, onChange, onClose }: {
         <WorkspaceStatusDotSettingsSection draft={draft} update={update} />
         <ConfirmationSettingsSection draft={draft} update={update} />
         <EditorSettingsSection draft={draft} update={update} chooseEditorApp={chooseEditorApp} />
+        <section className="settingsSection">
+          <h3>Superthread</h3>
+          <label className="checkboxLabel">
+            <input
+              type="checkbox"
+              checked={draft.superthread_enabled}
+              onChange={(event) => update({ superthread_enabled: event.target.checked })}
+            />
+            Enable Superthread panel
+          </label>
+          <label>
+            Spaces to include <span>comma-separated</span>
+            <input
+              value={draft.superthread_spaces}
+              placeholder="Product"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => update({ superthread_spaces: event.target.value })}
+            />
+          </label>
+          <label>
+            Start-work command
+            <input
+              value={draft.superthread_start_work_command}
+              placeholder="stwork {card_number}"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => update({ superthread_start_work_command: event.target.value })}
+            />
+          </label>
+          <label>
+            New workspace naming template
+            <input
+              value={draft.superthread_workspace_name_template}
+              placeholder="{card_number} {card_title}"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => update({ superthread_workspace_name_template: event.target.value })}
+            />
+          </label>
+          <div className="settingsHint">Available placeholders: {'{card_number}'}, {'{card_title}'}</div>
+          <label>
+            Workspace URL slug <span>optional</span>
+            <input
+              value={draft.superthread_workspace_slug}
+              placeholder="arcasa"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => update({ superthread_workspace_slug: event.target.value })}
+            />
+          </label>
+        </section>
         <div className="modalActions">
           <button type="button" onClick={onClose}>Cancel</button>
           <button type="button" onClick={() => setDraft(DEFAULT_APP_SETTINGS)}>Defaults</button>

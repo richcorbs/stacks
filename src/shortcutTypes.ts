@@ -11,6 +11,7 @@ export type ShortcutAction =
   | 'command-palette'
   | 'settings'
   | 'toggle-sidebar'
+  | 'toggle-superthread'
   | 'maximize-workspace'
   | 'focus-next-terminal'
   | 'focus-previous-terminal'
@@ -41,4 +42,5 @@ export type ShortcutHandlers = {
   openTerminalSearch: () => void;
   openSettings: () => void;
   toggleSidebar: () => void;
+  toggleSuperthread: () => void;
 };

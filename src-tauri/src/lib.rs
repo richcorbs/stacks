@@ -15,6 +15,7 @@ mod pty_cwd;
 mod settings;
 mod settings_model;
 mod store;
+mod superthread;
 use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
 use automation::{complete_automation_request, drain_automation_requests, AutomationState};
@@ -28,6 +29,10 @@ use settings::{
     save_sidebar_width, save_terminal_font_size, save_window_state,
 };
 use store::{load_store, save_store};
+use superthread::{
+    superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
+    SuperthreadService,
+};
 
 #[tauri::command]
 fn new_id() -> String {
@@ -55,6 +60,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(PtyRegistry::default()))
         .manage(automation_state.clone())
+        .manage(SuperthreadService::default())
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
@@ -78,6 +84,10 @@ pub fn run() {
             git_info,
             drain_automation_requests,
             complete_automation_request,
+            superthread_boards,
+            superthread_board_lists,
+            superthread_board_cards,
+            superthread_card,
         ])
         .setup(|app| {
             setup_main_window(app)?;

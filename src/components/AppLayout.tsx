@@ -2,17 +2,20 @@ import type React from 'react';
 import { Sidebar } from './Sidebar';
 import { MainWorkspace } from './MainWorkspace';
 import { AppOverlays } from './AppOverlays';
-import type { MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from './AppLayoutTypes';
+import { SuperthreadPanel } from './SuperthreadPanel';
+import type { MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps, SuperthreadLayoutProps } from './AppLayoutTypes';
 
 export function AppLayout({
   appStyle,
   sidebar,
   main,
+  superthread,
   overlays,
 }: {
   appStyle: React.CSSProperties;
   sidebar: SidebarLayoutProps;
   main: MainLayoutProps;
+  superthread: SuperthreadLayoutProps;
   overlays: OverlayLayoutProps;
 }) {
   return (
@@ -46,6 +49,9 @@ export function AppLayout({
         activeWorkspaceName={main.activeWorkspaceName}
         gitInfo={main.gitInfo}
         onToggleSidebar={main.toggleSidebar}
+        onToggleSuperthread={main.toggleSuperthread}
+        superthreadVisible={main.superthreadVisible}
+        superthreadEnabled={main.superthreadEnabled}
         workspaces={main.visitedWorkspaceTerminalTrees}
         activeWorkspaceId={main.activeWorkspaceId}
         activeTerminalId={main.activeTerminalId}
@@ -71,6 +77,15 @@ export function AppLayout({
         onToggleMaximizedTerminal={main.toggleMaximizedTerminal}
         onSplitTerminal={main.splitTerminal}
       />
+      {superthread.enabled && (
+        <SuperthreadPanel
+          visible={superthread.visible}
+          projects={superthread.projects}
+          spaces={superthread.spaces}
+          workspaceSlug={superthread.workspaceSlug}
+          onStartWork={superthread.startWork}
+        />
+      )}
       <AppOverlays {...overlays} />
     </div>
   );

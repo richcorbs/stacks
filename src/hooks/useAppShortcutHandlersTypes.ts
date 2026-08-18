@@ -14,6 +14,7 @@ export type AppShortcutHandlerOptions = {
   appSettings: ResolvedAppSettings;
   setMetaKeyDown: (down: boolean) => void;
   toggleSidebar: () => void;
+  toggleSuperthread: () => void;
   setConfirmCloseTerminalId: Dispatch<SetStateAction<string | null>>;
   setConfirmDeleteProjectId: Dispatch<SetStateAction<string | null>>;
   setConfirmDeleteWorkspace: Dispatch<SetStateAction<{ projectId: string; workspaceId: string } | null>>;

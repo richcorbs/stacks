@@ -52,6 +52,16 @@ pub struct AppSettings {
     pub unseen_dot_color: Option<String>,
     #[serde(default)]
     pub custom_cmd_p_commands: Option<Vec<CustomCmdPCommand>>,
+    #[serde(default)]
+    pub superthread_workspace_slug: Option<String>,
+    #[serde(default)]
+    pub superthread_spaces: Option<String>,
+    #[serde(default)]
+    pub superthread_start_work_command: Option<String>,
+    #[serde(default)]
+    pub superthread_workspace_name_template: Option<String>,
+    #[serde(default)]
+    pub superthread_enabled: Option<bool>,
 }
 
 impl AppSettings {
@@ -68,6 +78,11 @@ impl AppSettings {
         self.alive_dot_color = non_empty(next.alive_dot_color);
         self.active_dot_color = non_empty(next.active_dot_color);
         self.unseen_dot_color = non_empty(next.unseen_dot_color);
+        self.superthread_workspace_slug = non_empty(next.superthread_workspace_slug);
+        self.superthread_spaces = non_empty(next.superthread_spaces);
+        self.superthread_start_work_command = non_empty(next.superthread_start_work_command);
+        self.superthread_workspace_name_template = non_empty(next.superthread_workspace_name_template);
+        self.superthread_enabled = next.superthread_enabled;
         self.custom_cmd_p_commands = next.custom_cmd_p_commands.map(|commands| {
             commands.into_iter().filter(|item| {
                 !item.id.trim().is_empty()

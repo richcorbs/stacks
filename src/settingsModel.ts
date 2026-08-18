@@ -31,6 +31,11 @@ export type ResolvedAppSettings = {
   active_dot_color: string;
   unseen_dot_color: string;
   custom_cmd_p_commands: CustomCmdPCommand[];
+  superthread_workspace_slug: string;
+  superthread_spaces: string;
+  superthread_start_work_command: string;
+  superthread_workspace_name_template: string;
+  superthread_enabled: boolean;
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
@@ -47,6 +52,11 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   active_dot_color: DEFAULT_ACTIVE_DOT_COLOR,
   unseen_dot_color: DEFAULT_UNSEEN_DOT_COLOR,
   custom_cmd_p_commands: [],
+  superthread_workspace_slug: '',
+  superthread_spaces: 'Product',
+  superthread_start_work_command: 'stwork {card_number}',
+  superthread_workspace_name_template: '{card_number} {card_title}',
+  superthread_enabled: true,
 };
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
@@ -64,6 +74,11 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     active_dot_color: normalizeColor(settings?.active_dot_color, DEFAULT_APP_SETTINGS.active_dot_color),
     unseen_dot_color: normalizeColor(settings?.unseen_dot_color, DEFAULT_APP_SETTINGS.unseen_dot_color),
     custom_cmd_p_commands: normalizeCustomCmdPCommands(settings?.custom_cmd_p_commands),
+    superthread_workspace_slug: settings?.superthread_workspace_slug?.trim() || '',
+    superthread_spaces: settings?.superthread_spaces?.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
+    superthread_start_work_command: settings?.superthread_start_work_command?.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
+    superthread_workspace_name_template: settings?.superthread_workspace_name_template?.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
+    superthread_enabled: settings?.superthread_enabled ?? DEFAULT_APP_SETTINGS.superthread_enabled,
   };
 }
 
@@ -82,6 +97,11 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     active_dot_color: normalizeColor(settings.active_dot_color, DEFAULT_APP_SETTINGS.active_dot_color),
     unseen_dot_color: normalizeColor(settings.unseen_dot_color, DEFAULT_APP_SETTINGS.unseen_dot_color),
     custom_cmd_p_commands: normalizeCustomCmdPCommands(settings.custom_cmd_p_commands),
+    superthread_workspace_slug: settings.superthread_workspace_slug.trim() || null,
+    superthread_spaces: settings.superthread_spaces.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
+    superthread_start_work_command: settings.superthread_start_work_command.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
+    superthread_workspace_name_template: settings.superthread_workspace_name_template.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
+    superthread_enabled: settings.superthread_enabled,
   };
 }
 

@@ -1,8 +1,11 @@
-export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, onToggleSidebar }: {
+export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, onToggleSidebar, onToggleSuperthread, superthreadVisible, superthreadEnabled }: {
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
   hasActiveTerminal: boolean;
   onToggleSidebar: () => void;
+  onToggleSuperthread: () => void;
+  superthreadVisible: boolean;
+  superthreadEnabled: boolean;
 }) {
   return (
     <header className="topbar">
@@ -27,6 +30,17 @@ export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasAct
           <div className="subtitle">Select a workspace</div>
         )}
       </div>
+      {superthreadEnabled && <button
+        className="sidebarToggleButton superthreadTopbarToggle"
+        type="button"
+        title={`${superthreadVisible ? 'Close' : 'Open'} Superthread panel (⌘R)`}
+        aria-label={`${superthreadVisible ? 'Close' : 'Open'} Superthread panel`}
+        aria-pressed={superthreadVisible}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onToggleSuperthread}
+      >
+        <span className="sidebarIcon superthreadSidebarIcon" />
+      </button>}
     </header>
   );
 }

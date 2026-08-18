@@ -60,6 +60,19 @@ export type MainLayoutProps = {
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;
+  toggleSuperthread: () => void;
+  superthreadVisible: boolean;
+  superthreadEnabled: boolean;
+};
+
+export type SuperthreadLayoutProps = {
+  enabled: boolean;
+  visible: boolean;
+  projects: Project[];
+  spaces: string;
+  workspaceSlug: string;
+  toggle: () => void;
+  startWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
 };
 
 export type OverlayLayoutProps = {

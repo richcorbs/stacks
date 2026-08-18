@@ -33,6 +33,10 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     runHandledShortcut(event, () => runShortcutAction('toggle-sidebar', handlers));
     return;
   }
+  if (key === 'r') {
+    runHandledShortcut(event, () => runShortcutAction('toggle-superthread', handlers));
+    return;
+  }
   if (key === 'k') {
     runHandledShortcut(event, () => runShortcutAction('clear-terminal', handlers));
     return;

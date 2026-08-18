@@ -16,6 +16,7 @@ import { useAutomationRequests } from './useAutomationRequests';
 import { useWorkspaceCreation } from './useWorkspaceCreation';
 import { useOneTimeCommand } from './useOneTimeCommand';
 import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
+import { buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 
 const encoder = new TextEncoder();
 
@@ -104,6 +105,7 @@ export function useAppRootModel() {
   } = overlayState;
   const { toast, showToast } = toastState;
   const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
+  const [superthreadVisible, setSuperthreadVisible] = useState(true);
 
   const { activeProject, activeWorkspace, sidebarWorkspaces, activePath, visitedWorkspaceTerminalTrees } = useAppWorkspaceModels({
     store,
@@ -306,6 +308,9 @@ export function useAppRootModel() {
     appSettings,
     setMetaKeyDown,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
+    toggleSuperthread: () => {
+      if (appSettings.superthread_enabled) setSuperthreadVisible((visible) => !visible);
+    },
     setConfirmCloseTerminalId,
     setConfirmDeleteProjectId,
     setConfirmDeleteWorkspace,
@@ -386,6 +391,23 @@ export function useAppRootModel() {
     toggleMaximizedTerminal,
     splitTerminal,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
+    toggleSuperthread: () => {
+      if (appSettings.superthread_enabled) setSuperthreadVisible((visible) => !visible);
+    },
+    superthreadVisible: appSettings.superthread_enabled && superthreadVisible,
+    startSuperthreadWork: async (projectId, cardNumber, cardTitle) => {
+      try {
+        await createWorkspace(buildSuperthreadWorkspaceInput(store, projectId, cardNumber, cardTitle, {
+          command: appSettings.superthread_start_work_command,
+          workspaceName: appSettings.superthread_workspace_name_template,
+        }));
+        showToast(`Started work on #${cardNumber}`);
+        return true;
+      } catch (error) {
+        showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+    },
     setAppSettings,
     contextMenu,
     commandPaletteOpen,

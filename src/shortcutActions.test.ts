@@ -28,6 +28,7 @@ function handlers(overrides: Partial<ShortcutHandlers> = {}): ShortcutHandlers {
     openTerminalSearch: vi.fn(),
     openSettings: vi.fn(),
     toggleSidebar: vi.fn(),
+    toggleSuperthread: vi.fn(),
     ...overrides,
   };
 }
@@ -54,6 +55,7 @@ describe('runShortcutAction', () => {
     runShortcutAction('focus-previous-workspace', h);
     runShortcutAction('increase-terminal-font-size', h);
     runShortcutAction('toggle-sidebar', h);
+    runShortcutAction('toggle-superthread', h);
     runShortcutAction('quit', h);
 
     expect(h.splitTerminal).toHaveBeenNthCalledWith(1, 'row');
@@ -62,6 +64,7 @@ describe('runShortcutAction', () => {
     expect(h.cycleSidebarWorkspace).toHaveBeenCalledWith(-1);
     expect(h.adjustTerminalFontSize).toHaveBeenCalledWith(1);
     expect(h.toggleSidebar).toHaveBeenCalled();
+    expect(h.toggleSuperthread).toHaveBeenCalled();
     expect(h.requestQuit).toHaveBeenCalled();
   });
 

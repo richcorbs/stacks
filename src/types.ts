@@ -45,6 +45,11 @@ export type AppSettings = {
   active_dot_color?: string | null;
   unseen_dot_color?: string | null;
   custom_cmd_p_commands?: CustomCmdPCommand[] | null;
+  superthread_workspace_slug?: string | null;
+  superthread_spaces?: string | null;
+  superthread_start_work_command?: string | null;
+  superthread_workspace_name_template?: string | null;
+  superthread_enabled?: boolean | null;
 };
 export type TermSize = { cols: number; rows: number };
 export type TerminalSession = {

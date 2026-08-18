@@ -19,6 +19,7 @@ export function useAppShortcutHandlers({
   appSettings,
   setMetaKeyDown,
   toggleSidebar,
+  toggleSuperthread,
   setConfirmCloseTerminalId,
   setConfirmDeleteProjectId,
   setConfirmDeleteWorkspace,
@@ -112,6 +113,7 @@ export function useAppShortcutHandlers({
     openTerminalSearch,
     openSettings: () => setSettingsOpen(true),
     toggleSidebar,
+    toggleSuperthread,
   };
 
   const shortcutHandlersRef = useRef(shortcutHandlers);

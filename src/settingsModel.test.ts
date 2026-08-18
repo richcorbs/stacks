@@ -38,10 +38,27 @@ describe('settingsModel', () => {
     ]);
   });
 
-
   it('defaults terminal border colors to the current blue and green', () => {
     expect(DEFAULT_APP_SETTINGS.focused_terminal_border_color).toBe('#3b82f6');
     expect(DEFAULT_APP_SETTINGS.maximized_terminal_border_color).toBe('#84cc16');
+  });
+
+  it('resolves and persists Superthread workflow settings', () => {
+    const settings = resolveAppSettings({
+      superthread_workspace_slug: ' arcasa ',
+      superthread_spaces: ' Product, Engineering ',
+      superthread_start_work_command: ' work {card_number} ',
+      superthread_workspace_name_template: ' Card {card_number} ',
+      superthread_enabled: false,
+    });
+    expect(settings).toMatchObject({
+      superthread_workspace_slug: 'arcasa',
+      superthread_spaces: 'Product, Engineering',
+      superthread_start_work_command: 'work {card_number}',
+      superthread_workspace_name_template: 'Card {card_number}',
+      superthread_enabled: false,
+    });
+    expect(toPersistedAppSettings(settings)).toMatchObject(settings);
   });
 
   it('defaults workspace status dot colors', () => {

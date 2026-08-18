@@ -41,6 +41,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     openTerminalSearch,
     openSettings,
     toggleSidebar,
+    toggleSuperthread,
   } = handlers;
 
   switch (action) {
@@ -74,6 +75,9 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'toggle-sidebar':
       toggleSidebar();
+      break;
+    case 'toggle-superthread':
+      toggleSuperthread();
       break;
     case 'maximize-workspace':
       toggleMaximizedTerminal();
