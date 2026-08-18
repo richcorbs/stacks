@@ -17,6 +17,7 @@ import { useWorkspaceCreation } from './useWorkspaceCreation';
 import { useOneTimeCommand } from './useOneTimeCommand';
 import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildSuperthreadWorkspaceInput } from '../superthread/startWork';
+import { cleanupConfirmationMessage, workspacesForWorktreePaths, type GitCleanupPlan, type GitCleanupResult } from '../gitCleanup';
 
 const encoder = new TextEncoder();
 
@@ -296,6 +297,34 @@ export function useAppRootModel() {
     }
   }, [broadcastWorkspaceIds, terminalsByWorkspaceId]);
 
+  const cleanupGitAndWorkspaces = async () => {
+    if (!activeProject || !activeTerminalId || !activePath) {
+      showToast('Focus a terminal in a Git project first');
+      return;
+    }
+    showToast(`Checking merged worktrees in ${activeProject.name}…`);
+    try {
+      const plan = await invoke<GitCleanupPlan>('git_cleanup_plan', { path: activePath });
+      if (plan.candidates.length === 0) {
+        showToast(plan.warnings[0] || 'No clean, merged worktrees found');
+        return;
+      }
+      const warningText = plan.warnings.length > 0 ? `\n\nWarnings:\n${plan.warnings.join('\n')}` : '';
+      if (!window.confirm(`${cleanupConfirmationMessage(activeProject, plan)}${warningText}`)) return;
+
+      const result = await invoke<GitCleanupResult>('git_cleanup_execute', {
+        path: activePath,
+        candidates: plan.candidates,
+      });
+      const workspaces = workspacesForWorktreePaths(activeProject, result.removed_paths);
+      workspaces.forEach((workspace) => deleteWorkspace(activeProject.id, workspace.id));
+      const summary = `Cleaned ${result.removed_paths.length} worktree${result.removed_paths.length === 1 ? '' : 's'} and deleted ${workspaces.length} workspace${workspaces.length === 1 ? '' : 's'}`;
+      showToast(result.warnings.length > 0 ? `${summary} (${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'})` : summary);
+    } catch (error) {
+      showToast(`Git cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   const { commandPaletteItems } = useAppShortcutHandlers({
     store,
     sidebarWorkspaces,
@@ -343,6 +372,7 @@ export function useAppRootModel() {
     openEditCmdPCommand: setEditingCmdPCommand,
     openDeleteCmdPCommand: setDeletingCmdPCommand,
     openDeleteMultipleWorkspaces: () => setDeleteMultipleWorkspacesOpen(true),
+    cleanupGitAndWorkspaces,
     broadcastEnabled: activeWorkspaceId ? Boolean(broadcastWorkspaceIds[activeWorkspaceId]) : false,
     onToggleBroadcast: toggleActiveWorkspaceBroadcast,
   });

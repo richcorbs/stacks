@@ -37,6 +37,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     options.onEditCmdPCommand,
     options.onDeleteCmdPCommand,
     options.onDeleteMultipleWorkspaces,
+    options.onCleanupGitAndWorkspaces,
     options.onSelectWorkspace,
     options.broadcastEnabled,
     options.onToggleBroadcast,

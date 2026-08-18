@@ -43,6 +43,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onEditCmdPCommand: vi.fn(),
     onDeleteCmdPCommand: vi.fn(),
     onDeleteMultipleWorkspaces: vi.fn(),
+    onCleanupGitAndWorkspaces: vi.fn(),
     broadcastEnabled: false,
     onToggleBroadcast: vi.fn(),
     ...overrides,
@@ -58,6 +59,7 @@ describe('buildCommandPaletteItems', () => {
       'split-terminal-right',
       'split-terminal-down',
       'add-cmd-p-command',
+      'cleanup-git-workspaces',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -66,6 +68,27 @@ describe('buildCommandPaletteItems', () => {
       'project-workspace-p1',
       'terminal-t1:0',
     ]));
+  });
+
+  it('runs Git cleanup for the selected project', () => {
+    const onCleanupGitAndWorkspaces = vi.fn();
+    const item = palette({ onCleanupGitAndWorkspaces }).find((candidate) => candidate.id === 'cleanup-git-workspaces');
+
+    item?.action();
+
+    expect(item?.danger).toBe(true);
+    expect(onCleanupGitAndWorkspaces).toHaveBeenCalledOnce();
+  });
+
+  it('requires a focused terminal for Git cleanup', () => {
+    const onCleanupGitAndWorkspaces = vi.fn();
+    const item = palette({ activeTerminalId: null, activePath: null, onCleanupGitAndWorkspaces })
+      .find((candidate) => candidate.id === 'cleanup-git-workspaces');
+
+    item?.action();
+
+    expect(item?.subtitle).toBe('Focus a terminal in a Git project first');
+    expect(onCleanupGitAndWorkspaces).not.toHaveBeenCalled();
   });
 
   it('runs saved commands using their configured behavior', () => {

@@ -31,6 +31,7 @@ export function commandPaletteCoreItems({
   onRunOneTimeCommand,
   onAddCmdPCommand,
   onDeleteMultipleWorkspaces,
+  onCleanupGitAndWorkspaces,
   onSelectWorkspace,
   broadcastEnabled,
   activeWorkspaceTerminalCount,
@@ -63,6 +64,7 @@ export function commandPaletteCoreItems({
   onRunOneTimeCommand: () => void;
   onAddCmdPCommand: () => void;
   onDeleteMultipleWorkspaces: () => void;
+  onCleanupGitAndWorkspaces: () => void;
   onSelectWorkspace: (projectId: string, workspaceId: string) => void;
   broadcastEnabled: boolean;
   activeWorkspaceTerminalCount: number;
@@ -76,6 +78,7 @@ export function commandPaletteCoreItems({
     { id: 'edit-workspace', title: 'Edit Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeWorkspace) onEditWorkspace(activeProject, activeWorkspace); } },
     { id: 'delete-workspace', title: 'Delete Current Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace', danger: true, action: () => { if (activeProject && activeWorkspace) onDeleteWorkspace(activeProject.id, activeWorkspace.id); } },
     { id: 'delete-multiple-workspaces', title: 'Delete Other Workspace(s)', subtitle: 'Match workspace names from a comma-separated list', keywords: 'bulk remove delete workspace names comma', danger: true, action: onDeleteMultipleWorkspaces },
+    { id: 'cleanup-git-workspaces', title: 'Cleanup Git and Workspaces', subtitle: activeProject && activeTerminalId && activePath ? `Use focused terminal in ${activeProject.name} • ${activePath}` : 'Focus a terminal in a Git project first', keywords: 'cleanup merged branches worktrees stale workspaces git github', danger: true, action: () => { if (activeProject && activeTerminalId && activePath) onCleanupGitAndWorkspaces(); } },
     { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color focused terminal border maximized green blue', action: onOpenSettings },
     { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
     { id: 'run-one-time-command', title: 'Run One-Time Command', subtitle: activeTerminalId ? `From ${activePath || 'the focused terminal directory'}` : 'Select a terminal first', keywords: 'execute temporary command task current directory cwd', action: () => { if (activeTerminalId) onRunOneTimeCommand(); } },
