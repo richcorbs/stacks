@@ -17,7 +17,7 @@ import { useWorkspaceCreation } from './useWorkspaceCreation';
 import { useOneTimeCommand } from './useOneTimeCommand';
 import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildSuperthreadWorkspaceInput } from '../superthread/startWork';
-import { cleanupConfirmationMessage, workspacesForWorktreePaths, type GitCleanupPlan, type GitCleanupResult } from '../gitCleanup';
+import { cleanupConfirmationMessage, workspaceAboveCleanupTargets, workspacesForWorktreePaths, type GitCleanupPlan, type GitCleanupResult } from '../gitCleanup';
 
 const encoder = new TextEncoder();
 
@@ -317,7 +317,10 @@ export function useAppRootModel() {
         candidates: plan.candidates,
       });
       const workspaces = workspacesForWorktreePaths(activeProject, result.removed_paths);
+      const workspaceIds = workspaces.map((workspace) => workspace.id);
+      const workspaceAbove = workspaceAboveCleanupTargets(sidebarWorkspaces, workspaceIds, activeWorkspaceId);
       workspaces.forEach((workspace) => deleteWorkspace(activeProject.id, workspace.id));
+      if (workspaceAbove) selectWorkspace(workspaceAbove.project.id, workspaceAbove.workspace.id);
       const summary = `Cleaned ${result.removed_paths.length} worktree${result.removed_paths.length === 1 ? '' : 's'} and deleted ${workspaces.length} workspace${workspaces.length === 1 ? '' : 's'}`;
       showToast(result.warnings.length > 0 ? `${summary} (${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'})` : summary);
     } catch (error) {

@@ -19,6 +19,22 @@ export type GitCleanupResult = {
   warnings: string[];
 };
 
+type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
+
+export function workspaceAboveCleanupTargets(
+  sidebarWorkspaces: SidebarWorkspace[],
+  deletedWorkspaceIds: string[],
+  activeWorkspaceId: string | null,
+): SidebarWorkspace | null {
+  if (!activeWorkspaceId || !deletedWorkspaceIds.includes(activeWorkspaceId)) return null;
+  const activeIndex = sidebarWorkspaces.findIndex(({ workspace }) => workspace.id === activeWorkspaceId);
+  const deletedIds = new Set(deletedWorkspaceIds);
+  for (let index = activeIndex - 1; index >= 0; index -= 1) {
+    if (!deletedIds.has(sidebarWorkspaces[index].workspace.id)) return sidebarWorkspaces[index];
+  }
+  return null;
+}
+
 export function workspacesForWorktreePaths(project: Project, paths: string[]): WorkspaceEntry[] {
   return project.workspaces.filter((workspace) => {
     const cwd = normalizePath(workspace.cwd);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanupConfirmationMessage, workspacesForWorktreePaths, type GitCleanupPlan } from './gitCleanup';
+import { cleanupConfirmationMessage, workspaceAboveCleanupTargets, workspacesForWorktreePaths, type GitCleanupPlan } from './gitCleanup';
 import type { Project } from './types';
 
 const project: Project = {
@@ -27,5 +27,15 @@ describe('Git cleanup workspace matching', () => {
   it('describes the destructive cleanup before confirmation', () => {
     expect(cleanupConfirmationMessage(project, plan)).toContain('Clean up 1 merged worktree in App?');
     expect(cleanupConfirmationMessage(project, plan)).toContain('1 associated Stacks workspace will be deleted.');
+  });
+
+  it('selects the nearest surviving workspace above the active cleanup target', () => {
+    const sidebarWorkspaces = project.workspaces.map((workspace) => ({ project, workspace }));
+    expect(workspaceAboveCleanupTargets(sidebarWorkspaces, ['card', 'other'], 'other')?.workspace.id).toBe('main');
+  });
+
+  it('does not change focus when cleanup only deletes inactive workspaces', () => {
+    const sidebarWorkspaces = project.workspaces.map((workspace) => ({ project, workspace }));
+    expect(workspaceAboveCleanupTargets(sidebarWorkspaces, ['other'], 'card')).toBeNull();
   });
 });
