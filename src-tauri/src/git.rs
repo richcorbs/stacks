@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, path::Path, process::Command};
+use std::{
+    collections::HashSet,
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GitInfo {
@@ -272,22 +277,23 @@ fn default_branch(repository: &str) -> Result<String, String> {
             }
         }
     }
-    if let Ok(output) = Command::new("gh")
-        .current_dir(repository)
-        .args([
-            "repo",
-            "view",
-            "--json",
-            "defaultBranchRef",
-            "--jq",
-            ".defaultBranchRef.name",
-        ])
-        .output()
-    {
-        if output.status.success() {
-            let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !branch.is_empty() {
-                return Ok(branch);
+    if let Ok(mut command) = gh_command(repository) {
+        if let Ok(output) = command
+            .args([
+                "repo",
+                "view",
+                "--json",
+                "defaultBranchRef",
+                "--jq",
+                ".defaultBranchRef.name",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !branch.is_empty() {
+                    return Ok(branch);
+                }
             }
         }
     }
@@ -350,8 +356,7 @@ fn branch_is_ancestor(repository: &str, branch: &str, default_branch: &str) -> b
 }
 
 fn branch_has_merged_pr(repository: &str, branch: &str) -> Result<bool, String> {
-    let output = Command::new("gh")
-        .current_dir(repository)
+    let output = gh_command(repository)?
         .args([
             "pr", "list", "--head", branch, "--state", "merged", "--limit", "1", "--json", "number",
         ])
@@ -368,6 +373,46 @@ fn branch_has_merged_pr(repository: &str, branch: &str) -> Result<bool, String> 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|error| format!("invalid gh response: {error}"))?;
     Ok(value.as_array().is_some_and(|items| !items.is_empty()))
+}
+
+fn gh_command(repository: &str) -> Result<Command, String> {
+    let path = find_gh()
+        .ok_or_else(|| "GitHub CLI not found. Install `gh` or set GH_PATH.".to_string())?;
+    let mut command = Command::new(path);
+    command.current_dir(repository);
+    Ok(command)
+}
+
+fn find_gh() -> Option<PathBuf> {
+    if let Some(path) = env::var_os("GH_PATH")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+    {
+        return Some(path);
+    }
+    for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"] {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    if let Some(path) = env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join(".local/bin/gh"))
+        .filter(|path| path.is_file())
+    {
+        return Some(path);
+    }
+    let shell = PathBuf::from(env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
+    let output = Command::new(shell)
+        .args(["-lic", "command -v gh"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+    path.is_file().then_some(path)
 }
 
 fn run_git(path: &str, args: &[&str]) -> Result<String, String> {
