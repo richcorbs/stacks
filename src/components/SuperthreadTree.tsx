@@ -42,7 +42,7 @@ export function SuperthreadTree({
               </button>
               {!listCollapsed && cards.map((card) => (
                 <button className="superthreadTreeRow superthreadCardRow" type="button" key={card.id} disabled={disabled} onClick={() => onOpenCard(card)}>
-                  <span className="superthreadRowText"><strong>{card.title}</strong></span>
+                  <span className="superthreadRowText"><strong>{card.id} - {card.title}</strong></span>
                 </button>
               ))}
             </div>
