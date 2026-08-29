@@ -19,7 +19,7 @@ mod superthread;
 use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
 use automation::{complete_automation_request, drain_automation_requests, AutomationState};
-use git::{git_cleanup_execute, git_cleanup_plan, git_info};
+use git::git_info;
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
@@ -82,8 +82,6 @@ pub fn run() {
             pty_cwd,
             app_stats,
             git_info,
-            git_cleanup_plan,
-            git_cleanup_execute,
             drain_automation_requests,
             complete_automation_request,
             superthread_boards,

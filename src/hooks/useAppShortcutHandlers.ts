@@ -52,7 +52,6 @@ export function useAppShortcutHandlers({
   openEditCmdPCommand,
   openDeleteCmdPCommand,
   openDeleteMultipleWorkspaces,
-  cleanupGitAndWorkspaces,
   broadcastEnabled,
   onToggleBroadcast,
 }: AppShortcutHandlerOptions) {
@@ -91,7 +90,6 @@ export function useAppShortcutHandlers({
     onEditCmdPCommand: openEditCmdPCommand,
     onDeleteCmdPCommand: openDeleteCmdPCommand,
     onDeleteMultipleWorkspaces: openDeleteMultipleWorkspaces,
-    onCleanupGitAndWorkspaces: cleanupGitAndWorkspaces,
     broadcastEnabled,
     onToggleBroadcast,
   });

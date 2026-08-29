@@ -47,7 +47,6 @@ export type AppShortcutHandlerOptions = {
   openEditCmdPCommand: (command: CustomCmdPCommand) => void;
   openDeleteCmdPCommand: (command: CustomCmdPCommand) => void;
   openDeleteMultipleWorkspaces: () => void;
-  cleanupGitAndWorkspaces: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;
 };

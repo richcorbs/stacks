@@ -39,7 +39,6 @@ export type CommandPaletteItemOptions = {
   onEditCmdPCommand: (command: CustomCmdPCommand) => void;
   onDeleteCmdPCommand: (command: CustomCmdPCommand) => void;
   onDeleteMultipleWorkspaces: () => void;
-  onCleanupGitAndWorkspaces: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;
 };
