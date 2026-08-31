@@ -1,0 +1,62 @@
+import { invoke } from '@tauri-apps/api/core';
+import type { GithubPullRequest } from '../github/types';
+import { GithubStatusIcon } from './GithubStatusIcon';
+
+export function GithubPullRequestsTab({
+  activePath,
+  pullRequests,
+  repository,
+  loading,
+  error,
+  mergingNumber,
+  onMerge,
+}: {
+  activePath: string | null;
+  pullRequests: GithubPullRequest[];
+  repository: string | null;
+  loading: boolean;
+  error: string | null;
+  mergingNumber: number | null;
+  onMerge: (repository: string, number: number) => Promise<boolean>;
+}) {
+  if (!activePath) return <div className="superthreadState">Select a workspace in a GitHub repository.</div>;
+  return <>
+    {loading && pullRequests.length === 0 && <div className="superthreadState">Loading GitHub pull requests…</div>}
+    {error && <div className="superthreadState superthreadError">{error}</div>}
+    {!loading && !error && pullRequests.length === 0 && <div className="superthreadState">No open pull requests.</div>}
+    {pullRequests.map((pullRequest) => (
+      <article className="githubPrRow" key={pullRequest.number}>
+        <a
+          className="githubItemTitle githubPrLink"
+          href={pullRequest.url}
+          onClick={(event) => {
+            event.preventDefault();
+            openExternal(pullRequest.url);
+          }}
+        >
+          <strong>#{pullRequest.number} — {pullRequest.title}</strong>
+        </a>
+        <div className="githubItemMeta">
+          <span>@{pullRequest.author}</span>
+          <GithubStatusIcon status={pullRequest.ci_status} context="CI" />
+          {pullRequest.draft && <span>Draft</span>}
+        </div>
+        <button
+          className="githubMergeButton"
+          type="button"
+          disabled={pullRequest.draft || !repository || mergingNumber !== null}
+          onClick={async () => {
+            if (!repository || !window.confirm(`Merge PR #${pullRequest.number}: ${pullRequest.title}?`)) return;
+            await onMerge(repository, pullRequest.number);
+          }}
+        >
+          {mergingNumber === pullRequest.number ? 'MERGING…' : 'MERGE'}
+        </button>
+      </article>
+    ))}
+  </>;
+}
+
+function openExternal(url: string) {
+  if (url) invoke('open_url', { url }).catch(console.error);
+}

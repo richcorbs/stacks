@@ -50,6 +50,8 @@ export type AppSettings = {
   superthread_start_work_command?: string | null;
   superthread_workspace_name_template?: string | null;
   superthread_enabled?: boolean | null;
+  github_poll_interval_seconds?: number | null;
+  github_merge_strategy?: 'merge' | 'squash' | 'rebase' | null;
 };
 export type TermSize = { cols: number; rows: number };
 export type TerminalSession = {

@@ -1,11 +1,10 @@
-export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, onToggleSidebar, onToggleSuperthread, superthreadVisible, superthreadEnabled }: {
+export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, onToggleSidebar, onToggleDeveloperServices, developerServicesVisible }: {
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
   hasActiveTerminal: boolean;
   onToggleSidebar: () => void;
-  onToggleSuperthread: () => void;
-  superthreadVisible: boolean;
-  superthreadEnabled: boolean;
+  onToggleDeveloperServices: () => void;
+  developerServicesVisible: boolean;
 }) {
   return (
     <header className="topbar">
@@ -30,17 +29,17 @@ export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasAct
           <div className="subtitle">Select a workspace</div>
         )}
       </div>
-      {superthreadEnabled && <button
+      <button
         className="sidebarToggleButton superthreadTopbarToggle"
         type="button"
-        title={`${superthreadVisible ? 'Close' : 'Open'} Superthread panel (⌘R)`}
-        aria-label={`${superthreadVisible ? 'Close' : 'Open'} Superthread panel`}
-        aria-pressed={superthreadVisible}
+        title={`${developerServicesVisible ? 'Close' : 'Open'} developer services panel (⌘R)`}
+        aria-label={`${developerServicesVisible ? 'Close' : 'Open'} developer services panel`}
+        aria-pressed={developerServicesVisible}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={onToggleSuperthread}
+        onClick={onToggleDeveloperServices}
       >
         <span className="sidebarIcon superthreadSidebarIcon" />
-      </button>}
+      </button>
     </header>
   );
 }

@@ -3,7 +3,7 @@ import { emptyBoard, fetchSuperthreadBoards, fetchSuperthreadCard, fetchSuperthr
 import type { IntegrationWarning, SuperthreadBoard, SuperthreadCard, SuperthreadList } from './types';
 import { SuperthreadRequestGate } from './requestGate';
 
-export function useSuperthreadCache(workspaceSlug: string, spaces: string) {
+export function useSuperthreadCache(workspaceSlug: string, spaces: string, enabled = true) {
   const [boards, setBoards] = useState<SuperthreadBoard[]>([]);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
   const [loadedListBoardIds, setLoadedListBoardIds] = useState<Set<string>>(() => new Set());
@@ -11,7 +11,7 @@ export function useSuperthreadCache(workspaceSlug: string, spaces: string) {
   const [loadingTreeIds, setLoadingTreeIds] = useState<Set<string>>(() => new Set());
   const [cardDetailsById, setCardDetailsById] = useState<Record<string, SuperthreadCard>>({});
   const [selectedCard, setSelectedCard] = useState<SuperthreadCard | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [cardLoading, setCardLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
@@ -21,6 +21,10 @@ export function useSuperthreadCache(workspaceSlug: string, spaces: string) {
   const inFlightTreeIds = useRef(new Set<string>());
 
   const loadBoards = useCallback(async (refresh = false) => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     const generation = requestGate.current.beginGeneration();
     inFlightTreeIds.current.clear();
     setLoading(true);
@@ -44,9 +48,12 @@ export function useSuperthreadCache(workspaceSlug: string, spaces: string) {
     } finally {
       if (requestGate.current.isCurrentGeneration(generation)) setLoading(false);
     }
-  }, [spaces]);
+  }, [enabled, spaces]);
 
-  useEffect(() => { loadBoards(false).catch(console.error); }, [loadBoards]);
+  useEffect(() => {
+    if (enabled) loadBoards(false).catch(console.error);
+    else setLoading(false);
+  }, [enabled, loadBoards]);
   useEffect(() => {
     if (workspaceSlugRef.current === workspaceSlug) return;
     workspaceSlugRef.current = workspaceSlug;

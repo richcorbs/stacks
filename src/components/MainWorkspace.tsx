@@ -39,9 +39,8 @@ type MainWorkspaceProps = {
   onSplitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   hasActiveTerminal: boolean;
   onToggleSidebar: () => void;
-  onToggleSuperthread: () => void;
-  superthreadVisible: boolean;
-  superthreadEnabled: boolean;
+  onToggleDeveloperServices: () => void;
+  developerServicesVisible: boolean;
 };
 
 export function MainWorkspace({
@@ -71,9 +70,8 @@ export function MainWorkspace({
   onSplitTerminal,
   hasActiveTerminal,
   onToggleSidebar,
-  onToggleSuperthread,
-  superthreadVisible,
-  superthreadEnabled,
+  onToggleDeveloperServices,
+  developerServicesVisible,
 }: MainWorkspaceProps) {
   return (
     <main className="main">
@@ -82,9 +80,8 @@ export function MainWorkspace({
         activeWorkspaceName={activeWorkspaceName}
         hasActiveTerminal={hasActiveTerminal}
         onToggleSidebar={onToggleSidebar}
-        onToggleSuperthread={onToggleSuperthread}
-        superthreadVisible={superthreadVisible}
-        superthreadEnabled={superthreadEnabled}
+        onToggleDeveloperServices={onToggleDeveloperServices}
+        developerServicesVisible={developerServicesVisible}
       />
       <section className="workspace">
         <WorkspaceViews

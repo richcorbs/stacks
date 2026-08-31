@@ -1,4 +1,5 @@
 import type { AppSettings, CustomCmdPCommand } from './types';
+import type { GithubMergeStrategy } from './github/types';
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -36,6 +37,8 @@ export type ResolvedAppSettings = {
   superthread_start_work_command: string;
   superthread_workspace_name_template: string;
   superthread_enabled: boolean;
+  github_poll_interval_seconds: number;
+  github_merge_strategy: GithubMergeStrategy;
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
@@ -53,10 +56,12 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   unseen_dot_color: DEFAULT_UNSEEN_DOT_COLOR,
   custom_cmd_p_commands: [],
   superthread_workspace_slug: '',
-  superthread_spaces: 'Product',
+  superthread_spaces: 'Product & Engineering',
   superthread_start_work_command: 'stwork {card_number}',
   superthread_workspace_name_template: '{card_number} {card_title}',
   superthread_enabled: true,
+  github_poll_interval_seconds: 60,
+  github_merge_strategy: 'merge',
 };
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
@@ -79,6 +84,8 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     superthread_start_work_command: settings?.superthread_start_work_command?.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
     superthread_workspace_name_template: settings?.superthread_workspace_name_template?.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
     superthread_enabled: settings?.superthread_enabled ?? DEFAULT_APP_SETTINGS.superthread_enabled,
+    github_poll_interval_seconds: clampGithubPollInterval(settings?.github_poll_interval_seconds),
+    github_merge_strategy: normalizeGithubMergeStrategy(settings?.github_merge_strategy),
   };
 }
 
@@ -102,7 +109,19 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     superthread_start_work_command: settings.superthread_start_work_command.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
     superthread_workspace_name_template: settings.superthread_workspace_name_template.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
     superthread_enabled: settings.superthread_enabled,
+    github_poll_interval_seconds: clampGithubPollInterval(settings.github_poll_interval_seconds),
+    github_merge_strategy: normalizeGithubMergeStrategy(settings.github_merge_strategy),
   };
+}
+
+export function clampGithubPollInterval(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(Math.min(3600, Math.max(10, value)))
+    : DEFAULT_APP_SETTINGS.github_poll_interval_seconds;
+}
+
+function normalizeGithubMergeStrategy(value: string | null | undefined): GithubMergeStrategy {
+  return value === 'squash' || value === 'rebase' ? value : 'merge';
 }
 
 function normalizeCustomCmdPCommands(commands: CustomCmdPCommand[] | null | undefined): CustomCmdPCommand[] {

@@ -7,6 +7,7 @@ mod app_stats;
 mod automation;
 mod fs_paths;
 mod git;
+mod github;
 mod menu;
 mod open;
 mod pty;
@@ -20,6 +21,7 @@ use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
 use automation::{complete_automation_request, drain_automation_requests, AutomationState};
 use git::git_info;
+use github::{github_action_runs, github_merge_pull_request, github_pull_requests};
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
@@ -82,6 +84,9 @@ pub fn run() {
             pty_cwd,
             app_stats,
             git_info,
+            github_pull_requests,
+            github_action_runs,
+            github_merge_pull_request,
             drain_automation_requests,
             complete_automation_request,
             superthread_boards,

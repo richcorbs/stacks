@@ -799,3 +799,71 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .superthreadCardStats { display: flex; gap: 6px; margin-top: 10px; color: #687b91; font-size: 11px; }
 .superthreadStartWorkCard { margin: -5px 0 18px; color: #8fa0b3; font-size: 13px; line-height: 1.4; }
 .superthreadProjectDialog select { cursor: pointer; }
+.integrationHeader { height: 46px; flex-basis: 46px; padding-left: 7px; gap: 4px; }
+.integrationTabs { min-width: 0; flex: 1; display: flex; align-self: stretch; }
+.superthreadHeader .integrationTab {
+  width: auto;
+  height: auto;
+  flex: 1;
+  padding: 0 5px;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  color: #687b91;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.superthreadHeader .integrationTab:hover { color: #afbdcc; }
+.superthreadHeader .integrationTab.active { border-bottom-color: #4f91d8; color: #c5d2df; }
+.integrationContent { padding-top: 8px; }
+.githubPrRow,
+.githubActionRow {
+  position: relative;
+  margin-bottom: 7px;
+  padding: 9px 9px 10px;
+  border: 1px solid #223040;
+  border-radius: 7px;
+  background: #141e29;
+}
+.githubPrRow { padding-right: 76px; }
+.githubItemTitle {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #aebdcd;
+  text-align: left;
+  cursor: pointer;
+}
+.githubItemTitle:hover { color: #d6e0eb; }
+.githubPrLink { text-decoration: none; }
+.githubPrLink:hover { text-decoration: underline; }
+.githubItemTitle strong { display: block; overflow: hidden; font-size: 12px; font-weight: 500; line-height: 1.35; }
+.githubItemMeta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; color: #65788e; font-size: 10px; }
+.githubStatus { font-weight: 600; }
+.githubStatus-passed { color: #70ad82; }
+.githubStatus-running { color: #c9a360; }
+.githubStatus-failed { color: #d47777; }
+.githubCiIcon { flex: 0 0 14px; width: 14px; height: 14px; box-sizing: border-box; display: inline-grid; place-items: center; border-radius: 50%; }
+.githubCiRunning { border: 2px solid #c9a360; border-top-color: transparent; animation: githubCiSpin .8s linear infinite; }
+.githubCiPassed { background: #4f9a66; color: #0f1a14; font-size: 10px; font-weight: 900; line-height: 1; }
+.githubCiFailed { background: #b84f4f; color: #fff0f0; font-size: 14px; font-weight: 800; line-height: 1; }
+.githubCiSkipped { color: #718094; font-size: 17px; line-height: 1; }
+@keyframes githubCiSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .githubCiRunning { animation-duration: 1.8s; } }
+.githubMergeButton {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  padding: 5px 7px;
+  border: 1px solid #356b49;
+  border-radius: 5px;
+  background: #173523;
+  color: #83c397;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.githubMergeButton:hover:not(:disabled) { background: #20462e; color: #a4d9b3; }
+.githubMergeButton:disabled { opacity: .45; cursor: default; }

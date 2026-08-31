@@ -12,6 +12,17 @@ describe('settingsModel', () => {
     expect(settings.terminal_scrollback).toBe(100);
   });
 
+  it('clamps the GitHub polling interval', () => {
+    expect(resolveAppSettings({ github_poll_interval_seconds: 1 }).github_poll_interval_seconds).toBe(10);
+    expect(resolveAppSettings({ github_poll_interval_seconds: 9000 }).github_poll_interval_seconds).toBe(3600);
+    expect(resolveAppSettings({ github_poll_interval_seconds: 75 }).github_poll_interval_seconds).toBe(75);
+  });
+
+  it('normalizes the GitHub merge strategy', () => {
+    expect(resolveAppSettings({ github_merge_strategy: 'squash' }).github_merge_strategy).toBe('squash');
+    expect(resolveAppSettings({ github_merge_strategy: 'invalid' as 'merge' }).github_merge_strategy).toBe('merge');
+  });
+
   it('preserves explicit false boolean settings', () => {
     const settings = resolveAppSettings({ copy_on_select: false, confirm_close: false, confirm_delete: false });
     expect(settings.copy_on_select).toBe(false);

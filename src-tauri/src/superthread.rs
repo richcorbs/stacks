@@ -190,7 +190,7 @@ impl SuperthreadService {
             .filter(|space| {
                 included_spaces
                     .iter()
-                    .any(|included| space.title.trim().eq_ignore_ascii_case(included))
+                    .any(|included| space_matches_filter(&space.title, included))
             })
             .collect::<Vec<_>>();
         let mut boards = Vec::new();
@@ -199,7 +199,7 @@ impl SuperthreadService {
             .filter(|included| {
                 !selected_spaces
                     .iter()
-                    .any(|space| space.title.trim().eq_ignore_ascii_case(included))
+                    .any(|space| space_matches_filter(&space.title, included))
             })
             .map(|included| IntegrationWarning {
                 scope: format!("space:{included}"),
@@ -345,6 +345,14 @@ impl SuperthreadService {
             urls.clear();
         }
     }
+}
+
+fn space_matches_filter(title: &str, filter: &str) -> bool {
+    let title = title.trim();
+    let filter = filter.trim();
+    title.eq_ignore_ascii_case(filter)
+        || (filter.eq_ignore_ascii_case("Product")
+            && title.eq_ignore_ascii_case("Product & Engineering"))
 }
 
 fn require_id(value: &str, kind: &str) -> Result<(), String> {
@@ -567,6 +575,13 @@ fn lock_error<T>(error: std::sync::PoisonError<T>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matches_the_known_product_space_rename_without_broad_substrings() {
+        assert!(space_matches_filter("Product & Engineering", "Product"));
+        assert!(space_matches_filter("Product & Engineering", "product & engineering"));
+        assert!(!space_matches_filter("Product Marketing", "Product"));
+    }
 
     #[test]
     fn slugifies_workspace_names() {
