@@ -2,20 +2,20 @@ import type React from 'react';
 import { Sidebar } from './Sidebar';
 import { MainWorkspace } from './MainWorkspace';
 import { AppOverlays } from './AppOverlays';
-import { SuperthreadPanel } from './SuperthreadPanel';
-import type { MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps, SuperthreadLayoutProps } from './AppLayoutTypes';
+import { DeveloperServicesPanel } from './DeveloperServicesPanel';
+import type { DeveloperServicesLayoutProps, MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from './AppLayoutTypes';
 
 export function AppLayout({
   appStyle,
   sidebar,
   main,
-  superthread,
+  developerServices,
   overlays,
 }: {
   appStyle: React.CSSProperties;
   sidebar: SidebarLayoutProps;
   main: MainLayoutProps;
-  superthread: SuperthreadLayoutProps;
+  developerServices: DeveloperServicesLayoutProps;
   overlays: OverlayLayoutProps;
 }) {
   return (
@@ -49,9 +49,8 @@ export function AppLayout({
         activeWorkspaceName={main.activeWorkspaceName}
         gitInfo={main.gitInfo}
         onToggleSidebar={main.toggleSidebar}
-        onToggleSuperthread={main.toggleSuperthread}
-        superthreadVisible={main.superthreadVisible}
-        superthreadEnabled={main.superthreadEnabled}
+        onToggleDeveloperServices={main.toggleDeveloperServices}
+        developerServicesVisible={main.developerServicesVisible}
         workspaces={main.visitedWorkspaceTerminalTrees}
         activeWorkspaceId={main.activeWorkspaceId}
         activeTerminalId={main.activeTerminalId}
@@ -77,15 +76,17 @@ export function AppLayout({
         onToggleMaximizedTerminal={main.toggleMaximizedTerminal}
         onSplitTerminal={main.splitTerminal}
       />
-      {superthread.enabled && (
-        <SuperthreadPanel
-          visible={superthread.visible}
-          projects={superthread.projects}
-          spaces={superthread.spaces}
-          workspaceSlug={superthread.workspaceSlug}
-          onStartWork={superthread.startWork}
-        />
-      )}
+      <DeveloperServicesPanel
+        visible={developerServices.visible}
+        projects={developerServices.projects}
+        spaces={developerServices.spaces}
+        workspaceSlug={developerServices.workspaceSlug}
+        activePath={developerServices.activePath}
+        githubPollSeconds={developerServices.githubPollSeconds}
+        githubMergeStrategy={developerServices.githubMergeStrategy}
+        superthreadEnabled={developerServices.superthreadEnabled}
+        onStartWork={developerServices.startWork}
+      />
       <AppOverlays {...overlays} />
     </div>
   );

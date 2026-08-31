@@ -2,7 +2,7 @@ import type React from 'react';
 import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from '../components/CommandPalette';
-import type { MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps, SuperthreadLayoutProps } from '../components/AppLayoutTypes';
+import type { DeveloperServicesLayoutProps, MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
 import { useAppStyle } from './useAppStyle';
 
 type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
@@ -50,8 +50,8 @@ type UseAppLayoutPropsOptions = {
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;
-  toggleSuperthread: () => void;
-  superthreadVisible: boolean;
+  toggleDeveloperServices: () => void;
+  developerServicesVisible: boolean;
   startSuperthreadWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   contextMenu: ContextMenuState | null;
@@ -100,7 +100,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
   appStyle: React.CSSProperties;
   sidebar: SidebarLayoutProps;
   main: MainLayoutProps;
-  superthread: SuperthreadLayoutProps;
+  developerServices: DeveloperServicesLayoutProps;
   overlays: OverlayLayoutProps;
 } {
   const appStyle = useAppStyle(options.appSettings);
@@ -153,17 +153,18 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       toggleMaximizedTerminal: options.toggleMaximizedTerminal,
       splitTerminal: options.splitTerminal,
       toggleSidebar: options.toggleSidebar,
-      toggleSuperthread: options.toggleSuperthread,
-      superthreadVisible: options.superthreadVisible,
-      superthreadEnabled: options.appSettings.superthread_enabled,
+      toggleDeveloperServices: options.toggleDeveloperServices,
+      developerServicesVisible: options.developerServicesVisible,
     },
-    superthread: {
-      enabled: options.appSettings.superthread_enabled,
-      visible: options.superthreadVisible,
+    developerServices: {
+      visible: options.developerServicesVisible,
       projects: options.store.projects,
       spaces: options.appSettings.superthread_spaces,
       workspaceSlug: options.appSettings.superthread_workspace_slug,
-      toggle: options.toggleSuperthread,
+      activePath: options.activePath,
+      githubPollSeconds: options.appSettings.github_poll_interval_seconds,
+      githubMergeStrategy: options.appSettings.github_merge_strategy,
+      superthreadEnabled: options.appSettings.superthread_enabled,
       startWork: options.startSuperthreadWork,
     },
     overlays: {

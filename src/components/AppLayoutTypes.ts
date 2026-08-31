@@ -60,18 +60,19 @@ export type MainLayoutProps = {
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;
-  toggleSuperthread: () => void;
-  superthreadVisible: boolean;
-  superthreadEnabled: boolean;
+  toggleDeveloperServices: () => void;
+  developerServicesVisible: boolean;
 };
 
-export type SuperthreadLayoutProps = {
-  enabled: boolean;
+export type DeveloperServicesLayoutProps = {
   visible: boolean;
   projects: Project[];
   spaces: string;
   workspaceSlug: string;
-  toggle: () => void;
+  activePath: string | null;
+  githubPollSeconds: number;
+  githubMergeStrategy: 'merge' | 'squash' | 'rebase';
+  superthreadEnabled: boolean;
   startWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
 };
 

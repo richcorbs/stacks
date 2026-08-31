@@ -105,7 +105,7 @@ export function useAppRootModel() {
   } = overlayState;
   const { toast, showToast } = toastState;
   const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
-  const [superthreadVisible, setSuperthreadVisible] = useState(true);
+  const [developerServicesVisible, setDeveloperServicesVisible] = useState(true);
 
   const { activeProject, activeWorkspace, sidebarWorkspaces, activePath, visitedWorkspaceTerminalTrees } = useAppWorkspaceModels({
     store,
@@ -308,9 +308,7 @@ export function useAppRootModel() {
     appSettings,
     setMetaKeyDown,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
-    toggleSuperthread: () => {
-      if (appSettings.superthread_enabled) setSuperthreadVisible((visible) => !visible);
-    },
+    toggleSuperthread: () => setDeveloperServicesVisible((visible) => !visible),
     setConfirmCloseTerminalId,
     setConfirmDeleteProjectId,
     setConfirmDeleteWorkspace,
@@ -391,10 +389,8 @@ export function useAppRootModel() {
     toggleMaximizedTerminal,
     splitTerminal,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
-    toggleSuperthread: () => {
-      if (appSettings.superthread_enabled) setSuperthreadVisible((visible) => !visible);
-    },
-    superthreadVisible: appSettings.superthread_enabled && superthreadVisible,
+    toggleDeveloperServices: () => setDeveloperServicesVisible((visible) => !visible),
+    developerServicesVisible,
     startSuperthreadWork: async (projectId, cardNumber, cardTitle) => {
       try {
         await createWorkspace(buildSuperthreadWorkspaceInput(store, projectId, cardNumber, cardTitle, {

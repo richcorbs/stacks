@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { ResolvedAppSettings } from '../settingsModel';
-import { DEFAULT_APP_SETTINGS } from '../settingsModel';
+import { clampGithubPollInterval, DEFAULT_APP_SETTINGS } from '../settingsModel';
 import {
   clampTerminalFontSize,
   clampTerminalScrollback,
@@ -55,6 +55,7 @@ export function SettingsDialog({ settings, onChange, onClose }: {
       superthread_spaces: draft.superthread_spaces.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
       superthread_start_work_command: draft.superthread_start_work_command.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
       superthread_workspace_name_template: draft.superthread_workspace_name_template.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
+      github_poll_interval_seconds: clampGithubPollInterval(draft.github_poll_interval_seconds),
     });
     onClose();
   }
@@ -97,13 +98,13 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               checked={draft.superthread_enabled}
               onChange={(event) => update({ superthread_enabled: event.target.checked })}
             />
-            Enable Superthread panel
+            Show Superthread tab
           </label>
           <label>
             Spaces to include <span>comma-separated</span>
             <input
               value={draft.superthread_spaces}
-              placeholder="Product"
+              placeholder="Product & Engineering"
               autoComplete="off"
               spellCheck={false}
               onChange={(event) => update({ superthread_spaces: event.target.value })}
@@ -139,6 +140,31 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               spellCheck={false}
               onChange={(event) => update({ superthread_workspace_slug: event.target.value })}
             />
+          </label>
+        </section>
+        <section className="settingsSection">
+          <h3>GitHub</h3>
+          <label>
+            Refresh interval <span>seconds</span>
+            <input
+              type="number"
+              min={10}
+              max={3600}
+              value={draft.github_poll_interval_seconds}
+              onChange={(event) => update({ github_poll_interval_seconds: Number(event.target.value) })}
+            />
+          </label>
+          <div className="settingsHint">GitHub pull requests and actions refresh every 60 seconds by default.</div>
+          <label>
+            Pull request merge strategy
+            <select
+              value={draft.github_merge_strategy}
+              onChange={(event) => update({ github_merge_strategy: event.target.value as ResolvedAppSettings['github_merge_strategy'] })}
+            >
+              <option value="merge">Merge commit</option>
+              <option value="squash">Squash and merge</option>
+              <option value="rebase">Rebase and merge</option>
+            </select>
           </label>
         </section>
         <div className="modalActions">

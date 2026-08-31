@@ -62,6 +62,10 @@ pub struct AppSettings {
     pub superthread_workspace_name_template: Option<String>,
     #[serde(default)]
     pub superthread_enabled: Option<bool>,
+    #[serde(default)]
+    pub github_poll_interval_seconds: Option<u32>,
+    #[serde(default)]
+    pub github_merge_strategy: Option<String>,
 }
 
 impl AppSettings {
@@ -83,6 +87,8 @@ impl AppSettings {
         self.superthread_start_work_command = non_empty(next.superthread_start_work_command);
         self.superthread_workspace_name_template = non_empty(next.superthread_workspace_name_template);
         self.superthread_enabled = next.superthread_enabled;
+        self.github_poll_interval_seconds = next.github_poll_interval_seconds.map(|value| value.clamp(10, 3600));
+        self.github_merge_strategy = next.github_merge_strategy.filter(|value| matches!(value.as_str(), "merge" | "squash" | "rebase"));
         self.custom_cmd_p_commands = next.custom_cmd_p_commands.map(|commands| {
             commands.into_iter().filter(|item| {
                 !item.id.trim().is_empty()
