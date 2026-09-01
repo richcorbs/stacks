@@ -1005,7 +1005,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piMessage { max-width: 820px; margin: 0 auto 24px; }
 .piMessageText { color: #b7c3d1; font-size: 13px; line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; }
 .piMessageUser { display: flex; justify-content: flex-start; }
-.piMessageUser .piMessageText { box-sizing: border-box; width: fit-content; max-width: 88%; padding: 10px 13px; border: 1px solid #2b608b; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 52%, #182533); border-radius: 10px; background: #173754; background: color-mix(in srgb, var(--pi-pane-accent) 20%, #111c27); color: #d3e3f1; color: color-mix(in srgb, var(--pi-pane-accent) 20%, #d7e1eb); box-shadow: inset 0 1px 0 #ffffff08, 0 2px 8px #0003; }
+.piMessageUser .piMessageText { box-sizing: border-box; width: fit-content; max-width: 88%; margin-left: -13px; padding: 10px 13px; border: 1px solid #2b608b; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 52%, #182533); border-radius: 10px; background: #173754; background: color-mix(in srgb, var(--pi-pane-accent) 20%, #111c27); color: #d3e3f1; color: color-mix(in srgb, var(--pi-pane-accent) 20%, #d7e1eb); box-shadow: inset 0 1px 0 #ffffff08, 0 2px 8px #0003; }
 .piQueuedMessage .piMessageText { border-style: dashed; background: color-mix(in srgb, var(--pi-pane-accent) 11%, #111c27); color: #9fb0c0; box-shadow: none; }
 .piQueuedMessage small { display: block; margin-bottom: 4px; color: #718ba3; font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; }
 .piQueuedMessage span { white-space: pre-wrap; }

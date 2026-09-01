@@ -10,6 +10,8 @@ export type AppShortcutHandlerOptions = {
   activeWorkspace: WorkspaceEntry | null;
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
+  focusedTerminalByWorkspaceId: Record<string, string>;
+  maximizedWorkspaceIds: Record<string, boolean>;
   activePath: string | null;
   appSettings: ResolvedAppSettings;
   setMetaKeyDown: (down: boolean) => void;

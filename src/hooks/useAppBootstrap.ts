@@ -10,6 +10,8 @@ export function useAppBootstrap({
   setAppSettings,
   selectWorkspace,
   setActiveProjectId,
+  setFocusedTerminalByWorkspaceId,
+  setMaximizedWorkspaceIds,
 }: {
   setLoaded: (loaded: boolean) => void;
   setStore: React.Dispatch<React.SetStateAction<Store>>;
@@ -17,6 +19,8 @@ export function useAppBootstrap({
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   setActiveProjectId: (projectId: string | null) => void;
+  setFocusedTerminalByWorkspaceId: (focused: Record<string, string>) => void;
+  setMaximizedWorkspaceIds: (maximized: Record<string, boolean>) => void;
 }) {
   useEffect(() => {
     Promise.all([
@@ -26,8 +30,11 @@ export function useAppBootstrap({
       setStore(loadedStore);
       if (settings?.sidebar_width) setSidebarWidth(Math.min(420, Math.max(180, settings.sidebar_width)));
       setAppSettings(resolveAppSettings(settings));
-      const firstProject = loadedStore.projects[0];
-      if (firstProject) selectWorkspace(firstProject.id, null);
+      const focused = settings?.focused_terminal_by_workspace_id ?? {};
+      setFocusedTerminalByWorkspaceId(focused);
+      setMaximizedWorkspaceIds(settings?.maximized_workspace_ids ?? {});
+      const restored = restoredWorkspaceSelection(loadedStore, settings);
+      if (restored.projectId) selectWorkspace(restored.projectId, restored.workspaceId);
       else setActiveProjectId(null);
       setLoaded(true);
     }).catch((err) => {
@@ -35,4 +42,15 @@ export function useAppBootstrap({
       setLoaded(true);
     });
   }, []);
+}
+
+export function restoredWorkspaceSelection(store: Store, settings: AppSettings | null) {
+  const savedProject = settings?.active_project_id
+    ? store.projects.find((project) => project.id === settings.active_project_id)
+    : null;
+  const project = savedProject ?? store.projects[0] ?? null;
+  const savedWorkspace = project && settings?.active_workspace_id
+    ? project.workspaces.find((workspace) => workspace.id === settings.active_workspace_id)
+    : null;
+  return { projectId: project?.id ?? null, workspaceId: savedWorkspace?.id ?? null };
 }

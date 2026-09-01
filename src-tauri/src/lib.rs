@@ -34,7 +34,7 @@ use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
 use settings::{
     load_settings, reset_settings, save_app_settings, save_current_window_state,
-    save_sidebar_width, save_terminal_font_size, save_window_state,
+    save_sidebar_width, save_terminal_font_size, save_window_state, save_workspace_focus,
 };
 use store::{load_store, save_store};
 use superthread::{
@@ -87,6 +87,7 @@ pub fn run() {
             save_sidebar_width,
             save_terminal_font_size,
             save_app_settings,
+            save_workspace_focus,
             reset_settings,
             new_id,
             quit_app,

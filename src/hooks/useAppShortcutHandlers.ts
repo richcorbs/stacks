@@ -15,6 +15,8 @@ export function useAppShortcutHandlers({
   activeWorkspace,
   activeWorkspaceId,
   activeTerminalId,
+  focusedTerminalByWorkspaceId,
+  maximizedWorkspaceIds,
   activePath,
   appSettings,
   setMetaKeyDown,
@@ -83,7 +85,14 @@ export function useAppShortcutHandlers({
     onToggleMaximizedTerminal: toggleMaximizedTerminal,
     onOpenSearch: openTerminalSearch,
     onOpenSettings: () => setSettingsOpen(true),
-    onRestartApp: () => invoke('restart_app').catch(console.error),
+    onRestartApp: () => {
+      invoke('save_workspace_focus', {
+        activeProjectId: activeProject?.id ?? null,
+        activeWorkspaceId,
+        focusedTerminalByWorkspaceId,
+        maximizedWorkspaceIds,
+      }).then(() => invoke('restart_app')).catch(console.error);
+    },
     activePath,
     onOpenDirectoryInEditor: openDirectoryInEditor,
     onRunOneTimeCommand: openOneTimeCommand,

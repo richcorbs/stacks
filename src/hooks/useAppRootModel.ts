@@ -133,9 +133,12 @@ export function useAppRootModel() {
     setAppSettings,
     selectWorkspace,
     setActiveProjectId,
+    setFocusedTerminalByWorkspaceId,
+    setMaximizedWorkspaceIds,
     activeProjectId,
     activeWorkspaceId,
     activeTerminalId,
+    focusedTerminalByWorkspaceId,
     activePaneKind: activeWorkspaceId
       ? (terminalsByWorkspaceId[activeWorkspaceId] ?? []).find((pane) => pane.id === activeTerminalId)?.kind ?? 'terminal'
       : 'terminal',
@@ -309,6 +312,8 @@ export function useAppRootModel() {
     activeWorkspace,
     activeWorkspaceId,
     activeTerminalId,
+    focusedTerminalByWorkspaceId,
+    maximizedWorkspaceIds,
     activePath,
     appSettings,
     setMetaKeyDown,

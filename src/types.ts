@@ -58,6 +58,10 @@ export type AppSettings = {
   superthread_enabled?: boolean | null;
   github_poll_interval_seconds?: number | null;
   github_merge_strategy?: 'merge' | 'squash' | 'rebase' | null;
+  active_project_id?: string | null;
+  active_workspace_id?: string | null;
+  focused_terminal_by_workspace_id?: Record<string, string> | null;
+  maximized_workspace_ids?: MaximizedWorkspaceIds | null;
 };
 export type TermSize = { cols: number; rows: number };
 export type TerminalSession = {

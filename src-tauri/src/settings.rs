@@ -1,4 +1,4 @@
-use std::{fs, sync::{Mutex, OnceLock}};
+use std::{collections::HashMap, fs, sync::{Mutex, OnceLock}};
 use tauri::Window;
 
 use crate::fs_paths::app_data_file;
@@ -83,6 +83,21 @@ pub fn save_sidebar_width(width: u32) -> Result<(), String> {
 pub fn save_terminal_font_size(font_size: u32) -> Result<(), String> {
     update_settings_on_disk(|settings| {
         settings.terminal_font_size = Some(font_size.clamp(8, 32));
+    })
+}
+
+#[tauri::command]
+pub fn save_workspace_focus(
+    active_project_id: Option<String>,
+    active_workspace_id: Option<String>,
+    focused_terminal_by_workspace_id: HashMap<String, String>,
+    maximized_workspace_ids: HashMap<String, bool>,
+) -> Result<(), String> {
+    update_settings_on_disk(|settings| {
+        settings.active_project_id = active_project_id.filter(|id| !id.trim().is_empty());
+        settings.active_workspace_id = active_workspace_id.filter(|id| !id.trim().is_empty());
+        settings.focused_terminal_by_workspace_id = Some(focused_terminal_by_workspace_id);
+        settings.maximized_workspace_ids = Some(maximized_workspace_ids.into_iter().filter(|(_, maximized)| *maximized).collect());
     })
 }
 

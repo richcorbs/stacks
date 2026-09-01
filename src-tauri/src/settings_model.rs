@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowState {
@@ -66,6 +67,14 @@ pub struct AppSettings {
     pub github_poll_interval_seconds: Option<u32>,
     #[serde(default)]
     pub github_merge_strategy: Option<String>,
+    #[serde(default)]
+    pub active_project_id: Option<String>,
+    #[serde(default)]
+    pub active_workspace_id: Option<String>,
+    #[serde(default)]
+    pub focused_terminal_by_workspace_id: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub maximized_workspace_ids: Option<HashMap<String, bool>>,
 }
 
 impl AppSettings {

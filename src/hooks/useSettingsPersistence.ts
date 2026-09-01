@@ -25,6 +25,23 @@ export function usePersistentTerminalFontSize(loaded: boolean, terminalFontSize:
   }, [loaded, terminalFontSize, delayMs]);
 }
 
+export function usePersistentWorkspaceFocus(
+  loaded: boolean,
+  activeProjectId: string | null,
+  activeWorkspaceId: string | null,
+  focusedTerminalByWorkspaceId: Record<string, string>,
+  maximizedWorkspaceIds: Record<string, boolean>,
+  delayMs = 150,
+) {
+  useEffect(() => {
+    if (!loaded) return;
+    const timeout = window.setTimeout(() => {
+      invoke('save_workspace_focus', { activeProjectId, activeWorkspaceId, focusedTerminalByWorkspaceId, maximizedWorkspaceIds }).catch(console.error);
+    }, delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [loaded, activeProjectId, activeWorkspaceId, focusedTerminalByWorkspaceId, maximizedWorkspaceIds, delayMs]);
+}
+
 export function usePersistentAppSettings(loaded: boolean, settings: ResolvedAppSettings, delayMs = 250) {
   useEffect(() => {
     if (!loaded) return;

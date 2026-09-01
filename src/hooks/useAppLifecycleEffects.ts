@@ -2,7 +2,7 @@ import type React from 'react';
 import type { MaximizedWorkspaceIds, Store, ToastDetail } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import { useDebouncedStoreSave } from './useDebouncedSave';
-import { usePersistentAppSettings, usePersistentSidebarWidth } from './useSettingsPersistence';
+import { usePersistentAppSettings, usePersistentSidebarWidth, usePersistentWorkspaceFocus } from './useSettingsPersistence';
 import { useWindowStatePersistence } from './useWindowStatePersistence';
 import { useAppBootstrap } from './useAppBootstrap';
 import { useAppCloseRequest, useAppToastEvents } from './useAppWindowEvents';
@@ -24,9 +24,12 @@ export function useAppLifecycleEffects({
   setAppSettings,
   selectWorkspace,
   setActiveProjectId,
+  setFocusedTerminalByWorkspaceId,
+  setMaximizedWorkspaceIds,
   activeProjectId,
   activeWorkspaceId,
   activeTerminalId,
+  focusedTerminalByWorkspaceId,
   activePaneKind,
   maximizedWorkspaceIds,
   sidebarFocusedWorkspaceId,
@@ -45,9 +48,12 @@ export function useAppLifecycleEffects({
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   setActiveProjectId: React.Dispatch<React.SetStateAction<string | null>>;
+  setFocusedTerminalByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  setMaximizedWorkspaceIds: React.Dispatch<React.SetStateAction<MaximizedWorkspaceIds>>;
   activeProjectId: string | null;
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
+  focusedTerminalByWorkspaceId: Record<string, string>;
   activePaneKind: 'terminal' | 'pi';
   maximizedWorkspaceIds: MaximizedWorkspaceIds;
   sidebarFocusedWorkspaceId: string | null;
@@ -62,8 +68,9 @@ export function useAppLifecycleEffects({
   const saveStoreNow = useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
   usePersistentAppSettings(loaded, appSettings);
+  usePersistentWorkspaceFocus(loaded, activeProjectId, activeWorkspaceId, focusedTerminalByWorkspaceId, maximizedWorkspaceIds);
   useWindowStatePersistence();
-  useAppBootstrap({ setLoaded, setStore, setSidebarWidth, setAppSettings, selectWorkspace, setActiveProjectId });
+  useAppBootstrap({ setLoaded, setStore, setSidebarWidth, setAppSettings, selectWorkspace, setActiveProjectId, setFocusedTerminalByWorkspaceId, setMaximizedWorkspaceIds });
   useAppToastEvents(showToast);
   useAppCloseRequest(appSettings.confirm_close, setConfirmQuitOpen);
   useContextMenuDismissal(setContextMenu);
