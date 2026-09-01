@@ -29,7 +29,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 }) {
   const cwd = terminal.cwd || workspace.cwd || project.path;
   const [projectTrusted, setProjectTrusted] = useState(false);
-  const pi = usePiSession(terminal.id, cwd);
+  const pi = usePiSession(terminal.id, cwd, workspace.id);
   const [prompt, setPrompt] = useState('');
   const [composerFontSize, setComposerFontSize] = useState(15);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -261,8 +261,12 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     <div
       ref={paneRef}
       className={`terminal piGuiPane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
-      onMouseDown={() => {
+      onMouseDown={(event) => {
         if (!active) onFocus();
+        if ((event.target as Element).closest('button, a, input, textarea, summary, .piSelectionPopup')) return;
+        requestAnimationFrame(() => {
+          if (!window.getSelection()?.toString().trim()) inputRef.current?.focus();
+        });
       }}
       onClickCapture={(event) => {
         if (!preventSummaryToggleRef.current || !(event.target as Element).closest('summary')) return;

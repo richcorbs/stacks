@@ -23,7 +23,7 @@ type PendingRequest = {
   timer: number;
 };
 
-export function usePiSession(paneId: string, cwd: string) {
+export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [context, setContext] = useState<PiSessionContext>(EMPTY_CONTEXT);
   const [streamingText, setStreamingText] = useState('');
@@ -118,19 +118,24 @@ export function usePiSession(paneId: string, cwd: string) {
         case 'message_update':
           if (event.assistantMessageEvent?.type === 'text_delta') {
             setStreamingText((current) => current + (event.assistantMessageEvent?.delta || ''));
+            notifyOutput(workspaceId, paneId);
           }
           break;
         case 'message_end':
           if (event.message && typeof event.message === 'object') {
             const message = event.message as PiMessage;
             setMessages((current) => appendPiMessage(current, message));
-            if (message.role === 'assistant') setStreamingText('');
+            if (message.role === 'assistant') {
+              setStreamingText('');
+              notifyOutput(workspaceId, paneId);
+            }
             if (message.role === 'toolResult' && message.toolCallId) {
               setTools((current) => current.filter((tool) => tool.id !== message.toolCallId));
             }
           }
           break;
         case 'tool_execution_start':
+          notifyOutput(workspaceId, paneId);
           setTools((current) => [...current.filter((tool) => tool.id !== event.toolCallId), {
             id: event.toolCallId || `tool-${Date.now()}`,
             name: event.toolName || 'tool',
@@ -234,7 +239,7 @@ export function usePiSession(paneId: string, cwd: string) {
       }
       pendingRequests.current.clear();
     };
-  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats, writeCommand]);
+  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats, workspaceId, writeCommand]);
 
   useEffect(() => {
     if (!uiRequest?.timeout) return;
@@ -308,6 +313,10 @@ export function usePiSession(paneId: string, cwd: string) {
 
 function notifyRunning(paneId: string, running: boolean) {
   window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId: paneId, running } }));
+}
+
+function notifyOutput(workspaceId: string, paneId: string) {
+  window.dispatchEvent(new CustomEvent('terminal-output', { detail: { workspaceId, terminalId: paneId } }));
 }
 
 type SetPiContext = (value: PiSessionContext | ((current: PiSessionContext) => PiSessionContext)) => void;

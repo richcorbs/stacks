@@ -18,7 +18,7 @@ React mount/unmount does not own process lifetime. Split-tree remounts must not 
 - Restart marks the old generation invalid before stopping it.
 - A stopped final pane remains persisted and restarts when its workspace becomes visible again.
 - Removing a Pi pane permanently calls `delete_pi_session`; stopping it retains its session.
-- Pi process start and exit events feed the shared `terminal-running-changed` projection so Pi-only workspaces receive the sidebar's running status dot.
+- Pi process start and exit events feed the shared `terminal-running-changed` projection so Pi-only workspaces receive the sidebar's running status dot. Assistant deltas and tool starts also emit `terminal-output`, giving background Pi workspaces the same fresh/unseen activity dots as terminals.
 - Child processes are reaped by a dedicated process thread. Pi and setup shells run in dedicated process groups so stop, timeout, and app shutdown also terminate tool descendants.
 - Concurrent starts for one pane are idempotent; remounts wait for the in-flight owner.
 
@@ -42,7 +42,7 @@ RPC requests use unique IDs and resolve only when their matching response arrive
 
 While Pi is working, Option+Enter sends the composer through RPC `follow_up`, matching Pi's CLI behavior. Pending follow-ups are projected from `queue_update` events and displayed above the composer input.
 
-App-level focus restoration emits `pane-focus-request` when the active pane has no xterm session. Active Pi panes listen for their pane ID and restore composer focus after dialogs, settings, palettes, and context menus close.
+App-level focus restoration emits `pane-focus-request` when the active pane has no xterm session. Active Pi panes listen for their pane ID and restore composer focus after dialogs, settings, palettes, and context menus close. Pane activation, app-window focus, and non-interactive clicks within a Pi pane also restore composer focus.
 
 The context footer refreshes RPC `get_session_stats` after startup, restart, and each settled run. It renders `contextUsage` as a percentage donut with exact token counts in its tooltip. App-level Cmd+V routing checks both the event target and active element before attempting a PTY write. The Pi composer handles Cmd+V directly through the clipboard plugin so paste remains reliable in the Tauri webview.
 
