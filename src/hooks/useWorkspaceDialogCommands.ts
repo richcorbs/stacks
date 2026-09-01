@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type React from 'react';
-import type { DialogState, Project, SplitNode, Store, TerminalEntry } from '../types';
+import type { DialogState, Project, Store, TerminalEntry } from '../types';
 import { basename } from '../utils';
 import { submitWorkspaceDialog } from '../workspace/dialogSubmit';
 import type { CreateWorkspace } from '../workspace/createWorkspace';
@@ -13,11 +13,8 @@ type WorkspaceDialogCommandOptions = {
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
-  splitRootsByWorkspaceId: Record<string, SplitNode>;
-  setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
-  setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
   completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null, initialInput?: string, paneKind?: 'terminal' | 'pi') => Promise<void>;
-  saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
+  updateTerminalPane: (workspaceId: string, terminalId: string, paneKind: 'terminal' | 'pi', command: string | null) => Promise<void>;
   createWorkspace: CreateWorkspace;
 };
 
@@ -28,11 +25,8 @@ export function useWorkspaceDialogCommands({
   setDialog,
   selectWorkspace,
   terminalsByWorkspaceId,
-  splitRootsByWorkspaceId,
-  setTerminalsByWorkspaceId,
-  setSplitRootsByWorkspaceId,
   completeSplitTerminal,
-  saveTerminalSplit,
+  updateTerminalPane,
   createWorkspace,
 }: WorkspaceDialogCommandOptions) {
   async function addProject(name: string, path: string) {
@@ -74,7 +68,7 @@ export function useWorkspaceDialogCommands({
     const workspace = store.projects.flatMap((project) => project.workspaces).find((candidate) => candidate.id === workspaceId);
     const terminal = (terminalsByWorkspaceId[workspaceId] ?? []).find((candidate) => candidate.id === terminalId);
     const command = terminal?.command ?? (terminalId === `${workspaceId}:0` ? workspace?.command ?? '' : '');
-    setDialog({ kind: 'editTerminal', workspaceId, terminalId, command });
+    setDialog({ kind: 'editTerminal', workspaceId, terminalId, command, paneKind: terminal?.kind === 'pi' ? 'pi' : 'terminal' });
   }
 
   async function submitDialog() {
@@ -84,11 +78,8 @@ export function useWorkspaceDialogCommands({
       setStore,
       setDialog,
       completeSplitTerminal,
+      updateTerminalPane,
       addProject,
-      setTerminalsByWorkspaceId,
-      splitRootsByWorkspaceId,
-      setSplitRootsByWorkspaceId,
-      saveTerminalSplit,
       createWorkspace,
     });
   }

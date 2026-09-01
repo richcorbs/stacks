@@ -72,7 +72,7 @@ describe('buildCommandPaletteItems', () => {
     const piPane: TerminalEntry = { id: 't1:pi', workspaceId: 't1', kind: 'pi' };
     const items = palette({ terminalsByWorkspaceId: { t1: [piPane] }, activeTerminalId: piPane.id });
 
-    expect(items.some((item) => item.id === 'edit-terminal')).toBe(false);
+    expect(items.find((item) => item.id === 'edit-terminal')?.title).toBe('Edit Current Pane');
     expect(items.some((item) => item.id === 'find-terminal')).toBe(false);
     expect(items.some((item) => item.id === 'clear-terminal')).toBe(false);
     expect(items.find((item) => item.id === 'restart-terminal')?.title).toBe('Restart Current Pi GUI');

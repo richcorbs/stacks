@@ -53,6 +53,7 @@ export function SplitView({ node, terminalsById, workspace, project, visible, br
           onFocus={() => onFocus(terminal.id)}
           onClose={() => onClose(terminal.id)}
           onSplitTerminal={(direction) => onSplitTerminal(direction, terminal.id)}
+          onEditTerminal={() => onEditTerminal(workspace.id, terminal.id)}
           onToggleMaximize={() => onToggleMaximize(terminal.id)}
         />
         </Suspense>

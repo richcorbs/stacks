@@ -21,11 +21,8 @@ function baseOptions(state: ReturnType<typeof stateHarness>) {
     setStore: state.setStore,
     setDialog: state.setDialog,
     completeSplitTerminal: vi.fn(),
+    updateTerminalPane: vi.fn(),
     addProject: vi.fn(),
-    setTerminalsByWorkspaceId: vi.fn(),
-    splitRootsByWorkspaceId: {},
-    setSplitRootsByWorkspaceId: vi.fn(),
-    saveTerminalSplit: vi.fn(),
     createWorkspace: vi.fn(),
   };
 }
@@ -91,6 +88,33 @@ describe('submitWorkspaceDialog', () => {
     });
 
     expect(completeSplitTerminal).toHaveBeenCalledWith('t1', 't1:0', 'column', 'npm run dev', undefined, 'terminal');
+    expect(state.dialog).toBeNull();
+  });
+
+  it('converts an edited terminal pane to Pi and clears its startup command', async () => {
+    const state = stateHarness({ projects: [{ id: 'p1', name: 'Stacks', path: '/repo', workspaces: [{ id: 't1', name: 'Dev', command: 'npm test' }] }] });
+    const options = baseOptions(state);
+
+    await submitWorkspaceDialog({
+      ...options,
+      dialog: { kind: 'editTerminal', workspaceId: 't1', terminalId: 't1:0', command: 'npm test', paneKind: 'pi' },
+    });
+
+    expect(options.updateTerminalPane).toHaveBeenCalledWith('t1', 't1:0', 'pi', null);
+    expect(state.store.projects[0].workspaces[0].command).toBeNull();
+    expect(state.dialog).toBeNull();
+  });
+
+  it('converts an edited Pi pane to a terminal with a trimmed startup command', async () => {
+    const state = stateHarness({ projects: [] });
+    const options = baseOptions(state);
+
+    await submitWorkspaceDialog({
+      ...options,
+      dialog: { kind: 'editTerminal', workspaceId: 't1', terminalId: 't1:1', command: ' npm run dev ', paneKind: 'terminal' },
+    });
+
+    expect(options.updateTerminalPane).toHaveBeenCalledWith('t1', 't1:1', 'terminal', 'npm run dev');
     expect(state.dialog).toBeNull();
   });
 });

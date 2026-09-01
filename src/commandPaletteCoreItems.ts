@@ -108,10 +108,8 @@ export function commandPaletteCoreItems({
   }
 
   if (activeTerminalId) {
-    if (activePaneKind !== 'pi') {
-      items.push({ id: 'edit-terminal', title: 'Edit Current Terminal', subtitle: 'Set the startup command for the active terminal', keywords: 'edit terminal startup command shell process', action: () => { if (activeWorkspaceId) onEditTerminal(activeWorkspaceId, activeTerminalId); } });
-    }
     items.push(
+      { id: 'edit-terminal', title: 'Edit Current Pane', subtitle: 'Change the pane type or terminal startup command', keywords: 'edit pane terminal pi gui startup command shell process', action: () => { if (activeWorkspaceId) onEditTerminal(activeWorkspaceId, activeTerminalId); } },
       { id: 'restart-terminal', title: `Restart Current ${activePaneKind === 'pi' ? 'Pi GUI' : 'Terminal'}`, subtitle: 'Restart the active pane process', keywords: 'restart rerun process terminal pi pane', action: () => onRestartTerminal(activeTerminalId) },
       { id: 'stop-terminal', title: `Stop Current ${activePaneKind === 'pi' ? 'Pi GUI' : 'Terminal'}`, subtitle: 'Terminate the active pane process', keywords: 'kill terminate process terminal pi pane', danger: true, action: () => onStopTerminal(activeTerminalId) },
       { id: 'close-terminal', title: 'Close Current Pane', subtitle: 'Close the active terminal or Pi GUI', keywords: 'remove kill terminal pi pane', danger: true, action: () => onCloseTerminal(activeTerminalId) },

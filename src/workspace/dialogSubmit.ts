@@ -1,6 +1,5 @@
 import type React from 'react';
-import type { DialogState, Project, SplitNode, Store, TerminalEntry } from '../types';
-import { setLeafCommand } from '../utils';
+import type { DialogState, Project, Store } from '../types';
 import type { CreateWorkspace } from './createWorkspace';
 
 type SubmitWorkspaceDialogOptions = {
@@ -9,11 +8,8 @@ type SubmitWorkspaceDialogOptions = {
   setStore: React.Dispatch<React.SetStateAction<Store>>;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null, initialInput?: string, paneKind?: 'terminal' | 'pi') => Promise<void>;
+  updateTerminalPane: (workspaceId: string, terminalId: string, paneKind: 'terminal' | 'pi', command: string | null) => Promise<void>;
   addProject: (name: string, path: string) => Promise<Project>;
-  setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
-  splitRootsByWorkspaceId: Record<string, SplitNode>;
-  setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
   createWorkspace: CreateWorkspace;
 };
 
@@ -23,11 +19,8 @@ export async function submitWorkspaceDialog({
   setStore,
   setDialog,
   completeSplitTerminal,
+  updateTerminalPane,
   addProject,
-  setTerminalsByWorkspaceId,
-  splitRootsByWorkspaceId,
-  setSplitRootsByWorkspaceId,
-  saveTerminalSplit,
   createWorkspace,
 }: SubmitWorkspaceDialogOptions) {
   if (!dialog) return;
@@ -64,18 +57,8 @@ export async function submitWorkspaceDialog({
   }
 
   if (dialog.kind === 'editTerminal') {
-    const command = dialog.command.trim() || null;
-    setTerminalsByWorkspaceId((all) => ({
-      ...all,
-      [dialog.workspaceId]: (all[dialog.workspaceId] ?? []).map((terminal) => terminal.id === dialog.terminalId ? { ...terminal, command } : terminal),
-    }));
-    setSplitRootsByWorkspaceId((all) => {
-      const root = all[dialog.workspaceId] ?? splitRootsByWorkspaceId[dialog.workspaceId];
-      if (!root) return all;
-      const nextRoot = setLeafCommand(root, dialog.terminalId, command);
-      saveTerminalSplit(dialog.workspaceId, nextRoot);
-      return { ...all, [dialog.workspaceId]: nextRoot };
-    });
+    const command = dialog.paneKind === 'terminal' ? dialog.command.trim() || null : null;
+    await updateTerminalPane(dialog.workspaceId, dialog.terminalId, dialog.paneKind, command);
     if (dialog.terminalId === `${dialog.workspaceId}:0`) {
       setStore((s) => ({
         projects: s.projects.map((p) => ({

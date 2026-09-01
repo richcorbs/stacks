@@ -12,7 +12,7 @@ import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentatio
 import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
 
-export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, onFocus, onClose, onSplitTerminal, onToggleMaximize }: {
+export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -24,6 +24,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   onFocus: () => void;
   onClose: () => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
+  onEditTerminal: () => void;
   onToggleMaximize: () => void;
 }) {
   const cwd = terminal.cwd || workspace.cwd || project.path;
@@ -244,9 +245,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         canToggleMaximize={canToggleMaximize}
         broadcast={false}
         canBroadcast={false}
-        canEdit={false}
         onSplitTerminal={onSplitTerminal}
-        onEditTerminal={() => {}}
+        onEditTerminal={onEditTerminal}
         onToggleBroadcast={() => {}}
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
@@ -291,8 +291,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             live
           />
         ))}
-        {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => pi.restart().catch(() => {})}>Restart Pi</button></div>}
       </div>
+
+      {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => pi.restart().catch(() => {})}>Restart Pi</button></div>}
 
       <div className="piComposer">
         <div className="piComposerContent">

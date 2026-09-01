@@ -89,7 +89,7 @@ export type DialogState =
   | { kind: 'split'; workspaceId: string; targetTerminalId: string; direction: 'row' | 'column'; command: string; paneKind: PaneKind }
   | { kind: 'editProject'; projectId: string; name: string; path: string }
   | { kind: 'editWorkspace'; projectId: string; workspaceId: string; name: string; command: string; cwd: string }
-  | { kind: 'editTerminal'; workspaceId: string; terminalId: string; command: string };
+  | { kind: 'editTerminal'; workspaceId: string; terminalId: string; command: string; paneKind: PaneKind };
 export type ContextMenuState =
   | { kind: 'project'; projectId: string; x: number; y: number }
   | { kind: 'workspace'; projectId: string; workspaceId: string; x: number; y: number };

@@ -94,11 +94,8 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     setDialog,
     selectWorkspace,
     terminalsByWorkspaceId,
-    splitRootsByWorkspaceId,
-    setTerminalsByWorkspaceId,
-    setSplitRootsByWorkspaceId,
     completeSplitTerminal: splitCommands.completeSplitTerminal,
-    saveTerminalSplit,
+    updateTerminalPane: paneCommands.updateTerminalPane,
     createWorkspace,
   });
 

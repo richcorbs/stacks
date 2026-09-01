@@ -37,11 +37,13 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
   if (dialog.kind === 'split' || dialog.kind === 'editTerminal') {
     return (
       <>
-        <h2>{dialog.kind === 'split' ? 'Split Workspace' : 'Edit Terminal'}</h2>
-        {dialog.kind === 'split' && (
-          <PaneKindPicker value={dialog.paneKind} label="New pane" onChange={(paneKind) => setDialog({ ...dialog, paneKind })} />
-        )}
-        {(dialog.kind === 'editTerminal' || dialog.paneKind === 'terminal') && (
+        <h2>{dialog.kind === 'split' ? 'Split Workspace' : 'Edit Pane'}</h2>
+        <PaneKindPicker
+          value={dialog.paneKind}
+          label={dialog.kind === 'split' ? 'New pane' : 'Pane type'}
+          onChange={(paneKind) => setDialog({ ...dialog, paneKind })}
+        />
+        {dialog.paneKind === 'terminal' && (
           <label>
             Startup command <span>(optional)</span>
             <input

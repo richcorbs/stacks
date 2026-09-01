@@ -49,8 +49,8 @@ export function TerminalControls({ maximized, canToggleMaximize, broadcast, canB
       {canEdit && <button
         className="terminalControlButton"
         type="button"
-        title="Edit terminal startup command"
-        aria-label="Edit terminal startup command"
+        title="Edit pane"
+        aria-label="Edit pane"
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
