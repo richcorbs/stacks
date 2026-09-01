@@ -14,7 +14,7 @@ export function slashCommandQuery(value: string): string | null {
   return value.slice(1).toLowerCase();
 }
 
-export function matchingSlashCommands(commands: PiCommand[], value: string, limit = 12): PiCommand[] {
+export function matchingSlashCommands(commands: PiCommand[], value: string, limit = commands.length): PiCommand[] {
   const query = slashCommandQuery(value);
   if (query === null) return [];
   return commands

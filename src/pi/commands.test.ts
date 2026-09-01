@@ -20,6 +20,11 @@ describe('Pi slash commands', () => {
     expect(matchingSlashCommands(commands, '/grill').map((command) => command.name)).toEqual(['skill:grill-me']);
   });
 
+  it('keeps a large project prompt list discoverable', () => {
+    const projectPrompts = Array.from({ length: 20 }, (_, index) => ({ name: `prompt-${index}`, source: 'prompt' as const }));
+    expect(matchingSlashCommands(projectPrompts, '/')).toHaveLength(20);
+  });
+
   it('offers GUI-supported built-in commands', () => {
     expect(GUI_BUILTIN_COMMANDS.map((command) => command.name)).toEqual(['new', 'compact']);
     expect(isGuiBuiltinCommand('compact')).toBe(true);
