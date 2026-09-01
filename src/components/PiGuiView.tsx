@@ -322,6 +322,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           {attachmentError && <div className="piAttachmentError">{attachmentError}</div>}
           <textarea
             ref={inputRef}
+            className={prompt.includes('\n') ? undefined : 'singleLine'}
             value={prompt}
             rows={1}
             style={{ fontSize: `${composerFontSize}px` }}
