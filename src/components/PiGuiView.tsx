@@ -109,6 +109,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setExtensionInput(pi.uiRequest?.prefill || '');
   }, [pi.uiRequest]);
 
+  useEffect(() => {
+    if (!pi.editorTextRequest) return;
+    setPrompt(pi.editorTextRequest.text);
+    setSelectedCommandIndex(-1);
+    if (active && visible) requestAnimationFrame(() => inputRef.current?.focus());
+  }, [pi.editorTextRequest]);
+
   useEffect(() => subscribePiImageDrops(terminal.id, (paths) => {
       if (!pi.context.supportsImages) {
         setAttachmentError('The selected model does not support image input');
@@ -340,8 +347,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           </div>
         ))}
         {pi.isStreaming && !pi.streamingText && pi.tools.length === 0 && (
-          <div className="piWorkingIndicator" role="status" aria-live="polite">
-            <span>Thinking</span><span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
+          <div className="piWorkingIndicator" role="status" aria-label="Pi is thinking" aria-live="polite">
+            <span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
           </div>
         )}
       </div>

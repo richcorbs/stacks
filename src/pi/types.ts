@@ -48,6 +48,7 @@ export type PiRpcEvent = PiResponseEvent | {
   method?: string;
   title?: string;
   prefill?: string;
+  text?: string;
   options?: string[];
   [key: string]: unknown;
 };

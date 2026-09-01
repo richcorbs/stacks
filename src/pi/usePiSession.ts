@@ -34,6 +34,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
   const [starting, setStarting] = useState(true);
   const [stopped, setStopped] = useState(false);
   const [uiRequest, setUiRequest] = useState<PiUiRequest | null>(null);
+  const [editorTextRequest, setEditorTextRequest] = useState<{ text: string } | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>(GUI_BUILTIN_COMMANDS);
   const [queuedSteering, setQueuedSteering] = useState<string[]>([]);
   const [queuedFollowUps, setQueuedFollowUps] = useState<string[]>([]);
@@ -203,6 +204,10 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
           pendingRequests.current.clear();
           break;
         case 'extension_ui_request': {
+          if (event.method === 'set_editor_text' && typeof event.text === 'string') {
+            setEditorTextRequest({ text: event.text });
+            break;
+          }
           const request = extensionUiRequest(event);
           if (request) setUiRequest(request);
           break;
@@ -345,7 +350,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     }
   }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats]);
 
-  return { messages, context, commands, queuedSteering, queuedFollowUps, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, restart, respondToUiRequest };
+  return { messages, context, commands, queuedSteering, queuedFollowUps, editorTextRequest, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, restart, respondToUiRequest };
 }
 
 function notifyRunning(paneId: string, running: boolean) {

@@ -42,9 +42,11 @@ RPC requests use unique IDs and resolve only when their matching response arrive
 
 While Pi is working, Enter sends the composer through RPC `steer`, and Option+Enter sends it through RPC `follow_up`, matching Pi's CLI behavior. Pending steering messages and follow-ups are projected from `queue_update` events and displayed as subdued, labeled user bubbles in the conversation rather than inside the composer. When Pi delivers one, its user `message_end` removes the queued projection and the durable message renders with normal user styling.
 
+RPC extensions and skills can return text to the composer through the fire-and-forget `extension_ui_request` method `set_editor_text`; the session projects that request into `PiGuiView`, which replaces and focuses the composer text.
+
 App-level focus restoration emits `pane-focus-request` when the active pane has no xterm session. Active Pi panes listen for their pane ID and restore composer focus after dialogs, settings, palettes, and context menus close. Pane activation, app-window focus, and non-interactive clicks within a Pi pane also restore composer focus.
 
-While a run is active but has not produced assistant text or a live tool card, the conversation shows an animated `Thinking` indicator so activity is not communicated only by the composer stop button.
+While a run is active but has not produced assistant text or a live tool card, the conversation shows an animated ellipsis (with an accessible `Pi is thinking` label) so activity is not communicated only by the composer stop button.
 
 The context footer refreshes RPC `get_session_stats` after startup, restart, and each settled run. It renders `contextUsage` as a percentage donut with exact token counts in its tooltip. App-level Cmd+V routing checks both the event target and active element before attempting a PTY write. The Pi composer handles Cmd+V directly through the clipboard plugin so paste remains reliable in the Tauri webview.
 
