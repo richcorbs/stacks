@@ -45,7 +45,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const previousVisibleRef = useRef(visible);
   const handledRestartNonceRef = useRef(0);
   const preventSummaryToggleRef = useRef(false);
-  const skipNextComposerFocusRef = useRef(false);
 
   useEffect(() => {
     invoke<boolean>('pi_project_trusted', { cwd }).then(setProjectTrusted).catch(() => setProjectTrusted(false));
@@ -91,13 +90,20 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [composerFontSize, prompt]);
 
   useEffect(() => {
-    if (!active || pi.uiRequest) return;
-    if (skipNextComposerFocusRef.current) {
-      skipNextComposerFocusRef.current = false;
-      return;
-    }
+    if (!active || !visible || pi.uiRequest) return;
     inputRef.current?.focus();
-  }, [active, pi.uiRequest]);
+    const focusComposer = () => requestAnimationFrame(() => inputRef.current?.focus());
+    const focusRequestedPane = (event: Event) => {
+      const request = (event as CustomEvent<{ terminalId?: string }>).detail;
+      if (request?.terminalId === terminal.id) inputRef.current?.focus();
+    };
+    window.addEventListener('focus', focusComposer);
+    window.addEventListener('pane-focus-request', focusRequestedPane);
+    return () => {
+      window.removeEventListener('focus', focusComposer);
+      window.removeEventListener('pane-focus-request', focusRequestedPane);
+    };
+  }, [active, pi.uiRequest, terminal.id, visible]);
 
   useEffect(() => {
     setExtensionInput(pi.uiRequest?.prefill || '');
@@ -235,10 +241,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     <div
       ref={paneRef}
       className={`terminal piGuiPane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
-      onMouseDown={(event) => {
-        if (active) return;
-        skipNextComposerFocusRef.current = Boolean((event.target as Element).closest('.piGuiConversation'));
-        onFocus();
+      onMouseDown={() => {
+        if (!active) onFocus();
       }}
       onClickCapture={(event) => {
         if (!preventSummaryToggleRef.current || !(event.target as Element).closest('summary')) return;

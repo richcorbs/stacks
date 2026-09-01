@@ -36,11 +36,13 @@ Project trust is not a sandbox. Pi tools still run with the user's permissions.
 
 ## Transcript synchronization
 
-`get_messages` is used only for initial hydration, restart recovery, compaction, and session changes. Normal turns append typed `message_end` events incrementally. Durable context remains in Pi's session file; React keeps a bounded recent projection, removes historical base64 image payloads, and renders at most 300 messages to keep memory and Markdown work bounded.
+`get_messages` is used only for initial hydration, restart recovery, compaction, and session changes. Normal turns append typed `message_end` events incrementally. When a durable tool-result message arrives, its matching live tool card is removed by tool-call ID so the command is not displayed simultaneously as both live and historical. Durable context remains in Pi's session file; React keeps a bounded recent projection, removes historical base64 image payloads, and renders at most 300 messages to keep memory and Markdown work bounded.
 
 RPC requests use unique IDs and resolve only when their matching response arrives. Fire-and-forget extension UI events are not added to the request broker.
 
 While Pi is working, Option+Enter sends the composer through RPC `follow_up`, matching Pi's CLI behavior. Pending follow-ups are projected from `queue_update` events and displayed above the composer input.
+
+App-level focus restoration emits `pane-focus-request` when the active pane has no xterm session. Active Pi panes listen for their pane ID and restore composer focus after dialogs, settings, palettes, and context menus close.
 
 ## Skills and slash commands
 

@@ -120,6 +120,9 @@ export function usePiSession(paneId: string, cwd: string) {
             const message = event.message as PiMessage;
             setMessages((current) => appendPiMessage(current, message));
             if (message.role === 'assistant') setStreamingText('');
+            if (message.role === 'toolResult' && message.toolCallId) {
+              setTools((current) => current.filter((tool) => tool.id !== message.toolCallId));
+            }
           }
           break;
         case 'tool_execution_start':
