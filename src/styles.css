@@ -904,6 +904,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piMessageText { color: #b7c3d1; font-size: 13px; line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; }
 .piMessageUser { display: flex; justify-content: flex-start; }
 .piMessageUser .piMessageText { box-sizing: border-box; width: fit-content; max-width: 88%; padding: 10px 13px; border: 1px solid #2b608b; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 52%, #182533); border-radius: 10px; background: #173754; background: color-mix(in srgb, var(--pi-pane-accent) 20%, #111c27); color: #d3e3f1; color: color-mix(in srgb, var(--pi-pane-accent) 20%, #d7e1eb); box-shadow: inset 0 1px 0 #ffffff08, 0 2px 8px #0003; }
+.piQueuedFollowUp .piMessageText { border-style: dashed; background: color-mix(in srgb, var(--pi-pane-accent) 11%, #111c27); color: #9fb0c0; box-shadow: none; }
+.piQueuedFollowUp small { display: block; margin-bottom: 4px; color: #718ba3; font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.piQueuedFollowUp span { white-space: pre-wrap; }
 .piMessageImages { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 7px; }
 .piMessageImages img { max-width: min(320px, 100%); max-height: 220px; border: 1px solid #3c6b91; border-radius: 6px; object-fit: contain; background: #0d1b28; }
 .piOmittedImage { padding: 6px 8px; border: 1px solid #30475b; border-radius: 5px; color: #74889b; font-size: 9px; }
@@ -977,10 +980,6 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piCommandMenu em { flex: 0 0 auto; color: #52677c; font-size: 8px; font-style: normal; }
 .piComposer textarea { box-sizing: border-box; width: 100%; min-height: 23px; max-height: 150px; padding: 3px 0; resize: none; border: 0; outline: 0; background: transparent; color: #c7d1dc; font: 13px/1.45 inherit; }
 .piComposer textarea.singleLine { transform: translateY(-2px); }
-.piQueuedFollowUps { margin: 0 0 7px; display: flex; flex-direction: column; gap: 4px; }
-.piQueuedFollowUps > div { min-width: 0; padding: 5px 7px; border: 1px solid #35475a; border-radius: 5px; background: #0d161f; display: flex; align-items: baseline; gap: 7px; }
-.piQueuedFollowUps small { flex: 0 0 auto; color: #6388a8; font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
-.piQueuedFollowUps span { min-width: 0; overflow: hidden; color: #8294a7; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .piImageAttachments { margin-bottom: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
 .piImageAttachment { position: relative; width: 72px; padding: 3px; border: 1px solid #30475b; border-radius: 6px; background: #0b141d; }
 .piImageAttachment img { display: block; width: 100%; height: 48px; object-fit: cover; border-radius: 3px; }

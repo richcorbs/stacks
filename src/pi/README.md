@@ -40,7 +40,7 @@ Project trust is not a sandbox. Pi tools still run with the user's permissions.
 
 RPC requests use unique IDs and resolve only when their matching response arrives. Fire-and-forget extension UI events are not added to the request broker.
 
-While Pi is working, Option+Enter sends the composer through RPC `follow_up`, matching Pi's CLI behavior. Pending follow-ups are projected from `queue_update` events and displayed above the composer input.
+While Pi is working, Option+Enter sends the composer through RPC `follow_up`, matching Pi's CLI behavior. Pending follow-ups are projected from `queue_update` events and displayed as subdued, labeled user bubbles in the conversation rather than inside the composer. When Pi delivers one, its user `message_end` removes the queued projection and the durable message renders with normal user styling.
 
 App-level focus restoration emits `pane-focus-request` when the active pane has no xterm session. Active Pi panes listen for their pane ID and restore composer focus after dialogs, settings, palettes, and context menus close. Pane activation, app-window focus, and non-interactive clicks within a Pi pane also restore composer focus.
 

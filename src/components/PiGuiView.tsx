@@ -138,7 +138,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const element = scrollRef.current;
     if (!element || !visible || !shouldStickToBottomRef.current) return;
     element.scrollTop = element.scrollHeight;
-  }, [pi.isStreaming, pi.messages.length, pi.streamingText, pi.tools, visible]);
+  }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.streamingText, pi.tools, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
 
@@ -325,6 +325,11 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             live
           />
         ))}
+        {pi.queuedFollowUps.map((message, index) => (
+          <div className="piMessage piMessageUser piQueuedFollowUp" key={`${message}:${index}`} aria-label="Queued follow-up">
+            <div className="piMessageText"><small>Follow up</small><span>{message}</span></div>
+          </div>
+        ))}
         {pi.isStreaming && !pi.streamingText && pi.tools.length === 0 && (
           <div className="piWorkingIndicator" role="status" aria-live="polite">
             <span>Thinking</span><span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
@@ -350,9 +355,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               <span><strong>/{command.name}</strong>{command.description && <small>{command.description}</small>}</span>
               <em>{command.source}{command.location ? ` · ${command.location}` : ''}</em>
             </button>)}
-          </div>}
-          {pi.queuedFollowUps.length > 0 && <div className="piQueuedFollowUps" aria-live="polite">
-            {pi.queuedFollowUps.map((message, index) => <div key={`${message}:${index}`}><small>follow-up</small><span>{message}</span></div>)}
           </div>}
           {attachments.length > 0 && <div className="piImageAttachments">
             {attachments.map((image, index) => <div className="piImageAttachment" key={`${image.name}:${index}`} title={image.name}>

@@ -130,6 +130,13 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
               setStreamingText('');
               notifyOutput(workspaceId, paneId);
             }
+            if (message.role === 'user') {
+              const deliveredText = messageContentText(message.content).trim();
+              setQueuedFollowUps((current) => {
+                const deliveredIndex = current.findIndex((queued) => queued.trim() === deliveredText);
+                return deliveredIndex < 0 ? current : current.filter((_, index) => index !== deliveredIndex);
+              });
+            }
             if (message.role === 'toolResult' && message.toolCallId) {
               setTools((current) => current.filter((tool) => tool.id !== message.toolCallId));
             }
@@ -379,6 +386,11 @@ function normalizeCommands(value: unknown): PiCommand[] {
     const item = command as Partial<PiCommand>;
     return typeof item.name === 'string' && ['extension', 'prompt', 'skill'].includes(String(item.source));
   }).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function messageContentText(content: PiMessage['content']) {
+  if (typeof content === 'string') return content;
+  return content.flatMap((block) => block.type === 'text' && 'text' in block && typeof block.text === 'string' ? [block.text] : []).join('\n');
 }
 
 function toolResultText(result: unknown) {
