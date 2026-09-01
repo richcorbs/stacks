@@ -138,7 +138,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const element = scrollRef.current;
     if (!element || !visible || !shouldStickToBottomRef.current) return;
     element.scrollTop = element.scrollHeight;
-  }, [pi.messages.length, pi.streamingText, pi.tools, visible]);
+  }, [pi.isStreaming, pi.messages.length, pi.streamingText, pi.tools, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
 
@@ -325,6 +325,11 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             live
           />
         ))}
+        {pi.isStreaming && !pi.streamingText && pi.tools.length === 0 && (
+          <div className="piWorkingIndicator" role="status" aria-live="polite">
+            <span>Thinking</span><span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
+          </div>
+        )}
       </div>
 
       {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => pi.restart().catch(() => {})}>Restart Pi</button></div>}

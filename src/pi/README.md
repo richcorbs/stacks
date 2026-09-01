@@ -44,6 +44,8 @@ While Pi is working, Option+Enter sends the composer through RPC `follow_up`, ma
 
 App-level focus restoration emits `pane-focus-request` when the active pane has no xterm session. Active Pi panes listen for their pane ID and restore composer focus after dialogs, settings, palettes, and context menus close. Pane activation, app-window focus, and non-interactive clicks within a Pi pane also restore composer focus.
 
+While a run is active but has not produced assistant text or a live tool card, the conversation shows an animated `Thinking` indicator so activity is not communicated only by the composer stop button.
+
 The context footer refreshes RPC `get_session_stats` after startup, restart, and each settled run. It renders `contextUsage` as a percentage donut with exact token counts in its tooltip. App-level Cmd+V routing checks both the event target and active element before attempting a PTY write. The Pi composer handles Cmd+V directly through the clipboard plugin so paste remains reliable in the Tauri webview.
 
 ## Skills and slash commands

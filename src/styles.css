@@ -936,6 +936,13 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piThinking + .piToolCard { margin-top: 10px; }
 .piStreamingCursor { display: inline-block; width: 6px; height: 13px; margin-left: 3px; background: #719bc0; vertical-align: -2px; animation: piCursorBlink 1s step-end infinite; }
 @keyframes piCursorBlink { 50% { opacity: 0; } }
+.piWorkingIndicator { max-width: 820px; min-height: 24px; margin: 0 auto 18px; display: flex; align-items: center; gap: 5px; color: #8195a8; font-size: 11px; font-weight: 500; }
+.piWorkingDots { display: inline-flex; align-items: center; gap: 3px; }
+.piWorkingDots i { width: 3px; height: 3px; border-radius: 50%; background: #718ba3; animation: piWorkingPulse 1.2s ease-in-out infinite; }
+.piWorkingDots i:nth-child(2) { animation-delay: .16s; }
+.piWorkingDots i:nth-child(3) { animation-delay: .32s; }
+@keyframes piWorkingPulse { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .piWorkingDots i { animation: none; opacity: .65; } }
 .piToolCard { max-width: 820px; margin: 0 auto 14px; border: 1px solid #202e3c; border-radius: 7px; background: #0e161f; color: #8192a4; font-size: 10px; }
 .piToolCard summary { min-height: 30px; padding: 0 9px; display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; }
 .piToolCard summary::-webkit-details-marker { display: none; }
