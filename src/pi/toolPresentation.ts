@@ -10,6 +10,11 @@ export function piToolSummary(name: string, args: unknown, running: boolean) {
     const action = running ? 'reading' : 'read';
     return { label: `${action} ${fileName(path)}`, title: `${action} ${path}` };
   }
+  if (normalizedName === 'write') {
+    const path = stringValue(values.path) || stringValue(values.file_path) || 'file';
+    const action = running ? 'writing' : 'wrote';
+    return { label: `${action} ${fileName(path)}`, title: `${action} ${path}` };
+  }
   if (normalizedName === 'bash') {
     const command = stringValue(values.command) || 'command';
     const preview = command.split('\n')[0].trim();

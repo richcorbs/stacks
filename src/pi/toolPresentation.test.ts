@@ -17,6 +17,14 @@ describe('Pi tool presentation', () => {
     expect(piToolSummary('read', { file_path: '/tmp/output.log' }, true).label).toBe('reading output.log');
   });
 
+  it('describes write calls by filename', () => {
+    expect(piToolSummary('write', { path: 'src/generated.ts' }, false)).toEqual({
+      label: 'wrote generated.ts',
+      title: 'wrote src/generated.ts',
+    });
+    expect(piToolSummary('write', { file_path: '/tmp/report.md' }, true).label).toBe('writing report.md');
+  });
+
   it('describes running bash calls by command', () => {
     expect(piToolSummary('bash', { command: 'npm run test\necho done' }, true).label).toBe('running: npm run test');
   });
