@@ -1027,8 +1027,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piMarkdown a { color: #76a9d4; text-decoration: none; }
 .piMarkdown a:hover { text-decoration: underline; }
 .piMarkdown code { padding: 1px 4px; border: 1px solid #263746; border-radius: 4px; background: #111c27; color: #b5c9db; font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; }
-.piMarkdown pre { max-width: 100%; margin: 12px 0 16px; padding: 12px 14px; overflow: auto; border: 1px solid #263746; border-radius: 7px; background: #0a1118; }
-.piMarkdown pre code { padding: 0; border: 0; background: transparent; color: #aebfd0; white-space: pre; }
+.piMarkdown pre { max-width: 100%; margin: 12px 0 16px; padding: 12px 14px; overflow-x: hidden; overflow-y: auto; border: 1px solid #263746; border-radius: 7px; background: #0a1118; }
+.piMarkdown pre code { padding: 0; border: 0; background: transparent; color: #aebfd0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
 .piMarkdown blockquote { margin: 12px 0; padding: 2px 0 2px 12px; border-left: 3px solid #36536d; color: #8195a8; }
 .piMarkdown hr { margin: 20px 0; border: 0; border-top: 1px solid #253443; }
 .piMarkdown table { width: 100%; margin: 12px 0 16px; border-collapse: collapse; font-size: 12px; }
