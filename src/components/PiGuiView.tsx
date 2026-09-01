@@ -256,7 +256,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const ancestor = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
       ? range.commonAncestorContainer as Element
       : range.commonAncestorContainer.parentElement;
-    if (!ancestor?.closest('.piGuiConversation')) return;
+    if (!ancestor?.closest('.piGuiPane')) return;
     const anchorElement = selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode as Element : selection.anchorNode?.parentElement;
     const focusElement = selection.focusNode?.nodeType === Node.ELEMENT_NODE ? selection.focusNode as Element : selection.focusNode?.parentElement;
     preventSummaryToggleRef.current = Boolean(ancestor.closest('summary') || anchorElement?.closest('summary') || focusElement?.closest('summary'));
@@ -334,12 +334,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     <div
       ref={paneRef}
       className={`terminal piGuiPane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
-      onMouseDown={(event) => {
+      onMouseDown={() => {
         if (!active) onFocus();
+      }}
+      onMouseUp={showSelectionPopup}
+      onClick={(event) => {
         if ((event.target as Element).closest('button, a, input, textarea, summary, .piSelectionPopup')) return;
-        requestAnimationFrame(() => {
-          if (!window.getSelection()?.toString().trim()) inputRef.current?.focus();
-        });
+        if (!window.getSelection()?.toString().trim()) inputRef.current?.focus();
       }}
       onClickCapture={(event) => {
         if (!preventSummaryToggleRef.current || !(event.target as Element).closest('summary')) return;
@@ -359,7 +360,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
       />
-      <div className="piGuiConversation" ref={scrollRef} onMouseUp={showSelectionPopup} onScroll={(event) => {
+      <div className="piGuiConversation" ref={scrollRef} onScroll={(event) => {
         const element = event.currentTarget;
         shouldStickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
         setSelectionPopup(null);
