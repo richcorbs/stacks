@@ -4,7 +4,7 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
-import { applySlashCommand, matchingSlashCommands } from '../pi/commands';
+import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
 import type { PiCommand, PiContentBlock, PiMessage as PiMessageData, PiPromptImage, PiSessionContext } from '../pi/types';
 import { visiblePiMessages } from '../pi/transcript';
@@ -156,14 +156,23 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const message = prompt.trim();
     const slashName = message.startsWith('/') ? message.slice(1).split(/\s/, 1)[0] : '';
     const extensionCommand = pi.commands.some((command) => command.name === slashName && command.source === 'extension');
+    const builtinCommand = isGuiBuiltinCommand(slashName);
     if ((!message && attachments.length === 0) || (pi.isStreaming && behavior === 'prompt' && !extensionCommand)) return;
+    if (builtinCommand && attachments.length > 0) {
+      setAttachmentError(`/${slashName} does not accept image attachments`);
+      return;
+    }
     const submittedAttachments = attachments;
     setPrompt('');
     setAttachments([]);
     setAttachmentError(null);
     shouldStickToBottomRef.current = true;
     const images = submittedAttachments.map(({ name: _name, byteSize: _byteSize, ...image }) => image);
-    const send = behavior === 'followUp' && pi.isStreaming ? pi.followUp(message, images) : pi.prompt(message, images);
+    const send = builtinCommand
+      ? pi.runBuiltinCommand(message)
+      : behavior === 'followUp' && pi.isStreaming
+        ? pi.followUp(message, images)
+        : pi.prompt(message, images);
     await send.catch(() => {
       setPrompt(message);
       setAttachments(submittedAttachments);
@@ -469,15 +478,12 @@ function ContextSeparator() {
 
 function ContextUsage({ context }: { context: PiSessionContext }) {
   const percent = Math.max(0, Math.min(100, context.contextPercent ?? 0));
-  const tokens = context.contextTokens === null ? 'unknown' : formatTokenCount(context.contextTokens);
-  const windowSize = context.contextWindow === null ? 'unknown' : formatTokenCount(context.contextWindow);
-  return <span className="piContextUsage" title={`Context: ${tokens} / ${windowSize} tokens (${Math.round(percent)}%)`}>
+  const tokens = context.contextTokens === null ? 'unknown' : context.contextTokens.toLocaleString();
+  const windowSize = context.contextWindow === null ? 'unknown' : context.contextWindow.toLocaleString();
+  const tooltip = `${tokens} / ${windowSize} tokens · ${Math.round(percent)}%`;
+  return <span className="piContextUsage" data-tooltip={tooltip} aria-label={`Context usage: ${tooltip}`}>
     <span className="piContextDonut" style={{ background: `conic-gradient(#a9b6c2 ${percent * 3.6}deg, #647484 0deg)` }} />
   </span>;
-}
-
-function formatTokenCount(tokens: number) {
-  return tokens >= 1000 ? `${(tokens / 1000).toFixed(tokens >= 100_000 ? 0 : 1)}k` : String(tokens);
 }
 
 function PiMessage({ message, toolArgs }: { message: PiMessageData; toolArgs: Map<string, unknown> }) {

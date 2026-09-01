@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySlashCommand, matchingSlashCommands, slashCommandQuery } from './commands';
+import { applySlashCommand, GUI_BUILTIN_COMMANDS, isGuiBuiltinCommand, matchingSlashCommands, slashCommandQuery } from './commands';
 import type { PiCommand } from './types';
 
 const commands: PiCommand[] = [
@@ -18,6 +18,12 @@ describe('Pi slash commands', () => {
   it('ranks prefix matches before substring matches', () => {
     expect(matchingSlashCommands(commands, '/re').map((command) => command.name)).toEqual(['release-notes', 'review']);
     expect(matchingSlashCommands(commands, '/grill').map((command) => command.name)).toEqual(['skill:grill-me']);
+  });
+
+  it('offers GUI-supported built-in commands', () => {
+    expect(GUI_BUILTIN_COMMANDS.map((command) => command.name)).toEqual(['new', 'compact']);
+    expect(isGuiBuiltinCommand('compact')).toBe(true);
+    expect(isGuiBuiltinCommand('settings')).toBe(false);
   });
 
   it('inserts the RPC command with room for arguments', () => {

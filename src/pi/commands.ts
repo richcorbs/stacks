@@ -1,5 +1,14 @@
 import type { PiCommand } from './types';
 
+export const GUI_BUILTIN_COMMANDS: PiCommand[] = [
+  { name: 'new', source: 'builtin', description: 'Start a new Pi session' },
+  { name: 'compact', source: 'builtin', description: 'Compact the current context; optional instructions may follow' },
+];
+
+export function isGuiBuiltinCommand(name: string) {
+  return GUI_BUILTIN_COMMANDS.some((command) => command.name === name);
+}
+
 export function slashCommandQuery(value: string): string | null {
   if (!value.startsWith('/') || /\s/.test(value)) return null;
   return value.slice(1).toLowerCase();

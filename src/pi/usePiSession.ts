@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { PiCommand, PiMessage, PiPromptImage, PiResponseEvent, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
 import { subscribePiEvents } from './eventBroker';
 import { appendPiMessage, compactPiMessages } from './transcript';
+import { GUI_BUILTIN_COMMANDS } from './commands';
 
 const EMPTY_CONTEXT: PiSessionContext = {
   modelName: '',
@@ -33,7 +34,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
   const [starting, setStarting] = useState(true);
   const [stopped, setStopped] = useState(false);
   const [uiRequest, setUiRequest] = useState<PiUiRequest | null>(null);
-  const [commands, setCommands] = useState<PiCommand[]>([]);
+  const [commands, setCommands] = useState<PiCommand[]>(GUI_BUILTIN_COMMANDS);
   const [queuedFollowUps, setQueuedFollowUps] = useState<string[]>([]);
   const requestSequence = useRef(0);
   const generationRef = useRef<string | null>(null);
@@ -70,7 +71,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
   const refreshState = useCallback(() => sendRequest({ type: 'get_state' }), [sendRequest]);
   const refreshStats = useCallback(() => sendRequest({ type: 'get_session_stats' }), [sendRequest]);
   const refreshCommands = useCallback(() => sendRequest({ type: 'get_commands' }).then((response) => {
-    setCommands(normalizeCommands(response.data?.commands));
+    setCommands(withGuiBuiltinCommands(normalizeCommands(response.data?.commands)));
   }), [sendRequest]);
 
   useEffect(() => {
@@ -106,7 +107,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
           }
           if (response.command === 'get_state') updateContext(response, setContext, setIsStreaming);
           if (response.command === 'get_session_stats') updateContextUsage(response, setContext);
-          if (response.command === 'get_commands') setCommands(normalizeCommands(response.data?.commands));
+          if (response.command === 'get_commands') setCommands(withGuiBuiltinCommands(normalizeCommands(response.data?.commands)));
           break;
         }
         case 'agent_start':
@@ -210,7 +211,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
           .then(async (generation) => {
             generationRef.current = generation;
             await Promise.all([refreshState(), refreshMessages()]);
-            refreshCommands().catch(() => setCommands([]));
+            refreshCommands().catch(() => setCommands(GUI_BUILTIN_COMMANDS));
             refreshStats().catch(() => {});
             notifyRunning(paneId, true);
             setStopped(false);
@@ -246,6 +247,26 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     const timer = window.setTimeout(() => setUiRequest((current) => current?.id === uiRequest.id ? null : current), uiRequest.timeout);
     return () => window.clearTimeout(timer);
   }, [uiRequest]);
+
+  const runBuiltinCommand = useCallback(async (input: string) => {
+    const trimmed = input.trim();
+    const command = trimmed.slice(1).split(/\s/, 1)[0].toLowerCase();
+    if (command === 'new') {
+      const response = await sendRequest({ type: 'new_session' }, 60_000);
+      if (response.data?.cancelled) return;
+      await Promise.all([refreshMessages(), refreshState()]);
+      refreshStats().catch(() => {});
+      return;
+    }
+    if (command === 'compact') {
+      const instructions = trimmed.slice('/compact'.length).trim();
+      await sendRequest({ type: 'compact', ...(instructions ? { customInstructions: instructions } : {}) }, 180_000);
+      await Promise.all([refreshMessages(), refreshState()]);
+      refreshStats().catch(() => {});
+      return;
+    }
+    throw new Error(`Unsupported Pi GUI command: /${command}`);
+  }, [refreshMessages, refreshState, refreshStats, sendRequest]);
 
   const prompt = useCallback(async (message: string, images: PiPromptImage[] = []) => {
     const text = message.trim() || (images.length ? 'Please review the attached image.' : '');
@@ -294,7 +315,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
       const generation = await invoke<string>('start_pi_session', { paneId, cwd });
       generationRef.current = generation;
       await Promise.all([refreshState(), refreshMessages()]);
-      refreshCommands().catch(() => setCommands([]));
+      refreshCommands().catch(() => setCommands(GUI_BUILTIN_COMMANDS));
       refreshStats().catch(() => {});
       notifyRunning(paneId, true);
       setStopped(false);
@@ -308,7 +329,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     }
   }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats]);
 
-  return { messages, context, commands, queuedFollowUps, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, followUp, abort, restart, respondToUiRequest };
+  return { messages, context, commands, queuedFollowUps, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, followUp, abort, restart, respondToUiRequest };
 }
 
 function notifyRunning(paneId: string, running: boolean) {
@@ -344,6 +365,11 @@ function updateContextUsage(event: PiResponseEvent, setContext: SetPiContext) {
     contextWindow: typeof usage?.contextWindow === 'number' ? usage.contextWindow : null,
     contextPercent: typeof usage?.percent === 'number' ? usage.percent : null,
   }));
+}
+
+function withGuiBuiltinCommands(commands: PiCommand[]) {
+  const builtinNames = new Set(GUI_BUILTIN_COMMANDS.map((command) => command.name));
+  return [...GUI_BUILTIN_COMMANDS, ...commands.filter((command) => !builtinNames.has(command.name))];
 }
 
 function normalizeCommands(value: unknown): PiCommand[] {

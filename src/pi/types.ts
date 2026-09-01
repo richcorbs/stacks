@@ -70,7 +70,7 @@ export type PiSessionContext = {
 export type PiCommand = {
   name: string;
   description?: string;
-  source: 'extension' | 'prompt' | 'skill';
+  source: 'builtin' | 'extension' | 'prompt' | 'skill';
   location?: 'user' | 'project' | 'path';
   path?: string;
 };
