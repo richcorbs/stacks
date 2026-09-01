@@ -26,6 +26,27 @@ describe('planWorkspaceCreation', () => {
     expect(result.store.projects[0].workspaces).toEqual([result.workspace]);
   });
 
+  it('uses the directory returned by a run-once setup command', () => {
+    const result = planWorkspaceCreation(store, {
+      projectId: 'project-1',
+      name: 'Worktree',
+      cwd: '/repo-worktrees/ST-123',
+    }, 'workspace-1');
+
+    expect(result.workspace.cwd).toBe('/repo-worktrees/ST-123');
+  });
+
+  it('creates a Pi GUI as the first pane when requested', () => {
+    const result = planWorkspaceCreation(store, {
+      projectId: 'project-1',
+      name: 'Agent work',
+      firstPaneKind: 'pi',
+    }, 'workspace-1');
+
+    expect(result.terminals[0]).toMatchObject({ id: 'workspace-1:0', kind: 'pi' });
+    expect(result.workspace.splits).toMatchObject({ kind: 'leaf', paneKind: 'pi' });
+  });
+
   it('creates a requested terminal grid', () => {
     const result = planWorkspaceCreation(store, {
       projectId: 'project-1',

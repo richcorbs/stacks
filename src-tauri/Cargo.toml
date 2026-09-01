@@ -23,6 +23,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2.3.2"
 wait-timeout = "0.2"
 libc = "0.2"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 
 [profile.release]
 strip = true

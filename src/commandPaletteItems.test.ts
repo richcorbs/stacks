@@ -68,6 +68,17 @@ describe('buildCommandPaletteItems', () => {
     ]));
   });
 
+  it('uses Pi-aware lifecycle commands and hides terminal-only actions for a Pi pane', () => {
+    const piPane: TerminalEntry = { id: 't1:pi', workspaceId: 't1', kind: 'pi' };
+    const items = palette({ terminalsByWorkspaceId: { t1: [piPane] }, activeTerminalId: piPane.id });
+
+    expect(items.some((item) => item.id === 'edit-terminal')).toBe(false);
+    expect(items.some((item) => item.id === 'find-terminal')).toBe(false);
+    expect(items.some((item) => item.id === 'clear-terminal')).toBe(false);
+    expect(items.find((item) => item.id === 'restart-terminal')?.title).toBe('Restart Current Pi GUI');
+    expect(items.find((item) => item.id === 'close-terminal')?.title).toBe('Close Current Pane');
+  });
+
   it('runs saved commands using their configured behavior', () => {
     const onSplitTerminalWithCommand = vi.fn();
     const items = palette({

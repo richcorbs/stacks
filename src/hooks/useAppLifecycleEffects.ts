@@ -27,6 +27,7 @@ export function useAppLifecycleEffects({
   activeProjectId,
   activeWorkspaceId,
   activeTerminalId,
+  activePaneKind,
   maximizedWorkspaceIds,
   sidebarFocusedWorkspaceId,
   setConfirmQuitOpen,
@@ -47,6 +48,7 @@ export function useAppLifecycleEffects({
   activeProjectId: string | null;
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
+  activePaneKind: 'terminal' | 'pi';
   maximizedWorkspaceIds: MaximizedWorkspaceIds;
   sidebarFocusedWorkspaceId: string | null;
   setConfirmQuitOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -66,7 +68,7 @@ export function useAppLifecycleEffects({
   useAppCloseRequest(appSettings.confirm_close, setConfirmQuitOpen);
   useContextMenuDismissal(setContextMenu);
   useTerminalCwd(activeTerminalId, rememberTerminalCwd, setStore);
-  useImageDropToTerminal(activeTerminalId);
+  useImageDropToTerminal(activeTerminalId, activePaneKind);
 
   return { saveStoreNow };
 }

@@ -16,7 +16,7 @@ type WorkspaceDialogCommandOptions = {
   splitRootsByWorkspaceId: Record<string, SplitNode>;
   setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
   setSplitRootsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, SplitNode>>>;
-  completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) => Promise<void>;
+  completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null, initialInput?: string, paneKind?: 'terminal' | 'pi') => Promise<void>;
   saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
   createWorkspace: CreateWorkspace;
 };
@@ -67,7 +67,7 @@ export function useWorkspaceDialogCommands({
   }
 
   function openWorkspaceDialog(project: Project) {
-    setDialog({ kind: 'workspace', projectId: project.id, name: `Workspace ${project.workspaces.length + 1}`, command: '', rows: 1, columns: 1 });
+    setDialog({ kind: 'workspace', projectId: project.id, name: `Workspace ${project.workspaces.length + 1}`, command: '', setupCommand: '', rows: 1, columns: 1, firstPaneKind: 'terminal' });
   }
 
   function openEditTerminalDialog(workspaceId: string, terminalId: string) {

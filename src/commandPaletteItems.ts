@@ -45,9 +45,11 @@ export type CommandPaletteItemOptions = {
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
   const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeWorkspaceId, activeTerminalId, customCmdPCommands, onSplitTerminalWithCommand, onEditCmdPCommand, onDeleteCmdPCommand, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
-  const activeWorkspaceTerminalCount = activeWorkspaceId ? (terminalsByWorkspaceId[activeWorkspaceId] ?? []).filter((terminal) => !terminal.temporary).length : 0;
+  const activePanes = activeWorkspaceId ? terminalsByWorkspaceId[activeWorkspaceId] ?? [] : [];
+  const activeWorkspaceTerminalCount = activePanes.filter((pane) => !pane.temporary && pane.kind !== 'pi').length;
+  const activePaneKind = activePanes.find((pane) => pane.id === activeTerminalId)?.kind ?? 'terminal';
   return [
-    ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount }),
+    ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount, activePaneKind }),
     ...customCommandItems(customCmdPCommands, onSplitTerminalWithCommand),
     ...customCommandEditItems(customCmdPCommands, onEditCmdPCommand),
     ...customCommandDeleteItems(customCmdPCommands, onDeleteCmdPCommand),
@@ -113,12 +115,12 @@ function projectItems(projects: Project[], onNewWorkspace: (project: Project) =>
 
 function terminalItems(activeWorkspaceId: string | null, activeTerminalId: string | null, terminalsByWorkspaceId: Record<string, TerminalEntry[]>, onCycleTerminal: (delta: number) => void): PaletteItem[] {
   if (!activeWorkspaceId) return [];
-  const terminals = (terminalsByWorkspaceId[activeWorkspaceId] ?? []).filter((terminal) => !terminal.temporary);
-  return terminals.map((terminal, index) => ({
-    id: `terminal-${terminal.id}`,
-    title: `Focus Terminal ${index + 1}`,
-    subtitle: terminal.command || (terminal.id === activeTerminalId ? 'Current terminal' : undefined),
-    keywords: 'focus switch terminal',
-    action: () => onCycleTerminal(index - Math.max(0, terminals.findIndex((t) => t.id === activeTerminalId))),
+  const panes = (terminalsByWorkspaceId[activeWorkspaceId] ?? []).filter((pane) => !pane.temporary);
+  return panes.map((pane, index) => ({
+    id: `terminal-${pane.id}`,
+    title: `Focus ${pane.kind === 'pi' ? 'Pi GUI' : 'Terminal'} ${index + 1}`,
+    subtitle: pane.command || (pane.id === activeTerminalId ? 'Current pane' : undefined),
+    keywords: 'focus switch terminal pi pane',
+    action: () => onCycleTerminal(index - Math.max(0, panes.findIndex((item) => item.id === activeTerminalId))),
   }));
 }

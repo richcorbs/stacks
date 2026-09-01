@@ -29,31 +29,56 @@ export function useWorkspaceTerminalLifecycleCommands({
   focusTerminal: (workspaceId: string, terminalId: string) => void;
   saveTerminalSplit: (workspaceId: string, root: SplitNode | null) => void;
 }) {
+  function paneForId(terminalId: string) {
+    return Object.values(terminalsByWorkspaceId).flat().find((pane) => pane.id === terminalId);
+  }
+
   async function stopTerminal(terminalId: string) {
-    disposeTerminalSession(terminalId);
-    await invoke('kill_pty', { terminalId }).catch(() => {});
-    setRunningTerminalIds((ids) => ids.filter((id) => id !== terminalId));
+    const pane = paneForId(terminalId);
+    if (pane?.kind === 'pi') {
+      await invoke('stop_pi_session', { paneId: terminalId }).catch(() => {});
+    } else {
+      disposeTerminalSession(terminalId);
+      await invoke('kill_pty', { terminalId }).catch(() => {});
+      setRunningTerminalIds((ids) => ids.filter((id) => id !== terminalId));
+    }
   }
 
   async function restartTerminal(terminalId: string) {
-    await stopTerminal(terminalId);
+    const pane = paneForId(terminalId);
+    if (pane?.kind !== 'pi') await stopTerminal(terminalId);
     requestTerminalRestart(terminalId);
   }
 
   async function closeTerminal(terminalId: string) {
-    const workspaceId = terminalId.split(':')[0];
+    const workspaceId = paneForId(terminalId)?.workspaceId;
+    if (!workspaceId) return;
     const currentTerminals = terminalsByWorkspaceId[workspaceId] ?? [];
     const visualTerminalIds = terminalIdsForWorkspace(workspaceId, terminalsByWorkspaceId, splitRootsByWorkspaceId[workspaceId]);
 
-    disposeTerminalSession(terminalId);
-    await invoke('kill_pty', { terminalId }).catch(() => {});
-    setRunningTerminalIds((ids) => ids.filter((id) => id !== terminalId));
+    const closingPane = currentTerminals.find((pane) => pane.id === terminalId);
+    if (closingPane?.kind === 'pi') {
+      await invoke('stop_pi_session', { paneId: terminalId }).catch(() => {});
+    } else {
+      disposeTerminalSession(terminalId);
+      await invoke('kill_pty', { terminalId }).catch(() => {});
+      setRunningTerminalIds((ids) => ids.filter((id) => id !== terminalId));
+    }
 
     if (currentTerminals.length <= 1) {
       if (isWorkspaceMaximized(maximizedWorkspaceIds, workspaceId)) {
         setMaximizedWorkspaceIds((current) => setWorkspaceMaximized(current, workspaceId, false));
       }
       return;
+    }
+
+    if (closingPane?.kind === 'pi') {
+      try {
+        await invoke('delete_pi_session', { paneId: terminalId });
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete Pi session: ${String(error)}` } }));
+        return;
+      }
     }
 
     const remainingTerminalIds = visualTerminalIds.filter((id) => id !== terminalId);

@@ -6,14 +6,18 @@ import type { WebLinksAddon } from '@xterm/addon-web-links';
 export type Store = { projects: Project[] };
 export type CustomCmdPCommand = { id: string; label: string; command: string; direction: 'row' | 'column'; execute: boolean };
 export type Project = { id: string; name: string; path: string; workspaces: WorkspaceEntry[]; collapsed?: boolean };
+export type PaneKind = 'terminal' | 'pi';
 export type WorkspaceEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
-export type TerminalEntry = { id: string; workspaceId: string; command?: string | null; cwd?: string | null; temporary?: boolean };
+type PaneEntryBase = { id: string; workspaceId: string; command?: string | null; cwd?: string | null; temporary?: boolean };
+export type PaneEntry = PaneEntryBase & ({ kind?: 'terminal' } | { kind: 'pi' });
+/** Legacy internal name. Prefer PaneEntry for code that handles both terminals and Pi GUIs. */
+export type TerminalEntry = PaneEntry;
 export type MaximizedWorkspaceIds = Record<string, boolean>;
 export type ToastDetail = { message: string; x?: number; y?: number };
 export type ToastState = ToastDetail;
 export type SplitNode =
   | { kind: 'empty' }
-  | { kind: 'leaf'; terminalId: string; command?: string | null }
+  | { kind: 'leaf'; terminalId: string; paneKind?: PaneKind; command?: string | null }
   | { kind: 'split'; direction: 'row' | 'column'; ratio?: number; manual?: boolean; first: SplitNode; second: SplitNode };
 
 export type PtyData = { terminal_id: string; generation: string; data: number[] };
@@ -81,8 +85,8 @@ export type TerminalSession = {
 
 export type DialogState =
   | { kind: 'project'; name: string; path: string; openTerminalAfterCreate?: boolean }
-  | { kind: 'workspace'; projectId: string; name: string; command: string; rows: number; columns: number }
-  | { kind: 'split'; workspaceId: string; targetTerminalId: string; direction: 'row' | 'column'; command: string }
+  | { kind: 'workspace'; projectId: string; name: string; command: string; setupCommand: string; rows: number; columns: number; firstPaneKind: PaneKind }
+  | { kind: 'split'; workspaceId: string; targetTerminalId: string; direction: 'row' | 'column'; command: string; paneKind: PaneKind }
   | { kind: 'editProject'; projectId: string; name: string; path: string }
   | { kind: 'editWorkspace'; projectId: string; workspaceId: string; name: string; command: string; cwd: string }
   | { kind: 'editTerminal'; workspaceId: string; terminalId: string; command: string };

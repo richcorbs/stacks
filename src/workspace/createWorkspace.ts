@@ -1,13 +1,16 @@
-import type { SplitNode, Store, TerminalEntry, WorkspaceEntry } from '../types';
-import { buildGridSplit, collectLeafTerminals } from '../utils';
+import type { PaneKind, SplitNode, Store, TerminalEntry, WorkspaceEntry } from '../types';
+import { buildGridSplit, collectLeafTerminals, setLeafPaneKind } from '../utils';
 
 export type CreateWorkspaceInput = {
   projectId: string;
   name: string;
   command?: string | null;
   oneTimeStartupCommand?: string | null;
+  setupCommand?: string | null;
+  cwd?: string | null;
   rows?: number;
   columns?: number;
+  firstPaneKind?: PaneKind;
 };
 
 export type WorkspaceCreation = {
@@ -39,19 +42,20 @@ export function planWorkspaceCreation(
   const rows = Math.min(5, Math.max(1, Math.floor(input.rows || 1)));
   const columns = Math.min(5, Math.max(1, Math.floor(input.columns || 1)));
   const terminalIds = Array.from({ length: rows * columns }, (_, index) => `${workspaceId}:${index}`);
-  const root = buildGridSplit(terminalIds, rows, columns);
+  const root = setLeafPaneKind(buildGridSplit(terminalIds, rows, columns), terminalIds[0], input.firstPaneKind ?? 'terminal');
   const command = input.command?.trim() || null;
   const workspace: WorkspaceEntry = {
     id: workspaceId,
     name,
     command,
-    cwd: project.path,
+    cwd: input.cwd?.trim() || project.path,
     splits: root,
   };
   const leafCommands = new Map(collectLeafTerminals(root).map((terminal) => [terminal.id, terminal.command]));
   const terminals = terminalIds.map((id) => ({
     id,
     workspaceId,
+    ...(collectLeafTerminals(root).find((terminal) => terminal.id === id)?.kind === 'pi' ? { kind: 'pi' as const } : {}),
     command: leafCommands.get(id) ?? null,
   }));
   const nextStore: Store = {

@@ -24,6 +24,7 @@ export function useActiveWorkspaceInitialization({
     const terminals = terminalIds.map((id) => ({
       id,
       workspaceId: activeWorkspace.id,
+      ...(leafTerminals.find((terminal) => terminal.id === id)?.kind === 'pi' ? { kind: 'pi' as const } : {}),
       command: leafTerminals.find((terminal) => terminal.id === id)?.command ?? null,
     }));
 

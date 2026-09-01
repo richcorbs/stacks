@@ -37,16 +37,21 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
   if (dialog.kind === 'split' || dialog.kind === 'editTerminal') {
     return (
       <>
-        <h2>{dialog.kind === 'split' ? 'Split Terminal' : 'Edit Terminal'}</h2>
-        <label>
-          Startup command <span>(optional)</span>
-          <input
-            ref={firstInputRef}
-            value={dialog.command}
-            placeholder="pi, claude, npm run dev, ..."
-            onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
-          />
-        </label>
+        <h2>{dialog.kind === 'split' ? 'Split Workspace' : 'Edit Terminal'}</h2>
+        {dialog.kind === 'split' && (
+          <PaneKindPicker value={dialog.paneKind} label="New pane" onChange={(paneKind) => setDialog({ ...dialog, paneKind })} />
+        )}
+        {(dialog.kind === 'editTerminal' || dialog.paneKind === 'terminal') && (
+          <label>
+            Startup command <span>(optional)</span>
+            <input
+              ref={firstInputRef}
+              value={dialog.command}
+              placeholder="pi, claude, npm run dev, ..."
+              onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
+            />
+          </label>
+        )}
       </>
     );
   }
@@ -62,14 +67,30 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
           onChange={(e) => setDialog({ ...dialog, name: e.target.value })}
         />
       </label>
-      <label>
-        Startup command <span>(optional)</span>
-        <input
-          value={dialog.command}
-          placeholder="pi, claude, npm run dev, ..."
-          onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
-        />
-      </label>
+      {dialog.kind === 'workspace' && (
+        <PaneKindPicker value={dialog.firstPaneKind} label="First pane" onChange={(firstPaneKind) => setDialog({ ...dialog, firstPaneKind })} />
+      )}
+      {dialog.kind === 'workspace' && (
+        <label>
+          Setup command <span>(optional, runs once before panes open)</span>
+          <input
+            value={dialog.setupCommand}
+            placeholder="stwork_setup ST-1234"
+            onChange={(e) => setDialog({ ...dialog, setupCommand: e.target.value })}
+          />
+          <small className="dialogFieldHint">The command's final directory becomes the workspace directory. Pi starts only after it succeeds.</small>
+        </label>
+      )}
+      {(dialog.kind === 'editWorkspace' || dialog.firstPaneKind === 'terminal') && (
+        <label>
+          Startup command <span>(optional)</span>
+          <input
+            value={dialog.command}
+            placeholder="pi, claude, npm run dev, ..."
+            onChange={(e) => setDialog({ ...dialog, command: e.target.value })}
+          />
+        </label>
+      )}
       {dialog.kind === 'workspace' && (
         <WorkspaceGridPicker
           rows={dialog.rows}
@@ -92,6 +113,22 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
         </label>
       )}
     </>
+  );
+}
+
+function PaneKindPicker({ value, label, onChange }: {
+  value: 'terminal' | 'pi';
+  label: string;
+  onChange: (value: 'terminal' | 'pi') => void;
+}) {
+  return (
+    <div className="dialogPaneKindField">
+      <span>{label}</span>
+      <div className="dialogPaneKindPicker">
+        <button type="button" className={value === 'terminal' ? 'selected' : ''} onClick={() => onChange('terminal')}>Terminal</button>
+        <button type="button" className={value === 'pi' ? 'selected' : ''} onClick={() => onChange('pi')}>Pi GUI</button>
+      </div>
+    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-import type { SplitNode } from './types';
+import type { PaneKind, SplitNode } from './types';
 
 export function basename(path: string) {
   return path.replace(/\/$/, '').split('/').pop() || path;
@@ -23,11 +23,11 @@ export function collectLeafTerminalIds(node: SplitNode | null | undefined): stri
   return [...collectLeafTerminalIds(node.first), ...collectLeafTerminalIds(node.second)];
 }
 
-export function collectLeafTerminals(node: SplitNode | null | undefined): { id: string; command?: string | null }[] {
+export function collectLeafTerminals(node: SplitNode | null | undefined): { id: string; kind?: PaneKind; command?: string | null }[] {
   if (!node || node.kind === 'empty') return [];
   if (node.kind === 'leaf') {
     const terminalId = leafTerminalId(node);
-    return terminalId ? [{ id: terminalId, command: node.command ?? null }] : [];
+    return terminalId ? [{ id: terminalId, ...(node.paneKind === 'pi' ? { kind: 'pi' as const } : {}), command: node.command ?? null }] : [];
   }
   return [...collectLeafTerminals(node.first), ...collectLeafTerminals(node.second)];
 }
@@ -36,7 +36,7 @@ export function normalizeSplitNode(node: SplitNode | null | undefined): SplitNod
   if (!node || node.kind === 'empty') return null;
   if (node.kind === 'leaf') {
     const terminalId = leafTerminalId(node);
-    return terminalId ? { kind: 'leaf', terminalId, command: node.command } : null;
+    return terminalId ? { kind: 'leaf', terminalId, ...(node.paneKind === 'pi' ? { paneKind: 'pi' as const } : {}), command: node.command } : null;
   }
   const first = normalizeSplitNode(node.first);
   const second = normalizeSplitNode(node.second);
@@ -105,7 +105,7 @@ export function rebalanceSplits(node: SplitNode | null, changedTerminalId: strin
   return normalized;
 }
 
-function splitLeafInner(node: SplitNode, targetTerminalId: string, newTerminalId: string, direction: 'row' | 'column', command: string | null = null): { node: SplitNode; changed: boolean } {
+function splitLeafInner(node: SplitNode, targetTerminalId: string, newTerminalId: string, direction: 'row' | 'column', command: string | null = null, paneKind: PaneKind = 'terminal'): { node: SplitNode; changed: boolean } {
   if (node.kind === 'empty') return { node, changed: false };
   if (node.kind === 'leaf') {
     if (node.terminalId !== targetTerminalId) return { node, changed: false };
@@ -116,7 +116,7 @@ function splitLeafInner(node: SplitNode, targetTerminalId: string, newTerminalId
         direction,
         ratio: 0.5,
         first: node,
-        second: command ? { kind: 'leaf', terminalId: newTerminalId, command } : { kind: 'leaf', terminalId: newTerminalId },
+        second: { kind: 'leaf', terminalId: newTerminalId, ...(paneKind === 'pi' ? { paneKind } : {}), ...(command ? { command } : {}) },
       },
     };
   }
@@ -125,31 +125,39 @@ function splitLeafInner(node: SplitNode, targetTerminalId: string, newTerminalId
     const children = flattenSameDirection(node, direction);
     const nextChildren = children.flatMap((child) => {
       if (child.kind === 'leaf' && child.terminalId === targetTerminalId) {
-        return [child, command ? { kind: 'leaf' as const, terminalId: newTerminalId, command } : { kind: 'leaf' as const, terminalId: newTerminalId }];
+        return [child, { kind: 'leaf' as const, terminalId: newTerminalId, ...(paneKind === 'pi' ? { paneKind } : {}), ...(command ? { command } : {}) }];
       }
       if (containsLeaf(child, targetTerminalId)) {
-        return [splitLeafInner(child, targetTerminalId, newTerminalId, direction, command).node];
+        return [splitLeafInner(child, targetTerminalId, newTerminalId, direction, command, paneKind).node];
       }
       return [child];
     });
     return { node: buildEqualSplit(direction, nextChildren), changed: true };
   }
 
-  const first = splitLeafInner(node.first, targetTerminalId, newTerminalId, direction, command);
+  const first = splitLeafInner(node.first, targetTerminalId, newTerminalId, direction, command, paneKind);
   if (first.changed) return { node: { ...node, first: first.node }, changed: true };
-  const second = splitLeafInner(node.second, targetTerminalId, newTerminalId, direction, command);
+  const second = splitLeafInner(node.second, targetTerminalId, newTerminalId, direction, command, paneKind);
   if (second.changed) return { node: { ...node, second: second.node }, changed: true };
   return { node, changed: false };
 }
 
-export function splitLeaf(node: SplitNode, targetTerminalId: string, newTerminalId: string, direction: 'row' | 'column', command: string | null = null): SplitNode {
-  return splitLeafInner(node, targetTerminalId, newTerminalId, direction, command).node;
+export function splitLeaf(node: SplitNode, targetTerminalId: string, newTerminalId: string, direction: 'row' | 'column', command: string | null = null, paneKind: PaneKind = 'terminal'): SplitNode {
+  return splitLeafInner(node, targetTerminalId, newTerminalId, direction, command, paneKind).node;
 }
 
 export function setLeafCommand(node: SplitNode, terminalId: string, command: string | null): SplitNode {
   if (node.kind === 'empty') return node;
   if (node.kind === 'leaf') return node.terminalId === terminalId ? { ...node, command } : node;
   return { ...node, first: setLeafCommand(node.first, terminalId, command), second: setLeafCommand(node.second, terminalId, command) };
+}
+
+export function setLeafPaneKind(node: SplitNode, terminalId: string, paneKind: PaneKind): SplitNode {
+  if (node.kind === 'empty') return node;
+  if (node.kind === 'leaf') return node.terminalId === terminalId
+    ? { ...node, ...(paneKind === 'pi' ? { paneKind } : { paneKind: undefined }) }
+    : node;
+  return { ...node, first: setLeafPaneKind(node.first, terminalId, paneKind), second: setLeafPaneKind(node.second, terminalId, paneKind) };
 }
 
 export function setSplitRatio(node: SplitNode, path: string, ratio: number): SplitNode {

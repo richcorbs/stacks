@@ -10,6 +10,9 @@ mod git;
 mod github;
 mod menu;
 mod open;
+mod pi_image;
+mod pi_rpc;
+mod process_group;
 mod pty;
 mod pty_command;
 mod pty_cwd;
@@ -17,6 +20,7 @@ mod settings;
 mod settings_model;
 mod store;
 mod superthread;
+mod workspace_setup;
 use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
 use automation::{complete_automation_request, drain_automation_requests, AutomationState};
@@ -24,6 +28,8 @@ use git::git_info;
 use github::{github_action_runs, github_merge_pull_request, github_pull_requests};
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
+use pi_image::read_pi_image;
+use pi_rpc::{delete_pi_session, pi_project_trusted, send_pi_rpc, set_pi_project_trusted, start_pi_session, stop_pi_session, PiRpcRegistry};
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
 use settings::{
@@ -35,6 +41,7 @@ use superthread::{
     superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
     SuperthreadService,
 };
+use workspace_setup::{cancel_workspace_setup, run_workspace_setup, WorkspaceSetupState};
 
 #[tauri::command]
 fn new_id() -> String {
@@ -61,6 +68,8 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(PtyRegistry::default()))
+        .manage(Mutex::new(PiRpcRegistry::default()))
+        .manage(WorkspaceSetupState::default())
         .manage(automation_state.clone())
         .manage(SuperthreadService::default())
         .invoke_handler(tauri::generate_handler![
@@ -82,6 +91,13 @@ pub fn run() {
             resize_pty,
             kill_pty,
             pty_cwd,
+            start_pi_session,
+            pi_project_trusted,
+            set_pi_project_trusted,
+            send_pi_rpc,
+            read_pi_image,
+            stop_pi_session,
+            delete_pi_session,
             app_stats,
             git_info,
             github_pull_requests,
@@ -93,6 +109,8 @@ pub fn run() {
             superthread_board_lists,
             superthread_board_cards,
             superthread_card,
+            run_workspace_setup,
+            cancel_workspace_setup,
         ])
         .setup(|app| {
             setup_main_window(app)?;
