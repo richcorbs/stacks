@@ -955,8 +955,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piToolCard.complete .piToolStatus { background: #55936a; }
 .piToolCard.error .piToolStatus { background: #aa5555; }
 .piToolCard pre { box-sizing: border-box; min-width: 0; max-width: 100%; max-height: 240px; margin: 0; padding: 9px 12px; overflow-y: auto; overflow-x: hidden; border-top: 1px solid #1d2a37; color: #77899c; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.piToolCard.running[open] pre { max-height: none; overflow-y: visible; }
+.piToolCard[open] pre { max-height: none; overflow-y: visible; }
 .piEditDiff { max-height: 360px; overflow: auto; border-top: 1px solid #1d2a37; background: #0a1118; font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.piToolCard[open] .piEditDiff { max-height: none; overflow: visible; }
 .piDiffLine { min-width: max-content; padding: 0 12px; color: #718397; white-space: pre; }
 .piDiffLine:first-child { padding-top: 8px; }
 .piDiffLine:last-child { padding-bottom: 8px; }
