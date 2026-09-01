@@ -90,7 +90,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [composerFontSize, prompt]);
 
   useEffect(() => {
-    if (!active || !visible || pi.uiRequest) return;
+    if (!active || !visible || pi.starting || pi.uiRequest) return;
     inputRef.current?.focus();
     const focusComposer = () => requestAnimationFrame(() => inputRef.current?.focus());
     const focusRequestedPane = (event: Event) => {
@@ -103,7 +103,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       window.removeEventListener('focus', focusComposer);
       window.removeEventListener('pane-focus-request', focusRequestedPane);
     };
-  }, [active, pi.uiRequest, terminal.id, visible]);
+  }, [active, pi.starting, pi.uiRequest, terminal.id, visible]);
 
   useEffect(() => {
     setExtensionInput(pi.uiRequest?.prefill || '');
