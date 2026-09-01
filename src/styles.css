@@ -428,7 +428,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   padding: 18px;
 }
 .modal h2 { margin: 0 0 16px; font-size: 18px; }
-.modal label { display: block; color: #b9c5d3; font-size: 13px; margin-bottom: 18px; }
+.modal label { display: block; color: #8fa0b3; font-size: 12px; margin-bottom: 18px; }
 .modal.terminalDialog label { margin-bottom: 26px; }
 .modal.terminalDialog .dialogPaneKindField { margin-bottom: 26px; }
 .modal label span { color: #8091a5; }
@@ -449,7 +449,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .modal .checkboxLabel { display: flex; align-items: center; gap: 9px; }
 .modal .checkboxLabel input { width: auto; margin: 0; }
 .dialogGridPickerField { margin-bottom: 26px; }
-.dialogGridPickerHeader { display: flex; justify-content: space-between; align-items: baseline; color: #b9c5d3; font-size: 13px; }
+.dialogGridPickerHeader { display: flex; justify-content: space-between; align-items: baseline; color: #8fa0b3; font-size: 12px; }
 .dialogGridPickerHeader strong { color: #8091a5; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
 .dialogGridPickerHint { margin-top: 5px; color: #8091a5; font-size: 12px; }
 .dialogGridPicker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(5, 22px); gap: 0; width: 50%; margin-top: 10px; user-select: none; }
