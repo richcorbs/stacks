@@ -27,6 +27,7 @@ export function commandPaletteCoreItems({
   onToggleMaximizedTerminal,
   onOpenSearch,
   onOpenSettings,
+  onRestartApp,
   onOpenDirectoryInEditor,
   onRunOneTimeCommand,
   onAddCmdPCommand,
@@ -60,6 +61,7 @@ export function commandPaletteCoreItems({
   onToggleMaximizedTerminal: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
+  onRestartApp: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
   onAddCmdPCommand: () => void;
@@ -79,6 +81,7 @@ export function commandPaletteCoreItems({
     { id: 'delete-workspace', title: 'Delete Current Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace', danger: true, action: () => { if (activeProject && activeWorkspace) onDeleteWorkspace(activeProject.id, activeWorkspace.id); } },
     { id: 'delete-multiple-workspaces', title: 'Delete Other Workspace(s)', subtitle: 'Match workspace names from a comma-separated list', keywords: 'bulk remove delete workspace names comma', danger: true, action: onDeleteMultipleWorkspaces },
     { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color focused terminal border maximized green blue', action: onOpenSettings },
+    { id: 'restart-stacks', title: 'Restart Stacks', subtitle: 'Relaunch the app and load the installed build', keywords: 'restart reload relaunch app update build', action: onRestartApp },
     { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
     { id: 'run-one-time-command', title: 'Run One-Time Command', subtitle: activeTerminalId ? `From ${activePath || 'the focused terminal directory'}` : 'Select a terminal first', keywords: 'execute temporary command task current directory cwd', action: () => { if (activeTerminalId) onRunOneTimeCommand(); } },
     { id: 'add-cmd-p-command', title: 'Add Cmd-P Command', subtitle: 'Save a command that opens in a new terminal', keywords: 'custom command palette save split', action: onAddCmdPCommand },

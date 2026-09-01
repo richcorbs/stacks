@@ -83,6 +83,7 @@ export function useAppShortcutHandlers({
     onToggleMaximizedTerminal: toggleMaximizedTerminal,
     onOpenSearch: openTerminalSearch,
     onOpenSettings: () => setSettingsOpen(true),
+    onRestartApp: () => invoke('restart_app').catch(console.error),
     activePath,
     onOpenDirectoryInEditor: openDirectoryInEditor,
     onRunOneTimeCommand: openOneTimeCommand,

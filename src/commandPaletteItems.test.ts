@@ -36,6 +36,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onToggleMaximizedTerminal: vi.fn(),
     onOpenSearch: vi.fn(),
     onOpenSettings: vi.fn(),
+    onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
     onRunOneTimeCommand: vi.fn(),
     customCmdPCommands: [],
@@ -58,6 +59,7 @@ describe('buildCommandPaletteItems', () => {
       'split-terminal-right',
       'split-terminal-down',
       'add-cmd-p-command',
+      'restart-stacks',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -66,6 +68,14 @@ describe('buildCommandPaletteItems', () => {
       'project-workspace-p1',
       'terminal-t1:0',
     ]));
+  });
+
+  it('restarts Stacks from the command palette', () => {
+    const onRestartApp = vi.fn();
+    const item = palette({ onRestartApp }).find((candidate) => candidate.id === 'restart-stacks');
+    item?.action();
+    expect(item?.title).toBe('Restart Stacks');
+    expect(onRestartApp).toHaveBeenCalledOnce();
   });
 
   it('uses Pi-aware lifecycle commands and hides terminal-only actions for a Pi pane', () => {

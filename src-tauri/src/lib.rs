@@ -53,6 +53,12 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn restart_app(app: AppHandle, window: tauri::Window) -> Result<(), String> {
+    save_current_window_state(window)?;
+    app.restart()
+}
+
 pub fn run() {
     if let Some(exit_code) = automation::handle_cli_invocation() {
         std::process::exit(exit_code);
@@ -84,6 +90,7 @@ pub fn run() {
             reset_settings,
             new_id,
             quit_app,
+            restart_app,
             open_path_in_editor,
             open_url,
             spawn_pty,
