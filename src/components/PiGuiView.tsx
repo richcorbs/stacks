@@ -138,7 +138,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const element = scrollRef.current;
     if (!element || !visible || !shouldStickToBottomRef.current) return;
     element.scrollTop = element.scrollHeight;
-  }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.streamingText, pi.tools, visible]);
+  }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
 
@@ -157,7 +157,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const slashName = message.startsWith('/') ? message.slice(1).split(/\s/, 1)[0] : '';
     const extensionCommand = pi.commands.some((command) => command.name === slashName && command.source === 'extension');
     const builtinCommand = isGuiBuiltinCommand(slashName);
-    if ((!message && attachments.length === 0) || (pi.isStreaming && behavior === 'prompt' && !extensionCommand)) return;
+    if ((!message && attachments.length === 0) || (pi.isStreaming && builtinCommand)) return;
     if (builtinCommand && attachments.length > 0) {
       setAttachmentError(`/${slashName} does not accept image attachments`);
       return;
@@ -170,9 +170,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const images = submittedAttachments.map(({ name: _name, byteSize: _byteSize, ...image }) => image);
     const send = builtinCommand
       ? pi.runBuiltinCommand(message)
-      : behavior === 'followUp' && pi.isStreaming
-        ? pi.followUp(message, images)
-        : pi.prompt(message, images);
+      : pi.isStreaming && extensionCommand
+        ? pi.prompt(message, images)
+        : pi.isStreaming && behavior === 'followUp'
+          ? pi.followUp(message, images)
+          : pi.isStreaming
+            ? pi.steer(message, images)
+            : pi.prompt(message, images);
     await send.catch(() => {
       setPrompt(message);
       setAttachments(submittedAttachments);
@@ -325,8 +329,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             live
           />
         ))}
+        {pi.queuedSteering.map((message, index) => (
+          <div className="piMessage piMessageUser piQueuedMessage piQueuedSteering" key={`steer:${message}:${index}`} aria-label="Queued steering message">
+            <div className="piMessageText"><small>Steering</small><span>{message}</span></div>
+          </div>
+        ))}
         {pi.queuedFollowUps.map((message, index) => (
-          <div className="piMessage piMessageUser piQueuedFollowUp" key={`${message}:${index}`} aria-label="Queued follow-up">
+          <div className="piMessage piMessageUser piQueuedMessage piQueuedFollowUp" key={`follow-up:${message}:${index}`} aria-label="Queued follow-up">
             <div className="piMessageText"><small>Follow up</small><span>{message}</span></div>
           </div>
         ))}
@@ -370,7 +379,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             value={prompt}
             rows={1}
             style={{ fontSize: `${composerFontSize}px` }}
-            placeholder={attachments.length ? 'Ask Pi about the attached image…' : pi.isStreaming ? 'Add a follow-up… (⌥↩)' : 'Ask Pi…'}
+            placeholder={attachments.length ? 'Ask Pi about the attached image…' : pi.isStreaming ? 'Steer Pi… (↩) · follow up (⌥↩)' : 'Ask Pi…'}
             disabled={pi.starting}
             onChange={(event) => {
               setPrompt(event.target.value);

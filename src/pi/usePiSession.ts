@@ -35,6 +35,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
   const [stopped, setStopped] = useState(false);
   const [uiRequest, setUiRequest] = useState<PiUiRequest | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>(GUI_BUILTIN_COMMANDS);
+  const [queuedSteering, setQueuedSteering] = useState<string[]>([]);
   const [queuedFollowUps, setQueuedFollowUps] = useState<string[]>([]);
   const requestSequence = useRef(0);
   const generationRef = useRef<string | null>(null);
@@ -132,10 +133,8 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
             }
             if (message.role === 'user') {
               const deliveredText = messageContentText(message.content).trim();
-              setQueuedFollowUps((current) => {
-                const deliveredIndex = current.findIndex((queued) => queued.trim() === deliveredText);
-                return deliveredIndex < 0 ? current : current.filter((_, index) => index !== deliveredIndex);
-              });
+              setQueuedSteering((current) => removeDeliveredQueuedMessage(current, deliveredText));
+              setQueuedFollowUps((current) => removeDeliveredQueuedMessage(current, deliveredText));
             }
             if (message.role === 'toolResult' && message.toolCallId) {
               setTools((current) => current.filter((tool) => tool.id !== message.toolCallId));
@@ -166,6 +165,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
           } : tool));
           break;
         case 'queue_update':
+          setQueuedSteering(Array.isArray(event.steering) ? event.steering.filter((item): item is string => typeof item === 'string') : []);
           setQueuedFollowUps(Array.isArray(event.followUp) ? event.followUp.filter((item): item is string => typeof item === 'string') : []);
           break;
         case 'agent_settled':
@@ -192,6 +192,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
         case 'pi_process_exit':
           notifyRunning(paneId, false);
           setIsStreaming(false);
+          setQueuedSteering([]);
           setQueuedFollowUps([]);
           setStopped(true);
           setError('Pi session stopped');
@@ -296,6 +297,13 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     }
   }, [context.supportsImages, sendRequest]);
 
+  const steer = useCallback(async (message: string, images: PiPromptImage[] = []) => {
+    const text = message.trim() || (images.length ? 'Please review the attached image.' : '');
+    if (!text) return;
+    if (images.length && !context.supportsImages) throw new Error('The selected model does not support image input');
+    await sendRequest({ type: 'steer', message: text, ...(images.length ? { images } : {}) });
+  }, [context.supportsImages, sendRequest]);
+
   const followUp = useCallback(async (message: string, images: PiPromptImage[] = []) => {
     const text = message.trim() || (images.length ? 'Please review the attached image.' : '');
     if (!text) return;
@@ -314,6 +322,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     setStarting(true);
     setStopped(false);
     setError(null);
+    setQueuedSteering([]);
     setQueuedFollowUps([]);
     // Reject every event from the old generation before asking Rust to stop it.
     generationRef.current = 'restarting';
@@ -336,7 +345,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     }
   }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats]);
 
-  return { messages, context, commands, queuedFollowUps, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, followUp, abort, restart, respondToUiRequest };
+  return { messages, context, commands, queuedSteering, queuedFollowUps, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, restart, respondToUiRequest };
 }
 
 function notifyRunning(paneId: string, running: boolean) {
@@ -386,6 +395,11 @@ function normalizeCommands(value: unknown): PiCommand[] {
     const item = command as Partial<PiCommand>;
     return typeof item.name === 'string' && ['extension', 'prompt', 'skill'].includes(String(item.source));
   }).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function removeDeliveredQueuedMessage(messages: string[], deliveredText: string) {
+  const deliveredIndex = messages.findIndex((queued) => queued.trim() === deliveredText);
+  return deliveredIndex < 0 ? messages : messages.filter((_, index) => index !== deliveredIndex);
 }
 
 function messageContentText(content: PiMessage['content']) {
