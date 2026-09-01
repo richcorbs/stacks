@@ -1048,7 +1048,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piWorkingDots i:nth-child(3) { animation-delay: .32s; }
 @keyframes piWorkingPulse { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .piWorkingDots i { animation: none; opacity: .65; } }
-.piToolCard { max-width: 820px; margin: 0 auto 14px; border: 1px solid #202e3c; border-radius: 7px; background: #0e161f; color: #8192a4; font-size: 10px; }
+.piToolCard { width: 100%; max-width: none; margin: 0 auto 14px; border: 1px solid #202e3c; border-radius: 7px; background: #0e161f; color: #8192a4; font-size: 10px; }
 .piToolCard summary { min-height: 30px; padding: 0 9px; display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; }
 .piToolCard summary::-webkit-details-marker { display: none; }
 .piToolCard summary strong { min-width: 0; overflow: hidden; color: #91a2b4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
@@ -1090,7 +1090,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piImageAttachment span { display: block; padding: 3px 2px 0; overflow: hidden; color: #74889b; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .piImageAttachment button { position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; padding: 0; border: 1px solid #4c6174; border-radius: 50%; background: #1b2a38; color: #b7c5d2; cursor: pointer; font-size: 11px; line-height: 12px; }
 .piAttachmentError { margin-bottom: 6px; color: #cf7e85; font-size: 9px; }
-.piComposer textarea::placeholder { color: #536579; }
+.piComposer textarea::placeholder { color: #536579; text-indent: 4px; }
 .piComposerAction { flex: 0 0 28px; width: 28px; height: 28px; border: 1px solid #6388a8; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 70%, #738291); border-radius: 7px; background: #477aa5; background: color-mix(in srgb, var(--pi-pane-accent) 62%, #263746); color: #eef6fc; color: color-mix(in srgb, var(--pi-pane-accent) 12%, #f2f6fa); cursor: pointer; font-size: 16px; font-weight: 650; }
 .piComposerAction:hover:not(:disabled) { background: #568ab5; background: color-mix(in srgb, var(--pi-pane-accent) 76%, #324658); }
 .piComposerAction:disabled { opacity: .35; cursor: default; }
