@@ -9,6 +9,14 @@ describe('Pi tool presentation', () => {
     });
   });
 
+  it('describes read calls by filename', () => {
+    expect(piToolSummary('read', { path: 'src/components/PiGuiView.tsx' }, false)).toEqual({
+      label: 'read PiGuiView.tsx',
+      title: 'read src/components/PiGuiView.tsx',
+    });
+    expect(piToolSummary('read', { file_path: '/tmp/output.log' }, true).label).toBe('reading output.log');
+  });
+
   it('describes running bash calls by command', () => {
     expect(piToolSummary('bash', { command: 'npm run test\necho done' }, true).label).toBe('running: npm run test');
   });

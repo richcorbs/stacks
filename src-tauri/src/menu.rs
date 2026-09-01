@@ -10,6 +10,7 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         ("menu-shortcut-settings", "Settings", "Cmd+,", Some("Cmd+,")),
         ("menu-shortcut-toggle-sidebar", "Toggle Sidebar", "Cmd+B", Some("Cmd+B")),
         ("menu-shortcut-toggle-superthread", "Toggle Developer Services", "Cmd+R", Some("Cmd+R")),
+        ("menu-shortcut-toggle-github-pull-requests", "Toggle GitHub Pull Requests", "Cmd+G", Some("Cmd+G")),
         ("menu-shortcut-split-terminal-right", "Split Terminal Right", "Cmd+D", Some("Cmd+D")),
         ("menu-shortcut-split-terminal-down", "Split Terminal Down", "Cmd+Shift+D", Some("Cmd+Shift+D")),
         ("menu-shortcut-close-terminal", "Close Focused Terminal", "Cmd+W", Some("Cmd+W")),

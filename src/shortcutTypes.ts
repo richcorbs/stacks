@@ -12,6 +12,7 @@ export type ShortcutAction =
   | 'settings'
   | 'toggle-sidebar'
   | 'toggle-superthread'
+  | 'toggle-github-pull-requests'
   | 'maximize-workspace'
   | 'focus-next-terminal'
   | 'focus-previous-terminal'
@@ -43,4 +44,5 @@ export type ShortcutHandlers = {
   openSettings: () => void;
   toggleSidebar: () => void;
   toggleSuperthread: () => void;
+  toggleGithubPullRequests: () => void;
 };

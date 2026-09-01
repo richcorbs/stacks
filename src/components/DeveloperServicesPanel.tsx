@@ -14,6 +14,7 @@ type PanelTab = 'superthread' | 'pull-requests' | 'actions';
 
 export function DeveloperServicesPanel({
   visible,
+  pullRequestsRequestNonce,
   projects,
   spaces,
   workspaceSlug,
@@ -24,6 +25,7 @@ export function DeveloperServicesPanel({
   onStartWork,
 }: {
   visible: boolean;
+  pullRequestsRequestNonce: number;
   projects: Project[];
   spaces: string;
   workspaceSlug: string;
@@ -47,6 +49,10 @@ export function DeveloperServicesPanel({
   useEffect(() => {
     if (!superthreadEnabled && tab === 'superthread') setTab('pull-requests');
   }, [superthreadEnabled, tab]);
+
+  useEffect(() => {
+    if (pullRequestsRequestNonce > 0) setTab('pull-requests');
+  }, [pullRequestsRequestNonce]);
 
   function refresh() {
     if (tab === 'superthread') superthread.loadBoards(true).catch(console.error);

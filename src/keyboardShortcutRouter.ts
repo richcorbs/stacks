@@ -37,6 +37,10 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     runHandledShortcut(event, () => runShortcutAction('toggle-superthread', handlers));
     return;
   }
+  if (key === 'g') {
+    runHandledShortcut(event, () => runShortcutAction('toggle-github-pull-requests', handlers));
+    return;
+  }
   if (key === 'k') {
     runHandledShortcut(event, () => runShortcutAction('clear-terminal', handlers));
     return;

@@ -29,6 +29,7 @@ function handlers(overrides: Partial<ShortcutHandlers> = {}): ShortcutHandlers {
     openSettings: vi.fn(),
     toggleSidebar: vi.fn(),
     toggleSuperthread: vi.fn(),
+    toggleGithubPullRequests: vi.fn(),
     ...overrides,
   };
 }
@@ -56,6 +57,7 @@ describe('runShortcutAction', () => {
     runShortcutAction('increase-terminal-font-size', h);
     runShortcutAction('toggle-sidebar', h);
     runShortcutAction('toggle-superthread', h);
+    runShortcutAction('toggle-github-pull-requests', h);
     runShortcutAction('quit', h);
 
     expect(h.splitTerminal).toHaveBeenNthCalledWith(1, 'row');
@@ -65,6 +67,7 @@ describe('runShortcutAction', () => {
     expect(h.adjustTerminalFontSize).toHaveBeenCalledWith(1);
     expect(h.toggleSidebar).toHaveBeenCalled();
     expect(h.toggleSuperthread).toHaveBeenCalled();
+    expect(h.toggleGithubPullRequests).toHaveBeenCalled();
     expect(h.requestQuit).toHaveBeenCalled();
   });
 

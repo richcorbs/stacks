@@ -20,6 +20,7 @@ export function useAppShortcutHandlers({
   setMetaKeyDown,
   toggleSidebar,
   toggleSuperthread,
+  toggleGithubPullRequests,
   setConfirmCloseTerminalId,
   setConfirmDeleteProjectId,
   setConfirmDeleteWorkspace,
@@ -114,6 +115,7 @@ export function useAppShortcutHandlers({
     openSettings: () => setSettingsOpen(true),
     toggleSidebar,
     toggleSuperthread,
+    toggleGithubPullRequests,
   };
 
   const shortcutHandlersRef = useRef(shortcutHandlers);

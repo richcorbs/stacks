@@ -66,6 +66,7 @@ export type MainLayoutProps = {
 
 export type DeveloperServicesLayoutProps = {
   visible: boolean;
+  pullRequestsRequestNonce: number;
   projects: Project[];
   spaces: string;
   workspaceSlug: string;

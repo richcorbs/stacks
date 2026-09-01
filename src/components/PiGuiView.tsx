@@ -31,6 +31,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [projectTrusted, setProjectTrusted] = useState(false);
   const pi = usePiSession(terminal.id, cwd);
   const [prompt, setPrompt] = useState('');
+  const [composerFontSize, setComposerFontSize] = useState(15);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [attachments, setAttachments] = useState<Array<PiPromptImage & { name: string; byteSize: number }>>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -87,7 +88,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 
   useEffect(() => {
     if (inputRef.current) resizeComposerInput(inputRef.current);
-  }, [prompt]);
+  }, [composerFontSize, prompt]);
 
   useEffect(() => {
     if (!active || pi.uiRequest) return;
@@ -141,17 +142,23 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
-  async function submit() {
+  function adjustComposerFontSize(delta: number) {
+    setComposerFontSize((current) => Math.min(24, Math.max(11, current + delta)));
+  }
+
+  async function submit(behavior: 'prompt' | 'followUp' = 'prompt') {
     const message = prompt.trim();
     const slashName = message.startsWith('/') ? message.slice(1).split(/\s/, 1)[0] : '';
     const extensionCommand = pi.commands.some((command) => command.name === slashName && command.source === 'extension');
-    if ((!message && attachments.length === 0) || (pi.isStreaming && !extensionCommand)) return;
+    if ((!message && attachments.length === 0) || (pi.isStreaming && behavior === 'prompt' && !extensionCommand)) return;
     const submittedAttachments = attachments;
     setPrompt('');
     setAttachments([]);
     setAttachmentError(null);
     shouldStickToBottomRef.current = true;
-    await pi.prompt(message, submittedAttachments.map(({ name: _name, byteSize: _byteSize, ...image }) => image)).catch(() => {
+    const images = submittedAttachments.map(({ name: _name, byteSize: _byteSize, ...image }) => image);
+    const send = behavior === 'followUp' && pi.isStreaming ? pi.followUp(message, images) : pi.prompt(message, images);
+    await send.catch(() => {
       setPrompt(message);
       setAttachments(submittedAttachments);
     });
@@ -251,16 +258,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
       />
-      <header className="piGuiHeader">
-        <div className="piGuiContext" aria-label="Pi session context">
-          <ContextItem label="cwd" value={compactPath(cwd)} title={cwd} />
-          <ContextItem label="branch" value={gitInfo?.branch || '—'} />
-          <ContextItem label="model" value={pi.context.modelName || pi.context.modelId || 'starting…'} title={[pi.context.provider, pi.context.modelId].filter(Boolean).join(' / ')} />
-          <ContextItem label="effort" value={pi.context.thinkingLevel || '—'} />
-          <button className="piTrustButton" type="button" title="Change project trust" onClick={() => toggleProjectTrust().catch(() => {})}><small>project</small>{projectTrusted ? 'trusted' : 'not trusted'}</button>
-        </div>
-      </header>
-
       <div className="piGuiConversation" ref={scrollRef} onMouseUp={showSelectionPopup} onScroll={(event) => {
         const element = event.currentTarget;
         shouldStickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -296,7 +293,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => pi.restart().catch(() => {})}>Restart Pi</button></div>}
 
       <div className="piComposer">
-        <div className="piComposerContent">
+        <div className="piComposerRow">
+          <div className="piComposerContent">
           {matchingCommands.length > 0 && <div className="piCommandMenu" role="listbox" aria-label="Pi commands">
             {matchingCommands.map((command, index) => <button
               type="button"
@@ -311,6 +309,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               <em>{command.source}{command.location ? ` · ${command.location}` : ''}</em>
             </button>)}
           </div>}
+          {pi.queuedFollowUps.length > 0 && <div className="piQueuedFollowUps" aria-live="polite">
+            {pi.queuedFollowUps.map((message, index) => <div key={`${message}:${index}`}><small>follow-up</small><span>{message}</span></div>)}
+          </div>}
           {attachments.length > 0 && <div className="piImageAttachments">
             {attachments.map((image, index) => <div className="piImageAttachment" key={`${image.name}:${index}`} title={image.name}>
               <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
@@ -323,13 +324,25 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             ref={inputRef}
             value={prompt}
             rows={1}
-            placeholder={attachments.length ? 'Ask Pi about the attached image…' : pi.isStreaming ? 'Pi is working…' : 'Ask Pi…'}
+            style={{ fontSize: `${composerFontSize}px` }}
+            placeholder={attachments.length ? 'Ask Pi about the attached image…' : pi.isStreaming ? 'Add a follow-up… (⌥↩)' : 'Ask Pi…'}
             disabled={pi.starting}
             onChange={(event) => {
               setPrompt(event.target.value);
               setSelectedCommandIndex(0);
             }}
             onKeyDown={(event) => {
+              if (event.metaKey && !event.ctrlKey && !event.altKey && ['+', '=', '-', '_'].includes(event.key)) {
+                event.preventDefault();
+                event.stopPropagation();
+                adjustComposerFontSize(event.key === '+' || event.key === '=' ? 1 : -1);
+                return;
+              }
+              if (event.key === 'Enter' && event.altKey && !event.metaKey && !event.ctrlKey) {
+                event.preventDefault();
+                submit('followUp').catch(console.error);
+                return;
+              }
               if (matchingCommands.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                 event.preventDefault();
                 const direction = event.key === 'ArrowDown' ? 1 : -1;
@@ -352,12 +365,20 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               }
             }}
           />
+          </div>
+          {pi.isStreaming ? (
+            <button className="piComposerAction stop" type="button" onClick={() => pi.abort().catch(() => {})} title="Stop Pi">■</button>
+          ) : (
+            <button className="piComposerAction" type="button" disabled={(!prompt.trim() && attachments.length === 0) || pi.starting} onClick={() => submit().catch(console.error)} title="Send">↑</button>
+          )}
         </div>
-        {pi.isStreaming ? (
-          <button className="piComposerAction stop" type="button" onClick={() => pi.abort().catch(() => {})} title="Stop Pi">■</button>
-        ) : (
-          <button className="piComposerAction" type="button" disabled={(!prompt.trim() && attachments.length === 0) || pi.starting} onClick={() => submit().catch(console.error)} title="Send">↑</button>
-        )}
+      </div>
+      <div className="piGuiContext piGuiContextBar" aria-label="Pi session context">
+        <ContextItem label="cwd" value={compactPath(cwd)} title={cwd} />
+        <ContextItem label="branch" value={gitInfo?.branch || '—'} />
+        <ContextItem label="model" value={pi.context.modelName || pi.context.modelId || 'starting…'} title={[pi.context.provider, pi.context.modelId].filter(Boolean).join(' / ')} />
+        <ContextItem label="effort" value={pi.context.thinkingLevel || '—'} />
+        <button className="piTrustButton" type="button" title="Change project trust" onClick={() => toggleProjectTrust().catch(() => {})}><small>project</small>{projectTrusted ? 'trusted' : 'not trusted'}</button>
       </div>
 
       {selectionPopup && (

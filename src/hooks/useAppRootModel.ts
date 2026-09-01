@@ -106,6 +106,7 @@ export function useAppRootModel() {
   const { toast, showToast } = toastState;
   const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
   const [developerServicesVisible, setDeveloperServicesVisible] = useState(true);
+  const [pullRequestsRequestNonce, setPullRequestsRequestNonce] = useState(0);
 
   const { activeProject, activeWorkspace, sidebarWorkspaces, activePath, visitedWorkspaceTerminalTrees } = useAppWorkspaceModels({
     store,
@@ -313,6 +314,10 @@ export function useAppRootModel() {
     setMetaKeyDown,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
     toggleSuperthread: () => setDeveloperServicesVisible((visible) => !visible),
+    toggleGithubPullRequests: () => {
+      setPullRequestsRequestNonce((nonce) => nonce + 1);
+      setDeveloperServicesVisible((visible) => !visible);
+    },
     setConfirmCloseTerminalId,
     setConfirmDeleteProjectId,
     setConfirmDeleteWorkspace,
@@ -395,6 +400,7 @@ export function useAppRootModel() {
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
     toggleDeveloperServices: () => setDeveloperServicesVisible((visible) => !visible),
     developerServicesVisible,
+    pullRequestsRequestNonce,
     startSuperthreadWork: async (projectId, cardNumber, cardTitle) => {
       try {
         await createWorkspace(buildSuperthreadWorkspaceInput(store, projectId, cardNumber, cardTitle, {

@@ -133,6 +133,7 @@ fn spawn_pi_session(
 ) -> Result<PiRpcHandle, String> {
     let pi =
         find_pi().ok_or_else(|| "Pi CLI not found. Install `pi` or set PI_PATH.".to_string())?;
+    let runtime_path = pi_runtime_path(&pi);
     let session_dir = session_dir(pane_id)?;
     std::fs::create_dir_all(&session_dir).map_err(|error| error.to_string())?;
 
@@ -156,6 +157,9 @@ fn spawn_pi_session(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(path) = runtime_path {
+        pi_command.env("PATH", path);
+    }
     process_group::configure(&mut pi_command);
     let mut child = pi_command.spawn()
         .map_err(|error| format!("Could not start Pi: {error}"))?;
@@ -427,6 +431,25 @@ fn safe_session_key(pane_id: &str) -> String {
             }
         })
         .collect()
+}
+
+fn pi_runtime_path(pi: &std::path::Path) -> Option<std::ffi::OsString> {
+    let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let login_path = Command::new(shell)
+        .args(["-lic", "printf %s \"$PATH\""])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|path| !path.is_empty());
+    if let Some(path) = login_path {
+        return Some(path.into());
+    }
+
+    let executable_dir = pi.parent()?;
+    let mut paths = vec![executable_dir.to_path_buf()];
+    paths.extend(env::var_os("PATH").as_deref().map(env::split_paths).into_iter().flatten());
+    env::join_paths(paths).ok()
 }
 
 fn find_pi() -> Option<PathBuf> {

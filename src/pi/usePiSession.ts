@@ -31,6 +31,7 @@ export function usePiSession(paneId: string, cwd: string) {
   const [stopped, setStopped] = useState(false);
   const [uiRequest, setUiRequest] = useState<PiUiRequest | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>([]);
+  const [queuedFollowUps, setQueuedFollowUps] = useState<string[]>([]);
   const requestSequence = useRef(0);
   const generationRef = useRef<string | null>(null);
   const pendingRequests = useRef(new Map<string, PendingRequest>());
@@ -143,6 +144,9 @@ export function usePiSession(paneId: string, cwd: string) {
             status: event.isError ? 'error' : 'complete',
           } : tool));
           break;
+        case 'queue_update':
+          setQueuedFollowUps(Array.isArray(event.followUp) ? event.followUp.filter((item): item is string => typeof item === 'string') : []);
+          break;
         case 'agent_settled':
           setIsStreaming(false);
           setStreamingText('');
@@ -165,6 +169,7 @@ export function usePiSession(paneId: string, cwd: string) {
           break;
         case 'pi_process_exit':
           setIsStreaming(false);
+          setQueuedFollowUps([]);
           setStopped(true);
           setError('Pi session stopped');
           for (const pending of pendingRequests.current.values()) {
@@ -183,7 +188,9 @@ export function usePiSession(paneId: string, cwd: string) {
       if (disposed) stopListening();
       else {
         unlisten = stopListening;
-        generationRef.current = 'starting';
+        // Accept events from the first generation while startup is in flight so
+        // an immediate process exit or diagnostic is not silently discarded.
+        generationRef.current = null;
         invoke<string>('start_pi_session', { paneId, cwd })
           .then(async (generation) => {
             generationRef.current = generation;
@@ -242,6 +249,13 @@ export function usePiSession(paneId: string, cwd: string) {
     }
   }, [context.supportsImages, sendRequest]);
 
+  const followUp = useCallback(async (message: string, images: PiPromptImage[] = []) => {
+    const text = message.trim() || (images.length ? 'Please review the attached image.' : '');
+    if (!text) return;
+    if (images.length && !context.supportsImages) throw new Error('The selected model does not support image input');
+    await sendRequest({ type: 'follow_up', message: text, ...(images.length ? { images } : {}) });
+  }, [context.supportsImages, sendRequest]);
+
   const abort = useCallback(() => sendRequest({ type: 'abort' }), [sendRequest]);
   const respondToUiRequest = useCallback(async (response: Record<string, unknown>) => {
     const request = uiRequest;
@@ -253,6 +267,7 @@ export function usePiSession(paneId: string, cwd: string) {
     setStarting(true);
     setStopped(false);
     setError(null);
+    setQueuedFollowUps([]);
     // Reject every event from the old generation before asking Rust to stop it.
     generationRef.current = 'restarting';
     try {
@@ -271,7 +286,7 @@ export function usePiSession(paneId: string, cwd: string) {
     }
   }, [cwd, paneId, refreshCommands, refreshMessages, refreshState]);
 
-  return { messages, context, commands, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, abort, restart, respondToUiRequest };
+  return { messages, context, commands, queuedFollowUps, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, followUp, abort, restart, respondToUiRequest };
 }
 
 function updateContext(event: PiResponseEvent, setContext: (context: PiSessionContext) => void, setIsStreaming: (streaming: boolean) => void) {

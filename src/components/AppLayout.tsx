@@ -78,6 +78,7 @@ export function AppLayout({
       />
       <DeveloperServicesPanel
         visible={developerServices.visible}
+        pullRequestsRequestNonce={developerServices.pullRequestsRequestNonce}
         projects={developerServices.projects}
         spaces={developerServices.spaces}
         workspaceSlug={developerServices.workspaceSlug}
