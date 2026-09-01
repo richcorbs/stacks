@@ -28,6 +28,7 @@ export type PiResponseEvent = {
     sessionId?: string;
     sessionName?: string;
     isStreaming?: boolean;
+    commands?: PiCommand[];
     [key: string]: unknown;
   };
 };
@@ -60,6 +61,14 @@ export type PiSessionContext = {
   sessionId: string;
   sessionName: string;
   supportsImages: boolean;
+};
+
+export type PiCommand = {
+  name: string;
+  description?: string;
+  source: 'extension' | 'prompt' | 'skill';
+  location?: 'user' | 'project' | 'path';
+  path?: string;
 };
 
 export type PiUiRequest = {

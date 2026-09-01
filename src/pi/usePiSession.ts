@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { PiMessage, PiPromptImage, PiResponseEvent, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
+import type { PiCommand, PiMessage, PiPromptImage, PiResponseEvent, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
 import { subscribePiEvents } from './eventBroker';
 import { appendPiMessage, compactPiMessages } from './transcript';
 
@@ -30,6 +30,7 @@ export function usePiSession(paneId: string, cwd: string) {
   const [starting, setStarting] = useState(true);
   const [stopped, setStopped] = useState(false);
   const [uiRequest, setUiRequest] = useState<PiUiRequest | null>(null);
+  const [commands, setCommands] = useState<PiCommand[]>([]);
   const requestSequence = useRef(0);
   const generationRef = useRef<string | null>(null);
   const pendingRequests = useRef(new Map<string, PendingRequest>());
@@ -63,6 +64,9 @@ export function usePiSession(paneId: string, cwd: string) {
 
   const refreshMessages = useCallback(() => sendRequest({ type: 'get_messages' }, 60_000), [sendRequest]);
   const refreshState = useCallback(() => sendRequest({ type: 'get_state' }), [sendRequest]);
+  const refreshCommands = useCallback(() => sendRequest({ type: 'get_commands' }).then((response) => {
+    setCommands(normalizeCommands(response.data?.commands));
+  }), [sendRequest]);
 
   useEffect(() => {
     let disposed = false;
@@ -96,6 +100,7 @@ export function usePiSession(paneId: string, cwd: string) {
             setMessages(compactPiMessages(response.data.messages));
           }
           if (response.command === 'get_state') updateContext(response, setContext, setIsStreaming);
+          if (response.command === 'get_commands') setCommands(normalizeCommands(response.data?.commands));
           break;
         }
         case 'agent_start':
@@ -183,6 +188,7 @@ export function usePiSession(paneId: string, cwd: string) {
           .then(async (generation) => {
             generationRef.current = generation;
             await Promise.all([refreshState(), refreshMessages()]);
+            refreshCommands().catch(() => setCommands([]));
             setStopped(false);
             setStarting(false);
           })
@@ -207,7 +213,7 @@ export function usePiSession(paneId: string, cwd: string) {
       }
       pendingRequests.current.clear();
     };
-  }, [cwd, paneId, refreshMessages, refreshState, writeCommand]);
+  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, writeCommand]);
 
   useEffect(() => {
     if (!uiRequest?.timeout) return;
@@ -222,11 +228,16 @@ export function usePiSession(paneId: string, cwd: string) {
     const optimisticContent = images.length
       ? [{ type: 'text' as const, text }, ...images.map((image) => ({ type: 'image', mimeType: image.mimeType, name: image.name, data: '', omitted: true }))]
       : text;
-    setMessages((current) => appendPiMessage(current, { role: 'user', content: optimisticContent, timestamp: Date.now(), local: true }));
+    // Skills and templates expand into a different persisted user message, while
+    // extension commands may not create one at all. Avoid a duplicate/stale
+    // optimistic bubble for slash commands.
+    const optimisticTimestamp = Date.now();
+    const optimistic = !text.startsWith('/');
+    if (optimistic) setMessages((current) => appendPiMessage(current, { role: 'user', content: optimisticContent, timestamp: optimisticTimestamp, local: true }));
     try {
       await sendRequest({ type: 'prompt', message: text, ...(images.length ? { images } : {}) });
     } catch (promptError) {
-      setMessages((current) => current.filter((item) => !item.local));
+      if (optimistic) setMessages((current) => current.filter((item) => !(item.local && item.timestamp === optimisticTimestamp)));
       throw promptError;
     }
   }, [context.supportsImages, sendRequest]);
@@ -249,6 +260,7 @@ export function usePiSession(paneId: string, cwd: string) {
       const generation = await invoke<string>('start_pi_session', { paneId, cwd });
       generationRef.current = generation;
       await Promise.all([refreshState(), refreshMessages()]);
+      refreshCommands().catch(() => setCommands([]));
       setStopped(false);
     } catch (restartError) {
       setStopped(true);
@@ -257,9 +269,9 @@ export function usePiSession(paneId: string, cwd: string) {
     } finally {
       setStarting(false);
     }
-  }, [cwd, paneId, refreshMessages, refreshState]);
+  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState]);
 
-  return { messages, context, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, abort, restart, respondToUiRequest };
+  return { messages, context, commands, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, abort, restart, respondToUiRequest };
 }
 
 function updateContext(event: PiResponseEvent, setContext: (context: PiSessionContext) => void, setIsStreaming: (streaming: boolean) => void) {
@@ -274,6 +286,15 @@ function updateContext(event: PiResponseEvent, setContext: (context: PiSessionCo
     supportsImages: Array.isArray(model?.input) && model.input.includes('image'),
   });
   setIsStreaming(Boolean(event.data?.isStreaming));
+}
+
+function normalizeCommands(value: unknown): PiCommand[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((command): command is PiCommand => {
+    if (!command || typeof command !== 'object') return false;
+    const item = command as Partial<PiCommand>;
+    return typeof item.name === 'string' && ['extension', 'prompt', 'skill'].includes(String(item.source));
+  }).sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function toolResultText(result: unknown) {

@@ -4,8 +4,9 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
+import { applySlashCommand, matchingSlashCommands } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
-import type { PiContentBlock, PiMessage as PiMessageData, PiPromptImage } from '../pi/types';
+import type { PiCommand, PiContentBlock, PiMessage as PiMessageData, PiPromptImage } from '../pi/types';
 import { visiblePiMessages } from '../pi/transcript';
 import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentation';
 import { usePiSession } from '../pi/usePiSession';
@@ -29,6 +30,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [projectTrusted, setProjectTrusted] = useState(false);
   const pi = usePiSession(terminal.id, cwd);
   const [prompt, setPrompt] = useState('');
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [attachments, setAttachments] = useState<Array<PiPromptImage & { name: string; byteSize: number }>>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [extensionInput, setExtensionInput] = useState('');
@@ -130,9 +132,19 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     element.scrollTop = element.scrollHeight;
   }, [pi.messages.length, pi.streamingText, pi.tools, visible]);
 
+  const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
+
+  function chooseCommand(command: PiCommand) {
+    setPrompt(applySlashCommand(command));
+    setSelectedCommandIndex(-1);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
   async function submit() {
     const message = prompt.trim();
-    if ((!message && attachments.length === 0) || pi.isStreaming) return;
+    const slashName = message.startsWith('/') ? message.slice(1).split(/\s/, 1)[0] : '';
+    const extensionCommand = pi.commands.some((command) => command.name === slashName && command.source === 'extension');
+    if ((!message && attachments.length === 0) || (pi.isStreaming && !extensionCommand)) return;
     const submittedAttachments = attachments;
     setPrompt('');
     setAttachments([]);
@@ -284,6 +296,20 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 
       <div className="piComposer">
         <div className="piComposerContent">
+          {matchingCommands.length > 0 && <div className="piCommandMenu" role="listbox" aria-label="Pi commands">
+            {matchingCommands.map((command, index) => <button
+              type="button"
+              role="option"
+              aria-selected={index === selectedCommandIndex}
+              className={index === selectedCommandIndex ? 'selected' : ''}
+              key={`${command.source}:${command.name}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseCommand(command)}
+            >
+              <span><strong>/{command.name}</strong>{command.description && <small>{command.description}</small>}</span>
+              <em>{command.source}{command.location ? ` · ${command.location}` : ''}</em>
+            </button>)}
+          </div>}
           {attachments.length > 0 && <div className="piImageAttachments">
             {attachments.map((image, index) => <div className="piImageAttachment" key={`${image.name}:${index}`} title={image.name}>
               <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
@@ -298,8 +324,27 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             rows={1}
             placeholder={attachments.length ? 'Ask Pi about the attached image…' : pi.isStreaming ? 'Pi is working…' : 'Ask Pi…'}
             disabled={pi.starting}
-            onChange={(event) => setPrompt(event.target.value)}
+            onChange={(event) => {
+              setPrompt(event.target.value);
+              setSelectedCommandIndex(0);
+            }}
             onKeyDown={(event) => {
+              if (matchingCommands.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                event.preventDefault();
+                const direction = event.key === 'ArrowDown' ? 1 : -1;
+                setSelectedCommandIndex((current) => (current + direction + matchingCommands.length) % matchingCommands.length);
+                return;
+              }
+              if (matchingCommands.length > 0 && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
+                event.preventDefault();
+                chooseCommand(matchingCommands[Math.max(0, selectedCommandIndex)]);
+                return;
+              }
+              if (event.key === 'Escape' && matchingCommands.length > 0) {
+                event.preventDefault();
+                setSelectedCommandIndex(-1);
+                return;
+              }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 submit().catch(console.error);
