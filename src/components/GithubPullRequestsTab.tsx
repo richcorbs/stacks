@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { GithubPullRequest } from '../github/types';
 import { pullRequestTitleParts } from '../github/pullRequestTitle';
+import { pullRequestDisplayStatus } from '../github/pullRequestStatus';
 import { GithubStatusIcon } from './GithubStatusIcon';
 
 export function GithubPullRequestsTab({
@@ -25,8 +26,9 @@ export function GithubPullRequestsTab({
     {loading && pullRequests.length === 0 && <div className="superthreadState">Loading GitHub pull requests…</div>}
     {error && <div className="superthreadState superthreadError">{error}</div>}
     {!loading && !error && pullRequests.length === 0 && <div className="superthreadState">No open pull requests.</div>}
-    {pullRequests.map((pullRequest) => (
-      <article className="githubPrRow" key={pullRequest.number}>
+    {pullRequests.map((pullRequest) => {
+      const displayStatus = pullRequestDisplayStatus(pullRequest);
+      return <article className="githubPrRow" key={pullRequest.number}>
         <a
           className="githubItemTitle githubPrLink"
           href={pullRequest.url}
@@ -42,7 +44,7 @@ export function GithubPullRequestsTab({
             <span className="githubPrAttribution">@{pullRequest.author}</span>
             {pullRequest.draft && <span>Draft</span>}
           </div>
-          <span className="githubPrCiStatus"><GithubStatusIcon status={pullRequest.ci_status} context="CI" /></span>
+          <span className="githubPrCiStatus"><GithubStatusIcon status={displayStatus.status} context="CI" label={displayStatus.label} /></span>
         </div>
         <button
           className="githubMergeButton"
@@ -56,8 +58,8 @@ export function GithubPullRequestsTab({
         >
           {mergingNumber === pullRequest.number ? <span className="githubMergeSpinner" aria-hidden="true" /> : 'MERGE'}
         </button>
-      </article>
-    ))}
+      </article>;
+    })}
   </>;
 }
 

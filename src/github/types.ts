@@ -5,6 +5,7 @@ export type GithubPullRequest = {
   title: string;
   author: string;
   ci_status: GithubStatus;
+  has_merge_conflicts: boolean;
   url: string;
   draft: boolean;
 };

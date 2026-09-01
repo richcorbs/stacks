@@ -29,6 +29,7 @@ pub struct GithubPullRequest {
     title: String,
     author: String,
     ci_status: GithubStatus,
+    has_merge_conflicts: bool,
     url: String,
     draft: bool,
 }
@@ -113,7 +114,7 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
             "--limit",
             "100",
             "--json",
-            "number,title,author,statusCheckRollup,url,isDraft",
+            "number,title,author,statusCheckRollup,mergeable,mergeStateStatus,url,isDraft",
         ],
     )?;
     let values: Vec<serde_json::Value> = serde_json::from_str(&output)
@@ -134,6 +135,7 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
                     .unwrap_or("unknown")
                     .to_string(),
                 ci_status: ci_status(value["statusCheckRollup"].as_array()),
+                has_merge_conflicts: has_merge_conflicts(&value),
                 url: value["url"].as_str().unwrap_or_default().to_string(),
                 draft: value["isDraft"].as_bool().unwrap_or(false),
             })
@@ -143,6 +145,11 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
         repository,
         pull_requests,
     })
+}
+
+fn has_merge_conflicts(value: &serde_json::Value) -> bool {
+    value["mergeable"].as_str() == Some("CONFLICTING")
+        || value["mergeStateStatus"].as_str() == Some("DIRTY")
 }
 
 fn ci_status(checks: Option<&Vec<serde_json::Value>>) -> GithubStatus {
@@ -403,7 +410,7 @@ fn find_gh() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{action_status, ci_status, validate_repository, GithubStatus};
+    use super::{action_status, ci_status, has_merge_conflicts, validate_repository, GithubStatus};
     use serde_json::json;
 
     #[test]
@@ -415,6 +422,13 @@ mod tests {
         assert_eq!(ci_status(Some(&failed)), GithubStatus::Failure);
         assert_eq!(ci_status(Some(&passed)), GithubStatus::Success);
         assert_eq!(ci_status(Some(&vec![])), GithubStatus::NoCi);
+    }
+
+    #[test]
+    fn detects_merge_conflicts() {
+        assert!(has_merge_conflicts(&json!({ "mergeable": "CONFLICTING" })));
+        assert!(has_merge_conflicts(&json!({ "mergeStateStatus": "DIRTY" })));
+        assert!(!has_merge_conflicts(&json!({ "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN" })));
     }
 
     #[test]
