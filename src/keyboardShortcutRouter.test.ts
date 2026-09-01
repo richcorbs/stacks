@@ -47,6 +47,46 @@ describe('keyboardShortcutRouter', () => {
     expect(event.stopPropagation).not.toHaveBeenCalled();
   });
 
+  it('handles terminal navigation while an input is focused', () => {
+    const h = handlers();
+    const event = {
+      key: '[',
+      code: 'BracketLeft',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: { closest: vi.fn(() => ({})) },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(h.cycleTerminal).toHaveBeenCalledWith(-1);
+    expect(event.preventDefault).toHaveBeenCalled();
+  });
+
+  it('handles shifted workspace navigation when the shifted bracket is reported as a brace', () => {
+    const h = handlers();
+    const event = {
+      key: '{',
+      code: 'BracketLeft',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: true,
+      target: { closest: vi.fn(() => ({})) },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(h.cycleSidebarWorkspace).toHaveBeenCalledWith(-1);
+    expect(event.preventDefault).toHaveBeenCalled();
+  });
+
   it('uses Cmd-G to toggle developer services on the pull requests tab', () => {
     const h = handlers();
     const event = {

@@ -46,6 +46,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const previousVisibleRef = useRef(visible);
   const handledRestartNonceRef = useRef(0);
   const preventSummaryToggleRef = useRef(false);
+  const historyIndexRef = useRef<number | null>(null);
+  const historyDraftRef = useRef('');
 
   useEffect(() => {
     invoke<boolean>('pi_project_trusted', { cwd }).then(setProjectTrusted).catch(() => setProjectTrusted(false));
@@ -175,6 +177,39 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setComposerFontSize((current) => Math.min(24, Math.max(11, current + delta)));
   }
 
+  function cyclePromptHistory(direction: -1 | 1) {
+    const history = pi.messages
+      .filter((message) => message.role === 'user')
+      .map((message) => messageText(message.content).trim())
+      .filter(Boolean);
+    if (history.length === 0) return;
+
+    let index = historyIndexRef.current;
+    let nextPrompt: string;
+    if (direction === -1) {
+      if (index === null) {
+        historyDraftRef.current = prompt;
+        index = history.length - 1;
+      } else {
+        index = Math.max(0, index - 1);
+      }
+      nextPrompt = history[index];
+    } else {
+      if (index === null) return;
+      if (index < history.length - 1) {
+        index += 1;
+        nextPrompt = history[index];
+      } else {
+        index = null;
+        nextPrompt = historyDraftRef.current;
+      }
+    }
+    historyIndexRef.current = index;
+    setPrompt(nextPrompt);
+    setSelectedCommandIndex(-1);
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(nextPrompt.length, nextPrompt.length));
+  }
+
   async function submit(behavior: 'prompt' | 'followUp' = 'prompt') {
     const message = prompt.trim();
     const slashName = message.startsWith('/') ? message.slice(1).split(/\s/, 1)[0] : '';
@@ -186,6 +221,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       return;
     }
     const submittedAttachments = attachments;
+    historyIndexRef.current = null;
+    historyDraftRef.current = '';
     setPrompt('');
     setAttachments([]);
     setAttachmentError(null);
@@ -405,10 +442,18 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             placeholder={attachments.length ? 'Ask Pi about the attached image…' : pi.isStreaming ? 'Steer Pi… (↩) · follow up (⌥↩)' : 'Ask Pi…'}
             disabled={pi.starting}
             onChange={(event) => {
+              historyIndexRef.current = null;
+              historyDraftRef.current = '';
               setPrompt(event.target.value);
               setSelectedCommandIndex(0);
             }}
             onKeyDown={(event) => {
+              if (event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+                event.preventDefault();
+                event.stopPropagation();
+                cyclePromptHistory(event.key === 'ArrowUp' ? -1 : 1);
+                return;
+              }
               if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'v') {
                 event.preventDefault();
                 event.stopPropagation();

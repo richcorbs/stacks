@@ -9,6 +9,11 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   setMetaKeyDown(event.metaKey);
   if (!event.metaKey || event.ctrlKey || event.altKey) return;
   const key = event.key.toLowerCase();
+  const bracketKey = event.code === 'BracketLeft' || event.key === '[' || event.key === '{'
+    ? 'left'
+    : event.code === 'BracketRight' || event.key === ']' || event.key === '}'
+      ? 'right'
+      : null;
   if (event.key === '+' || event.key === '=') {
     runHandledShortcut(event, () => runShortcutAction('increase-terminal-font-size', handlers));
     return;
@@ -65,9 +70,9 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     runHandledShortcut(event, () => runShortcutAction('close-terminal', handlers));
   } else if (key === 'q') {
     runHandledShortcut(event, () => runShortcutAction('quit', handlers));
-  } else if (event.key === ']') {
+  } else if (bracketKey === 'right') {
     runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-next-workspace' : 'focus-next-terminal', handlers));
-  } else if (event.key === '[') {
+  } else if (bracketKey === 'left') {
     runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-previous-workspace' : 'focus-previous-terminal', handlers));
   } else if (key === 'o') {
     runHandledShortcut(event, () => runShortcutAction('add-project', handlers));
