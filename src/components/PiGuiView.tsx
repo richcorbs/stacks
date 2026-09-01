@@ -9,6 +9,7 @@ import { subscribePiImageDrops } from '../pi/imageDropBroker';
 import type { PiCommand, PiContentBlock, PiMessage as PiMessageData, PiPromptImage, PiSessionContext } from '../pi/types';
 import { visiblePiMessages } from '../pi/transcript';
 import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentation';
+import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
 
@@ -75,14 +76,21 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     if (!input) return;
     const resize = () => resizeComposerInput(input);
     resize();
-    let previousWidth = input.parentElement?.clientWidth ?? 0;
-    const observer = new ResizeObserver(([entry]) => {
-      if (!entry || entry.contentRect.width === previousWidth) return;
-      previousWidth = entry.contentRect.width;
-      resize();
+    let resizeFrame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(resize);
     });
     if (input.parentElement) observer.observe(input.parentElement);
-    return () => observer.disconnect();
+    if (paneRef.current) {
+      observer.observe(paneRef.current);
+      const conversation = paneRef.current.querySelector<HTMLElement>(':scope > .piGuiConversation');
+      if (conversation) observer.observe(conversation);
+    }
+    return () => {
+      cancelAnimationFrame(resizeFrame);
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -115,6 +123,14 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setSelectedCommandIndex(-1);
     if (active && visible) requestAnimationFrame(() => inputRef.current?.focus());
   }, [pi.editorTextRequest]);
+
+  useEffect(() => listenForPiEditorText((request) => {
+    if (request.terminalId !== terminal.id || !active || !visible) return;
+    setPrompt(request.text);
+    setSelectedCommandIndex(-1);
+    request.acknowledge();
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }), [active, terminal.id, visible]);
 
   useEffect(() => subscribePiImageDrops(terminal.id, (paths) => {
       if (!pi.context.supportsImages) {
@@ -604,9 +620,21 @@ function formatToolDetails(args: unknown, output: string) {
 }
 
 function resizeComposerInput(input: HTMLTextAreaElement) {
+  const pane = input.closest<HTMLElement>('.piGuiPane');
+  const conversation = pane?.querySelector<HTMLElement>(':scope > .piGuiConversation');
+  const currentHeight = Math.max(23, input.offsetHeight);
+  let availableGrowth = 0;
+  if (conversation) {
+    const style = getComputedStyle(conversation);
+    const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+    availableGrowth = Math.max(0, conversation.clientHeight - verticalPadding);
+  }
+  const maxHeight = Math.max(23, currentHeight + availableGrowth);
   input.style.height = 'auto';
-  input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
-  input.style.overflowY = input.scrollHeight > 150 ? 'auto' : 'hidden';
+  const height = Math.min(input.scrollHeight, maxHeight);
+  input.style.maxHeight = `${maxHeight}px`;
+  input.style.height = `${height}px`;
+  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
 }
 
 function truncateDisplay(value: string, limit = 50_000) {

@@ -1,9 +1,12 @@
-import type React from 'react';
+import type { CSSProperties } from 'react';
 import { Sidebar } from './Sidebar';
 import { MainWorkspace } from './MainWorkspace';
 import { AppOverlays } from './AppOverlays';
 import { DeveloperServicesPanel } from './DeveloperServicesPanel';
 import type { DeveloperServicesLayoutProps, MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from './AppLayoutTypes';
+import { composeDiffReviewPrompt } from '../diffReview/prompt';
+import { useDiffReview } from '../diffReview/useDiffReview';
+import { sendTextToPiEditor } from '../pi/editorTextEvent';
 
 export function AppLayout({
   appStyle,
@@ -12,12 +15,25 @@ export function AppLayout({
   developerServices,
   overlays,
 }: {
-  appStyle: React.CSSProperties;
+  appStyle: CSSProperties;
   sidebar: SidebarLayoutProps;
   main: MainLayoutProps;
   developerServices: DeveloperServicesLayoutProps;
   overlays: OverlayLayoutProps;
 }) {
+  const activeWorkspaceModel = main.visitedWorkspaceTerminalTrees
+    .find(({ workspace }) => workspace.id === main.activeWorkspaceId);
+  const diffPath = activeWorkspaceModel?.workspace.cwd || activeWorkspaceModel?.project.path || null;
+  const diffReview = useDiffReview(main.activeWorkspaceId);
+  const activeTerminal = activeWorkspaceModel?.terminals.find((terminal) => terminal.id === main.activeTerminalId);
+  const canSubmitDiffReview = activeTerminal?.kind === 'pi';
+
+  function submitDiffReview() {
+    if (!canSubmitDiffReview || !activeTerminal) return;
+    const delivered = sendTextToPiEditor(activeTerminal.id, composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments));
+    if (delivered) diffReview.reset();
+  }
+
   return (
     <div className="app" style={appStyle}>
       <Sidebar
@@ -51,6 +67,9 @@ export function AppLayout({
         onToggleSidebar={main.toggleSidebar}
         onToggleDeveloperServices={main.toggleDeveloperServices}
         developerServicesVisible={main.developerServicesVisible}
+        diffReview={diffReview}
+        canSubmitDiffReview={canSubmitDiffReview}
+        onSubmitDiffReview={submitDiffReview}
         workspaces={main.visitedWorkspaceTerminalTrees}
         activeWorkspaceId={main.activeWorkspaceId}
         activeTerminalId={main.activeTerminalId}
@@ -83,9 +102,11 @@ export function AppLayout({
         spaces={developerServices.spaces}
         workspaceSlug={developerServices.workspaceSlug}
         activePath={developerServices.activePath}
+        diffPath={diffPath}
         githubPollSeconds={developerServices.githubPollSeconds}
         githubMergeStrategy={developerServices.githubMergeStrategy}
         superthreadEnabled={developerServices.superthreadEnabled}
+        diffReview={diffReview}
         onStartWork={developerServices.startWork}
       />
       <AppOverlays {...overlays} />
