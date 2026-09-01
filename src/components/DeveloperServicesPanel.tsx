@@ -71,10 +71,10 @@ export function DeveloperServicesPanel({
     <aside className={`superthreadPanel${visible ? '' : ' superthreadPanelHidden'}`} aria-label="Developer services">
       <header className="superthreadHeader integrationHeader">
         <div className="integrationTabs" role="tablist" aria-label="Developer services">
-          {superthreadEnabled && <Tab active={tab === 'superthread'} onClick={() => setTab('superthread')}>SUPERTHREAD</Tab>}
+          {superthreadEnabled && <Tab active={tab === 'superthread'} onClick={() => setTab('superthread')}>ST</Tab>}
           <Tab active={tab === 'diff'} onClick={() => setTab('diff')}>DIFF</Tab>
-          <Tab active={tab === 'pull-requests'} onClick={() => setTab('pull-requests')}>GH PRS</Tab>
-          <Tab active={tab === 'actions'} onClick={() => setTab('actions')}>GH ACTIONS</Tab>
+          <Tab active={tab === 'pull-requests'} onClick={() => setTab('pull-requests')}>PRs</Tab>
+          <Tab active={tab === 'actions'} onClick={() => setTab('actions')}>ACTIONS</Tab>
         </div>
         <button
           type="button"
