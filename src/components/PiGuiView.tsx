@@ -76,7 +76,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    const resize = () => resizeComposerInput(input);
+    const resize = () => resizeComposerInput(input, shouldStickToBottomRef.current);
     resize();
     let resizeFrame = 0;
     const observer = new ResizeObserver(() => {
@@ -96,7 +96,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, []);
 
   useEffect(() => {
-    if (inputRef.current) resizeComposerInput(inputRef.current);
+    if (inputRef.current) resizeComposerInput(inputRef.current, shouldStickToBottomRef.current);
   }, [composerFontSize, prompt]);
 
   useEffect(() => {
@@ -664,7 +664,7 @@ function formatToolDetails(args: unknown, output: string) {
   return [input, output].filter(Boolean).join('\n\n');
 }
 
-function resizeComposerInput(input: HTMLTextAreaElement) {
+function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) {
   const pane = input.closest<HTMLElement>('.piGuiPane');
   const conversation = pane?.querySelector<HTMLElement>(':scope > .piGuiConversation');
   const currentHeight = Math.max(23, input.offsetHeight);
@@ -680,6 +680,7 @@ function resizeComposerInput(input: HTMLTextAreaElement) {
   input.style.maxHeight = `${maxHeight}px`;
   input.style.height = `${height}px`;
   input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  if (stickToBottom && conversation) conversation.scrollTop = conversation.scrollHeight;
 }
 
 function truncateDisplay(value: string, limit = 50_000) {

@@ -52,8 +52,9 @@ export function GithubPullRequestsTab({
             if (!repository || !window.confirm(`Merge PR #${pullRequest.number}: ${pullRequest.title}?`)) return;
             await onMerge(repository, pullRequest.number);
           }}
+          aria-label={mergingNumber === pullRequest.number ? `Merging PR #${pullRequest.number}` : `Merge PR #${pullRequest.number}`}
         >
-          {mergingNumber === pullRequest.number ? 'MERGING…' : 'MERGE'}
+          {mergingNumber === pullRequest.number ? <span className="githubMergeSpinner" aria-hidden="true" /> : 'MERGE'}
         </button>
       </article>
     ))}
