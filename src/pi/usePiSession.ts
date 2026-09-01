@@ -168,6 +168,7 @@ export function usePiSession(paneId: string, cwd: string) {
           setError(typeof event.message === 'string' ? event.message : 'Pi reported an error');
           break;
         case 'pi_process_exit':
+          notifyRunning(paneId, false);
           setIsStreaming(false);
           setQueuedFollowUps([]);
           setStopped(true);
@@ -196,16 +197,19 @@ export function usePiSession(paneId: string, cwd: string) {
             generationRef.current = generation;
             await Promise.all([refreshState(), refreshMessages()]);
             refreshCommands().catch(() => setCommands([]));
+            notifyRunning(paneId, true);
             setStopped(false);
             setStarting(false);
           })
           .catch((startError) => {
+            notifyRunning(paneId, false);
             setStarting(false);
             setStopped(true);
             setError(asError(startError).message);
           });
       }
     }).catch((listenError) => {
+      notifyRunning(paneId, false);
       setStarting(false);
       setStopped(true);
       setError(asError(listenError).message);
@@ -276,8 +280,10 @@ export function usePiSession(paneId: string, cwd: string) {
       generationRef.current = generation;
       await Promise.all([refreshState(), refreshMessages()]);
       refreshCommands().catch(() => setCommands([]));
+      notifyRunning(paneId, true);
       setStopped(false);
     } catch (restartError) {
+      notifyRunning(paneId, false);
       setStopped(true);
       setError(asError(restartError).message);
       throw restartError;
@@ -287,6 +293,10 @@ export function usePiSession(paneId: string, cwd: string) {
   }, [cwd, paneId, refreshCommands, refreshMessages, refreshState]);
 
   return { messages, context, commands, queuedFollowUps, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, followUp, abort, restart, respondToUiRequest };
+}
+
+function notifyRunning(paneId: string, running: boolean) {
+  window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId: paneId, running } }));
 }
 
 function updateContext(event: PiResponseEvent, setContext: (context: PiSessionContext) => void, setIsStreaming: (streaming: boolean) => void) {
