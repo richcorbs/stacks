@@ -37,9 +37,9 @@ function ConfirmDialog({ title, children, confirmLabel = 'Yes', onCancel, onConf
 
 export function ConfirmCloseTerminalDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
-    <ConfirmDialog title="Close terminal?" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will terminate the process running in this terminal.</p>
-      <p className="confirmHint">Use ⌘W to close this terminal. Use ⌘Q to quit the app.</p>
+    <ConfirmDialog title="Close pane?" onCancel={onCancel} onConfirm={onConfirm}>
+      <p>This will terminate the process running in this pane.</p>
+      <p className="confirmHint">Use ⌘W to close this pane. Use ⌘Q to quit the app.</p>
     </ConfirmDialog>
   );
 }
@@ -47,7 +47,7 @@ export function ConfirmCloseTerminalDialog({ onCancel, onConfirm }: { onCancel: 
 export function ConfirmQuitDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
     <ConfirmDialog title="Quit Stacks?" confirmLabel="Quit" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will close all terminals and terminate their running processes.</p>
+      <p>This will close all terminal and Pi GUI panes and terminate their running processes.</p>
     </ConfirmDialog>
   );
 }

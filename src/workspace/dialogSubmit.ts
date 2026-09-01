@@ -8,7 +8,7 @@ type SubmitWorkspaceDialogOptions = {
   store: Store;
   setStore: React.Dispatch<React.SetStateAction<Store>>;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
-  completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null) => Promise<void>;
+  completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null, initialInput?: string, paneKind?: 'terminal' | 'pi') => Promise<void>;
   addProject: (name: string, path: string) => Promise<Project>;
   setTerminalsByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TerminalEntry[]>>>;
   splitRootsByWorkspaceId: Record<string, SplitNode>;
@@ -40,7 +40,7 @@ export async function submitWorkspaceDialog({
     if (dialog.openTerminalAfterCreate) {
       setDialog(null);
       window.setTimeout(() => {
-        setDialog({ kind: 'workspace', projectId: project.id, name: 'Workspace 1', command: '', rows: 1, columns: 1 });
+        setDialog({ kind: 'workspace', projectId: project.id, name: 'Workspace 1', command: '', setupCommand: '', rows: 1, columns: 1, firstPaneKind: 'terminal' });
       }, 200);
     } else {
       setDialog(null);
@@ -49,7 +49,7 @@ export async function submitWorkspaceDialog({
   }
 
   if (dialog.kind === 'split') {
-    await completeSplitTerminal(dialog.workspaceId, dialog.targetTerminalId, dialog.direction, dialog.command.trim() || null);
+    await completeSplitTerminal(dialog.workspaceId, dialog.targetTerminalId, dialog.direction, dialog.paneKind === 'terminal' ? dialog.command.trim() || null : null, undefined, dialog.paneKind);
     setDialog(null);
     return;
   }
@@ -105,9 +105,11 @@ export async function submitWorkspaceDialog({
   await createWorkspace({
     projectId: dialog.projectId,
     name: dialog.name,
-    command: dialog.command,
+    command: dialog.firstPaneKind === 'terminal' ? dialog.command : '',
+    setupCommand: dialog.setupCommand,
     rows: dialog.rows,
     columns: dialog.columns,
+    firstPaneKind: dialog.firstPaneKind,
   });
   setDialog(null);
 }

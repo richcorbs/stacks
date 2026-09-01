@@ -135,6 +135,9 @@ export function useAppRootModel() {
     activeProjectId,
     activeWorkspaceId,
     activeTerminalId,
+    activePaneKind: activeWorkspaceId
+      ? (terminalsByWorkspaceId[activeWorkspaceId] ?? []).find((pane) => pane.id === activeTerminalId)?.kind ?? 'terminal'
+      : 'terminal',
     maximizedWorkspaceIds,
     sidebarFocusedWorkspaceId,
     setConfirmQuitOpen,
@@ -286,10 +289,11 @@ export function useAppRootModel() {
   }, [activeWorkspaceId, restoreActiveTerminalFocus, showToast]);
 
   const handleTerminalInput = useCallback((terminalId: string, data: string) => {
-    const workspaceId = terminalId.split(':')[0];
-    const sourceTerminal = (terminalsByWorkspaceId[workspaceId] ?? []).find((terminal) => terminal.id === terminalId);
+    const sourceTerminal = Object.values(terminalsByWorkspaceId).flat().find((terminal) => terminal.id === terminalId);
+    const workspaceId = sourceTerminal?.workspaceId;
+    if (!workspaceId) return;
     const targetIds = broadcastWorkspaceIds[workspaceId] && !sourceTerminal?.temporary
-      ? (terminalsByWorkspaceId[workspaceId] ?? []).filter((terminal) => !terminal.temporary).map((terminal) => terminal.id)
+      ? (terminalsByWorkspaceId[workspaceId] ?? []).filter((terminal) => !terminal.temporary && terminal.kind !== 'pi').map((terminal) => terminal.id)
       : [terminalId];
     for (const targetId of targetIds) {
       invoke('write_pty', { terminalId: targetId, data: Array.from(encoder.encode(data)) }).catch(console.error);

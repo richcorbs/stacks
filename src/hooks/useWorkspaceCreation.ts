@@ -50,16 +50,32 @@ export function useWorkspaceCreation(options: WorkspaceCreationOptions): Workspa
     const terminalIds = creation.terminals.map((terminal) => terminal.id);
     terminalIds.forEach(clearOneTimeStartupCommand);
     disposeTerminalSessions(terminalIds);
-    terminalIds.forEach((terminalId) => invoke('kill_pty', { terminalId }).catch(() => {}));
+    creation.terminals.forEach((pane) => {
+      if (pane.kind === 'pi') invoke('delete_pi_session', { paneId: pane.id }).catch(() => {});
+      else invoke('kill_pty', { terminalId: pane.id }).catch(() => {});
+    });
     optionsRef.current.removeTerminalState(creation.workspace.id);
   }, []);
 
   const createWorkspace = useCallback<CreateWorkspace>((input: CreateWorkspaceInput) => enqueue(async () => {
+    const setupCommand = input.setupCommand?.trim();
+    let preparedInput = input;
+    if (setupCommand) {
+      const project = storeRef.current.projects.find((candidate) => candidate.id === input.projectId);
+      if (!project) throw new Error('The selected project no longer exists');
+      const setup = await invoke<{ cwd: string; output: string }>('run_workspace_setup', {
+        command: setupCommand,
+        cwd: project.path,
+      });
+      preparedInput = { ...input, cwd: setup.cwd };
+    }
+    // Setup may run for several minutes. Always plan against the latest store so
+    // changes made while it ran are preserved.
+    const baseStore = storeRef.current;
     const workspaceId = await invoke<string>('new_id');
-    const previousStore = storeRef.current;
-    const creation = planWorkspaceCreation(previousStore, input, workspaceId);
+    const creation = planWorkspaceCreation(baseStore, preparedInput, workspaceId);
     storeRef.current = creation.store;
-    const oneTimeStartupCommand = input.oneTimeStartupCommand?.trim();
+    const oneTimeStartupCommand = preparedInput.oneTimeStartupCommand?.trim();
     if (oneTimeStartupCommand) {
       registerOneTimeStartupCommand(creation.focusedTerminalId, oneTimeStartupCommand);
     }
@@ -84,8 +100,16 @@ export function useWorkspaceCreation(options: WorkspaceCreationOptions): Workspa
       await current.saveStoreNow(creation.store);
       return creation;
     } catch (error) {
-      storeRef.current = previousStore;
-      current.setStore(previousStore);
+      // Roll back only this workspace; restoring a whole snapshot could discard
+      // unrelated changes that landed while persistence was in flight.
+      const latestStore = storeRef.current;
+      const rollbackStore: Store = {
+        projects: latestStore.projects.map((project) => project.id === creation.projectId
+          ? { ...project, workspaces: project.workspaces.filter((item) => item.id !== creation.workspace.id) }
+          : project),
+      };
+      storeRef.current = rollbackStore;
+      current.setStore(rollbackStore);
       removeRuntimeWorkspace(creation);
       throw error;
     }

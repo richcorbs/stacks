@@ -1,8 +1,9 @@
-export function TerminalControls({ maximized, canToggleMaximize, broadcast, canBroadcast, onSplitTerminal, onEditTerminal, onToggleBroadcast, onToggleMaximize, onClose }: {
+export function TerminalControls({ maximized, canToggleMaximize, broadcast, canBroadcast, canEdit = true, onSplitTerminal, onEditTerminal, onToggleBroadcast, onToggleMaximize, onClose }: {
   maximized: boolean;
   canToggleMaximize: boolean;
   broadcast: boolean;
   canBroadcast: boolean;
+  canEdit?: boolean;
   onSplitTerminal: (direction: 'row' | 'column') => void;
   onEditTerminal: () => void;
   onToggleBroadcast: () => void;
@@ -14,8 +15,8 @@ export function TerminalControls({ maximized, canToggleMaximize, broadcast, canB
       <button
         className="terminalControlButton"
         type="button"
-        title="Split terminal right (⌘D)"
-        aria-label="Split terminal right"
+        title="Split pane right (⌘D)"
+        aria-label="Split pane right"
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -31,8 +32,8 @@ export function TerminalControls({ maximized, canToggleMaximize, broadcast, canB
       <button
         className="terminalControlButton"
         type="button"
-        title="Split terminal down (⇧⌘D)"
-        aria-label="Split terminal down"
+        title="Split pane down (⇧⌘D)"
+        aria-label="Split pane down"
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -45,7 +46,7 @@ export function TerminalControls({ maximized, canToggleMaximize, broadcast, canB
       >
         <span className="splitIcon splitIconHorizontal" />
       </button>
-      <button
+      {canEdit && <button
         className="terminalControlButton"
         type="button"
         title="Edit terminal startup command"
@@ -61,7 +62,7 @@ export function TerminalControls({ maximized, canToggleMaximize, broadcast, canB
         }}
       >
         <span className="terminalEditIcon">✎</span>
-      </button>
+      </button>}
       {canBroadcast && (
         <button
           className={`terminalControlButton terminalBroadcastButton ${broadcast ? 'active' : ''}`}
@@ -110,8 +111,8 @@ export function TerminalControls({ maximized, canToggleMaximize, broadcast, canB
           <button
             className="terminalControlButton terminalCloseButton"
             type="button"
-            title="Close terminal (⌘W)"
-            aria-label="Close terminal"
+            title="Close pane (⌘W)"
+            aria-label="Close pane"
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();

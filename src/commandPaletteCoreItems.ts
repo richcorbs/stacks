@@ -1,4 +1,4 @@
-import type { Project, WorkspaceEntry } from './types';
+import type { PaneKind, Project, WorkspaceEntry } from './types';
 import type { PaletteItem } from './components/CommandPalette';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
@@ -34,6 +34,7 @@ export function commandPaletteCoreItems({
   onSelectWorkspace,
   broadcastEnabled,
   activeWorkspaceTerminalCount,
+  activePaneKind,
   onToggleBroadcast,
 }: {
   activeProject: Project | null;
@@ -66,9 +67,10 @@ export function commandPaletteCoreItems({
   onSelectWorkspace: (projectId: string, workspaceId: string) => void;
   broadcastEnabled: boolean;
   activeWorkspaceTerminalCount: number;
+  activePaneKind: PaneKind;
   onToggleBroadcast: () => void;
 }): PaletteItem[] {
-  const items: PaletteItem[] = [
+  let items: PaletteItem[] = [
     { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
     { id: 'new-workspace', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewWorkspace(activeProject) : onNewProject() },
     { id: 'edit-project', title: 'Edit Project', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'rename path directory workspace', action: () => { if (activeProject) onEditProject(activeProject); } },
@@ -91,7 +93,11 @@ export function commandPaletteCoreItems({
     { id: 'clear-terminal', title: 'Clear Terminal', subtitle: '⌘K', keywords: 'clear terminal', action: onClearTerminal },
   ];
 
-  if (activeWorkspaceId && activeTerminalId && activeWorkspaceTerminalCount > 1) {
+  if (activePaneKind === 'pi') {
+    items = items.filter((item) => !['find-terminal', 'clear-terminal'].includes(item.id));
+  }
+
+  if (activePaneKind !== 'pi' && activeWorkspaceId && activeTerminalId && activeWorkspaceTerminalCount > 1) {
     items.push({
       id: 'broadcast-workspace',
       title: 'Toggle Broadcast Mode Within the Workspace',
@@ -102,11 +108,13 @@ export function commandPaletteCoreItems({
   }
 
   if (activeTerminalId) {
+    if (activePaneKind !== 'pi') {
+      items.push({ id: 'edit-terminal', title: 'Edit Current Terminal', subtitle: 'Set the startup command for the active terminal', keywords: 'edit terminal startup command shell process', action: () => { if (activeWorkspaceId) onEditTerminal(activeWorkspaceId, activeTerminalId); } });
+    }
     items.push(
-      { id: 'edit-terminal', title: 'Edit Current Terminal', subtitle: 'Set the startup command for the active terminal', keywords: 'edit terminal startup command shell process', action: () => { if (activeWorkspaceId) onEditTerminal(activeWorkspaceId, activeTerminalId); } },
-      { id: 'restart-terminal', title: 'Restart Current Terminal', subtitle: 'Rerun the shell/process in the active terminal', keywords: 'restart rerun shell process terminal', action: () => onRestartTerminal(activeTerminalId) },
-      { id: 'stop-terminal', title: 'Stop Current Terminal', subtitle: 'Terminate the active terminal process', keywords: 'kill terminate process terminal', danger: true, action: () => onStopTerminal(activeTerminalId) },
-      { id: 'close-terminal', title: 'Close Current Terminal', subtitle: 'Close the active terminal', keywords: 'remove kill terminal', danger: true, action: () => onCloseTerminal(activeTerminalId) },
+      { id: 'restart-terminal', title: `Restart Current ${activePaneKind === 'pi' ? 'Pi GUI' : 'Terminal'}`, subtitle: 'Restart the active pane process', keywords: 'restart rerun process terminal pi pane', action: () => onRestartTerminal(activeTerminalId) },
+      { id: 'stop-terminal', title: `Stop Current ${activePaneKind === 'pi' ? 'Pi GUI' : 'Terminal'}`, subtitle: 'Terminate the active pane process', keywords: 'kill terminate process terminal pi pane', danger: true, action: () => onStopTerminal(activeTerminalId) },
+      { id: 'close-terminal', title: 'Close Current Pane', subtitle: 'Close the active terminal or Pi GUI', keywords: 'remove kill terminal pi pane', danger: true, action: () => onCloseTerminal(activeTerminalId) },
     );
   }
 

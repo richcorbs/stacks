@@ -1,6 +1,9 @@
+import { lazy, Suspense } from 'react';
 import type { TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import { TerminalView } from './TerminalView';
 import { SplitResizeHandle } from './SplitResizeHandle';
+
+const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 
 export function SplitView({ node, terminalsById, workspace, project, visible, broadcast, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, activeTerminalId, displayedMaximizedTerminalId, searchTerminalRequest, restartTerminalRequest, path, onResizeSplit, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleBroadcast, onInput, canToggleMaximize, onToggleMaximize }: {
   node: SplitNode;
@@ -34,6 +37,27 @@ export function SplitView({ node, terminalsById, workspace, project, visible, br
     const terminal = terminalsById[node.terminalId];
     if (!terminal) return null;
     const isDisplayed = visible && (!effectiveDisplayedMaximizedTerminalId || effectiveDisplayedMaximizedTerminalId === terminal.id);
+    const paneKind = node.paneKind ?? terminal.kind ?? 'terminal';
+    if (paneKind === 'pi') {
+      return (
+        <Suspense fallback={<div className="terminal piGuiPane"><div className="piGuiEmpty">Loading Pi GUI…</div></div>}>
+        <PiGuiView
+          terminal={terminal}
+          workspace={workspace}
+          project={project}
+          active={isDisplayed && activeTerminalId === terminal.id}
+          maximized={effectiveDisplayedMaximizedTerminalId === terminal.id}
+          visible={isDisplayed}
+          canToggleMaximize={canToggleMaximize}
+          restartRequestNonce={restartTerminalRequest?.terminalId === terminal.id ? restartTerminalRequest.nonce : 0}
+          onFocus={() => onFocus(terminal.id)}
+          onClose={() => onClose(terminal.id)}
+          onSplitTerminal={(direction) => onSplitTerminal(direction, terminal.id)}
+          onToggleMaximize={() => onToggleMaximize(terminal.id)}
+        />
+        </Suspense>
+      );
+    }
     return (
       <TerminalView
         terminal={terminal}
@@ -43,7 +67,7 @@ export function SplitView({ node, terminalsById, workspace, project, visible, br
         maximized={effectiveDisplayedMaximizedTerminalId === terminal.id}
         visible={isDisplayed}
         broadcast={broadcast}
-        canBroadcast={Object.keys(terminalsById).length > 1}
+        canBroadcast={Object.values(terminalsById).filter((pane) => pane.kind !== 'pi').length > 1}
         terminalFontSize={terminalFontSize}
         terminalFontFamily={terminalFontFamily}
         terminalScrollback={terminalScrollback}

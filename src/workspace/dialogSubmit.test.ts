@@ -37,7 +37,7 @@ describe('submitWorkspaceDialog', () => {
 
     await submitWorkspaceDialog({
       ...options,
-      dialog: { kind: 'workspace', projectId: 'p1', name: ' Dev ', command: ' npm test ', rows: 2, columns: 3 },
+      dialog: { kind: 'workspace', projectId: 'p1', name: ' Dev ', command: ' npm test ', setupCommand: ' stwork_setup 123 ', rows: 2, columns: 3, firstPaneKind: 'terminal' },
     });
 
     expect(options.createWorkspace).toHaveBeenCalledWith({
@@ -46,8 +46,25 @@ describe('submitWorkspaceDialog', () => {
       command: ' npm test ',
       rows: 2,
       columns: 3,
+      firstPaneKind: 'terminal',
+      setupCommand: ' stwork_setup 123 ',
     });
     expect(state.dialog).toBeNull();
+  });
+
+  it('creates a Pi GUI workspace without a terminal startup command', async () => {
+    const state = stateHarness({ projects: [{ id: 'p1', name: 'Stacks', path: '/repo', workspaces: [] }] });
+    const options = baseOptions(state);
+
+    await submitWorkspaceDialog({
+      ...options,
+      dialog: { kind: 'workspace', projectId: 'p1', name: 'Agent', command: 'npm test', setupCommand: '', rows: 1, columns: 1, firstPaneKind: 'pi' },
+    });
+
+    expect(options.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+      firstPaneKind: 'pi',
+      command: '',
+    }));
   });
 
   it('edits a project and trims values', async () => {
@@ -70,10 +87,10 @@ describe('submitWorkspaceDialog', () => {
     await submitWorkspaceDialog({
       ...options,
       completeSplitTerminal,
-      dialog: { kind: 'split', workspaceId: 't1', targetTerminalId: 't1:0', direction: 'column', command: ' npm run dev ' },
+      dialog: { kind: 'split', workspaceId: 't1', targetTerminalId: 't1:0', direction: 'column', command: ' npm run dev ', paneKind: 'terminal' },
     });
 
-    expect(completeSplitTerminal).toHaveBeenCalledWith('t1', 't1:0', 'column', 'npm run dev');
+    expect(completeSplitTerminal).toHaveBeenCalledWith('t1', 't1:0', 'column', 'npm run dev', undefined, 'terminal');
     expect(state.dialog).toBeNull();
   });
 });

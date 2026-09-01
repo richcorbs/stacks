@@ -1,0 +1,301 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import type { PiMessage, PiPromptImage, PiResponseEvent, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
+import { subscribePiEvents } from './eventBroker';
+import { appendPiMessage, compactPiMessages } from './transcript';
+
+const EMPTY_CONTEXT: PiSessionContext = {
+  modelName: '',
+  modelId: '',
+  provider: '',
+  thinkingLevel: '',
+  sessionId: '',
+  sessionName: '',
+  supportsImages: false,
+};
+
+type PendingRequest = {
+  resolve: (event: PiResponseEvent) => void;
+  reject: (error: Error) => void;
+  timer: number;
+};
+
+export function usePiSession(paneId: string, cwd: string) {
+  const [messages, setMessages] = useState<PiMessage[]>([]);
+  const [context, setContext] = useState<PiSessionContext>(EMPTY_CONTEXT);
+  const [streamingText, setStreamingText] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [tools, setTools] = useState<PiToolActivity[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(true);
+  const [stopped, setStopped] = useState(false);
+  const [uiRequest, setUiRequest] = useState<PiUiRequest | null>(null);
+  const requestSequence = useRef(0);
+  const generationRef = useRef<string | null>(null);
+  const pendingRequests = useRef(new Map<string, PendingRequest>());
+
+  const writeCommand = useCallback((command: Record<string, unknown>) => (
+    invoke<void>('send_pi_rpc', { paneId, command }).catch((sendError) => {
+      const nextError = asError(sendError);
+      setError(nextError.message);
+      throw nextError;
+    })
+  ), [paneId]);
+
+  const sendRequest = useCallback((command: Record<string, unknown>, timeoutMs = 15_000) => {
+    requestSequence.current += 1;
+    const id = `stacks-${paneId}-${requestSequence.current}`;
+    return new Promise<PiResponseEvent>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        pendingRequests.current.delete(id);
+        const timeoutError = new Error(`Pi ${String(command.type || 'request')} timed out`);
+        setError(timeoutError.message);
+        reject(timeoutError);
+      }, timeoutMs);
+      pendingRequests.current.set(id, { resolve, reject, timer });
+      writeCommand({ ...command, id }).catch((sendError) => {
+        window.clearTimeout(timer);
+        pendingRequests.current.delete(id);
+        reject(asError(sendError));
+      });
+    });
+  }, [paneId, writeCommand]);
+
+  const refreshMessages = useCallback(() => sendRequest({ type: 'get_messages' }, 60_000), [sendRequest]);
+  const refreshState = useCallback(() => sendRequest({ type: 'get_state' }), [sendRequest]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    subscribePiEvents(paneId, (payload) => {
+      if (disposed) return;
+      if (generationRef.current && generationRef.current !== payload.generation) return;
+      if (!generationRef.current) generationRef.current = payload.generation;
+      const event = payload.event;
+
+      if (event.type === 'response' && event.id) {
+        const response = event as PiResponseEvent;
+        const pending = pendingRequests.current.get(event.id);
+        if (pending) {
+          window.clearTimeout(pending.timer);
+          pendingRequests.current.delete(event.id);
+          if (response.success) pending.resolve(response);
+          else pending.reject(new Error(response.error || `${response.command || 'Pi command'} failed`));
+        }
+      }
+
+      switch (event.type) {
+        case 'response': {
+          const response = event as PiResponseEvent;
+          if (!response.success) {
+            setError(response.error || `${response.command || 'Pi command'} failed`);
+            break;
+          }
+          if (response.command === 'get_messages' && Array.isArray(response.data?.messages)) {
+            setMessages(compactPiMessages(response.data.messages));
+          }
+          if (response.command === 'get_state') updateContext(response, setContext, setIsStreaming);
+          break;
+        }
+        case 'agent_start':
+          setIsStreaming(true);
+          setStreamingText('');
+          setTools([]);
+          setError(null);
+          break;
+        case 'message_update':
+          if (event.assistantMessageEvent?.type === 'text_delta') {
+            setStreamingText((current) => current + (event.assistantMessageEvent?.delta || ''));
+          }
+          break;
+        case 'message_end':
+          if (event.message && typeof event.message === 'object') {
+            const message = event.message as PiMessage;
+            setMessages((current) => appendPiMessage(current, message));
+            if (message.role === 'assistant') setStreamingText('');
+          }
+          break;
+        case 'tool_execution_start':
+          setTools((current) => [...current.filter((tool) => tool.id !== event.toolCallId), {
+            id: event.toolCallId || `tool-${Date.now()}`,
+            name: event.toolName || 'tool',
+            args: event.args,
+            partialText: '',
+            status: 'running',
+          }]);
+          break;
+        case 'tool_execution_update':
+          setTools((current) => current.map((tool) => tool.id === event.toolCallId ? {
+            ...tool,
+            partialText: toolResultText(event.partialResult),
+          } : tool));
+          break;
+        case 'tool_execution_end':
+          setTools((current) => current.map((tool) => tool.id === event.toolCallId ? {
+            ...tool,
+            partialText: toolResultText(event.result),
+            status: event.isError ? 'error' : 'complete',
+          } : tool));
+          break;
+        case 'agent_settled':
+          setIsStreaming(false);
+          setStreamingText('');
+          setTools([]);
+          refreshState().catch(() => {});
+          break;
+        case 'auto_compaction_end':
+        case 'session_switch':
+        case 'session_fork':
+          refreshMessages().catch(() => {});
+          refreshState().catch(() => {});
+          break;
+        case 'pi_stderr':
+          // Pi uses stderr for diagnostics and benign startup warnings. Preserve
+          // visibility for developers without presenting every line as failure.
+          console.warn('[pi]', event.message);
+          break;
+        case 'pi_protocol_error':
+          setError(typeof event.message === 'string' ? event.message : 'Pi reported an error');
+          break;
+        case 'pi_process_exit':
+          setIsStreaming(false);
+          setStopped(true);
+          setError('Pi session stopped');
+          for (const pending of pendingRequests.current.values()) {
+            window.clearTimeout(pending.timer);
+            pending.reject(new Error('Pi session stopped'));
+          }
+          pendingRequests.current.clear();
+          break;
+        case 'extension_ui_request': {
+          const request = extensionUiRequest(event);
+          if (request) setUiRequest(request);
+          break;
+        }
+      }
+    }).then((stopListening) => {
+      if (disposed) stopListening();
+      else {
+        unlisten = stopListening;
+        generationRef.current = 'starting';
+        invoke<string>('start_pi_session', { paneId, cwd })
+          .then(async (generation) => {
+            generationRef.current = generation;
+            await Promise.all([refreshState(), refreshMessages()]);
+            setStopped(false);
+            setStarting(false);
+          })
+          .catch((startError) => {
+            setStarting(false);
+            setStopped(true);
+            setError(asError(startError).message);
+          });
+      }
+    }).catch((listenError) => {
+      setStarting(false);
+      setStopped(true);
+      setError(asError(listenError).message);
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+      for (const pending of pendingRequests.current.values()) {
+        window.clearTimeout(pending.timer);
+        pending.reject(new Error('Pi pane disconnected'));
+      }
+      pendingRequests.current.clear();
+    };
+  }, [cwd, paneId, refreshMessages, refreshState, writeCommand]);
+
+  useEffect(() => {
+    if (!uiRequest?.timeout) return;
+    const timer = window.setTimeout(() => setUiRequest((current) => current?.id === uiRequest.id ? null : current), uiRequest.timeout);
+    return () => window.clearTimeout(timer);
+  }, [uiRequest]);
+
+  const prompt = useCallback(async (message: string, images: PiPromptImage[] = []) => {
+    const text = message.trim() || (images.length ? 'Please review the attached image.' : '');
+    if (!text) return;
+    if (images.length && !context.supportsImages) throw new Error('The selected model does not support image input');
+    const optimisticContent = images.length
+      ? [{ type: 'text' as const, text }, ...images.map((image) => ({ type: 'image', mimeType: image.mimeType, name: image.name, data: '', omitted: true }))]
+      : text;
+    setMessages((current) => appendPiMessage(current, { role: 'user', content: optimisticContent, timestamp: Date.now(), local: true }));
+    try {
+      await sendRequest({ type: 'prompt', message: text, ...(images.length ? { images } : {}) });
+    } catch (promptError) {
+      setMessages((current) => current.filter((item) => !item.local));
+      throw promptError;
+    }
+  }, [context.supportsImages, sendRequest]);
+
+  const abort = useCallback(() => sendRequest({ type: 'abort' }), [sendRequest]);
+  const respondToUiRequest = useCallback(async (response: Record<string, unknown>) => {
+    const request = uiRequest;
+    if (!request) return;
+    setUiRequest(null);
+    await writeCommand({ type: 'extension_ui_response', id: request.id, ...response });
+  }, [uiRequest, writeCommand]);
+  const restart = useCallback(async () => {
+    setStarting(true);
+    setStopped(false);
+    setError(null);
+    // Reject every event from the old generation before asking Rust to stop it.
+    generationRef.current = 'restarting';
+    try {
+      await invoke('stop_pi_session', { paneId });
+      const generation = await invoke<string>('start_pi_session', { paneId, cwd });
+      generationRef.current = generation;
+      await Promise.all([refreshState(), refreshMessages()]);
+      setStopped(false);
+    } catch (restartError) {
+      setStopped(true);
+      setError(asError(restartError).message);
+      throw restartError;
+    } finally {
+      setStarting(false);
+    }
+  }, [cwd, paneId, refreshMessages, refreshState]);
+
+  return { messages, context, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, abort, restart, respondToUiRequest };
+}
+
+function updateContext(event: PiResponseEvent, setContext: (context: PiSessionContext) => void, setIsStreaming: (streaming: boolean) => void) {
+  const model = event.data?.model;
+  setContext({
+    modelName: model?.name || model?.id || '',
+    modelId: model?.id || '',
+    provider: model?.provider || '',
+    thinkingLevel: event.data?.thinkingLevel || '',
+    sessionId: event.data?.sessionId || '',
+    sessionName: event.data?.sessionName || '',
+    supportsImages: Array.isArray(model?.input) && model.input.includes('image'),
+  });
+  setIsStreaming(Boolean(event.data?.isStreaming));
+}
+
+function toolResultText(result: unknown) {
+  const content = typeof result === 'object' && result ? (result as { content?: unknown }).content : null;
+  if (!Array.isArray(content)) return '';
+  return content.filter((item): item is { type: string; text?: string } => typeof item === 'object' && item !== null && 'type' in item)
+    .filter((item) => item.type === 'text').map((item) => item.text || '').join('\n');
+}
+
+function extensionUiRequest(event: Record<string, unknown>): PiUiRequest | null {
+  if (typeof event.id !== 'string' || !['confirm', 'input', 'editor', 'select'].includes(String(event.method))) return null;
+  return {
+    id: event.id,
+    method: event.method as PiUiRequest['method'],
+    title: typeof event.title === 'string' ? event.title : 'Pi request',
+    message: typeof event.message === 'string' ? event.message : '',
+    prefill: typeof event.prefill === 'string' ? event.prefill : '',
+    options: Array.isArray(event.options) ? event.options.filter((option): option is string => typeof option === 'string') : [],
+    timeout: typeof event.timeout === 'number' ? event.timeout : undefined,
+  };
+}
+
+function asError(error: unknown) {
+  return error instanceof Error ? error : new Error(String(error));
+}

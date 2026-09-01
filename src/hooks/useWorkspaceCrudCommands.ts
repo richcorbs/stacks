@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type React from 'react';
 import type { DialogState, TerminalEntry, Project, Store, WorkspaceEntry } from '../types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
+import { collectLeafTerminals } from '../utils';
 
 type WorkspaceCrudCommandOptions = {
   store: Store;
@@ -43,10 +44,23 @@ export function useWorkspaceCrudCommands({
     });
   }
 
-  function deleteWorkspace(projectId: string, workspaceId: string) {
-    const terminalIds = (terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id);
-    disposeTerminalSessions(terminalIds);
-    terminalIds.forEach((terminalId) => invoke('kill_pty', { terminalId }).catch(() => {}));
+  function panesForWorkspace(workspace: WorkspaceEntry): TerminalEntry[] {
+    const runtimePanes = terminalsByWorkspaceId[workspace.id];
+    if (runtimePanes?.length) return runtimePanes;
+    return collectLeafTerminals(workspace.splits).map((pane) => ({ id: pane.id, workspaceId: workspace.id, kind: pane.kind, command: pane.command }));
+  }
+
+  async function deleteWorkspace(projectId: string, workspaceId: string) {
+    const workspace = store.projects.find((project) => project.id === projectId)?.workspaces.find((item) => item.id === workspaceId);
+    const panes = workspace ? panesForWorkspace(workspace) : terminalsByWorkspaceId[workspaceId] ?? [];
+    disposeTerminalSessions(panes.filter((pane) => pane.kind !== 'pi').map((pane) => pane.id));
+    try {
+      await Promise.all(panes.filter((pane) => pane.kind === 'pi').map((pane) => invoke('delete_pi_session', { paneId: pane.id })));
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete Pi session: ${String(error)}` } }));
+      return;
+    }
+    panes.filter((pane) => pane.kind !== 'pi').forEach((pane) => invoke('kill_pty', { terminalId: pane.id }).catch(() => {}));
     setStore((s) => ({ projects: s.projects.map((p) => p.id === projectId ? { ...p, workspaces: p.workspaces.filter((workspace) => workspace.id !== workspaceId) } : p) }));
     removeTerminalState(workspaceId);
     setRunningTerminalIds((ids) => ids.filter((id) => !id.startsWith(`${workspaceId}:`)));
@@ -82,13 +96,19 @@ export function useWorkspaceCrudCommands({
     }));
   }
 
-  function deleteProject(projectId: string) {
+  async function deleteProject(projectId: string) {
     const project = store.projects.find((p) => p.id === projectId);
     if (!project) return;
     const workspaceIds = project.workspaces.map((workspace) => workspace.id);
-    const terminalIds = workspaceIds.flatMap((workspaceId) => (terminalsByWorkspaceId[workspaceId] ?? []).map((terminal) => terminal.id));
-    disposeTerminalSessions(terminalIds);
-    terminalIds.forEach((terminalId) => invoke('kill_pty', { terminalId }).catch(() => {}));
+    const panes = project.workspaces.flatMap(panesForWorkspace);
+    disposeTerminalSessions(panes.filter((pane) => pane.kind !== 'pi').map((pane) => pane.id));
+    try {
+      await Promise.all(panes.filter((pane) => pane.kind === 'pi').map((pane) => invoke('delete_pi_session', { paneId: pane.id })));
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete Pi session: ${String(error)}` } }));
+      return;
+    }
+    panes.filter((pane) => pane.kind !== 'pi').forEach((pane) => invoke('kill_pty', { terminalId: pane.id }).catch(() => {}));
     setStore((s) => ({ projects: s.projects.filter((p) => p.id !== projectId) }));
     removeProjectState(projectId, workspaceIds);
     setRunningTerminalIds((ids) => ids.filter((id) => !workspaceIds.some((workspaceId) => id.startsWith(`${workspaceId}:`))));

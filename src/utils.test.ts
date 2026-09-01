@@ -45,6 +45,15 @@ describe('split tree utilities', () => {
     expect(collectLeafTerminals(root)).toEqual([{ id: 'a', command: null }]);
   });
 
+  it('stores Pi GUI type on a split leaf', () => {
+    const root: SplitNode = { kind: 'leaf', terminalId: 'a' };
+    const split = splitLeaf(root, 'a', 'b', 'row', null, 'pi');
+    expect(collectLeafTerminals(split)).toEqual([
+      { id: 'a', command: null },
+      { id: 'b', kind: 'pi', command: null },
+    ]);
+  });
+
   it('stores startup command on a split leaf', () => {
     const root: SplitNode = { kind: 'leaf', terminalId: 'a' };
     expect(splitLeaf(root, 'a', 'b', 'row', 'npm run dev')).toEqual({

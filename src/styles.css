@@ -867,3 +867,119 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 }
 .githubMergeButton:hover:not(:disabled) { background: #20462e; color: #a4d9b3; }
 .githubMergeButton:disabled { opacity: .45; cursor: default; }
+
+.dialogSubmitError { margin-top: 12px; padding: 8px 10px; border: 1px solid #673c41; border-radius: 6px; background: #2b191d; color: #d38b91; font-size: 10px; line-height: 1.45; white-space: pre-wrap; }
+.dialogFieldHint { display: block; margin-top: 5px; color: #607286; font-size: 10px; line-height: 1.4; }
+.dialogPaneKindField { display: flex; flex-direction: column; gap: 7px; color: #8fa0b3; font-size: 12px; }
+.dialogPaneKindPicker { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.dialogPaneKindPicker button { padding: 9px 12px; border: 1px solid #2a394a; border-radius: 7px; background: #121b25; color: #8293a7; cursor: pointer; }
+.dialogPaneKindPicker button:hover { border-color: #3a5067; color: #b5c2d0; }
+.dialogPaneKindPicker button.selected { border-color: #4779a9; background: #182b3d; color: #c9d9e8; box-shadow: inset 0 0 0 1px #315b82; }
+
+.piGuiPane { --pi-pane-accent: var(--focused-terminal-border, #3b82f6); display: flex; flex-direction: column; overflow: hidden; background: #0c1219; color: #b9c5d3; }
+.piGuiPane.maximized { --pi-pane-accent: var(--maximized-terminal-border, #84cc16); }
+.piGuiHeader { flex: 0 0 auto; min-height: 38px; padding: 7px 178px 7px 12px; border-bottom: 1px solid #1d2936; background: #101821; display: flex; align-items: center; }
+.piGuiContext { min-width: 0; display: flex; align-items: center; gap: 14px; overflow: hidden; }
+.piContextItem, .piTrustButton { min-width: 0; max-width: 220px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #8698aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; }
+.piContextItem small, .piTrustButton small { margin-right: 5px; color: #4f6276; font: inherit; }
+.piTrustButton { flex: 0 0 auto; color: #b6945b; cursor: pointer; }
+.piTrustButton:hover { color: #d0ad69; }
+.piGuiPane .terminalControls, .piGuiPane .terminalControls:hover { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.piGuiConversation { flex: 1; min-height: 0; overflow-y: auto; padding: 24px max(18px, 7%) 28px; scroll-behavior: smooth; }
+.piGuiEmpty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #64768a; text-align: center; }
+.piGuiEmptyMark { width: 42px; height: 42px; margin-bottom: 5px; border: 1px solid #2a3d51; border-radius: 12px; background: #142130; color: #82afd3; display: grid; place-items: center; font: 25px Georgia, serif; }
+.piGuiEmpty strong { color: #9dadbd; font-size: 14px; font-weight: 500; }
+.piGuiEmpty small { font-size: 11px; }
+.piHistoryLimit { max-width: 820px; margin: 0 auto 18px; padding: 7px 10px; border: 1px solid #263646; border-radius: 6px; color: #65798d; text-align: center; font-size: 10px; }
+.piMessage { max-width: 820px; margin: 0 auto 24px; }
+.piMessageText { color: #b7c3d1; font-size: 13px; line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; }
+.piMessageUser { display: flex; justify-content: flex-start; }
+.piMessageUser .piMessageText { box-sizing: border-box; width: fit-content; max-width: 88%; padding: 10px 13px; border: 1px solid #2b608b; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 52%, #182533); border-radius: 10px; background: #173754; background: color-mix(in srgb, var(--pi-pane-accent) 20%, #111c27); color: #d3e3f1; color: color-mix(in srgb, var(--pi-pane-accent) 20%, #d7e1eb); box-shadow: inset 0 1px 0 #ffffff08, 0 2px 8px #0003; }
+.piMessageImages { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 7px; }
+.piMessageImages img { max-width: min(320px, 100%); max-height: 220px; border: 1px solid #3c6b91; border-radius: 6px; object-fit: contain; background: #0d1b28; }
+.piOmittedImage { padding: 6px 8px; border: 1px solid #30475b; border-radius: 5px; color: #74889b; font-size: 9px; }
+.piMarkdown { white-space: normal; }
+.piMarkdown > :first-child { margin-top: 0; }
+.piMarkdown > :last-child { margin-bottom: 0; }
+.piMarkdown p { margin: 0 0 12px; }
+.piMarkdown h1, .piMarkdown h2, .piMarkdown h3, .piMarkdown h4 { margin: 22px 0 10px; color: #d1dbe6; font-weight: 600; line-height: 1.25; }
+.piMarkdown h1 { font-size: 20px; }
+.piMarkdown h2 { font-size: 17px; }
+.piMarkdown h3 { font-size: 15px; }
+.piMarkdown h4 { font-size: 13px; }
+.piMarkdown ul, .piMarkdown ol { margin: 8px 0 14px; padding-left: 24px; }
+.piMarkdown li { margin: 4px 0; padding-left: 2px; }
+.piMarkdown strong { color: #d0dae5; font-weight: 650; }
+.piMarkdown a { color: #76a9d4; text-decoration: none; }
+.piMarkdown a:hover { text-decoration: underline; }
+.piMarkdown code { padding: 1px 4px; border: 1px solid #263746; border-radius: 4px; background: #111c27; color: #b5c9db; font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+.piMarkdown pre { max-width: 100%; margin: 12px 0 16px; padding: 12px 14px; overflow: auto; border: 1px solid #263746; border-radius: 7px; background: #0a1118; }
+.piMarkdown pre code { padding: 0; border: 0; background: transparent; color: #aebfd0; white-space: pre; }
+.piMarkdown blockquote { margin: 12px 0; padding: 2px 0 2px 12px; border-left: 3px solid #36536d; color: #8195a8; }
+.piMarkdown hr { margin: 20px 0; border: 0; border-top: 1px solid #253443; }
+.piMarkdown table { width: 100%; margin: 12px 0 16px; border-collapse: collapse; font-size: 12px; }
+.piMarkdown th, .piMarkdown td { padding: 7px 9px; border: 1px solid #293a4a; text-align: left; }
+.piMarkdown th { background: #14202b; color: #c1ccd7; }
+.piThinking { clear: both; margin: 12px 0 0; color: #697d91; font-size: 11px; }
+.piThinking summary { min-height: 24px; display: flex; align-items: center; cursor: pointer; }
+.piThinking > div { margin-top: 5px; padding: 9px 0 9px 12px; border-left: 1px solid #2a3b4d; line-height: 1.5; }
+.piMessage .piToolCard { max-width: none; margin: 10px 0 0; }
+.piThinking + .piToolCard { margin-top: 10px; }
+.piStreamingCursor { display: inline-block; width: 6px; height: 13px; margin-left: 3px; background: #719bc0; vertical-align: -2px; animation: piCursorBlink 1s step-end infinite; }
+@keyframes piCursorBlink { 50% { opacity: 0; } }
+.piToolCard { max-width: 820px; margin: 0 auto 14px; border: 1px solid #202e3c; border-radius: 7px; background: #0e161f; color: #8192a4; font-size: 10px; }
+.piToolCard summary { min-height: 30px; padding: 0 9px; display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; }
+.piToolCard summary::-webkit-details-marker { display: none; }
+.piToolCard summary strong { min-width: 0; overflow: hidden; color: #91a2b4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.piToolStatus { width: 7px; height: 7px; border-radius: 50%; background: #52667a; }
+.piToolCard.running .piToolStatus { border: 1.5px solid #c7a357; border-top-color: transparent; background: transparent; animation: githubCiSpin .8s linear infinite; }
+.piToolCard.complete .piToolStatus { background: #55936a; }
+.piToolCard.error .piToolStatus { background: #aa5555; }
+.piToolCard pre { max-height: 240px; margin: 0; padding: 9px 12px; overflow: auto; border-top: 1px solid #1d2a37; color: #77899c; white-space: pre-wrap; font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.piEditDiff { max-height: 360px; overflow: auto; border-top: 1px solid #1d2a37; background: #0a1118; font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.piDiffLine { min-width: max-content; padding: 0 12px; color: #718397; white-space: pre; }
+.piDiffLine:first-child { padding-top: 8px; }
+.piDiffLine:last-child { padding-bottom: 8px; }
+.piDiffLine.added { background: #163222; color: #8fc49d; }
+.piDiffLine.removed { background: #381d22; color: #da8d94; }
+.piDiffLine.context { color: #718397; }
+.piGuiError { max-width: 820px; margin: 12px auto; padding: 9px 11px; border: 1px solid #633b3e; border-radius: 7px; background: #2b191d; color: #d38b91; font-size: 11px; display: flex; align-items: center; gap: 10px; }
+.piGuiError span { flex: 1; }
+.piGuiError button { border: 1px solid #79484d; border-radius: 5px; background: #3a2227; color: #dda0a5; cursor: pointer; font-size: 10px; padding: 5px 7px; }
+.piComposer { flex: 0 0 auto; margin: 0 max(18px, 7%) 14px; padding: 8px 9px 8px 12px; border: 1px solid #2a3a4a; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 38%, #263544); border-radius: 10px; background: #111b25; display: flex; align-items: flex-end; gap: 8px; box-shadow: 0 6px 22px #0005; }
+.piComposer:focus-within { border-color: #446b8e; border-color: color-mix(in srgb, var(--pi-pane-accent) 76%, #52677b); box-shadow: 0 0 0 1px #294b68, 0 6px 22px #0005; box-shadow: 0 0 0 1px color-mix(in srgb, var(--pi-pane-accent) 45%, transparent), 0 6px 22px #0005; }
+.piComposerContent { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.piComposer textarea { box-sizing: border-box; width: 100%; min-height: 23px; max-height: 150px; padding: 3px 0; resize: none; border: 0; outline: 0; background: transparent; color: #c7d1dc; font: 13px/1.45 inherit; }
+.piImageAttachments { margin-bottom: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
+.piImageAttachment { position: relative; width: 72px; padding: 3px; border: 1px solid #30475b; border-radius: 6px; background: #0b141d; }
+.piImageAttachment img { display: block; width: 100%; height: 48px; object-fit: cover; border-radius: 3px; }
+.piImageAttachment span { display: block; padding: 3px 2px 0; overflow: hidden; color: #74889b; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.piImageAttachment button { position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; padding: 0; border: 1px solid #4c6174; border-radius: 50%; background: #1b2a38; color: #b7c5d2; cursor: pointer; font-size: 11px; line-height: 12px; }
+.piAttachmentError { margin-bottom: 6px; color: #cf7e85; font-size: 9px; }
+.piComposer textarea::placeholder { color: #536579; }
+.piComposerAction { flex: 0 0 28px; width: 28px; height: 28px; border: 1px solid #6388a8; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 70%, #738291); border-radius: 7px; background: #477aa5; background: color-mix(in srgb, var(--pi-pane-accent) 62%, #263746); color: #eef6fc; color: color-mix(in srgb, var(--pi-pane-accent) 12%, #f2f6fa); cursor: pointer; font-size: 16px; font-weight: 650; }
+.piComposerAction:hover:not(:disabled) { background: #568ab5; background: color-mix(in srgb, var(--pi-pane-accent) 76%, #324658); }
+.piComposerAction:disabled { opacity: .35; cursor: default; }
+.piComposerAction.stop { border-color: #85515a; background: #673b42; color: #e8b5ba; font-size: 10px; }
+.piSelectionPopup { position: absolute; z-index: 24; display: flex; gap: 1px; padding: 2px; border: 1px solid #3a4b5d; border-radius: 5px; background: #17212c; box-shadow: 0 4px 14px #0009; transform: translate(-50%, -100%); }
+.piSelectionPopup.below { transform: translate(-50%, 0); }
+.piSelectionPopup button { padding: 3px 6px; border: 0; border-radius: 3px; background: transparent; color: #9cadbe; cursor: pointer; font-size: 9px; line-height: 1.2; white-space: nowrap; }
+.piSelectionPopup button:hover { background: #263646; color: #d1dbe5; }
+.piExtensionOverlay { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: #05090db8; backdrop-filter: blur(2px); }
+.piExtensionDialog { width: min(460px, 100%); max-height: 80%; overflow: auto; padding: 17px; border: 1px solid #35495d; border-radius: 10px; background: #111b25; box-shadow: 0 16px 50px #0009; }
+.piExtensionDialog > strong { display: block; color: #d0dae5; font-size: 13px; }
+.piExtensionDialog p { margin: 9px 0 14px; color: #8496a8; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
+.piExtensionDialog input, .piExtensionDialog textarea { box-sizing: border-box; width: 100%; margin-top: 12px; padding: 8px 9px; border: 1px solid #304357; border-radius: 6px; outline: 0; resize: vertical; background: #0b131c; color: #c3ceda; font: 12px/1.45 inherit; }
+.piExtensionDialog input:focus, .piExtensionDialog textarea:focus { border-color: #527b9e; }
+.piExtensionOptions { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.piExtensionOptions button { padding: 8px 10px; border: 1px solid #304357; border-radius: 6px; background: #15212d; color: #aebdcb; text-align: left; cursor: pointer; }
+.piExtensionOptions button:hover { border-color: #4e708e; background: #1a2a39; }
+.piExtensionActions { margin-top: 14px; display: flex; justify-content: flex-end; gap: 7px; }
+.piExtensionActions button { padding: 6px 10px; border: 1px solid #33475a; border-radius: 6px; background: #17232f; color: #9dadbd; cursor: pointer; }
+.piExtensionActions button.primary { border-color: #49779e; background: #315f85; color: #eef6fc; }
+
+@media (max-width: 900px) {
+  .piGuiHeader { padding-right: 150px; }
+  .piGuiContext { width: 100%; gap: 9px; }
+  .piContextItem { max-width: 130px; }
+}

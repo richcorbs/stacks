@@ -6,10 +6,11 @@ const encoder = new TextEncoder();
 const imageExtensions = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.svg', '.avif',
 ]);
+const piImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']);
 
-function isImagePath(path: string) {
+function hasExtension(path: string, extensions: Set<string>) {
   const lower = path.toLowerCase();
-  return [...imageExtensions].some((extension) => lower.endsWith(extension));
+  return [...extensions].some((extension) => lower.endsWith(extension));
 }
 
 function shellEscapePath(path: string) {
@@ -17,9 +18,9 @@ function shellEscapePath(path: string) {
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
-export function useImageDropToTerminal(activeTerminalId: string | null) {
-  const activeTerminalIdRef = useRef(activeTerminalId);
-  activeTerminalIdRef.current = activeTerminalId;
+export function useImageDropToTerminal(activeTerminalId: string | null, activePaneKind: 'terminal' | 'pi') {
+  const activePaneRef = useRef({ id: activeTerminalId, kind: activePaneKind });
+  activePaneRef.current = { id: activeTerminalId, kind: activePaneKind };
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -32,14 +33,18 @@ export function useImageDropToTerminal(activeTerminalId: string | null) {
 
     getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type !== 'drop') return;
-      const terminalId = activeTerminalIdRef.current;
-      if (!terminalId) return;
+      const pane = activePaneRef.current;
+      if (!pane.id) return;
 
-      const imagePaths = event.payload.paths.filter(isImagePath);
+      const imagePaths = event.payload.paths.filter((path) => hasExtension(path, pane.kind === 'pi' ? piImageExtensions : imageExtensions));
       if (imagePaths.length === 0) return;
+      if (pane.kind === 'pi') {
+        window.dispatchEvent(new CustomEvent('pi-image-drop', { detail: { paneId: pane.id, paths: imagePaths } }));
+        return;
+      }
 
       const text = imagePaths.map(shellEscapePath).join(' ');
-      invoke('write_pty', { terminalId, data: Array.from(encoder.encode(text)) }).catch(console.error);
+      invoke('write_pty', { terminalId: pane.id, data: Array.from(encoder.encode(text)) }).catch(console.error);
     }).then((fn) => { unlisten = fn; }).catch(console.error);
 
     return () => {
