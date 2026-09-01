@@ -44,6 +44,8 @@ While Pi is working, Option+Enter sends the composer through RPC `follow_up`, ma
 
 App-level focus restoration emits `pane-focus-request` when the active pane has no xterm session. Active Pi panes listen for their pane ID and restore composer focus after dialogs, settings, palettes, and context menus close.
 
+The context footer refreshes RPC `get_session_stats` after startup, restart, and each settled run. It renders `contextUsage` as a percentage donut with exact token counts in its tooltip. App-level Cmd+V routing checks both the event target and active element before attempting a PTY write. The Pi composer handles Cmd+V directly through the clipboard plugin so paste remains reliable in the Tauri webview.
+
 ## Skills and slash commands
 
 Pi performs its standard global resource discovery at process startup and adds loaded skills to the model context. Trusted projects additionally load their project-local skills, prompt templates, packages, and extensions. After startup the GUI calls RPC `get_commands` and offers completion for `/skill:name`, prompt-template commands, and extension commands; the selected text is sent through RPC `prompt`, where Pi performs the actual expansion or execution. Pi's built-in TUI-only commands are intentionally absent because RPC does not expose them through `get_commands`.

@@ -28,6 +28,25 @@ function handlers(): ShortcutHandlers {
 }
 
 describe('keyboardShortcutRouter', () => {
+  it('leaves Cmd-V to editable fields', () => {
+    const h = handlers();
+    const event = {
+      key: 'v',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: { closest: vi.fn(() => ({})) },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+  });
+
   it('uses Cmd-G to toggle developer services on the pull requests tab', () => {
     const h = handlers();
     const event = {

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, matchingSlashCommands } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
-import type { PiCommand, PiContentBlock, PiMessage as PiMessageData, PiPromptImage } from '../pi/types';
+import type { PiCommand, PiContentBlock, PiMessage as PiMessageData, PiPromptImage, PiSessionContext } from '../pi/types';
 import { visiblePiMessages } from '../pi/transcript';
 import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentation';
 import { usePiSession } from '../pi/usePiSession';
@@ -205,6 +205,26 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setSelectionPopup(null);
   }
 
+  async function pasteIntoComposer() {
+    const input = inputRef.current;
+    const selectionStart = input?.selectionStart ?? prompt.length;
+    const selectionEnd = input?.selectionEnd ?? selectionStart;
+    const text = await readText();
+    if (!text) return;
+    let cursor = selectionStart + text.length;
+    setPrompt((current) => {
+      const start = Math.min(selectionStart, current.length);
+      const end = Math.min(Math.max(selectionEnd, start), current.length);
+      cursor = start + text.length;
+      return `${current.slice(0, start)}${text}${current.slice(end)}`;
+    });
+    setSelectedCommandIndex(0);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(cursor, cursor);
+    });
+  }
+
   async function copySelection() {
     if (!selectionPopup) return;
     try {
@@ -337,6 +357,12 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               setSelectedCommandIndex(0);
             }}
             onKeyDown={(event) => {
+              if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'v') {
+                event.preventDefault();
+                event.stopPropagation();
+                pasteIntoComposer().catch(console.error);
+                return;
+              }
               if (event.metaKey && !event.ctrlKey && !event.altKey && ['+', '=', '-', '_'].includes(event.key)) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -379,11 +405,16 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         </div>
       </div>
       <div className="piGuiContext piGuiContextBar" aria-label="Pi session context">
-        <ContextItem label="cwd" value={compactPath(cwd)} title={cwd} />
-        <ContextItem label="branch" value={gitInfo?.branch || '—'} />
-        <ContextItem label="model" value={pi.context.modelName || pi.context.modelId || 'starting…'} title={[pi.context.provider, pi.context.modelId].filter(Boolean).join(' / ')} />
-        <ContextItem label="effort" value={pi.context.thinkingLevel || '—'} />
-        <button className="piTrustButton" type="button" title="Change project trust" onClick={() => toggleProjectTrust().catch(() => {})}><small>project</small>{projectTrusted ? 'trusted' : 'not trusted'}</button>
+        <ContextItem value={compactPath(cwd)} title={`Working directory: ${cwd}`} />
+        <ContextSeparator />
+        <ContextItem value={gitInfo?.branch || '—'} title={`Git branch: ${gitInfo?.branch || 'unknown'}`} />
+        <ContextSeparator />
+        <ContextItem value={pi.context.modelName || pi.context.modelId || 'starting…'} title={[pi.context.provider, pi.context.modelId].filter(Boolean).join(' / ')} />
+        <ContextSeparator />
+        <ContextItem value={pi.context.thinkingLevel || '—'} title={`Thinking effort: ${pi.context.thinkingLevel || 'unknown'}`} />
+        <ContextSeparator />
+        <button className="piTrustButton" type="button" title="Change project trust" onClick={() => toggleProjectTrust().catch(() => {})}>{projectTrusted ? 'trusted' : 'not trusted'}</button>
+        {pi.context.contextPercent !== null && <><ContextSeparator /><ContextUsage context={pi.context} /></>}
       </div>
 
       {selectionPopup && (
@@ -424,8 +455,25 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   );
 }
 
-function ContextItem({ label, value, title }: { label: string; value: string; title?: string }) {
-  return <span className="piContextItem" title={title || `${label}: ${value}`}><small>{label}</small>{value}</span>;
+function ContextItem({ value, title }: { value: string; title?: string }) {
+  return <span className="piContextItem" title={title || value}>{value}</span>;
+}
+
+function ContextSeparator() {
+  return <span className="piContextSeparator" aria-hidden="true">•</span>;
+}
+
+function ContextUsage({ context }: { context: PiSessionContext }) {
+  const percent = Math.max(0, Math.min(100, context.contextPercent ?? 0));
+  const tokens = context.contextTokens === null ? 'unknown' : formatTokenCount(context.contextTokens);
+  const windowSize = context.contextWindow === null ? 'unknown' : formatTokenCount(context.contextWindow);
+  return <span className="piContextUsage" title={`Context: ${tokens} / ${windowSize} tokens (${Math.round(percent)}%)`}>
+    <span className="piContextDonut" style={{ background: `conic-gradient(#a9b6c2 ${percent * 3.6}deg, #647484 0deg)` }} />
+  </span>;
+}
+
+function formatTokenCount(tokens: number) {
+  return tokens >= 1000 ? `${(tokens / 1000).toFixed(tokens >= 100_000 ? 0 : 1)}k` : String(tokens);
 }
 
 function PiMessage({ message, toolArgs }: { message: PiMessageData; toolArgs: Map<string, unknown> }) {

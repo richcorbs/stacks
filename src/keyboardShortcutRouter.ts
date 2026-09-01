@@ -46,6 +46,8 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     return;
   }
   if (key === 'v') {
+    const activeElement = typeof document === 'undefined' ? null : document.activeElement;
+    if (isEditableTarget(event.target) || isEditableTarget(activeElement)) return;
     pasteIntoActiveTerminal(event, handlers.activeTerminalId);
     return;
   }
@@ -70,6 +72,11 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   } else if (key === 'o') {
     runHandledShortcut(event, () => runShortcutAction('add-project', handlers));
   }
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  const element = target as Element | null;
+  return Boolean(element && typeof element.closest === 'function' && element.closest('input, textarea, [contenteditable="true"]'));
 }
 
 function runHandledShortcut(event: KeyboardEvent, action: () => void) {

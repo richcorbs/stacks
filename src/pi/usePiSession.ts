@@ -12,6 +12,9 @@ const EMPTY_CONTEXT: PiSessionContext = {
   sessionId: '',
   sessionName: '',
   supportsImages: false,
+  contextTokens: null,
+  contextWindow: null,
+  contextPercent: null,
 };
 
 type PendingRequest = {
@@ -65,6 +68,7 @@ export function usePiSession(paneId: string, cwd: string) {
 
   const refreshMessages = useCallback(() => sendRequest({ type: 'get_messages' }, 60_000), [sendRequest]);
   const refreshState = useCallback(() => sendRequest({ type: 'get_state' }), [sendRequest]);
+  const refreshStats = useCallback(() => sendRequest({ type: 'get_session_stats' }), [sendRequest]);
   const refreshCommands = useCallback(() => sendRequest({ type: 'get_commands' }).then((response) => {
     setCommands(normalizeCommands(response.data?.commands));
   }), [sendRequest]);
@@ -101,6 +105,7 @@ export function usePiSession(paneId: string, cwd: string) {
             setMessages(compactPiMessages(response.data.messages));
           }
           if (response.command === 'get_state') updateContext(response, setContext, setIsStreaming);
+          if (response.command === 'get_session_stats') updateContextUsage(response, setContext);
           if (response.command === 'get_commands') setCommands(normalizeCommands(response.data?.commands));
           break;
         }
@@ -155,6 +160,7 @@ export function usePiSession(paneId: string, cwd: string) {
           setStreamingText('');
           setTools([]);
           refreshState().catch(() => {});
+          refreshStats().catch(() => {});
           break;
         case 'auto_compaction_end':
         case 'session_switch':
@@ -200,6 +206,7 @@ export function usePiSession(paneId: string, cwd: string) {
             generationRef.current = generation;
             await Promise.all([refreshState(), refreshMessages()]);
             refreshCommands().catch(() => setCommands([]));
+            refreshStats().catch(() => {});
             notifyRunning(paneId, true);
             setStopped(false);
             setStarting(false);
@@ -227,7 +234,7 @@ export function usePiSession(paneId: string, cwd: string) {
       }
       pendingRequests.current.clear();
     };
-  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, writeCommand]);
+  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats, writeCommand]);
 
   useEffect(() => {
     if (!uiRequest?.timeout) return;
@@ -283,6 +290,7 @@ export function usePiSession(paneId: string, cwd: string) {
       generationRef.current = generation;
       await Promise.all([refreshState(), refreshMessages()]);
       refreshCommands().catch(() => setCommands([]));
+      refreshStats().catch(() => {});
       notifyRunning(paneId, true);
       setStopped(false);
     } catch (restartError) {
@@ -293,7 +301,7 @@ export function usePiSession(paneId: string, cwd: string) {
     } finally {
       setStarting(false);
     }
-  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState]);
+  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats]);
 
   return { messages, context, commands, queuedFollowUps, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, followUp, abort, restart, respondToUiRequest };
 }
@@ -302,9 +310,12 @@ function notifyRunning(paneId: string, running: boolean) {
   window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId: paneId, running } }));
 }
 
-function updateContext(event: PiResponseEvent, setContext: (context: PiSessionContext) => void, setIsStreaming: (streaming: boolean) => void) {
+type SetPiContext = (value: PiSessionContext | ((current: PiSessionContext) => PiSessionContext)) => void;
+
+function updateContext(event: PiResponseEvent, setContext: SetPiContext, setIsStreaming: (streaming: boolean) => void) {
   const model = event.data?.model;
-  setContext({
+  setContext((current) => ({
+    ...current,
     modelName: model?.name || model?.id || '',
     modelId: model?.id || '',
     provider: model?.provider || '',
@@ -312,8 +323,18 @@ function updateContext(event: PiResponseEvent, setContext: (context: PiSessionCo
     sessionId: event.data?.sessionId || '',
     sessionName: event.data?.sessionName || '',
     supportsImages: Array.isArray(model?.input) && model.input.includes('image'),
-  });
+  }));
   setIsStreaming(Boolean(event.data?.isStreaming));
+}
+
+function updateContextUsage(event: PiResponseEvent, setContext: SetPiContext) {
+  const usage = event.data?.contextUsage;
+  setContext((current) => ({
+    ...current,
+    contextTokens: typeof usage?.tokens === 'number' ? usage.tokens : null,
+    contextWindow: typeof usage?.contextWindow === 'number' ? usage.contextWindow : null,
+    contextPercent: typeof usage?.percent === 'number' ? usage.percent : null,
+  }));
 }
 
 function normalizeCommands(value: unknown): PiCommand[] {

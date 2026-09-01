@@ -28,6 +28,7 @@ export type PiResponseEvent = {
     sessionId?: string;
     sessionName?: string;
     isStreaming?: boolean;
+    contextUsage?: { tokens?: number | null; contextWindow?: number; percent?: number | null };
     commands?: PiCommand[];
     [key: string]: unknown;
   };
@@ -61,6 +62,9 @@ export type PiSessionContext = {
   sessionId: string;
   sessionName: string;
   supportsImages: boolean;
+  contextTokens: number | null;
+  contextWindow: number | null;
+  contextPercent: number | null;
 };
 
 export type PiCommand = {
