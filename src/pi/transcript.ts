@@ -5,6 +5,8 @@ export const MAX_STORED_PI_MESSAGES = 1_000;
 export const MAX_LIVE_IMAGE_PREVIEWS = 10;
 
 export function compactPiMessage(message: PiMessage): PiMessage {
+  const skillInvocation = message.role === 'user' ? collapsedSkillInvocation(message.content) : null;
+  if (skillInvocation) return { ...message, content: skillInvocation };
   if (!Array.isArray(message.content)) return message;
   return {
     ...message,
@@ -68,6 +70,19 @@ export function visiblePiMessages(messages: PiMessage[], limit = MAX_RENDERED_PI
     hiddenCount,
     messages: hiddenCount ? messages.slice(-limit) : messages,
   };
+}
+
+function collapsedSkillInvocation(content: PiMessage['content']) {
+  const text = typeof content === 'string'
+    ? content
+    : content.length === 1 && content[0].type === 'text' && typeof content[0].text === 'string'
+      ? content[0].text
+      : null;
+  if (!text) return null;
+  const match = text.match(/^<skill name="([^"]+)"[^>]*>[\s\S]*<\/skill>(?:\s*([\s\S]*))?$/);
+  if (!match) return null;
+  const args = match[2]?.trim();
+  return `/skill:${match[1]}${args ? ` ${args}` : ''}`;
 }
 
 function textContent(message: PiMessage) {

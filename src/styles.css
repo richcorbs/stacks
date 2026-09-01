@@ -990,7 +990,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piContextUsage:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
 .piContextDonut { position: relative; width: 14px; height: 14px; flex: 0 0 14px; border-radius: 50%; }
 .piContextDonut::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: #0c1219; }
-.piGuiConversation { flex: 1; min-height: 0; overflow-y: auto; padding: 46px max(18px, 7%) 28px; scroll-behavior: smooth; }
+.piGuiConversation { flex: 1; min-height: 0; overflow-y: auto; padding: 46px max(18px, 7%) 28px; scroll-behavior: smooth; scrollbar-width: none; }
+.piGuiConversation::-webkit-scrollbar { width: 0; height: 0; }
 .piGuiEmpty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #64768a; text-align: center; }
 .piGuiEmptyMark { width: 42px; height: 42px; margin-bottom: 5px; border: 1px solid #2a3d51; border-radius: 12px; background: #142130; color: #82afd3; display: grid; place-items: center; font: 25px Georgia, serif; }
 .piGuiEmpty strong { color: #9dadbd; font-size: 14px; font-weight: 500; }

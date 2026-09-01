@@ -15,6 +15,16 @@ describe('Pi transcript', () => {
     expect(appendPiMessage([optimistic], persisted)).toEqual([persisted]);
   });
 
+  it('collapses expanded skill documentation back to its invocation', () => {
+    const optimistic: PiMessage = { role: 'user', content: '/skill:refine 2139', local: true };
+    const persisted: PiMessage = {
+      role: 'user',
+      content: [{ type: 'text', text: '<skill name="refine" location="/tmp/refine/SKILL.md">\n# Long documentation\nDo many things.\n</skill>\n\n2139' }],
+    };
+    expect(appendPiMessage([optimistic], persisted)).toEqual([{ role: 'user', content: '/skill:refine 2139' }]);
+    expect(compactPiMessages([persisted])).toEqual([{ role: 'user', content: '/skill:refine 2139' }]);
+  });
+
   it('retains a recent submitted image preview when the persisted message arrives', () => {
     const optimistic: PiMessage = {
       role: 'user',
