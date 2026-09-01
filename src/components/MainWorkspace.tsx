@@ -1,4 +1,6 @@
 import type { GitInfo, MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
+import type { DiffReviewModel } from '../diffReview/types';
+import { DiffOverlay } from './DiffOverlay';
 import { WorkspaceStatusbar } from './WorkspaceStatusbar';
 import { WorkspaceTopbar } from './WorkspaceTopbar';
 import { WorkspaceViews } from './WorkspaceViews';
@@ -41,6 +43,9 @@ type MainWorkspaceProps = {
   onToggleSidebar: () => void;
   onToggleDeveloperServices: () => void;
   developerServicesVisible: boolean;
+  diffReview: DiffReviewModel;
+  canSubmitDiffReview: boolean;
+  onSubmitDiffReview: () => void;
 };
 
 export function MainWorkspace({
@@ -72,6 +77,9 @@ export function MainWorkspace({
   onToggleSidebar,
   onToggleDeveloperServices,
   developerServicesVisible,
+  diffReview,
+  canSubmitDiffReview,
+  onSubmitDiffReview,
 }: MainWorkspaceProps) {
   return (
     <main className="main">
@@ -106,6 +114,7 @@ export function MainWorkspace({
           onToggleMaximizedTerminal={onToggleMaximizedTerminal}
           onSplitTerminal={onSplitTerminal}
         />
+        {diffReview.openDiff && <DiffOverlay review={diffReview} canSubmit={canSubmitDiffReview} onSubmit={onSubmitDiffReview} />}
       </section>
       {hasActiveTerminal && <WorkspaceStatusbar activePath={activePath} gitInfo={gitInfo} />}
     </main>

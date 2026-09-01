@@ -24,7 +24,7 @@ mod workspace_setup;
 use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
 use automation::{complete_automation_request, drain_automation_requests, AutomationState};
-use git::git_info;
+use git::{git_diff_files, git_file_diff, git_info};
 use github::{github_action_runs, github_merge_pull_request, github_pull_requests};
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
@@ -100,6 +100,8 @@ pub fn run() {
             delete_pi_session,
             app_stats,
             git_info,
+            git_diff_files,
+            git_file_diff,
             github_pull_requests,
             github_action_runs,
             github_merge_pull_request,

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { DiffTab } from './DiffTab';
 import { GithubActionsTab } from './GithubActionsTab';
 import { GithubPullRequestsTab } from './GithubPullRequestsTab';
 import { SuperthreadCardDialog } from './SuperthreadCardDialog';
@@ -8,9 +9,10 @@ import { useSuperthreadCache } from '../superthread/useSuperthreadCache';
 import { useGithub } from '../github/useGithub';
 import type { GithubMergeStrategy } from '../github/types';
 import type { Project } from '../types';
+import type { DiffReviewModel } from '../diffReview/types';
 import type { SuperthreadCard } from '../superthread/types';
 
-type PanelTab = 'superthread' | 'pull-requests' | 'actions';
+type PanelTab = 'superthread' | 'diff' | 'pull-requests' | 'actions';
 
 export function DeveloperServicesPanel({
   visible,
@@ -19,9 +21,11 @@ export function DeveloperServicesPanel({
   spaces,
   workspaceSlug,
   activePath,
+  diffPath,
   githubPollSeconds,
   githubMergeStrategy,
   superthreadEnabled,
+  diffReview,
   onStartWork,
 }: {
   visible: boolean;
@@ -30,15 +34,18 @@ export function DeveloperServicesPanel({
   spaces: string;
   workspaceSlug: string;
   activePath: string | null;
+  diffPath: string | null;
   githubPollSeconds: number;
   githubMergeStrategy: GithubMergeStrategy;
   superthreadEnabled: boolean;
+  diffReview: DiffReviewModel;
   onStartWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
 }) {
   const superthread = useSuperthreadCache(workspaceSlug, spaces, superthreadEnabled);
   const github = useGithub(activePath, githubPollSeconds, visible, githubMergeStrategy);
   const [tab, setTab] = useState<PanelTab>(superthreadEnabled ? 'superthread' : 'pull-requests');
   const [pendingWorkCard, setPendingWorkCard] = useState<SuperthreadCard | null>(null);
+  const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
   const selectedCardStatus = superthread.selectedCard
     ? superthread.boards
       .find((board) => board.id === superthread.selectedCard?.board_id)
@@ -56,6 +63,7 @@ export function DeveloperServicesPanel({
 
   function refresh() {
     if (tab === 'superthread') superthread.loadBoards(true).catch(console.error);
+    else if (tab === 'diff') setDiffRefreshNonce((nonce) => nonce + 1);
     else github.refresh().catch(console.error);
   }
 
@@ -63,15 +71,16 @@ export function DeveloperServicesPanel({
     <aside className={`superthreadPanel${visible ? '' : ' superthreadPanelHidden'}`} aria-label="Developer services">
       <header className="superthreadHeader integrationHeader">
         <div className="integrationTabs" role="tablist" aria-label="Developer services">
-          {superthreadEnabled && <Tab active={tab === 'superthread'} onClick={() => setTab('superthread')}>Superthread</Tab>}
-          <Tab active={tab === 'pull-requests'} onClick={() => setTab('pull-requests')}>GitHub PRs</Tab>
-          <Tab active={tab === 'actions'} onClick={() => setTab('actions')}>GitHub Actions</Tab>
+          {superthreadEnabled && <Tab active={tab === 'superthread'} onClick={() => setTab('superthread')}>SUPERTHREAD</Tab>}
+          <Tab active={tab === 'diff'} onClick={() => setTab('diff')}>DIFF</Tab>
+          <Tab active={tab === 'pull-requests'} onClick={() => setTab('pull-requests')}>GH PRS</Tab>
+          <Tab active={tab === 'actions'} onClick={() => setTab('actions')}>GH ACTIONS</Tab>
         </div>
         <button
           type="button"
           title="Refresh selected service"
           aria-label="Refresh selected service"
-          disabled={tab === 'superthread' ? superthread.loading : github.loading || !activePath}
+          disabled={tab === 'superthread' ? superthread.loading : tab === 'diff' ? !diffPath : github.loading || !activePath}
           onClick={refresh}
         >
           ↻
@@ -80,6 +89,7 @@ export function DeveloperServicesPanel({
 
       <div className="superthreadTree integrationContent">
         {tab === 'superthread' && <SuperthreadTab superthread={superthread} />}
+        {tab === 'diff' && <DiffTab activePath={diffPath} refreshNonce={diffRefreshNonce} review={diffReview} />}
         {tab === 'pull-requests' && (
           <GithubPullRequestsTab
             activePath={activePath}
