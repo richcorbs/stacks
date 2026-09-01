@@ -36,7 +36,7 @@ Project trust is not a sandbox. Pi tools still run with the user's permissions.
 
 ## Transcript synchronization
 
-`get_messages` is used only for initial hydration, restart recovery, compaction, and session changes. Normal turns append typed `message_end` events incrementally. When a durable tool-result message arrives, its matching live tool card is removed by tool-call ID so the command is not displayed simultaneously as both live and historical. Durable context remains in Pi's session file; React keeps a bounded recent projection, removes historical base64 image payloads, and renders at most 300 messages to keep memory and Markdown work bounded.
+`get_messages` is used only for initial hydration, restart recovery, compaction, and session changes. Normal turns append typed `message_end` events incrementally. When a durable tool-result message arrives, its matching live tool card is removed by tool-call ID so the command is not displayed simultaneously as both live and historical. Durable context remains in Pi's session file; React keeps a bounded recent projection, removes hydrated historical base64 image payloads, and renders at most 300 messages to keep memory and Markdown work bounded. Newly submitted image prompts retain up to 10 recent preview payloads so dragged images remain visible in user chat bubbles; older previews degrade to placeholders.
 
 RPC requests use unique IDs and resolve only when their matching response arrives. Fire-and-forget extension UI events are not added to the request broker.
 

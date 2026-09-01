@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendPiMessage, compactPiMessages, MAX_STORED_PI_MESSAGES, visiblePiMessages } from './transcript';
+import { appendPiMessage, compactPiMessages, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, visiblePiMessages } from './transcript';
 import type { PiMessage } from './types';
 
 describe('Pi transcript', () => {
@@ -13,6 +13,37 @@ describe('Pi transcript', () => {
     const optimistic: PiMessage = { role: 'user', content: 'hello', timestamp: 1, local: true };
     const persisted: PiMessage = { role: 'user', content: [{ type: 'text', text: 'hello' }], timestamp: 2 };
     expect(appendPiMessage([optimistic], persisted)).toEqual([persisted]);
+  });
+
+  it('retains a recent submitted image preview when the persisted message arrives', () => {
+    const optimistic: PiMessage = {
+      role: 'user',
+      local: true,
+      content: [{ type: 'text', text: 'review this' }, { type: 'image', data: 'preview-base64', mimeType: 'image/jpeg' }],
+    };
+    const persisted: PiMessage = {
+      role: 'user',
+      content: [{ type: 'text', text: 'review this' }, { type: 'image', data: 'persisted-base64', mimeType: 'image/jpeg' }],
+    };
+    const messages = appendPiMessage(appendPiMessage([], optimistic), persisted);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toEqual([
+      { type: 'text', text: 'review this' },
+      { type: 'image', data: 'preview-base64', mimeType: 'image/jpeg', omitted: false },
+    ]);
+  });
+
+  it('bounds retained live image previews', () => {
+    let messages: PiMessage[] = [];
+    for (let index = 0; index <= MAX_LIVE_IMAGE_PREVIEWS; index += 1) {
+      messages = appendPiMessage(messages, {
+        role: 'user',
+        local: true,
+        content: [{ type: 'text', text: String(index) }, { type: 'image', data: `image-${index}`, mimeType: 'image/jpeg' }],
+      });
+    }
+    expect((messages[0].content as Array<{ data?: string }>)[1].data).toBe('');
+    expect((messages.at(-1)?.content as Array<{ data?: string }>)[1].data).toBe(`image-${MAX_LIVE_IMAGE_PREVIEWS}`);
   });
 
   it('removes hydrated image payloads and bounds the in-memory projection', () => {

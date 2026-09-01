@@ -286,7 +286,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     if (!text) return;
     if (images.length && !context.supportsImages) throw new Error('The selected model does not support image input');
     const optimisticContent = images.length
-      ? [{ type: 'text' as const, text }, ...images.map((image) => ({ type: 'image', mimeType: image.mimeType, name: image.name, data: '', omitted: true }))]
+      ? [{ type: 'text' as const, text }, ...images.map((image) => ({ type: 'image', mimeType: image.mimeType, name: image.name, data: image.data }))]
       : text;
     // Skills and templates expand into a different persisted user message, while
     // extension commands may not create one at all. Avoid a duplicate/stale
