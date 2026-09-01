@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleMetaShortcutKeyDown } from './keyboardShortcutRouter';
 import type { ShortcutHandlers } from './shortcutTypes';
 
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ readText: vi.fn().mockResolvedValue('') }));
+
 function handlers(): ShortcutHandlers {
   return {
     activeProject: null,
@@ -36,7 +38,7 @@ describe('keyboardShortcutRouter', () => {
       ctrlKey: false,
       altKey: false,
       shiftKey: false,
-      target: { closest: vi.fn(() => ({})) },
+      target: { closest: vi.fn((selector: string) => selector.includes('input') ? {} : null) },
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as KeyboardEvent;
@@ -45,6 +47,26 @@ describe('keyboardShortcutRouter', () => {
 
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(event.stopPropagation).not.toHaveBeenCalled();
+  });
+
+  it('uses the app clipboard path for Cmd-V in xterm\'s helper textarea', () => {
+    const h = handlers();
+    h.activeTerminalId = 't1:0';
+    const event = {
+      key: 'v',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: { closest: vi.fn((selector: string) => selector === '.xterm' || selector.includes('textarea') ? {} : null) },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(event.stopPropagation).toHaveBeenCalled();
   });
 
   it('handles terminal navigation while an input is focused', () => {

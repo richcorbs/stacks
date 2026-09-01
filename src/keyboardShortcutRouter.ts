@@ -52,7 +52,8 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   }
   if (key === 'v') {
     const activeElement = typeof document === 'undefined' ? null : document.activeElement;
-    if (isEditableTarget(event.target) || isEditableTarget(activeElement)) return;
+    const terminalTarget = isXtermTarget(event.target) || isXtermTarget(activeElement);
+    if (!terminalTarget && (isEditableTarget(event.target) || isEditableTarget(activeElement))) return;
     pasteIntoActiveTerminal(event, handlers.activeTerminalId);
     return;
   }
@@ -82,6 +83,11 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
 function isEditableTarget(target: EventTarget | null) {
   const element = target as Element | null;
   return Boolean(element && typeof element.closest === 'function' && element.closest('input, textarea, [contenteditable="true"]'));
+}
+
+function isXtermTarget(target: EventTarget | null) {
+  const element = target as Element | null;
+  return Boolean(element && typeof element.closest === 'function' && element.closest('.xterm'));
 }
 
 function runHandledShortcut(event: KeyboardEvent, action: () => void) {
