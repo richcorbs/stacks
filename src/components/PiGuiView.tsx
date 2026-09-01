@@ -626,8 +626,8 @@ function PiToolCard({ name, args, output, status, details, live = false }: {
   return (
     <details className={`piToolCard ${live ? '' : 'historical'} ${status}`} title={summary.title}>
       <summary>
-        <span className="piToolStatus" />
         <strong>{summary.label}</strong>
+        <span className="piToolStatus" />
       </summary>
       {diff
         ? <DiffView diff={diff} />
