@@ -35,7 +35,7 @@ Build and install dogfood app:
 
 ```bash
 source "$HOME/.cargo/env" 2>/dev/null || true
-npm run tauri build -- --bundles app
+npm run release:build
 ./install.sh
 ```
 
@@ -289,7 +289,7 @@ Stacks > Reset Window Settings
 - `useWorkspaceCommands.ts` is large but intentionally centralizes orchestration. If it grows further, split into project/terminal/pane command hooks.
 - Native macOS menu accelerators render using Apple glyphs; exact display characters are not fully controllable.
 - Native menu item labels cannot partially style hint text in gray. For rich styling, build an in-app shortcuts panel instead.
-- `npm run tauri build` without `-- --bundles app` may try DMG bundling and can fail; dogfood builds should use `-- --bundles app`.
+- Release and dogfood builds use `npm run release:build`; this creates the signed Tauri updater archive without requiring paid CI or Apple Developer signing.
 
 ## Git/commit habits
 

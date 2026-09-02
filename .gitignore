@@ -32,3 +32,5 @@ pnpm-debug.log*
 # Tauri generated bundles/artifacts
 src-tauri/target/
 src-tauri/*.log
+
+release-artifacts/

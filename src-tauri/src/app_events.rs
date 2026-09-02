@@ -3,7 +3,11 @@ use tauri::{Emitter, LogicalPosition, LogicalSize, Manager};
 use crate::settings::{load_window_state, reset_settings_file};
 
 pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
-    if id == "reset-settings" {
+    if id == "check-for-updates" {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.emit("check-for-updates", ());
+        }
+    } else if id == "reset-settings" {
         if let Err(err) = reset_settings_file() {
             eprintln!("failed to reset settings: {err}");
         }

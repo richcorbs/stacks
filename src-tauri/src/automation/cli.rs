@@ -172,7 +172,7 @@ fn send_request(
 
 fn print_help() {
     println!(
-        "Stacks automation\n\nUSAGE:\n    stacks-tauri workspace create --name <NAME> [--startup-command <COMMAND> | --run <COMMAND>]\n\nOPTIONS:\n    --startup-command  Persist the command and run it whenever the terminal starts\n    --command          Alias for --startup-command\n    --run              Run the command once and return its exit status\n\nThe Stacks desktop app must already be running. The workspace is created in\nthe currently selected project."
+        "Stacks automation\n\nUSAGE:\n    stacks workspace create --name <NAME> [--startup-command <COMMAND> | --run <COMMAND>]\n\nOPTIONS:\n    --startup-command  Persist the command and run it whenever the terminal starts\n    --command          Alias for --startup-command\n    --run              Run the command once and return its exit status\n\nThe Stacks desktop app must already be running. The workspace is created in\nthe currently selected project."
     );
 }
 

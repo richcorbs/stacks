@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="Stacks.app"
-BUNDLE_ID="com.richcorbs.stacks-tauri"
+BUNDLE_ID="com.richcorbs.stacks"
 BUILT_APP="$ROOT_DIR/src-tauri/target/release/bundle/macos/$APP_NAME"
 DEST_DIR="${DEST_DIR:-$HOME/Applications}"
 
@@ -19,7 +19,7 @@ Default:   ~/Applications/Stacks.app
 --system:  /Applications/Stacks.app  may prompt for sudo
 
 Set DEST_DIR=/some/path to override the destination directory.
-If the app has not been built yet, this script runs: npm run tauri build
+If the app has not been built yet, this script runs: npm run release:build
 USAGE
   exit 0
 fi
@@ -27,7 +27,7 @@ fi
 if [[ ! -d "$BUILT_APP" ]]; then
   echo "Built app not found. Building release app first..."
   source "$HOME/.cargo/env" 2>/dev/null || true
-  (cd "$ROOT_DIR" && npm run tauri build)
+  (cd "$ROOT_DIR" && npm run release:build)
 fi
 
 if [[ ! -d "$BUILT_APP" ]]; then
@@ -38,25 +38,32 @@ fi
 mkdir -p "$DEST_DIR" 2>/dev/null || true
 DEST_APP="$DEST_DIR/$APP_NAME"
 
+stacks_is_running() {
+  pgrep -x "stacks" >/dev/null 2>&1 || pgrep -x "stacks-tauri" >/dev/null 2>&1
+}
+
 quit_running_app() {
-  if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
+  if ! stacks_is_running; then
     return
   fi
 
   echo "Stacks is running; asking it to quit before installing..."
-  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 \
+    || osascript -e 'tell application id "com.richcorbs.stacks-tauri" to quit' >/dev/null 2>&1 \
+    || true
 
   for _ in {1..30}; do
-    if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
+    if ! stacks_is_running; then
       return
     fi
     sleep 0.2
   done
 
   echo "Stacks is still running; terminating it so the app bundle can be replaced..."
+  pkill -x "stacks" || true
   pkill -x "stacks-tauri" || true
   for _ in {1..20}; do
-    if ! pgrep -x "stacks-tauri" >/dev/null 2>&1; then
+    if ! stacks_is_running; then
       return
     fi
     sleep 0.2

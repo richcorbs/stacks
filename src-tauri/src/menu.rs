@@ -53,6 +53,7 @@ pub fn app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         #[cfg(target_os = "macos")]
         &Submenu::with_items(app, "Stacks", true, &[
             &PredefinedMenuItem::about(app, None, None)?,
+            &MenuItem::with_id(app, "check-for-updates", "Check for Updates…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, None)?,
             &PredefinedMenuItem::separator(app)?,

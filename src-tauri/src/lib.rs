@@ -73,6 +73,8 @@ pub fn run() {
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(PtyRegistry::default()))
         .manage(Mutex::new(PiRpcRegistry::default()))
         .manage(WorkspaceSetupState::default())

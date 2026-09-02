@@ -1,18 +1,25 @@
 {
-  "name": "stacks-tauri",
-  "version": "0.1.0",
+  "name": "stacks",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
+    "check:version": "node scripts/check-version.mjs",
+    "version:set": "node scripts/version.mjs",
+    "release:build": "TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/stacks-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"$(cat $HOME/.tauri/stacks-updater.password)\" tauri build --bundles app",
+    "release:prepare": "scripts/release.sh",
+    "release:publish": "scripts/publish-release.sh",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.11.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-unicode11": "^0.8.0",
