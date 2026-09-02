@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img">
+  <defs>
+    <linearGradient id="background" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#31577D"/>
+      <stop offset="0.52" stop-color="#244565"/>
+      <stop offset="1" stop-color="#18334F"/>
+    </linearGradient>
+    <linearGradient id="layers" x1="7" y1="5" x2="17" y2="19" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5FAFF"/>
+      <stop offset="1" stop-color="#CDE8FF"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(1.44 1.44) scale(.88)">
+    <rect x="1" y="1" width="22" height="22" rx="5.2" fill="url(#background)"/>
+    <rect x="1.18" y="1.18" width="21.64" height="21.64" rx="5.02" fill="none" stroke="#A9D8FF" stroke-width="0.28" opacity="0.28"/>
+    <g transform="translate(3.36 3.36) scale(.72)" fill="none" stroke="url(#layers)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/>
+      <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/>
+      <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>
+    </g>
+  </g>
+</svg>

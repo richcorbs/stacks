@@ -1,86 +1,306 @@
-# agents.md — AI Agent Guide for Stacks
+# AGENTS.md
 
-Native macOS terminal emulator built in **Zig 0.15** using the ObjC runtime for AppKit, **libvterm** for terminal emulation, and PTY for shell processes.
+Guidance for future coding agents working in this repository.
 
-## Quick Start
+## Project overview
 
-```bash
-zig build                                                    # compile
-bash scripts/install.sh                                      # deploy
-open ~/Applications/Stacks.app                               # run
+This is a Tauri v2 + React + Vite terminal workspace app named **Stacks**.
+
+User-facing naming convention:
+
+```text
+Project → Workspace → Terminal
 ```
 
-Kill before redeploying: `pkill -9 -f stacks`
+Internally, much of the legacy code still uses `TerminalEntry`/`terminalId` for user-facing workspaces and `Pane`/`paneId` for user-facing terminals. Prefer the user-facing terms in UI copy and product discussions unless doing a dedicated internal refactor.
 
-**NEVER run `install.sh` UNLESS THE USER TELLS YOU TO.** Use `./zig-out/bin/stacks` directly for testing.
+- Frontend: React/TypeScript/xterm.js
+- Backend: Rust/Tauri/portable-pty
+- Current primary platform: macOS
+- Project root: `stacks-tauri`
 
-## Critical Pitfalls
+The app is inspired by `~/Code/stacks` but uses xterm.js for terminal emulation and Rust only for PTY/process/native integration.
 
-1. **`objc.nil` is `null`** — never write `objc.nil orelse unreachable` (instant panic)
-2. **ObjC class names are globally unique** — if you change a class's methods/ivars, you must use a new name (e.g. `MyView2` → `MyView3`). `allocateClassPair` returns null for duplicate names.
-3. **`setTag:` only works on NSControl subclasses** (NSButton, etc.), not NSView — calling it on NSView hangs the app silently
-4. **NSButton eats mouse events** — if you need a parent view to receive mouseDown/mouseDragged, use NSTextField labels instead of NSButton
-5. **`sed -i` on source files is dangerous** — it can delete lines containing patterns you didn't intend to match. Use the `edit` tool for surgical changes.
-6. **No window on launch?** — usually means `appDidFinishLaunching` hit an `unreachable`. Add `std.debug.print` breadcrumbs and run `./zig-out/bin/stacks` directly (not via `open`) to see stderr.
-7. **`bufPrint` alias crash** — never `bufPrint` into a buffer that contains a slice you're formatting from. Copy to a temp buffer first.
-8. **`vterm_set_size` hangs without output callback** — libvterm's default 4096-byte output buffer fills during resize. Always register `vterm_output_set_callback` so output flushes synchronously to the PTY.
-9. **`sbPopLine` must fill the cells buffer** — if you return 1 from `sb_popline` without writing valid `VTermScreenCell` data into the buffer, `vterm_set_size` hangs. Currently we return 0 (no restore) as a workaround.
-10. **Menu key equivalents vs `performKeyEquivalent:`** — Use NSMenuItem key equivalents for shortcuts that should work regardless of focus. Only use `performKeyEquivalent:` for shortcuts needing deferred handling (e.g. font size via `pending_font_delta`).
-11. **ObjC blocks can't be created from Zig** — use a `.m` helper file with C-callable wrapper functions. Link it via `exe.addCSourceFile` in build.zig with `-fobjc-arc`.
-12. **`AVAudioSession` is iOS-only** — on macOS, use `AVCaptureDevice authorizationStatusForMediaType:` for microphone permission and `AVAudioEngine` for audio capture.
-13. **`AVAudioEngine.inputNode` latches the default device at creation** — if the user changes their system default input between recordings, you must create a new `AVAudioEngine` instance to pick it up.
-14. **`var x: objc.id = undefined` is UB** — `objc.id` is `*anyopaque` (non-nullable). Use `?objc.id = null` for any ObjC reference that might not be set yet.
-15. **`NSTextField` trims trailing spaces** — don't rely on space padding for fixed-width text. Use a monospace approach or separate views instead.
-16. **`SFSpeechRecognitionTask cancel` discards pending results** — use `finish` instead of `cancel` if you want the final transcription delivered to the result handler.
-17. **`NSMicrophoneUsageDescription` required** — apps using the microphone must include this key (and `NSSpeechRecognitionUsageDescription` for speech) in Info.plist or they'll crash/silently fail on fresh installs.
-18. **Visual combining in the renderer is a maintenance surface** — `drawWideChars` in `term_text_view.zig` merges adjacent cells for flag emoji (RI pairs), skin tone modifiers, and ZWJ sequences at render time. This is necessary because programs use `wcwidth()` to track cursor position, so the cell grid must keep individual characters in separate cells. If you find yourself adding more special cases here, that's the signal to revisit whether libvterm should handle it at the cell level instead.
-19. **`CoreAudio` framework must be linked separately** — `AudioObjectGetPropertyData` lives in CoreAudio, not in AVFoundation or AppKit. Add `exe.linkFramework("CoreAudio")` in build.zig.
+## Common commands
 
-## Architecture
+Always validate meaningful changes with:
 
-See [ai_docs/architecture.md](ai_docs/architecture.md) for the full system design.
+```bash
+npm run test
+npm run build
+source "$HOME/.cargo/env" 2>/dev/null || true; cd src-tauri && cargo check
+```
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/objc.zig` | 163 | ObjC runtime bindings — [ai_docs/objc-patterns.md](ai_docs/objc-patterns.md) |
-| `src/vt.zig` | 209 | libvterm wrapper — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
-| `src/pty.zig` | 155 | PTY/fork management — [ai_docs/terminal-emulation.md](ai_docs/terminal-emulation.md) |
-| `src/project.zig` | 345 | Project/terminal data model + JSON persistence |
-| `src/app.zig` | 37 | Central app state (wraps ProjectStore) |
-| `src/split_tree.zig` | 444 | Split pane tree structure + serialization (12 tests) |
-| `src/scrollback.zig` | 194 | Ring buffer for terminal history (5 tests) |
-| `src/selection.zig` | 169 | Text selection state + helpers (7 tests) |
-| `src/terminal_state.zig` | 301 | Terminal/session type definitions |
-| `src/term_keys.zig` | 104 | Key code → escape sequence mapping (5 tests) |
-| `src/box_drawing.zig` | 146 | Unicode box drawing character info (6 tests) |
-| `src/ui/window.zig` | 789 | App delegate, window, header bar, menu bar — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/sidebar.zig` | 1903 | Project list, drag-and-drop, navigation — [ai_docs/ui-system.md](ai_docs/ui-system.md) |
-| `src/ui/term_text_view.zig` | 2280 | Terminal grid rendering, input — [ai_docs/rendering.md](ai_docs/rendering.md) |
+Build and install dogfood app:
 
-## Key Shortcuts
+```bash
+source "$HOME/.cargo/env" 2>/dev/null || true
+npm run release:build
+./install.sh
+```
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘T | New terminal in current project |
-| ⌘D | Split horizontal |
-| ⇧⌘D | Split vertical |
-| ⌘W | Close pane |
-| ⌘] / ⌘[ | Cycle focus between panes |
-| ⌘= / ⌘- / ⌘0 | Font size increase/decrease/reset |
-| ⌘⇧] / ⌘⇧[ | Navigate sidebar (highlight only) |
-| ⌘Enter | Activate highlighted sidebar item |
-| ⌘V | Paste with bracketed paste mode |
-| ⌘K | Clear terminal screen and scrollback |
-| ⌘O | Add project |
-| ⌘Q | Quit |
+Installed dogfood app path:
 
-## Dependencies
+```text
+~/Applications/Stacks.app
+```
 
-- **libvterm** (Homebrew): `/opt/homebrew/Cellar/libvterm/0.3.3/`
-- **Frameworks**: AppKit, CoreText, CoreGraphics, QuartzCore, Foundation
+Open it with:
 
-## Data
+```bash
+open ~/Applications/Stacks.app
+```
 
-- Projects: `~/Library/Application Support/stacks/projects.json`
-- Window frame: persisted via `setFrameAutosaveName:` ("StacksMainWindow")
-- App icon: `resources/AppIcon.icns`
+The installer intentionally installs to `~/Applications` and handles replacing a running app.
+
+## Important architecture
+
+### Rust backend
+
+Important file:
+
+```text
+src-tauri/src/lib.rs
+```
+
+Backend owns:
+
+- PTY lifecycle via `portable-pty`
+- Tauri commands:
+  - `spawn_pty`
+  - `write_pty`
+  - `resize_pty`
+  - `kill_pty`
+  - `pty_cwd`
+  - `git_info`
+  - `app_stats`
+  - `load_store`
+  - `save_store`
+  - `load_settings`
+  - `save_window_state`
+  - `save_current_window_state`
+  - `save_sidebar_width`
+  - `reset_settings`
+  - `quit_app`
+- Native menu bar
+- Window title and size/position restoration
+
+Notes:
+
+- Release title is `Stacks`.
+- Debug/dev title is `Stacks - DEV BUILD`.
+- App display name/product name is `Stacks`.
+- Backend is currently macOS/Unix-biased (`lsof`, `ps`, shell behavior, native macOS menus).
+- Startup commands run in an interactive login shell for zsh/bash (`-lic`) so launched `.app` environments can find tools from shell setup, nvm, Homebrew, etc.
+
+### Frontend structure
+
+Key files/directories:
+
+```text
+src/main.tsx
+src/types.ts
+src/utils.ts
+src/utils.test.ts
+src/terminalSessionManager.ts
+src/components/
+src/hooks/
+```
+
+Important components:
+
+- `src/components/Sidebar.tsx`
+- `src/components/MainWorkspace.tsx`
+- `src/components/TerminalWorkspace.tsx`
+- `src/components/Dialogs.tsx`
+
+Important hooks:
+
+- `useWorkspaceState`
+- `useWorkspaceCommands`
+- `useKeyboardShortcuts`
+- `usePaneActivity`
+- `usePaneCwd`
+- `useGitInfo`
+- `useAppStats`
+- `useImageDropToTerminal`
+- `useWindowStatePersistence`
+- `useSettingsPersistence`
+- `useSidebarInteractions`
+- `useFocusDebug`
+- `useToast`
+
+## Terminal/session lifecycle rules
+
+Terminal sessions are intentionally not owned by React component mount lifecycle.
+
+Use:
+
+```text
+src/terminalSessionManager.ts
+```
+
+for session operations:
+
+- `getPaneSession`
+- `setPaneSession`
+- `focusPaneSession`
+- `scrollPaneSessionToBottom`
+- `disposePaneSession`
+- `disposePaneSessions`
+
+Do **not** add ad hoc `term.focus()` calls. Route terminal focus through `focusPaneSession()`.
+
+Do **not** recreate xterm sessions on split-tree layout changes. Pane sessions are cached by pane id so panes can move/remount without losing PTY/xterm state.
+
+PTY event generation ids are important. Do not remove them; they prevent stale PTY output/exit events from old processes from corrupting a new session.
+
+Use streaming `TextDecoder` for PTY output. Decoding PTY chunks independently caused replacement/question-mark glyphs when UTF-8 characters were split across chunks.
+
+## Focus debugging
+
+Focus bugs are the most delicate area.
+
+Enable debug logs in dev builds:
+
+```js
+localStorage.setItem('stacks.debugFocus', '1')
+```
+
+Disable:
+
+```js
+localStorage.removeItem('stacks.debugFocus')
+```
+
+Focus-related state includes:
+
+- `activeTerminalId` (currently the selected user-facing workspace)
+- `activePaneId` (currently the focused user-facing terminal)
+- `focusedPaneByTerminalId` (focused terminal by workspace)
+- `maximizedTerminalId` (the user-facing workspace that is maximized)
+- `sidebarFocusedTerminalId`
+- actual DOM/xterm focus
+
+Be careful when changing maximize/split/close behavior.
+
+## Split/pane behavior requirements
+
+Current expected behavior:
+
+- `Cmd+D`: split terminal right/side-by-side (`row`).
+- `Shift+Cmd+D`: split terminal down/stacked (`column`).
+- Splitting uses visual split-tree order and evenly distributes siblings in the split direction when auto-sized.
+- Manual resize marks split nodes with `manual: true`; manually resized splits should not be auto-rebalanced.
+- Closing a terminal selects the previous terminal in visual order, equivalent to `Cmd+[`.
+- Closing the last terminal in a workspace must **not** remove the terminal. It should kill the process/session and remove the running green dot until the workspace is activated again.
+- Maximization is workspace-level: `maximizedTerminalId` stores the maximized workspace id, not an individual terminal/pane id.
+- If a workspace is maximized, the focused terminal inside it is displayed maximized; `Cmd+[` / `Cmd+]` changes the focused terminal and the maximized display follows.
+- If splitting while maximized, split the underlying tree as if unmaximized, select the new terminal, and keep the workspace maximized.
+- Maximizing/restoring a workspace scrolls the displayed terminal to the bottom.
+
+Pure split tree logic lives in `src/utils.ts`; update/add tests in `src/utils.test.ts` for changes.
+
+## Keyboard/menu shortcuts
+
+Keyboard shortcut handling is in:
+
+```text
+src/hooks/useKeyboardShortcuts.ts
+```
+
+Native Shortcuts menu is built in Rust in:
+
+```text
+src-tauri/src/lib.rs
+```
+
+Menu items emit `menu-shortcut` events that run frontend `runShortcutAction()`.
+
+Keep Rust menu entries and frontend actions in sync.
+
+Current menu bar should be minimal:
+
+```text
+Stacks | Shortcuts | Window
+```
+
+Do not re-add generic `Edit`, `View`, or `Help` menus unless requested.
+
+## Dialog/product UX preferences
+
+- Dark, subdued blue-ish UI.
+- Project titles toggle collapse and are not selectable workspaces.
+- Right-click project menu includes `New Workspace`, `Edit`, `Delete`.
+- Deleting a project requires confirmation.
+- Closing a pane requires confirmation, with “Yes” focused by default.
+- New project flow:
+  1. User picks directory.
+  2. Show Add Project dialog with name prefilled from basename and path prefilled.
+  3. On submit, create project.
+  4. After a short 200ms delay, open New Workspace dialog for that project.
+  5. Created workspace should be selected/focused in the sidebar/workspace.
+- Workspace/new/edit dialog input spacing is intentionally larger than generic dialogs.
+
+## Clipboard and drag/drop behavior
+
+- Selecting terminal text with mouse should copy clean text to system clipboard on mouse up, clear the selection, and show centered toast: `Copied to clipboard`.
+- Uses `@tauri-apps/plugin-clipboard-manager` and Rust plugin/permission.
+- Dragging image files onto terminal inserts shell-escaped file paths at the current cursor.
+- Supported image extensions include png, jpg/jpeg, gif, webp, bmp, tif/tiff, heic/heif, svg, avif.
+
+## Persistence
+
+User data lives under OS data dir in `stacks-tauri/`.
+
+On macOS usually:
+
+```text
+~/Library/Application Support/stacks-tauri/
+```
+
+Files:
+
+- `projects.json`: projects, workspaces (legacy key: `terminals`), cwd, split trees.
+- `settings.json`: window size/position, sidebar width, app settings, and the last active project/workspace/focused pane ids.
+
+There is no need to preserve backward compatibility for old local data unless the user specifically asks. The user is currently the only user.
+
+`settings.json` can be removed to reset local UI settings. There is also a native menu item:
+
+```text
+Stacks > Reset Window Settings
+```
+
+## UI details to preserve
+
+- Sidebar workspace shortcut hints align vertically while Cmd is held.
+- Running green dot is hidden/replaced while shortcut hints are visible.
+- Header/topbar:
+  - Shows `Select a workspace` when no active terminal.
+  - Only shows path/git/split buttons when there is an active terminal.
+  - Shows split buttons to right of git status.
+- Split buttons are CSS-drawn icons, not Unicode glyphs.
+- Terminal frame uses custom padding and xterm scrollbar hiding. Be careful changing terminal dimensions; xterm/PTY width mismatch can cause wrapping or right-side gaps.
+
+## Known tradeoffs / caution areas
+
+- Focus/maximize/split lifecycle is the highest-risk area.
+- `useWorkspaceCommands.ts` is large but intentionally centralizes orchestration. If it grows further, split into project/terminal/pane command hooks.
+- Native macOS menu accelerators render using Apple glyphs; exact display characters are not fully controllable.
+- Native menu item labels cannot partially style hint text in gray. For rich styling, build an in-app shortcuts panel instead.
+- Release and dogfood builds use `npm run release:build`; this creates the signed Tauri updater archive without requiring paid CI or Apple Developer signing.
+
+## Git/commit habits
+
+Before committing, run:
+
+```bash
+npm run test
+npm run build
+source "$HOME/.cargo/env" 2>/dev/null || true; cd src-tauri && cargo check
+```
+
+Then commit concise, descriptive messages.
+
+If asked to push, check `git remote -v` first. This repo previously had no remote configured.

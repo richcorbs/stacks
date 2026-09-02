@@ -1,64 +1,40 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
-VERSION=$(cat VERSION | tr -d '[:space:]')
-echo "Building Stacks v${VERSION}..."
+VERSION=$(node -p "require('./package.json').version")
+TAG="v$VERSION"
+NOTES="releases/$TAG.md"
+OUT="release-artifacts/$TAG"
+BUNDLE_DIR="src-tauri/target/release/bundle/macos"
 
-# Build
-zig build
+if [[ ! -f "$NOTES" ]]; then
+  echo "error: missing release notes: $NOTES" >&2
+  exit 1
+fi
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "error: commit or stash changes before preparing a release" >&2
+  exit 1
+fi
 
-# Create .app bundle in dist/
-APP_DIR="dist/Stacks.app/Contents/MacOS"
-RESOURCES_DIR="dist/Stacks.app/Contents/Resources"
-mkdir -p "$APP_DIR" "$RESOURCES_DIR"
+npm run check:version
+npm run test
+npm run build
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml
+npm run release:build
 
-# Copy binary
-cp zig-out/bin/stacks "$APP_DIR/stacks"
+rm -rf "$OUT"
+mkdir -p "$OUT"
+ditto -c -k --keepParent "$BUNDLE_DIR/Stacks.app" "$OUT/Stacks-arm64.zip"
+cp "$BUNDLE_DIR/Stacks.app.tar.gz" "$OUT/"
+cp "$BUNDLE_DIR/Stacks.app.tar.gz.sig" "$OUT/"
+node scripts/create-update-manifest.mjs \
+  "$OUT/Stacks.app.tar.gz" \
+  "$OUT/Stacks.app.tar.gz.sig" \
+  "$OUT/latest.json"
 
-# Copy icon
-cp resources/AppIcon.icns "$RESOURCES_DIR/AppIcon.icns"
-
-# Write Info.plist
-cat > "dist/Stacks.app/Contents/Info.plist" << PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>stacks</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.richcorbs.stacks</string>
-    <key>CFBundleName</key>
-    <string>Stacks</string>
-    <key>CFBundleVersion</key>
-    <string>${VERSION}</string>
-    <key>CFBundleShortVersionString</key>
-    <string>${VERSION}</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>LSUIElement</key>
-    <false/>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Stacks uses the microphone for speech-to-text dictation.</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Stacks uses speech recognition for voice dictation into the terminal.</string>
-</dict>
-</plist>
-PLIST
-
-# Zip it
-cd dist
-rm -f Stacks-arm64.zip
-zip -qr Stacks-arm64.zip Stacks.app
-cd ..
-
-echo "Built dist/Stacks-arm64.zip (v${VERSION})"
-ls -lh dist/Stacks-arm64.zip
+shasum -a 256 "$OUT"/* > "$OUT/SHA256SUMS"
+echo "Prepared free, locally built release assets in $OUT"
