@@ -1,6 +1,6 @@
 {
   "name": "stacks",
-  "version": "0.4.17",
+  "version": "0.4.18",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "release:build": "TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/stacks-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"$(cat $HOME/.tauri/stacks-updater.password)\" tauri build --bundles app",
     "release:prepare": "scripts/release.sh",
     "release:publish": "scripts/publish-release.sh",
+    "release:finalize": "scripts/finalize-release.sh",
     "tauri": "tauri"
   },
   "dependencies": {

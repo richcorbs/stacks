@@ -27,17 +27,35 @@ if [[ "$(git rev-parse "$TAG^{commit}")" != "$(git rev-parse HEAD)" ]]; then
 fi
 
 gh release create "$TAG" "$OUT/Stacks-arm64.zip" \
-  --draft --title "Stacks $TAG" --notes-file "$NOTES"
+  --draft --verify-tag --title "Stacks $TAG" --notes-file "$NOTES"
 gh release upload "$TAG" \
   "$OUT/Stacks.app.tar.gz" \
   "$OUT/Stacks.app.tar.gz.sig" \
   "$OUT/latest.json" \
   "$OUT/SHA256SUMS"
 
-FIRST_ASSET=$(gh api "repos/{owner}/{repo}/releases/tags/$TAG" --jq '.assets[0].name')
-if [[ "$FIRST_ASSET" != "Stacks-arm64.zip" ]]; then
-  echo "error: legacy updater ZIP is not the first release asset" >&2
+# GitHub's release-by-tag endpoint returns 404 for drafts, so find the draft
+# through the releases collection and verify it by its stable database id.
+RELEASE_ID=$(gh api "repos/{owner}/{repo}/releases" \
+  --jq "map(select(.tag_name == \"$TAG\" and .draft == true))[0].id // empty")
+if [[ -z "$RELEASE_ID" ]]; then
+  echo "error: could not find the draft release for $TAG" >&2
   exit 1
 fi
 
-echo "Draft release created. Smoke-test it, then publish it in GitHub."
+EXPECTED_ASSETS=$'SHA256SUMS\nStacks-arm64.zip\nStacks.app.tar.gz\nStacks.app.tar.gz.sig\nlatest.json'
+ACTUAL_ASSETS=$(gh api "repos/{owner}/{repo}/releases/$RELEASE_ID" --jq '.assets | map(.name) | sort | .[]')
+if [[ "$ACTUAL_ASSETS" != "$EXPECTED_ASSETS" ]]; then
+  echo "error: draft release assets do not match the expected set" >&2
+  printf 'expected:\n%s\nactual:\n%s\n' "$EXPECTED_ASSETS" "$ACTUAL_ASSETS" >&2
+  exit 1
+fi
+
+FIRST_UPLOADED=$(gh api "repos/{owner}/{repo}/releases/$RELEASE_ID" --jq '.assets | min_by(.id).name')
+if [[ "$FIRST_UPLOADED" != "Stacks-arm64.zip" ]]; then
+  echo "error: legacy updater ZIP was not uploaded first" >&2
+  exit 1
+fi
+
+echo "Draft release created and verified (release id $RELEASE_ID)."
+echo "Smoke-test it, then run: npm run release:finalize"

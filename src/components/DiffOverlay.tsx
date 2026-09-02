@@ -54,12 +54,12 @@ export function DiffOverlay({ review, canSubmit, onSubmit }: {
           <strong>Review changes</strong>
           <button type="button" className={overallOpen ? 'active' : ''} onClick={() => setOverallOpen((open) => !open)}>Overall comment</button>
           <button type="button" className="diffSubmitReview" disabled={!canSend} title={!canSubmit ? 'Focus a Pi GUI terminal before submitting' : undefined} onClick={onSubmit}>Submit review</button>
+          <button type="button" onClick={() => review.setOpenDiff(null)} aria-label="Close diff">Close</button>
         </div>
         <div className="diffOverlayHeader">
           <strong>{diff.path}</strong>
           <button type="button" onClick={() => review.addComment({ filePath: diff.path, side: 'file', line: null })}>File comment</button>
           <button type="button" className={reviewed ? 'reviewed' : ''} onClick={() => review.toggleReviewed(diff.path)}>{reviewed ? 'Reviewed' : 'Mark reviewed'}</button>
-          <button type="button" onClick={() => review.setOpenDiff(null)} aria-label="Close diff">Close</button>
         </div>
       </header>
       {overallOpen && (
