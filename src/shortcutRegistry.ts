@@ -12,7 +12,7 @@ export type ShortcutDefinition = {
 export const SHORTCUT_DEFINITIONS = {
   'toggle-diff': {
     action: 'toggle-diff',
-    title: 'Toggle Diff Panel',
+    title: 'Focus / Toggle Diff Panel',
     hint: '⌘G',
     keywords: 'diff changes review developer services panel sidebar',
     key: 'g',
@@ -20,7 +20,7 @@ export const SHORTCUT_DEFINITIONS = {
   },
   'toggle-github-pull-requests': {
     action: 'toggle-github-pull-requests',
-    title: 'Toggle Pull Requests Panel',
+    title: 'Focus / Toggle Pull Requests Panel',
     hint: '⇧⌘G',
     keywords: 'github pull requests prs developer services panel sidebar',
     key: 'g',

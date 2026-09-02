@@ -11,14 +11,13 @@ import { useGithub } from '../github/useGithub';
 import type { GithubMergeStrategy, GithubPullRequest } from '../github/types';
 import type { Project } from '../types';
 import type { DiffReviewModel } from '../diffReview/types';
+import type { DeveloperServicesTab } from '../developerServices';
 import type { SuperthreadCard } from '../superthread/types';
-
-type PanelTab = 'superthread' | 'diff' | 'pull-requests' | 'actions';
 
 export function DeveloperServicesPanel({
   visible,
-  pullRequestsRequestNonce,
-  diffRequestNonce,
+  activeTab,
+  onActiveTabChange,
   projects,
   spaces,
   workspaceSlug,
@@ -31,8 +30,8 @@ export function DeveloperServicesPanel({
   onStartWork,
 }: {
   visible: boolean;
-  pullRequestsRequestNonce: number;
-  diffRequestNonce: number;
+  activeTab: DeveloperServicesTab;
+  onActiveTabChange: (tab: DeveloperServicesTab) => void;
   projects: Project[];
   spaces: string;
   workspaceSlug: string;
@@ -46,7 +45,8 @@ export function DeveloperServicesPanel({
 }) {
   const superthread = useSuperthreadCache(workspaceSlug, spaces, superthreadEnabled);
   const github = useGithub(activePath, githubPollSeconds, visible, githubMergeStrategy);
-  const [tab, setTab] = useState<PanelTab>(superthreadEnabled ? 'superthread' : 'pull-requests');
+  const tab = activeTab;
+  const setTab = onActiveTabChange;
   const [pendingWorkCard, setPendingWorkCard] = useState<SuperthreadCard | null>(null);
   const [pendingMerge, setPendingMerge] = useState<{ pullRequest: GithubPullRequest; repository: string } | null>(null);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
@@ -59,15 +59,7 @@ export function DeveloperServicesPanel({
 
   useEffect(() => {
     if (!superthreadEnabled && tab === 'superthread') setTab('pull-requests');
-  }, [superthreadEnabled, tab]);
-
-  useEffect(() => {
-    if (pullRequestsRequestNonce > 0) setTab('pull-requests');
-  }, [pullRequestsRequestNonce]);
-
-  useEffect(() => {
-    if (diffRequestNonce > 0) setTab('diff');
-  }, [diffRequestNonce]);
+  }, [setTab, superthreadEnabled, tab]);
 
   function refresh() {
     if (tab === 'superthread') superthread.loadBoards(true).catch(console.error);

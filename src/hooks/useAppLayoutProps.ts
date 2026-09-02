@@ -3,6 +3,7 @@ import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, Maximi
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from '../components/CommandPalette';
 import type { DeveloperServicesLayoutProps, MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
+import type { DeveloperServicesTab } from '../developerServices';
 import { useAppStyle } from './useAppStyle';
 
 type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
@@ -52,8 +53,8 @@ type UseAppLayoutPropsOptions = {
   toggleSidebar: () => void;
   toggleDeveloperServices: () => void;
   developerServicesVisible: boolean;
-  pullRequestsRequestNonce: number;
-  diffRequestNonce: number;
+  developerServicesTab: DeveloperServicesTab;
+  setDeveloperServicesTab: React.Dispatch<React.SetStateAction<DeveloperServicesTab>>;
   startSuperthreadWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   contextMenu: ContextMenuState | null;
@@ -160,8 +161,8 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
     },
     developerServices: {
       visible: options.developerServicesVisible,
-      pullRequestsRequestNonce: options.pullRequestsRequestNonce,
-      diffRequestNonce: options.diffRequestNonce,
+      activeTab: options.developerServicesTab,
+      setActiveTab: options.setDeveloperServicesTab,
       projects: options.store.projects,
       spaces: options.appSettings.superthread_spaces,
       workspaceSlug: options.appSettings.superthread_workspace_slug,

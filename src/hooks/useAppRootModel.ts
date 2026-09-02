@@ -18,6 +18,7 @@ import { useOneTimeCommand } from './useOneTimeCommand';
 import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
+import { developerServicesShortcutState, type DeveloperServicesTab } from '../developerServices';
 
 const encoder = new TextEncoder();
 
@@ -107,8 +108,7 @@ export function useAppRootModel() {
   const { toast, showToast } = toastState;
   const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
   const [developerServicesVisible, setDeveloperServicesVisible] = useState(true);
-  const [pullRequestsRequestNonce, setPullRequestsRequestNonce] = useState(0);
-  const [diffRequestNonce, setDiffRequestNonce] = useState(0);
+  const [developerServicesTab, setDeveloperServicesTab] = useState<DeveloperServicesTab>('superthread');
 
   const { activeProject, activeWorkspace, sidebarWorkspaces, activePath, visitedWorkspaceTerminalTrees } = useAppWorkspaceModels({
     store,
@@ -128,6 +128,13 @@ export function useAppRootModel() {
     const closing = developerServicesVisible;
     setDeveloperServicesVisible((visible) => !visible);
     if (closing) restoreActiveTerminalFocus(reason);
+  }
+
+  function focusDeveloperServicesTab(requestedTab: DeveloperServicesTab, closeReason: string) {
+    const next = developerServicesShortcutState(developerServicesVisible, developerServicesTab, requestedTab);
+    setDeveloperServicesTab(next.activeTab);
+    setDeveloperServicesVisible(next.visible);
+    if (!next.visible) restoreActiveTerminalFocus(closeReason);
   }
 
   const { saveStoreNow } = useAppLifecycleEffects({
@@ -338,14 +345,8 @@ export function useAppRootModel() {
     setMetaKeyDown,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
     toggleSuperthread: () => toggleDeveloperServices('close-developer-services-shortcut'),
-    toggleGithubPullRequests: () => {
-      setPullRequestsRequestNonce((nonce) => nonce + 1);
-      toggleDeveloperServices('close-pull-requests-panel');
-    },
-    toggleDiff: () => {
-      setDiffRequestNonce((nonce) => nonce + 1);
-      toggleDeveloperServices('close-diff-panel');
-    },
+    toggleGithubPullRequests: () => focusDeveloperServicesTab('pull-requests', 'close-pull-requests-panel'),
+    toggleDiff: () => focusDeveloperServicesTab('diff', 'close-diff-panel'),
     setConfirmCloseTerminalId,
     setConfirmDeleteProjectId,
     setConfirmDeleteWorkspace,
@@ -429,8 +430,8 @@ export function useAppRootModel() {
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
     toggleDeveloperServices: () => toggleDeveloperServices('close-developer-services-button'),
     developerServicesVisible,
-    pullRequestsRequestNonce,
-    diffRequestNonce,
+    developerServicesTab,
+    setDeveloperServicesTab,
     startSuperthreadWork: async (projectId, cardNumber, cardTitle) => {
       try {
         await createWorkspace(buildSuperthreadWorkspaceInput(store, projectId, cardNumber, cardTitle, {

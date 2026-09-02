@@ -103,8 +103,8 @@ export function AppLayout({
       />
       <DeveloperServicesPanel
         visible={developerServices.visible}
-        pullRequestsRequestNonce={developerServices.pullRequestsRequestNonce}
-        diffRequestNonce={developerServices.diffRequestNonce}
+        activeTab={developerServices.activeTab}
+        onActiveTabChange={developerServices.setActiveTab}
         projects={developerServices.projects}
         spaces={developerServices.spaces}
         workspaceSlug={developerServices.workspaceSlug}

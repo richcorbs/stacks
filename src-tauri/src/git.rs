@@ -186,7 +186,7 @@ pub fn git_file_diff(path: String, file: String) -> Result<GitFileDiff, String> 
     let root = repository_root(&path)?;
     ensure_diff_sources_bounded(&root, &file)?;
     let output = Command::new("git")
-        .args(["-C", &root, "diff", "--no-ext-diff", "--no-color", "--unified=5000", "HEAD", "--", &file])
+        .args(["-C", &root, "diff", "--no-ext-diff", "--no-color", "--unified=10", "HEAD", "--", &file])
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {

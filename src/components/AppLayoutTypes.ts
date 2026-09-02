@@ -2,6 +2,7 @@ import type React from 'react';
 import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from './CommandPalette';
+import type { DeveloperServicesTab } from '../developerServices';
 
 export type WorkspaceViewModel = {
   project: Project;
@@ -66,8 +67,8 @@ export type MainLayoutProps = {
 
 export type DeveloperServicesLayoutProps = {
   visible: boolean;
-  pullRequestsRequestNonce: number;
-  diffRequestNonce: number;
+  activeTab: DeveloperServicesTab;
+  setActiveTab: React.Dispatch<React.SetStateAction<DeveloperServicesTab>>;
   projects: Project[];
   spaces: string;
   workspaceSlug: string;
