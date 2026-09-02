@@ -23,6 +23,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     options.onSplitTerminalWithCommand,
     options.onCycleWorkspace,
     options.onCycleTerminal,
+    options.onFocusNextWorkspaceWithUnseenOutput,
     options.onStopTerminal,
     options.onRestartTerminal,
     options.onCloseTerminal,

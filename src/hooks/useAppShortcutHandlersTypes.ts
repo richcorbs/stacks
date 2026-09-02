@@ -37,6 +37,7 @@ export type AppShortcutHandlerOptions = {
   splitTerminalWithCommand: (direction: 'row' | 'column', command: string, execute?: boolean) => void;
   cycleSidebarWorkspace: (delta: number) => void;
   cycleTerminal: (delta: number) => void;
+  focusNextWorkspaceWithUnseenOutput: () => void;
   stopTerminal: (terminalId: string) => void;
   restartTerminal: (terminalId: string) => void;
   closeTerminal: (terminalId: string) => void;

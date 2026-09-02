@@ -17,6 +17,7 @@ import { useWorkspaceCreation } from './useWorkspaceCreation';
 import { useOneTimeCommand } from './useOneTimeCommand';
 import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildSuperthreadWorkspaceInput } from '../superthread/startWork';
+import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
 
 const encoder = new TextEncoder();
 
@@ -224,6 +225,17 @@ export function useAppRootModel() {
     closeTerminal,
   } = commands;
 
+  function focusNextWorkspaceWithUnseenOutput() {
+    const workspaceId = nextWorkspaceWithUnseenOutput(
+      sidebarWorkspaces.map(({ workspace }) => workspace.id),
+      activityWorkspaceIds,
+      activeWorkspaceId,
+    );
+    if (!workspaceId) return;
+    const index = sidebarWorkspaces.findIndex(({ workspace }) => workspace.id === workspaceId);
+    if (index >= 0) activateWorkspaceByIndex(index);
+  }
+
   useAutomationRequests({
     loaded,
     activeProjectId,
@@ -352,6 +364,7 @@ export function useAppRootModel() {
     splitTerminalWithCommand,
     cycleSidebarWorkspace,
     cycleTerminal,
+    focusNextWorkspaceWithUnseenOutput,
     stopTerminal,
     restartTerminal,
     closeTerminal,

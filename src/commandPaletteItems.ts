@@ -25,6 +25,7 @@ export type CommandPaletteItemOptions = {
   onSplitTerminalWithCommand: (direction: 'row' | 'column', command: string, execute?: boolean) => void;
   onCycleWorkspace: (delta: number) => void;
   onCycleTerminal: (delta: number) => void;
+  onFocusNextWorkspaceWithUnseenOutput: () => void;
   onStopTerminal: (terminalId: string) => void;
   onRestartTerminal: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;

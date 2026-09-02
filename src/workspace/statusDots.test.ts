@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { workspaceStatusDot } from './statusDots';
+import { nextWorkspaceWithUnseenOutput, workspaceStatusDot } from './statusDots';
+
+describe('nextWorkspaceWithUnseenOutput', () => {
+  it('finds the next active workspace in visual order and wraps', () => {
+    const workspaces = ['one', 'two', 'three', 'four'];
+    expect(nextWorkspaceWithUnseenOutput(workspaces, ['two', 'four'], 'two')).toBe('four');
+    expect(nextWorkspaceWithUnseenOutput(workspaces, ['two', 'four'], 'four')).toBe('two');
+  });
+
+  it('returns null when no other workspace has unseen output', () => {
+    expect(nextWorkspaceWithUnseenOutput(['one', 'two'], ['one'], 'one')).toBeNull();
+    expect(nextWorkspaceWithUnseenOutput([], ['one'], null)).toBeNull();
+  });
+});
 
 describe('workspaceStatusDot', () => {
   it('shows alive for running workspaces without unacknowledged activity', () => {

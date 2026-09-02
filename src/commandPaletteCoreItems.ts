@@ -20,6 +20,7 @@ export function commandPaletteCoreItems({
   onSplitTerminal,
   onCycleWorkspace,
   onCycleTerminal,
+  onFocusNextWorkspaceWithUnseenOutput,
   onStopTerminal,
   onRestartTerminal,
   onCloseTerminal,
@@ -55,6 +56,7 @@ export function commandPaletteCoreItems({
   onSplitTerminal: (direction: 'row' | 'column') => void;
   onCycleWorkspace: (delta: number) => void;
   onCycleTerminal: (delta: number) => void;
+  onFocusNextWorkspaceWithUnseenOutput: () => void;
   onStopTerminal: (terminalId: string) => void;
   onRestartTerminal: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
@@ -91,6 +93,7 @@ export function commandPaletteCoreItems({
     { id: 'split-terminal-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split terminal vertical', action: () => onSplitTerminal('row') },
     { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal horizontal', action: () => onSplitTerminal('column') },
     { id: 'find-terminal', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
+    { id: 'next-unseen-workspace', title: 'Focus Next Workspace with Unseen Output', subtitle: '⇧⌘N', keywords: 'next yellow unseen output activity notification workspace', action: onFocusNextWorkspaceWithUnseenOutput },
     { id: 'next-workspace', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch workspace forward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, 1, onSelectWorkspace, onCycleWorkspace) },
     { id: 'previous-workspace', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch workspace backward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, -1, onSelectWorkspace, onCycleWorkspace) },
     { id: 'next-terminal', title: 'Next Terminal', subtitle: '⌘]', keywords: 'focus terminal forward', action: () => onCycleTerminal(1) },

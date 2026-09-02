@@ -19,6 +19,7 @@ export type ShortcutAction =
   | 'focus-previous-terminal'
   | 'focus-next-workspace'
   | 'focus-previous-workspace'
+  | 'focus-next-unseen-workspace'
   | 'activate-sidebar'
   | 'select-workspace'
   | 'increase-terminal-font-size'
@@ -39,6 +40,7 @@ export type ShortcutHandlers = {
   requestQuit: () => void;
   cycleSidebarWorkspace: (delta: number) => void;
   cycleTerminal: (delta: number) => void;
+  focusNextWorkspaceWithUnseenOutput: () => void;
   adjustTerminalFontSize: (delta: number) => void;
   openCommandPalette: () => void;
   openTerminalSearch: () => void;

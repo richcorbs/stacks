@@ -19,6 +19,7 @@ function handlers(): ShortcutHandlers {
     requestQuit: vi.fn(),
     cycleSidebarWorkspace: vi.fn(),
     cycleTerminal: vi.fn(),
+    focusNextWorkspaceWithUnseenOutput: vi.fn(),
     adjustTerminalFontSize: vi.fn(),
     openCommandPalette: vi.fn(),
     openTerminalSearch: vi.fn(),
@@ -146,6 +147,24 @@ describe('keyboardShortcutRouter', () => {
     expect(h.toggleDiff).toHaveBeenCalled();
     expect(h.toggleGithubPullRequests).not.toHaveBeenCalled();
     expect(event.preventDefault).toHaveBeenCalled();
+  });
+
+  it('uses Cmd-Shift-N to focus the next workspace with unseen output', () => {
+    const h = handlers();
+    const event = {
+      key: 'n',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: true,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(h.focusNextWorkspaceWithUnseenOutput).toHaveBeenCalled();
+    expect(h.openWorkspaceDialog).not.toHaveBeenCalled();
   });
 
   it('uses Cmd-R to toggle Superthread instead of reloading', () => {

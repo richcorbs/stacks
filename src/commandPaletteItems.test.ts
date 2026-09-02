@@ -29,6 +29,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onSplitTerminalWithCommand: vi.fn(),
     onCycleWorkspace: vi.fn(),
     onCycleTerminal: vi.fn(),
+    onFocusNextWorkspaceWithUnseenOutput: vi.fn(),
     onStopTerminal: vi.fn(),
     onRestartTerminal: vi.fn(),
     onCloseTerminal: vi.fn(),
@@ -57,6 +58,7 @@ describe('buildCommandPaletteItems', () => {
     expect(items.map((item) => item.id)).toEqual(expect.arrayContaining([
       'new-project',
       'new-workspace',
+      'next-unseen-workspace',
       'split-terminal-right',
       'split-terminal-down',
       'add-cmd-p-command',
@@ -70,6 +72,14 @@ describe('buildCommandPaletteItems', () => {
       'project-workspace-p1',
       'terminal-t1:0',
     ]));
+  });
+
+  it('focuses the next workspace with unseen output from the command palette', () => {
+    const onFocusNextWorkspaceWithUnseenOutput = vi.fn();
+    const item = palette({ onFocusNextWorkspaceWithUnseenOutput }).find((candidate) => candidate.id === 'next-unseen-workspace');
+    item?.action();
+    expect(item?.subtitle).toBe('⇧⌘N');
+    expect(onFocusNextWorkspaceWithUnseenOutput).toHaveBeenCalledOnce();
   });
 
   it('toggles the diff panel from the command palette', () => {

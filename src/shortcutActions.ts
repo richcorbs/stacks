@@ -36,6 +36,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     requestQuit,
     cycleSidebarWorkspace,
     cycleTerminal,
+    focusNextWorkspaceWithUnseenOutput,
     adjustTerminalFontSize,
     openCommandPalette,
     openTerminalSearch,
@@ -101,6 +102,9 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'focus-previous-workspace':
       cycleSidebarWorkspace(-1);
+      break;
+    case 'focus-next-unseen-workspace':
+      focusNextWorkspaceWithUnseenOutput();
       break;
     case 'activate-sidebar':
       activateSidebarFocusedWorkspace();

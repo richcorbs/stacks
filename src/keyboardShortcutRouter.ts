@@ -62,7 +62,7 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     return;
   }
   if (key === 'n') {
-    runHandledShortcut(event, () => runShortcutAction('new-workspace', handlers));
+    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-next-unseen-workspace' : 'new-workspace', handlers));
   } else if (event.key === 'Enter') {
     runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'maximize-workspace' : 'activate-sidebar', handlers));
   } else if (key === 'd') {

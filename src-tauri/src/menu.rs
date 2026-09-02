@@ -7,6 +7,7 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let items = [
         ("menu-shortcut-add-project", "Add Project", "Cmd+O", Some("Cmd+O")),
         ("menu-shortcut-new-workspace", "New Workspace", "Cmd+N", Some("Cmd+N")),
+        ("menu-shortcut-focus-next-unseen-workspace", "Focus Next Workspace with Unseen Output", "Cmd+Shift+N", Some("Cmd+Shift+N")),
         ("menu-shortcut-settings", "Settings", "Cmd+,", Some("Cmd+,")),
         ("menu-shortcut-toggle-sidebar", "Toggle Sidebar", "Cmd+B", Some("Cmd+B")),
         ("menu-shortcut-toggle-superthread", "Toggle Developer Services", "Cmd+R", Some("Cmd+R")),
