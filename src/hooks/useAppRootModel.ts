@@ -123,6 +123,12 @@ export function useAppRootModel() {
   const gitInfo = useGitInfo(activePath);
   const { restoreActiveTerminalFocus } = useAppFocusRestore(activeTerminalId);
 
+  function toggleDeveloperServices(reason: string) {
+    const closing = developerServicesVisible;
+    setDeveloperServicesVisible((visible) => !visible);
+    if (closing) restoreActiveTerminalFocus(reason);
+  }
+
   const { saveStoreNow } = useAppLifecycleEffects({
     loaded,
     store,
@@ -319,14 +325,14 @@ export function useAppRootModel() {
     appSettings,
     setMetaKeyDown,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
-    toggleSuperthread: () => setDeveloperServicesVisible((visible) => !visible),
+    toggleSuperthread: () => toggleDeveloperServices('close-developer-services-shortcut'),
     toggleGithubPullRequests: () => {
       setPullRequestsRequestNonce((nonce) => nonce + 1);
-      setDeveloperServicesVisible((visible) => !visible);
+      toggleDeveloperServices('close-pull-requests-panel');
     },
     toggleDiff: () => {
       setDiffRequestNonce((nonce) => nonce + 1);
-      setDeveloperServicesVisible((visible) => !visible);
+      toggleDeveloperServices('close-diff-panel');
     },
     setConfirmCloseTerminalId,
     setConfirmDeleteProjectId,
@@ -408,7 +414,7 @@ export function useAppRootModel() {
     toggleMaximizedTerminal,
     splitTerminal,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
-    toggleDeveloperServices: () => setDeveloperServicesVisible((visible) => !visible),
+    toggleDeveloperServices: () => toggleDeveloperServices('close-developer-services-button'),
     developerServicesVisible,
     pullRequestsRequestNonce,
     diffRequestNonce,
