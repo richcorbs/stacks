@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySlashCommand, GUI_BUILTIN_COMMANDS, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory, slashCommandQuery } from './commands';
+import { applySlashCommand, fuzzyCommandScore, GUI_BUILTIN_COMMANDS, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory, slashCommandQuery } from './commands';
 import type { PiCommand } from './types';
 
 const commands: PiCommand[] = [
@@ -16,8 +16,24 @@ describe('Pi slash commands', () => {
   });
 
   it('ranks prefix matches before substring matches', () => {
-    expect(matchingSlashCommands(commands, '/re').map((command) => command.name)).toEqual(['release-notes', 'review']);
+    expect(matchingSlashCommands(commands, '/re').map((command) => command.name)).toEqual(['release-notes', 'review', 'skill:grill-me']);
     expect(matchingSlashCommands(commands, '/grill').map((command) => command.name)).toEqual(['skill:grill-me']);
+  });
+
+  it('fuzzy-matches command names with characters in order', () => {
+    expect(matchingSlashCommands(commands, '/sgr').map((command) => command.name)).toEqual(['skill:grill-me']);
+    expect(matchingSlashCommands(commands, '/rvw').map((command) => command.name)).toEqual(['review']);
+    expect(matchingSlashCommands(commands, '/xyz')).toEqual([]);
+    expect(fuzzyCommandScore('Review', 'RVW')).not.toBeNull();
+  });
+
+  it('ranks prefixes, substrings, and fuzzy matches in that order', () => {
+    const ranked: PiCommand[] = [
+      { name: 'skill:review', source: 'skill' },
+      { name: 'preview', source: 'prompt' },
+      { name: 'review', source: 'prompt' },
+    ];
+    expect(matchingSlashCommands(ranked, '/rev').map((command) => command.name)).toEqual(['review', 'preview', 'skill:review']);
   });
 
   it('keeps a large project prompt list discoverable', () => {

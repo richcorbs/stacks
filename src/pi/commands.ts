@@ -18,14 +18,32 @@ export function matchingSlashCommands(commands: PiCommand[], value: string, limi
   const query = slashCommandQuery(value);
   if (query === null) return [];
   return commands
-    .filter((command) => !query || command.name.toLowerCase().includes(query))
-    .sort((left, right) => {
-      const leftStarts = left.name.toLowerCase().startsWith(query);
-      const rightStarts = right.name.toLowerCase().startsWith(query);
-      if (leftStarts !== rightStarts) return leftStarts ? -1 : 1;
-      return left.name.localeCompare(right.name);
+    .flatMap((command) => {
+      const score = fuzzyCommandScore(command.name, query);
+      return score === null ? [] : [{ command, score }];
     })
-    .slice(0, limit);
+    .sort((left, right) => left.score - right.score || left.command.name.localeCompare(right.command.name))
+    .slice(0, limit)
+    .map(({ command }) => command);
+}
+
+export function fuzzyCommandScore(name: string, query: string): number | null {
+  if (!query) return 0;
+  const candidate = name.toLowerCase();
+  const normalizedQuery = query.toLowerCase();
+  if (candidate.startsWith(normalizedQuery)) return 0;
+  const substringIndex = candidate.indexOf(normalizedQuery);
+  if (substringIndex >= 0) return 100 + substringIndex;
+
+  let previousIndex = -1;
+  let gapScore = 0;
+  for (const character of normalizedQuery) {
+    const index = candidate.indexOf(character, previousIndex + 1);
+    if (index < 0) return null;
+    gapScore += previousIndex < 0 ? index : index - previousIndex - 1;
+    previousIndex = index;
+  }
+  return 1_000 + gapScore;
 }
 
 export function applySlashCommand(command: PiCommand): string {
