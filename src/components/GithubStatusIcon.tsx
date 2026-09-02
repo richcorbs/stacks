@@ -15,7 +15,9 @@ export function GithubStatusIcon({ status, context, label: labelOverride }: {
     case 'passed':
       return <span className="githubCiIcon githubCiPassed" role="img" aria-label={label} title={title}>✓</span>;
     case 'failed':
-      return <span className="githubCiIcon githubCiFailed" role="img" aria-label={label} title={title}>×</span>;
+      return <span className="githubCiIcon githubCiFailed" role="img" aria-label={label} title={title}>
+        <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 4.5l5 5m0-5-5 5" /></svg>
+      </span>;
     case 'skipped':
       return <span className="githubCiIcon githubCiSkipped" role="img" aria-label={label} title={title}>⊘</span>;
     default:
