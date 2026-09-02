@@ -60,6 +60,19 @@ export function ConfirmDeleteProjectDialog({ projectName, onCancel, onConfirm }:
   );
 }
 
+export function ConfirmMergePullRequestDialog({ number, pullRequestTitle, onCancel, onConfirm }: {
+  number: number;
+  pullRequestTitle: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ConfirmDialog title="Merge pull request?" confirmLabel="Merge" onCancel={onCancel} onConfirm={onConfirm}>
+      <p>Merge PR #{number}: “{pullRequestTitle}”?</p>
+    </ConfirmDialog>
+  );
+}
+
 export function ConfirmDeleteWorkspaceDialog({ terminalName, onCancel, onConfirm }: { terminalName: string; onCancel: () => void; onConfirm: () => void }) {
   return (
     <ConfirmDialog title="Delete workspace?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
