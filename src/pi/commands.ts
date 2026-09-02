@@ -50,14 +50,6 @@ export function applySlashCommand(command: PiCommand): string {
   return `/${command.name} `;
 }
 
-export function shouldCycleCommandHistory(
-  value: string,
-  cursor: number,
-  direction: -1 | 1,
-  browsingHistory: boolean,
-) {
-  if (browsingHistory) return true;
-  if (!value.includes('\n')) return true;
-  if (direction === -1) return cursor <= value.indexOf('\n');
-  return cursor > value.lastIndexOf('\n');
+export function shouldCycleCommandHistory(value: string, visuallyMultiline = false) {
+  return !visuallyMultiline && !value.includes('\n');
 }

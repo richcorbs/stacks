@@ -482,7 +482,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               }
               if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
                 const direction = event.key === 'ArrowUp' ? -1 : 1;
-                const shouldCycle = shouldCycleCommandHistory(prompt, event.currentTarget.selectionStart, direction, historyIndexRef.current !== null);
+                const shouldCycle = shouldCycleCommandHistory(prompt, composerHasMultipleVisualLines(event.currentTarget));
                 if (shouldCycle && cyclePromptHistory(direction)) {
                   event.preventDefault();
                   return;
@@ -579,6 +579,13 @@ function ContextUsage({ context }: { context: PiSessionContext }) {
   return <span className="piContextUsage" data-tooltip={tooltip} aria-label={`Context usage: ${tooltip}`}>
     <span className="piContextDonut" style={{ background: `conic-gradient(#a9b6c2 ${percent * 3.6}deg, #647484 0deg)` }} />
   </span>;
+}
+
+function composerHasMultipleVisualLines(input: HTMLTextAreaElement) {
+  const style = getComputedStyle(input);
+  const lineHeight = Number.parseFloat(style.lineHeight);
+  const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+  return Number.isFinite(lineHeight) && input.scrollHeight - verticalPadding > lineHeight + 1;
 }
 
 function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) {
