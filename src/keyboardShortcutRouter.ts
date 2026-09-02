@@ -27,6 +27,15 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     runHandledShortcut(event, () => runShortcutAction('settings', handlers));
     return;
   }
+  if (key === 'a' && !event.shiftKey) {
+    const editable = selectableTextControl(event.target) ?? selectableTextControl(
+      typeof document === 'undefined' ? null : document.activeElement,
+    );
+    if (editable && !isXtermTarget(editable)) {
+      runHandledShortcut(event, () => editable.select());
+      return;
+    }
+  }
   const registeredAction = registeredShortcutAction(key, event.shiftKey);
   if (registeredAction) {
     runHandledShortcut(event, () => runShortcutAction(registeredAction, handlers));
@@ -85,6 +94,13 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
 function isEditableTarget(target: EventTarget | null) {
   const element = target as Element | null;
   return Boolean(element && typeof element.closest === 'function' && element.closest('input, textarea, [contenteditable="true"]'));
+}
+
+function selectableTextControl(target: EventTarget | null) {
+  const element = target as Element | null;
+  if (!element || typeof element.closest !== 'function') return null;
+  const control = element.closest('input, textarea') as HTMLInputElement | HTMLTextAreaElement | null;
+  return control && typeof control.select === 'function' ? control : null;
 }
 
 function isXtermTarget(target: EventTarget | null) {

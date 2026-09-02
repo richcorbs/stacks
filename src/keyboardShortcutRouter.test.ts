@@ -32,6 +32,32 @@ function handlers(): ShortcutHandlers {
 }
 
 describe('keyboardShortcutRouter', () => {
+  it('selects all text with Cmd-A in GUI text fields', () => {
+    const h = handlers();
+    const select = vi.fn();
+    let input: HTMLInputElement;
+    input = {
+      select,
+      closest: vi.fn((selector: string) => selector === 'input, textarea' ? input : null),
+    } as unknown as HTMLInputElement;
+    const event = {
+      key: 'a',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: input,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(select).toHaveBeenCalledOnce();
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(event.stopPropagation).toHaveBeenCalled();
+  });
+
   it('leaves Cmd-V to editable fields', () => {
     const h = handlers();
     const event = {
