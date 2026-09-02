@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react';
 import type { ContextMenuState, PointerDragState, Project, WorkspaceEntry } from '../types';
+import type { GithubCurrentPullRequest } from '../github/types';
 import { collectLeafTerminalIds } from '../utils';
 import { workspaceStatusDot } from '../workspace/statusDots';
 
@@ -11,6 +12,7 @@ export function SidebarWorkspaceRow({
   activeWorkspaceId,
   sidebarFocusedWorkspaceId,
   sidebarWorkspaces,
+  pullRequest,
   runningTerminalIds,
   activityWorkspaceIds,
   activityTerminalLastOutputAtById,
@@ -19,6 +21,7 @@ export function SidebarWorkspaceRow({
   justPointerDraggedRef,
   pointerDragRef,
   selectWorkspace,
+  openWorkspaceDiff,
   setContextMenu,
 }: {
   project: Project;
@@ -26,6 +29,7 @@ export function SidebarWorkspaceRow({
   activeWorkspaceId: string | null;
   sidebarFocusedWorkspaceId: string | null;
   sidebarWorkspaces: SidebarWorkspace[];
+  pullRequest: GithubCurrentPullRequest | null;
   runningTerminalIds: string[];
   activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
@@ -34,6 +38,7 @@ export function SidebarWorkspaceRow({
   justPointerDraggedRef: MutableRefObject<boolean>;
   pointerDragRef: MutableRefObject<PointerDragState | null>;
   selectWorkspace: (projectId: string, workspaceId: string) => void;
+  openWorkspaceDiff: (projectId: string, workspaceId: string) => void;
   setContextMenu: (menu: ContextMenuState) => void;
 }) {
   const isRunning = runningTerminalIds.some((terminalId) => terminalId.startsWith(`${workspace.id}:`));
@@ -77,11 +82,32 @@ export function SidebarWorkspaceRow({
         {terminalCountLabel ? <span className="termCount">{terminalCountLabel}</span> : null}
       </span>
       <span className="termIndicators">
+        <span className="workspacePrSlot">
+          {!metaKeyDown && pullRequest && <span
+            className="workspacePrIcon"
+            title={`${pullRequest.draft ? 'Draft ' : ''}PR #${pullRequest.number}: ${pullRequest.title}`}
+            aria-label={`Open diff for pull request #${pullRequest.number}`}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              openWorkspaceDiff(project.id, workspace.id);
+            }}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="4" cy="3" r="2" />
+              <circle cx="4" cy="13" r="2" />
+              <circle cx="12" cy="13" r="2" />
+              <path d="M4 5v6M6 3h2a4 4 0 0 1 4 4v4" />
+            </svg>
+          </span>}
+        </span>
         {metaKeyDown ? (
           shortcutIndex >= 0 && shortcutIndex < 9 ? <span className="shortcutHint">⌘{shortcutIndex + 1}</span> : <span className="shortcutHintSlot" />
-        ) : statusDot ? (
-          <span className={`dot ${statusDotClass}`} title={statusDotTitle} />
-        ) : null}
+        ) : (
+          <span className="workspaceStatusSlot">
+            {statusDot && <span className={`dot ${statusDotClass}`} title={statusDotTitle} />}
+          </span>
+        )}
       </span>
     </button>
   );

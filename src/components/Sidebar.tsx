@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react';
 import type { AppStats, ContextMenuState, PointerDragState, Project, Store, WorkspaceEntry } from '../types';
+import type { GithubCurrentPullRequest } from '../github/types';
 import { SidebarProjectSection } from './SidebarProjectSection';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
@@ -12,6 +13,7 @@ type SidebarProps = {
   activeWorkspaceId: string | null;
   sidebarFocusedWorkspaceId: string | null;
   sidebarWorkspaces: SidebarWorkspace[];
+  workspacePullRequests: Record<string, GithubCurrentPullRequest>;
   runningTerminalIds: string[];
   activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
@@ -23,6 +25,7 @@ type SidebarProps = {
   resizingSidebarRef: MutableRefObject<boolean>;
   toggleProject: (projectId: string) => void;
   selectWorkspace: (projectId: string, workspaceId: string) => void;
+  openWorkspaceDiff: (projectId: string, workspaceId: string) => void;
   setContextMenu: (menu: ContextMenuState) => void;
   onAddProject: () => void;
   onAddTerminal: (project: Project) => void;
@@ -36,6 +39,7 @@ export function Sidebar({
   activeWorkspaceId,
   sidebarFocusedWorkspaceId,
   sidebarWorkspaces,
+  workspacePullRequests,
   runningTerminalIds,
   activityWorkspaceIds,
   activityTerminalLastOutputAtById,
@@ -47,6 +51,7 @@ export function Sidebar({
   resizingSidebarRef,
   toggleProject,
   selectWorkspace,
+  openWorkspaceDiff,
   setContextMenu,
   onAddProject,
   onAddTerminal,
@@ -109,6 +114,7 @@ export function Sidebar({
             activeWorkspaceId={activeWorkspaceId}
             sidebarFocusedWorkspaceId={sidebarFocusedWorkspaceId}
             sidebarWorkspaces={sidebarWorkspaces}
+            workspacePullRequests={workspacePullRequests}
             runningTerminalIds={runningTerminalIds}
             activityWorkspaceIds={activityWorkspaceIds}
             activityTerminalLastOutputAtById={activityTerminalLastOutputAtById}
@@ -118,6 +124,7 @@ export function Sidebar({
             pointerDragRef={pointerDragRef}
             toggleProject={toggleProject}
             selectWorkspace={selectWorkspace}
+            openWorkspaceDiff={openWorkspaceDiff}
             setContextMenu={setContextMenu}
             onAddTerminal={onAddTerminal}
           />

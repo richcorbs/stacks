@@ -3,6 +3,7 @@ import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, Maximi
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from './CommandPalette';
 import type { DeveloperServicesTab } from '../developerServices';
+import type { GithubCurrentPullRequest } from '../github/types';
 
 export type WorkspaceViewModel = {
   project: Project;
@@ -21,6 +22,7 @@ export type SidebarLayoutProps = {
   activeWorkspaceId: string | null;
   sidebarFocusedWorkspaceId: string | null;
   sidebarWorkspaces: { project: Project; workspace: WorkspaceEntry }[];
+  workspacePullRequests: Record<string, GithubCurrentPullRequest>;
   runningTerminalIds: string[];
   activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
@@ -32,6 +34,7 @@ export type SidebarLayoutProps = {
   resizingSidebarRef: React.MutableRefObject<boolean>;
   toggleProject: (projectId: string) => void;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
+  openWorkspaceDiff: (projectId: string, workspaceId: string) => void;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
   openProjectDialog: () => void;
   openWorkspaceDialog: (project: Project) => void;

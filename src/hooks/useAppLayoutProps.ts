@@ -4,6 +4,7 @@ import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from '../components/CommandPalette';
 import type { DeveloperServicesLayoutProps, MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
 import type { DeveloperServicesTab } from '../developerServices';
+import type { GithubCurrentPullRequest } from '../github/types';
 import { useAppStyle } from './useAppStyle';
 
 type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
@@ -16,6 +17,7 @@ type UseAppLayoutPropsOptions = {
   activeWorkspaceId: string | null;
   sidebarFocusedWorkspaceId: string | null;
   sidebarWorkspaces: { project: Project; workspace: WorkspaceEntry }[];
+  workspacePullRequests: Record<string, GithubCurrentPullRequest>;
   runningTerminalIds: string[];
   activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
@@ -27,6 +29,7 @@ type UseAppLayoutPropsOptions = {
   resizingSidebarRef: React.MutableRefObject<boolean>;
   toggleProject: (projectId: string) => void;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
+  openWorkspaceDiff: (projectId: string, workspaceId: string) => void;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
   openProjectDialog: () => void;
   openWorkspaceDialog: (project: Project) => void;
@@ -117,6 +120,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       activeWorkspaceId: options.activeWorkspaceId,
       sidebarFocusedWorkspaceId: options.sidebarFocusedWorkspaceId,
       sidebarWorkspaces: options.sidebarWorkspaces,
+      workspacePullRequests: options.workspacePullRequests,
       runningTerminalIds: options.runningTerminalIds,
       activityWorkspaceIds: options.activityWorkspaceIds,
       activityTerminalLastOutputAtById: options.activityTerminalLastOutputAtById,
@@ -128,6 +132,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       resizingSidebarRef: options.resizingSidebarRef,
       toggleProject: options.toggleProject,
       selectWorkspace: options.selectWorkspace,
+      openWorkspaceDiff: options.openWorkspaceDiff,
       setContextMenu: options.setContextMenu,
       openProjectDialog: options.openProjectDialog,
       openWorkspaceDialog: options.openWorkspaceDialog,

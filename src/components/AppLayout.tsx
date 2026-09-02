@@ -59,6 +59,7 @@ export function AppLayout({
         activeWorkspaceId={sidebar.activeWorkspaceId}
         sidebarFocusedWorkspaceId={sidebar.sidebarFocusedWorkspaceId}
         sidebarWorkspaces={sidebar.sidebarWorkspaces}
+        workspacePullRequests={sidebar.workspacePullRequests}
         runningTerminalIds={sidebar.runningTerminalIds}
         activityWorkspaceIds={sidebar.activityWorkspaceIds}
         activityTerminalLastOutputAtById={sidebar.activityTerminalLastOutputAtById}
@@ -70,6 +71,7 @@ export function AppLayout({
         resizingSidebarRef={sidebar.resizingSidebarRef}
         toggleProject={sidebar.toggleProject}
         selectWorkspace={sidebar.selectWorkspace}
+        openWorkspaceDiff={sidebar.openWorkspaceDiff}
         setContextMenu={sidebar.setContextMenu}
         onAddProject={sidebar.openProjectDialog}
         onAddTerminal={sidebar.openWorkspaceDialog}

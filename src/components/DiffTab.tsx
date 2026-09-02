@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { buildDiffTree, type DiffTreeNode } from '../git/diffTree';
-import type { GitDiffFile, GitFileDiff } from '../types';
+import type { GitDiffFile, GitDiffFilesResponse, GitFileDiff } from '../types';
 import type { DiffReviewModel } from '../diffReview/types';
 
 export function DiffTab({ activePath, refreshNonce, review }: {
@@ -10,6 +10,7 @@ export function DiffTab({ activePath, refreshNonce, review }: {
   review: DiffReviewModel;
 }) {
   const [files, setFiles] = useState<GitDiffFile[]>([]);
+  const [sourceLabel, setSourceLabel] = useState('Working tree');
   const [loading, setLoading] = useState(false);
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,8 +27,12 @@ export function DiffTab({ activePath, refreshNonce, review }: {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    invoke<GitDiffFile[]>('git_diff_files', { path: activePath })
-      .then((nextFiles) => { if (!cancelled) setFiles(nextFiles); })
+    invoke<GitDiffFilesResponse>('git_diff_files', { path: activePath })
+      .then((response) => {
+        if (cancelled) return;
+        setFiles(response.files);
+        setSourceLabel(response.source === 'pull-request' ? `PR #${response.pullRequestNumber}` : 'Working tree');
+      })
       .catch((reason) => { if (!cancelled) setError(String(reason)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -53,6 +58,7 @@ export function DiffTab({ activePath, refreshNonce, review }: {
 
   if (!activePath) return <div className="superthreadState">Select a workspace in a Git repository.</div>;
   return <>
+    <div className="diffSourceLabel">{sourceLabel}</div>
     {loading && files.length === 0 && <div className="superthreadState">Loading changed files…</div>}
     {error && <div className="superthreadState superthreadError">{error}</div>}
     {!loading && !error && files.length === 0 && <div className="superthreadState">No changed files.</div>}

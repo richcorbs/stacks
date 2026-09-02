@@ -1,3 +1,4 @@
+use crate::github::current_pull_request_for_path;
 use serde::Serialize;
 use std::{collections::HashSet, path::{Component, Path}, process::Command};
 
@@ -18,6 +19,14 @@ pub struct GitInfo {
 pub struct GitDiffFile {
     path: String,
     status: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffFilesResponse {
+    files: Vec<GitDiffFile>,
+    source: String,
+    pull_request_number: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,17 +157,14 @@ fn display_status(status: &str) -> String {
     else { "M" }).to_string()
 }
 
-#[tauri::command]
-pub fn git_diff_files(path: String) -> Result<Vec<GitDiffFile>, String> {
-    let root = repository_root(&path)?;
+fn working_tree_files(root: &str) -> Result<Vec<GitDiffFile>, String> {
     let output = Command::new("git")
-        .args(["-C", &root, "status", "--porcelain=v1", "-z", "--untracked-files=all"])
+        .args(["-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all"])
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
-
     let entries = output.stdout.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()).collect::<Vec<_>>();
     let mut files = Vec::new();
     let mut index = 0;
@@ -170,9 +176,7 @@ pub fn git_diff_files(path: String) -> Result<Vec<GitDiffFile>, String> {
                 path: String::from_utf8_lossy(&entry[3..]).to_string(),
                 status: display_status(&status),
             });
-            if status.contains('R') || status.contains('C') {
-                index += 1;
-            }
+            if status.contains('R') || status.contains('C') { index += 1; }
         }
         index += 1;
     }
@@ -180,13 +184,76 @@ pub fn git_diff_files(path: String) -> Result<Vec<GitDiffFile>, String> {
     Ok(files)
 }
 
-#[tauri::command]
-pub fn git_file_diff(path: String, file: String) -> Result<GitFileDiff, String> {
-    safe_relative_path(&file)?;
-    let root = repository_root(&path)?;
-    ensure_diff_sources_bounded(&root, &file)?;
+fn pull_request_diff_base(root: &str) -> Option<(String, u64)> {
+    let pull_request = current_pull_request_for_path(root).ok()??;
+    if pull_request.base_ref_name.is_empty() { return None; }
+    let remote_base = format!("origin/{}", pull_request.base_ref_name);
+    let output = Command::new("git").args(["-C", root, "merge-base", "HEAD", &remote_base]).output().ok()?;
+    output.status.success().then(|| (String::from_utf8_lossy(&output.stdout).trim().to_string(), pull_request.number))
+}
+
+fn committed_diff_files(root: &str, base: &str) -> Result<Vec<GitDiffFile>, String> {
     let output = Command::new("git")
-        .args(["-C", &root, "diff", "--no-ext-diff", "--no-color", "--unified=10", "HEAD", "--", &file])
+        .args(["-C", root, "diff", "--name-status", "-z", base, "HEAD"])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).trim().to_string()); }
+    let entries = output.stdout.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()).collect::<Vec<_>>();
+    let mut files = Vec::new();
+    let mut index = 0;
+    while index + 1 < entries.len() {
+        let status = String::from_utf8_lossy(entries[index]);
+        let renamed = status.starts_with('R') || status.starts_with('C');
+        let path_index = if renamed { index + 2 } else { index + 1 };
+        if path_index >= entries.len() { break; }
+        files.push(GitDiffFile { path: String::from_utf8_lossy(entries[path_index]).to_string(), status: display_status(&status) });
+        index += if renamed { 3 } else { 2 };
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(files)
+}
+
+#[tauri::command]
+pub async fn git_diff_files(path: String) -> Result<GitDiffFilesResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || load_git_diff_files(&path))
+        .await
+        .map_err(|error| format!("Git diff worker failed: {error}"))?
+}
+
+fn load_git_diff_files(path: &str) -> Result<GitDiffFilesResponse, String> {
+    let root = repository_root(path)?;
+    let files = working_tree_files(&root)?;
+    if !files.is_empty() {
+        return Ok(GitDiffFilesResponse { files, source: "working-tree".to_string(), pull_request_number: None });
+    }
+    if let Some((base, number)) = pull_request_diff_base(&root) {
+        return Ok(GitDiffFilesResponse { files: committed_diff_files(&root, &base)?, source: "pull-request".to_string(), pull_request_number: Some(number) });
+    }
+    Ok(GitDiffFilesResponse { files, source: "working-tree".to_string(), pull_request_number: None })
+}
+
+#[tauri::command]
+pub async fn git_file_diff(path: String, file: String) -> Result<GitFileDiff, String> {
+    tauri::async_runtime::spawn_blocking(move || load_git_file_diff(&path, &file))
+        .await
+        .map_err(|error| format!("Git diff worker failed: {error}"))?
+}
+
+fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
+    safe_relative_path(file)?;
+    let root = repository_root(path)?;
+    ensure_diff_sources_bounded(&root, &file)?;
+    let working_files = working_tree_files(&root)?;
+    let committed_base = working_files.is_empty().then(|| pull_request_diff_base(&root)).flatten().map(|(base, _)| base);
+    let mut command = Command::new("git");
+    command.args(["-C", &root, "diff", "--no-ext-diff", "--no-color", "--unified=10"]);
+    if let Some(base) = &committed_base {
+        command.args([base, "HEAD"]);
+    } else {
+        command.arg("HEAD");
+    }
+    let output = command
+        .args(["--", &file])
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
@@ -213,5 +280,5 @@ pub fn git_file_diff(path: String, file: String) -> Result<GitFileDiff, String> 
         patch = format!("diff --git a/{file} b/{file}\nnew file mode 100644\n--- /dev/null\n+++ b/{file}\n@@ -0,0 +1,{} @@\n{}", text.lines().count(), text.lines().map(|line| format!("+{line}\n")).collect::<String>());
     }
     ensure_patch_bounded(&patch)?;
-    Ok(GitFileDiff { path: file, patch })
+    Ok(GitFileDiff { path: file.to_string(), patch })
 }

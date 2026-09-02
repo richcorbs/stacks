@@ -15,6 +15,7 @@ import { useAppLayoutProps } from './useAppLayoutProps';
 import { useAutomationRequests } from './useAutomationRequests';
 import { useWorkspaceCreation } from './useWorkspaceCreation';
 import { useOneTimeCommand } from './useOneTimeCommand';
+import { useWorkspacePullRequests } from './useWorkspacePullRequests';
 import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
@@ -122,6 +123,7 @@ export function useAppRootModel() {
   });
   const appStats = useAppStats();
   const gitInfo = useGitInfo(activePath);
+  const workspacePullRequests = useWorkspacePullRequests(sidebarWorkspaces);
   const { restoreActiveTerminalFocus } = useAppFocusRestore(activeTerminalId);
 
   function toggleDeveloperServices(reason: string) {
@@ -393,6 +395,7 @@ export function useAppRootModel() {
     activeWorkspaceId,
     sidebarFocusedWorkspaceId,
     sidebarWorkspaces,
+    workspacePullRequests,
     runningTerminalIds,
     activityWorkspaceIds,
     activityTerminalLastOutputAtById,
@@ -404,6 +407,11 @@ export function useAppRootModel() {
     resizingSidebarRef,
     toggleProject,
     selectWorkspace,
+    openWorkspaceDiff: (projectId, workspaceId) => {
+      selectWorkspace(projectId, workspaceId);
+      setDeveloperServicesTab('diff');
+      setDeveloperServicesVisible(true);
+    },
     setContextMenu,
     openProjectDialog,
     openWorkspaceDialog,

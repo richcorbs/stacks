@@ -10,6 +10,16 @@ export type GithubPullRequest = {
   draft: boolean;
 };
 
+export type GithubCurrentPullRequest = {
+  number: number;
+  title: string;
+  url: string;
+  draft: boolean;
+  ci_status: GithubStatus;
+  base_ref_name: string;
+  head_ref_name: string;
+};
+
 export type GithubPullRequestsResponse = {
   repository: string;
   pull_requests: GithubPullRequest[];

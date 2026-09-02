@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react';
 import type { ContextMenuState, PointerDragState, Project, WorkspaceEntry } from '../types';
+import type { GithubCurrentPullRequest } from '../github/types';
 import { SidebarWorkspaceRow } from './SidebarWorkspaceRow';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
@@ -10,6 +11,7 @@ export function SidebarProjectSection({
   activeWorkspaceId,
   sidebarFocusedWorkspaceId,
   sidebarWorkspaces,
+  workspacePullRequests,
   runningTerminalIds,
   activityWorkspaceIds,
   activityTerminalLastOutputAtById,
@@ -19,6 +21,7 @@ export function SidebarProjectSection({
   pointerDragRef,
   toggleProject,
   selectWorkspace,
+  openWorkspaceDiff,
   setContextMenu,
   onAddTerminal,
 }: {
@@ -27,6 +30,7 @@ export function SidebarProjectSection({
   activeWorkspaceId: string | null;
   sidebarFocusedWorkspaceId: string | null;
   sidebarWorkspaces: SidebarWorkspace[];
+  workspacePullRequests: Record<string, GithubCurrentPullRequest>;
   runningTerminalIds: string[];
   activityWorkspaceIds: string[];
   activityTerminalLastOutputAtById: Record<string, number>;
@@ -36,6 +40,7 @@ export function SidebarProjectSection({
   pointerDragRef: MutableRefObject<PointerDragState | null>;
   toggleProject: (projectId: string) => void;
   selectWorkspace: (projectId: string, workspaceId: string) => void;
+  openWorkspaceDiff: (projectId: string, workspaceId: string) => void;
   setContextMenu: (menu: ContextMenuState) => void;
   onAddTerminal: (project: Project) => void;
 }) {
@@ -95,6 +100,7 @@ export function SidebarProjectSection({
               activeWorkspaceId={activeWorkspaceId}
               sidebarFocusedWorkspaceId={sidebarFocusedWorkspaceId}
               sidebarWorkspaces={sidebarWorkspaces}
+              pullRequest={workspacePullRequests[workspace.id] ?? null}
               runningTerminalIds={runningTerminalIds}
               activityWorkspaceIds={activityWorkspaceIds}
               activityTerminalLastOutputAtById={activityTerminalLastOutputAtById}
@@ -103,6 +109,7 @@ export function SidebarProjectSection({
               justPointerDraggedRef={justPointerDraggedRef}
               pointerDragRef={pointerDragRef}
               selectWorkspace={selectWorkspace}
+              openWorkspaceDiff={openWorkspaceDiff}
               setContextMenu={setContextMenu}
             />
           ))}
