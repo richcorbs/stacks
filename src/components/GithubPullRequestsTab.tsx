@@ -39,22 +39,22 @@ export function GithubPullRequestsTab({
         >
           <PullRequestTitle number={pullRequest.number} title={pullRequest.title} />
         </a>
-        <div className="githubPrFooter">
-          <div className="githubItemMeta">
-            <span className="githubPrAttribution">@{pullRequest.author}</span>
-            {pullRequest.draft && <span>Draft</span>}
-          </div>
+        <div className="githubItemMeta githubPrMeta">
+          <span className="githubPrAttribution">@{pullRequest.author}</span>
+          {pullRequest.draft && <span>Draft</span>}
+        </div>
+        <div className="githubPrActions">
+          <button
+            className="githubMergeButton"
+            type="button"
+            disabled={pullRequest.draft || !repository || mergingNumber !== null}
+            onClick={() => { if (repository) onRequestMerge(pullRequest, repository); }}
+            aria-label={mergingNumber === pullRequest.number ? `Merging PR #${pullRequest.number}` : `Merge PR #${pullRequest.number}`}
+          >
+            {mergingNumber === pullRequest.number ? <span className="githubMergeSpinner" aria-hidden="true" /> : 'MERGE'}
+          </button>
           <span className="githubPrCiStatus"><GithubStatusIcon status={displayStatus.status} context="CI" label={displayStatus.label} /></span>
         </div>
-        <button
-          className="githubMergeButton"
-          type="button"
-          disabled={pullRequest.draft || !repository || mergingNumber !== null}
-          onClick={() => { if (repository) onRequestMerge(pullRequest, repository); }}
-          aria-label={mergingNumber === pullRequest.number ? `Merging PR #${pullRequest.number}` : `Merge PR #${pullRequest.number}`}
-        >
-          {mergingNumber === pullRequest.number ? <span className="githubMergeSpinner" aria-hidden="true" /> : 'MERGE'}
-        </button>
       </article>;
     })}
   </>;
