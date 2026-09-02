@@ -6,6 +6,7 @@ import { DeveloperServicesPanel } from './DeveloperServicesPanel';
 import type { DeveloperServicesLayoutProps, MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from './AppLayoutTypes';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { useDiffReview } from '../diffReview/useDiffReview';
+import { diffReviewTargetPane } from '../diffReview/targetPane';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 
 export function AppLayout({
@@ -25,13 +26,25 @@ export function AppLayout({
     .find(({ workspace }) => workspace.id === main.activeWorkspaceId);
   const diffPath = activeWorkspaceModel?.workspace.cwd || activeWorkspaceModel?.project.path || null;
   const diffReview = useDiffReview(main.activeWorkspaceId);
-  const activeTerminal = activeWorkspaceModel?.terminals.find((terminal) => terminal.id === main.activeTerminalId);
-  const canSubmitDiffReview = activeTerminal?.kind === 'pi';
+  const diffReviewTarget = diffReviewTargetPane(activeWorkspaceModel?.terminals ?? [], main.activeTerminalId);
+  const canSubmitDiffReview = Boolean(diffReviewTarget);
 
   function submitDiffReview() {
-    if (!canSubmitDiffReview || !activeTerminal) return;
-    const delivered = sendTextToPiEditor(activeTerminal.id, composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments));
-    if (delivered) diffReview.reset();
+    if (!diffReviewTarget || !activeWorkspaceModel) return;
+    const prompt = composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments);
+    const deliver = () => {
+      const delivered = sendTextToPiEditor(diffReviewTarget.id, prompt);
+      if (delivered) diffReview.reset();
+      return delivered;
+    };
+    if (diffReviewTarget.id === main.activeTerminalId) {
+      deliver();
+      return;
+    }
+    main.focusTerminal(activeWorkspaceModel.workspace.id, diffReviewTarget.id);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!deliver()) window.setTimeout(deliver, 50);
+    }));
   }
 
   return (
