@@ -40,6 +40,15 @@ export function AppLayout({
     else window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Could not focus the Pi composer' } }));
   }
 
+  function closeDiff() {
+    diffReview.setOpenDiff(null);
+    const activeTerminal = activeWorkspaceModel?.terminals.find((terminal) => terminal.id === main.activeTerminalId);
+    if (activeTerminal?.kind !== 'pi') return;
+    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('pane-focus-request', {
+      detail: { terminalId: activeTerminal.id, reason: 'close-diff' },
+    })));
+  }
+
   return (
     <div className="app" style={appStyle}>
       <Sidebar
@@ -76,6 +85,7 @@ export function AppLayout({
         diffReview={diffReview}
         canSubmitDiffReview={canSubmitDiffReview}
         onSubmitDiffReview={submitDiffReview}
+        onCloseDiff={closeDiff}
         workspaces={main.visitedWorkspaceTerminalTrees}
         activeWorkspaceId={main.activeWorkspaceId}
         activeTerminalId={main.activeTerminalId}

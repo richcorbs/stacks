@@ -3,10 +3,11 @@ import { hasDiffReviewFeedback } from '../diffReview/prompt';
 import type { DiffReviewComment, DiffReviewCommentSide, DiffReviewModel } from '../diffReview/types';
 import { numberDiffLines, type NumberedDiffLine } from '../git/diffLines';
 
-export function DiffOverlay({ review, canSubmit, onSubmit }: {
+export function DiffOverlay({ review, canSubmit, onSubmit, onClose }: {
   review: DiffReviewModel;
   canSubmit: boolean;
   onSubmit: () => void;
+  onClose: () => void;
 }) {
   const [overallOpen, setOverallOpen] = useState(Boolean(review.overallComment));
   const [contentWidth, setContentWidth] = useState(0);
@@ -54,7 +55,7 @@ export function DiffOverlay({ review, canSubmit, onSubmit }: {
           <strong>Review changes</strong>
           <button type="button" className={overallOpen ? 'active' : ''} onClick={() => setOverallOpen((open) => !open)}>Overall comment</button>
           <button type="button" className="diffSubmitReview" disabled={!canSend} title={!canSubmit ? 'Focus a Pi GUI terminal before submitting' : undefined} onClick={onSubmit}>Submit review</button>
-          <button type="button" onClick={() => review.setOpenDiff(null)} aria-label="Close diff">Close</button>
+          <button type="button" onClick={onClose} aria-label="Close diff">Close</button>
         </div>
         <div className="diffOverlayHeader">
           <strong>{diff.path}</strong>

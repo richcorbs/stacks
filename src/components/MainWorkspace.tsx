@@ -46,6 +46,7 @@ type MainWorkspaceProps = {
   diffReview: DiffReviewModel;
   canSubmitDiffReview: boolean;
   onSubmitDiffReview: () => void;
+  onCloseDiff: () => void;
 };
 
 export function MainWorkspace({
@@ -80,6 +81,7 @@ export function MainWorkspace({
   diffReview,
   canSubmitDiffReview,
   onSubmitDiffReview,
+  onCloseDiff,
 }: MainWorkspaceProps) {
   return (
     <main className="main">
@@ -114,7 +116,7 @@ export function MainWorkspace({
           onToggleMaximizedTerminal={onToggleMaximizedTerminal}
           onSplitTerminal={onSplitTerminal}
         />
-        {diffReview.openDiff && <DiffOverlay review={diffReview} canSubmit={canSubmitDiffReview} onSubmit={onSubmitDiffReview} />}
+        {diffReview.openDiff && <DiffOverlay review={diffReview} canSubmit={canSubmitDiffReview} onSubmit={onSubmitDiffReview} onClose={onCloseDiff} />}
       </section>
       {hasActiveTerminal && <WorkspaceStatusbar activePath={activePath} gitInfo={gitInfo} />}
     </main>
