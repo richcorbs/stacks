@@ -914,8 +914,12 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .diffAddition { color: #a9d4b5; background: rgba(42, 105, 64, .28); }
 .diffDeletion { color: #dda6a6; background: rgba(122, 48, 48, .28); }
 .githubPrRow,
+.githubActionRow { position: relative; }
+.githubPrRow {
+  padding: 10px 9px 11px;
+  border-bottom: 1px solid #223142;
+}
 .githubActionRow {
-  position: relative;
   margin-bottom: 7px;
   padding: 9px 9px 10px;
   border: 1px solid #223040;
