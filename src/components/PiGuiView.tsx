@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
-import Markdown from 'react-markdown';
+import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands } from '../pi/commands';
@@ -377,7 +377,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         {visibleMessages.map((message, index) => <PiMessage key={`${message.timestamp || index}:${index}`} message={message} toolArgs={historicalToolArgs} />)}
         {pi.streamingText && (
           <div className="piMessage piMessageAssistant">
-            <div className="piMessageText piMarkdown"><Markdown remarkPlugins={[remarkGfm]}>{pi.streamingText}</Markdown><span className="piStreamingCursor" /></div>
+            <div className="piMessageText piMarkdown"><PiMarkdown>{pi.streamingText}</PiMarkdown><span className="piStreamingCursor" /></div>
           </div>
         )}
         {pi.tools.map((tool) => (
@@ -590,10 +590,10 @@ function PiMessage({ message, toolArgs }: { message: PiMessageData; toolArgs: Ma
     return <div className="piMessage piMessageAssistant">
       {visibleBlocks.map((block, index) => {
         if (block?.type === 'text' && typeof block.text === 'string' && block.text) {
-          return <div className="piMessageText piMarkdown" key={`text:${index}`}><Markdown remarkPlugins={[remarkGfm]}>{block.text}</Markdown></div>;
+          return <div className="piMessageText piMarkdown" key={`text:${index}`}><PiMarkdown>{block.text}</PiMarkdown></div>;
         }
         if (block?.type === 'thinking' && typeof block.thinking === 'string' && block.thinking) {
-          return <details className="piThinking" key={`thinking:${index}`}><summary>Reasoning</summary><div className="piMarkdown"><Markdown remarkPlugins={[remarkGfm]}>{block.thinking}</Markdown></div></details>;
+          return <details className="piThinking" key={`thinking:${index}`}><summary>Reasoning</summary><div className="piMarkdown"><PiMarkdown>{block.thinking}</PiMarkdown></div></details>;
         }
         return null;
       })}
@@ -609,6 +609,52 @@ function PiMessage({ message, toolArgs }: { message: PiMessageData; toolArgs: Ma
     />;
   }
   return null;
+}
+
+const markdownComponents: Components = {
+  pre: ({ children }) => <MarkdownCodeBlock>{children}</MarkdownCodeBlock>,
+};
+
+function PiMarkdown({ children }: { children: string }) {
+  return <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{children}</Markdown>;
+}
+
+function MarkdownCodeBlock({ children }: { children: React.ReactNode }) {
+  const preRef = useRef<HTMLPreElement | null>(null);
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+  }, []);
+
+  async function copyCode() {
+    const code = preRef.current?.querySelector('code')?.textContent ?? preRef.current?.textContent ?? '';
+    try {
+      await writeText(code);
+      setCopied(true);
+      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Code copied to clipboard' } }));
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not copy: ${String(error)}` } }));
+    }
+  }
+
+  return <div className="piCodeBlock">
+    <pre ref={preRef}>{children}</pre>
+    <button
+      className={`piCodeCopyButton ${copied ? 'copied' : ''}`}
+      type="button"
+      aria-label={copied ? 'Code copied' : 'Copy code'}
+      title={copied ? 'Copied' : 'Copy code'}
+      onClick={() => copyCode().catch(console.error)}
+    >
+      {copied
+        ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+        : <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" /></svg>}
+    </button>
+  </div>;
 }
 
 function PiToolCard({ name, args, output, status, details, live = false }: {
