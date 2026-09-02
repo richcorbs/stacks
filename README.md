@@ -49,20 +49,20 @@ The default installation location is `~/Applications/Stacks.app`.
 Set all application version files together:
 
 ```bash
-npm run version:set -- 1.0.1
+npm run version:set -- 0.4.17
 npm run check:version
 ```
 
-Add release notes at `releases/v1.0.1.md` and commit the version change. Releases are built locally so the process has no CI or Apple Developer Program cost:
+Add release notes at `releases/v0.4.17.md` and commit the version change. Releases are built locally so the process has no CI or Apple Developer Program cost:
 
 ```bash
-git tag v1.0.1
-git push origin main v1.0.1
+git tag v0.4.17
+git push origin main v0.4.17
 npm run release:prepare
 npm run release:publish
 ```
 
-`release:prepare` runs all validation, builds the Apple Silicon app, signs its updater archive, and writes artifacts under `release-artifacts/v1.0.1/`. `release:publish` creates a draft GitHub release with the legacy-compatible ZIP uploaded first. Smoke-test the draft before publishing it.
+`release:prepare` runs all validation, builds the Apple Silicon app, signs its updater archive, and writes artifacts under `release-artifacts/v0.4.17/`. `release:publish` creates a draft GitHub release with the legacy-compatible ZIP uploaded first. Smoke-test the draft before publishing it.
 
 The updater key and password are stored locally at `~/.tauri/stacks-updater.key` and `~/.tauri/stacks-updater.password`. Back them up securely; losing them prevents existing installations from accepting future updates. Apple Developer ID signing and notarization are optional and are not required by this free release process.
 
