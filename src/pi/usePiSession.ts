@@ -28,6 +28,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [context, setContext] = useState<PiSessionContext>(EMPTY_CONTEXT);
   const [streamingText, setStreamingText] = useState('');
+  const [isStreamingText, setIsStreamingText] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [tools, setTools] = useState<PiToolActivity[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -114,21 +115,27 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
         }
         case 'agent_start':
           setIsStreaming(true);
+          setIsStreamingText(false);
           setStreamingText('');
           setTools([]);
           setError(null);
           break;
-        case 'message_update':
-          if (event.assistantMessageEvent?.type === 'text_delta') {
+        case 'message_update': {
+          const updateType = event.assistantMessageEvent?.type;
+          if (updateType === 'text_start' || updateType === 'text_delta') setIsStreamingText(true);
+          else if (updateType === 'text_end' || updateType === 'thinking_start' || updateType === 'thinking_delta' || updateType === 'thinking_end' || updateType === 'toolcall_start') setIsStreamingText(false);
+          if (updateType === 'text_delta') {
             setStreamingText((current) => current + (event.assistantMessageEvent?.delta || ''));
             notifyOutput(workspaceId, paneId);
           }
           break;
+        }
         case 'message_end':
           if (event.message && typeof event.message === 'object') {
             const message = event.message as PiMessage;
             setMessages((current) => appendPiMessage(current, message));
             if (message.role === 'assistant') {
+              setIsStreamingText(false);
               setStreamingText('');
               notifyOutput(workspaceId, paneId);
             }
@@ -171,6 +178,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
           break;
         case 'agent_settled':
           setIsStreaming(false);
+          setIsStreamingText(false);
           setStreamingText('');
           setTools([]);
           refreshState().catch(() => {});
@@ -193,6 +201,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
         case 'pi_process_exit':
           notifyRunning(paneId, false);
           setIsStreaming(false);
+          setIsStreamingText(false);
           setQueuedSteering([]);
           setQueuedFollowUps([]);
           setStopped(true);
@@ -326,6 +335,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
   const restart = useCallback(async () => {
     setStarting(true);
     setStopped(false);
+    setIsStreamingText(false);
     setError(null);
     setQueuedSteering([]);
     setQueuedFollowUps([]);
@@ -350,7 +360,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     }
   }, [cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats]);
 
-  return { messages, context, commands, queuedSteering, queuedFollowUps, editorTextRequest, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, restart, respondToUiRequest };
+  return { messages, context, commands, queuedSteering, queuedFollowUps, editorTextRequest, streamingText, isStreamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, restart, respondToUiRequest };
 }
 
 function notifyRunning(paneId: string, running: boolean) {

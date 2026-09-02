@@ -4,6 +4,10 @@ export const MAX_RENDERED_PI_MESSAGES = 300;
 export const MAX_STORED_PI_MESSAGES = 1_000;
 export const MAX_LIVE_IMAGE_PREVIEWS = 10;
 
+export function hasVisiblePiStreamingText(text: string) {
+  return Boolean(text.replace(/\u200b/g, '').trim());
+}
+
 export function compactPiMessage(message: PiMessage): PiMessage {
   const skillInvocation = message.role === 'user' ? collapsedSkillInvocation(message.content) : null;
   if (skillInvocation) return { ...message, content: skillInvocation };

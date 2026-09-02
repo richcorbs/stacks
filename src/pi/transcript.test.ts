@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { appendPiMessage, compactPiMessages, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, visiblePiMessages } from './transcript';
+import { appendPiMessage, compactPiMessages, hasVisiblePiStreamingText, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, visiblePiMessages } from './transcript';
 import type { PiMessage } from './types';
 
 describe('Pi transcript', () => {
+  it('does not treat whitespace-only streaming deltas as visible text', () => {
+    expect(hasVisiblePiStreamingText(' \n\t\u200b')).toBe(false);
+    expect(hasVisiblePiStreamingText('\nHello')).toBe(true);
+  });
+
   it('deduplicates replayed messages by role and timestamp', () => {
     const message: PiMessage = { role: 'assistant', timestamp: 42, content: 'done' };
     const messages = [message];

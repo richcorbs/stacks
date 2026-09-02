@@ -7,7 +7,7 @@ import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
 import type { PiCommand, PiContentBlock, PiMessage as PiMessageData, PiPromptImage, PiSessionContext } from '../pi/types';
-import { visiblePiMessages } from '../pi/transcript';
+import { hasVisiblePiStreamingText, visiblePiMessages } from '../pi/transcript';
 import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentation';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { usePiSession } from '../pi/usePiSession';
@@ -166,6 +166,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
+  const hasStreamingText = hasVisiblePiStreamingText(pi.streamingText);
+  const hasActiveStreamingText = hasStreamingText && pi.isStreamingText;
 
   function chooseCommand(command: PiCommand) {
     setPrompt(applySlashCommand(command));
@@ -376,9 +378,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         )}
         {hiddenMessageCount > 0 && <div className="piHistoryLimit">{hiddenMessageCount} older messages are hidden to keep this pane responsive.</div>}
         {visibleMessages.map((message, index) => <PiMessage key={`${message.timestamp || index}:${index}`} message={message} toolArgs={historicalToolArgs} />)}
-        {pi.streamingText && (
+        {hasStreamingText && (
           <div className="piMessage piMessageAssistant">
-            <div className="piMessageText piMarkdown"><PiMarkdown>{pi.streamingText}</PiMarkdown><span className="piStreamingCursor" /></div>
+            <div className="piMessageText piMarkdown"><PiMarkdown>{pi.streamingText}</PiMarkdown>{hasActiveStreamingText && <span className="piStreamingCursor" />}</div>
           </div>
         )}
         {pi.tools.map((tool) => (
@@ -401,7 +403,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             <div className="piMessageText"><small>Follow up</small><span>{message}</span></div>
           </div>
         ))}
-        {pi.isStreaming && !pi.streamingText && pi.tools.length === 0 && (
+        {pi.isStreaming && !hasActiveStreamingText && pi.tools.length === 0 && (
           <div className="piWorkingIndicator" role="status" aria-label="Pi is thinking" aria-live="polite">
             <span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
           </div>
