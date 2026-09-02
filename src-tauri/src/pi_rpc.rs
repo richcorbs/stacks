@@ -64,12 +64,18 @@ pub fn start_pi_session(
     registry: State<'_, Mutex<PiRpcRegistry>>,
     pane_id: String,
     cwd: String,
+    project_path: Option<String>,
 ) -> Result<String, String> {
     if pane_id.trim().is_empty() {
         return Err("Pi pane ID is required".to_string());
     }
     let cwd = canonical_project_path(&cwd)?;
-    let approve_project = read_trusted_projects()?.contains(&cwd);
+    let project_path = project_path
+        .as_deref()
+        .map(canonical_project_path)
+        .transpose()?;
+    let trusted_projects = read_trusted_projects()?;
+    let approve_project = is_project_trusted(&trusted_projects, &cwd, project_path.as_deref());
 
     // React panes can remount while their first start is still in flight. Treat
     // concurrent starts as idempotent and wait for the owner instead of leaving
@@ -373,17 +379,32 @@ fn session_dir(pane_id: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub fn pi_project_trusted(cwd: String) -> Result<bool, String> {
+pub fn pi_project_trusted(cwd: String, project_path: Option<String>) -> Result<bool, String> {
     let cwd = canonical_project_path(&cwd)?;
-    Ok(read_trusted_projects()?.contains(&cwd))
+    let project_path = project_path
+        .as_deref()
+        .map(canonical_project_path)
+        .transpose()?;
+    let trusted_projects = read_trusted_projects()?;
+    Ok(is_project_trusted(&trusted_projects, &cwd, project_path.as_deref()))
 }
 
 #[tauri::command]
-pub fn set_pi_project_trusted(cwd: String, trusted: bool) -> Result<(), String> {
+pub fn set_pi_project_trusted(cwd: String, project_path: Option<String>, trusted: bool) -> Result<(), String> {
     let cwd = canonical_project_path(&cwd)?;
+    let project_path = project_path
+        .as_deref()
+        .map(canonical_project_path)
+        .transpose()?;
+    let trust_path = project_path.unwrap_or_else(|| cwd.clone());
     let _guard = TRUST_FILE_LOCK.lock().map_err(|_| "Pi trust lock poisoned".to_string())?;
     let mut projects = read_trusted_projects_unlocked()?;
-    if trusted { projects.insert(cwd); } else { projects.remove(&cwd); }
+    if trusted {
+        projects.insert(trust_path);
+    } else {
+        projects.remove(&trust_path);
+        projects.remove(&cwd);
+    }
     let mut path = app_data_dir()?;
     path.push("pi-trusted-projects.json");
     let temporary = path.with_extension("json.tmp");
@@ -397,6 +418,11 @@ fn canonical_project_path(cwd: &str) -> Result<String, String> {
         .map_err(|error| format!("Could not resolve Pi working directory: {error}"))?
         .to_str().map(str::to_string)
         .ok_or_else(|| "Pi working directory is not valid UTF-8".to_string())
+}
+
+fn is_project_trusted(trusted_projects: &HashSet<String>, cwd: &str, project_path: Option<&str>) -> bool {
+    trusted_projects.contains(cwd)
+        || project_path.is_some_and(|path| trusted_projects.contains(path))
 }
 
 fn read_trusted_projects() -> Result<HashSet<String>, String> {
@@ -486,11 +512,19 @@ fn find_pi() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{project_trust_flag, safe_session_key};
+    use super::{is_project_trusted, project_trust_flag, safe_session_key};
+    use std::collections::HashSet;
 
     #[test]
     fn creates_safe_session_directory_names() {
         assert_eq!(safe_session_key("workspace:123"), "workspace_123");
+    }
+
+    #[test]
+    fn workspace_directories_inherit_project_trust() {
+        let trusted = HashSet::from(["/repo".to_string()]);
+        assert!(is_project_trusted(&trusted, "/repo-worktree", Some("/repo")));
+        assert!(!is_project_trusted(&trusted, "/other-worktree", Some("/other")));
     }
 
     #[test]

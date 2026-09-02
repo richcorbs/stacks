@@ -52,6 +52,6 @@ The context footer refreshes RPC `get_session_stats` after startup, restart, and
 
 ## Skills and slash commands
 
-Pi performs its standard global resource discovery at process startup and adds loaded skills to the model context. Trusted projects additionally load their project-local skills, prompt templates, packages, and extensions. After startup the GUI calls RPC `get_commands` and offers completion for `/skill:name`, prompt-template commands, and extension commands; the selected text is sent through RPC `prompt`, where Pi performs the actual expansion or execution.
+Pi performs its standard global resource discovery at process startup and adds loaded skills to the model context. Trusted projects additionally load their project-local skills, prompt templates, packages, and extensions. Trust is recorded for the user-facing project path and inherited by workspace directories such as Git worktrees. After startup the GUI calls RPC `get_commands` and offers completion for `/skill:name`, prompt-template commands, and extension commands; the selected text is sent through RPC `prompt`, where Pi performs the actual expansion or execution.
 
 RPC does not return built-in TUI commands from `get_commands`. The GUI supplements completion with built-ins it can implement through dedicated RPC commands: `/new` maps to `new_session`, and `/compact [instructions]` maps to `compact`. Other TUI-only commands remain unavailable until the GUI provides their corresponding interaction.

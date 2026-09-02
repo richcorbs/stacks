@@ -30,7 +30,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 }) {
   const cwd = terminal.cwd || workspace.cwd || project.path;
   const [projectTrusted, setProjectTrusted] = useState(false);
-  const pi = usePiSession(terminal.id, cwd, workspace.id);
+  const pi = usePiSession(terminal.id, cwd, workspace.id, project.path);
   const [prompt, setPrompt] = useState('');
   const [composerFontSize, setComposerFontSize] = useState(15);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -50,8 +50,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const historyDraftRef = useRef('');
 
   useEffect(() => {
-    invoke<boolean>('pi_project_trusted', { cwd }).then(setProjectTrusted).catch(() => setProjectTrusted(false));
-  }, [cwd]);
+    invoke<boolean>('pi_project_trusted', { cwd, projectPath: project.path }).then(setProjectTrusted).catch(() => setProjectTrusted(false));
+  }, [cwd, project.path]);
 
   useEffect(() => {
     if (!visible) return;
@@ -319,10 +319,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   async function toggleProjectTrust() {
     const nextTrusted = !projectTrusted;
     const approved = window.confirm(nextTrusted
-      ? `Trust project-local Pi settings and extensions in:\n\n${cwd}\n\nProject extensions execute with your user permissions.`
-      : `Revoke project-local Pi settings and extensions for:\n\n${cwd}?`);
+      ? `Trust project-local Pi settings and extensions for:\n\n${project.path}\n\nThis applies to its workspace directories and Git worktrees. Project extensions execute with your user permissions.`
+      : `Revoke project-local Pi settings and extensions for:\n\n${project.path}?`);
     if (!approved) return;
-    await invoke('set_pi_project_trusted', { cwd, trusted: nextTrusted });
+    await invoke('set_pi_project_trusted', { cwd, projectPath: project.path, trusted: nextTrusted });
     setProjectTrusted(nextTrusted);
     await pi.restart();
   }

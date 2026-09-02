@@ -24,7 +24,7 @@ type PendingRequest = {
   timer: number;
 };
 
-export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
+export function usePiSession(paneId: string, cwd: string, workspaceId: string, projectPath: string) {
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [context, setContext] = useState<PiSessionContext>(EMPTY_CONTEXT);
   const [streamingText, setStreamingText] = useState('');
@@ -220,7 +220,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
         // Accept events from the first generation while startup is in flight so
         // an immediate process exit or diagnostic is not silently discarded.
         generationRef.current = null;
-        invoke<string>('start_pi_session', { paneId, cwd })
+        invoke<string>('start_pi_session', { paneId, cwd, projectPath })
           .then(async (generation) => {
             generationRef.current = generation;
             await Promise.all([refreshState(), refreshMessages()]);
@@ -253,7 +253,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
       }
       pendingRequests.current.clear();
     };
-  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats, workspaceId, writeCommand]);
+  }, [cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats, workspaceId, writeCommand]);
 
   useEffect(() => {
     if (!uiRequest?.timeout) return;
@@ -333,7 +333,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     generationRef.current = 'restarting';
     try {
       await invoke('stop_pi_session', { paneId });
-      const generation = await invoke<string>('start_pi_session', { paneId, cwd });
+      const generation = await invoke<string>('start_pi_session', { paneId, cwd, projectPath });
       generationRef.current = generation;
       await Promise.all([refreshState(), refreshMessages()]);
       refreshCommands().catch(() => setCommands(GUI_BUILTIN_COMMANDS));
@@ -348,7 +348,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string) {
     } finally {
       setStarting(false);
     }
-  }, [cwd, paneId, refreshCommands, refreshMessages, refreshState, refreshStats]);
+  }, [cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats]);
 
   return { messages, context, commands, queuedSteering, queuedFollowUps, editorTextRequest, streamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, restart, respondToUiRequest };
 }
