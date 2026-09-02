@@ -879,7 +879,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   gap: 12px;
 }
 .diffOverlayHeader strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c2cedb; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.diffReviewToolbar button { padding: 5px 9px; border: 1px solid #34485e; border-radius: 5px; background: #192635; color: #aebdcb; cursor: pointer; white-space: nowrap; }
+.diffReviewToolbar button { min-height: 28px; padding: 5px 9px; border: 1px solid #34485e; border-radius: 5px; background: #192635; color: #aebdcb; cursor: pointer; font-size: 11px; white-space: nowrap; }
 .diffReviewToolbar button:hover { background: #223247; color: #e0e8f0; }
 .diffReviewToolbar button.active { border-color: #47749c; color: #c9d9e8; }
 .diffReviewToolbar button.reviewed { border-color: #397650; background: #193426; color: #8bd5a3; }
