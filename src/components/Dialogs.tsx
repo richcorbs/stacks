@@ -60,12 +60,14 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
           }
         }}
       >
-        <DialogFields
-          dialog={dialog}
-          setDialog={setDialog}
-          firstInputRef={firstInputRef}
-          chooseEditWorkspaceDirectory={chooseEditWorkspaceDirectory}
-        />
+        <fieldset className="dialogFields" disabled={setupRunning}>
+          <DialogFields
+            dialog={dialog}
+            setDialog={setDialog}
+            firstInputRef={firstInputRef}
+            chooseEditWorkspaceDirectory={chooseEditWorkspaceDirectory}
+          />
+        </fieldset>
         {submitError && <div className="dialogSubmitError">{submitError}</div>}
         <div className="modalActions">
           <button type="button" disabled={submitting && !setupRunning} onClick={cancel}>{setupRunning ? 'Cancel setup' : 'Cancel'}</button>

@@ -428,6 +428,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   padding: 18px;
 }
 .modal h2 { margin: 0 0 16px; font-size: 18px; }
+.dialogFields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.dialogFields:disabled input,
+.dialogFields:disabled button { cursor: not-allowed; opacity: .55; }
 .modal label { display: block; color: #8fa0b3; font-size: 12px; margin-bottom: 18px; }
 .modal.terminalDialog label { margin-bottom: 26px; }
 .modal.terminalDialog .dialogPaneKindField { margin-bottom: 26px; }
