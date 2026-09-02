@@ -29,22 +29,15 @@ export function AppLayout({
   const diffReviewTarget = diffReviewTargetPane(activeWorkspaceModel?.terminals ?? [], main.activeTerminalId);
   const canSubmitDiffReview = Boolean(diffReviewTarget);
 
-  function submitDiffReview() {
+  async function submitDiffReview() {
     if (!diffReviewTarget || !activeWorkspaceModel) return;
     const prompt = composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments);
-    const deliver = () => {
-      const delivered = sendTextToPiEditor(diffReviewTarget.id, prompt);
-      if (delivered) diffReview.reset();
-      return delivered;
-    };
-    if (diffReviewTarget.id === main.activeTerminalId) {
-      deliver();
-      return;
+    if (diffReviewTarget.id !== main.activeTerminalId) {
+      main.focusTerminal(activeWorkspaceModel.workspace.id, diffReviewTarget.id);
     }
-    main.focusTerminal(activeWorkspaceModel.workspace.id, diffReviewTarget.id);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (!deliver()) window.setTimeout(deliver, 50);
-    }));
+    const delivered = await sendTextToPiEditor(diffReviewTarget.id, prompt);
+    if (delivered) diffReview.reset();
+    else window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Could not focus the Pi composer' } }));
   }
 
   return (

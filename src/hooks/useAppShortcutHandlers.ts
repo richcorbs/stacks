@@ -89,6 +89,7 @@ export function useAppShortcutHandlers({
     onOpenSearch: openTerminalSearch,
     onOpenSettings: () => setSettingsOpen(true),
     onToggleDiff: toggleDiff,
+    onToggleGithubPullRequests: toggleGithubPullRequests,
     onRestartApp: () => {
       invoke('save_workspace_focus', {
         activeProjectId: activeProject?.id ?? null,

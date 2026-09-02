@@ -1,5 +1,6 @@
 import type { PaneKind, Project, WorkspaceEntry } from './types';
 import type { PaletteItem } from './components/CommandPalette';
+import { SHORTCUT_DEFINITIONS } from './shortcutRegistry';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
@@ -29,6 +30,7 @@ export function commandPaletteCoreItems({
   onOpenSearch,
   onOpenSettings,
   onToggleDiff,
+  onToggleGithubPullRequests,
   onRestartApp,
   onOpenDirectoryInEditor,
   onRunOneTimeCommand,
@@ -65,6 +67,7 @@ export function commandPaletteCoreItems({
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onToggleDiff: () => void;
+  onToggleGithubPullRequests: () => void;
   onRestartApp: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
@@ -76,6 +79,9 @@ export function commandPaletteCoreItems({
   activePaneKind: PaneKind;
   onToggleBroadcast: () => void;
 }): PaletteItem[] {
+  const diffShortcut = SHORTCUT_DEFINITIONS['toggle-diff'];
+  const pullRequestsShortcut = SHORTCUT_DEFINITIONS['toggle-github-pull-requests'];
+  const unseenShortcut = SHORTCUT_DEFINITIONS['focus-next-unseen-workspace'];
   let items: PaletteItem[] = [
     { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
     { id: 'new-workspace', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewWorkspace(activeProject) : onNewProject() },
@@ -84,7 +90,8 @@ export function commandPaletteCoreItems({
     { id: 'edit-workspace', title: 'Edit Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeWorkspace) onEditWorkspace(activeProject, activeWorkspace); } },
     { id: 'delete-workspace', title: 'Delete Current Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace', danger: true, action: () => { if (activeProject && activeWorkspace) onDeleteWorkspace(activeProject.id, activeWorkspace.id); } },
     { id: 'delete-multiple-workspaces', title: 'Delete Other Workspace(s)', subtitle: 'Match workspace names from a comma-separated list', keywords: 'bulk remove delete workspace names comma', danger: true, action: onDeleteMultipleWorkspaces },
-    { id: 'toggle-diff', title: 'Toggle Diff Panel', subtitle: '⇧⌘G', keywords: 'diff changes review developer services panel sidebar', action: onToggleDiff },
+    { id: 'toggle-diff', title: diffShortcut.title, subtitle: diffShortcut.hint, keywords: diffShortcut.keywords, action: onToggleDiff },
+    { id: 'toggle-pull-requests', title: pullRequestsShortcut.title, subtitle: pullRequestsShortcut.hint, keywords: pullRequestsShortcut.keywords, action: onToggleGithubPullRequests },
     { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color focused terminal border maximized green blue', action: onOpenSettings },
     { id: 'restart-stacks', title: 'Restart Stacks', subtitle: 'Relaunch the app and load the installed build', keywords: 'restart reload relaunch app update build', action: onRestartApp },
     { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
@@ -93,7 +100,7 @@ export function commandPaletteCoreItems({
     { id: 'split-terminal-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split terminal vertical', action: () => onSplitTerminal('row') },
     { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal horizontal', action: () => onSplitTerminal('column') },
     { id: 'find-terminal', title: 'Search Current Terminal', subtitle: '⌘F', keywords: 'find search terminal output', action: onOpenSearch },
-    { id: 'next-unseen-workspace', title: 'Focus Next Workspace with Unseen Output', subtitle: '⇧⌘N', keywords: 'next yellow unseen output activity notification workspace', action: onFocusNextWorkspaceWithUnseenOutput },
+    { id: 'next-unseen-workspace', title: unseenShortcut.title, subtitle: unseenShortcut.hint, keywords: unseenShortcut.keywords, action: onFocusNextWorkspaceWithUnseenOutput },
     { id: 'next-workspace', title: 'Next Workspace', subtitle: '⇧⌘]', keywords: 'switch workspace forward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, 1, onSelectWorkspace, onCycleWorkspace) },
     { id: 'previous-workspace', title: 'Previous Workspace', subtitle: '⇧⌘[', keywords: 'switch workspace backward', action: () => selectRelativeWorkspace(sidebarWorkspaces, activeWorkspaceId, -1, onSelectWorkspace, onCycleWorkspace) },
     { id: 'next-terminal', title: 'Next Terminal', subtitle: '⌘]', keywords: 'focus terminal forward', action: () => onCycleTerminal(1) },

@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { encoder, runShortcutAction } from './shortcutActions';
 import type { ShortcutHandlers } from './shortcutTypes';
+import { registeredShortcutAction } from './shortcutRegistry';
 
 export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: ShortcutHandlers) {
   const { setMetaKeyDown, activateWorkspaceByIndex } = handlers;
@@ -26,6 +27,11 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     runHandledShortcut(event, () => runShortcutAction('settings', handlers));
     return;
   }
+  const registeredAction = registeredShortcutAction(key, event.shiftKey);
+  if (registeredAction) {
+    runHandledShortcut(event, () => runShortcutAction(registeredAction, handlers));
+    return;
+  }
   if (key === 'p') {
     runHandledShortcut(event, () => runShortcutAction('command-palette', handlers));
     return;
@@ -40,10 +46,6 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   }
   if (key === 'r') {
     runHandledShortcut(event, () => runShortcutAction('toggle-superthread', handlers));
-    return;
-  }
-  if (key === 'g') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'toggle-diff' : 'toggle-github-pull-requests', handlers));
     return;
   }
   if (key === 'k') {

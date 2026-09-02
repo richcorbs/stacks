@@ -38,6 +38,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onOpenSearch: vi.fn(),
     onOpenSettings: vi.fn(),
     onToggleDiff: vi.fn(),
+    onToggleGithubPullRequests: vi.fn(),
     onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
     onRunOneTimeCommand: vi.fn(),
@@ -64,6 +65,7 @@ describe('buildCommandPaletteItems', () => {
       'add-cmd-p-command',
       'restart-stacks',
       'toggle-diff',
+      'toggle-pull-requests',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -86,7 +88,7 @@ describe('buildCommandPaletteItems', () => {
     const onToggleDiff = vi.fn();
     const item = palette({ onToggleDiff }).find((candidate) => candidate.id === 'toggle-diff');
     item?.action();
-    expect(item?.subtitle).toBe('⇧⌘G');
+    expect(item?.subtitle).toBe('⌘G');
     expect(onToggleDiff).toHaveBeenCalledOnce();
   });
 

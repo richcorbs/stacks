@@ -1,4 +1,5 @@
 export type WorkspaceStatusDot = 'alive' | 'active' | 'unseen' | null;
+export const FRESH_ACTIVITY_MS = 5000;
 
 export function nextWorkspaceWithUnseenOutput(
   workspaceIds: string[],
@@ -20,7 +21,7 @@ export function workspaceStatusDot({
   isRunning,
   hasUnacknowledgedActivity,
   activityAgeMs,
-  freshActivityMs = 5000,
+  freshActivityMs = FRESH_ACTIVITY_MS,
 }: {
   isRunning: boolean;
   hasUnacknowledgedActivity: boolean;

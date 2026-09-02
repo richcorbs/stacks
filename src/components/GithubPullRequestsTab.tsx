@@ -1,10 +1,8 @@
-import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GithubPullRequest } from '../github/types';
 import { pullRequestTitleParts } from '../github/pullRequestTitle';
 import { pullRequestDisplayStatus } from '../github/pullRequestStatus';
 import { GithubStatusIcon } from './GithubStatusIcon';
-import { ConfirmMergePullRequestDialog } from './ConfirmDialogs';
 
 export function GithubPullRequestsTab({
   activePath,
@@ -13,7 +11,7 @@ export function GithubPullRequestsTab({
   loading,
   error,
   mergingNumber,
-  onMerge,
+  onRequestMerge,
 }: {
   activePath: string | null;
   pullRequests: GithubPullRequest[];
@@ -21,10 +19,8 @@ export function GithubPullRequestsTab({
   loading: boolean;
   error: string | null;
   mergingNumber: number | null;
-  onMerge: (repository: string, number: number) => Promise<boolean>;
+  onRequestMerge: (pullRequest: GithubPullRequest, repository: string) => void;
 }) {
-  const [confirmingPullRequest, setConfirmingPullRequest] = useState<GithubPullRequest | null>(null);
-
   if (!activePath) return <div className="superthreadState">Select a workspace in a GitHub repository.</div>;
   return <>
     {loading && pullRequests.length === 0 && <div className="superthreadState">Loading GitHub pull requests…</div>}
@@ -54,25 +50,13 @@ export function GithubPullRequestsTab({
           className="githubMergeButton"
           type="button"
           disabled={pullRequest.draft || !repository || mergingNumber !== null}
-          onClick={() => setConfirmingPullRequest(pullRequest)}
+          onClick={() => { if (repository) onRequestMerge(pullRequest, repository); }}
           aria-label={mergingNumber === pullRequest.number ? `Merging PR #${pullRequest.number}` : `Merge PR #${pullRequest.number}`}
         >
           {mergingNumber === pullRequest.number ? <span className="githubMergeSpinner" aria-hidden="true" /> : 'MERGE'}
         </button>
       </article>;
     })}
-    {confirmingPullRequest && repository && (
-      <ConfirmMergePullRequestDialog
-        number={confirmingPullRequest.number}
-        pullRequestTitle={confirmingPullRequest.title}
-        onCancel={() => setConfirmingPullRequest(null)}
-        onConfirm={() => {
-          const number = confirmingPullRequest.number;
-          setConfirmingPullRequest(null);
-          onMerge(repository, number).catch(console.error);
-        }}
-      />
-    )}
   </>;
 }
 

@@ -111,7 +111,7 @@ describe('keyboardShortcutRouter', () => {
     expect(event.preventDefault).toHaveBeenCalled();
   });
 
-  it('uses Cmd-G to toggle developer services on the pull requests tab', () => {
+  it('uses Cmd-G to toggle the diff panel', () => {
     const h = handlers();
     const event = {
       key: 'g',
@@ -127,10 +127,10 @@ describe('keyboardShortcutRouter', () => {
 
     expect(event.preventDefault).toHaveBeenCalled();
     expect(event.stopPropagation).toHaveBeenCalled();
-    expect(h.toggleGithubPullRequests).toHaveBeenCalled();
+    expect(h.toggleDiff).toHaveBeenCalled();
   });
 
-  it('uses Cmd-Shift-G to toggle the diff panel', () => {
+  it('uses Cmd-Shift-G to toggle developer services on the pull requests tab', () => {
     const h = handlers();
     const event = {
       key: 'g',
@@ -144,8 +144,8 @@ describe('keyboardShortcutRouter', () => {
 
     handleMetaShortcutKeyDown(event, h);
 
-    expect(h.toggleDiff).toHaveBeenCalled();
-    expect(h.toggleGithubPullRequests).not.toHaveBeenCalled();
+    expect(h.toggleGithubPullRequests).toHaveBeenCalled();
+    expect(h.toggleDiff).not.toHaveBeenCalled();
     expect(event.preventDefault).toHaveBeenCalled();
   });
 

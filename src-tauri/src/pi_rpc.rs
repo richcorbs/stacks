@@ -4,7 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -422,7 +422,32 @@ fn canonical_project_path(cwd: &str) -> Result<String, String> {
 
 fn is_project_trusted(trusted_projects: &HashSet<String>, cwd: &str, project_path: Option<&str>) -> bool {
     trusted_projects.contains(cwd)
-        || project_path.is_some_and(|path| trusted_projects.contains(path))
+        || project_path.is_some_and(|project_path| {
+            trusted_projects.contains(project_path)
+                && workspace_belongs_to_project(cwd, project_path)
+        })
+}
+
+fn workspace_belongs_to_project(cwd: &str, project_path: &str) -> bool {
+    if Path::new(cwd).starts_with(project_path) {
+        return true;
+    }
+    match (git_common_directory(cwd), git_common_directory(project_path)) {
+        (Some(cwd_git_dir), Some(project_git_dir)) => cwd_git_dir == project_git_dir,
+        _ => false,
+    }
+}
+
+fn git_common_directory(path: &str) -> Option<PathBuf> {
+    let output = Command::new("git")
+        .args(["-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+    std::fs::canonicalize(path).ok()
 }
 
 fn read_trusted_projects() -> Result<HashSet<String>, String> {
@@ -521,10 +546,10 @@ mod tests {
     }
 
     #[test]
-    fn workspace_directories_inherit_project_trust() {
+    fn workspace_directories_inherit_project_trust_only_when_related() {
         let trusted = HashSet::from(["/repo".to_string()]);
-        assert!(is_project_trusted(&trusted, "/repo-worktree", Some("/repo")));
-        assert!(!is_project_trusted(&trusted, "/other-worktree", Some("/other")));
+        assert!(is_project_trusted(&trusted, "/repo/workspaces/one", Some("/repo")));
+        assert!(!is_project_trusted(&trusted, "/unrelated", Some("/repo")));
     }
 
     #[test]

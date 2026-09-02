@@ -42,6 +42,24 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
   const requestSequence = useRef(0);
   const generationRef = useRef<string | null>(null);
   const pendingRequests = useRef(new Map<string, PendingRequest>());
+  const streamingTextBufferRef = useRef('');
+  const streamingFrameRef = useRef<number | null>(null);
+
+  const resetStreamingText = useCallback(() => {
+    streamingTextBufferRef.current = '';
+    if (streamingFrameRef.current !== null) cancelAnimationFrame(streamingFrameRef.current);
+    streamingFrameRef.current = null;
+    setStreamingText('');
+  }, []);
+
+  const appendStreamingText = useCallback((delta: string) => {
+    streamingTextBufferRef.current += delta;
+    if (streamingFrameRef.current !== null) return;
+    streamingFrameRef.current = requestAnimationFrame(() => {
+      streamingFrameRef.current = null;
+      setStreamingText(streamingTextBufferRef.current);
+    });
+  }, []);
 
   const writeCommand = useCallback((command: Record<string, unknown>) => (
     invoke<void>('send_pi_rpc', { paneId, command }).catch((sendError) => {
@@ -116,7 +134,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
         case 'agent_start':
           setIsStreaming(true);
           setIsStreamingText(false);
-          setStreamingText('');
+          resetStreamingText();
           setTools([]);
           setError(null);
           break;
@@ -125,7 +143,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
           if (updateType === 'text_start' || updateType === 'text_delta') setIsStreamingText(true);
           else if (updateType === 'text_end' || updateType === 'thinking_start' || updateType === 'thinking_delta' || updateType === 'thinking_end' || updateType === 'toolcall_start') setIsStreamingText(false);
           if (updateType === 'text_delta') {
-            setStreamingText((current) => current + (event.assistantMessageEvent?.delta || ''));
+            appendStreamingText(event.assistantMessageEvent?.delta || '');
             notifyOutput(workspaceId, paneId);
           }
           break;
@@ -136,7 +154,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
             setMessages((current) => appendPiMessage(current, message));
             if (message.role === 'assistant') {
               setIsStreamingText(false);
-              setStreamingText('');
+              resetStreamingText();
               notifyOutput(workspaceId, paneId);
             }
             if (message.role === 'user') {
@@ -179,7 +197,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
         case 'agent_settled':
           setIsStreaming(false);
           setIsStreamingText(false);
-          setStreamingText('');
+          resetStreamingText();
           setTools([]);
           refreshState().catch(() => {});
           refreshStats().catch(() => {});
@@ -202,6 +220,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
           notifyRunning(paneId, false);
           setIsStreaming(false);
           setIsStreamingText(false);
+          resetStreamingText();
           setQueuedSteering([]);
           setQueuedFollowUps([]);
           setStopped(true);
@@ -261,8 +280,9 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
         pending.reject(new Error('Pi pane disconnected'));
       }
       pendingRequests.current.clear();
+      if (streamingFrameRef.current !== null) cancelAnimationFrame(streamingFrameRef.current);
     };
-  }, [cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats, workspaceId, writeCommand]);
+  }, [appendStreamingText, cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText, workspaceId, writeCommand]);
 
   useEffect(() => {
     if (!uiRequest?.timeout) return;
@@ -336,6 +356,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     setStarting(true);
     setStopped(false);
     setIsStreamingText(false);
+    resetStreamingText();
     setError(null);
     setQueuedSteering([]);
     setQueuedFollowUps([]);
@@ -358,7 +379,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     } finally {
       setStarting(false);
     }
-  }, [cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats]);
+  }, [cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText]);
 
   return { messages, context, commands, queuedSteering, queuedFollowUps, editorTextRequest, streamingText, isStreamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, restart, respondToUiRequest };
 }

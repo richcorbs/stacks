@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hasDiffReviewFeedback } from '../diffReview/prompt';
 import type { DiffReviewComment, DiffReviewCommentSide, DiffReviewModel } from '../diffReview/types';
-import { numberDiffLines } from '../git/diffLines';
+import { numberDiffLines, type NumberedDiffLine } from '../git/diffLines';
 
 export function DiffOverlay({ review, canSubmit, onSubmit }: {
   review: DiffReviewModel;
@@ -37,16 +37,15 @@ export function DiffOverlay({ review, canSubmit, onSubmit }: {
     return () => observer.disconnect();
   }, []);
 
+  const addLineComment = useCallback((side: DiffReviewCommentSide, line: number) => {
+    if (diff) review.addComment({ filePath: diff.path, side, line });
+  }, [diff, review.addComment]);
+
   if (!diff) return null;
   const fileComments = review.comments.filter((comment) => comment.filePath === diff.path && comment.side === 'file');
-  const lineComments = review.comments.filter((comment) => comment.filePath === diff.path && comment.side !== 'file');
   const reviewed = review.reviewedFiles.has(diff.path);
   const canSend = canSubmit && hasDiffReviewFeedback(review.overallComment, review.comments);
 
-  function addLineComment(side: DiffReviewCommentSide, line: number) {
-    if (lineComments.some((comment) => comment.side === side && comment.line === line)) return;
-    review.addComment({ filePath: diff!.path, side, line });
-  }
 
   return (
     <div className="diffOverlay" role="region" aria-label={`Diff for ${diff.path}`}>
@@ -71,7 +70,7 @@ export function DiffOverlay({ review, canSubmit, onSubmit }: {
       )}
       {fileComments.length > 0 && (
         <section className="diffFileComments">
-          {fileComments.map((comment) => <CommentEditor key={comment.id} comment={comment} review={review} label="Comment on this file" />)}
+          {fileComments.map((comment) => <CommentEditor key={comment.id} comment={comment} onUpdate={review.updateComment} onDelete={review.deleteComment} label="Comment on this file" />)}
         </section>
       )}
       <div className="diffOverlayContent" ref={contentRef}>
@@ -80,14 +79,15 @@ export function DiffOverlay({ review, canSubmit, onSubmit }: {
             ...(line.oldLine == null ? [] : commentsByLocation.get(`old:${line.oldLine}`) ?? []),
             ...(line.newLine == null ? [] : commentsByLocation.get(`new:${line.newLine}`) ?? []),
           ];
-          return <Fragment key={index}>
-            <span className={diffLineClass(line.text)}>
-              <LineNumber value={line.oldLine} side="old" onAdd={addLineComment} />
-              <LineNumber value={line.newLine} side="new" onAdd={addLineComment} />
-              <span className="diffLineText">{line.text || ' '}</span>
-            </span>
-            {comments.map((comment) => <div className="diffInlineComment" style={contentWidth ? { width: contentWidth } : undefined} key={comment.id}><CommentEditor comment={comment} review={review} label={`${comment.side === 'old' ? 'Old' : 'New'} line ${comment.line}`} /></div>)}
-          </Fragment>;
+          return <DiffLineRow
+            key={index}
+            line={line}
+            comments={comments}
+            contentWidth={contentWidth}
+            onAdd={addLineComment}
+            onUpdate={review.updateComment}
+            onDelete={review.deleteComment}
+          />;
         })}</div>
         {visibleLineLimit < numberedLines.length && <button className="diffLoadMore" type="button" onClick={() => setVisibleLineLimit((limit) => Math.min(limit + 2_000, numberedLines.length))}>Show 2,000 more lines ({numberedLines.length - visibleLineLimit} remaining)</button>}
       </div>
@@ -95,18 +95,49 @@ export function DiffOverlay({ review, canSubmit, onSubmit }: {
   );
 }
 
+const DiffLineRow = memo(function DiffLineRow({ line, comments, contentWidth, onAdd, onUpdate, onDelete }: {
+  line: NumberedDiffLine;
+  comments: DiffReviewComment[];
+  contentWidth: number;
+  onAdd: (side: DiffReviewCommentSide, line: number) => void;
+  onUpdate: (id: string, body: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  return <>
+    <span className={diffLineClass(line.text)}>
+      <LineNumber value={line.oldLine} side="old" onAdd={onAdd} />
+      <LineNumber value={line.newLine} side="new" onAdd={onAdd} />
+      <span className="diffLineText">{line.text || ' '}</span>
+    </span>
+    {comments.map((comment) => <div className="diffInlineComment" style={contentWidth ? { width: contentWidth } : undefined} key={comment.id}>
+      <CommentEditor comment={comment} onUpdate={onUpdate} onDelete={onDelete} label={`${comment.side === 'old' ? 'Old' : 'New'} line ${comment.line}`} />
+    </div>)}
+  </>;
+}, (previous, next) => previous.line === next.line
+  && previous.contentWidth === next.contentWidth
+  && previous.onAdd === next.onAdd
+  && previous.onUpdate === next.onUpdate
+  && previous.onDelete === next.onDelete
+  && previous.comments.length === next.comments.length
+  && previous.comments.every((comment, index) => comment === next.comments[index]));
+
 function LineNumber({ value, side, onAdd }: { value: number | null; side: 'old' | 'new'; onAdd: (side: DiffReviewCommentSide, line: number) => void }) {
   return value == null
     ? <span className="diffLineNumber" aria-hidden="true" />
     : <button type="button" className="diffLineNumber diffCommentLineButton" title={`Comment on ${side} line ${value}`} onClick={() => onAdd(side, value)}>{value}</button>;
 }
 
-function CommentEditor({ comment, review, label }: { comment: DiffReviewComment; review: DiffReviewModel; label: string }) {
+const CommentEditor = memo(function CommentEditor({ comment, onUpdate, onDelete, label }: {
+  comment: DiffReviewComment;
+  onUpdate: (id: string, body: string) => void;
+  onDelete: (id: string) => void;
+  label: string;
+}) {
   return <div className="diffReviewEditor">
-    <div className="diffReviewEditorTitle"><label htmlFor={`diff-comment-${comment.id}`}>{label}</label><button type="button" onClick={() => review.deleteComment(comment.id)} aria-label="Delete comment">×</button></div>
-    <textarea id={`diff-comment-${comment.id}`} autoFocus={!comment.body} value={comment.body} onChange={(event) => review.updateComment(comment.id, event.target.value)} placeholder="Leave a comment…" />
+    <div className="diffReviewEditorTitle"><label htmlFor={`diff-comment-${comment.id}`}>{label}</label><button type="button" onClick={() => onDelete(comment.id)} aria-label="Delete comment">×</button></div>
+    <textarea id={`diff-comment-${comment.id}`} autoFocus={!comment.body} value={comment.body} onChange={(event) => onUpdate(comment.id, event.target.value)} placeholder="Leave a comment…" />
   </div>;
-}
+});
 
 function diffLineClass(line: string) {
   if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file')) return 'diffLine diffMeta';

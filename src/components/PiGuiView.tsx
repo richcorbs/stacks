@@ -1,17 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
-import Markdown, { type Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
-import type { PiCommand, PiContentBlock, PiMessage as PiMessageData, PiPromptImage, PiSessionContext } from '../pi/types';
+import type { PiCommand, PiPromptImage, PiSessionContext } from '../pi/types';
 import { hasVisiblePiStreamingText, visiblePiMessages } from '../pi/transcript';
-import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentation';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
+import { PiMarkdown } from './PiMarkdown';
+import { collectToolArgs, messageText, PiMessage, PiToolCard } from './PiTranscript';
 
 export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
@@ -331,7 +330,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }
 
   const { hiddenCount: hiddenMessageCount, messages: visibleMessages } = visiblePiMessages(pi.messages);
-  const historicalToolArgs = collectToolArgs(pi.messages);
+  const historicalToolArgs = useMemo(() => collectToolArgs(pi.messages), [pi.messages]);
 
   return (
     <div
@@ -582,146 +581,6 @@ function ContextUsage({ context }: { context: PiSessionContext }) {
   </span>;
 }
 
-function PiMessage({ message, toolArgs }: { message: PiMessageData; toolArgs: Map<string, unknown> }) {
-  if (message.role === 'user') {
-    const imageBlocks = Array.isArray(message.content)
-      ? message.content.filter((block): block is PiContentBlock & PiPromptImage => block.type === 'image')
-      : [];
-    return <div className="piMessage piMessageUser"><div className="piMessageText">
-      {imageBlocks.length > 0 && <div className="piMessageImages">{imageBlocks.map((block, index) => block.data
-        ? <img key={index} src={`data:${String(block.mimeType)};base64,${String(block.data)}`} alt="Attached" />
-        : <span className="piOmittedImage" key={index}>Image attachment</span>)}</div>}
-      {messageText(message.content)}
-    </div></div>;
-  }
-  if (message.role === 'assistant') {
-    const blocks = Array.isArray(message.content) ? message.content : [];
-    const visibleBlocks = blocks.filter((block) => block.type === 'text' || block.type === 'thinking');
-    if (visibleBlocks.length === 0) return null;
-    return <div className="piMessage piMessageAssistant">
-      {visibleBlocks.map((block, index) => {
-        if (block?.type === 'text' && typeof block.text === 'string' && block.text) {
-          return <div className="piMessageText piMarkdown" key={`text:${index}`}><PiMarkdown>{block.text}</PiMarkdown></div>;
-        }
-        if (block?.type === 'thinking' && typeof block.thinking === 'string' && block.thinking) {
-          return <details className="piThinking" key={`thinking:${index}`}><summary>Reasoning</summary><div className="piMarkdown"><PiMarkdown>{block.thinking}</PiMarkdown></div></details>;
-        }
-        return null;
-      })}
-    </div>;
-  }
-  if (message.role === 'toolResult') {
-    return <PiToolCard
-      name={message.toolName || 'tool'}
-      args={message.toolCallId ? toolArgs.get(message.toolCallId) : null}
-      output={messageText(message.content)}
-      status={message.isError ? 'error' : 'complete'}
-      details={message.details}
-    />;
-  }
-  return null;
-}
-
-const markdownComponents: Components = {
-  pre: ({ children }) => <MarkdownCodeBlock>{children}</MarkdownCodeBlock>,
-};
-
-function PiMarkdown({ children }: { children: string }) {
-  return <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{children}</Markdown>;
-}
-
-function MarkdownCodeBlock({ children }: { children: React.ReactNode }) {
-  const preRef = useRef<HTMLPreElement | null>(null);
-  const [copied, setCopied] = useState(false);
-  const copiedTimerRef = useRef<number | null>(null);
-
-  useEffect(() => () => {
-    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
-  }, []);
-
-  async function copyCode() {
-    const code = preRef.current?.querySelector('code')?.textContent ?? preRef.current?.textContent ?? '';
-    try {
-      await writeText(code);
-      setCopied(true);
-      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200);
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Code copied to clipboard' } }));
-    } catch (error) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not copy: ${String(error)}` } }));
-    }
-  }
-
-  return <div className="piCodeBlock">
-    <pre ref={preRef}>{children}</pre>
-    <button
-      className={`piCodeCopyButton ${copied ? 'copied' : ''}`}
-      type="button"
-      aria-label={copied ? 'Code copied' : 'Copy code'}
-      title={copied ? 'Copied' : 'Copy code'}
-      onClick={() => copyCode().catch(console.error)}
-    >
-      {copied
-        ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
-        : <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" /></svg>}
-    </button>
-  </div>;
-}
-
-function PiToolCard({ name, args, output, status, details, live = false }: {
-  name: string;
-  args: unknown;
-  output: string;
-  status: 'running' | 'complete' | 'error';
-  details?: unknown;
-  live?: boolean;
-}) {
-  const normalizedName = name.toLowerCase();
-  const summary = piToolSummary(normalizedName, args, live && status === 'running');
-  const diff = normalizedName === 'edit' && status !== 'error' ? piEditDiff(details, args) : null;
-  const body = normalizedName === 'bash' ? output : formatToolDetails(args, output);
-  return (
-    <details className={`piToolCard ${live ? '' : 'historical'} ${status}`} title={summary.title}>
-      <summary>
-        <strong>{summary.label}</strong>
-        <span className="piToolStatus" />
-      </summary>
-      {diff
-        ? <DiffView diff={diff} />
-        : <pre>{truncateDisplay(body)}</pre>}
-    </details>
-  );
-}
-
-function DiffView({ diff }: { diff: string }) {
-  return <div className="piEditDiff">{truncateDisplay(diff).split('\n').map((line, index) => {
-    const kind = piDiffLineKind(line);
-    return <div className={`piDiffLine ${kind}`} key={`${index}:${line}`}><span>{line || ' '}</span></div>;
-  })}</div>;
-}
-
-function collectToolArgs(messages: PiMessageData[]) {
-  const args = new Map<string, unknown>();
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue;
-    for (const block of message.content) {
-      if (block.type === 'toolCall' && typeof block.id === 'string') args.set(block.id, block.arguments);
-    }
-  }
-  return args;
-}
-
-function messageText(content: unknown) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.filter((item) => item?.type === 'text').map((item) => item.text || '').join('\n');
-}
-
-function formatToolDetails(args: unknown, output: string) {
-  const input = args && typeof args === 'object' ? JSON.stringify(args, null, 2) : String(args || '');
-  return [input, output].filter(Boolean).join('\n\n');
-}
-
 function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) {
   const pane = input.closest<HTMLElement>('.piGuiPane');
   const conversation = pane?.querySelector<HTMLElement>(':scope > .piGuiConversation');
@@ -739,10 +598,6 @@ function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) 
   input.style.height = `${height}px`;
   input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
   if (stickToBottom && conversation) conversation.scrollTop = conversation.scrollHeight;
-}
-
-function truncateDisplay(value: string, limit = 50_000) {
-  return value.length > limit ? `${value.slice(0, limit)}\n\n… ${value.length - limit} characters hidden` : value;
 }
 
 function compactPath(path: string) {

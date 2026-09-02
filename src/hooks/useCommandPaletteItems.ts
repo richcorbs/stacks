@@ -32,6 +32,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     options.onOpenSearch,
     options.onOpenSettings,
     options.onToggleDiff,
+    options.onToggleGithubPullRequests,
     options.onRestartApp,
     options.onOpenDirectoryInEditor,
     options.onRunOneTimeCommand,

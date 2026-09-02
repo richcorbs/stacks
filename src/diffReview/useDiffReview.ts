@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GitFileDiff } from '../types';
 import type { DiffReviewComment, DiffReviewModel } from './types';
 
@@ -15,23 +15,38 @@ export function useDiffReview(reviewKey: string | null): DiffReviewModel {
     setReviewedFiles(new Set());
   }, []);
 
+  const addComment = useCallback((comment: Omit<DiffReviewComment, 'id' | 'body'>) => {
+    setComments((current) => current.some((item) => item.filePath === comment.filePath && item.side === comment.side && item.line === comment.line)
+      ? current
+      : [...current, { ...comment, id: crypto.randomUUID(), body: '' }]);
+  }, []);
+  const updateComment = useCallback((id: string, body: string) => {
+    setComments((current) => current.map((comment) => comment.id === id ? { ...comment, body } : comment));
+  }, []);
+  const deleteComment = useCallback((id: string) => {
+    setComments((current) => current.filter((comment) => comment.id !== id));
+  }, []);
+  const toggleReviewed = useCallback((filePath: string) => {
+    setReviewedFiles((current) => {
+      const next = new Set(current);
+      if (next.has(filePath)) next.delete(filePath); else next.add(filePath);
+      return next;
+    });
+  }, []);
+
   useEffect(() => reset(), [reviewKey, reset]);
 
-  return {
+  return useMemo(() => ({
     openDiff,
     overallComment,
     comments,
     reviewedFiles,
     setOpenDiff,
     setOverallComment,
-    addComment: (comment) => setComments((current) => [...current, { ...comment, id: crypto.randomUUID(), body: '' }]),
-    updateComment: (id, body) => setComments((current) => current.map((comment) => comment.id === id ? { ...comment, body } : comment)),
-    deleteComment: (id) => setComments((current) => current.filter((comment) => comment.id !== id)),
-    toggleReviewed: (filePath) => setReviewedFiles((current) => {
-      const next = new Set(current);
-      if (next.has(filePath)) next.delete(filePath); else next.add(filePath);
-      return next;
-    }),
+    addComment,
+    updateComment,
+    deleteComment,
+    toggleReviewed,
     reset,
-  };
+  }), [addComment, comments, deleteComment, openDiff, overallComment, reset, reviewedFiles, toggleReviewed, updateComment]);
 }

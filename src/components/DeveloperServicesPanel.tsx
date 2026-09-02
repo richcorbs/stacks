@@ -2,12 +2,13 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { DiffTab } from './DiffTab';
 import { GithubActionsTab } from './GithubActionsTab';
 import { GithubPullRequestsTab } from './GithubPullRequestsTab';
+import { ConfirmMergePullRequestDialog } from './ConfirmDialogs';
 import { SuperthreadCardDialog } from './SuperthreadCardDialog';
 import { SuperthreadProjectDialog } from './SuperthreadProjectDialog';
 import { SuperthreadTab } from './SuperthreadTab';
 import { useSuperthreadCache } from '../superthread/useSuperthreadCache';
 import { useGithub } from '../github/useGithub';
-import type { GithubMergeStrategy } from '../github/types';
+import type { GithubMergeStrategy, GithubPullRequest } from '../github/types';
 import type { Project } from '../types';
 import type { DiffReviewModel } from '../diffReview/types';
 import type { SuperthreadCard } from '../superthread/types';
@@ -47,6 +48,7 @@ export function DeveloperServicesPanel({
   const github = useGithub(activePath, githubPollSeconds, visible, githubMergeStrategy);
   const [tab, setTab] = useState<PanelTab>(superthreadEnabled ? 'superthread' : 'pull-requests');
   const [pendingWorkCard, setPendingWorkCard] = useState<SuperthreadCard | null>(null);
+  const [pendingMerge, setPendingMerge] = useState<{ pullRequest: GithubPullRequest; repository: string } | null>(null);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
   const selectedCardStatus = superthread.selectedCard
     ? superthread.boards
@@ -74,6 +76,7 @@ export function DeveloperServicesPanel({
   }
 
   return (
+    <>
     <aside className={`superthreadPanel${visible ? '' : ' superthreadPanelHidden'}`} aria-label="Developer services">
       <header className="superthreadHeader integrationHeader">
         <div className="integrationTabs" role="tablist" aria-label="Developer services">
@@ -104,7 +107,7 @@ export function DeveloperServicesPanel({
             loading={github.loading}
             error={github.pullRequestError}
             mergingNumber={github.mergingNumber}
-            onMerge={github.mergePullRequest}
+            onRequestMerge={(pullRequest, repository) => setPendingMerge({ pullRequest, repository })}
           />
         )}
         {tab === 'actions' && (
@@ -140,6 +143,19 @@ export function DeveloperServicesPanel({
         />
       )}
     </aside>
+    {pendingMerge && (
+      <ConfirmMergePullRequestDialog
+        number={pendingMerge.pullRequest.number}
+        pullRequestTitle={pendingMerge.pullRequest.title}
+        onCancel={() => setPendingMerge(null)}
+        onConfirm={() => {
+          const { repository, pullRequest } = pendingMerge;
+          setPendingMerge(null);
+          github.mergePullRequest(repository, pullRequest.number).catch(console.error);
+        }}
+      />
+    )}
+    </>
   );
 }
 

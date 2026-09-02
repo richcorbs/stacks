@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { FRESH_ACTIVITY_MS } from '../workspace/statusDots';
 
 export function useTerminalActivity(activeWorkspaceId: string | null) {
   const [runningTerminalIds, setRunningTerminalIds] = useState<string[]>([]);
@@ -16,10 +17,15 @@ export function useTerminalActivity(activeWorkspaceId: string | null) {
   }, [activeWorkspaceId]);
 
   useEffect(() => {
-    if (activityWorkspaceIds.length === 0) return;
-    const interval = window.setInterval(() => setActivityNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [activityWorkspaceIds.length]);
+    const now = Date.now();
+    const nextTransitionAt = activityWorkspaceIds
+      .map((workspaceId) => (activityTerminalLastOutputAtById[workspaceId] ?? 0) + FRESH_ACTIVITY_MS)
+      .filter((transitionAt) => transitionAt > now)
+      .sort((left, right) => left - right)[0];
+    if (!nextTransitionAt) return;
+    const timeout = window.setTimeout(() => setActivityNow(Date.now()), nextTransitionAt - now + 1);
+    return () => window.clearTimeout(timeout);
+  }, [activityWorkspaceIds, activityTerminalLastOutputAtById, activityNow]);
 
   useEffect(() => {
     const onRunningChanged = (event: Event) => {
