@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySlashCommand, GUI_BUILTIN_COMMANDS, isGuiBuiltinCommand, matchingSlashCommands, slashCommandQuery } from './commands';
+import { applySlashCommand, GUI_BUILTIN_COMMANDS, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory, slashCommandQuery } from './commands';
 import type { PiCommand } from './types';
 
 const commands: PiCommand[] = [
@@ -33,5 +33,14 @@ describe('Pi slash commands', () => {
 
   it('inserts the RPC command with room for arguments', () => {
     expect(applySlashCommand(commands[0])).toBe('/skill:grill-me ');
+  });
+
+  it('cycles history with bare arrows without breaking multiline cursor movement', () => {
+    expect(shouldCycleCommandHistory('single line', 4, -1, false)).toBe(true);
+    expect(shouldCycleCommandHistory('first\nsecond', 2, -1, false)).toBe(true);
+    expect(shouldCycleCommandHistory('first\nsecond', 8, -1, false)).toBe(false);
+    expect(shouldCycleCommandHistory('first\nsecond', 8, 1, false)).toBe(true);
+    expect(shouldCycleCommandHistory('first\nsecond', 2, 1, false)).toBe(false);
+    expect(shouldCycleCommandHistory('first\nsecond', 2, 1, true)).toBe(true);
   });
 });

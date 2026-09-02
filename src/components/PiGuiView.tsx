@@ -4,7 +4,7 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
-import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands } from '../pi/commands';
+import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
 import type { PiCommand, PiContentBlock, PiMessage as PiMessageData, PiPromptImage, PiSessionContext } from '../pi/types';
 import { visiblePiMessages } from '../pi/transcript';
@@ -182,7 +182,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       .filter((message) => message.role === 'user')
       .map((message) => messageText(message.content).trim())
       .filter(Boolean);
-    if (history.length === 0) return;
+    if (history.length === 0) return false;
 
     let index = historyIndexRef.current;
     let nextPrompt: string;
@@ -195,7 +195,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       }
       nextPrompt = history[index];
     } else {
-      if (index === null) return;
+      if (index === null) return false;
       if (index < history.length - 1) {
         index += 1;
         nextPrompt = history[index];
@@ -208,6 +208,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setPrompt(nextPrompt);
     setSelectedCommandIndex(-1);
     requestAnimationFrame(() => inputRef.current?.setSelectionRange(nextPrompt.length, nextPrompt.length));
+    return true;
   }
 
   async function submit(behavior: 'prompt' | 'followUp' = 'prompt') {
@@ -477,6 +478,14 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
                 const direction = event.key === 'ArrowDown' ? 1 : -1;
                 setSelectedCommandIndex((current) => (current + direction + matchingCommands.length) % matchingCommands.length);
                 return;
+              }
+              if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+                const direction = event.key === 'ArrowUp' ? -1 : 1;
+                const shouldCycle = shouldCycleCommandHistory(prompt, event.currentTarget.selectionStart, direction, historyIndexRef.current !== null);
+                if (shouldCycle && cyclePromptHistory(direction)) {
+                  event.preventDefault();
+                  return;
+                }
               }
               if (matchingCommands.length > 0 && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
                 event.preventDefault();
