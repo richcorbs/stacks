@@ -23,6 +23,7 @@ export function useAppShortcutHandlers({
   toggleSidebar,
   toggleSuperthread,
   toggleGithubPullRequests,
+  toggleDiff,
   setConfirmCloseTerminalId,
   setConfirmDeleteProjectId,
   setConfirmDeleteWorkspace,
@@ -85,6 +86,7 @@ export function useAppShortcutHandlers({
     onToggleMaximizedTerminal: toggleMaximizedTerminal,
     onOpenSearch: openTerminalSearch,
     onOpenSettings: () => setSettingsOpen(true),
+    onToggleDiff: toggleDiff,
     onRestartApp: () => {
       invoke('save_workspace_focus', {
         activeProjectId: activeProject?.id ?? null,
@@ -126,6 +128,7 @@ export function useAppShortcutHandlers({
     toggleSidebar,
     toggleSuperthread,
     toggleGithubPullRequests,
+    toggleDiff,
   };
 
   const shortcutHandlersRef = useRef(shortcutHandlers);

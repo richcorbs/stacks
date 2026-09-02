@@ -98,6 +98,7 @@ export function AppLayout({
       <DeveloperServicesPanel
         visible={developerServices.visible}
         pullRequestsRequestNonce={developerServices.pullRequestsRequestNonce}
+        diffRequestNonce={developerServices.diffRequestNonce}
         projects={developerServices.projects}
         spaces={developerServices.spaces}
         workspaceSlug={developerServices.workspaceSlug}

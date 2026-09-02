@@ -32,6 +32,7 @@ export type CommandPaletteItemOptions = {
   onToggleMaximizedTerminal: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
+  onToggleDiff: () => void;
   onRestartApp: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;

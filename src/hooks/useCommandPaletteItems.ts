@@ -30,6 +30,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     options.onToggleMaximizedTerminal,
     options.onOpenSearch,
     options.onOpenSettings,
+    options.onToggleDiff,
     options.onRestartApp,
     options.onOpenDirectoryInEditor,
     options.onRunOneTimeCommand,

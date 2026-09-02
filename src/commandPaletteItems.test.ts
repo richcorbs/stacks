@@ -36,6 +36,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onToggleMaximizedTerminal: vi.fn(),
     onOpenSearch: vi.fn(),
     onOpenSettings: vi.fn(),
+    onToggleDiff: vi.fn(),
     onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
     onRunOneTimeCommand: vi.fn(),
@@ -60,6 +61,7 @@ describe('buildCommandPaletteItems', () => {
       'split-terminal-down',
       'add-cmd-p-command',
       'restart-stacks',
+      'toggle-diff',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -68,6 +70,14 @@ describe('buildCommandPaletteItems', () => {
       'project-workspace-p1',
       'terminal-t1:0',
     ]));
+  });
+
+  it('toggles the diff panel from the command palette', () => {
+    const onToggleDiff = vi.fn();
+    const item = palette({ onToggleDiff }).find((candidate) => candidate.id === 'toggle-diff');
+    item?.action();
+    expect(item?.subtitle).toBe('⇧⌘G');
+    expect(onToggleDiff).toHaveBeenCalledOnce();
   });
 
   it('restarts Stacks from the command palette', () => {

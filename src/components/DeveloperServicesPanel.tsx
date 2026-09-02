@@ -17,6 +17,7 @@ type PanelTab = 'superthread' | 'diff' | 'pull-requests' | 'actions';
 export function DeveloperServicesPanel({
   visible,
   pullRequestsRequestNonce,
+  diffRequestNonce,
   projects,
   spaces,
   workspaceSlug,
@@ -30,6 +31,7 @@ export function DeveloperServicesPanel({
 }: {
   visible: boolean;
   pullRequestsRequestNonce: number;
+  diffRequestNonce: number;
   projects: Project[];
   spaces: string;
   workspaceSlug: string;
@@ -60,6 +62,10 @@ export function DeveloperServicesPanel({
   useEffect(() => {
     if (pullRequestsRequestNonce > 0) setTab('pull-requests');
   }, [pullRequestsRequestNonce]);
+
+  useEffect(() => {
+    if (diffRequestNonce > 0) setTab('diff');
+  }, [diffRequestNonce]);
 
   function refresh() {
     if (tab === 'superthread') superthread.loadBoards(true).catch(console.error);

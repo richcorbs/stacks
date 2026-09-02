@@ -26,6 +26,7 @@ function handlers(): ShortcutHandlers {
     toggleSidebar: vi.fn(),
     toggleSuperthread: vi.fn(),
     toggleGithubPullRequests: vi.fn(),
+    toggleDiff: vi.fn(),
   };
 }
 
@@ -126,6 +127,25 @@ describe('keyboardShortcutRouter', () => {
     expect(event.preventDefault).toHaveBeenCalled();
     expect(event.stopPropagation).toHaveBeenCalled();
     expect(h.toggleGithubPullRequests).toHaveBeenCalled();
+  });
+
+  it('uses Cmd-Shift-G to toggle the diff panel', () => {
+    const h = handlers();
+    const event = {
+      key: 'g',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: true,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(h.toggleDiff).toHaveBeenCalled();
+    expect(h.toggleGithubPullRequests).not.toHaveBeenCalled();
+    expect(event.preventDefault).toHaveBeenCalled();
   });
 
   it('uses Cmd-R to toggle Superthread instead of reloading', () => {

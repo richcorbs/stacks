@@ -43,7 +43,7 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     return;
   }
   if (key === 'g') {
-    runHandledShortcut(event, () => runShortcutAction('toggle-github-pull-requests', handlers));
+    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'toggle-diff' : 'toggle-github-pull-requests', handlers));
     return;
   }
   if (key === 'k') {

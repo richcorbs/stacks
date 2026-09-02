@@ -107,6 +107,7 @@ export function useAppRootModel() {
   const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
   const [developerServicesVisible, setDeveloperServicesVisible] = useState(true);
   const [pullRequestsRequestNonce, setPullRequestsRequestNonce] = useState(0);
+  const [diffRequestNonce, setDiffRequestNonce] = useState(0);
 
   const { activeProject, activeWorkspace, sidebarWorkspaces, activePath, visitedWorkspaceTerminalTrees } = useAppWorkspaceModels({
     store,
@@ -323,6 +324,10 @@ export function useAppRootModel() {
       setPullRequestsRequestNonce((nonce) => nonce + 1);
       setDeveloperServicesVisible((visible) => !visible);
     },
+    toggleDiff: () => {
+      setDiffRequestNonce((nonce) => nonce + 1);
+      setDeveloperServicesVisible((visible) => !visible);
+    },
     setConfirmCloseTerminalId,
     setConfirmDeleteProjectId,
     setConfirmDeleteWorkspace,
@@ -406,6 +411,7 @@ export function useAppRootModel() {
     toggleDeveloperServices: () => setDeveloperServicesVisible((visible) => !visible),
     developerServicesVisible,
     pullRequestsRequestNonce,
+    diffRequestNonce,
     startSuperthreadWork: async (projectId, cardNumber, cardTitle) => {
       try {
         await createWorkspace(buildSuperthreadWorkspaceInput(store, projectId, cardNumber, cardTitle, {

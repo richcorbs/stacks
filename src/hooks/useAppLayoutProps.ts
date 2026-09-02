@@ -53,6 +53,7 @@ type UseAppLayoutPropsOptions = {
   toggleDeveloperServices: () => void;
   developerServicesVisible: boolean;
   pullRequestsRequestNonce: number;
+  diffRequestNonce: number;
   startSuperthreadWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   contextMenu: ContextMenuState | null;
@@ -160,6 +161,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
     developerServices: {
       visible: options.developerServicesVisible,
       pullRequestsRequestNonce: options.pullRequestsRequestNonce,
+      diffRequestNonce: options.diffRequestNonce,
       projects: options.store.projects,
       spaces: options.appSettings.superthread_spaces,
       workspaceSlug: options.appSettings.superthread_workspace_slug,

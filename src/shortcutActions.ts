@@ -43,6 +43,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     toggleSidebar,
     toggleSuperthread,
     toggleGithubPullRequests,
+    toggleDiff,
   } = handlers;
 
   switch (action) {
@@ -82,6 +83,9 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'toggle-github-pull-requests':
       toggleGithubPullRequests();
+      break;
+    case 'toggle-diff':
+      toggleDiff();
       break;
     case 'maximize-workspace':
       toggleMaximizedTerminal();

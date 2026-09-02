@@ -30,6 +30,7 @@ function handlers(overrides: Partial<ShortcutHandlers> = {}): ShortcutHandlers {
     toggleSidebar: vi.fn(),
     toggleSuperthread: vi.fn(),
     toggleGithubPullRequests: vi.fn(),
+    toggleDiff: vi.fn(),
     ...overrides,
   };
 }
@@ -58,6 +59,7 @@ describe('runShortcutAction', () => {
     runShortcutAction('toggle-sidebar', h);
     runShortcutAction('toggle-superthread', h);
     runShortcutAction('toggle-github-pull-requests', h);
+    runShortcutAction('toggle-diff', h);
     runShortcutAction('quit', h);
 
     expect(h.splitTerminal).toHaveBeenNthCalledWith(1, 'row');
@@ -68,6 +70,7 @@ describe('runShortcutAction', () => {
     expect(h.toggleSidebar).toHaveBeenCalled();
     expect(h.toggleSuperthread).toHaveBeenCalled();
     expect(h.toggleGithubPullRequests).toHaveBeenCalled();
+    expect(h.toggleDiff).toHaveBeenCalled();
     expect(h.requestQuit).toHaveBeenCalled();
   });
 
