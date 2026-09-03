@@ -4,7 +4,7 @@ use std::{
     env,
     io::Read,
     process::{Command, Stdio},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{atomic::{AtomicBool, Ordering}, Arc},
     thread,
     time::{Duration, Instant},
 };
@@ -17,7 +17,7 @@ const MAX_SETUP_OUTPUT_BYTES: usize = 256 * 1024;
 
 #[derive(Default)]
 pub struct WorkspaceSetupState {
-    cancelled: AtomicBool,
+    cancelled: Arc<AtomicBool>,
 }
 
 #[derive(Serialize)]
@@ -27,9 +27,12 @@ pub struct WorkspaceSetupResult {
 }
 
 #[tauri::command]
-pub fn run_workspace_setup(state: State<'_, WorkspaceSetupState>, command: String, cwd: String) -> Result<WorkspaceSetupResult, String> {
+pub async fn run_workspace_setup(state: State<'_, WorkspaceSetupState>, command: String, cwd: String) -> Result<WorkspaceSetupResult, String> {
     state.cancelled.store(false, Ordering::Release);
-    run_workspace_setup_inner(command, cwd, &state.cancelled)
+    let cancelled = Arc::clone(&state.cancelled);
+    tauri::async_runtime::spawn_blocking(move || run_workspace_setup_inner(command, cwd, &cancelled))
+        .await
+        .map_err(|error| format!("Workspace setup worker failed: {error}"))?
 }
 
 #[tauri::command]

@@ -402,7 +402,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             <div className="piMessageText"><small>Follow up</small><span>{message}</span></div>
           </div>
         ))}
-        {pi.isStreaming && !hasActiveStreamingText && pi.tools.length === 0 && (
+        {pi.isStreaming && !hasActiveStreamingText && (
           <div className="piWorkingIndicator" role="status" aria-label="Pi is thinking" aria-live="polite">
             <span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
           </div>
