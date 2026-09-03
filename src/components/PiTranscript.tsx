@@ -13,7 +13,7 @@ export const PiMessage = memo(function PiMessage({ message, toolArgs }: { messag
         ? <img key={index} src={`data:${String(block.mimeType)};base64,${String(block.data)}`} alt="Attached" />
         : <span className="piOmittedImage" key={index}>Image attachment</span>)}</div>}
       {messageText(message.content)}
-    </div></div>;
+    </div><MessageTimestamp timestamp={message.timestamp} /></div>;
   }
   if (message.role === 'assistant') {
     const blocks = Array.isArray(message.content) ? message.content : [];
@@ -29,6 +29,7 @@ export const PiMessage = memo(function PiMessage({ message, toolArgs }: { messag
         }
         return null;
       })}
+      <MessageTimestamp timestamp={message.timestamp} />
     </div>;
   }
   if (message.role === 'toolResult') {
@@ -42,6 +43,15 @@ export const PiMessage = memo(function PiMessage({ message, toolArgs }: { messag
   }
   return null;
 });
+
+function MessageTimestamp({ timestamp }: { timestamp?: number }) {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return null;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+  return <time className="piMessageTimestamp" dateTime={date.toISOString()} title={date.toLocaleString()}>
+    {date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+  </time>;
+}
 
 export function PiToolCard({ name, args, output, status, details, live = false }: {
   name: string;
