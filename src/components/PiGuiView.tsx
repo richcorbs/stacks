@@ -12,7 +12,7 @@ import { TerminalControls } from './TerminalControls';
 import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiMessage, PiToolCard } from './PiTranscript';
 
-export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
+export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -21,6 +21,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   maximized: boolean;
   canToggleMaximize: boolean;
   restartRequestNonce: number;
+  fontSize: number;
   onFocus: () => void;
   onClose: () => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
@@ -31,7 +32,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [projectTrusted, setProjectTrusted] = useState(false);
   const pi = usePiSession(terminal.id, cwd, workspace.id, project.path);
   const [prompt, setPrompt] = useState('');
-  const [composerFontSize, setComposerFontSize] = useState(15);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [attachments, setAttachments] = useState<Array<PiPromptImage & { name: string; byteSize: number }>>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -98,7 +98,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 
   useEffect(() => {
     if (inputRef.current) resizeComposerInput(inputRef.current, shouldStickToBottomRef.current);
-  }, [composerFontSize, prompt]);
+  }, [fontSize, prompt]);
 
   useEffect(() => {
     if (!active || !visible || pi.starting || pi.uiRequest) return;
@@ -183,10 +183,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setPrompt(applySlashCommand(command));
     setSelectedCommandIndex(-1);
     requestAnimationFrame(() => inputRef.current?.focus());
-  }
-
-  function adjustComposerFontSize(delta: number) {
-    setComposerFontSize((current) => Math.min(24, Math.max(11, current + delta)));
   }
 
   function cyclePromptHistory(direction: -1 | 1) {
@@ -369,6 +365,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     <div
       ref={paneRef}
       className={`terminal piGuiPane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
+      style={{ '--pi-font-size': `${fontSize}px` } as React.CSSProperties}
       onMouseDown={() => {
         if (!active) onFocus();
       }}
@@ -474,7 +471,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             className={prompt.includes('\n') ? undefined : 'singleLine'}
             value={prompt}
             rows={1}
-            style={{ fontSize: `${composerFontSize}px` }}
             placeholder={attachments.length ? 'Ask Pi about the attached image…' : pi.isStreaming ? 'Steer Pi… (↩) · follow up (⌥↩)' : 'Ask Pi…'}
             disabled={pi.starting}
             onChange={(event) => {
@@ -494,12 +490,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
                 event.preventDefault();
                 event.stopPropagation();
                 pasteIntoComposer().catch(console.error);
-                return;
-              }
-              if (event.metaKey && !event.ctrlKey && !event.altKey && ['+', '=', '-', '_'].includes(event.key)) {
-                event.preventDefault();
-                event.stopPropagation();
-                adjustComposerFontSize(event.key === '+' || event.key === '=' ? 1 : -1);
                 return;
               }
               if (event.key === 'Enter' && event.altKey && !event.metaKey && !event.ctrlKey) {

@@ -50,6 +50,7 @@ export function SplitView({ node, terminalsById, workspace, project, visible, br
           visible={isDisplayed}
           canToggleMaximize={canToggleMaximize}
           restartRequestNonce={restartTerminalRequest?.terminalId === terminal.id ? restartTerminalRequest.nonce : 0}
+          fontSize={terminalFontSize}
           onFocus={() => onFocus(terminal.id)}
           onClose={() => onClose(terminal.id)}
           onSplitTerminal={(direction) => onSplitTerminal(direction, terminal.id)}
