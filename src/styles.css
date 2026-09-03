@@ -1073,6 +1073,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piThinking { clear: both; margin: 12px 0 0; color: #697d91; font-size: 11px; }
 .piThinking summary { min-height: 24px; display: flex; align-items: center; cursor: pointer; }
 .piThinking > div { margin-top: 5px; padding: 9px 0 9px 12px; border-left: 1px solid #2a3b4d; line-height: 1.5; }
+.piThinking + .piMessageTimestamp { margin-top: 0; }
 .piMessage .piToolCard { max-width: none; margin: 10px 0 0; }
 .piThinking + .piToolCard { margin-top: 10px; }
 .piStreamingCursor { display: inline-block; width: 6px; height: 13px; margin-left: 3px; background: #719bc0; vertical-align: -2px; animation: piCursorBlink 1s step-end infinite; }
