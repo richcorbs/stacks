@@ -671,7 +671,7 @@ function ContextPicker({ kind, open, value, title, disabled, onToggle, children 
       disabled={disabled}
       onClick={onToggle}
     >
-      <span>{value}</span><i aria-hidden="true">▾</i>
+      <span>{value}</span>
     </button>
     {open && <div className="piContextPickerMenu" role="listbox" aria-label={`Available Pi ${label} options`}>{children}</div>}
   </div>;
