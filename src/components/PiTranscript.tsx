@@ -17,7 +17,9 @@ export const PiMessage = memo(function PiMessage({ message, toolArgs }: { messag
   }
   if (message.role === 'assistant') {
     const blocks = Array.isArray(message.content) ? message.content : [];
-    const visibleBlocks = blocks.filter((block) => block.type === 'text' || block.type === 'thinking');
+    const visibleBlocks = blocks.filter((block) =>
+      (block.type === 'text' && typeof block.text === 'string' && block.text.trim())
+      || (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()));
     if (visibleBlocks.length === 0) return null;
     return <div className="piMessage piMessageAssistant">
       {visibleBlocks.map((block, index) => {
