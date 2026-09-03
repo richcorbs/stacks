@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { PiCommand, PiMessage, PiPromptImage, PiResponseEvent, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
+import type { PiCommand, PiMessage, PiModel, PiPromptImage, PiResponseEvent, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
 import { subscribePiEvents } from './eventBroker';
 import { appendPiMessage, compactPiMessages } from './transcript';
 import { GUI_BUILTIN_COMMANDS } from './commands';
@@ -37,6 +37,8 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
   const [uiRequest, setUiRequest] = useState<PiUiRequest | null>(null);
   const [editorTextRequest, setEditorTextRequest] = useState<{ text: string } | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>(GUI_BUILTIN_COMMANDS);
+  const [availableModels, setAvailableModels] = useState<PiModel[]>([]);
+  const [availableThinkingLevels, setAvailableThinkingLevels] = useState<string[]>([]);
   const [queuedSteering, setQueuedSteering] = useState<string[]>([]);
   const [queuedFollowUps, setQueuedFollowUps] = useState<string[]>([]);
   const requestSequence = useRef(0);
@@ -93,6 +95,12 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
   const refreshStats = useCallback(() => sendRequest({ type: 'get_session_stats' }), [sendRequest]);
   const refreshCommands = useCallback(() => sendRequest({ type: 'get_commands' }).then((response) => {
     setCommands(withGuiBuiltinCommands(normalizeCommands(response.data?.commands)));
+  }), [sendRequest]);
+  const refreshAvailableModels = useCallback(() => sendRequest({ type: 'get_available_models' }).then((response) => {
+    setAvailableModels(normalizeModels(response.data?.models));
+  }), [sendRequest]);
+  const refreshAvailableThinkingLevels = useCallback(() => sendRequest({ type: 'get_available_thinking_levels' }).then((response) => {
+    setAvailableThinkingLevels(normalizeThinkingLevels(response.data?.levels));
   }), [sendRequest]);
 
   useEffect(() => {
@@ -253,6 +261,8 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
             generationRef.current = generation;
             await Promise.all([refreshState(), refreshMessages()]);
             refreshCommands().catch(() => setCommands(GUI_BUILTIN_COMMANDS));
+            refreshAvailableModels().catch(() => setAvailableModels([]));
+            refreshAvailableThinkingLevels().catch(() => setAvailableThinkingLevels([]));
             refreshStats().catch(() => {});
             notifyRunning(paneId, true);
             setStopped(false);
@@ -282,7 +292,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
       pendingRequests.current.clear();
       if (streamingFrameRef.current !== null) cancelAnimationFrame(streamingFrameRef.current);
     };
-  }, [appendStreamingText, cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText, workspaceId, writeCommand]);
+  }, [appendStreamingText, cwd, paneId, projectPath, refreshAvailableModels, refreshAvailableThinkingLevels, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText, workspaceId, writeCommand]);
 
   useEffect(() => {
     if (!uiRequest?.timeout) return;
@@ -346,6 +356,16 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
   }, [context.supportsImages, sendRequest]);
 
   const abort = useCallback(() => sendRequest({ type: 'abort' }), [sendRequest]);
+  const selectModel = useCallback(async (model: PiModel) => {
+    await sendRequest({ type: 'set_model', provider: model.provider, modelId: model.id });
+    await refreshState();
+    refreshAvailableThinkingLevels().catch(() => setAvailableThinkingLevels([]));
+    refreshStats().catch(() => {});
+  }, [refreshAvailableThinkingLevels, refreshState, refreshStats, sendRequest]);
+  const selectThinkingLevel = useCallback(async (level: string) => {
+    await sendRequest({ type: 'set_thinking_level', level });
+    await refreshState();
+  }, [refreshState, sendRequest]);
   const respondToUiRequest = useCallback(async (response: Record<string, unknown>) => {
     const request = uiRequest;
     if (!request) return;
@@ -368,6 +388,8 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
       generationRef.current = generation;
       await Promise.all([refreshState(), refreshMessages()]);
       refreshCommands().catch(() => setCommands(GUI_BUILTIN_COMMANDS));
+      refreshAvailableModels().catch(() => setAvailableModels([]));
+      refreshAvailableThinkingLevels().catch(() => setAvailableThinkingLevels([]));
       refreshStats().catch(() => {});
       notifyRunning(paneId, true);
       setStopped(false);
@@ -379,9 +401,9 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     } finally {
       setStarting(false);
     }
-  }, [cwd, paneId, projectPath, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText]);
+  }, [cwd, paneId, projectPath, refreshAvailableModels, refreshAvailableThinkingLevels, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText]);
 
-  return { messages, context, commands, queuedSteering, queuedFollowUps, editorTextRequest, streamingText, isStreamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, restart, respondToUiRequest };
+  return { messages, context, commands, availableModels, availableThinkingLevels, queuedSteering, queuedFollowUps, editorTextRequest, streamingText, isStreamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, selectModel, selectThinkingLevel, restart, respondToUiRequest };
 }
 
 function notifyRunning(paneId: string, running: boolean) {
@@ -431,6 +453,19 @@ function normalizeCommands(value: unknown): PiCommand[] {
     const item = command as Partial<PiCommand>;
     return typeof item.name === 'string' && ['extension', 'prompt', 'skill'].includes(String(item.source));
   }).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function normalizeModels(value: unknown): PiModel[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((model): model is PiModel => {
+    if (!model || typeof model !== 'object') return false;
+    const item = model as Partial<PiModel>;
+    return typeof item.id === 'string' && typeof item.provider === 'string';
+  }).sort((left, right) => (left.name || left.id).localeCompare(right.name || right.id));
+}
+
+function normalizeThinkingLevels(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((level): level is string => typeof level === 'string') : [];
 }
 
 function removeDeliveredQueuedMessage(messages: string[], deliveredText: string) {

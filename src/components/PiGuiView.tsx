@@ -4,7 +4,7 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
-import type { PiCommand, PiPromptImage, PiSessionContext } from '../pi/types';
+import type { PiCommand, PiModel, PiPromptImage, PiSessionContext } from '../pi/types';
 import { hasVisiblePiStreamingText, visiblePiMessages } from '../pi/transcript';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { usePiSession } from '../pi/usePiSession';
@@ -38,6 +38,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [extensionInput, setExtensionInput] = useState('');
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
+  const [contextPicker, setContextPicker] = useState<'model' | 'thinking' | null>(null);
+  const [contextPickerBusy, setContextPickerBusy] = useState(false);
   const paneRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -150,12 +152,21 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 
   useEffect(() => {
     const dismiss = (event: MouseEvent) => {
-      if ((event.target as Element | null)?.closest('.piSelectionPopup')) return;
+      const target = event.target as Element | null;
+      if (!target?.closest('.piContextPicker')) setContextPicker(null);
+      if (target?.closest('.piSelectionPopup')) return;
       preventSummaryToggleRef.current = false;
       setSelectionPopup(null);
     };
+    const dismissWithEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setContextPicker(null);
+    };
     window.addEventListener('mousedown', dismiss);
-    return () => window.removeEventListener('mousedown', dismiss);
+    window.addEventListener('keydown', dismissWithEscape);
+    return () => {
+      window.removeEventListener('mousedown', dismiss);
+      window.removeEventListener('keydown', dismissWithEscape);
+    };
   }, []);
 
   useEffect(() => {
@@ -316,6 +327,28 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setPrompt((current) => current ? `${current}\n\n${selectionPopup.text}` : selectionPopup.text);
     clearGuiSelection();
     requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  async function chooseModel(model: PiModel) {
+    setContextPickerBusy(true);
+    try {
+      await pi.selectModel(model);
+      setContextPicker(null);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    } finally {
+      setContextPickerBusy(false);
+    }
+  }
+
+  async function chooseThinkingLevel(level: string) {
+    setContextPickerBusy(true);
+    try {
+      await pi.selectThinkingLevel(level);
+      setContextPicker(null);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    } finally {
+      setContextPickerBusy(false);
+    }
   }
 
   async function toggleProjectTrust() {
@@ -517,9 +550,59 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         <ContextSeparator />
         <ContextItem value={gitInfo?.branch || '—'} title={`Git branch: ${gitInfo?.branch || 'unknown'}`} />
         <ContextSeparator />
-        <ContextItem value={pi.context.modelName || pi.context.modelId || 'starting…'} title={[pi.context.provider, pi.context.modelId].filter(Boolean).join(' / ')} />
+        <ContextPicker
+          kind="model"
+          open={contextPicker === 'model'}
+          value={pi.context.modelName || pi.context.modelId || 'starting…'}
+          title={[pi.context.provider, pi.context.modelId].filter(Boolean).join(' / ')}
+          disabled={pi.starting}
+          onToggle={() => setContextPicker((current) => current === 'model' ? null : 'model')}
+        >
+          {pi.availableModels.length === 0
+            ? <div className="piContextPickerEmpty">No configured models</div>
+            : pi.availableModels.map((model) => {
+              const selected = model.id === pi.context.modelId && model.provider === pi.context.provider;
+              return <button
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={selected ? 'selected' : ''}
+                disabled={contextPickerBusy}
+                key={`${model.provider}:${model.id}`}
+                onClick={() => chooseModel(model).catch(() => {})}
+              >
+                <span><strong>{model.name || model.id}</strong><small>{model.provider} · {model.id}</small></span>
+                <i aria-hidden="true">{selected ? '✓' : ''}</i>
+              </button>;
+            })}
+        </ContextPicker>
         <ContextSeparator />
-        <ContextItem value={pi.context.thinkingLevel || '—'} title={`Thinking effort: ${pi.context.thinkingLevel || 'unknown'}`} />
+        <ContextPicker
+          kind="thinking"
+          open={contextPicker === 'thinking'}
+          value={pi.context.thinkingLevel || '—'}
+          title={`Thinking effort: ${pi.context.thinkingLevel || 'unknown'}`}
+          disabled={pi.starting}
+          onToggle={() => setContextPicker((current) => current === 'thinking' ? null : 'thinking')}
+        >
+          {pi.availableThinkingLevels.length === 0
+            ? <div className="piContextPickerEmpty">No effort options</div>
+            : pi.availableThinkingLevels.map((level) => {
+              const selected = level === pi.context.thinkingLevel;
+              return <button
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={selected ? 'selected' : ''}
+                disabled={contextPickerBusy}
+                key={level}
+                onClick={() => chooseThinkingLevel(level).catch(() => {})}
+              >
+                <span><strong>{level}</strong></span>
+                <i aria-hidden="true">{selected ? '✓' : ''}</i>
+              </button>;
+            })}
+        </ContextPicker>
         <ContextSeparator />
         <button className="piTrustButton" type="button" title="Change project trust" onClick={() => toggleProjectTrust().catch(() => {})}>{projectTrusted ? 'trusted' : 'not trusted'}</button>
         {pi.context.contextPercent !== null && <><ContextSeparator /><ContextUsage context={pi.context} /></>}
@@ -565,6 +648,33 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 
 function ContextItem({ value, title }: { value: string; title?: string }) {
   return <span className="piContextItem" title={title || value}>{value}</span>;
+}
+
+function ContextPicker({ kind, open, value, title, disabled, onToggle, children }: {
+  kind: 'model' | 'thinking';
+  open: boolean;
+  value: string;
+  title: string;
+  disabled: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const label = kind === 'model' ? 'model' : 'thinking effort';
+  return <div className={`piContextPicker piContextPicker-${kind}`}>
+    <button
+      className="piContextPickerTrigger"
+      type="button"
+      title={`${title || value} · Change ${label}`}
+      aria-label={`Change Pi ${label}. Current: ${value}`}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      disabled={disabled}
+      onClick={onToggle}
+    >
+      <span>{value}</span><i aria-hidden="true">▾</i>
+    </button>
+    {open && <div className="piContextPickerMenu" role="listbox" aria-label={`Available Pi ${label} options`}>{children}</div>}
+  </div>;
 }
 
 function ContextSeparator() {

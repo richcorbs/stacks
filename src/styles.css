@@ -1000,6 +1000,22 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piGuiPane.maximized { --pi-pane-accent: var(--maximized-terminal-border, #84cc16); }
 .piGuiContext { width: 100%; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .piContextItem, .piTrustButton { min-width: 0; max-width: 220px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #a2b1c1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+.piContextPicker { position: relative; min-width: 0; max-width: 220px; }
+.piContextPickerTrigger { min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; color: #a2b1c1; display: flex; align-items: center; gap: 3px; cursor: pointer; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.piContextPickerTrigger:hover, .piContextPickerTrigger[aria-expanded="true"] { color: #d1dce7; }
+.piContextPickerTrigger:disabled { cursor: default; }
+.piContextPickerTrigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.piContextPickerTrigger > i { flex: 0 0 auto; color: #718397; font-size: 8px; font-style: normal; }
+.piContextPickerMenu { position: absolute; z-index: 35; left: 50%; bottom: calc(100% + 8px); width: max-content; min-width: 190px; max-width: min(340px, calc(100vw - 24px)); max-height: min(360px, 55vh); padding: 4px; overflow: auto; border: 1px solid #33475a; border-radius: 7px; background: #121c27; box-shadow: 0 10px 28px #000b; transform: translateX(-50%); }
+.piContextPickerMenu button { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px 8px; border: 0; border-radius: 4px; background: transparent; color: #9eafc0; display: flex; align-items: center; justify-content: space-between; gap: 14px; text-align: left; cursor: pointer; }
+.piContextPickerMenu button:hover:not(:disabled), .piContextPickerMenu button:focus-visible { outline: 0; background: #1b2b3a; color: #d3dee9; }
+.piContextPickerMenu button.selected { background: #182a39; color: #c8d9e8; }
+.piContextPickerMenu button:disabled { opacity: .55; cursor: wait; }
+.piContextPickerMenu button > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.piContextPickerMenu strong { overflow: hidden; text-overflow: ellipsis; font: 500 11px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.piContextPickerMenu small { overflow: hidden; color: #6f8498; text-overflow: ellipsis; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.piContextPickerMenu button > i { flex: 0 0 10px; color: #80a7c8; font-size: 10px; font-style: normal; }
+.piContextPickerEmpty { padding: 8px; color: #718397; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .piTrustButton { flex: 0 0 auto; color: #c4a36d; cursor: pointer; }
 .piTrustButton:hover { color: #dfbd82; }
 .piContextSeparator { flex: 0 0 auto; color: #7f91a4; font-size: 10px; }

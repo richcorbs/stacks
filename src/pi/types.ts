@@ -15,6 +15,17 @@ export type PiMessage = {
   [key: string]: unknown;
 };
 
+export type PiModel = {
+  id: string;
+  name?: string;
+  provider: string;
+  input?: string[];
+  reasoning?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+  [key: string]: unknown;
+};
+
 export type PiResponseEvent = {
   type: 'response';
   id?: string;
@@ -23,7 +34,9 @@ export type PiResponseEvent = {
   error?: string;
   data?: {
     messages?: PiMessage[];
-    model?: { id?: string; name?: string; provider?: string; input?: string[] } | null;
+    model?: PiModel | null;
+    models?: PiModel[];
+    levels?: string[];
     thinkingLevel?: string;
     sessionId?: string;
     sessionName?: string;
