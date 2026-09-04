@@ -902,7 +902,11 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .githubPrRow,
 .githubActionRow { position: relative; }
 .githubPrRow {
-  padding: 10px 9px 11px;
+  min-height: 54px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid #223142;
 }
 .githubActionRow {
@@ -929,9 +933,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .githubPrTitlePrefix { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .githubPrTitleSuffix { flex: 0 0 auto; margin-left: 4px; }
 .githubItemMeta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; color: #65788e; font-size: 10px; }
-.githubPrMeta { min-width: 0; margin-top: 2px; }
-.githubPrAttribution { color: #8496a9; }
-.githubPrActions { position: absolute; top: 9px; right: 8px; display: flex; align-items: center; gap: 7px; }
+.githubPrMeta { position: absolute; right: 82px; bottom: 4px; left: 9px; min-width: 0; margin: 0; overflow: hidden; flex-wrap: nowrap; white-space: nowrap; }
+.githubPrAttribution { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #8496a9; }
+.githubPrActions { position: absolute; top: 50%; right: 8px; display: flex; align-items: center; gap: 7px; transform: translateY(-50%); }
 .githubPrCiStatus { flex: 0 0 14px; width: 14px; display: inline-flex; align-items: center; justify-content: center; }
 .githubStatus { font-weight: 600; }
 .githubStatus-passed { color: #70ad82; }
