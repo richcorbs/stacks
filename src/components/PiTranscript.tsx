@@ -8,11 +8,11 @@ export const PiMessage = memo(function PiMessage({ message, toolArgs }: { messag
     const imageBlocks = Array.isArray(message.content)
       ? message.content.filter((block): block is PiContentBlock & PiPromptImage => block.type === 'image')
       : [];
-    return <div className="piMessage piMessageUser"><div className="piMessageText">
+    return <div className="piMessage piMessageUser"><div className="piMessageText piMarkdown">
       {imageBlocks.length > 0 && <div className="piMessageImages">{imageBlocks.map((block, index) => block.data
         ? <img key={index} src={`data:${String(block.mimeType)};base64,${String(block.data)}`} alt="Attached" />
         : <span className="piOmittedImage" key={index}>Image attachment</span>)}</div>}
-      {messageText(message.content)}
+      <PiMarkdown>{messageText(message.content)}</PiMarkdown>
     </div><MessageTimestamp timestamp={message.timestamp} /></div>;
   }
   if (message.role === 'assistant') {
