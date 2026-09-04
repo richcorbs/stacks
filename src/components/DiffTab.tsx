@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { buildDiffTree, type DiffTreeNode } from '../git/diffTree';
-import type { GitDiffFile, GitDiffFilesResponse, GitFileDiff } from '../types';
+import type { GitDiffFile, GitDiffFilesResponse, GitFileDiff, GitInfo } from '../types';
 import type { DiffReviewModel } from '../diffReview/types';
 
 export function DiffTab({ activePath, refreshNonce, review }: {
@@ -11,6 +11,7 @@ export function DiffTab({ activePath, refreshNonce, review }: {
 }) {
   const [files, setFiles] = useState<GitDiffFile[]>([]);
   const [sourceLabel, setSourceLabel] = useState('Working tree');
+  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,11 +23,15 @@ export function DiffTab({ activePath, refreshNonce, review }: {
     setLoadingFile(null);
     if (!activePath) {
       setFiles([]);
+      setGitInfo(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
     setError(null);
+    invoke<GitInfo | null>('git_info', { path: activePath })
+      .then((info) => { if (!cancelled) setGitInfo(info); })
+      .catch(() => { if (!cancelled) setGitInfo(null); });
     invoke<GitDiffFilesResponse>('git_diff_files', { path: activePath })
       .then((response) => {
         if (cancelled) return;
@@ -58,7 +63,18 @@ export function DiffTab({ activePath, refreshNonce, review }: {
 
   if (!activePath) return <div className="superthreadState">Select a workspace in a Git repository.</div>;
   return <>
-    <div className="diffSourceLabel">{sourceLabel}</div>
+    <div className="diffStatusHeader" title={activePath}>
+      {gitInfo && <span className="diffBranch"> {gitInfo.branch}</span>}
+      <span className="diffSourceLabel">{sourceLabel}</span>
+      {sourceLabel === 'Working tree' && gitInfo && (gitInfo.created > 0 || gitInfo.changed > 0 || gitInfo.deleted > 0) && (
+        <span className="diffGitStats" title="Files created / changed / deleted">
+          {gitInfo.created > 0 && <span className="gitAdded">+{gitInfo.created}</span>}
+          {gitInfo.changed > 0 && <span className="gitChanged">~{gitInfo.changed}</span>}
+          {gitInfo.deleted > 0 && <span className="gitRemoved">-{gitInfo.deleted}</span>}
+        </span>
+      )}
+      {sourceLabel !== 'Working tree' && files.length > 0 && <span className="diffFileCount">{files.length} {files.length === 1 ? 'file' : 'files'}</span>}
+    </div>
     {loading && files.length === 0 && <div className="superthreadState">Loading changed files…</div>}
     {error && <div className="superthreadState superthreadError">{error}</div>}
     {!loading && !error && files.length === 0 && <div className="superthreadState">No changed files.</div>}

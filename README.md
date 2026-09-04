@@ -35,7 +35,7 @@ See [`src/pi/README.md`](src/pi/README.md) for implementation and lifecycle deta
 
 ### Developer services
 
-- Shows the current Git branch and working-tree counts.
+- Shows the current branch, diff source, and Git status in the DIFF tab.
 - Browses working-tree or current-pull-request diffs, supports inline/file/overall review comments, and sends assembled review feedback to a Pi GUI pane.
 - Lists GitHub pull requests and Actions status, opens PRs in the browser, and merges with a configurable strategy.
 - Optionally browses Superthread boards and creates a workspace from a selected card.

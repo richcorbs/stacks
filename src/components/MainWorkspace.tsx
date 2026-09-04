@@ -1,7 +1,6 @@
-import type { GitInfo, MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
+import type { MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import type { DiffReviewModel } from '../diffReview/types';
 import { DiffOverlay } from './DiffOverlay';
-import { WorkspaceStatusbar } from './WorkspaceStatusbar';
 import { WorkspaceTopbar } from './WorkspaceTopbar';
 import { WorkspaceViews } from './WorkspaceViews';
 
@@ -15,10 +14,8 @@ type WorkspaceViewModel = {
 type TerminalRequest = { terminalId: string; nonce: number };
 
 type MainWorkspaceProps = {
-  activePath: string | null;
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
-  gitInfo: GitInfo | null;
   workspaces: WorkspaceViewModel[];
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
@@ -50,10 +47,8 @@ type MainWorkspaceProps = {
 };
 
 export function MainWorkspace({
-  activePath,
   activeProjectName,
   activeWorkspaceName,
-  gitInfo,
   workspaces,
   activeWorkspaceId,
   activeTerminalId,
@@ -118,7 +113,6 @@ export function MainWorkspace({
         />
         {diffReview.openDiff && <DiffOverlay review={diffReview} canSubmit={canSubmitDiffReview} onSubmit={onSubmitDiffReview} onClose={onCloseDiff} />}
       </section>
-      {hasActiveTerminal && <WorkspaceStatusbar activePath={activePath} gitInfo={gitInfo} />}
     </main>
   );
 }

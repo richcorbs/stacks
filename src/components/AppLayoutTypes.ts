@@ -41,10 +41,8 @@ export type SidebarLayoutProps = {
 };
 
 export type MainLayoutProps = {
-  activePath: string | null;
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
-  gitInfo: { branch: string; created: number; changed: number; deleted: number } | null;
   visitedWorkspaceTerminalTrees: WorkspaceViewModel[];
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;

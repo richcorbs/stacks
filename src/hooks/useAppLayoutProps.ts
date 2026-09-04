@@ -36,7 +36,6 @@ type UseAppLayoutPropsOptions = {
   activePath: string | null;
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
-  gitInfo: { branch: string; created: number; changed: number; deleted: number } | null;
   visitedWorkspaceTerminalTrees: { project: Project; workspace: WorkspaceEntry; terminals: TerminalEntry[]; root: SplitNode | undefined }[];
   activeTerminalId: string | null;
   maximizedWorkspaceIds: MaximizedWorkspaceIds;
@@ -138,10 +137,8 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       openWorkspaceDialog: options.openWorkspaceDialog,
     },
     main: {
-      activePath: options.activePath,
       activeProjectName: options.activeProjectName,
       activeWorkspaceName: options.activeWorkspaceName,
-      gitInfo: options.gitInfo,
       visitedWorkspaceTerminalTrees: options.visitedWorkspaceTerminalTrees,
       activeWorkspaceId: options.activeWorkspaceId,
       activeTerminalId: options.activeTerminalId,

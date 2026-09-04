@@ -77,10 +77,8 @@ export function AppLayout({
         onAddTerminal={sidebar.openWorkspaceDialog}
       />
       <MainWorkspace
-        activePath={main.activePath}
         activeProjectName={main.activeProjectName}
         activeWorkspaceName={main.activeWorkspaceName}
-        gitInfo={main.gitInfo}
         onToggleSidebar={main.toggleSidebar}
         onToggleDeveloperServices={main.toggleDeveloperServices}
         developerServicesVisible={main.developerServicesVisible}

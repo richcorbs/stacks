@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStats } from './useAppStats';
-import { useGitInfo } from './useGitInfo';
 import { useWorkspaceCommands } from './useWorkspaceCommands';
 import { useAppShortcutHandlers } from './useAppShortcutHandlers';
 import { useAppWorkspaceModels } from './useAppWorkspaceModels';
@@ -128,7 +127,6 @@ export function useAppRootModel() {
     activeWorkspaceId,
   });
   const appStats = useAppStats();
-  const gitInfo = useGitInfo(activePath);
   const workspacePullRequests = useWorkspacePullRequests(sidebarWorkspaces);
   const { restoreActiveTerminalFocus } = useAppFocusRestore(activeTerminalId);
 
@@ -424,7 +422,6 @@ export function useAppRootModel() {
     activePath,
     activeProjectName: activeProject?.name ?? null,
     activeWorkspaceName: activeWorkspace?.name ?? null,
-    gitInfo,
     visitedWorkspaceTerminalTrees,
     activeTerminalId,
     maximizedWorkspaceIds,

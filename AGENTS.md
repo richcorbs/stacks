@@ -121,7 +121,6 @@ Important hooks:
 - `useTerminalActivity`
 - `useTerminalCwd`
 - `useTerminalSession`
-- `useGitInfo`
 - `useAppStats`
 - `useImageDropToTerminal`
 - `useWindowStatePersistence`
@@ -275,11 +274,9 @@ Stacks > Reset Window Settings
 
 - Sidebar workspace shortcut hints align vertically while Cmd is held.
 - Running green dot is hidden/replaced while shortcut hints are visible.
-- Header/topbar:
-  - Shows `Select a workspace` when no active terminal.
-  - Only shows path/git/split buttons when there is an active terminal.
-  - Shows split buttons to right of git status.
-- Split buttons are CSS-drawn icons, not Unicode glyphs.
+- Header/topbar shows `Select a workspace` when no workspace is active; otherwise it shows the project/workspace breadcrumb and sidebar toggles.
+- Do not restore the old bottom workspace status bar. Pi GUI terminals show their own path/branch context, shell prompts own terminal context, and the DIFF tab header shows branch/source/Git status.
+- Terminal split buttons are CSS-drawn icons, not Unicode glyphs.
 - Terminal frame uses custom padding and xterm scrollbar hiding. Be careful changing terminal dimensions; xterm/PTY width mismatch can cause wrapping or right-side gaps.
 
 ## Known tradeoffs / caution areas
