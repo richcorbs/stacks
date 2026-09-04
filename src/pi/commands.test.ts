@@ -51,9 +51,13 @@ describe('Pi slash commands', () => {
     expect(applySlashCommand(commands[0])).toBe('/skill:grill-me ');
   });
 
-  it('cycles history only when the composer has one line', () => {
+  it('cycles history for one-line input and at multiline boundaries', () => {
     expect(shouldCycleCommandHistory('single line')).toBe(true);
     expect(shouldCycleCommandHistory('first\nsecond')).toBe(false);
     expect(shouldCycleCommandHistory('visually wrapped input', true)).toBe(false);
+    expect(shouldCycleCommandHistory('first\nsecond', true, 1, 12, 12)).toBe(true);
+    expect(shouldCycleCommandHistory('first\nsecond', true, -1, 0, 0)).toBe(true);
+    expect(shouldCycleCommandHistory('first\nsecond', true, 1, 5, 5)).toBe(false);
+    expect(shouldCycleCommandHistory('first\nsecond', true, 1, 0, 5)).toBe(false);
   });
 });

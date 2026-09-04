@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   attentionNotification,
@@ -16,9 +16,16 @@ export function useActivityNotifications({
   store: Store;
   activeWorkspaceId: string | null;
 }) {
+  const permissionRef = useRef<Promise<boolean> | null>(null);
+
   useEffect(() => {
-    if (!enabled) return;
-    ensureNotificationPermission()
+    if (!enabled) {
+      permissionRef.current = null;
+      return;
+    }
+    const permission = ensureNotificationPermission();
+    permissionRef.current = permission;
+    permission
       .then((granted) => {
         if (!granted) console.warn('Activity notifications are enabled but macOS permission was not granted');
       })
@@ -30,15 +37,17 @@ export function useActivityNotifications({
       const event = (rawEvent as CustomEvent<AttentionEvent>).detail;
       if (!event || !enabled) return;
       const notification = attentionNotification(event, store);
-      invoke<boolean>('notify_attention', {
-        workspaceActive: activeWorkspaceId === event.workspaceId,
-        force: false,
-        title: notification.title,
-        body: notification.body,
-      }).catch((error) => {
-        console.warn('Could not send activity notification', error);
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not notify: ${String(error)}` } }));
-      });
+      const sendNotification = async () => {
+        const granted = await (permissionRef.current ?? ensureNotificationPermission());
+        if (!granted) return;
+        await invoke<boolean>('notify_attention', {
+          workspaceActive: activeWorkspaceId === event.workspaceId,
+          force: false,
+          title: notification.title,
+          body: notification.body,
+        });
+      };
+      sendNotification().catch((error) => console.warn('Could not send activity notification', error));
     };
 
     window.addEventListener('app-attention', handleAttention);

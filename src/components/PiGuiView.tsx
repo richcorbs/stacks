@@ -219,6 +219,17 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     return true;
   }
 
+  function exitPromptHistory() {
+    if (historyIndexRef.current === null) return false;
+    const draft = historyDraftRef.current;
+    historyIndexRef.current = null;
+    historyDraftRef.current = '';
+    setPrompt(draft);
+    setSelectedCommandIndex(-1);
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(draft.length, draft.length));
+    return true;
+  }
+
   async function submit(behavior: 'prompt' | 'followUp' = 'prompt') {
     const message = prompt.trim();
     const slashName = message.startsWith('/') ? message.slice(1).split(/\s/, 1)[0] : '';
@@ -505,7 +516,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               }
               if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
                 const direction = event.key === 'ArrowUp' ? -1 : 1;
-                const shouldCycle = shouldCycleCommandHistory(prompt, composerHasMultipleVisualLines(event.currentTarget));
+                const shouldCycle = shouldCycleCommandHistory(
+                  prompt,
+                  composerHasMultipleVisualLines(event.currentTarget),
+                  direction,
+                  event.currentTarget.selectionStart,
+                  event.currentTarget.selectionEnd,
+                );
                 if (shouldCycle && cyclePromptHistory(direction)) {
                   event.preventDefault();
                   return;
@@ -519,6 +536,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               if (event.key === 'Escape' && matchingCommands.length > 0) {
                 event.preventDefault();
                 setSelectedCommandIndex(-1);
+                return;
+              }
+              if (event.key === 'Escape' && exitPromptHistory()) {
+                event.preventDefault();
                 return;
               }
               if (event.key === 'Enter' && !event.shiftKey) {
