@@ -35,8 +35,9 @@ use pi_rpc::{delete_pi_session, pi_project_trusted, send_pi_rpc, set_pi_project_
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
 use settings::{
-    load_settings, reset_settings, save_app_settings, save_current_window_state,
-    save_developer_services_state, save_sidebar_width, save_terminal_font_size, save_window_state,
+    clear_pending_pr_cleanup, load_pending_pr_cleanup, load_settings, reset_settings,
+    save_app_settings, save_current_window_state, save_developer_services_state,
+    save_pending_pr_cleanup, save_sidebar_width, save_terminal_font_size, save_window_state,
     save_workspace_focus,
 };
 use store::{load_store, save_store};
@@ -95,6 +96,9 @@ pub fn run() {
             save_terminal_font_size,
             save_app_settings,
             save_workspace_focus,
+            load_pending_pr_cleanup,
+            save_pending_pr_cleanup,
+            clear_pending_pr_cleanup,
             reset_settings,
             new_id,
             quit_app,

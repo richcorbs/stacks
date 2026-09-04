@@ -30,6 +30,7 @@ pub struct GithubPullRequest {
     author: String,
     ci_status: GithubStatus,
     has_merge_conflicts: bool,
+    head_ref_name: String,
     url: String,
     draft: bool,
 }
@@ -101,12 +102,17 @@ pub async fn github_merge_pull_request(
             "rebase" => "--rebase",
             _ => return Err("Unsupported GitHub merge strategy".to_string()),
         };
+        let number_text = number.to_string();
+        let state = run_gh(None, &["pr", "view", &number_text, "--repo", &repository, "--json", "state", "--jq", ".state"])?;
+        if state.trim().eq_ignore_ascii_case("MERGED") {
+            return Ok(());
+        }
         run_gh(
             None,
             &[
                 "pr",
                 "merge",
-                &number.to_string(),
+                &number_text,
                 "--repo",
                 &repository,
                 strategy,
@@ -164,7 +170,7 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
             "--limit",
             "100",
             "--json",
-            "number,title,author,statusCheckRollup,mergeable,mergeStateStatus,url,isDraft",
+            "number,title,author,statusCheckRollup,mergeable,mergeStateStatus,headRefName,url,isDraft",
         ],
     )?;
     let values: Vec<serde_json::Value> = serde_json::from_str(&output)
@@ -186,6 +192,7 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
                     .to_string(),
                 ci_status: ci_status(value["statusCheckRollup"].as_array()),
                 has_merge_conflicts: has_merge_conflicts(&value),
+                head_ref_name: value["headRefName"].as_str().unwrap_or_default().to_string(),
                 url: value["url"].as_str().unwrap_or_default().to_string(),
                 draft: value["isDraft"].as_bool().unwrap_or(false),
             })

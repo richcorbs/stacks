@@ -55,16 +55,19 @@ export function useWorkspaceCrudCommands({
     const panes = workspace ? panesForWorkspace(workspace) : terminalsByWorkspaceId[workspaceId] ?? [];
     disposeTerminalSessions(panes.filter((pane) => pane.kind !== 'pi').map((pane) => pane.id));
     try {
-      await Promise.all(panes.filter((pane) => pane.kind === 'pi').map((pane) => invoke('delete_pi_session', { paneId: pane.id })));
+      await Promise.all([
+        ...panes.filter((pane) => pane.kind === 'pi').map((pane) => invoke('delete_pi_session', { paneId: pane.id })),
+        ...panes.filter((pane) => pane.kind !== 'pi').map((pane) => invoke('kill_pty', { terminalId: pane.id })),
+      ]);
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete Pi session: ${String(error)}` } }));
-      return;
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not stop workspace processes: ${String(error)}` } }));
+      return false;
     }
-    panes.filter((pane) => pane.kind !== 'pi').forEach((pane) => invoke('kill_pty', { terminalId: pane.id }).catch(() => {}));
     setStore((s) => ({ projects: s.projects.map((p) => p.id === projectId ? { ...p, workspaces: p.workspaces.filter((workspace) => workspace.id !== workspaceId) } : p) }));
     removeTerminalState(workspaceId);
     setRunningTerminalIds((ids) => ids.filter((id) => !id.startsWith(`${workspaceId}:`)));
     setActivityWorkspaceIds((ids) => ids.filter((id) => id !== workspaceId));
+    return true;
   }
 
   function moveProject(draggedProjectId: string, targetProjectId: string) {

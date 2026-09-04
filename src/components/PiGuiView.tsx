@@ -7,6 +7,7 @@ import { subscribePiImageDrops } from '../pi/imageDropBroker';
 import type { PiCommand, PiModel, PiPromptImage, PiSessionContext } from '../pi/types';
 import { hasVisiblePiStreamingText, visiblePiMessages } from '../pi/transcript';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
+import { listenForPiPrompt } from '../pi/promptEvent';
 import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
 import { PiMarkdown } from './PiMarkdown';
@@ -134,6 +135,24 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     request.acknowledge();
     requestAnimationFrame(() => inputRef.current?.focus());
   }), [active, terminal.id, visible]);
+
+  useEffect(() => listenForPiPrompt((request) => {
+    if (request.terminalId !== terminal.id || pi.starting || pi.isStreaming) return;
+    if (pi.stopped) {
+      pi.restart().catch((error) => {
+        request.failed();
+        console.error('Could not restart Pi for automated prompt', error);
+      });
+      return;
+    }
+    if (!request.claim()) return;
+    pi.prompt(request.text, [])
+      .then(request.accepted)
+      .catch((error) => {
+        request.failed();
+        console.error('Could not run Pi prompt', error);
+      });
+  }), [pi.isStreaming, pi.prompt, pi.restart, pi.starting, pi.stopped, terminal.id]);
 
   useEffect(() => subscribePiImageDrops(terminal.id, (paths) => {
       if (!pi.context.supportsImages) {

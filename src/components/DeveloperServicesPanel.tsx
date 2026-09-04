@@ -2,17 +2,19 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { DiffTab } from './DiffTab';
 import { GithubActionsTab } from './GithubActionsTab';
 import { GithubPullRequestsTab } from './GithubPullRequestsTab';
-import { ConfirmMergePullRequestDialog } from './ConfirmDialogs';
+import { ConfirmMergePullRequestDialog, ResumePrCleanupDialog } from './ConfirmDialogs';
 import { SuperthreadCardDialog } from './SuperthreadCardDialog';
 import { SuperthreadProjectDialog } from './SuperthreadProjectDialog';
 import { SuperthreadTab } from './SuperthreadTab';
 import { useSuperthreadCache } from '../superthread/useSuperthreadCache';
 import { useGithub } from '../github/useGithub';
+import { runPrMergeCleanupWorkflow } from '../github/mergeWorkflow';
 import type { GithubMergeStrategy, GithubPullRequest } from '../github/types';
-import type { Project } from '../types';
+import type { PendingPrCleanup, Project } from '../types';
 import type { DiffReviewModel } from '../diffReview/types';
 import type { DeveloperServicesTab } from '../developerServices';
 import type { SuperthreadCard } from '../superthread/types';
+import { clearPendingPrCleanup, loadPendingPrCleanup, savePendingPrCleanup } from '../github/prCleanupPersistence';
 
 export function DeveloperServicesPanel({
   visible,
@@ -28,6 +30,8 @@ export function DeveloperServicesPanel({
   superthreadEnabled,
   diffReview,
   onStartWork,
+  onPrepareCleanup,
+  onRunCleanup,
 }: {
   visible: boolean;
   activeTab: DeveloperServicesTab;
@@ -42,6 +46,8 @@ export function DeveloperServicesPanel({
   superthreadEnabled: boolean;
   diffReview: DiffReviewModel;
   onStartWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
+  onPrepareCleanup: (pullRequest: GithubPullRequest, repository: string) => Promise<{ operation: PendingPrCleanup; error?: never } | { operation: null; error: string }>;
+  onRunCleanup: (operation: PendingPrCleanup) => Promise<boolean>;
 }) {
   const superthread = useSuperthreadCache(workspaceSlug, spaces, superthreadEnabled);
   const github = useGithub(activePath, githubPollSeconds, visible, githubMergeStrategy);
@@ -49,6 +55,8 @@ export function DeveloperServicesPanel({
   const setTab = onActiveTabChange;
   const [pendingWorkCard, setPendingWorkCard] = useState<SuperthreadCard | null>(null);
   const [pendingMerge, setPendingMerge] = useState<{ pullRequest: GithubPullRequest; repository: string } | null>(null);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const [recoveryOperation, setRecoveryOperation] = useState<PendingPrCleanup | null>(null);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
   const selectedCardStatus = superthread.selectedCard
     ? superthread.boards
@@ -60,6 +68,20 @@ export function DeveloperServicesPanel({
   useEffect(() => {
     if (!superthreadEnabled && tab === 'superthread') setTab('pull-requests');
   }, [setTab, superthreadEnabled, tab]);
+
+  useEffect(() => {
+    loadPendingPrCleanup().then(setRecoveryOperation).catch(console.error);
+  }, []);
+
+  async function continueCleanup(operation: PendingPrCleanup) {
+    let current = operation;
+    if (current.stage === 'ready-to-merge') {
+      const merged = await github.mergePullRequest(current.repository, current.pullRequestNumber);
+      if (!merged) return false;
+      current = await savePendingPrCleanup(current, 'merged');
+    }
+    return onRunCleanup(current);
+  }
 
   function refresh() {
     if (tab === 'superthread') superthread.loadBoards(true).catch(console.error);
@@ -99,7 +121,10 @@ export function DeveloperServicesPanel({
             loading={github.loading}
             error={github.pullRequestError}
             mergingNumber={github.mergingNumber}
-            onRequestMerge={(pullRequest, repository) => setPendingMerge({ pullRequest, repository })}
+            onRequestMerge={(pullRequest, repository) => {
+              setCleanupError(null);
+              setPendingMerge({ pullRequest, repository });
+            }}
           />
         )}
         {tab === 'actions' && (
@@ -139,11 +164,56 @@ export function DeveloperServicesPanel({
       <ConfirmMergePullRequestDialog
         number={pendingMerge.pullRequest.number}
         pullRequestTitle={pendingMerge.pullRequest.title}
-        onCancel={() => setPendingMerge(null)}
-        onConfirm={() => {
-          const { repository, pullRequest } = pendingMerge;
+        cleanupError={cleanupError}
+        onCancel={() => {
+          setCleanupError(null);
           setPendingMerge(null);
-          github.mergePullRequest(repository, pullRequest.number).catch(console.error);
+        }}
+        onConfirm={(cleanupAfter) => {
+          const { repository, pullRequest } = pendingMerge;
+          const run = async () => {
+            if (!cleanupAfter) {
+              setPendingMerge(null);
+              await github.mergePullRequest(repository, pullRequest.number);
+              return;
+            }
+            const prepared = await onPrepareCleanup(pullRequest, repository);
+            if (!prepared.operation) {
+              setCleanupError(prepared.error);
+              return;
+            }
+            setPendingMerge(null);
+            const result = await runPrMergeCleanupWorkflow(
+              prepared.operation,
+              () => github.mergePullRequest(repository, pullRequest.number),
+              (operation) => savePendingPrCleanup(operation, 'merged'),
+              onRunCleanup,
+            );
+            if (!result.merged) await clearPendingPrCleanup();
+            else if (!result.cleanupCompleted) setRecoveryOperation(await loadPendingPrCleanup());
+          };
+          run().catch((error) => {
+            console.error(error);
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not complete PR cleanup: ${String(error)}` } }));
+          });
+        }}
+      />
+    )}
+    {recoveryOperation && !pendingMerge && (
+      <ResumePrCleanupDialog
+        operation={recoveryOperation}
+        onCancel={() => {
+          clearPendingPrCleanup().then(() => setRecoveryOperation(null)).catch(console.error);
+        }}
+        onResume={() => {
+          const operation = recoveryOperation;
+          setRecoveryOperation(null);
+          continueCleanup(operation).then(async (completed) => {
+            if (!completed) setRecoveryOperation(await loadPendingPrCleanup());
+          }).catch(async (error) => {
+            console.error(error);
+            setRecoveryOperation(await loadPendingPrCleanup().catch(() => operation));
+          });
         }}
       />
     )}

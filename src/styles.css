@@ -466,6 +466,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   color: #74869b;
   font-size: 12px;
 }
+.confirmModal .mergeCleanupOption { margin: 18px 0 4px; }
 
 .toast {
   position: fixed;

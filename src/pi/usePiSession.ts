@@ -4,6 +4,7 @@ import type { PiCommand, PiMessage, PiModel, PiPromptImage, PiResponseEvent, PiS
 import { subscribePiEvents } from './eventBroker';
 import { appendPiMessage, compactPiMessages } from './transcript';
 import { GUI_BUILTIN_COMMANDS } from './commands';
+import { notifyPiAgentSettled, notifyPiPromptFailed } from './promptEvent';
 
 const EMPTY_CONTEXT: PiSessionContext = {
   modelName: '',
@@ -205,6 +206,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
           setQueuedFollowUps(Array.isArray(event.followUp) ? event.followUp.filter((item): item is string => typeof item === 'string') : []);
           break;
         case 'agent_settled':
+          notifyPiAgentSettled(paneId);
           if (completionNotificationEligibleRef.current) {
             window.dispatchEvent(new CustomEvent('app-attention', {
               detail: { kind: 'pi-complete', workspaceId, terminalId: paneId },
@@ -230,9 +232,11 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
           console.warn('[pi]', event.message);
           break;
         case 'pi_protocol_error':
+          notifyPiPromptFailed(paneId);
           setError(typeof event.message === 'string' ? event.message : 'Pi reported an error');
           break;
         case 'pi_process_exit':
+          notifyPiPromptFailed(paneId);
           completionNotificationEligibleRef.current = false;
           notifyRunning(paneId, false);
           setIsStreaming(false);
@@ -366,8 +370,9 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
 
   const abort = useCallback(() => {
     completionNotificationEligibleRef.current = false;
+    notifyPiPromptFailed(paneId);
     return sendRequest({ type: 'abort' });
-  }, [sendRequest]);
+  }, [paneId, sendRequest]);
   const selectModel = useCallback(async (model: PiModel) => {
     await sendRequest({ type: 'set_model', provider: model.provider, modelId: model.id });
     await refreshState();

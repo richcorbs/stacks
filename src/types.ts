@@ -24,6 +24,18 @@ export type SplitNode =
 export type PtyData = { terminal_id: string; generation: string; data: number[] };
 export type PtyExit = { terminal_id: string; generation: string };
 export type GitInfo = { branch: string; created: number; changed: number; deleted: number };
+export type PrCleanupStage = 'ready-to-merge' | 'merged' | 'cleanup-running' | 'cleanup-completed';
+export type PendingPrCleanup = {
+  repository: string;
+  pullRequestNumber: number;
+  pullRequestTitle: string;
+  projectId: string;
+  workspaceId: string;
+  workspaceName: string;
+  workspacePath: string;
+  paneId: string;
+  stage: PrCleanupStage;
+};
 export type GitDiffFile = { path: string; status: 'A' | 'M' | 'D' | 'R' | 'U' };
 export type GitDiffFilesResponse = { files: GitDiffFile[]; source: 'working-tree' | 'pull-request'; pullRequestNumber: number | null };
 export type GitFileDiff = { path: string; patch: string };

@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Sidebar } from './Sidebar';
 import { MainWorkspace } from './MainWorkspace';
 import { AppOverlays } from './AppOverlays';
@@ -8,6 +9,11 @@ import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { diffReviewTargetPane } from '../diffReview/targetPane';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
+import { sendPromptToPiAndWait } from '../pi/promptEvent';
+import { cleanupPiPaneId, matchingPrWorkspaces, pendingPrCleanup } from '../github/prCleanup';
+import { clearPendingPrCleanup, savePendingPrCleanup } from '../github/prCleanupPersistence';
+import type { GithubPullRequest } from '../github/types';
+import type { GitInfo, PendingPrCleanup } from '../types';
 
 export function AppLayout({
   appStyle,
@@ -38,6 +44,61 @@ export function AppLayout({
     const delivered = await sendTextToPiEditor(diffReviewTarget.id, prompt);
     if (delivered) diffReview.reset();
     else window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Could not focus the Pi composer' } }));
+  }
+
+  async function prepareCleanup(pullRequest: GithubPullRequest, repository: string) {
+    const project = sidebar.store.projects.find((candidate) => candidate.id === sidebar.activeProjectId);
+    if (!project) return cleanupPreparationError('Select a project before merging with cleanup');
+
+    let matches = matchingPrWorkspaces(project, pullRequest, sidebar.workspacePullRequests);
+    if (matches.length === 0 && pullRequest.head_ref_name) {
+      const branches = await Promise.all(project.workspaces.map(async (workspace) => {
+        const path = workspace.cwd || project.path;
+        const info = await invoke<GitInfo | null>('git_info', { path }).catch(() => null);
+        return [workspace.id, info?.branch ?? null] as const;
+      }));
+      matches = matchingPrWorkspaces(project, pullRequest, sidebar.workspacePullRequests, Object.fromEntries(branches));
+    }
+    if (matches.length === 0) return cleanupPreparationError(`No workspace in ${project.name} is associated with PR #${pullRequest.number}`);
+    if (matches.length > 1) return cleanupPreparationError(`More than one workspace in ${project.name} is associated with PR #${pullRequest.number}`);
+
+    const workspace = matches[0];
+    const runtimeModel = main.visitedWorkspaceTerminalTrees.find((candidate) => candidate.workspace.id === workspace.id);
+    const paneId = cleanupPiPaneId(workspace, runtimeModel?.terminals ?? [], workspace.id === main.activeWorkspaceId ? main.activeTerminalId : null);
+    if (!paneId) return cleanupPreparationError(`Workspace “${workspace.name}” does not contain a Pi GUI`);
+
+    const operation = pendingPrCleanup(repository, pullRequest, project, workspace, paneId);
+    await savePendingPrCleanup(operation);
+    return { operation };
+  }
+
+  async function runCleanup(operation: PendingPrCleanup) {
+    const project = sidebar.store.projects.find((candidate) => candidate.id === operation.projectId);
+    const workspace = project?.workspaces.find((candidate) => candidate.id === operation.workspaceId);
+    if (!project || !workspace) {
+      await clearPendingPrCleanup();
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Cleanup stopped because the related workspace no longer exists' } }));
+      return false;
+    }
+
+    let current = operation;
+    if (current.stage !== 'cleanup-completed') {
+      main.selectWorkspace(project.id, workspace.id);
+      main.focusTerminal(workspace.id, current.paneId);
+      current = await savePendingPrCleanup(current, 'cleanup-running');
+      const completed = await sendPromptToPiAndWait(current.paneId, '/cleanup');
+      if (!completed) {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Cleanup did not complete in “${workspace.name}”; the workspace was retained` } }));
+        return false;
+      }
+      current = await savePendingPrCleanup(current, 'cleanup-completed');
+    }
+
+    const deleted = await overlays.deleteWorkspace(project.id, workspace.id);
+    if (!deleted) return false;
+    await clearPendingPrCleanup();
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Cleaned up and deleted “${workspace.name}”` } }));
+    return true;
   }
 
   function closeDiff() {
@@ -125,8 +186,14 @@ export function AppLayout({
         superthreadEnabled={developerServices.superthreadEnabled}
         diffReview={diffReview}
         onStartWork={developerServices.startWork}
+        onPrepareCleanup={prepareCleanup}
+        onRunCleanup={runCleanup}
       />
       <AppOverlays {...overlays} />
     </div>
   );
+}
+
+function cleanupPreparationError(error: string) {
+  return { operation: null, error };
 }

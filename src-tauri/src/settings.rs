@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, sync::{Mutex, OnceLock}};
 use tauri::Window;
 
 use crate::fs_paths::app_data_file;
-pub use crate::settings_model::{AppSettings, WindowState};
+pub use crate::settings_model::{AppSettings, PendingPrCleanup, WindowState};
 
 static SETTINGS_FILE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -88,6 +88,29 @@ pub fn save_developer_services_state(visible: bool, active_tab: String) -> Resul
         settings.developer_services_visible = Some(visible);
         settings.developer_services_tab = Some(active_tab);
     })
+}
+
+#[tauri::command]
+pub fn load_pending_pr_cleanup() -> Option<PendingPrCleanup> {
+    load_settings_from_disk().pending_pr_cleanup
+}
+
+#[tauri::command]
+pub fn save_pending_pr_cleanup(operation: PendingPrCleanup) -> Result<(), String> {
+    if operation.repository.trim().is_empty()
+        || operation.project_id.trim().is_empty()
+        || operation.workspace_id.trim().is_empty()
+        || operation.pane_id.trim().is_empty()
+        || !matches!(operation.stage.as_str(), "ready-to-merge" | "merged" | "cleanup-running" | "cleanup-completed")
+    {
+        return Err("Invalid pending PR cleanup operation".to_string());
+    }
+    update_settings_on_disk(|settings| settings.pending_pr_cleanup = Some(operation))
+}
+
+#[tauri::command]
+pub fn clear_pending_pr_cleanup() -> Result<(), String> {
+    update_settings_on_disk(|settings| settings.pending_pr_cleanup = None)
 }
 
 #[tauri::command]

@@ -31,6 +31,20 @@ pub struct WorkspaceTemplate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPrCleanup {
+    pub repository: String,
+    pub pull_request_number: u64,
+    pub pull_request_title: String,
+    pub project_id: String,
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub workspace_path: String,
+    pub pane_id: String,
+    pub stage: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomCmdPCommand {
     pub id: String,
     pub label: String,
@@ -50,6 +64,8 @@ pub struct AppSettings {
     pub developer_services_visible: Option<bool>,
     #[serde(default)]
     pub developer_services_tab: Option<String>,
+    #[serde(default)]
+    pub pending_pr_cleanup: Option<PendingPrCleanup>,
     #[serde(default)]
     pub terminal_font_size: Option<u32>,
     #[serde(default)]
@@ -173,4 +189,32 @@ fn default_true() -> bool { true }
 
 fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppSettings;
+
+    #[test]
+    fn deserializes_pending_pr_cleanup_with_frontend_field_names() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "pending_pr_cleanup": {
+                "repository": "rich/app",
+                "pullRequestNumber": 42,
+                "pullRequestTitle": "Feature",
+                "projectId": "project",
+                "workspaceId": "workspace",
+                "workspaceName": "Feature workspace",
+                "workspacePath": "/tmp/worktree",
+                "paneId": "workspace:pi",
+                "stage": "merged"
+            }
+        })).expect("settings should deserialize");
+
+        let operation = settings.pending_pr_cleanup.expect("cleanup operation");
+        assert_eq!(operation.pull_request_number, 42);
+        assert_eq!(operation.workspace_id, "workspace");
+        assert_eq!(operation.pane_id, "workspace:pi");
+        assert_eq!(operation.stage, "merged");
+    }
 }

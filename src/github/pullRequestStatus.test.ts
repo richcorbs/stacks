@@ -9,6 +9,7 @@ function pullRequest(overrides: Partial<GithubPullRequest> = {}): GithubPullRequ
     author: 'user',
     ci_status: 'success',
     has_merge_conflicts: false,
+    head_ref_name: 'feature/test',
     url: 'https://github.com/example/repo/pull/1',
     draft: false,
     ...overrides,
