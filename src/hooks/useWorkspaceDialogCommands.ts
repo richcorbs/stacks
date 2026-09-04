@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import type React from 'react';
 import type { DialogState, Project, Store, TerminalEntry } from '../types';
 import { basename } from '../utils';
-import { submitWorkspaceDialog } from '../workspace/dialogSubmit';
+import { newWorkspaceDialog, submitWorkspaceDialog } from '../workspace/dialogSubmit';
 import type { CreateWorkspace } from '../workspace/createWorkspace';
 
 type WorkspaceDialogCommandOptions = {
@@ -61,7 +61,7 @@ export function useWorkspaceDialogCommands({
   }
 
   function openWorkspaceDialog(project: Project) {
-    setDialog({ kind: 'workspace', projectId: project.id, name: `Workspace ${project.workspaces.length + 1}`, command: '', setupCommand: '', rows: 1, columns: 1, firstPaneKind: 'terminal' });
+    setDialog(newWorkspaceDialog(project.id, `Workspace ${project.workspaces.length + 1}`));
   }
 
   function openEditTerminalDialog(workspaceId: string, terminalId: string) {

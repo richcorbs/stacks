@@ -46,6 +46,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
   const pendingRequests = useRef(new Map<string, PendingRequest>());
   const streamingTextBufferRef = useRef('');
   const streamingFrameRef = useRef<number | null>(null);
+  const completionNotificationEligibleRef = useRef(false);
 
   const resetStreamingText = useCallback(() => {
     streamingTextBufferRef.current = '';
@@ -140,6 +141,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
           break;
         }
         case 'agent_start':
+          completionNotificationEligibleRef.current = true;
           setIsStreaming(true);
           setIsStreamingText(false);
           resetStreamingText();
@@ -203,6 +205,12 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
           setQueuedFollowUps(Array.isArray(event.followUp) ? event.followUp.filter((item): item is string => typeof item === 'string') : []);
           break;
         case 'agent_settled':
+          if (completionNotificationEligibleRef.current) {
+            window.dispatchEvent(new CustomEvent('app-attention', {
+              detail: { kind: 'pi-complete', workspaceId, terminalId: paneId },
+            }));
+          }
+          completionNotificationEligibleRef.current = false;
           setIsStreaming(false);
           setIsStreamingText(false);
           resetStreamingText();
@@ -225,6 +233,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
           setError(typeof event.message === 'string' ? event.message : 'Pi reported an error');
           break;
         case 'pi_process_exit':
+          completionNotificationEligibleRef.current = false;
           notifyRunning(paneId, false);
           setIsStreaming(false);
           setIsStreamingText(false);
@@ -355,7 +364,10 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     await sendRequest({ type: 'follow_up', message: text, ...(images.length ? { images } : {}) });
   }, [context.supportsImages, sendRequest]);
 
-  const abort = useCallback(() => sendRequest({ type: 'abort' }), [sendRequest]);
+  const abort = useCallback(() => {
+    completionNotificationEligibleRef.current = false;
+    return sendRequest({ type: 'abort' });
+  }, [sendRequest]);
   const selectModel = useCallback(async (model: PiModel) => {
     await sendRequest({ type: 'set_model', provider: model.provider, modelId: model.id });
     await refreshState();
@@ -373,6 +385,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     await writeCommand({ type: 'extension_ui_response', id: request.id, ...response });
   }, [uiRequest, writeCommand]);
   const restart = useCallback(async () => {
+    completionNotificationEligibleRef.current = false;
     setStarting(true);
     setStopped(false);
     setIsStreamingText(false);

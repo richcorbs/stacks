@@ -33,6 +33,9 @@ export function attachTerminalPtyListeners({
       const remaining = session.decoder.decode();
       enqueueTerminalOutput(session, `${remaining}\r\n[process exited]\r\n`, workspaceId, terminalId);
       window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: false } }));
+      window.dispatchEvent(new CustomEvent('app-attention', {
+        detail: { kind: 'process-exit', workspaceId, terminalId },
+      }));
     }
   }).then((fn) => { session.unlistenExit = fn; });
 

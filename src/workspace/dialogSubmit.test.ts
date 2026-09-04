@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type React from 'react';
-import { submitWorkspaceDialog } from './dialogSubmit';
+import { newWorkspaceDialog, submitWorkspaceDialog } from './dialogSubmit';
 import type { DialogState, Store } from '../types';
 
 function stateHarness(initial: Store) {
@@ -28,6 +28,19 @@ function baseOptions(state: ReturnType<typeof stateHarness>) {
 }
 
 describe('submitWorkspaceDialog', () => {
+  it('defaults new workspaces to a Pi GUI terminal', () => {
+    expect(newWorkspaceDialog('p1', 'Workspace 1')).toEqual({
+      kind: 'workspace',
+      projectId: 'p1',
+      name: 'Workspace 1',
+      command: '',
+      setupCommand: '',
+      rows: 1,
+      columns: 1,
+      firstPaneKind: 'pi',
+    });
+  });
+
   it('delegates workspace creation to the shared application command', async () => {
     const state = stateHarness({ projects: [{ id: 'p1', name: 'Stacks', path: '/repo', workspaces: [], collapsed: true }] });
     const options = baseOptions(state);

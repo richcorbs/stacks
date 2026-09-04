@@ -16,6 +16,7 @@ import { useAutomationRequests } from './useAutomationRequests';
 import { useWorkspaceCreation } from './useWorkspaceCreation';
 import { useOneTimeCommand } from './useOneTimeCommand';
 import { useWorkspacePullRequests } from './useWorkspacePullRequests';
+import { useActivityNotifications } from './useActivityNotifications';
 import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
@@ -120,6 +121,11 @@ export function useAppRootModel() {
     visitedWorkspaceIds,
     terminalsByWorkspaceId,
     splitRootsByWorkspaceId,
+  });
+  useActivityNotifications({
+    enabled: appSettings.activity_notifications,
+    store,
+    activeWorkspaceId,
   });
   const appStats = useAppStats();
   const gitInfo = useGitInfo(activePath);

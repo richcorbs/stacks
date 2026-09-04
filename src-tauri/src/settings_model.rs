@@ -40,6 +40,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub confirm_delete: Option<bool>,
     #[serde(default)]
+    pub activity_notifications: Option<bool>,
+    #[serde(default)]
     pub editor_app: Option<String>,
     #[serde(default)]
     pub focused_terminal_border_color: Option<String>,
@@ -85,6 +87,7 @@ impl AppSettings {
         self.copy_on_select = next.copy_on_select;
         self.confirm_close = next.confirm_close;
         self.confirm_delete = next.confirm_delete;
+        self.activity_notifications = next.activity_notifications;
         self.editor_app = non_empty(next.editor_app);
         self.focused_terminal_border_color = non_empty(next.focused_terminal_border_color);
         self.maximized_terminal_border_color = non_empty(next.maximized_terminal_border_color);

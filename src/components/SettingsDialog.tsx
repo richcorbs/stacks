@@ -15,6 +15,7 @@ import {
 import {
   ConfirmationSettingsSection,
   EditorSettingsSection,
+  NotificationSettingsSection,
   TerminalSettingsSection,
   WorkspaceStatusDotSettingsSection,
 } from './SettingsSections';
@@ -89,6 +90,7 @@ export function SettingsDialog({ settings, onChange, onClose }: {
         <TerminalSettingsSection draft={draft} firstInputRef={firstInputRef} update={update} />
         <WorkspaceStatusDotSettingsSection draft={draft} update={update} />
         <ConfirmationSettingsSection draft={draft} update={update} />
+        <NotificationSettingsSection draft={draft} update={update} />
         <EditorSettingsSection draft={draft} update={update} chooseEditorApp={chooseEditorApp} />
         <section className="settingsSection">
           <h3>Superthread</h3>

@@ -45,6 +45,7 @@ export type AppSettings = {
   copy_on_select?: boolean | null;
   confirm_close?: boolean | null;
   confirm_delete?: boolean | null;
+  activity_notifications?: boolean | null;
   editor_app?: string | null;
   focused_terminal_border_color?: string | null;
   maximized_terminal_border_color?: string | null;

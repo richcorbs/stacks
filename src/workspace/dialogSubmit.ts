@@ -2,6 +2,10 @@ import type React from 'react';
 import type { DialogState, Project, Store } from '../types';
 import type { CreateWorkspace } from './createWorkspace';
 
+export function newWorkspaceDialog(projectId: string, name: string): Extract<DialogState, { kind: 'workspace' }> {
+  return { kind: 'workspace', projectId, name, command: '', setupCommand: '', rows: 1, columns: 1, firstPaneKind: 'pi' };
+}
+
 type SubmitWorkspaceDialogOptions = {
   dialog: DialogState | null;
   store: Store;
@@ -33,7 +37,7 @@ export async function submitWorkspaceDialog({
     if (dialog.openTerminalAfterCreate) {
       setDialog(null);
       window.setTimeout(() => {
-        setDialog({ kind: 'workspace', projectId: project.id, name: 'Workspace 1', command: '', setupCommand: '', rows: 1, columns: 1, firstPaneKind: 'terminal' });
+        setDialog(newWorkspaceDialog(project.id, 'Workspace 1'));
       }, 200);
     } else {
       setDialog(null);

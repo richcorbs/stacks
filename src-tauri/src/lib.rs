@@ -9,6 +9,7 @@ mod fs_paths;
 mod git;
 mod github;
 mod menu;
+mod notifications;
 mod open;
 mod pi_image;
 mod pi_rpc;
@@ -27,6 +28,7 @@ use automation::{complete_automation_request, drain_automation_requests, Automat
 use git::{git_diff_files, git_file_diff, git_info};
 use github::{github_action_runs, github_current_pull_request, github_merge_pull_request, github_pull_requests};
 use menu::app_menu;
+use notifications::notify_attention;
 use open::{open_path_in_editor, open_url};
 use pi_image::read_pi_image;
 use pi_rpc::{delete_pi_session, pi_project_trusted, send_pi_rpc, set_pi_project_trusted, start_pi_session, stop_pi_session, PiRpcRegistry};
@@ -72,6 +74,7 @@ pub fn run() {
         .menu(|app| app_menu(app))
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -94,6 +97,7 @@ pub fn run() {
             new_id,
             quit_app,
             restart_app,
+            notify_attention,
             open_path_in_editor,
             open_url,
             spawn_pty,

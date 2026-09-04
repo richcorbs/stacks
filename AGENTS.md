@@ -57,33 +57,24 @@ The installer intentionally installs to `~/Applications` and handles replacing a
 
 ### Rust backend
 
-Important file:
+`src-tauri/src/lib.rs` wires the Tauri application together; behavior is split into focused modules:
 
 ```text
-src-tauri/src/lib.rs
+src-tauri/src/pty.rs              PTY lifecycle and I/O
+src-tauri/src/pi_rpc.rs           persistent Pi RPC processes and project trust
+src-tauri/src/git.rs              repository status and diffs
+src-tauri/src/github.rs           GitHub CLI integration
+src-tauri/src/superthread.rs      Superthread CLI integration
+src-tauri/src/automation/         running-app command-line automation
+src-tauri/src/settings.rs         settings persistence
+src-tauri/src/store.rs            project/workspace persistence
+src-tauri/src/workspace_setup.rs  cancellable one-time setup commands
+src-tauri/src/menu.rs             native menu bar
+src-tauri/src/notifications.rs    native background notifications
+src-tauri/src/app_events.rs       menu dispatch and window lifecycle
 ```
 
-Backend owns:
-
-- PTY lifecycle via `portable-pty`
-- Tauri commands:
-  - `spawn_pty`
-  - `write_pty`
-  - `resize_pty`
-  - `kill_pty`
-  - `pty_cwd`
-  - `git_info`
-  - `app_stats`
-  - `load_store`
-  - `save_store`
-  - `load_settings`
-  - `save_window_state`
-  - `save_current_window_state`
-  - `save_sidebar_width`
-  - `reset_settings`
-  - `quit_app`
-- Native menu bar
-- Window title and size/position restoration
+Backend owns PTY and Pi child-process lifecycles, Tauri commands, persistence, the native menu, external CLI calls, automation IPC, and window title/geometry restoration. Register new commands in `src-tauri/src/lib.rs`, but implement them in the relevant module.
 
 Notes:
 
@@ -109,24 +100,32 @@ src/hooks/
 
 Important components:
 
+- `src/components/AppLayout.tsx`
 - `src/components/Sidebar.tsx`
 - `src/components/MainWorkspace.tsx`
-- `src/components/TerminalWorkspace.tsx`
-- `src/components/Dialogs.tsx`
+- `src/components/WorkspaceViews.tsx`
+- `src/components/WorkspaceTerminalTree.tsx`
+- `src/components/TerminalView.tsx`
+- `src/components/PiGuiView.tsx`
+- `src/components/DeveloperServicesPanel.tsx`
+- `src/components/AppOverlays.tsx`
 
 Important hooks:
 
+- `useAppRootModel` — top-level orchestration and composition
+- `useAppStateBundle` — application state assembly
 - `useWorkspaceState`
-- `useWorkspaceCommands`
+- `useWorkspaceCommands` and its CRUD/dialog/split/terminal sub-hooks
+- `useWorkspaceCreation`
 - `useKeyboardShortcuts`
-- `usePaneActivity`
-- `usePaneCwd`
+- `useTerminalActivity`
+- `useTerminalCwd`
+- `useTerminalSession`
 - `useGitInfo`
 - `useAppStats`
 - `useImageDropToTerminal`
 - `useWindowStatePersistence`
 - `useSettingsPersistence`
-- `useSidebarInteractions`
 - `useFocusDebug`
 - `useToast`
 

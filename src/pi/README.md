@@ -18,7 +18,7 @@ React mount/unmount does not own process lifetime. Split-tree remounts must not 
 - Restart marks the old generation invalid before stopping it.
 - A stopped final pane remains persisted and restarts when its workspace becomes visible again.
 - Removing a Pi pane permanently calls `delete_pi_session`; stopping it retains its session.
-- Pi process start and exit events feed the shared `terminal-running-changed` projection so Pi-only workspaces receive the sidebar's running status dot. Assistant deltas and tool starts also emit `terminal-output`, giving background Pi workspaces the same fresh/unseen activity dots as terminals.
+- Pi process start and exit events feed the shared `terminal-running-changed` projection so Pi-only workspaces receive the sidebar's running status dot. Assistant deltas and tool starts also emit `terminal-output`, giving background Pi workspaces the same fresh/unseen activity dots as terminals. A naturally settled agent run emits `app-attention`; the application-level notification hook filters out the active, focused workspace and honors the notification setting. User-aborted runs do not notify.
 - Child processes are reaped by a dedicated process thread. Pi and setup shells run in dedicated process groups so stop, timeout, and app shutdown also terminate tool descendants.
 - Concurrent starts for one pane are idempotent; remounts wait for the in-flight owner.
 
