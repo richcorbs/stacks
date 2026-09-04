@@ -1,4 +1,8 @@
-# Stacks
+<p align="center">
+  <img src="src-tauri/icons/icon.png" alt="Stacks logo" width="128" height="128">
+</p>
+
+<h1 align="center">Stacks</h1>
 
 Stacks is a macOS terminal workspace app for developers who organize work by project. It combines persistent terminal layouts with lightweight Git, GitHub, task-tracking, and [Pi](https://github.com/badlogic/pi-mono) coding-agent workflows.
 
