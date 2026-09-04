@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { CustomCmdPCommand, TerminalEntry, Project, Store, WorkspaceEntry } from '../types';
+import type { CustomCmdPCommand, TerminalEntry, Project, Store, WorkspaceEntry, WorkspaceTemplate } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
 export type AppShortcutHandlerOptions = {
@@ -51,6 +51,10 @@ export type AppShortcutHandlerOptions = {
   openAddCmdPCommand: () => void;
   openEditCmdPCommand: (command: CustomCmdPCommand) => void;
   openDeleteCmdPCommand: (command: CustomCmdPCommand) => void;
+  openAddWorkspaceTemplate: () => void;
+  openWorkspaceTemplate: (project: Project, template: WorkspaceTemplate) => void;
+  openEditWorkspaceTemplate: (template: WorkspaceTemplate) => void;
+  openDeleteWorkspaceTemplate: (template: WorkspaceTemplate) => void;
   openDeleteMultipleWorkspaces: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;

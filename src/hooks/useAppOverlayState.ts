@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { ContextMenuState, CustomCmdPCommand, DialogState, PointerDragState } from '../types';
+import type { ContextMenuState, CustomCmdPCommand, DialogState, PointerDragState, WorkspaceTemplate } from '../types';
 
 export function useAppOverlayState() {
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -17,6 +17,9 @@ export function useAppOverlayState() {
   const [addCmdPCommandOpen, setAddCmdPCommandOpen] = useState(false);
   const [editingCmdPCommand, setEditingCmdPCommand] = useState<CustomCmdPCommand | null>(null);
   const [deletingCmdPCommand, setDeletingCmdPCommand] = useState<CustomCmdPCommand | null>(null);
+  const [addWorkspaceTemplateOpen, setAddWorkspaceTemplateOpen] = useState(false);
+  const [editingWorkspaceTemplate, setEditingWorkspaceTemplate] = useState<WorkspaceTemplate | null>(null);
+  const [deletingWorkspaceTemplate, setDeletingWorkspaceTemplate] = useState<WorkspaceTemplate | null>(null);
   const [deleteMultipleWorkspacesOpen, setDeleteMultipleWorkspacesOpen] = useState(false);
   const [searchTerminalRequest, setSearchTerminalRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
   const [restartTerminalRequest, setRestartTerminalRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
@@ -49,6 +52,12 @@ export function useAppOverlayState() {
     setEditingCmdPCommand,
     deletingCmdPCommand,
     setDeletingCmdPCommand,
+    addWorkspaceTemplateOpen,
+    setAddWorkspaceTemplateOpen,
+    editingWorkspaceTemplate,
+    setEditingWorkspaceTemplate,
+    deletingWorkspaceTemplate,
+    setDeletingWorkspaceTemplate,
     deleteMultipleWorkspacesOpen,
     setDeleteMultipleWorkspacesOpen,
     searchTerminalRequest,

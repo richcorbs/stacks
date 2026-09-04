@@ -22,6 +22,7 @@ A project points at a directory. A workspace stores a working directory and spli
 
 - Organizes persistent workspaces under collapsible, reorderable projects.
 - Creates up to a 5 × 5 initial terminal grid, then supports split-right and split-down operations with draggable resize handles.
+- Saves reusable workspace templates that can be launched from the command palette, reviewed and adjusted in the New Workspace dialog, and edited or deleted later.
 - Runs an optional one-time setup command before workspace creation and uses that command's final directory as the workspace directory. This is useful for creating Git worktrees or task-specific environments.
 - Supports per-workspace and per-terminal startup commands, one-time commands in temporary terminals, process stop/restart, terminal search, clickable links, and image-path drag and drop.
 - Keeps PTY/xterm sessions alive across React layout changes and workspace switches.

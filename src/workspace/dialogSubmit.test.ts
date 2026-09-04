@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type React from 'react';
-import { newWorkspaceDialog, submitWorkspaceDialog } from './dialogSubmit';
+import { newWorkspaceDialog, submitWorkspaceDialog, workspaceDialogFromTemplate } from './dialogSubmit';
 import type { DialogState, Store } from '../types';
 
 function stateHarness(initial: Store) {
@@ -38,6 +38,28 @@ describe('submitWorkspaceDialog', () => {
       rows: 1,
       columns: 1,
       firstPaneKind: 'pi',
+    });
+  });
+
+  it('pre-populates the new workspace dialog from a template', () => {
+    expect(workspaceDialogFromTemplate('p1', {
+      id: 'start-work',
+      label: 'Start Work',
+      name: 'Feature',
+      command: 'npm run dev',
+      setupCommand: 'stwork_setup',
+      rows: 2,
+      columns: 3,
+      firstPaneKind: 'terminal',
+    })).toEqual({
+      kind: 'workspace',
+      projectId: 'p1',
+      name: 'Feature',
+      command: 'npm run dev',
+      setupCommand: 'stwork_setup',
+      rows: 2,
+      columns: 3,
+      firstPaneKind: 'terminal',
     });
   });
 

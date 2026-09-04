@@ -103,6 +103,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     openProjectDialog,
     addProjectFromPath,
     openWorkspaceDialog,
+    openWorkspaceTemplateDialog,
     openEditTerminalDialog,
     submitDialog,
   } = dialogCommands;
@@ -132,6 +133,7 @@ export function useWorkspaceCommands(options: WorkspaceCommandOptions) {
     openProjectDialog,
     addProjectFromPath,
     openWorkspaceDialog,
+    openWorkspaceTemplateDialog,
     openEditTerminalDialog,
     submitDialog,
     toggleProject,

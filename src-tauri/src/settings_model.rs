@@ -12,6 +12,25 @@ pub struct WindowState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceTemplate {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub setup_command: String,
+    #[serde(default)]
+    pub rows: u32,
+    #[serde(default)]
+    pub columns: u32,
+    #[serde(default)]
+    pub first_pane_kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomCmdPCommand {
     pub id: String,
     pub label: String,
@@ -59,6 +78,8 @@ pub struct AppSettings {
     pub unseen_dot_color: Option<String>,
     #[serde(default)]
     pub custom_cmd_p_commands: Option<Vec<CustomCmdPCommand>>,
+    #[serde(default)]
+    pub workspace_templates: Option<Vec<WorkspaceTemplate>>,
     #[serde(default)]
     pub superthread_workspace_slug: Option<String>,
     #[serde(default)]
@@ -111,6 +132,18 @@ impl AppSettings {
                     && !item.label.trim().is_empty()
                     && !item.command.trim().is_empty()
                     && matches!(item.direction.as_str(), "row" | "column")
+            }).collect()
+        });
+        self.workspace_templates = next.workspace_templates.map(|templates| {
+            templates.into_iter().filter_map(|mut item| {
+                item.id = item.id.trim().to_string();
+                item.label = item.label.trim().to_string();
+                item.rows = item.rows.clamp(1, 5);
+                item.columns = item.columns.clamp(1, 5);
+                if item.id.is_empty() || item.label.is_empty() || !matches!(item.first_pane_kind.as_str(), "terminal" | "pi") {
+                    return None;
+                }
+                Some(item)
             }).collect()
         });
     }

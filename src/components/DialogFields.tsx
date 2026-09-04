@@ -118,7 +118,7 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
   );
 }
 
-function PaneKindPicker({ value, label, onChange }: {
+export function PaneKindPicker({ value, label, onChange }: {
   value: 'terminal' | 'pi';
   label: string;
   onChange: (value: 'terminal' | 'pi') => void;
@@ -134,7 +134,7 @@ function PaneKindPicker({ value, label, onChange }: {
   );
 }
 
-function WorkspaceGridPicker({ rows, columns, onChange }: {
+export function WorkspaceGridPicker({ rows, columns, onChange }: {
   rows: number;
   columns: number;
   onChange: (rows: number, columns: number) => void;

@@ -260,7 +260,7 @@ On macOS usually:
 Files:
 
 - `projects.json`: projects, workspaces (legacy key: `terminals`), cwd, split trees.
-- `settings.json`: window size/position, sidebar width, app settings, and the last active project/workspace/focused pane ids.
+- `settings.json`: window size/position, sidebar width, app settings, workspace templates, and the last active project/workspace/focused pane ids.
 
 There is no need to preserve backward compatibility for old local data unless the user specifically asks. The user is currently the only user.
 

@@ -7,8 +7,10 @@ import { AppConfirmDialogs } from './AppConfirmDialogs';
 import { OneTimeCommandDialog } from './OneTimeCommandDialog';
 import { AddCmdPCommandDialog } from './AddCmdPCommandDialog';
 import { DeleteCmdPCommandDialog } from './DeleteCmdPCommandDialog';
+import { WorkspaceTemplateDialog } from './WorkspaceTemplateDialog';
+import { DeleteWorkspaceTemplateDialog } from './DeleteWorkspaceTemplateDialog';
 import { DeleteMultipleWorkspacesDialog } from './DeleteMultipleWorkspacesDialog';
-import type { ContextMenuState, CustomCmdPCommand, DialogState, Project, Store, ToastState, WorkspaceEntry } from '../types';
+import type { ContextMenuState, CustomCmdPCommand, DialogState, Project, Store, ToastState, WorkspaceEntry, WorkspaceTemplate } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 
 type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
@@ -33,6 +35,15 @@ export function AppOverlays({
   addCmdPCommand,
   editCmdPCommand,
   deleteCmdPCommand,
+  addWorkspaceTemplateOpen,
+  setAddWorkspaceTemplateOpen,
+  editingWorkspaceTemplate,
+  setEditingWorkspaceTemplate,
+  deletingWorkspaceTemplate,
+  setDeletingWorkspaceTemplate,
+  addWorkspaceTemplate,
+  editWorkspaceTemplate,
+  deleteWorkspaceTemplate,
   deleteMultipleWorkspacesOpen,
   setDeleteMultipleWorkspacesOpen,
   deleteMultipleWorkspaces,
@@ -83,6 +94,15 @@ export function AppOverlays({
   addCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
   editCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
   deleteCmdPCommand: () => void;
+  addWorkspaceTemplateOpen: boolean;
+  setAddWorkspaceTemplateOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  editingWorkspaceTemplate: WorkspaceTemplate | null;
+  setEditingWorkspaceTemplate: React.Dispatch<React.SetStateAction<WorkspaceTemplate | null>>;
+  deletingWorkspaceTemplate: WorkspaceTemplate | null;
+  setDeletingWorkspaceTemplate: React.Dispatch<React.SetStateAction<WorkspaceTemplate | null>>;
+  addWorkspaceTemplate: (template: Omit<WorkspaceTemplate, 'id'>) => void;
+  editWorkspaceTemplate: (template: Omit<WorkspaceTemplate, 'id'>) => void;
+  deleteWorkspaceTemplate: () => void;
   deleteMultipleWorkspacesOpen: boolean;
   setDeleteMultipleWorkspacesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   deleteMultipleWorkspaces: (query: string) => void;
@@ -163,6 +183,31 @@ export function AppOverlays({
           restoreActiveTerminalFocus('cancel-delete-cmd-p-command');
         }}
         onDelete={deleteCmdPCommand}
+      />
+      <WorkspaceTemplateDialog
+        open={addWorkspaceTemplateOpen}
+        onCancel={() => {
+          setAddWorkspaceTemplateOpen(false);
+          restoreActiveTerminalFocus('cancel-add-workspace-template');
+        }}
+        onSave={addWorkspaceTemplate}
+      />
+      <WorkspaceTemplateDialog
+        open={Boolean(editingWorkspaceTemplate)}
+        templateToEdit={editingWorkspaceTemplate}
+        onCancel={() => {
+          setEditingWorkspaceTemplate(null);
+          restoreActiveTerminalFocus('cancel-edit-workspace-template');
+        }}
+        onSave={editWorkspaceTemplate}
+      />
+      <DeleteWorkspaceTemplateDialog
+        template={deletingWorkspaceTemplate}
+        onCancel={() => {
+          setDeletingWorkspaceTemplate(null);
+          restoreActiveTerminalFocus('cancel-delete-workspace-template');
+        }}
+        onDelete={deleteWorkspaceTemplate}
       />
       <DeleteMultipleWorkspacesDialog
         open={deleteMultipleWorkspacesOpen}

@@ -49,6 +49,20 @@ describe('settingsModel', () => {
     ]);
   });
 
+  it('normalizes workspace templates', () => {
+    const settings = resolveAppSettings({
+      workspace_templates: [
+        { id: ' start ', label: ' Start Work ', name: '', command: '', setupCommand: 'stwork_setup', rows: 9, columns: 0, firstPaneKind: 'pi' },
+        { id: '', label: 'Invalid', name: '', command: '', setupCommand: '', rows: 1, columns: 1, firstPaneKind: 'terminal' },
+      ],
+    });
+
+    expect(settings.workspace_templates).toEqual([
+      { id: 'start', label: 'Start Work', name: '', command: '', setupCommand: 'stwork_setup', rows: 5, columns: 1, firstPaneKind: 'pi' },
+    ]);
+    expect(toPersistedAppSettings(settings).workspace_templates).toEqual(settings.workspace_templates);
+  });
+
   it('defaults terminal border colors to the current blue and green', () => {
     expect(DEFAULT_APP_SETTINGS.focused_terminal_border_color).toBe('#3b82f6');
     expect(DEFAULT_APP_SETTINGS.maximized_terminal_border_color).toBe('#84cc16');

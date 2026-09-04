@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
+import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry, WorkspaceTemplate } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from '../components/CommandPalette';
 import type { DeveloperServicesLayoutProps, MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
@@ -74,6 +74,15 @@ type UseAppLayoutPropsOptions = {
   addCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
   editCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
   deleteCmdPCommand: () => void;
+  addWorkspaceTemplateOpen: boolean;
+  setAddWorkspaceTemplateOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  editingWorkspaceTemplate: WorkspaceTemplate | null;
+  setEditingWorkspaceTemplate: React.Dispatch<React.SetStateAction<WorkspaceTemplate | null>>;
+  deletingWorkspaceTemplate: WorkspaceTemplate | null;
+  setDeletingWorkspaceTemplate: React.Dispatch<React.SetStateAction<WorkspaceTemplate | null>>;
+  addWorkspaceTemplate: (template: Omit<WorkspaceTemplate, 'id'>) => void;
+  editWorkspaceTemplate: (template: Omit<WorkspaceTemplate, 'id'>) => void;
+  deleteWorkspaceTemplate: () => void;
   deleteMultipleWorkspacesOpen: boolean;
   setDeleteMultipleWorkspacesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   deleteMultipleWorkspaces: (query: string) => void;
@@ -194,6 +203,15 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       addCmdPCommand: options.addCmdPCommand,
       editCmdPCommand: options.editCmdPCommand,
       deleteCmdPCommand: options.deleteCmdPCommand,
+      addWorkspaceTemplateOpen: options.addWorkspaceTemplateOpen,
+      setAddWorkspaceTemplateOpen: options.setAddWorkspaceTemplateOpen,
+      editingWorkspaceTemplate: options.editingWorkspaceTemplate,
+      setEditingWorkspaceTemplate: options.setEditingWorkspaceTemplate,
+      deletingWorkspaceTemplate: options.deletingWorkspaceTemplate,
+      setDeletingWorkspaceTemplate: options.setDeletingWorkspaceTemplate,
+      addWorkspaceTemplate: options.addWorkspaceTemplate,
+      editWorkspaceTemplate: options.editWorkspaceTemplate,
+      deleteWorkspaceTemplate: options.deleteWorkspaceTemplate,
       deleteMultipleWorkspacesOpen: options.deleteMultipleWorkspacesOpen,
       setDeleteMultipleWorkspacesOpen: options.setDeleteMultipleWorkspacesOpen,
       deleteMultipleWorkspaces: options.deleteMultipleWorkspaces,

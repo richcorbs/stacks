@@ -35,6 +35,7 @@ export function commandPaletteCoreItems({
   onOpenDirectoryInEditor,
   onRunOneTimeCommand,
   onAddCmdPCommand,
+  onAddWorkspaceTemplate,
   onDeleteMultipleWorkspaces,
   onSelectWorkspace,
   broadcastEnabled,
@@ -72,6 +73,7 @@ export function commandPaletteCoreItems({
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
   onAddCmdPCommand: () => void;
+  onAddWorkspaceTemplate: () => void;
   onDeleteMultipleWorkspaces: () => void;
   onSelectWorkspace: (projectId: string, workspaceId: string) => void;
   broadcastEnabled: boolean;
@@ -96,6 +98,7 @@ export function commandPaletteCoreItems({
     { id: 'restart-stacks', title: 'Restart Stacks', subtitle: 'Relaunch the app and load the installed build', keywords: 'restart reload relaunch app update build', action: onRestartApp },
     { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },
     { id: 'run-one-time-command', title: 'Run One-Time Command', subtitle: activeTerminalId ? `From ${activePath || 'the focused terminal directory'}` : 'Select a terminal first', keywords: 'execute temporary command task current directory cwd', action: () => { if (activeTerminalId) onRunOneTimeCommand(); } },
+    { id: 'add-workspace-template', title: 'Add Workspace Template', subtitle: 'Save reusable defaults for creating a workspace', keywords: 'new save template preset workspace', action: onAddWorkspaceTemplate },
     { id: 'add-cmd-p-command', title: 'Add Cmd-P Command', subtitle: 'Save a command that opens in a new terminal', keywords: 'custom command palette save split', action: onAddCmdPCommand },
     { id: 'split-terminal-right', title: 'Split Terminal Right', subtitle: '⌘D', keywords: 'split terminal vertical', action: () => onSplitTerminal('row') },
     { id: 'split-terminal-down', title: 'Split Terminal Down', subtitle: '⇧⌘D', keywords: 'split terminal horizontal', action: () => onSplitTerminal('column') },

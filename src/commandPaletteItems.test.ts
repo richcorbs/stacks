@@ -46,6 +46,11 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onAddCmdPCommand: vi.fn(),
     onEditCmdPCommand: vi.fn(),
     onDeleteCmdPCommand: vi.fn(),
+    workspaceTemplates: [],
+    onAddWorkspaceTemplate: vi.fn(),
+    onUseWorkspaceTemplate: vi.fn(),
+    onEditWorkspaceTemplate: vi.fn(),
+    onDeleteWorkspaceTemplate: vi.fn(),
     onDeleteMultipleWorkspaces: vi.fn(),
     broadcastEnabled: false,
     onToggleBroadcast: vi.fn(),
@@ -147,6 +152,27 @@ describe('buildCommandPaletteItems', () => {
     expect(onEditCmdPCommand).toHaveBeenCalledWith(command);
     expect(deleteItem?.danger).toBe(true);
     expect(onDeleteCmdPCommand).toHaveBeenCalledWith(command);
+  });
+
+  it('opens, edits, and deletes workspace templates from the palette', () => {
+    const onAddWorkspaceTemplate = vi.fn();
+    const onUseWorkspaceTemplate = vi.fn();
+    const onEditWorkspaceTemplate = vi.fn();
+    const onDeleteWorkspaceTemplate = vi.fn();
+    const template = { id: 'start', label: 'Start Work', name: '', command: '', setupCommand: 'stwork_setup', rows: 1, columns: 2, firstPaneKind: 'pi' as const };
+    const items = palette({ workspaceTemplates: [template], onAddWorkspaceTemplate, onUseWorkspaceTemplate, onEditWorkspaceTemplate, onDeleteWorkspaceTemplate });
+
+    items.find((item) => item.id === 'add-workspace-template')?.action();
+    items.find((item) => item.id === 'workspace-template-start')?.action();
+    items.find((item) => item.id === 'edit-workspace-template-start')?.action();
+    const deleteItem = items.find((item) => item.id === 'delete-workspace-template-start');
+    deleteItem?.action();
+
+    expect(onAddWorkspaceTemplate).toHaveBeenCalledOnce();
+    expect(onUseWorkspaceTemplate).toHaveBeenCalledWith(project, template);
+    expect(onEditWorkspaceTemplate).toHaveBeenCalledWith(template);
+    expect(deleteItem?.danger).toBe(true);
+    expect(onDeleteWorkspaceTemplate).toHaveBeenCalledWith(template);
   });
 
   it('shows broadcast command only when active workspace has multiple terminals', () => {

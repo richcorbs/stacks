@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry } from '../types';
+import type { AppStats, ContextMenuState, CustomCmdPCommand, DialogState, MaximizedWorkspaceIds, TerminalEntry, PointerDragState, Project, SplitNode, Store, ToastState, WorkspaceEntry, WorkspaceTemplate } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from './CommandPalette';
 import type { DeveloperServicesTab } from '../developerServices';
@@ -100,6 +100,15 @@ export type OverlayLayoutProps = {
   addCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
   editCmdPCommand: (command: Omit<CustomCmdPCommand, 'id'>) => void;
   deleteCmdPCommand: () => void;
+  addWorkspaceTemplateOpen: boolean;
+  setAddWorkspaceTemplateOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  editingWorkspaceTemplate: WorkspaceTemplate | null;
+  setEditingWorkspaceTemplate: React.Dispatch<React.SetStateAction<WorkspaceTemplate | null>>;
+  deletingWorkspaceTemplate: WorkspaceTemplate | null;
+  setDeletingWorkspaceTemplate: React.Dispatch<React.SetStateAction<WorkspaceTemplate | null>>;
+  addWorkspaceTemplate: (template: Omit<WorkspaceTemplate, 'id'>) => void;
+  editWorkspaceTemplate: (template: Omit<WorkspaceTemplate, 'id'>) => void;
+  deleteWorkspaceTemplate: () => void;
   deleteMultipleWorkspacesOpen: boolean;
   setDeleteMultipleWorkspacesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   deleteMultipleWorkspaces: (query: string) => void;

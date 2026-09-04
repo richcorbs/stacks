@@ -1,4 +1,4 @@
-import type { AppSettings, CustomCmdPCommand } from './types';
+import type { AppSettings, CustomCmdPCommand, WorkspaceTemplate } from './types';
 import type { GithubMergeStrategy } from './github/types';
 import {
   clampTerminalFontSize,
@@ -33,6 +33,7 @@ export type ResolvedAppSettings = {
   active_dot_color: string;
   unseen_dot_color: string;
   custom_cmd_p_commands: CustomCmdPCommand[];
+  workspace_templates: WorkspaceTemplate[];
   superthread_workspace_slug: string;
   superthread_spaces: string;
   superthread_start_work_command: string;
@@ -57,6 +58,7 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   active_dot_color: DEFAULT_ACTIVE_DOT_COLOR,
   unseen_dot_color: DEFAULT_UNSEEN_DOT_COLOR,
   custom_cmd_p_commands: [],
+  workspace_templates: [],
   superthread_workspace_slug: '',
   superthread_spaces: 'Product & Engineering',
   superthread_start_work_command: 'stwork {card_number}',
@@ -82,6 +84,7 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     active_dot_color: normalizeColor(settings?.active_dot_color, DEFAULT_APP_SETTINGS.active_dot_color),
     unseen_dot_color: normalizeColor(settings?.unseen_dot_color, DEFAULT_APP_SETTINGS.unseen_dot_color),
     custom_cmd_p_commands: normalizeCustomCmdPCommands(settings?.custom_cmd_p_commands),
+    workspace_templates: normalizeWorkspaceTemplates(settings?.workspace_templates),
     superthread_workspace_slug: settings?.superthread_workspace_slug?.trim() || '',
     superthread_spaces: settings?.superthread_spaces?.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
     superthread_start_work_command: settings?.superthread_start_work_command?.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
@@ -108,6 +111,7 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     active_dot_color: normalizeColor(settings.active_dot_color, DEFAULT_APP_SETTINGS.active_dot_color),
     unseen_dot_color: normalizeColor(settings.unseen_dot_color, DEFAULT_APP_SETTINGS.unseen_dot_color),
     custom_cmd_p_commands: normalizeCustomCmdPCommands(settings.custom_cmd_p_commands),
+    workspace_templates: normalizeWorkspaceTemplates(settings.workspace_templates),
     superthread_workspace_slug: settings.superthread_workspace_slug.trim() || null,
     superthread_spaces: settings.superthread_spaces.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
     superthread_start_work_command: settings.superthread_start_work_command.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
@@ -126,6 +130,29 @@ export function clampGithubPollInterval(value: number | null | undefined) {
 
 function normalizeGithubMergeStrategy(value: string | null | undefined): GithubMergeStrategy {
   return value === 'squash' || value === 'rebase' ? value : 'merge';
+}
+
+function normalizeWorkspaceTemplates(templates: WorkspaceTemplate[] | null | undefined): WorkspaceTemplate[] {
+  if (!Array.isArray(templates)) return [];
+  return templates.flatMap((item) => {
+    const id = typeof item?.id === 'string' ? item.id.trim() : '';
+    const label = typeof item?.label === 'string' ? item.label.trim() : '';
+    if (!id || !label) return [];
+    return [{
+      id,
+      label,
+      name: typeof item.name === 'string' ? item.name : '',
+      command: typeof item.command === 'string' ? item.command : '',
+      setupCommand: typeof item.setupCommand === 'string' ? item.setupCommand : '',
+      rows: clampGridSize(item.rows),
+      columns: clampGridSize(item.columns),
+      firstPaneKind: item.firstPaneKind === 'terminal' ? 'terminal' as const : 'pi' as const,
+    }];
+  });
+}
+
+function clampGridSize(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(Math.min(5, Math.max(1, value))) : 1;
 }
 
 function normalizeCustomCmdPCommands(commands: CustomCmdPCommand[] | null | undefined): CustomCmdPCommand[] {

@@ -1,4 +1,4 @@
-import type { CustomCmdPCommand, TerminalEntry, Project, Store, WorkspaceEntry } from './types';
+import type { CustomCmdPCommand, TerminalEntry, Project, Store, WorkspaceEntry, WorkspaceTemplate } from './types';
 import type { PaletteItem } from './components/CommandPalette';
 import { commandPaletteCoreItems } from './commandPaletteCoreItems';
 
@@ -42,13 +42,18 @@ export type CommandPaletteItemOptions = {
   onAddCmdPCommand: () => void;
   onEditCmdPCommand: (command: CustomCmdPCommand) => void;
   onDeleteCmdPCommand: (command: CustomCmdPCommand) => void;
+  workspaceTemplates: WorkspaceTemplate[];
+  onAddWorkspaceTemplate: () => void;
+  onUseWorkspaceTemplate: (project: Project, template: WorkspaceTemplate) => void;
+  onEditWorkspaceTemplate: (template: WorkspaceTemplate) => void;
+  onDeleteWorkspaceTemplate: (template: WorkspaceTemplate) => void;
   onDeleteMultipleWorkspaces: () => void;
   broadcastEnabled: boolean;
   onToggleBroadcast: () => void;
 };
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
-  const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeWorkspaceId, activeTerminalId, customCmdPCommands, onSplitTerminalWithCommand, onEditCmdPCommand, onDeleteCmdPCommand, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
+  const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeProject, activeWorkspaceId, activeTerminalId, customCmdPCommands, onSplitTerminalWithCommand, onEditCmdPCommand, onDeleteCmdPCommand, workspaceTemplates, onUseWorkspaceTemplate, onEditWorkspaceTemplate, onDeleteWorkspaceTemplate, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
   const activePanes = activeWorkspaceId ? terminalsByWorkspaceId[activeWorkspaceId] ?? [] : [];
   const activeWorkspaceTerminalCount = activePanes.filter((pane) => !pane.temporary && pane.kind !== 'pi').length;
   const activePaneKind = activePanes.find((pane) => pane.id === activeTerminalId)?.kind ?? 'terminal';
@@ -57,6 +62,9 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
     ...customCommandItems(customCmdPCommands, onSplitTerminalWithCommand),
     ...customCommandEditItems(customCmdPCommands, onEditCmdPCommand),
     ...customCommandDeleteItems(customCmdPCommands, onDeleteCmdPCommand),
+    ...workspaceTemplateItems(workspaceTemplates, activeProject, onUseWorkspaceTemplate),
+    ...workspaceTemplateEditItems(workspaceTemplates, onEditWorkspaceTemplate),
+    ...workspaceTemplateDeleteItems(workspaceTemplates, onDeleteWorkspaceTemplate),
     ...workspaceItems(sidebarWorkspaces, activeWorkspaceId, onSelectWorkspace),
     ...projectItems(store.projects, onNewWorkspace),
     ...terminalItems(activeWorkspaceId, activeTerminalId, terminalsByWorkspaceId, onCycleTerminal),
@@ -94,6 +102,37 @@ function customCommandDeleteItems(commands: CustomCmdPCommand[], onDeleteCmdPCom
     keywords: 'delete remove custom saved command',
     danger: true,
     action: () => onDeleteCmdPCommand(item),
+  }));
+}
+
+function workspaceTemplateItems(templates: WorkspaceTemplate[], activeProject: Project | null, onUse: (project: Project, template: WorkspaceTemplate) => void): PaletteItem[] {
+  return templates.map((template) => ({
+    id: `workspace-template-${template.id}`,
+    title: template.label,
+    subtitle: activeProject ? `Create workspace in ${activeProject.name}` : 'Select a project first',
+    keywords: `workspace template preset create ${template.name} ${template.setupCommand} ${template.command}`,
+    action: () => { if (activeProject) onUse(activeProject, template); },
+  }));
+}
+
+function workspaceTemplateEditItems(templates: WorkspaceTemplate[], onEdit: (template: WorkspaceTemplate) => void): PaletteItem[] {
+  return templates.map((template) => ({
+    id: `edit-workspace-template-${template.id}`,
+    title: `Edit Workspace Template: ${template.label}`,
+    subtitle: template.name || template.setupCommand || 'Workspace defaults',
+    keywords: 'edit modify workspace template preset',
+    action: () => onEdit(template),
+  }));
+}
+
+function workspaceTemplateDeleteItems(templates: WorkspaceTemplate[], onDelete: (template: WorkspaceTemplate) => void): PaletteItem[] {
+  return templates.map((template) => ({
+    id: `delete-workspace-template-${template.id}`,
+    title: `Delete Workspace Template: ${template.label}`,
+    subtitle: template.name || template.setupCommand || 'Workspace defaults',
+    keywords: 'delete remove workspace template preset',
+    danger: true,
+    action: () => onDelete(template),
   }));
 }
 

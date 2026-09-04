@@ -103,6 +103,12 @@ export function useAppRootModel() {
     setEditingCmdPCommand,
     deletingCmdPCommand,
     setDeletingCmdPCommand,
+    addWorkspaceTemplateOpen,
+    setAddWorkspaceTemplateOpen,
+    editingWorkspaceTemplate,
+    setEditingWorkspaceTemplate,
+    deletingWorkspaceTemplate,
+    setDeletingWorkspaceTemplate,
     deleteMultipleWorkspacesOpen,
     setDeleteMultipleWorkspacesOpen,
   } = overlayState;
@@ -219,6 +225,7 @@ export function useAppRootModel() {
   const {
     openProjectDialog,
     openWorkspaceDialog,
+    openWorkspaceTemplateDialog,
     openEditTerminalDialog,
     submitDialog,
     toggleProject,
@@ -389,6 +396,10 @@ export function useAppRootModel() {
     openAddCmdPCommand: () => setAddCmdPCommandOpen(true),
     openEditCmdPCommand: setEditingCmdPCommand,
     openDeleteCmdPCommand: setDeletingCmdPCommand,
+    openAddWorkspaceTemplate: () => setAddWorkspaceTemplateOpen(true),
+    openWorkspaceTemplate: openWorkspaceTemplateDialog,
+    openEditWorkspaceTemplate: setEditingWorkspaceTemplate,
+    openDeleteWorkspaceTemplate: setDeletingWorkspaceTemplate,
     openDeleteMultipleWorkspaces: () => setDeleteMultipleWorkspacesOpen(true),
     broadcastEnabled: activeWorkspaceId ? Boolean(broadcastWorkspaceIds[activeWorkspaceId]) : false,
     onToggleBroadcast: toggleActiveWorkspaceBroadcast,
@@ -499,6 +510,39 @@ export function useAppRootModel() {
       }));
       setDeletingCmdPCommand(null);
       showToast('Cmd-P command deleted');
+    },
+    addWorkspaceTemplateOpen,
+    setAddWorkspaceTemplateOpen,
+    editingWorkspaceTemplate,
+    setEditingWorkspaceTemplate,
+    deletingWorkspaceTemplate,
+    setDeletingWorkspaceTemplate,
+    addWorkspaceTemplate: (item) => {
+      setAppSettings((current) => ({
+        ...current,
+        workspace_templates: [...current.workspace_templates, { ...item, id: crypto.randomUUID() }],
+      }));
+      setAddWorkspaceTemplateOpen(false);
+      showToast('Workspace template saved');
+    },
+    editWorkspaceTemplate: (item) => {
+      if (!editingWorkspaceTemplate) return;
+      setAppSettings((current) => ({
+        ...current,
+        workspace_templates: current.workspace_templates.map((template) =>
+          template.id === editingWorkspaceTemplate.id ? { ...item, id: template.id } : template),
+      }));
+      setEditingWorkspaceTemplate(null);
+      showToast('Workspace template updated');
+    },
+    deleteWorkspaceTemplate: () => {
+      if (!deletingWorkspaceTemplate) return;
+      setAppSettings((current) => ({
+        ...current,
+        workspace_templates: current.workspace_templates.filter((template) => template.id !== deletingWorkspaceTemplate.id),
+      }));
+      setDeletingWorkspaceTemplate(null);
+      showToast('Workspace template deleted');
     },
     deleteMultipleWorkspacesOpen,
     setDeleteMultipleWorkspacesOpen,

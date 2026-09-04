@@ -1,9 +1,20 @@
 import type React from 'react';
-import type { DialogState, Project, Store } from '../types';
+import type { DialogState, Project, Store, WorkspaceTemplate } from '../types';
 import type { CreateWorkspace } from './createWorkspace';
 
 export function newWorkspaceDialog(projectId: string, name: string): Extract<DialogState, { kind: 'workspace' }> {
   return { kind: 'workspace', projectId, name, command: '', setupCommand: '', rows: 1, columns: 1, firstPaneKind: 'pi' };
+}
+
+export function workspaceDialogFromTemplate(projectId: string, template: WorkspaceTemplate): Extract<DialogState, { kind: 'workspace' }> {
+  return {
+    ...newWorkspaceDialog(projectId, template.name),
+    command: template.command,
+    setupCommand: template.setupCommand,
+    rows: template.rows,
+    columns: template.columns,
+    firstPaneKind: template.firstPaneKind,
+  };
 }
 
 type SubmitWorkspaceDialogOptions = {
