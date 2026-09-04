@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { clampTerminalFontSize } from '../settings';
 import type { ResolvedAppSettings } from '../settingsModel';
+import type { DeveloperServicesTab } from '../developerServices';
 import { toPersistedAppSettings } from '../settingsModel';
 
 export function usePersistentSidebarWidth(loaded: boolean, sidebarWidth: number, delayMs = 250) {
@@ -13,6 +14,21 @@ export function usePersistentSidebarWidth(loaded: boolean, sidebarWidth: number,
     }, delayMs);
     return () => window.clearTimeout(timeout);
   }, [loaded, sidebarWidth, delayMs]);
+}
+
+export function usePersistentDeveloperServicesState(
+  loaded: boolean,
+  visible: boolean,
+  activeTab: DeveloperServicesTab,
+  delayMs = 150,
+) {
+  useEffect(() => {
+    if (!loaded) return;
+    const timeout = window.setTimeout(() => {
+      invoke('save_developer_services_state', { visible, activeTab }).catch(console.error);
+    }, delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [loaded, visible, activeTab, delayMs]);
 }
 
 export function usePersistentTerminalFontSize(loaded: boolean, terminalFontSize: number, delayMs = 250) {

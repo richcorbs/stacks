@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppSettings, Store } from '../types';
+import type { DeveloperServicesTab } from '../developerServices';
 import { resolveAppSettings, type ResolvedAppSettings } from '../settingsModel';
 
 export function useAppBootstrap({
@@ -8,6 +9,8 @@ export function useAppBootstrap({
   setStore,
   setSidebarWidth,
   setAppSettings,
+  setDeveloperServicesVisible,
+  setDeveloperServicesTab,
   selectWorkspace,
   setActiveProjectId,
   setFocusedTerminalByWorkspaceId,
@@ -17,6 +20,8 @@ export function useAppBootstrap({
   setStore: React.Dispatch<React.SetStateAction<Store>>;
   setSidebarWidth: React.Dispatch<React.SetStateAction<number>>;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
+  setDeveloperServicesVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  setDeveloperServicesTab: React.Dispatch<React.SetStateAction<DeveloperServicesTab>>;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   setActiveProjectId: (projectId: string | null) => void;
   setFocusedTerminalByWorkspaceId: (focused: Record<string, string>) => void;
@@ -30,6 +35,9 @@ export function useAppBootstrap({
       setStore(loadedStore);
       if (settings?.sidebar_width) setSidebarWidth(Math.min(420, Math.max(180, settings.sidebar_width)));
       setAppSettings(resolveAppSettings(settings));
+      const developerServices = restoredDeveloperServicesState(settings);
+      setDeveloperServicesVisible(developerServices.visible);
+      setDeveloperServicesTab(developerServices.activeTab);
       const focused = settings?.focused_terminal_by_workspace_id ?? {};
       setFocusedTerminalByWorkspaceId(focused);
       setMaximizedWorkspaceIds(settings?.maximized_workspace_ids ?? {});
@@ -42,6 +50,13 @@ export function useAppBootstrap({
       setLoaded(true);
     });
   }, []);
+}
+
+export function restoredDeveloperServicesState(settings: AppSettings | null) {
+  return {
+    visible: settings?.developer_services_visible ?? true,
+    activeTab: settings?.developer_services_tab ?? 'superthread',
+  };
 }
 
 export function restoredWorkspaceSelection(store: Store, settings: AppSettings | null) {

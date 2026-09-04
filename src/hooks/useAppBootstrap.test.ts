@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Store } from '../types';
-import { restoredWorkspaceSelection } from './useAppBootstrap';
+import { restoredDeveloperServicesState, restoredWorkspaceSelection } from './useAppBootstrap';
 
 const store: Store = {
   projects: [
@@ -8,6 +8,17 @@ const store: Store = {
     { id: 'p2', name: 'Two', path: '/two', workspaces: [{ id: 'w2', name: 'Second' }] },
   ],
 };
+
+describe('restoredDeveloperServicesState', () => {
+  it('defaults to an open Superthread panel', () => {
+    expect(restoredDeveloperServicesState(null)).toEqual({ visible: true, activeTab: 'superthread' });
+  });
+
+  it('restores a closed panel and its active tab', () => {
+    expect(restoredDeveloperServicesState({ developer_services_visible: false, developer_services_tab: 'diff' }))
+      .toEqual({ visible: false, activeTab: 'diff' });
+  });
+});
 
 describe('restoredWorkspaceSelection', () => {
   it('restores a valid active project and workspace', () => {

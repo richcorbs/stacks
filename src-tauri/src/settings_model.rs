@@ -28,6 +28,10 @@ pub struct AppSettings {
     #[serde(default)]
     pub sidebar_width: Option<u32>,
     #[serde(default)]
+    pub developer_services_visible: Option<bool>,
+    #[serde(default)]
+    pub developer_services_tab: Option<String>,
+    #[serde(default)]
     pub terminal_font_size: Option<u32>,
     #[serde(default)]
     pub terminal_font_family: Option<String>,

@@ -39,6 +39,8 @@ export type WindowState = { width: number; height: number; x?: number | null; y?
 export type AppSettings = {
   window?: WindowState | null;
   sidebar_width?: number | null;
+  developer_services_visible?: boolean | null;
+  developer_services_tab?: 'superthread' | 'diff' | 'pull-requests' | 'actions' | null;
   terminal_font_size?: number | null;
   terminal_font_family?: string | null;
   terminal_scrollback?: number | null;

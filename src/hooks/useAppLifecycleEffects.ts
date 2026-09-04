@@ -1,8 +1,9 @@
 import type React from 'react';
 import type { MaximizedWorkspaceIds, Store, ToastDetail } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
+import type { DeveloperServicesTab } from '../developerServices';
 import { useDebouncedStoreSave } from './useDebouncedSave';
-import { usePersistentAppSettings, usePersistentSidebarWidth, usePersistentWorkspaceFocus } from './useSettingsPersistence';
+import { usePersistentAppSettings, usePersistentDeveloperServicesState, usePersistentSidebarWidth, usePersistentWorkspaceFocus } from './useSettingsPersistence';
 import { useWindowStatePersistence } from './useWindowStatePersistence';
 import { useAppBootstrap } from './useAppBootstrap';
 import { useAppCloseRequest, useAppToastEvents } from './useAppWindowEvents';
@@ -22,6 +23,10 @@ export function useAppLifecycleEffects({
   setStore,
   setSidebarWidth,
   setAppSettings,
+  developerServicesVisible,
+  setDeveloperServicesVisible,
+  developerServicesTab,
+  setDeveloperServicesTab,
   selectWorkspace,
   setActiveProjectId,
   setFocusedTerminalByWorkspaceId,
@@ -46,6 +51,10 @@ export function useAppLifecycleEffects({
   setStore: React.Dispatch<React.SetStateAction<Store>>;
   setSidebarWidth: React.Dispatch<React.SetStateAction<number>>;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
+  developerServicesVisible: boolean;
+  setDeveloperServicesVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  developerServicesTab: DeveloperServicesTab;
+  setDeveloperServicesTab: React.Dispatch<React.SetStateAction<DeveloperServicesTab>>;
   selectWorkspace: (projectId: string, workspaceId: string | null) => void;
   setActiveProjectId: React.Dispatch<React.SetStateAction<string | null>>;
   setFocusedTerminalByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, string>>>;
@@ -67,10 +76,11 @@ export function useAppLifecycleEffects({
 
   const saveStoreNow = useDebouncedStoreSave(loaded, store);
   usePersistentSidebarWidth(loaded, sidebarWidth);
+  usePersistentDeveloperServicesState(loaded, developerServicesVisible, developerServicesTab);
   usePersistentAppSettings(loaded, appSettings);
   usePersistentWorkspaceFocus(loaded, activeProjectId, activeWorkspaceId, focusedTerminalByWorkspaceId, maximizedWorkspaceIds);
   useWindowStatePersistence();
-  useAppBootstrap({ setLoaded, setStore, setSidebarWidth, setAppSettings, selectWorkspace, setActiveProjectId, setFocusedTerminalByWorkspaceId, setMaximizedWorkspaceIds });
+  useAppBootstrap({ setLoaded, setStore, setSidebarWidth, setAppSettings, setDeveloperServicesVisible, setDeveloperServicesTab, selectWorkspace, setActiveProjectId, setFocusedTerminalByWorkspaceId, setMaximizedWorkspaceIds });
   useAppToastEvents(showToast);
   useAppCloseRequest(appSettings.confirm_close, setConfirmQuitOpen);
   useContextMenuDismissal(setContextMenu);

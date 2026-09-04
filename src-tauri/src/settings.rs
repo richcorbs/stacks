@@ -80,6 +80,17 @@ pub fn save_sidebar_width(width: u32) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn save_developer_services_state(visible: bool, active_tab: String) -> Result<(), String> {
+    if !matches!(active_tab.as_str(), "superthread" | "diff" | "pull-requests" | "actions") {
+        return Err("Invalid developer services tab".to_string());
+    }
+    update_settings_on_disk(|settings| {
+        settings.developer_services_visible = Some(visible);
+        settings.developer_services_tab = Some(active_tab);
+    })
+}
+
+#[tauri::command]
 pub fn save_terminal_font_size(font_size: u32) -> Result<(), String> {
     update_settings_on_disk(|settings| {
         settings.terminal_font_size = Some(font_size.clamp(8, 32));
