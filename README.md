@@ -9,7 +9,7 @@ Stacks is a macOS terminal workspace app for developers who organize work by pro
 Stacks uses this user-facing hierarchy:
 
 ```text
-Project → Workspace → Terminal
+Project → Workspace → Pane (Terminal OR Pi GUI)
 ```
 
 A project points at a directory. A workspace stores a working directory and split layout. Each terminal pane is either a PTY-backed shell or a Pi GUI conversation.
