@@ -14,6 +14,7 @@ export type ShortcutAction =
   | 'toggle-superthread'
   | 'toggle-github-pull-requests'
   | 'toggle-diff'
+  | 'toggle-project-notes'
   | 'maximize-workspace'
   | 'focus-next-terminal'
   | 'focus-previous-terminal'
@@ -49,4 +50,5 @@ export type ShortcutHandlers = {
   toggleSuperthread: () => void;
   toggleGithubPullRequests: () => void;
   toggleDiff: () => void;
+  toggleProjectNotes: () => void;
 };

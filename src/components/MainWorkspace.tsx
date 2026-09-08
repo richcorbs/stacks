@@ -1,6 +1,7 @@
 import type { MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import type { DiffReviewModel } from '../diffReview/types';
 import { DiffOverlay } from './DiffOverlay';
+import { ProjectNotesView } from './ProjectNotesView';
 import { WorkspaceTopbar } from './WorkspaceTopbar';
 import { WorkspaceViews } from './WorkspaceViews';
 
@@ -16,6 +17,8 @@ type TerminalRequest = { terminalId: string; nonce: number };
 type MainWorkspaceProps = {
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
+  activeProjectNotes: string;
+  notesVisible: boolean;
   workspaces: WorkspaceViewModel[];
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
@@ -38,6 +41,8 @@ type MainWorkspaceProps = {
   onSplitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   hasActiveTerminal: boolean;
   onToggleSidebar: () => void;
+  onToggleProjectNotes: () => void;
+  onChangeProjectNotes: (notes: string) => void;
   onToggleDeveloperServices: () => void;
   developerServicesVisible: boolean;
   diffReview: DiffReviewModel;
@@ -49,6 +54,8 @@ type MainWorkspaceProps = {
 export function MainWorkspace({
   activeProjectName,
   activeWorkspaceName,
+  activeProjectNotes,
+  notesVisible,
   workspaces,
   activeWorkspaceId,
   activeTerminalId,
@@ -71,6 +78,8 @@ export function MainWorkspace({
   onSplitTerminal,
   hasActiveTerminal,
   onToggleSidebar,
+  onToggleProjectNotes,
+  onChangeProjectNotes,
   onToggleDeveloperServices,
   developerServicesVisible,
   diffReview,
@@ -85,6 +94,9 @@ export function MainWorkspace({
         activeWorkspaceName={activeWorkspaceName}
         hasActiveTerminal={hasActiveTerminal}
         onToggleSidebar={onToggleSidebar}
+        onToggleProjectNotes={onToggleProjectNotes}
+        notesVisible={notesVisible}
+        hasActiveProject={Boolean(activeProjectName)}
         onToggleDeveloperServices={onToggleDeveloperServices}
         developerServicesVisible={developerServicesVisible}
       />
@@ -112,6 +124,9 @@ export function MainWorkspace({
           onSplitTerminal={onSplitTerminal}
         />
         {diffReview.openDiff && <DiffOverlay review={diffReview} canSubmit={canSubmitDiffReview} onSubmit={onSubmitDiffReview} onClose={onCloseDiff} />}
+        {notesVisible && activeProjectName && (
+          <ProjectNotesView projectName={activeProjectName} notes={activeProjectNotes} onChange={onChangeProjectNotes} onClose={onToggleProjectNotes} />
+        )}
       </section>
     </main>
   );

@@ -259,7 +259,7 @@ On macOS usually:
 
 Files:
 
-- `projects.json`: projects, workspaces (legacy key: `terminals`), cwd, split trees.
+- `projects.json`: projects, per-project notes, workspaces (legacy key: `terminals`), cwd, split trees.
 - `settings.json`: window size/position, sidebar width, app settings, workspace templates, resumable PR cleanup state, and the last active project/workspace/focused pane ids.
 
 There is no need to preserve backward compatibility for old local data unless the user specifically asks. The user is currently the only user.
@@ -275,6 +275,7 @@ Stacks > Reset Window Settings
 - Sidebar workspace shortcut hints align vertically while Cmd is held.
 - Running green dot is hidden/replaced while shortcut hints are visible.
 - Header/topbar shows `Select a workspace` when no workspace is active; otherwise it shows the project/workspace breadcrumb and sidebar toggles.
+- Project notes are a per-project auto-saved scratch pad that overlays the main workspace without owning or tearing down terminal sessions. Toggle with `Shift+Cmd+O`.
 - Do not restore the old bottom workspace status bar. Pi GUI terminals show their own path/branch context, shell prompts own terminal context, and the DIFF tab header shows branch/source/Git status.
 - PR cleanup must target the workspace associated with the selected PR, never whichever workspace happens to be focused. Persist the operation before merging, wait for `/cleanup` to settle, stop all workspace processes, and only then remove the workspace.
 - Terminal split buttons are CSS-drawn icons, not Unicode glyphs.

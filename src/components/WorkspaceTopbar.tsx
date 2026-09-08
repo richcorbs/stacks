@@ -1,8 +1,11 @@
-export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, onToggleSidebar, onToggleDeveloperServices, developerServicesVisible }: {
+export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, hasActiveProject, notesVisible, onToggleSidebar, onToggleProjectNotes, onToggleDeveloperServices, developerServicesVisible }: {
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
   hasActiveTerminal: boolean;
+  hasActiveProject: boolean;
+  notesVisible: boolean;
   onToggleSidebar: () => void;
+  onToggleProjectNotes: () => void;
   onToggleDeveloperServices: () => void;
   developerServicesVisible: boolean;
 }) {
@@ -29,6 +32,19 @@ export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasAct
           <div className="subtitle">Select a workspace</div>
         )}
       </div>
+      {hasActiveProject && (
+        <button
+          className={`sidebarToggleButton projectNotesToggle${notesVisible ? ' active' : ''}`}
+          type="button"
+          title={`${notesVisible ? 'Close' : 'Open'} project notes (⇧⌘O)`}
+          aria-label={`${notesVisible ? 'Close' : 'Open'} project notes`}
+          aria-pressed={notesVisible}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onToggleProjectNotes}
+        >
+          <span className="projectNotesIcon" />
+        </button>
+      )}
       <button
         className="sidebarToggleButton superthreadTopbarToggle"
         type="button"

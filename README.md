@@ -47,8 +47,9 @@ See [`src/pi/README.md`](src/pi/README.md) for implementation and lifecycle deta
 
 ### Workflow and customization
 
+- Provides a per-project notes scratch pad that covers the main workspace, saves automatically, and toggles instantly from the keyboard or top bar.
 - Provides a keyboard-first command palette with custom saved commands.
-- Persists projects, workspace layouts, active/focused panes, window geometry, sidebar width, app settings, and resumable post-merge cleanup operations.
+- Persists projects, project notes, workspace layouts, active/focused panes, window geometry, sidebar width, app settings, and resumable post-merge cleanup operations.
 - Configures terminal typography and scrollback, copy-on-select, confirmation and notification behavior, editor integration, status colors, GitHub polling, and Superthread behavior.
 - Checks signed updater artifacts published through GitHub Releases.
 
@@ -83,6 +84,7 @@ The complete list is available in the native **Shortcuts** menu and most actions
 | Focus or toggle diff panel | ⌘G |
 | Focus or toggle pull requests | ⇧⌘G |
 | Focus next workspace with unseen output | ⇧⌘N |
+| Toggle project notes | ⇧⌘O |
 | Toggle developer services / sidebar | ⌘R / ⌘B |
 
 ## Command-line automation

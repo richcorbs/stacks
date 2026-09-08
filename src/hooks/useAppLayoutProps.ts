@@ -36,6 +36,8 @@ type UseAppLayoutPropsOptions = {
   activePath: string | null;
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
+  activeProjectNotes: string;
+  notesVisible: boolean;
   visitedWorkspaceTerminalTrees: { project: Project; workspace: WorkspaceEntry; terminals: TerminalEntry[]; root: SplitNode | undefined }[];
   activeTerminalId: string | null;
   maximizedWorkspaceIds: MaximizedWorkspaceIds;
@@ -53,6 +55,8 @@ type UseAppLayoutPropsOptions = {
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;
+  toggleProjectNotes: () => void;
+  changeProjectNotes: (notes: string) => void;
   toggleDeveloperServices: () => void;
   developerServicesVisible: boolean;
   developerServicesTab: DeveloperServicesTab;
@@ -148,6 +152,8 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
     main: {
       activeProjectName: options.activeProjectName,
       activeWorkspaceName: options.activeWorkspaceName,
+      activeProjectNotes: options.activeProjectNotes,
+      notesVisible: options.notesVisible,
       visitedWorkspaceTerminalTrees: options.visitedWorkspaceTerminalTrees,
       activeWorkspaceId: options.activeWorkspaceId,
       activeTerminalId: options.activeTerminalId,
@@ -167,6 +173,8 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       toggleMaximizedTerminal: options.toggleMaximizedTerminal,
       splitTerminal: options.splitTerminal,
       toggleSidebar: options.toggleSidebar,
+      toggleProjectNotes: options.toggleProjectNotes,
+      changeProjectNotes: options.changeProjectNotes,
       toggleDeveloperServices: options.toggleDeveloperServices,
       developerServicesVisible: options.developerServicesVisible,
     },

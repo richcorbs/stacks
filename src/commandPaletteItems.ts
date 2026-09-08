@@ -35,6 +35,7 @@ export type CommandPaletteItemOptions = {
   onOpenSettings: () => void;
   onToggleDiff: () => void;
   onToggleGithubPullRequests: () => void;
+  onToggleProjectNotes: () => void;
   onRestartApp: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;

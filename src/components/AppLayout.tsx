@@ -140,7 +140,11 @@ export function AppLayout({
       <MainWorkspace
         activeProjectName={main.activeProjectName}
         activeWorkspaceName={main.activeWorkspaceName}
+        activeProjectNotes={main.activeProjectNotes}
+        notesVisible={main.notesVisible}
         onToggleSidebar={main.toggleSidebar}
+        onToggleProjectNotes={main.toggleProjectNotes}
+        onChangeProjectNotes={main.changeProjectNotes}
         onToggleDeveloperServices={main.toggleDeveloperServices}
         developerServicesVisible={main.developerServicesVisible}
         diffReview={diffReview}

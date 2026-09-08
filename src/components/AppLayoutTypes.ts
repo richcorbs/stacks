@@ -43,6 +43,8 @@ export type SidebarLayoutProps = {
 export type MainLayoutProps = {
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
+  activeProjectNotes: string;
+  notesVisible: boolean;
   visitedWorkspaceTerminalTrees: WorkspaceViewModel[];
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
@@ -62,6 +64,8 @@ export type MainLayoutProps = {
   toggleMaximizedTerminal: (terminalId?: string | null) => void;
   splitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
   toggleSidebar: () => void;
+  toggleProjectNotes: () => void;
+  changeProjectNotes: (notes: string) => void;
   toggleDeveloperServices: () => void;
   developerServicesVisible: boolean;
 };

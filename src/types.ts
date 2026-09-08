@@ -6,7 +6,7 @@ import type { WebLinksAddon } from '@xterm/addon-web-links';
 export type Store = { projects: Project[] };
 export type CustomCmdPCommand = { id: string; label: string; command: string; direction: 'row' | 'column'; execute: boolean };
 export type WorkspaceTemplate = { id: string; label: string; name: string; command: string; setupCommand: string; rows: number; columns: number; firstPaneKind: PaneKind };
-export type Project = { id: string; name: string; path: string; workspaces: WorkspaceEntry[]; collapsed?: boolean };
+export type Project = { id: string; name: string; path: string; notes?: string; workspaces: WorkspaceEntry[]; collapsed?: boolean };
 export type PaneKind = 'terminal' | 'pi';
 export type WorkspaceEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
 type PaneEntryBase = { id: string; workspaceId: string; command?: string | null; cwd?: string | null; temporary?: boolean };

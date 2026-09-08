@@ -20,6 +20,7 @@ import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
 import { developerServicesShortcutState, type DeveloperServicesTab } from '../developerServices';
+import { updateProjectNotes } from '../projectNotes';
 
 const encoder = new TextEncoder();
 
@@ -114,6 +115,7 @@ export function useAppRootModel() {
   } = overlayState;
   const { toast, showToast } = toastState;
   const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
+  const [notesVisible, setNotesVisible] = useState(false);
   const [developerServicesVisible, setDeveloperServicesVisible] = useState(true);
   const [developerServicesTab, setDeveloperServicesTab] = useState<DeveloperServicesTab>('superthread');
 
@@ -127,6 +129,11 @@ export function useAppRootModel() {
     terminalsByWorkspaceId,
     splitRootsByWorkspaceId,
   });
+  function changeProjectNotes(notes: string) {
+    if (!activeProject) return;
+    setStore((current) => updateProjectNotes(current, activeProject.id, notes));
+  }
+
   useActivityNotifications({
     enabled: appSettings.activity_notifications,
     store,
@@ -135,6 +142,13 @@ export function useAppRootModel() {
   const appStats = useAppStats();
   const workspacePullRequests = useWorkspacePullRequests(sidebarWorkspaces);
   const { restoreActiveTerminalFocus } = useAppFocusRestore(activeTerminalId);
+
+  function toggleProjectNotes() {
+    if (!activeProject) return;
+    const closing = notesVisible;
+    setNotesVisible((visible) => !visible);
+    if (closing) restoreActiveTerminalFocus('close-project-notes');
+  }
 
   function toggleDeveloperServices(reason: string) {
     const closing = developerServicesVisible;
@@ -364,6 +378,7 @@ export function useAppRootModel() {
     toggleSuperthread: () => toggleDeveloperServices('close-developer-services-shortcut'),
     toggleGithubPullRequests: () => focusDeveloperServicesTab('pull-requests', 'close-pull-requests-panel'),
     toggleDiff: () => focusDeveloperServicesTab('diff', 'close-diff-panel'),
+    toggleProjectNotes,
     setConfirmCloseTerminalId,
     setConfirmDeleteProjectId,
     setConfirmDeleteWorkspace,
@@ -437,6 +452,8 @@ export function useAppRootModel() {
     activePath,
     activeProjectName: activeProject?.name ?? null,
     activeWorkspaceName: activeWorkspace?.name ?? null,
+    activeProjectNotes: activeProject?.notes ?? '',
+    notesVisible,
     visitedWorkspaceTerminalTrees,
     activeTerminalId,
     maximizedWorkspaceIds,
@@ -454,6 +471,8 @@ export function useAppRootModel() {
     toggleMaximizedTerminal,
     splitTerminal,
     toggleSidebar: () => setSidebarVisible((visible) => !visible),
+    toggleProjectNotes,
+    changeProjectNotes,
     toggleDeveloperServices: () => toggleDeveloperServices('close-developer-services-button'),
     developerServicesVisible,
     developerServicesTab,

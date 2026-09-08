@@ -31,6 +31,7 @@ export function commandPaletteCoreItems({
   onOpenSettings,
   onToggleDiff,
   onToggleGithubPullRequests,
+  onToggleProjectNotes,
   onRestartApp,
   onOpenDirectoryInEditor,
   onRunOneTimeCommand,
@@ -69,6 +70,7 @@ export function commandPaletteCoreItems({
   onOpenSettings: () => void;
   onToggleDiff: () => void;
   onToggleGithubPullRequests: () => void;
+  onToggleProjectNotes: () => void;
   onRestartApp: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
@@ -84,6 +86,7 @@ export function commandPaletteCoreItems({
   const diffShortcut = SHORTCUT_DEFINITIONS['toggle-diff'];
   const pullRequestsShortcut = SHORTCUT_DEFINITIONS['toggle-github-pull-requests'];
   const unseenShortcut = SHORTCUT_DEFINITIONS['focus-next-unseen-workspace'];
+  const notesShortcut = SHORTCUT_DEFINITIONS['toggle-project-notes'];
   let items: PaletteItem[] = [
     { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
     { id: 'new-workspace', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewWorkspace(activeProject) : onNewProject() },
@@ -94,6 +97,7 @@ export function commandPaletteCoreItems({
     { id: 'delete-multiple-workspaces', title: 'Delete Other Workspace(s)', subtitle: 'Match workspace names from a comma-separated list', keywords: 'bulk remove delete workspace names comma', danger: true, action: onDeleteMultipleWorkspaces },
     { id: 'toggle-diff', title: diffShortcut.title, subtitle: diffShortcut.hint, keywords: diffShortcut.keywords, action: onToggleDiff },
     { id: 'toggle-pull-requests', title: pullRequestsShortcut.title, subtitle: pullRequestsShortcut.hint, keywords: pullRequestsShortcut.keywords, action: onToggleGithubPullRequests },
+    { id: 'toggle-project-notes', title: notesShortcut.title, subtitle: activeProject ? `${activeProject.name} • ${notesShortcut.hint}` : 'Select a project first', keywords: notesShortcut.keywords, action: () => { if (activeProject) onToggleProjectNotes(); } },
     { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color focused terminal border maximized green blue', action: onOpenSettings },
     { id: 'restart-stacks', title: 'Restart Stacks', subtitle: 'Relaunch the app and load the installed build', keywords: 'restart reload relaunch app update build', action: onRestartApp },
     { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: activePath || activeProject?.path || 'Select a terminal first', keywords: 'zed code editor project folder cwd directory', action: onOpenDirectoryInEditor },

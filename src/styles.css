@@ -213,6 +213,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   background: currentColor;
   opacity: .85;
 }
+.projectNotesToggle.active { background: #1d2d3d; color: #a9c9e6; }
+.projectNotesIcon { position: relative; width: 13px; height: 15px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 2px; }
+.projectNotesIcon::before, .projectNotesIcon::after { content: ''; position: absolute; left: 2px; right: 2px; height: 1px; background: currentColor; opacity: .8; }
+.projectNotesIcon::before { top: 4px; box-shadow: 0 3px 0 currentColor; }
+.projectNotesIcon::after { top: 10px; right: 5px; }
 .splitControls { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; }
 .gitAdded { color: #22c55e; }
 .gitChanged { color: #f59e0b; }
@@ -250,6 +255,24 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .splitIconVertical::after { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-.5px); }
 .splitIconHorizontal::after { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-.5px); }
 .workspace { flex: 1; min-height: 0; padding: 8px; position: relative; }
+.projectNotes {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #263647;
+  border-radius: 7px;
+  background: #0c131b;
+  overflow: hidden;
+}
+.projectNotesHeader { min-height: 46px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #223142; background: #101923; }
+.projectNotesHeader > div { min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+.projectNotesHeader strong { flex: 0 0 auto; color: #c5d1dd; font-size: 12px; font-weight: 600; }
+.projectNotesHeader span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #667a8f; font-size: 10px; }
+.projectNotes textarea { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 18px 20px 40px; resize: none; border: 0; outline: 0; background: #0c131b; color: #c4d0dc; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; tab-size: 2; }
+.projectNotes textarea::placeholder { color: #536679; }
 .terminalWorkspace {
   position: absolute;
   inset: 8px;

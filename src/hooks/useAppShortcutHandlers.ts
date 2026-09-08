@@ -24,6 +24,7 @@ export function useAppShortcutHandlers({
   toggleSuperthread,
   toggleGithubPullRequests,
   toggleDiff,
+  toggleProjectNotes,
   setConfirmCloseTerminalId,
   setConfirmDeleteProjectId,
   setConfirmDeleteWorkspace,
@@ -94,6 +95,7 @@ export function useAppShortcutHandlers({
     onOpenSettings: () => setSettingsOpen(true),
     onToggleDiff: toggleDiff,
     onToggleGithubPullRequests: toggleGithubPullRequests,
+    onToggleProjectNotes: toggleProjectNotes,
     onRestartApp: () => {
       invoke('save_workspace_focus', {
         activeProjectId: activeProject?.id ?? null,
@@ -142,6 +144,7 @@ export function useAppShortcutHandlers({
     toggleSuperthread,
     toggleGithubPullRequests,
     toggleDiff,
+    toggleProjectNotes,
   };
 
   const shortcutHandlersRef = useRef(shortcutHandlers);

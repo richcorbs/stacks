@@ -26,6 +26,14 @@ export const SHORTCUT_DEFINITIONS = {
     key: 'g',
     shift: true,
   },
+  'toggle-project-notes': {
+    action: 'toggle-project-notes',
+    title: 'Toggle Project Notes',
+    hint: '⇧⌘O',
+    keywords: 'project notes scratch pad editor text',
+    key: 'o',
+    shift: true,
+  },
   'focus-next-unseen-workspace': {
     action: 'focus-next-unseen-workspace',
     title: 'Focus Next Workspace with Unseen Output',

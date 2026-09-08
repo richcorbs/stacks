@@ -19,6 +19,7 @@ export type AppShortcutHandlerOptions = {
   toggleSuperthread: () => void;
   toggleGithubPullRequests: () => void;
   toggleDiff: () => void;
+  toggleProjectNotes: () => void;
   setConfirmCloseTerminalId: Dispatch<SetStateAction<string | null>>;
   setConfirmDeleteProjectId: Dispatch<SetStateAction<string | null>>;
   setConfirmDeleteWorkspace: Dispatch<SetStateAction<{ projectId: string; workspaceId: string } | null>>;

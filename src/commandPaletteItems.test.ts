@@ -39,6 +39,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onOpenSettings: vi.fn(),
     onToggleDiff: vi.fn(),
     onToggleGithubPullRequests: vi.fn(),
+    onToggleProjectNotes: vi.fn(),
     onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
     onRunOneTimeCommand: vi.fn(),
@@ -71,6 +72,7 @@ describe('buildCommandPaletteItems', () => {
       'restart-stacks',
       'toggle-diff',
       'toggle-pull-requests',
+      'toggle-project-notes',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -95,6 +97,14 @@ describe('buildCommandPaletteItems', () => {
     item?.action();
     expect(item?.subtitle).toBe('⌘G');
     expect(onToggleDiff).toHaveBeenCalledOnce();
+  });
+
+  it('toggles project notes from the command palette', () => {
+    const onToggleProjectNotes = vi.fn();
+    const item = palette({ onToggleProjectNotes }).find((candidate) => candidate.id === 'toggle-project-notes');
+    item?.action();
+    expect(item?.subtitle).toBe('Stacks • ⇧⌘O');
+    expect(onToggleProjectNotes).toHaveBeenCalledOnce();
   });
 
   it('restarts Stacks from the command palette', () => {

@@ -10,6 +10,7 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         ("menu-shortcut-focus-next-unseen-workspace", "Focus Next Workspace with Unseen Output", "Cmd+Shift+N", Some("Cmd+Shift+N")),
         ("menu-shortcut-settings", "Settings", "Cmd+,", Some("Cmd+,")),
         ("menu-shortcut-toggle-sidebar", "Toggle Sidebar", "Cmd+B", Some("Cmd+B")),
+        ("menu-shortcut-toggle-project-notes", "Toggle Project Notes", "Cmd+Shift+O", Some("Cmd+Shift+O")),
         ("menu-shortcut-toggle-superthread", "Toggle Developer Services", "Cmd+R", Some("Cmd+R")),
         ("menu-shortcut-toggle-diff", "Focus / Toggle Diff Panel", "Cmd+G", Some("Cmd+G")),
         ("menu-shortcut-toggle-github-pull-requests", "Focus / Toggle Pull Requests Panel", "Cmd+Shift+G", Some("Cmd+Shift+G")),

@@ -13,6 +13,8 @@ struct Project {
     id: String,
     name: String,
     path: String,
+    #[serde(default)]
+    notes: String,
     #[serde(default, alias = "terminals")]
     workspaces: Vec<WorkspaceEntry>,
     #[serde(default)]
@@ -83,6 +85,7 @@ mod tests {
                 id: "p1".into(),
                 name: "Project".into(),
                 path: "/repo".into(),
+                notes: "Scratch pad".into(),
                 workspaces: vec![WorkspaceEntry {
                     id: "w1".into(),
                     name: "Dev".into(),
@@ -95,6 +98,7 @@ mod tests {
         };
 
         let value = serde_json::to_value(store).expect("store should serialize");
+        assert_eq!(value["projects"][0]["notes"], "Scratch pad");
         assert!(value["projects"][0].get("workspaces").is_some());
         assert!(value["projects"][0].get("terminals").is_none());
     }

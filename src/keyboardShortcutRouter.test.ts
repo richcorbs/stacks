@@ -28,6 +28,7 @@ function handlers(): ShortcutHandlers {
     toggleSuperthread: vi.fn(),
     toggleGithubPullRequests: vi.fn(),
     toggleDiff: vi.fn(),
+    toggleProjectNotes: vi.fn(),
   };
 }
 
@@ -56,6 +57,19 @@ describe('keyboardShortcutRouter', () => {
     expect(select).toHaveBeenCalledOnce();
     expect(event.preventDefault).toHaveBeenCalled();
     expect(event.stopPropagation).toHaveBeenCalled();
+  });
+
+  it('toggles project notes with Shift-Cmd-O', () => {
+    const h = handlers();
+    const event = {
+      key: 'o', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true,
+      target: {}, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(h.toggleProjectNotes).toHaveBeenCalledOnce();
+    expect(event.preventDefault).toHaveBeenCalled();
   });
 
   it('leaves Cmd-V to editable fields', () => {
