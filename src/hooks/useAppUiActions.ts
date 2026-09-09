@@ -2,7 +2,7 @@ import type React from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { ContextMenuState, DialogState } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
-import { clampTerminalFontSize } from '../settings';
+import { clampTerminalFontSize, clampUiFontSize } from '../settings';
 
 export function useAppUiActions({
   activeTerminalId,
@@ -35,6 +35,10 @@ export function useAppUiActions({
 }) {
   function adjustTerminalFontSize(delta: number) {
     setAppSettings((settings) => ({ ...settings, terminal_font_size: clampTerminalFontSize(settings.terminal_font_size + delta) }));
+  }
+
+  function adjustUiFontSize(delta: number) {
+    setAppSettings((settings) => ({ ...settings, ui_font_size: clampUiFontSize(settings.ui_font_size + delta) }));
   }
 
   function openDirectoryInEditor() {
@@ -76,6 +80,7 @@ export function useAppUiActions({
 
   return {
     adjustTerminalFontSize,
+    adjustUiFontSize,
     openDirectoryInEditor,
     openTerminalSearch,
     closeCommandPalette,

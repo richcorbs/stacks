@@ -46,6 +46,7 @@ export type AppShortcutHandlerOptions = {
   activateWorkspaceByIndex: (index: number) => void;
   activateSidebarFocusedWorkspace: () => void;
   adjustTerminalFontSize: (delta: number) => void;
+  adjustUiFontSize: (delta: number) => void;
   openTerminalSearch: () => void;
   openDirectoryInEditor: () => void;
   openOneTimeCommand: () => void;

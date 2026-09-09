@@ -25,7 +25,7 @@ mod workspace_setup;
 use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
 use automation::{complete_automation_request, drain_automation_requests, AutomationState};
-use git::{git_diff_files, git_file_diff, git_info};
+use git::{git_diff_files, git_file_diff, git_info, remove_git_worktree};
 use github::{github_action_runs, github_current_pull_request, github_merge_pull_request, github_pull_requests};
 use menu::app_menu;
 use notifications::notify_attention;
@@ -122,6 +122,7 @@ pub fn run() {
             git_info,
             git_diff_files,
             git_file_diff,
+            remove_git_worktree,
             github_pull_requests,
             github_current_pull_request,
             github_action_runs,

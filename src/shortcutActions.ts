@@ -38,6 +38,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     cycleTerminal,
     focusNextWorkspaceWithUnseenOutput,
     adjustTerminalFontSize,
+    adjustUiFontSize,
     openCommandPalette,
     openTerminalSearch,
     openSettings,
@@ -121,6 +122,12 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'decrease-terminal-font-size':
       adjustTerminalFontSize(-1);
+      break;
+    case 'increase-ui-font-size':
+      adjustUiFontSize(1);
+      break;
+    case 'decrease-ui-font-size':
+      adjustUiFontSize(-1);
       break;
     case 'quit':
       requestQuit();

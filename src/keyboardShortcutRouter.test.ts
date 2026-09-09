@@ -21,6 +21,7 @@ function handlers(): ShortcutHandlers {
     cycleTerminal: vi.fn(),
     focusNextWorkspaceWithUnseenOutput: vi.fn(),
     adjustTerminalFontSize: vi.fn(),
+    adjustUiFontSize: vi.fn(),
     openCommandPalette: vi.fn(),
     openTerminalSearch: vi.fn(),
     openSettings: vi.fn(),
@@ -57,6 +58,21 @@ describe('keyboardShortcutRouter', () => {
     expect(select).toHaveBeenCalledOnce();
     expect(event.preventDefault).toHaveBeenCalled();
     expect(event.stopPropagation).toHaveBeenCalled();
+  });
+
+  it('adjusts interface text with Option-Cmd-Plus and Option-Cmd-Minus', () => {
+    const h = handlers();
+    const event = (key: string) => ({
+      key, metaKey: true, ctrlKey: false, altKey: true, shiftKey: key === '+',
+      target: {}, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent);
+
+    handleMetaShortcutKeyDown(event('+'), h);
+    handleMetaShortcutKeyDown(event('-'), h);
+
+    expect(h.adjustUiFontSize).toHaveBeenNthCalledWith(1, 1);
+    expect(h.adjustUiFontSize).toHaveBeenNthCalledWith(2, -1);
+    expect(h.adjustTerminalFontSize).not.toHaveBeenCalled();
   });
 
   it('toggles project notes with Shift-Cmd-O', () => {

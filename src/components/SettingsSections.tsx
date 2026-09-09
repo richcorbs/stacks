@@ -1,3 +1,4 @@
+export { InterfaceSettingsSection } from './InterfaceSettingsSection';
 export { TerminalSettingsSection } from './TerminalSettingsSection';
 export { WorkspaceStatusDotSettingsSection } from './WorkspaceStatusDotSettingsSection';
 export { ConfirmationSettingsSection } from './ConfirmationSettingsSection';

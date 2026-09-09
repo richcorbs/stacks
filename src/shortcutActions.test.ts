@@ -25,6 +25,7 @@ function handlers(overrides: Partial<ShortcutHandlers> = {}): ShortcutHandlers {
     cycleTerminal: vi.fn(),
     focusNextWorkspaceWithUnseenOutput: vi.fn(),
     adjustTerminalFontSize: vi.fn(),
+    adjustUiFontSize: vi.fn(),
     openCommandPalette: vi.fn(),
     openTerminalSearch: vi.fn(),
     openSettings: vi.fn(),
@@ -59,6 +60,8 @@ describe('runShortcutAction', () => {
     runShortcutAction('focus-previous-workspace', h);
     runShortcutAction('focus-next-unseen-workspace', h);
     runShortcutAction('increase-terminal-font-size', h);
+    runShortcutAction('increase-ui-font-size', h);
+    runShortcutAction('decrease-ui-font-size', h);
     runShortcutAction('toggle-sidebar', h);
     runShortcutAction('toggle-superthread', h);
     runShortcutAction('toggle-github-pull-requests', h);
@@ -72,6 +75,8 @@ describe('runShortcutAction', () => {
     expect(h.cycleSidebarWorkspace).toHaveBeenCalledWith(-1);
     expect(h.focusNextWorkspaceWithUnseenOutput).toHaveBeenCalled();
     expect(h.adjustTerminalFontSize).toHaveBeenCalledWith(1);
+    expect(h.adjustUiFontSize).toHaveBeenNthCalledWith(1, 1);
+    expect(h.adjustUiFontSize).toHaveBeenNthCalledWith(2, -1);
     expect(h.toggleSidebar).toHaveBeenCalled();
     expect(h.toggleSuperthread).toHaveBeenCalled();
     expect(h.toggleGithubPullRequests).toHaveBeenCalled();

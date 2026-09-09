@@ -1,3 +1,6 @@
+export const DEFAULT_UI_FONT_SIZE = 13;
+export const MIN_UI_FONT_SIZE = 10;
+export const MAX_UI_FONT_SIZE = 20;
 export const DEFAULT_TERMINAL_FONT_SIZE = 13;
 export const MIN_TERMINAL_FONT_SIZE = 8;
 export const MAX_TERMINAL_FONT_SIZE = 32;
@@ -19,6 +22,10 @@ export function normalizeColor(value: string | null | undefined, fallback: strin
   const trimmed = value?.trim() ?? '';
   if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed.toLowerCase();
   return fallback;
+}
+
+export function clampUiFontSize(fontSize: number) {
+  return Math.min(MAX_UI_FONT_SIZE, Math.max(MIN_UI_FONT_SIZE, Math.round(fontSize)));
 }
 
 export function clampTerminalFontSize(fontSize: number) {

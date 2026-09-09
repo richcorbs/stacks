@@ -110,7 +110,7 @@ type UseAppLayoutPropsOptions = {
   openEditProjectDialog: (project: Project) => void;
   openEditWorkspaceDialog: (project: Project, workspace: WorkspaceEntry) => void;
   deleteProject: (projectId: string) => void;
-  deleteWorkspace: (projectId: string, workspaceId: string) => Promise<boolean>;
+  deleteWorkspace: (projectId: string, workspaceId: string, afterProcessesStopped?: () => Promise<void>) => Promise<boolean>;
   restoreActiveTerminalFocus: (reason: string) => void;
 };
 

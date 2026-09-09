@@ -54,6 +54,7 @@ export type AppSettings = {
   sidebar_width?: number | null;
   developer_services_visible?: boolean | null;
   developer_services_tab?: 'superthread' | 'diff' | 'pull-requests' | 'actions' | null;
+  ui_font_size?: number | null;
   terminal_font_size?: number | null;
   terminal_font_family?: string | null;
   terminal_scrollback?: number | null;

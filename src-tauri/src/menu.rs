@@ -22,6 +22,8 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         ("menu-shortcut-command-palette", "Command Palette", "Cmd+P", Some("Cmd+P")),
         ("menu-shortcut-increase-terminal-font-size", "Increase Terminal Font Size", "Cmd+Plus", Some("Cmd+Plus")),
         ("menu-shortcut-decrease-terminal-font-size", "Decrease Terminal Font Size", "Cmd+-", Some("Cmd+-")),
+        ("menu-shortcut-increase-ui-font-size", "Increase Interface Font Size", "Cmd+Alt+Plus", Some("Cmd+Alt+Plus")),
+        ("menu-shortcut-decrease-ui-font-size", "Decrease Interface Font Size", "Cmd+Alt+-", Some("Cmd+Alt+-")),
         ("menu-shortcut-maximize-workspace", "Maximize / Restore Workspace", "Cmd+Shift+Enter", Some("Cmd+Shift+Enter")),
         ("menu-shortcut-focus-next-terminal", "Focus Next Terminal", "Cmd+]", Some("Cmd+]")),
         ("menu-shortcut-focus-previous-terminal", "Focus Previous Terminal", "Cmd+[", Some("Cmd+[")),

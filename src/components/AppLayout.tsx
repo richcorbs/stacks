@@ -94,7 +94,10 @@ export function AppLayout({
       current = await savePendingPrCleanup(current, 'cleanup-completed');
     }
 
-    const deleted = await overlays.deleteWorkspace(project.id, workspace.id);
+    const deleted = await overlays.deleteWorkspace(project.id, workspace.id, () => invoke('remove_git_worktree', {
+      repositoryPath: project.path,
+      worktreePath: current.workspacePath,
+    }));
     if (!deleted) return false;
     await clearPendingPrCleanup();
     window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Cleaned up and deleted “${workspace.name}”` } }));

@@ -50,7 +50,7 @@ export function useWorkspaceCrudCommands({
     return collectLeafTerminals(workspace.splits).map((pane) => ({ id: pane.id, workspaceId: workspace.id, kind: pane.kind, command: pane.command }));
   }
 
-  async function deleteWorkspace(projectId: string, workspaceId: string) {
+  async function deleteWorkspace(projectId: string, workspaceId: string, afterProcessesStopped?: () => Promise<void>) {
     const workspace = store.projects.find((project) => project.id === projectId)?.workspaces.find((item) => item.id === workspaceId);
     const panes = workspace ? panesForWorkspace(workspace) : terminalsByWorkspaceId[workspaceId] ?? [];
     disposeTerminalSessions(panes.filter((pane) => pane.kind !== 'pi').map((pane) => pane.id));
@@ -62,6 +62,14 @@ export function useWorkspaceCrudCommands({
     } catch (error) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not stop workspace processes: ${String(error)}` } }));
       return false;
+    }
+    if (afterProcessesStopped) {
+      try {
+        await afterProcessesStopped();
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not clean up workspace: ${String(error)}` } }));
+        return false;
+      }
     }
     setStore((s) => ({ projects: s.projects.map((p) => p.id === projectId ? { ...p, workspaces: p.workspaces.filter((workspace) => workspace.id !== workspaceId) } : p) }));
     removeTerminalState(workspaceId);

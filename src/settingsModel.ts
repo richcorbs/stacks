@@ -1,6 +1,7 @@
 import type { AppSettings, CustomCmdPCommand, WorkspaceTemplate } from './types';
 import type { GithubMergeStrategy } from './github/types';
 import {
+  clampUiFontSize,
   clampTerminalFontSize,
   clampTerminalScrollback,
   normalizeColor,
@@ -15,10 +16,12 @@ import {
   DEFAULT_UNSEEN_DOT_COLOR,
   DEFAULT_TERMINAL_FONT_FAMILY,
   DEFAULT_TERMINAL_FONT_SIZE,
+  DEFAULT_UI_FONT_SIZE,
   DEFAULT_TERMINAL_SCROLLBACK,
 } from './settings';
 
 export type ResolvedAppSettings = {
+  ui_font_size: number;
   terminal_font_size: number;
   terminal_font_family: string;
   terminal_scrollback: number;
@@ -44,6 +47,7 @@ export type ResolvedAppSettings = {
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
+  ui_font_size: DEFAULT_UI_FONT_SIZE,
   terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
   terminal_font_family: DEFAULT_TERMINAL_FONT_FAMILY,
   terminal_scrollback: DEFAULT_TERMINAL_SCROLLBACK,
@@ -70,6 +74,7 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
   return {
+    ui_font_size: settings?.ui_font_size ? clampUiFontSize(settings.ui_font_size) : DEFAULT_APP_SETTINGS.ui_font_size,
     terminal_font_size: settings?.terminal_font_size ? clampTerminalFontSize(settings.terminal_font_size) : DEFAULT_APP_SETTINGS.terminal_font_size,
     terminal_font_family: settings?.terminal_font_family?.trim() || DEFAULT_APP_SETTINGS.terminal_font_family,
     terminal_scrollback: settings?.terminal_scrollback ? clampTerminalScrollback(settings.terminal_scrollback) : DEFAULT_APP_SETTINGS.terminal_scrollback,
@@ -97,6 +102,7 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
 
 export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettings {
   return {
+    ui_font_size: clampUiFontSize(settings.ui_font_size),
     terminal_font_size: clampTerminalFontSize(settings.terminal_font_size),
     terminal_font_family: settings.terminal_font_family.trim() || DEFAULT_APP_SETTINGS.terminal_font_family,
     terminal_scrollback: clampTerminalScrollback(settings.terminal_scrollback),

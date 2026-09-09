@@ -7,7 +7,8 @@ describe('settingsModel', () => {
   });
 
   it('clamps numeric settings', () => {
-    const settings = resolveAppSettings({ terminal_font_size: 100, terminal_scrollback: 1 });
+    const settings = resolveAppSettings({ ui_font_size: 100, terminal_font_size: 100, terminal_scrollback: 1 });
+    expect(settings.ui_font_size).toBe(20);
     expect(settings.terminal_font_size).toBe(32);
     expect(settings.terminal_scrollback).toBe(100);
   });

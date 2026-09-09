@@ -295,6 +295,7 @@ export function useAppRootModel() {
 
   const {
     adjustTerminalFontSize,
+    adjustUiFontSize,
     openDirectoryInEditor,
     openTerminalSearch,
     closeCommandPalette,
@@ -405,6 +406,7 @@ export function useAppRootModel() {
     activateWorkspaceByIndex,
     activateSidebarFocusedWorkspace,
     adjustTerminalFontSize,
+    adjustUiFontSize,
     openTerminalSearch,
     openDirectoryInEditor,
     openOneTimeCommand: () => setOneTimeCommandOpen(true),

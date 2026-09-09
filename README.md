@@ -42,7 +42,7 @@ See [`src/pi/README.md`](src/pi/README.md) for implementation and lifecycle deta
 
 - Shows the current branch, diff source, and Git status in the DIFF tab.
 - Browses working-tree or current-pull-request diffs, supports inline/file/overall review comments, and sends assembled review feedback to a Pi GUI pane.
-- Lists GitHub pull requests and Actions status, opens PRs in the browser, and merges with a configurable strategy. Optional post-merge cleanup targets the workspace associated with the PR, runs `/cleanup` in its Pi GUI, stops its processes, and removes the workspace only after successful completion.
+- Lists GitHub pull requests and Actions status, opens PRs in the browser, and merges with a configurable strategy. Optional post-merge cleanup targets the workspace associated with the PR, runs `/cleanup` in its Pi GUI, stops its processes, safely removes its exact Git worktree, and removes the workspace only after successful completion.
 - Optionally browses Superthread boards and creates a workspace from a selected card.
 
 ### Workflow and customization
@@ -81,6 +81,8 @@ The complete list is available in the native **Shortcuts** menu and most actions
 | Previous / next workspace | ⇧⌘[ / ⇧⌘] |
 | Maximize or restore workspace | ⇧⌘↩ |
 | Search current terminal | ⌘F |
+| Increase / decrease terminal, Pi, and DIFF text | ⌘+ / ⌘− |
+| Increase / decrease interface text | ⌥⌘+ / ⌥⌘− |
 | Focus or toggle diff panel | ⌘G |
 | Focus or toggle pull requests | ⇧⌘G |
 | Focus next workspace with unseen output | ⇧⌘N |

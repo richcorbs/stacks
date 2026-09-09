@@ -1,4 +1,3 @@
-import type React from 'react';
 import type { ResolvedAppSettings } from '../settingsModel';
 import { DEFAULT_APP_SETTINGS } from '../settingsModel';
 import {
@@ -15,11 +14,9 @@ type UpdateSettings = (patch: Partial<ResolvedAppSettings>) => void;
 
 export function TerminalSettingsSection({
   draft,
-  firstInputRef,
   update,
 }: {
   draft: ResolvedAppSettings;
-  firstInputRef: React.MutableRefObject<HTMLInputElement | null>;
   update: UpdateSettings;
 }) {
   return (
@@ -28,7 +25,6 @@ export function TerminalSettingsSection({
       <label>
         Font size
         <input
-          ref={firstInputRef}
           type="number"
           min={MIN_TERMINAL_FONT_SIZE}
           max={MAX_TERMINAL_FONT_SIZE}

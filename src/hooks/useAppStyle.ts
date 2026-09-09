@@ -4,6 +4,7 @@ import { inactiveAccentColor } from '../colorUtils';
 
 export function useAppStyle(appSettings: ResolvedAppSettings) {
   return {
+    '--ui-font-delta': `${appSettings.ui_font_size - 13}px`,
     '--focused-terminal-border': appSettings.focused_terminal_border_color,
     '--focused-terminal-border-inactive': inactiveAccentColor(appSettings.focused_terminal_border_color),
     '--maximized-terminal-border': appSettings.maximized_terminal_border_color,

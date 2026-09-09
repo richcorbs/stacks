@@ -1,6 +1,6 @@
 use crate::github::current_pull_request_for_path;
 use serde::Serialize;
-use std::{collections::HashSet, path::{Component, Path}, process::Command};
+use std::{collections::HashSet, path::{Component, Path, PathBuf}, process::Command};
 
 const MAX_DIFF_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_DIFF_BYTES: usize = 2 * 1024 * 1024;
@@ -119,6 +119,60 @@ fn repository_root(path: &str) -> Result<String, String> {
         return Err("The selected workspace is not in a Git repository".to_string());
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn listed_worktrees(repository_path: &str) -> Result<Vec<PathBuf>, String> {
+    let output = Command::new("git")
+        .args(["-C", repository_path, "worktree", "list", "--porcelain", "-z"])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(output.stdout
+        .split(|byte| *byte == 0)
+        .filter_map(|entry| entry.strip_prefix(b"worktree "))
+        .map(|path| PathBuf::from(String::from_utf8_lossy(path).into_owned()))
+        .collect())
+}
+
+fn same_existing_path(left: &Path, right: &Path) -> bool {
+    left == right || match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn remove_registered_worktree(repository_path: &str, worktree_path: &str) -> Result<(), String> {
+    let repository = Path::new(repository_path);
+    let worktree = Path::new(worktree_path);
+    if same_existing_path(repository, worktree) {
+        return Err("Refusing to remove the project's primary working tree".to_string());
+    }
+
+    let registered = listed_worktrees(repository_path)?;
+    let Some(registered_path) = registered.iter().find(|path| same_existing_path(path, worktree)) else {
+        if !worktree.exists() { return Ok(()); }
+        return Err("The workspace directory is not a registered Git worktree".to_string());
+    };
+
+    let output = Command::new("git")
+        .args(["-C", repository_path, "worktree", "remove"])
+        .arg(registered_path)
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() { "Git could not remove the workspace worktree".to_string() } else { detail });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn remove_git_worktree(repository_path: String, worktree_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || remove_registered_worktree(&repository_path, &worktree_path))
+        .await
+        .map_err(|error| format!("Git worktree worker failed: {error}"))?
 }
 
 fn safe_relative_path(path: &str) -> Result<(), String> {
@@ -281,4 +335,52 @@ fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
     }
     ensure_patch_bounded(&patch)?;
     Ok(GitFileDiff { path: file.to_string(), patch })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+
+    fn test_repository(name: &str) -> (PathBuf, PathBuf) {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("stacks-{name}-{}-{nonce}", std::process::id()));
+        let repository = root.join("repository");
+        let worktree = root.join("worktree");
+        fs::create_dir_all(&repository).unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git").args(args).output().unwrap();
+            assert!(output.status.success(), "git failed: {}", String::from_utf8_lossy(&output.stderr));
+        };
+        git(&["-C", repository.to_str().unwrap(), "init", "-b", "main"]);
+        git(&["-C", repository.to_str().unwrap(), "config", "user.email", "stacks@example.com"]);
+        git(&["-C", repository.to_str().unwrap(), "config", "user.name", "Stacks Tests"]);
+        fs::write(repository.join("README.md"), "test\n").unwrap();
+        git(&["-C", repository.to_str().unwrap(), "add", "README.md"]);
+        git(&["-C", repository.to_str().unwrap(), "commit", "-m", "Initial"]);
+        git(&["-C", repository.to_str().unwrap(), "worktree", "add", "-b", "feature", worktree.to_str().unwrap()]);
+        (repository, worktree)
+    }
+
+    #[test]
+    fn removes_only_a_registered_clean_worktree() {
+        let (repository, worktree) = test_repository("remove-worktree");
+        remove_registered_worktree(repository.to_str().unwrap(), worktree.to_str().unwrap()).unwrap();
+        assert!(!worktree.exists());
+        let remaining = listed_worktrees(repository.to_str().unwrap()).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert!(same_existing_path(&remaining[0], &repository));
+        fs::remove_dir_all(repository.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn refuses_to_remove_a_dirty_or_primary_worktree() {
+        let (repository, worktree) = test_repository("protect-worktree");
+        fs::write(worktree.join("uncommitted.txt"), "keep me\n").unwrap();
+        let error = remove_registered_worktree(repository.to_str().unwrap(), worktree.to_str().unwrap()).unwrap_err();
+        assert!(error.contains("modified or untracked files"), "unexpected error: {error}");
+        assert!(worktree.exists());
+        assert!(remove_registered_worktree(repository.to_str().unwrap(), repository.to_str().unwrap()).unwrap_err().contains("primary working tree"));
+        fs::remove_dir_all(repository.parent().unwrap()).unwrap();
+    }
 }

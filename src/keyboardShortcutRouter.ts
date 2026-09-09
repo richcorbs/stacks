@@ -8,8 +8,16 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   const { setMetaKeyDown, activateWorkspaceByIndex } = handlers;
 
   setMetaKeyDown(event.metaKey);
-  if (!event.metaKey || event.ctrlKey || event.altKey) return;
+  if (!event.metaKey || event.ctrlKey) return;
   const key = event.key.toLowerCase();
+  if (event.altKey) {
+    if (event.key === '+' || event.key === '=') {
+      runHandledShortcut(event, () => runShortcutAction('increase-ui-font-size', handlers));
+    } else if (event.key === '-' || event.key === '_') {
+      runHandledShortcut(event, () => runShortcutAction('decrease-ui-font-size', handlers));
+    }
+    return;
+  }
   const bracketKey = event.code === 'BracketLeft' || event.key === '[' || event.key === '{'
     ? 'left'
     : event.code === 'BracketRight' || event.key === ']' || event.key === '}'

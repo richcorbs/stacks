@@ -25,6 +25,8 @@ export type ShortcutAction =
   | 'select-workspace'
   | 'increase-terminal-font-size'
   | 'decrease-terminal-font-size'
+  | 'increase-ui-font-size'
+  | 'decrease-ui-font-size'
   | 'quit';
 
 export type ShortcutHandlers = {
@@ -43,6 +45,7 @@ export type ShortcutHandlers = {
   cycleTerminal: (delta: number) => void;
   focusNextWorkspaceWithUnseenOutput: () => void;
   adjustTerminalFontSize: (delta: number) => void;
+  adjustUiFontSize: (delta: number) => void;
   openCommandPalette: () => void;
   openTerminalSearch: () => void;
   openSettings: () => void;

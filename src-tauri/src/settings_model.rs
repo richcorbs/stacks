@@ -67,6 +67,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub pending_pr_cleanup: Option<PendingPrCleanup>,
     #[serde(default)]
+    pub ui_font_size: Option<u32>,
+    #[serde(default)]
     pub terminal_font_size: Option<u32>,
     #[serde(default)]
     pub terminal_font_family: Option<String>,
@@ -122,6 +124,7 @@ pub struct AppSettings {
 
 impl AppSettings {
     pub fn apply_user_settings(&mut self, next: AppSettings) {
+        self.ui_font_size = next.ui_font_size.map(|value| value.clamp(10, 20));
         self.terminal_font_size = next.terminal_font_size.map(|value| value.clamp(8, 32));
         self.terminal_font_family = non_empty(next.terminal_font_family);
         self.terminal_scrollback = next.terminal_scrollback.map(|value| value.clamp(100, 200_000));

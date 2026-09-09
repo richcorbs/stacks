@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import type { ResolvedAppSettings } from '../settingsModel';
 import { clampGithubPollInterval, DEFAULT_APP_SETTINGS } from '../settingsModel';
 import {
+  clampUiFontSize,
   clampTerminalFontSize,
   clampTerminalScrollback,
   DEFAULT_ACTIVE_DOT_COLOR,
@@ -15,6 +16,7 @@ import {
 import {
   ConfirmationSettingsSection,
   EditorSettingsSection,
+  InterfaceSettingsSection,
   NotificationSettingsSection,
   TerminalSettingsSection,
   WorkspaceStatusDotSettingsSection,
@@ -43,6 +45,7 @@ export function SettingsDialog({ settings, onChange, onClose }: {
   function save() {
     onChange({
       ...draft,
+      ui_font_size: clampUiFontSize(draft.ui_font_size),
       terminal_font_size: clampTerminalFontSize(draft.terminal_font_size),
       terminal_font_family: draft.terminal_font_family.trim() || DEFAULT_APP_SETTINGS.terminal_font_family,
       terminal_scrollback: clampTerminalScrollback(draft.terminal_scrollback),
@@ -87,7 +90,8 @@ export function SettingsDialog({ settings, onChange, onClose }: {
         onSubmit={(e) => { e.preventDefault(); save(); }}
       >
         <h2>Settings</h2>
-        <TerminalSettingsSection draft={draft} firstInputRef={firstInputRef} update={update} />
+        <InterfaceSettingsSection draft={draft} firstInputRef={firstInputRef} update={update} />
+        <TerminalSettingsSection draft={draft} update={update} />
         <WorkspaceStatusDotSettingsSection draft={draft} update={update} />
         <ConfirmationSettingsSection draft={draft} update={update} />
         <NotificationSettingsSection draft={draft} update={update} />
