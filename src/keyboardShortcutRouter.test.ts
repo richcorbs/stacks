@@ -62,13 +62,13 @@ describe('keyboardShortcutRouter', () => {
 
   it('adjusts interface text with Option-Cmd-Plus and Option-Cmd-Minus', () => {
     const h = handlers();
-    const event = (key: string) => ({
-      key, metaKey: true, ctrlKey: false, altKey: true, shiftKey: key === '+',
+    const event = (key: string, code: string, shiftKey = false) => ({
+      key, code, metaKey: true, ctrlKey: false, altKey: true, shiftKey,
       target: {}, preventDefault: vi.fn(), stopPropagation: vi.fn(),
     } as unknown as KeyboardEvent);
 
-    handleMetaShortcutKeyDown(event('+'), h);
-    handleMetaShortcutKeyDown(event('-'), h);
+    handleMetaShortcutKeyDown(event('±', 'Equal', true), h);
+    handleMetaShortcutKeyDown(event('–', 'Minus'), h);
 
     expect(h.adjustUiFontSize).toHaveBeenNthCalledWith(1, 1);
     expect(h.adjustUiFontSize).toHaveBeenNthCalledWith(2, -1);

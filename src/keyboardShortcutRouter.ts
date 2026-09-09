@@ -11,9 +11,11 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   if (!event.metaKey || event.ctrlKey) return;
   const key = event.key.toLowerCase();
   if (event.altKey) {
-    if (event.key === '+' || event.key === '=') {
+    // Option changes the printable key on macOS (Option-Shift-= is “±” and
+    // Option-- is “–”), so match the physical key instead of event.key.
+    if (event.code === 'Equal' || event.key === '+' || event.key === '=') {
       runHandledShortcut(event, () => runShortcutAction('increase-ui-font-size', handlers));
-    } else if (event.key === '-' || event.key === '_') {
+    } else if (event.code === 'Minus' || event.key === '-' || event.key === '_') {
       runHandledShortcut(event, () => runShortcutAction('decrease-ui-font-size', handlers));
     }
     return;
