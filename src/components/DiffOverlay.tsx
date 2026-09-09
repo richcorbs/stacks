@@ -1,10 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { hasDiffReviewFeedback } from '../diffReview/prompt';
 import type { DiffReviewComment, DiffReviewCommentSide, DiffReviewModel } from '../diffReview/types';
 import { numberDiffLines, type NumberedDiffLine } from '../git/diffLines';
 
-export function DiffOverlay({ review, canSubmit, onSubmit, onClose }: {
+export function DiffOverlay({ review, fontSize, canSubmit, onSubmit, onClose }: {
   review: DiffReviewModel;
+  fontSize: number;
   canSubmit: boolean;
   onSubmit: () => void;
   onClose: () => void;
@@ -49,7 +50,10 @@ export function DiffOverlay({ review, canSubmit, onSubmit, onClose }: {
 
 
   return (
-    <div className="diffOverlay" role="region" aria-label={`Diff for ${diff.path}`}>
+    <div className="diffOverlay" style={{
+      '--diff-font-size': `${Math.max(8, fontSize - 2)}px`,
+      '--diff-comment-font-size': `${Math.max(8, fontSize - 1)}px`,
+    } as CSSProperties} role="region" aria-label={`Diff for ${diff.path}`}>
       <header className="diffReviewToolbar">
         <div className="diffReviewGlobalActions">
           <strong>Review changes</strong>

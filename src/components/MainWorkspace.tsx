@@ -123,7 +123,7 @@ export function MainWorkspace({
           onToggleMaximizedTerminal={onToggleMaximizedTerminal}
           onSplitTerminal={onSplitTerminal}
         />
-        {diffReview.openDiff && <DiffOverlay review={diffReview} canSubmit={canSubmitDiffReview} onSubmit={onSubmitDiffReview} onClose={onCloseDiff} />}
+        {diffReview.openDiff && <DiffOverlay review={diffReview} fontSize={terminalFontSize} canSubmit={canSubmitDiffReview} onSubmit={onSubmitDiffReview} onClose={onCloseDiff} />}
         {notesVisible && activeProjectName && (
           <ProjectNotesView projectName={activeProjectName} notes={activeProjectNotes} onChange={onChangeProjectNotes} onClose={onToggleProjectNotes} />
         )}
