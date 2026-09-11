@@ -957,7 +957,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .githubPrTitlePrefix { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .githubPrTitleSuffix { flex: 0 0 auto; margin-left: 4px; }
 .githubItemMeta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; color: #65788e; font-size: calc(10px + var(--ui-font-delta, 0px)); }
-.githubPrMeta { position: absolute; right: 82px; bottom: 4px; left: 9px; min-width: 0; margin: 0; overflow: hidden; flex-wrap: nowrap; white-space: nowrap; }
+.githubPrMeta { position: absolute; right: 82px; bottom: 6px; left: 9px; min-width: 0; margin: 0; overflow: hidden; flex-wrap: nowrap; white-space: nowrap; }
 .githubPrAttribution { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #8496a9; }
 .githubPrActions { position: absolute; top: 50%; right: 8px; display: flex; align-items: center; gap: 7px; transform: translateY(-50%); }
 .githubPrCiStatus { flex: 0 0 14px; width: 14px; display: inline-flex; align-items: center; justify-content: center; }
