@@ -1,8 +1,7 @@
-import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { Store } from '../types';
 
-export function useTerminalCwd(activeTerminalId: string | null, rememberTerminalCwd: (terminalId: string, cwd: string) => void, setStore: Dispatch<SetStateAction<Store>>) {
+export function useTerminalCwd(activeTerminalId: string | null, rememberTerminalCwd: (terminalId: string, cwd: string) => void) {
   const rememberTerminalCwdRef = useRef(rememberTerminalCwd);
   rememberTerminalCwdRef.current = rememberTerminalCwd;
 
@@ -14,20 +13,9 @@ export function useTerminalCwd(activeTerminalId: string | null, rememberTerminal
       invoke<string | null>('pty_cwd', { terminalId: activeTerminalId })
         .then((cwd) => {
           if (cancelled || !cwd) return;
+          // Track the shell's live directory for Git context without overwriting
+          // the workspace's configured startup directory.
           rememberTerminalCwdRef.current(activeTerminalId, cwd);
-          const workspaceId = activeTerminalId.split(':')[0];
-          setStore((s) => {
-            let changed = false;
-            const projects = s.projects.map((p) => ({
-              ...p,
-              workspaces: p.workspaces.map((workspace) => {
-                if (workspace.id !== workspaceId || workspace.cwd === cwd) return workspace;
-                changed = true;
-                return { ...workspace, cwd };
-              }),
-            }));
-            return changed ? { projects } : s;
-          });
         })
         .catch(() => {});
     };
@@ -38,5 +26,5 @@ export function useTerminalCwd(activeTerminalId: string | null, rememberTerminal
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [activeTerminalId, setStore]);
+  }, [activeTerminalId]);
 }

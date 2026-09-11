@@ -84,7 +84,7 @@ export function useAppLifecycleEffects({
   useAppToastEvents(showToast);
   useAppCloseRequest(appSettings.confirm_close, setConfirmQuitOpen);
   useContextMenuDismissal(setContextMenu);
-  useTerminalCwd(activeTerminalId, rememberTerminalCwd, setStore);
+  useTerminalCwd(activeTerminalId, rememberTerminalCwd);
   useImageDropToTerminal(activeTerminalId, activePaneKind);
 
   return { saveStoreNow };

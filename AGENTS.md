@@ -83,6 +83,7 @@ Notes:
 - App display name/product name is `Stacks`.
 - Backend is currently macOS/Unix-biased (`lsof`, `ps`, shell behavior, native macOS menus).
 - Startup commands run in an interactive login shell for zsh/bash (`-lic`) so launched `.app` environments can find tools from shell setup, nvm, Homebrew, etc.
+- A shell pane's live CWD is transient Git/UI context. Do not persist it over the workspace's configured startup CWD; navigating a shell outside the project would otherwise break future Pi project-resource discovery.
 
 ### Frontend structure
 
