@@ -81,7 +81,7 @@ exit "$__stacks_status"
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    process_group::configure(&mut setup_command);
+    process_group::configure_detached(&mut setup_command);
     let mut child = setup_command
         .spawn()
         .map_err(|error| format!("Could not start workspace setup: {error}"))?;

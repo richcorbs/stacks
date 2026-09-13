@@ -22,6 +22,26 @@ pub fn configure(command: &mut std::process::Command) {
 #[cfg(not(unix))]
 pub fn configure(_command: &mut std::process::Command) {}
 
+#[cfg(unix)]
+pub fn configure_detached(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    // Interactive login shells can otherwise inherit the dev server's
+    // controlling terminal and stop with SIGTTOU as a background process.
+    // SAFETY: setsid is async-signal-safe and runs immediately after fork.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() >= 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        });
+    }
+}
+
+#[cfg(not(unix))]
+pub fn configure_detached(_command: &mut std::process::Command) {}
+
 pub fn terminate(child: &mut Child, grace: Duration) {
     #[cfg(unix)]
     unsafe {
