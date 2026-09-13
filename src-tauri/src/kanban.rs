@@ -41,9 +41,42 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CardPane {
+    id: String,
+    role: String,
+    kind: String,
+    command: Option<String>,
+    sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CardServiceDefinition {
+    id: String,
+    name: String,
+    command: String,
+    sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CardEnvironment {
+    id: String,
+    card_id: String,
+    project_id: String,
+    worktree_path: String,
+    branch: String,
+    lifecycle_state: String,
+    revision: i64,
+    split_layout: serde_json::Value,
+    focused_pane_id: Option<String>,
+    panes: Vec<CardPane>,
+    services: Vec<CardServiceDefinition>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct KanbanCard {
     id: String,
+    provider: String,
     external_id: String,
     title: String,
     content: String,
@@ -55,7 +88,7 @@ pub struct KanbanCard {
     assignee_names: Vec<String>,
     status: String,
     project_id: Option<String>,
-    workspace_id: Option<String>,
+    environment: Option<CardEnvironment>,
     created_at: i64,
     updated_at: i64,
     sort_order: i64,
@@ -193,6 +226,39 @@ pub(crate) fn card_directory(id: &str) -> Result<std::path::PathBuf, String> {
     Ok(directory)
 }
 
+pub(crate) struct CardPiSession {
+    pub card_id: String,
+    pub thread: String,
+    pub directory: std::path::PathBuf,
+}
+
+pub(crate) fn card_pi_session(pane_id: &str) -> Result<Option<CardPiSession>, String> {
+    let Some(scoped) = pane_id.strip_prefix("kanban-card:") else {
+        return Ok(None);
+    };
+    let Some((card_id, thread)) = scoped.rsplit_once(':') else {
+        return Ok(None);
+    };
+    if card_id.is_empty() || thread.is_empty() {
+        return Ok(None);
+    }
+    let mut session_root = card_directory(card_id)?;
+    session_root.push("pi-sessions");
+    let directory = session_root.join(safe_card_key(thread));
+    if thread == "planning" && !directory.exists() {
+        let legacy = session_root.join("main");
+        if legacy.exists() {
+            std::fs::rename(&legacy, &directory)
+                .map_err(|error| format!("Could not migrate the card planning session: {error}"))?;
+        }
+    }
+    Ok(Some(CardPiSession {
+        card_id: card_id.to_string(),
+        thread: thread.to_string(),
+        directory,
+    }))
+}
+
 fn ensure_card_directory(id: &str) -> Result<std::path::PathBuf, String> {
     let directory = card_directory(id)?;
     fs::create_dir_all(directory.join("pi-sessions")).map_err(|error| error.to_string())?;
@@ -317,6 +383,28 @@ pub fn kanban_set_status(id: String, status: String) -> Result<KanbanCard, Strin
     }
     with_connection(|connection| {
         ensure_card_directory(&id)?;
+        let current: String = connection
+            .query_row(
+                "SELECT status FROM kanban_cards WHERE id = ?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| "Kanban card was not found".to_string())?;
+        let current_index = STATUSES
+            .iter()
+            .position(|candidate| *candidate == current)
+            .unwrap_or(usize::MAX);
+        let next_index = STATUSES
+            .iter()
+            .position(|candidate| *candidate == status)
+            .unwrap_or(usize::MAX);
+        if current_index.abs_diff(next_index) > 1 {
+            return Err(format!(
+                "Illegal Kanban transition from {current} to {status}"
+            ));
+        }
         let changed = connection.execute(
             "UPDATE kanban_cards SET status = ?1, updated_at = ?2,
                 sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = ?1)
@@ -375,26 +463,137 @@ pub fn kanban_set_project(id: String, project_id: String) -> Result<KanbanCard, 
 }
 
 #[tauri::command]
-pub fn kanban_associate_workspace(
+pub fn kanban_create_environment(
     id: String,
     project_id: String,
-    workspace_id: String,
+    worktree_path: String,
+    branch: String,
+    services: Vec<CardServiceDefinition>,
 ) -> Result<KanbanCard, String> {
-    if project_id.trim().is_empty() || workspace_id.trim().is_empty() {
-        return Err("Project and workspace are required".to_string());
+    if project_id.trim().is_empty() || worktree_path.trim().is_empty() {
+        return Err("Project and worktree path are required".to_string());
     }
     with_connection(|connection| {
         ensure_card_directory(&id)?;
-        let changed = connection.execute(
-            "UPDATE kanban_cards
-             SET project_id = ?1, workspace_id = ?2, status = 'agent_working', updated_at = ?3,
-                 sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'agent_working')
-             WHERE id = ?4",
-            params![project_id, workspace_id, unix_timestamp(), id],
-        ).map_err(db_error)?;
-        if changed == 0 {
-            return Err("Kanban card was not found".to_string());
+        let transaction = connection.transaction().map_err(db_error)?;
+        let card_status = transaction
+            .query_row(
+                "SELECT status FROM kanban_cards WHERE id = ?1",
+                [&id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| "Kanban card was not found".to_string())?;
+        if card_status != "ready" && card_status != "agent_working" {
+            return Err(
+                "A card environment can only be created when the card is ready for agent work"
+                    .to_string(),
+            );
         }
+        let environment_id = format!("environment:{}", uuid::Uuid::new_v4());
+        let now = unix_timestamp();
+        transaction.execute(
+            "INSERT INTO card_environments
+             (id, card_id, project_id, worktree_path, branch, lifecycle_state, revision, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'ready', 1, ?6, ?6)
+             ON CONFLICT(card_id) DO UPDATE SET project_id = excluded.project_id,
+               worktree_path = excluded.worktree_path, branch = excluded.branch,
+               lifecycle_state = 'ready', revision = card_environments.revision + 1,
+               updated_at = excluded.updated_at",
+            params![environment_id, id, project_id.trim(), worktree_path.trim(), branch.trim(), now],
+        ).map_err(db_error)?;
+        let environment_id: String = transaction
+            .query_row(
+                "SELECT id FROM card_environments WHERE card_id = ?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        transaction
+            .execute(
+                "DELETE FROM card_service_definitions WHERE environment_id = ?1",
+                [&environment_id],
+            )
+            .map_err(db_error)?;
+        for (index, service) in services.into_iter().enumerate() {
+            let command = service.command.trim();
+            if command.is_empty() {
+                continue;
+            }
+            transaction.execute(
+                "INSERT INTO card_service_definitions (id, environment_id, name, command, sort_order) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![if service.id.is_empty() { format!("service:{}", uuid::Uuid::new_v4()) } else { service.id }, environment_id, service.name.trim(), command, index as i64],
+            ).map_err(db_error)?;
+        }
+        let shell_pane = format!("kanban-card:{id}:terminal:shell");
+        transaction.execute(
+            "INSERT OR IGNORE INTO card_panes (id, environment_id, role, kind, sort_order) VALUES (?1, ?2, 'shell', 'terminal', 0)",
+            params![shell_pane, environment_id],
+        ).map_err(db_error)?;
+        for (index, thread) in ["planning", "work"].into_iter().enumerate() {
+            transaction.execute(
+                "INSERT OR IGNORE INTO card_panes (id, environment_id, role, kind, sort_order) VALUES (?1, ?2, ?3, 'pi', ?4)",
+                params![format!("kanban-card:{id}:{thread}"), environment_id, thread, index as i64 + 1],
+            ).map_err(db_error)?;
+        }
+        transaction.execute(
+            "INSERT OR IGNORE INTO card_layouts (environment_id, split_layout, focused_pane_id, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            params![environment_id, serde_json::json!({"kind":"leaf", "terminalId":shell_pane}).to_string(), shell_pane, now],
+        ).map_err(db_error)?;
+        transaction.execute(
+            "UPDATE kanban_cards SET project_id = ?1, workspace_id = NULL, status = 'agent_working', updated_at = ?2,
+             sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'agent_working') WHERE id = ?3",
+            params![project_id.trim(), now, id],
+        ).map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
+        get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
+    })
+}
+
+#[tauri::command]
+pub fn kanban_save_environment_layout(
+    id: String,
+    split_layout: serde_json::Value,
+    focused_pane_id: Option<String>,
+    panes: Vec<CardPane>,
+    expected_revision: i64,
+) -> Result<KanbanCard, String> {
+    with_connection(|connection| {
+        let transaction = connection.transaction().map_err(db_error)?;
+        let environment_id: String = transaction
+            .query_row(
+                "SELECT id FROM card_environments WHERE card_id = ?1 AND revision = ?2",
+                params![id, expected_revision],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| {
+                "Card environment changed; reload before saving the layout".to_string()
+            })?;
+        transaction
+            .execute(
+                "DELETE FROM card_panes WHERE environment_id = ?1 AND role = 'shell'",
+                [&environment_id],
+            )
+            .map_err(db_error)?;
+        for (index, pane) in panes.into_iter().enumerate() {
+            transaction.execute(
+                "INSERT INTO card_panes (id, environment_id, role, kind, command, sort_order) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![pane.id, environment_id, pane.role, pane.kind, pane.command, index as i64],
+            ).map_err(db_error)?;
+        }
+        transaction.execute(
+            "UPDATE card_environments SET revision = revision + 1, updated_at = ?1 WHERE id = ?2",
+            params![unix_timestamp(), environment_id],
+        ).map_err(db_error)?;
+        transaction.execute(
+            "INSERT INTO card_layouts (environment_id, split_layout, focused_pane_id, updated_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(environment_id) DO UPDATE SET split_layout = excluded.split_layout, focused_pane_id = excluded.focused_pane_id, updated_at = excluded.updated_at",
+            params![environment_id, split_layout.to_string(), focused_pane_id, unix_timestamp()],
+        ).map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
         get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
 }
@@ -411,7 +610,7 @@ fn next_local_card_number(connection: &Connection, project_id: &str) -> Result<i
         .map_err(db_error)
 }
 
-fn with_connection<T>(
+pub(crate) fn with_connection<T>(
     work: impl FnOnce(&mut Connection) -> Result<T, String>,
 ) -> Result<T, String> {
     let path = app_data_file("workflow.sqlite3")?;
@@ -423,10 +622,14 @@ fn with_connection<T>(
     work(&mut connection)
 }
 
-fn migrate(connection: &Connection) -> Result<(), String> {
+pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     connection.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA foreign_keys = ON;
+         CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at INTEGER NOT NULL
+         );
          CREATE TABLE IF NOT EXISTS kanban_cards (
             id TEXT PRIMARY KEY,
             external_provider TEXT NOT NULL,
@@ -459,7 +662,40 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             external_id TEXT NOT NULL,
             cleaned_at INTEGER NOT NULL,
             PRIMARY KEY(external_provider, external_id)
-         );"
+         );
+         CREATE TABLE IF NOT EXISTS card_environments (
+            id TEXT PRIMARY KEY,
+            card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL,
+            worktree_path TEXT NOT NULL,
+            branch TEXT NOT NULL DEFAULT '',
+            lifecycle_state TEXT NOT NULL DEFAULT 'ready' CHECK(lifecycle_state IN ('creating', 'ready', 'cleanup_pending', 'cleanup_failed')),
+            revision INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS card_panes (
+            id TEXT PRIMARY KEY,
+            environment_id TEXT NOT NULL REFERENCES card_environments(id) ON DELETE CASCADE,
+            role TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('terminal', 'pi')),
+            command TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS card_layouts (
+            environment_id TEXT PRIMARY KEY REFERENCES card_environments(id) ON DELETE CASCADE,
+            split_layout TEXT NOT NULL,
+            focused_pane_id TEXT,
+            updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS card_service_definitions (
+            id TEXT PRIMARY KEY,
+            environment_id TEXT NOT NULL REFERENCES card_environments(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            command TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0
+         );
+         INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, unixepoch());"
     ).map_err(db_error)?;
     let columns = connection
         .prepare("PRAGMA table_info(kanban_cards)")
@@ -496,40 +732,124 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 }
 
 fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
-    let mut statement = connection.prepare(
-        "SELECT id, external_id, title, content, board_id, board_title, list_id, list_title,
-                card_url, assignee_names, status, project_id, workspace_id, created_at, updated_at, sort_order, in_scope
-         FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC"
-    ).map_err(db_error)?;
-    let rows = statement.query_map([], map_card).map_err(db_error)?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(db_error)
+    let mut cards = {
+        let mut statement = connection.prepare(
+            "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
+                    card_url, assignee_names, status, project_id, created_at, updated_at, sort_order, in_scope
+             FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC"
+        ).map_err(db_error)?;
+        let mapped = statement.query_map([], map_card).map_err(db_error)?;
+        mapped.collect::<Result<Vec<_>, _>>().map_err(db_error)?
+    };
+    for card in &mut cards {
+        card.environment = load_environment(connection, &card.id)?;
+    }
+    Ok(cards)
 }
 
 fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, String> {
-    connection.query_row(
-        "SELECT id, external_id, title, content, board_id, board_title, list_id, list_title,
-                card_url, assignee_names, status, project_id, workspace_id, created_at, updated_at, sort_order, in_scope
+    let mut card = connection.query_row(
+        "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
+                card_url, assignee_names, status, project_id, created_at, updated_at, sort_order, in_scope
          FROM kanban_cards WHERE id = ?1",
         [id],
         map_card,
-    ).optional().map_err(db_error)
+    ).optional().map_err(db_error)?;
+    if let Some(card) = &mut card {
+        card.environment = load_environment(connection, id)?;
+    }
+    Ok(card)
+}
+
+fn load_environment(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<Option<CardEnvironment>, String> {
+    let Some((id, project_id, worktree_path, branch, lifecycle_state, revision)) = connection.query_row(
+        "SELECT id, project_id, worktree_path, branch, lifecycle_state, revision FROM card_environments WHERE card_id = ?1",
+        [card_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?)),
+    ).optional().map_err(db_error)? else { return Ok(None); };
+    let (split_layout, focused_pane_id) = connection
+        .query_row(
+            "SELECT split_layout, focused_pane_id FROM card_layouts WHERE environment_id = ?1",
+            [&id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .map(|(layout, focused)| {
+            (
+                serde_json::from_str(&layout).unwrap_or(serde_json::json!({"kind":"empty"})),
+                focused,
+            )
+        })
+        .unwrap_or((serde_json::json!({"kind":"empty"}), None));
+    let mut pane_statement = connection.prepare("SELECT id, role, kind, command, sort_order FROM card_panes WHERE environment_id = ?1 ORDER BY sort_order").map_err(db_error)?;
+    let panes = pane_statement
+        .query_map([&id], |row| {
+            Ok(CardPane {
+                id: row.get(0)?,
+                role: row.get(1)?,
+                kind: row.get(2)?,
+                command: row.get(3)?,
+                sort_order: row.get(4)?,
+            })
+        })
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    let mut service_statement = connection.prepare("SELECT id, name, command, sort_order FROM card_service_definitions WHERE environment_id = ?1 ORDER BY sort_order").map_err(db_error)?;
+    let services = service_statement
+        .query_map([&id], |row| {
+            Ok(CardServiceDefinition {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                command: row.get(2)?,
+                sort_order: row.get(3)?,
+            })
+        })
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    Ok(Some(CardEnvironment {
+        id,
+        card_id: card_id.to_string(),
+        project_id,
+        worktree_path,
+        branch,
+        lifecycle_state,
+        revision,
+        split_layout,
+        focused_pane_id,
+        panes,
+        services,
+    }))
 }
 
 fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
     Ok(KanbanCard {
         id: row.get(0)?,
-        external_id: row.get(1)?,
-        title: row.get(2)?,
-        content: row.get(3)?,
-        board_id: row.get(4)?,
-        board_title: row.get(5)?,
-        list_id: row.get(6)?,
-        list_title: row.get(7)?,
-        card_url: row.get(8)?,
-        assignee_names: serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default(),
-        status: row.get(10)?,
-        project_id: row.get(11)?,
-        workspace_id: row.get(12)?,
+        provider: {
+            let provider: String = row.get(1)?;
+            if provider.starts_with("local:") {
+                "local".to_string()
+            } else {
+                provider
+            }
+        },
+        external_id: row.get(2)?,
+        title: row.get(3)?,
+        content: row.get(4)?,
+        board_id: row.get(5)?,
+        board_title: row.get(6)?,
+        list_id: row.get(7)?,
+        list_title: row.get(8)?,
+        card_url: row.get(9)?,
+        assignee_names: serde_json::from_str(&row.get::<_, String>(10)?).unwrap_or_default(),
+        status: row.get(11)?,
+        project_id: row.get(12)?,
+        environment: None,
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
         sort_order: row.get(15)?,
@@ -572,7 +892,7 @@ mod tests {
         local_card(&mut connection);
 
         let updated = update_local_card(
-            &mut connection,
+            &connection,
             "local:test",
             Some("Final title"),
             Some("Final description"),
@@ -582,7 +902,7 @@ mod tests {
         assert_eq!(updated.title, "Final title");
         assert_eq!(updated.content, "Final description");
         assert_eq!(updated.status, "needs_refinement");
-        assert!(update_local_card(&mut connection, "superthread:1", None, Some("No")).is_err());
+        assert!(update_local_card(&connection, "superthread:1", None, Some("No")).is_err());
     }
 
     #[test]
@@ -653,6 +973,24 @@ mod tests {
     }
 
     #[test]
+    fn workflow_transitions_must_be_adjacent() {
+        let current = STATUSES
+            .iter()
+            .position(|status| *status == "ready")
+            .unwrap();
+        let adjacent = STATUSES
+            .iter()
+            .position(|status| *status == "agent_working")
+            .unwrap();
+        let skipped = STATUSES
+            .iter()
+            .position(|status| *status == "approved")
+            .unwrap();
+        assert_eq!(current.abs_diff(adjacent), 1);
+        assert!(current.abs_diff(skipped) > 1);
+    }
+
+    #[test]
     fn does_not_reimport_cleaned_cards() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
@@ -686,6 +1024,52 @@ mod tests {
         assert_eq!(next_local_card_number(&connection, "one").unwrap(), 1);
         assert_eq!(next_local_card_number(&connection, "one").unwrap(), 2);
         assert_eq!(next_local_card_number(&connection, "two").unwrap(), 1);
+    }
+
+    #[test]
+    fn environment_aggregate_restores_layout_panes_and_service_definitions() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        local_card(&mut connection);
+        connection.execute(
+            "INSERT INTO card_environments (id, card_id, project_id, worktree_path, branch, lifecycle_state, revision, created_at, updated_at)
+             VALUES ('environment:test', 'local:test', 'project', '/repo-card-1', 'stacks/card-1', 'ready', 4, 1, 1)", [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO card_panes (id, environment_id, role, kind, sort_order) VALUES ('pane:shell', 'environment:test', 'shell', 'terminal', 0)", [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO card_layouts (environment_id, split_layout, focused_pane_id, updated_at)
+             VALUES ('environment:test', '{\"kind\":\"leaf\",\"terminalId\":\"pane:shell\"}', 'pane:shell', 1)", [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO card_service_definitions (id, environment_id, name, command, sort_order)
+             VALUES ('service:server', 'environment:test', 'server', 'npm run dev', 0)", [],
+        ).unwrap();
+
+        let environment = get_card(&connection, "local:test")
+            .unwrap()
+            .unwrap()
+            .environment
+            .unwrap();
+        assert_eq!(environment.worktree_path, "/repo-card-1");
+        assert_eq!(environment.revision, 4);
+        assert_eq!(environment.panes[0].id, "pane:shell");
+        assert_eq!(environment.services[0].command, "npm run dev");
+        assert_eq!(environment.split_layout["terminalId"], "pane:shell");
+    }
+
+    #[test]
+    fn card_runtime_owns_pi_session_metadata() {
+        let owner = card_pi_session("kanban-card:superthread:42:planning")
+            .unwrap()
+            .unwrap();
+        assert_eq!(owner.card_id, "superthread:42");
+        assert_eq!(owner.thread, "planning");
+        assert!(owner
+            .directory
+            .ends_with("superthread_42/pi-sessions/planning"));
+        assert!(card_pi_session("workspace:123").unwrap().is_none());
     }
 
     #[test]

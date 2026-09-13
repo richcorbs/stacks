@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { CardEnvironmentPane, CardServiceDefinition, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
   return invoke<KanbanCard[]>('kanban_cards');
@@ -33,6 +34,10 @@ export function setKanbanProject(id: string, projectId: string) {
   return invoke<KanbanCard>('kanban_set_project', { id, projectId });
 }
 
-export function associateKanbanWorkspace(id: string, projectId: string, workspaceId: string) {
-  return invoke<KanbanCard>('kanban_associate_workspace', { id, projectId, workspaceId });
+export function createKanbanEnvironment(id: string, projectId: string, worktreePath: string, branch: string, services: CardServiceDefinition[]) {
+  return invoke<KanbanCard>('kanban_create_environment', { id, projectId, worktreePath, branch, services });
+}
+
+export function saveKanbanEnvironmentLayout(id: string, splitLayout: SplitNode, focusedPaneId: string | null, panes: CardEnvironmentPane[], expectedRevision: number) {
+  return invoke<KanbanCard>('kanban_save_environment_layout', { id, splitLayout, focusedPaneId, panes, expectedRevision });
 }

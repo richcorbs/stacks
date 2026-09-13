@@ -29,7 +29,7 @@ pub fn app_stats() -> Result<AppStats, String> {
 
     Ok(AppStats {
         cpu,
-        mem_mb: (rss_kb + 1023) / 1024,
+        mem_mb: rss_kb.div_ceil(1024),
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }

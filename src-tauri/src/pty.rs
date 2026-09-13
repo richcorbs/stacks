@@ -24,6 +24,7 @@ struct PtyExit {
     status: Option<i32>,
 }
 
+#[allow(clippy::too_many_arguments)] // Tauri command arguments mirror the frontend invoke contract.
 #[tauri::command]
 pub fn spawn_pty(
     window: Window,
@@ -150,7 +151,7 @@ pub fn resize_pty(
 pub fn kill_pty(
     registry: State<'_, Mutex<PtyRegistry>>,
     terminal_id: String,
-    expected_cwd: Option<String>,
+    _expected_cwd: Option<String>,
 ) -> Result<(), String> {
     let handle = {
         let mut guard = registry
@@ -160,9 +161,6 @@ pub fn kill_pty(
     };
     if let Some(mut handle) = handle {
         terminate_pty_child(handle.child.as_mut());
-    }
-    if terminal_id.ends_with(":terminal:server") {
-        terminate_port_listeners(3000, expected_cwd.as_deref());
     }
     Ok(())
 }
@@ -197,57 +195,6 @@ fn terminate_pty_child(child: &mut dyn portable_pty::Child) {
         }
     }
     let _ = child.kill();
-}
-
-#[cfg(unix)]
-fn terminate_port_listeners(port: u16, expected_cwd: Option<&str>) {
-    let output = std::process::Command::new("lsof")
-        .args(["-tiTCP", &format!(":{port}"), "-sTCP:LISTEN"])
-        .output();
-    let Ok(output) = output else { return };
-    let process_ids: Vec<u32> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.trim().parse().ok())
-        .filter(|pid| {
-            expected_cwd
-                .is_none_or(|cwd| process_cwd(*pid).is_some_and(|path| path.starts_with(cwd)))
-        })
-        .collect();
-    let own_group = unsafe { libc::getpgrp() };
-    let groups: std::collections::HashSet<i32> = process_ids
-        .iter()
-        .filter_map(|pid| {
-            let group = unsafe { libc::getpgid(*pid as i32) };
-            (group > 0 && group != own_group).then_some(group)
-        })
-        .collect();
-    for group in &groups {
-        unsafe { libc::kill(-*group, libc::SIGTERM) };
-    }
-    for pid in &process_ids {
-        unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
-    }
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    for group in &groups {
-        unsafe { libc::kill(-*group, libc::SIGKILL) };
-    }
-    for pid in &process_ids {
-        unsafe { libc::kill(*pid as i32, libc::SIGKILL) };
-    }
-}
-
-#[cfg(not(unix))]
-fn terminate_port_listeners(_port: u16, _expected_cwd: Option<&str>) {}
-
-#[cfg(unix)]
-fn process_cwd(pid: u32) -> Option<String> {
-    let output = std::process::Command::new("lsof")
-        .args(["-a", "-d", "cwd", "-p", &pid.to_string(), "-Fn"])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .find_map(|line| line.strip_prefix('n').map(str::to_string))
 }
 
 #[cfg(unix)]

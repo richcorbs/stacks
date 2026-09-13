@@ -5,7 +5,8 @@ import type { Project, SplitNode, TerminalEntry } from '../types';
 import { useKanbanBoard } from '../kanban/useKanbanBoard';
 import { KANBAN_LANES, adjacentKanbanStatus, kanbanTransitionLabel, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
-import type { KanbanCard, KanbanStatus } from '../kanban/types';
+import type { CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
+import { saveKanbanEnvironmentLayout } from '../kanban/api';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
 import { useDiffReview } from '../diffReview/useDiffReview';
@@ -17,6 +18,7 @@ import { TerminalView } from './TerminalView';
 import { SplitView } from './WorkspaceTerminalTree';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { disposeTerminalSession, getTerminalSession } from '../terminalSessionManager';
+import { superthreadCardProvider } from '../superthread/cardProvider';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -36,19 +38,20 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   onCleanupCard: (card: KanbanCard) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<boolean>;
 }) {
-  const board = useKanbanBoard(spaces, workspaceSlug, superthreadEnabled);
-  const defaultProject = projects.find((project) => project.kanban_source === 'superthread' || project.name.trim().toLocaleLowerCase() === 'arcasa') ?? projects[0] ?? null;
+  const provider = useMemo(() => superthreadEnabled ? superthreadCardProvider(spaces, workspaceSlug) : null, [spaces, superthreadEnabled, workspaceSlug]);
+  const board = useKanbanBoard(provider);
+  const defaultProject = projects.find((project) => project.kanban_source === 'superthread') ?? projects[0] ?? null;
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [newCardOpen, setNewCardOpen] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
   const [newCardDescription, setNewCardDescription] = useState('');
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? defaultProject;
-  const selectedProjectIsSuperthread = Boolean(selectedProject && (selectedProject.kanban_source === 'superthread' || (!selectedProject.kanban_source && selectedProject.name.trim().toLocaleLowerCase() === 'arcasa')));
+  const selectedProjectIsSuperthread = selectedProject?.kanban_source === 'superthread';
   const visibleCards = useMemo(() => board.cards.filter((card) => selectedProjectIsSuperthread
-    ? !card.id.startsWith('local:')
-    : card.project_id === selectedProject?.id && card.id.startsWith('local:')),
+    ? card.provider === 'superthread'
+    : card.project_id === selectedProject?.id && card.provider === 'local'),
   [board.cards, selectedProject?.id, selectedProjectIsSuperthread]);
-  const repositoryStatuses = useCardRepositoryStatus(visibleCards, projects);
+  const repositoryStatuses = useCardRepositoryStatus(visibleCards);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
@@ -214,7 +217,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           </button>
           {projectMenuOpen && <div className="kanbanProjectMenu">
             {projects.map((project) => {
-              const source = project.kanban_source ?? (project.name.trim().toLocaleLowerCase() === 'arcasa' ? 'superthread' : 'local');
+              const source = project.kanban_source ?? 'local';
               return <button type="button" className={project.id === selectedProject?.id ? 'selected' : ''} key={project.id} onClick={() => {
                 onSelectProject(project.id);
                 setProjectMenuOpen(false);
@@ -285,7 +288,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                       }}
                     >
                       <span className="kanbanCardSource">
-                        {!card.id.startsWith('local:') && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title} · </span>}
+                        {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title} · </span>}
                         <span className="kanbanCardNumber">#{card.external_id}</span>
                       </span>
                       <strong>{card.title}</strong>
@@ -305,7 +308,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                               <GithubStatusIcon status={repositoryStatus.pullRequest.ci_status} context="CI" />
                             </span>
                           )}
-                          {card.workspace_id && <span className="kanbanEnvironmentBadge" title="Card environment is ready">●</span>}
+                          {card.environment && <span className="kanbanEnvironmentBadge" title="Card environment is ready">●</span>}
                         </span>
                       </span>
                     </button>;
@@ -385,7 +388,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   onOpenChat: (projectId: string) => Promise<void>;
   onStartWork: () => Promise<boolean>;
 }) {
-  const projectId = card.project_id ?? projects.find((candidate) => candidate.kanban_source === 'superthread' || candidate.name.trim().toLocaleLowerCase() === 'arcasa')?.id ?? '';
+  const projectId = card.project_id ?? projects.find((candidate) => candidate.kanban_source === card.provider)?.id ?? '';
   const [working, setWorking] = useState(false);
   const [activeView, setActiveView] = useState<CardView>(() => card.status !== 'needs_refinement' && card.status !== 'ready' && card.project_id ? 'chat' : 'overview');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -395,19 +398,19 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const [serverEnabled, setServerEnabled] = useState(() => Boolean(getTerminalSession(cardTerminalId(card.id, 'server'))?.running));
   const [consoleEnabled, setConsoleEnabled] = useState(() => Boolean(getTerminalSession(cardTerminalId(card.id, 'console'))?.running));
   const initialShellId = cardTerminalId(card.id, 'shell');
-  const [shellTree, setShellTree] = useState<SplitNode>({ kind: 'leaf', terminalId: initialShellId });
-  const [focusedShellPane, setFocusedShellPane] = useState(initialShellId);
+  const [shellTree, setShellTree] = useState<SplitNode>(() => card.environment?.split_layout ?? { kind: 'leaf', terminalId: initialShellId });
+  const [focusedShellPane, setFocusedShellPane] = useState(() => card.environment?.focused_pane_id ?? initialShellId);
+  const environmentRevisionRef = useRef(card.environment?.revision ?? 0);
   const [pendingCloseShellPane, setPendingCloseShellPane] = useState<string | null>(null);
   const diffReview = useDiffReview(card.id);
   const sanitizedContent = useMemo(() => DOMPurify.sanitize(card.content, {
     FORBID_TAGS: ['img', 'style'], FORBID_ATTR: ['style'],
   }), [card.content]);
   const project = projects.find((candidate) => candidate.id === projectId);
-  const workspace = project?.workspaces.find((candidate) => candidate.id === card.workspace_id);
-  const cardPath = workspace?.cwd ?? null;
-  const activeChatThread: CardChatThread = workspace && cardPath ? 'work' : 'planning';
-  const serverCommand = project?.server_command?.trim() ?? '';
-  const consoleCommand = project?.console_command?.trim() ?? '';
+  const cardPath = card.environment?.worktree_path ?? null;
+  const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
+  const serverCommand = card.environment?.services.find((service) => service.name === 'server')?.command ?? '';
+  const consoleCommand = card.environment?.services.find((service) => service.name === 'console')?.command ?? '';
   const statusLabel = KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
   const previous = adjacentKanbanStatus(card.status, -1);
   const next = adjacentKanbanStatus(card.status, 1);
@@ -427,6 +430,19 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
     cwd: cardPath,
     temporary: true,
   }])), [card.id, cardPath, shellTerminalIds]);
+
+  useEffect(() => {
+    if (!card.environment) return;
+    const timer = window.setTimeout(() => {
+      const panes: CardEnvironmentPane[] = shellTerminalIds.map((id, index) => ({
+        id, role: 'shell', kind: 'terminal', command: null, sort_order: index,
+      }));
+      saveKanbanEnvironmentLayout(card.id, shellTree, focusedShellPane || null, panes, environmentRevisionRef.current)
+        .then((updated) => { environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current; })
+        .catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [card.id, card.environment, focusedShellPane, shellTerminalIds, shellTree]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -618,7 +634,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         {actionError && <div className="kanbanActionError">{actionError}</div>}
         <section className={`kanbanDetailContent cardView${activeView === 'overview' ? ' active' : ''}`}>
           {card.content
-            ? card.id.startsWith('local:')
+            ? card.provider === 'local'
               ? <div className="kanbanLocalDescription">{card.content}</div>
               : <div dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
             : <p className="kanbanMuted">No description.</p>}
@@ -724,7 +740,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
             <>
               <div className="kanbanDetailTransitions">
                 {previous && previousLabel && <button type="button" disabled={working} onClick={() => run(() => onMove(previous))}>← {previousLabel}</button>}
-                {next && nextLabel && card.status !== 'needs_refinement' && (card.status !== 'ready' || Boolean(card.workspace_id)) && (
+                {next && nextLabel && card.status !== 'needs_refinement' && (card.status !== 'ready' || Boolean(card.environment)) && (
                   <button type="button" disabled={working} onClick={() => run(() => onMove(next))}>{nextLabel} →</button>
                 )}
               </div>
@@ -734,7 +750,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
                     {working ? 'Opening…' : 'Refine'}
                   </button>
                 </div>
-              ) : card.workspace_id ? (
+              ) : card.environment ? (
                 <button className="primaryAction" type="button" onClick={() => setActiveView('terminal')}>Open terminal</button>
               ) : card.status === 'ready' ? (
                 <div className="kanbanStartWork">
@@ -864,11 +880,11 @@ function cardTerminalId(cardId: string, mode: string) {
 
 function cardChatPrompt(card: KanbanCard, thread: CardChatThread) {
   const description = card.content.trim().slice(0, 12_000) || '(No description was provided.)';
-  const cardReference = card.id.startsWith('local:') ? `local card #${card.external_id}` : `Superthread card #${card.external_id}`;
+  const cardReference = card.provider === 'local' ? `local card #${card.external_id}` : `Superthread card #${card.external_id}`;
   if (thread === 'work') {
     return `Implement ${cardReference}: ${card.title}. You are running in the dedicated worktree and branch for this card. Inspect the repository and card details, make the required changes, run appropriate tests, and keep me informed of progress and decisions. Ask when human input is required.\n\nDescription:\n${description}`;
   }
-  const localCardTools = card.id.startsWith('local:')
+  const localCardTools = card.provider === 'local'
     ? ' When I ask you to save an updated description, persist the complete replacement with update_card_description. Only call finish_refinement after I explicitly approve the final brief or ask to finish refinement; pass it the complete self-contained brief. When I explicitly ask to start work on a Ready-for-agent card, call start_work rather than creating a branch or worktree yourself.'
     : '';
   return `This is the planning conversation for ${cardReference}: ${card.title}. Do not implement or modify files in this session. Inspect the primary checkout as needed, ask focused questions one at a time, and work toward a concise brief with the desired outcome, acceptance criteria, technical approach, risks or open questions, and validation plan. I will explicitly finish refinement when satisfied.${localCardTools}\n\nDescription:\n${description}`;

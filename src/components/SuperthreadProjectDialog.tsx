@@ -9,7 +9,7 @@ export function SuperthreadProjectDialog({ card, projects, onCancel, onStart }: 
   onCancel: () => void;
   onStart: (projectId: string, cardNumber: string, cardTitle: string) => Promise<KanbanWorkspace | null>;
 }) {
-  const projectId = projects.find((project) => project.name.trim().toLocaleLowerCase() === 'arcasa')?.id ?? '';
+  const projectId = projects.find((project) => project.kanban_source === 'superthread')?.id ?? '';
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {

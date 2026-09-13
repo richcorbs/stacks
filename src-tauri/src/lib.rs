@@ -32,9 +32,10 @@ use github::{
     github_pull_requests,
 };
 use kanban::{
-    kanban_associate_workspace, kanban_cards, kanban_create_local_card, kanban_delete_card,
-    kanban_finish_local_refinement, kanban_open_card, kanban_reorder_cards, kanban_set_project,
-    kanban_set_status, kanban_sync_superthread_cards, kanban_update_local_card,
+    kanban_cards, kanban_create_environment, kanban_create_local_card, kanban_delete_card,
+    kanban_finish_local_refinement, kanban_open_card, kanban_reorder_cards,
+    kanban_save_environment_layout, kanban_set_project, kanban_set_status,
+    kanban_sync_superthread_cards, kanban_update_local_card,
 };
 use menu::app_menu;
 use notifications::notify_attention;
@@ -85,7 +86,7 @@ pub fn run() {
 
     let automation_state = AutomationState::default();
     let run_result = tauri::Builder::default()
-        .menu(|app| app_menu(app))
+        .menu(app_menu)
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
@@ -150,7 +151,8 @@ pub fn run() {
             kanban_set_status,
             kanban_reorder_cards,
             kanban_set_project,
-            kanban_associate_workspace,
+            kanban_create_environment,
+            kanban_save_environment_layout,
             drain_automation_requests,
             complete_automation_request,
             superthread_boards,
