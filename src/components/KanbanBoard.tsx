@@ -713,7 +713,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           ) : activeView === 'diff' ? (
             <>
               <button type="button" onClick={() => setActiveView('overview')}>Back to card</button>
-              <button type="button" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>Refresh DIFF</button>
+              <button type="button" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>Refresh the diff</button>
             </>
           ) : activeView === 'terminal' ? (
             <>
