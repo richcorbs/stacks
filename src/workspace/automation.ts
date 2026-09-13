@@ -4,6 +4,7 @@ export type AutomationRequest = {
   name: string;
   startupCommand?: string | null;
   runOnce?: string | null;
+  cardId?: string | null;
 };
 
 export type AutomationResponse = {

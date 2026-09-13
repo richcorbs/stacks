@@ -272,10 +272,11 @@ impl SuperthreadService {
             ],
         )?;
         let card_base_url = self.card_base_url(&cli, workspace_slug);
-        response
-            .cards
-            .iter_mut()
-            .for_each(|card| populate_card_url(card, card_base_url.as_deref()));
+        let user_names = self.user_names(&cli)?;
+        response.cards.iter_mut().for_each(|card| {
+            populate_assignee_names(card, &user_names);
+            populate_card_url(card, card_base_url.as_deref());
+        });
         Ok(response.cards)
     }
 
@@ -579,7 +580,10 @@ mod tests {
     #[test]
     fn matches_the_known_product_space_rename_without_broad_substrings() {
         assert!(space_matches_filter("Product & Engineering", "Product"));
-        assert!(space_matches_filter("Product & Engineering", "product & engineering"));
+        assert!(space_matches_filter(
+            "Product & Engineering",
+            "product & engineering"
+        ));
         assert!(!space_matches_filter("Product Marketing", "Product"));
     }
 

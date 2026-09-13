@@ -18,8 +18,14 @@ pub fn app_stats() -> Result<AppStats, String> {
 
     let text = String::from_utf8_lossy(&output.stdout);
     let mut parts = text.split_whitespace();
-    let cpu = parts.next().and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0);
-    let rss_kb = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let cpu = parts
+        .next()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(0.0);
+    let rss_kb = parts
+        .next()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
 
     Ok(AppStats {
         cpu,

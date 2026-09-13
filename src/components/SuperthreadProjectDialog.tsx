@@ -1,21 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Project } from '../types';
 import type { SuperthreadCard } from '../superthread/types';
+import type { KanbanWorkspace } from '../kanban/types';
 
 export function SuperthreadProjectDialog({ card, projects, onCancel, onStart }: {
   card: SuperthreadCard;
   projects: Project[];
   onCancel: () => void;
-  onStart: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
+  onStart: (projectId: string, cardNumber: string, cardTitle: string) => Promise<KanbanWorkspace | null>;
 }) {
-  const [projectId, setProjectId] = useState('');
+  const projectId = projects.find((project) => project.name.trim().toLocaleLowerCase() === 'arcasa')?.id ?? '';
   const [starting, setStarting] = useState(false);
-  const selectRef = useRef<HTMLSelectElement | null>(null);
 
   useEffect(() => {
-    setProjectId('');
     setStarting(false);
-    requestAnimationFrame(() => selectRef.current?.focus());
   }, [card.id]);
 
   return (
@@ -46,10 +44,7 @@ export function SuperthreadProjectDialog({ card, projects, onCancel, onStart }: 
         <div className="superthreadStartWorkCard">#{card.id} {card.title}</div>
         <label>
           Project
-          <select ref={selectRef} value={projectId} disabled={starting} onChange={(event) => setProjectId(event.target.value)}>
-            <option value="">Select a project…</option>
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </select>
+          <span className="superthreadSelectedProject">Arcasa</span>
         </label>
         <div className="modalActions">
           <button type="button" disabled={starting} onClick={onCancel}>Cancel</button>

@@ -1,30 +1,19 @@
-export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, hasActiveProject, notesVisible, onToggleSidebar, onToggleProjectNotes, onToggleDeveloperServices, developerServicesVisible }: {
+export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasActiveTerminal, hasActiveProject, notesVisible, onToggleProjectNotes, kanbanVisible, onToggleKanban }: {
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
   hasActiveTerminal: boolean;
   hasActiveProject: boolean;
   notesVisible: boolean;
-  onToggleSidebar: () => void;
   onToggleProjectNotes: () => void;
-  onToggleDeveloperServices: () => void;
-  developerServicesVisible: boolean;
+  kanbanVisible: boolean;
+  onToggleKanban: () => void;
 }) {
   return (
     <header className="topbar">
       <div className="topbarTitleArea">
-        {hasActiveTerminal && (
-          <button
-            className="sidebarToggleButton"
-            type="button"
-            title="Toggle sidebar (⌘B)"
-            aria-label="Toggle sidebar"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={onToggleSidebar}
-          >
-            <span className="sidebarIcon" />
-          </button>
-        )}
-        {hasActiveTerminal && activeProjectName && activeWorkspaceName ? (
+        {kanbanVisible ? (
+          <div className="subtitle">Work board</div>
+        ) : hasActiveTerminal && activeProjectName && activeWorkspaceName ? (
           <div className="workspaceCrumbs" title={`${activeProjectName} > ${activeWorkspaceName}`}>
             {activeProjectName} &gt; {activeWorkspaceName}
           </div>
@@ -32,6 +21,17 @@ export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasAct
           <div className="subtitle">Select a workspace</div>
         )}
       </div>
+      <button
+        className={`sidebarToggleButton kanbanTopbarToggle${kanbanVisible ? ' active' : ''}`}
+        type="button"
+        title={`${kanbanVisible ? 'Close' : 'Open'} work board`}
+        aria-label={`${kanbanVisible ? 'Close' : 'Open'} work board`}
+        aria-pressed={kanbanVisible}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onToggleKanban}
+      >
+        <span className="kanbanTopbarIcon" />
+      </button>
       {hasActiveProject && (
         <button
           className={`sidebarToggleButton projectNotesToggle${notesVisible ? ' active' : ''}`}
@@ -45,17 +45,6 @@ export function WorkspaceTopbar({ activeProjectName, activeWorkspaceName, hasAct
           <span className="projectNotesIcon" />
         </button>
       )}
-      <button
-        className="sidebarToggleButton superthreadTopbarToggle"
-        type="button"
-        title={`${developerServicesVisible ? 'Close' : 'Open'} developer services panel (⌘R)`}
-        aria-label={`${developerServicesVisible ? 'Close' : 'Open'} developer services panel`}
-        aria-pressed={developerServicesVisible}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onToggleDeveloperServices}
-      >
-        <span className="sidebarIcon superthreadSidebarIcon" />
-      </button>
     </header>
   );
 }

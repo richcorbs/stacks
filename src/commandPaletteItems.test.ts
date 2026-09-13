@@ -72,7 +72,6 @@ describe('buildCommandPaletteItems', () => {
       'restart-stacks',
       'toggle-diff',
       'toggle-pull-requests',
-      'toggle-project-notes',
       'find-terminal',
       'run-one-time-command',
       'edit-terminal',
@@ -99,12 +98,8 @@ describe('buildCommandPaletteItems', () => {
     expect(onToggleDiff).toHaveBeenCalledOnce();
   });
 
-  it('toggles project notes from the command palette', () => {
-    const onToggleProjectNotes = vi.fn();
-    const item = palette({ onToggleProjectNotes }).find((candidate) => candidate.id === 'toggle-project-notes');
-    item?.action();
-    expect(item?.subtitle).toBe('Stacks • ⇧⌘O');
-    expect(onToggleProjectNotes).toHaveBeenCalledOnce();
+  it('does not include the removed project notes feature', () => {
+    expect(palette().some((candidate) => candidate.id === 'toggle-project-notes')).toBe(false);
   });
 
   it('restarts Stacks from the command palette', () => {

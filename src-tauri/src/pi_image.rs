@@ -19,7 +19,8 @@ pub struct PiImage {
 #[tauri::command]
 pub fn read_pi_image(path: String) -> Result<PiImage, String> {
     let path = Path::new(&path);
-    let metadata = std::fs::metadata(path).map_err(|error| format!("Could not read image: {error}"))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|error| format!("Could not read image: {error}"))?;
     if !metadata.is_file() {
         return Err("Dropped image is not a file".to_string());
     }
@@ -28,8 +29,16 @@ pub fn read_pi_image(path: String) -> Result<PiImage, String> {
     }
 
     let bytes = std::fs::read(path).map_err(|error| format!("Could not read image: {error}"))?;
-    let format = image::guess_format(&bytes).map_err(|_| "Unsupported or invalid image data".to_string())?;
-    if !matches!(format, ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Gif | ImageFormat::WebP | ImageFormat::Bmp) {
+    let format =
+        image::guess_format(&bytes).map_err(|_| "Unsupported or invalid image data".to_string())?;
+    if !matches!(
+        format,
+        ImageFormat::Png
+            | ImageFormat::Jpeg
+            | ImageFormat::Gif
+            | ImageFormat::WebP
+            | ImageFormat::Bmp
+    ) {
         return Err("Unsupported image type".to_string());
     }
     let decoded = image::load_from_memory_with_format(&bytes, format)
@@ -49,15 +58,22 @@ pub fn read_pi_image(path: String) -> Result<PiImage, String> {
     Ok(PiImage {
         data: STANDARD.encode(&encoded),
         mime_type: "image/jpeg".to_string(),
-        name: path.file_name().and_then(|name| name.to_str()).unwrap_or("image").to_string(),
+        name: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("image")
+            .to_string(),
         byte_size: encoded.len(),
     })
 }
 
 fn resize_image(image: DynamicImage) -> DynamicImage {
     let (width, height) = image.dimensions();
-    if width <= MAX_DIMENSION && height <= MAX_DIMENSION { image }
-    else { image.thumbnail(MAX_DIMENSION, MAX_DIMENSION) }
+    if width <= MAX_DIMENSION && height <= MAX_DIMENSION {
+        image
+    } else {
+        image.thumbnail(MAX_DIMENSION, MAX_DIMENSION)
+    }
 }
 
 #[cfg(test)]

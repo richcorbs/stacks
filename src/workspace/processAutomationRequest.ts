@@ -7,6 +7,7 @@ export type AutomationRequestDependencies = {
   rollbackWorkspace: RollbackWorkspace;
   waitForTerminalStartup: (terminalId: string) => Promise<void>;
   prepareRunOnceCommand: (command: string) => PreparedRunOnceCommand;
+  startCardWork: (cardId: string) => Promise<AutomationResponse>;
 };
 
 export async function processAutomationRequest(
@@ -17,6 +18,10 @@ export async function processAutomationRequest(
   let creation: WorkspaceCreation | null = null;
   let preparedRunOnce: PreparedRunOnceCommand | null = null;
   try {
+    if (request.action === 'startLocalCardWork') {
+      if (!request.cardId) throw new Error('A scoped card ID is required');
+      return await dependencies.startCardWork(request.cardId);
+    }
     if (request.action !== 'createWorkspace') {
       throw new Error(`Unsupported automation action: ${request.action}`);
     }

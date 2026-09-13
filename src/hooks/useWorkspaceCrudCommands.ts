@@ -30,7 +30,16 @@ export function useWorkspaceCrudCommands({
   }
 
   function openEditProjectDialog(project: Project) {
-    setDialog({ kind: 'editProject', projectId: project.id, name: project.name, path: project.path });
+    setDialog({
+      kind: 'editProject',
+      projectId: project.id,
+      name: project.name,
+      path: project.path,
+      kanbanSource: project.kanban_source ?? (project.name.trim().toLocaleLowerCase() === 'arcasa' ? 'superthread' : 'local'),
+      startWorkCommand: project.start_work_command ?? '',
+      serverCommand: project.server_command ?? '',
+      consoleCommand: project.console_command ?? '',
+    });
   }
 
   function openEditWorkspaceDialog(project: Project, workspace: WorkspaceEntry) {

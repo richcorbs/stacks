@@ -13,6 +13,12 @@ describe('settingsModel', () => {
     expect(settings.terminal_scrollback).toBe(100);
   });
 
+  it('round-trips the last opened Kanban project', () => {
+    const settings = resolveAppSettings({ kanban_project_id: ' project-1 ' });
+    expect(settings.kanban_project_id).toBe('project-1');
+    expect(toPersistedAppSettings(settings).kanban_project_id).toBe('project-1');
+  });
+
   it('clamps the GitHub polling interval', () => {
     expect(resolveAppSettings({ github_poll_interval_seconds: 1 }).github_poll_interval_seconds).toBe(10);
     expect(resolveAppSettings({ github_poll_interval_seconds: 9000 }).github_poll_interval_seconds).toBe(3600);

@@ -59,6 +59,9 @@ pub fn activate_existing_instance() -> bool {
         name: String::new(),
         startup_command: None,
         run_once: None,
+        card_id: None,
+        title: None,
+        content: None,
     };
     send_request(request, Duration::from_secs(2))
         .map(|response| response.ok)
@@ -122,6 +125,9 @@ fn parse_workspace_args(args: &[String]) -> Result<ClientRequest, String> {
         name,
         startup_command,
         run_once,
+        card_id: None,
+        title: None,
+        content: None,
     })
 }
 
@@ -226,6 +232,7 @@ mod tests {
             name: "Tests".into(),
             startup_command: None,
             run_once: Some("npm test".into()),
+            card_id: None,
         };
         let value = serde_json::to_value(request).expect("request should serialize");
 
@@ -301,6 +308,9 @@ mod tests {
                 name: "Test".into(),
                 startup_command: None,
                 run_once: None,
+                card_id: None,
+                title: None,
+                content: None,
             },
             Duration::from_secs(1),
         )

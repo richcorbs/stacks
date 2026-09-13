@@ -1,132 +1,56 @@
-import type { MaximizedWorkspaceIds, TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
-import type { DiffReviewModel } from '../diffReview/types';
-import { DiffOverlay } from './DiffOverlay';
-import { ProjectNotesView } from './ProjectNotesView';
-import { WorkspaceTopbar } from './WorkspaceTopbar';
-import { WorkspaceViews } from './WorkspaceViews';
-
-type WorkspaceViewModel = {
-  project: Project;
-  workspace: WorkspaceEntry;
-  terminals: TerminalEntry[];
-  root: SplitNode | undefined;
-};
-
-type TerminalRequest = { terminalId: string; nonce: number };
+import type { Project } from '../types';
+import { KanbanBoard } from './KanbanBoard';
+import type { KanbanCard } from '../kanban/types';
 
 type MainWorkspaceProps = {
-  activeProjectName: string | null;
-  activeWorkspaceName: string | null;
-  activeProjectNotes: string;
-  notesVisible: boolean;
-  workspaces: WorkspaceViewModel[];
-  activeWorkspaceId: string | null;
-  activeTerminalId: string | null;
-  maximizedWorkspaceIds: MaximizedWorkspaceIds;
-  broadcastWorkspaceIds: Record<string, boolean>;
+  projects: Project[];
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
   copyOnSelect: boolean;
-  searchTerminalRequest: TerminalRequest | null;
-  restartTerminalRequest: TerminalRequest | null;
-  onResizeSplit: (workspaceId: string, path: string, ratio: number) => void;
-  onFocusTerminal: (projectId: string, workspaceId: string, terminalId: string) => void;
-  onCloseTerminal: (terminalId: string) => void;
-  onToggleBroadcast: (workspaceId: string) => void;
-  onEditTerminal: (workspaceId: string, terminalId: string) => void;
-  onInput: (terminalId: string, data: string) => void;
-  canToggleMaximizedTerminal: (workspaceId: string) => boolean;
-  onToggleMaximizedTerminal: (terminalId: string) => void;
-  onSplitTerminal: (direction: 'row' | 'column', targetTerminalId?: string) => void;
-  hasActiveTerminal: boolean;
-  onToggleSidebar: () => void;
-  onToggleProjectNotes: () => void;
-  onChangeProjectNotes: (notes: string) => void;
-  onToggleDeveloperServices: () => void;
-  developerServicesVisible: boolean;
-  diffReview: DiffReviewModel;
-  canSubmitDiffReview: boolean;
-  onSubmitDiffReview: () => void;
-  onCloseDiff: () => void;
+  superthreadSpaces: string;
+  superthreadWorkspaceSlug: string;
+  superthreadEnabled: boolean;
+  selectedProjectId: string | null;
+  onSelectProject: (projectId: string) => void;
+  onAddProject: () => void;
+  onCleanupCard: (card: KanbanCard) => Promise<boolean>;
+  onStartWork: (cardId: string) => Promise<boolean>;
 };
 
 export function MainWorkspace({
-  activeProjectName,
-  activeWorkspaceName,
-  activeProjectNotes,
-  notesVisible,
-  workspaces,
-  activeWorkspaceId,
-  activeTerminalId,
-  maximizedWorkspaceIds,
-  broadcastWorkspaceIds,
+  projects,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
   copyOnSelect,
-  searchTerminalRequest,
-  restartTerminalRequest,
-  onResizeSplit,
-  onFocusTerminal,
-  onCloseTerminal,
-  onToggleBroadcast,
-  onEditTerminal,
-  onInput,
-  canToggleMaximizedTerminal,
-  onToggleMaximizedTerminal,
-  onSplitTerminal,
-  hasActiveTerminal,
-  onToggleSidebar,
-  onToggleProjectNotes,
-  onChangeProjectNotes,
-  onToggleDeveloperServices,
-  developerServicesVisible,
-  diffReview,
-  canSubmitDiffReview,
-  onSubmitDiffReview,
-  onCloseDiff,
+  superthreadSpaces,
+  superthreadWorkspaceSlug,
+  superthreadEnabled,
+  selectedProjectId,
+  onSelectProject,
+  onAddProject,
+  onCleanupCard,
+  onStartWork,
 }: MainWorkspaceProps) {
   return (
     <main className="main">
-      <WorkspaceTopbar
-        activeProjectName={activeProjectName}
-        activeWorkspaceName={activeWorkspaceName}
-        hasActiveTerminal={hasActiveTerminal}
-        onToggleSidebar={onToggleSidebar}
-        onToggleProjectNotes={onToggleProjectNotes}
-        notesVisible={notesVisible}
-        hasActiveProject={Boolean(activeProjectName)}
-        onToggleDeveloperServices={onToggleDeveloperServices}
-        developerServicesVisible={developerServicesVisible}
-      />
-      <section className="workspace">
-        <WorkspaceViews
-          workspaces={workspaces}
-          activeWorkspaceId={activeWorkspaceId}
-          activeTerminalId={activeTerminalId}
-          maximizedWorkspaceIds={maximizedWorkspaceIds}
-          broadcastWorkspaceIds={broadcastWorkspaceIds}
+      <section className="workspace kanbanWorkspace">
+        <KanbanBoard
+          spaces={superthreadSpaces}
+          workspaceSlug={superthreadWorkspaceSlug}
+          superthreadEnabled={superthreadEnabled}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={onSelectProject}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}
           terminalScrollback={terminalScrollback}
           copyOnSelect={copyOnSelect}
-          searchTerminalRequest={searchTerminalRequest}
-          restartTerminalRequest={restartTerminalRequest}
-          onResizeSplit={onResizeSplit}
-          onFocusTerminal={onFocusTerminal}
-          onCloseTerminal={onCloseTerminal}
-          onToggleBroadcast={onToggleBroadcast}
-          onEditTerminal={onEditTerminal}
-          onInput={onInput}
-          canToggleMaximizedTerminal={canToggleMaximizedTerminal}
-          onToggleMaximizedTerminal={onToggleMaximizedTerminal}
-          onSplitTerminal={onSplitTerminal}
+          onAddProject={onAddProject}
+          onCleanupCard={onCleanupCard}
+          onStartWork={onStartWork}
         />
-        {diffReview.openDiff && <DiffOverlay review={diffReview} fontSize={terminalFontSize} canSubmit={canSubmitDiffReview} onSubmit={onSubmitDiffReview} onClose={onCloseDiff} />}
-        {notesVisible && activeProjectName && (
-          <ProjectNotesView projectName={activeProjectName} notes={activeProjectNotes} onChange={onChangeProjectNotes} onClose={onToggleProjectNotes} />
-        )}
       </section>
     </main>
   );

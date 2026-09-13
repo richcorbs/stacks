@@ -75,7 +75,9 @@ pub async fn github_pull_requests(path: String) -> Result<GithubPullRequestsResp
 }
 
 #[tauri::command]
-pub async fn github_current_pull_request(path: String) -> Result<Option<GithubCurrentPullRequest>, String> {
+pub async fn github_current_pull_request(
+    path: String,
+) -> Result<Option<GithubCurrentPullRequest>, String> {
     tauri::async_runtime::spawn_blocking(move || current_pull_request_for_path(&path))
         .await
         .map_err(|error| format!("GitHub worker failed: {error}"))?
@@ -103,20 +105,26 @@ pub async fn github_merge_pull_request(
             _ => return Err("Unsupported GitHub merge strategy".to_string()),
         };
         let number_text = number.to_string();
-        let state = run_gh(None, &["pr", "view", &number_text, "--repo", &repository, "--json", "state", "--jq", ".state"])?;
+        let state = run_gh(
+            None,
+            &[
+                "pr",
+                "view",
+                &number_text,
+                "--repo",
+                &repository,
+                "--json",
+                "state",
+                "--jq",
+                ".state",
+            ],
+        )?;
         if state.trim().eq_ignore_ascii_case("MERGED") {
             return Ok(());
         }
         run_gh(
             None,
-            &[
-                "pr",
-                "merge",
-                &number_text,
-                "--repo",
-                &repository,
-                strategy,
-            ],
+            &["pr", "merge", &number_text, "--repo", &repository, strategy],
         )?;
         Ok(())
     })
@@ -124,7 +132,9 @@ pub async fn github_merge_pull_request(
     .map_err(|error| format!("GitHub worker failed: {error}"))?
 }
 
-pub fn current_pull_request_for_path(path: &str) -> Result<Option<GithubCurrentPullRequest>, String> {
+pub fn current_pull_request_for_path(
+    path: &str,
+) -> Result<Option<GithubCurrentPullRequest>, String> {
     let branch_output = Command::new("git")
         .args(["-C", path, "branch", "--show-current"])
         .output()
@@ -132,26 +142,42 @@ pub fn current_pull_request_for_path(path: &str) -> Result<Option<GithubCurrentP
     if !branch_output.status.success() {
         return Ok(None);
     }
-    let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+    let branch = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
     if branch.is_empty() {
         return Ok(None);
     }
     let output = run_gh(
         Some(Path::new(path)),
         &[
-            "pr", "list", "--state", "open", "--head", &branch,
-            "--limit", "1", "--json", "number,title,url,isDraft,statusCheckRollup,baseRefName,headRefName",
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--head",
+            &branch,
+            "--limit",
+            "1",
+            "--json",
+            "number,title,url,isDraft,statusCheckRollup,baseRefName,headRefName",
         ],
     )?;
     let values: Vec<serde_json::Value> = serde_json::from_str(&output)
         .map_err(|error| format!("Invalid GitHub pull request response: {error}"))?;
     Ok(values.first().map(|value| GithubCurrentPullRequest {
         number: value["number"].as_u64().unwrap_or(0),
-        title: value["title"].as_str().unwrap_or("Untitled pull request").to_string(),
+        title: value["title"]
+            .as_str()
+            .unwrap_or("Untitled pull request")
+            .to_string(),
         url: value["url"].as_str().unwrap_or_default().to_string(),
         draft: value["isDraft"].as_bool().unwrap_or(false),
         ci_status: ci_status(value["statusCheckRollup"].as_array()),
-        base_ref_name: value["baseRefName"].as_str().unwrap_or_default().to_string(),
+        base_ref_name: value["baseRefName"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
         head_ref_name: value["headRefName"].as_str().unwrap_or(&branch).to_string(),
     }))
 }
@@ -192,7 +218,10 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
                     .to_string(),
                 ci_status: ci_status(value["statusCheckRollup"].as_array()),
                 has_merge_conflicts: has_merge_conflicts(&value),
-                head_ref_name: value["headRefName"].as_str().unwrap_or_default().to_string(),
+                head_ref_name: value["headRefName"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
                 url: value["url"].as_str().unwrap_or_default().to_string(),
                 draft: value["isDraft"].as_bool().unwrap_or(false),
             })
@@ -485,7 +514,9 @@ mod tests {
     fn detects_merge_conflicts() {
         assert!(has_merge_conflicts(&json!({ "mergeable": "CONFLICTING" })));
         assert!(has_merge_conflicts(&json!({ "mergeStateStatus": "DIRTY" })));
-        assert!(!has_merge_conflicts(&json!({ "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN" })));
+        assert!(!has_merge_conflicts(
+            &json!({ "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN" })
+        ));
     }
 
     #[test]

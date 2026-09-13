@@ -15,6 +15,7 @@ import type { DiffReviewModel } from '../diffReview/types';
 import type { DeveloperServicesTab } from '../developerServices';
 import type { SuperthreadCard } from '../superthread/types';
 import { clearPendingPrCleanup, loadPendingPrCleanup, savePendingPrCleanup } from '../github/prCleanupPersistence';
+import type { KanbanWorkspace } from '../kanban/types';
 
 export function DeveloperServicesPanel({
   visible,
@@ -45,7 +46,7 @@ export function DeveloperServicesPanel({
   githubMergeStrategy: GithubMergeStrategy;
   superthreadEnabled: boolean;
   diffReview: DiffReviewModel;
-  onStartWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
+  onStartWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<KanbanWorkspace | null>;
   onPrepareCleanup: (pullRequest: GithubPullRequest, repository: string) => Promise<{ operation: PendingPrCleanup; error?: never } | { operation: null; error: string }>;
   onRunCleanup: (operation: PendingPrCleanup) => Promise<boolean>;
 }) {

@@ -1,4 +1,8 @@
-use std::{process::Child, thread, time::{Duration, Instant}};
+use std::{
+    process::Child,
+    thread,
+    time::{Duration, Instant},
+};
 
 #[cfg(unix)]
 pub fn configure(command: &mut std::process::Command) {
@@ -6,7 +10,11 @@ pub fn configure(command: &mut std::process::Command) {
     // SAFETY: this runs after fork and calls only the async-signal-safe setpgid.
     unsafe {
         command.pre_exec(|| {
-            if libc::setpgid(0, 0) == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+            if libc::setpgid(0, 0) == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
         });
     }
 }
@@ -22,11 +30,15 @@ pub fn terminate(child: &mut Child, grace: Duration) {
         let deadline = Instant::now() + grace;
         while Instant::now() < deadline {
             let _ = child.try_wait();
-            if libc::kill(group, 0) != 0 { break; }
+            if libc::kill(group, 0) != 0 {
+                break;
+            }
             thread::sleep(Duration::from_millis(25));
         }
         // Kill the whole group even if the direct child has already exited.
-        if libc::kill(group, 0) == 0 { let _ = libc::kill(group, libc::SIGKILL); }
+        if libc::kill(group, 0) == 0 {
+            let _ = libc::kill(group, libc::SIGKILL);
+        }
     }
     #[cfg(not(unix))]
     let _ = child.kill();

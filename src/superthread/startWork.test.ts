@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSuperthreadWorkspaceInput } from './startWork';
+import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from './startWork';
 import type { Store } from '../types';
 
 const store: Store = {
@@ -7,12 +7,24 @@ const store: Store = {
 };
 const templates = { command: 'stwork {card_number}', workspaceName: '{card_number} {card_title}' };
 
+describe('buildLocalWorkspaceInput', () => {
+  it('creates a local branch and sibling worktree without Superthread', () => {
+    expect(buildLocalWorkspaceInput(store, 'arcasa-project', '1', 'Fix checkout')).toEqual({
+      projectId: 'arcasa-project',
+      name: '1 Fix checkout',
+      setupCommand: "git worktree add -b 'stacks/card-1-fix-checkout' '/code/arcasa-card-1' && cd '/code/arcasa-card-1'",
+      firstPaneKind: 'pi',
+    });
+  });
+});
+
 describe('buildSuperthreadWorkspaceInput', () => {
-  it('creates a focused-workspace input with a one-time stwork command', () => {
+  it('creates a worktree during setup and prepares a Pi environment', () => {
     expect(buildSuperthreadWorkspaceInput(store, 'arcasa-project', '1234', 'Fix checkout', templates)).toEqual({
       projectId: 'arcasa-project',
       name: '1234 Fix checkout',
-      oneTimeStartupCommand: 'stwork 1234',
+      setupCommand: 'stwork 1234',
+      firstPaneKind: 'pi',
     });
   });
 
@@ -34,6 +46,7 @@ describe('buildSuperthreadWorkspaceInput', () => {
       workspaceName: 'Card {card_number}: {card_title}',
     });
     expect(input.name).toBe("Card 1234: Fix user's checkout");
-    expect(input.oneTimeStartupCommand).toBe("work --card 1234 --title 'Fix user'\"'\"'s checkout'");
+    expect(input.setupCommand).toBe("work --card 1234 --title 'Fix user'\"'\"'s checkout'");
+    expect(input.firstPaneKind).toBe('pi');
   });
 });

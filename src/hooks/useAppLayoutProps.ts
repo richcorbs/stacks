@@ -5,6 +5,7 @@ import type { PaletteItem } from '../components/CommandPalette';
 import type { DeveloperServicesLayoutProps, MainLayoutProps, OverlayLayoutProps, SidebarLayoutProps } from '../components/AppLayoutTypes';
 import type { DeveloperServicesTab } from '../developerServices';
 import type { GithubCurrentPullRequest } from '../github/types';
+import type { KanbanCard, KanbanWorkspace } from '../kanban/types';
 import { useAppStyle } from './useAppStyle';
 
 type ConfirmDeleteWorkspace = { projectId: string; workspaceId: string };
@@ -61,7 +62,9 @@ type UseAppLayoutPropsOptions = {
   developerServicesVisible: boolean;
   developerServicesTab: DeveloperServicesTab;
   setDeveloperServicesTab: React.Dispatch<React.SetStateAction<DeveloperServicesTab>>;
-  startSuperthreadWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
+  cleanupKanbanCard: (card: KanbanCard) => Promise<boolean>;
+  startCardWork: (cardId: string) => Promise<boolean>;
+  startSuperthreadWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<KanbanWorkspace | null>;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   contextMenu: ContextMenuState | null;
   commandPaletteOpen: boolean;
@@ -150,6 +153,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       openWorkspaceDialog: options.openWorkspaceDialog,
     },
     main: {
+      projects: options.store.projects,
       activeProjectName: options.activeProjectName,
       activeWorkspaceName: options.activeWorkspaceName,
       activeProjectNotes: options.activeProjectNotes,
@@ -160,6 +164,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       maximizedWorkspaceIds: options.maximizedWorkspaceIds,
       broadcastWorkspaceIds: options.broadcastWorkspaceIds,
       appSettings: options.appSettings,
+      setKanbanProjectId: (projectId) => options.setAppSettings((current) => ({ ...current, kanban_project_id: projectId })),
       searchTerminalRequest: options.searchTerminalRequest,
       restartTerminalRequest: options.restartTerminalRequest,
       resizeSplit: options.resizeSplit,
@@ -177,6 +182,9 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       changeProjectNotes: options.changeProjectNotes,
       toggleDeveloperServices: options.toggleDeveloperServices,
       developerServicesVisible: options.developerServicesVisible,
+      openProjectDialog: options.openProjectDialog,
+      cleanupCard: options.cleanupKanbanCard,
+      startWork: options.startCardWork,
     },
     developerServices: {
       visible: options.developerServicesVisible,

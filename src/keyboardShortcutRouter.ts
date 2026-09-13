@@ -78,6 +78,19 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     pasteIntoActiveTerminal(event, handlers.activeTerminalId);
     return;
   }
+  const cardOpen = typeof document !== 'undefined' && document.querySelector('.kanbanDetail');
+  if (cardOpen && /^[1-6]$/.test(event.key)) {
+    runHandledShortcut(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', {
+      detail: { number: Number(event.key) },
+    })));
+    return;
+  }
+  if (cardOpen && bracketKey && !event.shiftKey) {
+    runHandledShortcut(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', {
+      detail: { direction: bracketKey === 'right' ? 1 : -1 },
+    })));
+    return;
+  }
   if (/^[1-9]$/.test(event.key)) {
     runHandledShortcut(event, () => activateWorkspaceByIndex(Number(event.key) - 1));
     return;
@@ -87,16 +100,30 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   } else if (event.key === 'Enter') {
     runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'maximize-workspace' : 'activate-sidebar', handlers));
   } else if (key === 'd') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'split-terminal-down' : 'split-terminal-right', handlers));
+    if (typeof document !== 'undefined' && document.querySelector('.kanbanDetail')) {
+      const cardTerminalActive = document.querySelector('.kanbanDetail .cardTerminalView.active');
+      const splitDown = event.shiftKey || event.key === 'D' || event.getModifierState?.('Shift');
+      runHandledShortcut(event, () => {
+        if (cardTerminalActive) window.dispatchEvent(new CustomEvent('stacks:card-terminal-split', {
+          detail: { direction: splitDown ? 'column' : 'row' },
+        }));
+      });
+    } else {
+      runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'split-terminal-down' : 'split-terminal-right', handlers));
+    }
   } else if (key === 'w') {
-    runHandledShortcut(event, () => runShortcutAction('close-terminal', handlers));
+    if (typeof document !== 'undefined' && document.querySelector('.kanbanDetail .cardTerminalView.active')) {
+      runHandledShortcut(event, () => window.dispatchEvent(new CustomEvent('stacks:card-terminal-close')));
+    } else {
+      runHandledShortcut(event, () => runShortcutAction('close-terminal', handlers));
+    }
   } else if (key === 'q') {
     runHandledShortcut(event, () => runShortcutAction('quit', handlers));
   } else if (bracketKey === 'right') {
     runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-next-workspace' : 'focus-next-terminal', handlers));
   } else if (bracketKey === 'left') {
     runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-previous-workspace' : 'focus-previous-terminal', handlers));
-  } else if (key === 'o') {
+  } else if (key === 'o' && !event.shiftKey) {
     runHandledShortcut(event, () => runShortcutAction('add-project', handlers));
   }
 }

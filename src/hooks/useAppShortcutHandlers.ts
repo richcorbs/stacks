@@ -156,7 +156,24 @@ export function useAppShortcutHandlers({
 
   useEffect(() => {
     const unlistenPromise = getCurrentWindow().listen<string>('menu-shortcut', (event) => {
-      runShortcutAction(event.payload as ShortcutAction, shortcutHandlersRef.current);
+      const action = event.payload as ShortcutAction;
+      if (document.querySelector('.kanbanDetail')) {
+        if (action === 'focus-next-terminal' || action === 'focus-previous-terminal') {
+          window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', {
+            detail: { direction: action === 'focus-next-terminal' ? 1 : -1 },
+          }));
+          return;
+        }
+        if (action === 'split-terminal-right' || action === 'split-terminal-down') {
+          if (document.querySelector('.kanbanDetail .cardTerminalView.active')) {
+            window.dispatchEvent(new CustomEvent('stacks:card-terminal-split', {
+              detail: { direction: action === 'split-terminal-down' ? 'column' : 'row' },
+            }));
+          }
+          return;
+        }
+      }
+      runShortcutAction(action, shortcutHandlersRef.current);
     });
     return () => { unlistenPromise.then((unlisten) => unlisten()).catch(console.error); };
   }, []);

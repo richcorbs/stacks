@@ -4,7 +4,10 @@ use std::{
     env,
     io::Read,
     process::{Command, Stdio},
-    sync::{atomic::{AtomicBool, Ordering}, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -27,12 +30,18 @@ pub struct WorkspaceSetupResult {
 }
 
 #[tauri::command]
-pub async fn run_workspace_setup(state: State<'_, WorkspaceSetupState>, command: String, cwd: String) -> Result<WorkspaceSetupResult, String> {
+pub async fn run_workspace_setup(
+    state: State<'_, WorkspaceSetupState>,
+    command: String,
+    cwd: String,
+) -> Result<WorkspaceSetupResult, String> {
     state.cancelled.store(false, Ordering::Release);
     let cancelled = Arc::clone(&state.cancelled);
-    tauri::async_runtime::spawn_blocking(move || run_workspace_setup_inner(command, cwd, &cancelled))
-        .await
-        .map_err(|error| format!("Workspace setup worker failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        run_workspace_setup_inner(command, cwd, &cancelled)
+    })
+    .await
+    .map_err(|error| format!("Workspace setup worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -40,7 +49,11 @@ pub fn cancel_workspace_setup(state: State<'_, WorkspaceSetupState>) {
     state.cancelled.store(true, Ordering::Release);
 }
 
-fn run_workspace_setup_inner(command: String, cwd: String, cancelled: &AtomicBool) -> Result<WorkspaceSetupResult, String> {
+fn run_workspace_setup_inner(
+    command: String,
+    cwd: String,
+    cancelled: &AtomicBool,
+) -> Result<WorkspaceSetupResult, String> {
     if command.trim().is_empty() {
         return Err("Setup command cannot be empty".to_string());
     }
@@ -69,7 +82,8 @@ exit "$__stacks_status"
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     process_group::configure(&mut setup_command);
-    let mut child = setup_command.spawn()
+    let mut child = setup_command
+        .spawn()
         .map_err(|error| format!("Could not start workspace setup: {error}"))?;
 
     let streams = (child.stdout.take(), child.stderr.take());
@@ -172,7 +186,11 @@ fn read_stream(mut stream: impl Read) -> String {
     }
     let bytes: Vec<u8> = tail.into_iter().collect();
     let output = String::from_utf8_lossy(&bytes);
-    if truncated { format!("[earlier setup output truncated]\n{output}") } else { output.into_owned() }
+    if truncated {
+        format!("[earlier setup output truncated]\n{output}")
+    } else {
+        output.into_owned()
+    }
 }
 
 #[cfg(test)]

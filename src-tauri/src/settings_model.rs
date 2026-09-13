@@ -113,6 +113,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub github_merge_strategy: Option<String>,
     #[serde(default)]
+    pub kanban_project_id: Option<String>,
+    #[serde(default)]
     pub active_project_id: Option<String>,
     #[serde(default)]
     pub active_workspace_id: Option<String>,
@@ -127,7 +129,9 @@ impl AppSettings {
         self.ui_font_size = next.ui_font_size.map(|value| value.clamp(10, 20));
         self.terminal_font_size = next.terminal_font_size.map(|value| value.clamp(8, 32));
         self.terminal_font_family = non_empty(next.terminal_font_family);
-        self.terminal_scrollback = next.terminal_scrollback.map(|value| value.clamp(100, 200_000));
+        self.terminal_scrollback = next
+            .terminal_scrollback
+            .map(|value| value.clamp(100, 200_000));
         self.copy_on_select = next.copy_on_select;
         self.confirm_close = next.confirm_close;
         self.confirm_delete = next.confirm_delete;
@@ -141,36 +145,56 @@ impl AppSettings {
         self.superthread_workspace_slug = non_empty(next.superthread_workspace_slug);
         self.superthread_spaces = non_empty(next.superthread_spaces);
         self.superthread_start_work_command = non_empty(next.superthread_start_work_command);
-        self.superthread_workspace_name_template = non_empty(next.superthread_workspace_name_template);
+        self.superthread_workspace_name_template =
+            non_empty(next.superthread_workspace_name_template);
         self.superthread_enabled = next.superthread_enabled;
-        self.github_poll_interval_seconds = next.github_poll_interval_seconds.map(|value| value.clamp(10, 3600));
-        self.github_merge_strategy = next.github_merge_strategy.filter(|value| matches!(value.as_str(), "merge" | "squash" | "rebase"));
+        self.github_poll_interval_seconds = next
+            .github_poll_interval_seconds
+            .map(|value| value.clamp(10, 3600));
+        self.github_merge_strategy = next
+            .github_merge_strategy
+            .filter(|value| matches!(value.as_str(), "merge" | "squash" | "rebase"));
+        self.kanban_project_id = non_empty(next.kanban_project_id);
         self.custom_cmd_p_commands = next.custom_cmd_p_commands.map(|commands| {
-            commands.into_iter().filter(|item| {
-                !item.id.trim().is_empty()
-                    && !item.label.trim().is_empty()
-                    && !item.command.trim().is_empty()
-                    && matches!(item.direction.as_str(), "row" | "column")
-            }).collect()
+            commands
+                .into_iter()
+                .filter(|item| {
+                    !item.id.trim().is_empty()
+                        && !item.label.trim().is_empty()
+                        && !item.command.trim().is_empty()
+                        && matches!(item.direction.as_str(), "row" | "column")
+                })
+                .collect()
         });
         self.workspace_templates = next.workspace_templates.map(|templates| {
-            templates.into_iter().filter_map(|mut item| {
-                item.id = item.id.trim().to_string();
-                item.label = item.label.trim().to_string();
-                item.rows = item.rows.clamp(1, 5);
-                item.columns = item.columns.clamp(1, 5);
-                if item.id.is_empty() || item.label.is_empty() || !matches!(item.first_pane_kind.as_str(), "terminal" | "pi") {
-                    return None;
-                }
-                Some(item)
-            }).collect()
+            templates
+                .into_iter()
+                .filter_map(|mut item| {
+                    item.id = item.id.trim().to_string();
+                    item.label = item.label.trim().to_string();
+                    item.rows = item.rows.clamp(1, 5);
+                    item.columns = item.columns.clamp(1, 5);
+                    if item.id.is_empty()
+                        || item.label.is_empty()
+                        || !matches!(item.first_pane_kind.as_str(), "terminal" | "pi")
+                    {
+                        return None;
+                    }
+                    Some(item)
+                })
+                .collect()
         });
     }
 }
 
 impl WindowState {
     pub fn new(width: u32, height: u32, x: Option<i32>, y: Option<i32>) -> Self {
-        Self { width, height, x, y }
+        Self {
+            width,
+            height,
+            x,
+            y,
+        }
     }
 
     pub fn clamped(&self) -> Self {
@@ -182,13 +206,23 @@ impl WindowState {
         }
     }
 
-    pub fn width(&self) -> u32 { self.width }
-    pub fn height(&self) -> u32 { self.height }
-    pub fn x(&self) -> Option<i32> { self.x }
-    pub fn y(&self) -> Option<i32> { self.y }
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+    pub fn x(&self) -> Option<i32> {
+        self.x
+    }
+    pub fn y(&self) -> Option<i32> {
+        self.y
+    }
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())
@@ -212,7 +246,8 @@ mod tests {
                 "paneId": "workspace:pi",
                 "stage": "merged"
             }
-        })).expect("settings should deserialize");
+        }))
+        .expect("settings should deserialize");
 
         let operation = settings.pending_pr_cleanup.expect("cleanup operation");
         assert_eq!(operation.pull_request_number, 42);

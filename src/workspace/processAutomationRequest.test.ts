@@ -28,11 +28,30 @@ function dependencies(overrides: Partial<AutomationRequestDependencies> = {}): A
       completion: Promise.resolve({ terminalId: 'workspace-1:0', exitCode: 0 }),
       cancel: vi.fn(),
     }),
+    startCardWork: vi.fn().mockResolvedValue({
+      ok: true,
+      message: 'Started work on card #1',
+      workspaceId: 'workspace-1',
+    }),
     ...overrides,
   };
 }
 
 describe('processAutomationRequest', () => {
+  it('routes card work through the card-scoped orchestrator without an active project', async () => {
+    const deps = dependencies();
+    const response = await processAutomationRequest({
+      requestId: 'request-1',
+      action: 'startLocalCardWork',
+      name: '',
+      cardId: 'local:card-1',
+    }, null, deps);
+
+    expect(deps.startCardWork).toHaveBeenCalledWith('local:card-1');
+    expect(response).toMatchObject({ ok: true, workspaceId: 'workspace-1' });
+    expect(deps.createWorkspace).not.toHaveBeenCalled();
+  });
+
   it('completes persisted startup workspace creation', async () => {
     const deps = dependencies();
     const response = await processAutomationRequest({

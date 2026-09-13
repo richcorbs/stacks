@@ -213,7 +213,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   background: currentColor;
   opacity: .85;
 }
-.projectNotesToggle.active { background: #1d2d3d; color: #a9c9e6; }
+.projectNotesToggle.active, .kanbanTopbarToggle.active { background: #1d2d3d; color: #a9c9e6; }
+.kanbanTopbarIcon { width: 15px; height: 14px; border-top: 2px solid currentColor; border-bottom: 2px solid currentColor; position: relative; }
+.kanbanTopbarIcon::before, .kanbanTopbarIcon::after { content: ''; position: absolute; top: 2px; bottom: 2px; width: 3px; border: 1px solid currentColor; border-radius: 1px; }
+.kanbanTopbarIcon::before { left: 0; }
+.kanbanTopbarIcon::after { right: 0; box-shadow: -5px 0 0 -1px #0f151d, -5px 0 0 0 currentColor; }
 .projectNotesIcon { position: relative; width: 13px; height: 15px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 2px; }
 .projectNotesIcon::before, .projectNotesIcon::after { content: ''; position: absolute; left: 2px; right: 2px; height: 1px; background: currentColor; opacity: .8; }
 .projectNotesIcon::before { top: 4px; box-shadow: 0 3px 0 currentColor; }
@@ -255,6 +259,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .splitIconVertical::after { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-.5px); }
 .splitIconHorizontal::after { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-.5px); }
 .workspace { flex: 1; min-height: 0; padding: 8px; position: relative; }
+.kanbanWorkspace { padding: 0; }
 .projectNotes {
   position: absolute;
   inset: 0;
@@ -289,6 +294,131 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   height: 100%;
 }
 .empty { height: 100%; display: grid; place-items: center; color: #8091a5; border: 1px dashed #2d3d4f; border-radius: 12px; }
+
+.kanbanView { position: absolute; inset: 0; z-index: 25; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: #0b1118; }
+.kanbanHeader { position: relative; z-index: 45; flex: 0 0 auto; min-height: 72px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #1d2a38; background: #0e1620; }
+.kanbanHeaderActions { display: flex; align-items: center; gap: 8px; }
+.kanbanProjectPicker { position: relative; }
+.kanbanProjectPickerButton { min-width: 220px; padding: 7px 10px 7px 12px !important; border-color: #304459 !important; background: #121d28 !important; display: flex; align-items: center; justify-content: space-between; gap: 20px; text-align: left; }
+.kanbanProjectPickerButton > span:first-child { display: flex; flex-direction: column; gap: 2px; }
+.kanbanProjectPickerButton strong { color: #d0dae4; font-size: calc(14px + var(--ui-font-delta, 0px)); }
+.kanbanProjectPickerButton small { color: #6f8397; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.kanbanProjectChevron { width: 7px; height: 7px; border-right: 1px solid #8095a9; border-bottom: 1px solid #8095a9; transform: rotate(45deg) translateY(-2px); transition: transform 120ms ease; }
+.kanbanProjectChevron.open { transform: rotate(225deg) translate(-2px, -1px); }
+.kanbanProjectMenu { position: absolute; z-index: 50; top: calc(100% + 6px); left: 0; width: 260px; padding: 5px; border: 1px solid #304256; border-radius: 8px; background: #111b26; box-shadow: 0 12px 28px #0008; }
+.kanbanProjectMenu button { width: 100%; padding: 8px 9px; border: 0; background: transparent; display: flex; align-items: center; justify-content: space-between; color: #9eb0c1; text-align: left; }
+.kanbanProjectMenu button:hover, .kanbanProjectMenu button.selected { background: #1b2b3a; color: #d5dfe8; }
+.kanbanProjectMenu small { color: #617589; font-size: 9px; }
+.kanbanProjectMenu .kanbanProjectMenuAdd { margin-top: 4px; border-top: 1px solid #263647; border-radius: 0 0 5px 5px; color: #7fa5c5; }
+.kanbanHeader h1 { margin: 0 0 4px; color: #d2dce7; font-size: calc(18px + var(--ui-font-delta, 0px)); font-weight: 650; }
+.kanbanHeader p { margin: 0; color: #718399; font-size: calc(11px + var(--ui-font-delta, 0px)); }
+.kanbanHeader button, .kanbanDetail > footer button { border: 1px solid #2a3b4e; border-radius: 7px; background: #182431; padding: 7px 10px; cursor: pointer; }
+.kanbanNotice { padding: 7px 18px; border-bottom: 1px solid #423427; background: #211b16; color: #d0a46f; font-size: calc(11px + var(--ui-font-delta, 0px)); }
+.kanbanLanes { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 12px; overflow-x: auto; overflow-y: hidden; }
+.kanbanLane { flex: 1 0 210px; min-width: 210px; max-width: 330px; min-height: 0; display: flex; flex-direction: column; border: 1px solid #1d2a38; border-radius: 9px; background: #101821; overflow: hidden; }
+.kanbanLane > header { flex: 0 0 auto; padding: 11px 11px 9px; border-bottom: 1px solid #1c2936; background: #121c27; }
+.kanbanLane > header > div { display: flex; justify-content: space-between; gap: 8px; color: #aebdcb; font-size: calc(12px + var(--ui-font-delta, 0px)); }
+.kanbanLane > header span { color: #62768c; font: calc(10px + var(--ui-font-delta, 0px)) ui-monospace, monospace; }
+.kanbanLaneHeaderActions { display: inline-flex; align-items: center; gap: 7px; }
+.kanbanLaneMenu { position: relative; display: inline-flex; }
+.kanbanLaneMenu > button { width: 24px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #74879b; cursor: pointer; font-size: 10px; letter-spacing: -1px; }
+.kanbanLaneMenuPopover { position: absolute; top: 24px; right: 0; z-index: 40; width: 130px; padding: 5px; border: 1px solid #304154; border-radius: 7px; background: #151f2a; box-shadow: 0 12px 30px #0009; }
+.kanbanLaneMenuPopover button { width: 100%; padding: 7px 8px; border: 0; border-radius: 5px; background: transparent; color: #d29a9a; text-align: left; cursor: pointer; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanLaneMenuPopover button:hover:not(:disabled) { background: #342329; }
+.kanbanLane > header p { margin: 4px 0 0; color: #5f7287; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.kanbanLaneCards { flex: 1; min-height: 0; padding: 8px; overflow-y: auto; }
+.kanbanCard { width: 100%; margin: 0 0 8px; padding: 10px; display: flex; flex-direction: column; gap: 7px; text-align: left; border: 1px solid #263647; border-radius: 8px; background: #151f2a; color: #bdc9d5; cursor: grab; touch-action: none; user-select: none; box-shadow: 0 3px 9px rgba(0, 0, 0, .12); }
+.kanbanCard.keyboardFocused { outline: 2px solid #4f83ad; outline-offset: 1px; border-color: #466b8d; }
+.kanbanCard:active { cursor: grabbing; }
+.kanbanCard.dragging { opacity: .42; }
+.kanbanCard.dropBefore { box-shadow: 0 -2px 0 #6697c2, 0 3px 9px rgba(0, 0, 0, .12); }
+.kanbanCardSource { color: #63778d; font: calc(9px + var(--ui-font-delta, 0px)) ui-monospace, monospace; text-transform: uppercase; letter-spacing: .04em; }
+.kanbanCardNumber { color: #a9bfd3; font-size: calc(12px + var(--ui-font-delta, 0px)); font-weight: 700; }
+.kanbanCard > strong { font-size: calc(12px + var(--ui-font-delta, 0px)); line-height: 1.35; font-weight: 580; }
+.kanbanCardMeta { display: flex; align-items: center; justify-content: space-between; gap: 7px; color: #73869a; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.kanbanCardIndicators { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; flex: 0 0 auto; }
+.kanbanGitBadge, .kanbanPrBadge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border: 1px solid #304256; border-radius: 5px; background: #101923; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.kanbanPrBadge { color: #91aeca; }
+.kanbanPrBadge .githubCiIcon { width: 11px; height: 11px; font-size: 8px; }
+.kanbanEnvironmentBadge { color: #77b999; font-size: 8px; }
+.kanbanLaneEmpty { padding: 14px 5px; text-align: center; color: #405266; font-size: calc(10px + var(--ui-font-delta, 0px)); border: 1px dashed #223243; border-radius: 7px; }
+.kanbanEmpty, .kanbanWelcome { display: grid; place-items: center; color: #708298; }
+.kanbanWelcome { position: absolute; inset: 72px 0 0; align-content: center; gap: 7px; pointer-events: none; }
+.kanbanWelcome span { font-size: calc(11px + var(--ui-font-delta, 0px)); }
+.kanbanNewCardDialog { width: min(560px, calc(100vw - 32px)); }
+.kanbanNewCardDialog textarea { box-sizing: border-box; width: 100%; resize: vertical; }
+.kanbanDetailBackdrop { z-index: 60; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 16px; }
+.kanbanDetail { width: min(1000px, calc(100vw - 32px)); max-width: 1000px; height: 95dvh; max-height: 95dvh; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #101821; border: 1px solid #2a3b4e; border-radius: 12px; box-shadow: 0 24px 80px rgba(0, 0, 0, .55); }
+.kanbanDetail > header { flex: 0 0 auto; min-width: 0; padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid #223142; }
+.kanbanDetail > header > div { min-width: 0; }
+.kanbanDetail > header span { color: #687c92; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanDetailHeaderMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.kanbanDetailHeaderMeta a { color: #9bbbd6; font: 700 calc(10px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
+.kanbanDetailHeaderMeta a:hover { color: #c0d7ea; text-decoration: underline; }
+.kanbanDetailHeaderMeta .kanbanCardStatus { padding: 2px 6px; border: 1px solid #34495d; border-radius: 999px; background: #172431; color: #a8bdcf; font-weight: 650; }
+.kanbanDetail h2 { margin: 7px 0 0; color: #d5dfe9; font-size: calc(20px + var(--ui-font-delta, 0px)); line-height: 1.3; overflow-wrap: anywhere; }
+.kanbanDetail > header button { border: 0; background: transparent; color: #7d8fa3; font-size: 20px; padding: 2px 7px; }
+.kanbanDetail > header button:hover:not(:disabled) { background: transparent; color: #c8d5e1; }
+.kanbanDetailMeta { padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1d2a38; }
+.kanbanDetailMeta a { color: #7fa9cf; font-size: calc(11px + var(--ui-font-delta, 0px)); }
+.kanbanDetail select { border: 1px solid #2b3c4e; border-radius: 6px; background: #151f2a; color: #bdc9d5; padding: 6px 8px; }
+.kanbanDetailContent { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; color: #aebdcb; font-size: calc(13px + var(--ui-font-delta, 0px)); line-height: 1.55; }
+.kanbanDetailContent a { color: #7fa9cf; }
+.kanbanLocalDescription { white-space: pre-wrap; }
+.kanbanMuted { color: #607389; }
+.kanbanDetail > footer { flex: 0 0 auto; min-width: 0; padding: 14px 20px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; border-top: 1px solid #223142; }
+.kanbanDetail > footer:empty { display: none; }
+.cardFinishRefinement { margin-left: auto; }
+.kanbanDetailTransitions, .kanbanStartWork { display: flex; align-items: center; gap: 8px; }
+.superthreadSelectedProject { color: #8295a8; font-size: calc(11px + var(--ui-font-delta, 0px)); font-weight: 650; }
+.kanbanDetail .primaryAction { background: #25496b; border-color: #3d6d98; }
+.kanbanDetail.cardWorkspace { width: min(1000px, calc(100vw - 32px)); }
+.cardWorkspaceTabs { flex: 0 0 auto; min-height: 38px; padding: 0 20px; display: flex; align-items: end; gap: 16px; border-bottom: 1px solid #223142; background: #0e1620; }
+.cardWorkspaceTabs button { padding: 10px 10px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #6f8297; font-size: calc(10px + var(--ui-font-delta, 0px)); font-weight: 650; letter-spacing: .05em; }
+.cardWorkspaceTabs button.active { border-bottom-color: #6295c2; color: #b9cad9; }
+.cardServiceTabs { align-self: stretch; display: inline-flex; align-items: stretch; gap: 16px; }
+.cardServiceTab { display: inline-flex; align-items: end; gap: 0; border-bottom: 2px solid transparent; }
+.cardServiceTab.active { border-bottom-color: #6295c2; }
+.cardWorkspaceTabs .cardServiceTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
+.cardWorkspaceTabs .cardServiceTab.active .cardServiceTabLabel { color: #b9cad9; }
+.cardWorkspaceTabs button.cardServiceToggle { width: 20px; height: 20px; margin-bottom: 7px; padding: 0; border: 1px solid #344657; border-radius: 5px; background: #151f29; display: grid; place-items: center; color: #73879a; }
+.cardWorkspaceTabs button.cardServiceToggle:hover { border-color: #4a6278; color: #aabac8; }
+.cardWorkspaceTabs button.cardServiceToggle.running { border-color: #416b55; background: #15271e; color: #70bd8d; }
+.servicePlayIcon { width: 0; height: 0; margin-left: 1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid currentColor; }
+.serviceStopIcon { width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.cardView { display: none !important; }
+.cardView.active { display: flex !important; }
+.kanbanDetailContent.cardView.active { display: block !important; }
+.cardChatView { flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 0; overflow: hidden; }
+.cardDiffView { flex: 1; min-width: 0; min-height: 0; position: relative; flex-direction: row; overflow: hidden; }
+.cardDiffExplorer { flex: 0 0 280px; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; border-right: 1px solid #263647; background: #0f1720; }
+.cardDiffContent { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; background: #0c131b; }
+.cardDiffContent .diffOverlay { border: 0; border-radius: 0; }
+.cardTerminalView { flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; padding: 10px; gap: 8px; }
+.cardTerminalPane { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
+.cardTerminalPane > .terminal, .cardTerminalPane > .split { width: 100%; height: 100%; }
+.cardTerminalPane .terminal { min-width: 0; min-height: 0; border: 0 !important; border-radius: 0; box-shadow: none !important; }
+.cardTerminalPane.multiple .terminal.active { border: 1px solid var(--focused-terminal-border, #3b82f6) !important; box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6) !important; }
+.cardServiceView { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.cardServiceView > .kanbanEmpty { flex: 1; text-align: center; }
+.cardServiceView .terminal { border: 0; border-radius: 0; box-shadow: none; }
+.kanbanActionError { padding: 9px 20px; border-bottom: 1px solid #5a3135; background: #2b171b; color: #e08b91; font-size: calc(11px + var(--ui-font-delta, 0px)); }
+.cardChat { box-sizing: border-box; flex: 1; min-width: 0; min-height: 0; padding-top: 18px; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid #223142; background: #0c1219; }
+.kanbanDetail.chatActive { background: #0c1219; }
+.kanbanDetail.chatActive > header, .kanbanDetail.chatActive .cardWorkspaceTabs { background: #0c1219; }
+.kanbanDetail.chatActive > header { border-bottom: 0; }
+.kanbanDetail.chatActive .cardWorkspaceTabs { border-bottom: 0; }
+.kanbanDetail.chatActive .cardChat .piGuiPane { flex: 1; min-height: 0; height: auto; border: 0 !important; border-radius: 0; box-shadow: none !important; }
+.cardChat .piGuiConversation { padding: 58px 24px 28px; }
+.cardChat .piComposer { margin-left: 24px; margin-right: 24px; }
+.cardChat .terminalControls { display: none; }
+@media (max-width: 700px) {
+  .kanbanDetail > header { padding: 14px; }
+  .kanbanDetailMeta { padding: 8px 14px; flex-wrap: wrap; gap: 8px; }
+  .cardWorkspaceTabs { padding: 0 14px; }
+  .kanbanDetail > footer { padding: 10px 14px; }
+  .kanbanStartWork { width: 100%; }
+}
 
 .split { height: 100%; min-width: 0; min-height: 0; display: flex; position: relative; }
 .split:has(.terminal.maximized) > .splitChild:has(.terminal.maximized) { flex: 1 1 100% !important; }
@@ -425,7 +555,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .modal.terminalDialog .dialogPaneKindField { margin-bottom: 26px; }
 .modal label span { color: #8091a5; }
 .modal input,
-.modal select {
+.modal select,
+.modal textarea {
   width: 100%;
   margin-top: 6px;
   border: 1px solid #2d3d4f;
@@ -437,7 +568,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   font: inherit;
 }
 .modal input:focus,
-.modal select:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f633; }
+.modal select:focus,
+.modal textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f633; }
 .modal .checkboxLabel { display: flex; align-items: center; gap: 9px; }
 .modal .checkboxLabel input { width: auto; margin: 0; }
 .dialogGridPickerField { margin-bottom: 26px; }
@@ -792,7 +924,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .superthreadCardContent hr { border: 0; border-top: 1px solid #263648; margin: 14px 0; }
 .superthreadCardStats { display: flex; gap: 6px; margin-top: 10px; color: #687b91; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .superthreadStartWorkCard { margin: -5px 0 18px; color: #8fa0b3; font-size: calc(13px + var(--ui-font-delta, 0px)); line-height: 1.4; }
-.superthreadProjectDialog select { cursor: pointer; }
+.superthreadSelectedProject { display: block; margin-top: 7px; }
 .integrationHeader { height: 46px; flex-basis: 46px; padding-left: 7px; gap: 4px; }
 .integrationTabs { min-width: 0; flex: 1; display: flex; align-self: stretch; }
 .superthreadHeader .integrationTab {
@@ -1134,10 +1266,12 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piImageAttachment button { position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; padding: 0; border: 1px solid #4c6174; border-radius: 50%; background: #1b2a38; color: #b7c5d2; cursor: pointer; font-size: calc(11px + var(--ui-font-delta, 0px)); line-height: 12px; }
 .piAttachmentError { margin-bottom: 6px; color: #cf7e85; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .piComposer textarea::placeholder { color: #536579; text-indent: 4px; }
-.piComposerAction { flex: 0 0 28px; width: 28px; height: 28px; border: 1px solid #6388a8; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 70%, #738291); border-radius: 7px; background: #477aa5; background: color-mix(in srgb, var(--pi-pane-accent) 62%, #263746); color: #eef6fc; color: color-mix(in srgb, var(--pi-pane-accent) 12%, #f2f6fa); cursor: pointer; font-size: calc(16px + var(--ui-font-delta, 0px)); font-weight: 650; }
+.piComposerAction { flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 1px solid #6388a8; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 70%, #738291); border-radius: 7px; background: #477aa5; background: color-mix(in srgb, var(--pi-pane-accent) 62%, #263746); color: #eef6fc; color: color-mix(in srgb, var(--pi-pane-accent) 12%, #f2f6fa); cursor: pointer; display: grid; place-items: center; line-height: 1; font-size: calc(16px + var(--ui-font-delta, 0px)); font-weight: 650; }
+.piSendArrow { width: 14px; height: 14px; display: block; overflow: visible; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .piComposerAction:hover:not(:disabled) { background: #568ab5; background: color-mix(in srgb, var(--pi-pane-accent) 76%, #324658); }
 .piComposerAction:disabled { opacity: .35; cursor: default; }
-.piComposerAction.stop { border-color: #85515a; background: #673b42; color: #e8b5ba; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.piComposerAction.stop { border-color: #85515a; background: #673b42; color: #e8b5ba; }
+.piStopSquare { width: 8px; height: 8px; display: block; border-radius: 1px; background: currentColor; }
 .piSelectionPopup { position: absolute; z-index: 24; display: flex; gap: 1px; padding: 2px; border: 1px solid #3a4b5d; border-radius: 5px; background: #17212c; box-shadow: 0 4px 14px #0009; transform: translate(-50%, -100%); }
 .piSelectionPopup.below { transform: translate(-50%, 0); }
 .piSelectionPopup button { padding: 3px 6px; border: 0; border-radius: 3px; background: transparent; color: #9cadbe; cursor: pointer; font-size: calc(9px + var(--ui-font-delta, 0px)); line-height: 1.2; white-space: nowrap; }

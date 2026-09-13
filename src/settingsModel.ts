@@ -44,6 +44,7 @@ export type ResolvedAppSettings = {
   superthread_enabled: boolean;
   github_poll_interval_seconds: number;
   github_merge_strategy: GithubMergeStrategy;
+  kanban_project_id: string | null;
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
@@ -70,6 +71,7 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   superthread_enabled: true,
   github_poll_interval_seconds: 60,
   github_merge_strategy: 'merge',
+  kanban_project_id: null,
 };
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
@@ -97,6 +99,7 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     superthread_enabled: settings?.superthread_enabled ?? DEFAULT_APP_SETTINGS.superthread_enabled,
     github_poll_interval_seconds: clampGithubPollInterval(settings?.github_poll_interval_seconds),
     github_merge_strategy: normalizeGithubMergeStrategy(settings?.github_merge_strategy),
+    kanban_project_id: settings?.kanban_project_id?.trim() || null,
   };
 }
 
@@ -125,6 +128,7 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     superthread_enabled: settings.superthread_enabled,
     github_poll_interval_seconds: clampGithubPollInterval(settings.github_poll_interval_seconds),
     github_merge_strategy: normalizeGithubMergeStrategy(settings.github_merge_strategy),
+    kanban_project_id: settings.kanban_project_id?.trim() || null,
   };
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { CreateWorkspace, RollbackWorkspace } from '../workspace/createWorkspace';
-import type { AutomationRequest } from '../workspace/automation';
+import type { AutomationRequest, AutomationResponse } from '../workspace/automation';
 import { waitForTerminalStartup } from '../terminalStartup';
 import { prepareRunOnceCommand } from '../terminalAutomation';
 import { processAutomationRequest } from '../workspace/processAutomationRequest';
@@ -12,6 +12,7 @@ type AutomationRequestOptions = {
   activeProjectId: string | null;
   createWorkspace: CreateWorkspace;
   rollbackWorkspace: RollbackWorkspace;
+  startCardWork: (cardId: string) => Promise<AutomationResponse>;
 };
 
 export function useAutomationRequests(options: AutomationRequestOptions) {
@@ -34,6 +35,7 @@ export function useAutomationRequests(options: AutomationRequestOptions) {
         rollbackWorkspace: current.rollbackWorkspace,
         waitForTerminalStartup,
         prepareRunOnceCommand,
+        startCardWork: current.startCardWork,
       });
 
       try {

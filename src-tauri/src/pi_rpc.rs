@@ -166,8 +166,16 @@ fn spawn_pi_session(
     if let Some(path) = runtime_path {
         pi_command.env("PATH", path);
     }
+    if let Some((card_id, thread)) = kanban_session_parts(pane_id) {
+        let socket = crate::automation::socket_path()?;
+        pi_command
+            .env("STACKS_CARD_ID", card_id)
+            .env("STACKS_CARD_THREAD", thread)
+            .env("STACKS_AUTOMATION_SOCKET", socket);
+    }
     process_group::configure(&mut pi_command);
-    let mut child = pi_command.spawn()
+    let mut child = pi_command
+        .spawn()
         .map_err(|error| format!("Could not start Pi: {error}"))?;
 
     let pipes = (child.stdin.take(), child.stdout.take(), child.stderr.take());
@@ -372,10 +380,34 @@ fn emit_event(window: &Window, pane_id: &str, generation: &str, event: Value) {
 }
 
 fn session_dir(pane_id: &str) -> Result<PathBuf, String> {
+    if let Some((card_id, session_name)) = kanban_session_parts(pane_id) {
+        let mut session_root = crate::kanban::card_directory(card_id)?;
+        session_root.push("pi-sessions");
+        let directory = session_root.join(safe_session_key(session_name));
+        if session_name == "planning" && !directory.exists() {
+            let legacy = session_root.join("main");
+            if legacy.exists() {
+                std::fs::rename(&legacy, &directory).map_err(|error| {
+                    format!("Could not migrate the card planning session: {error}")
+                })?;
+            }
+        }
+        return Ok(directory);
+    }
     let mut directory = app_data_dir()?;
     directory.push("pi-sessions");
     directory.push(safe_session_key(pane_id));
     Ok(directory)
+}
+
+fn kanban_session_parts(pane_id: &str) -> Option<(&str, &str)> {
+    let scoped = pane_id.strip_prefix("kanban-card:")?;
+    let (card_id, session_name) = scoped.rsplit_once(':')?;
+    if card_id.is_empty() || session_name.is_empty() {
+        None
+    } else {
+        Some((card_id, session_name))
+    }
 }
 
 #[tauri::command]
@@ -386,18 +418,28 @@ pub fn pi_project_trusted(cwd: String, project_path: Option<String>) -> Result<b
         .map(canonical_project_path)
         .transpose()?;
     let trusted_projects = read_trusted_projects()?;
-    Ok(is_project_trusted(&trusted_projects, &cwd, project_path.as_deref()))
+    Ok(is_project_trusted(
+        &trusted_projects,
+        &cwd,
+        project_path.as_deref(),
+    ))
 }
 
 #[tauri::command]
-pub fn set_pi_project_trusted(cwd: String, project_path: Option<String>, trusted: bool) -> Result<(), String> {
+pub fn set_pi_project_trusted(
+    cwd: String,
+    project_path: Option<String>,
+    trusted: bool,
+) -> Result<(), String> {
     let cwd = canonical_project_path(&cwd)?;
     let project_path = project_path
         .as_deref()
         .map(canonical_project_path)
         .transpose()?;
     let trust_path = project_path.unwrap_or_else(|| cwd.clone());
-    let _guard = TRUST_FILE_LOCK.lock().map_err(|_| "Pi trust lock poisoned".to_string())?;
+    let _guard = TRUST_FILE_LOCK
+        .lock()
+        .map_err(|_| "Pi trust lock poisoned".to_string())?;
     let mut projects = read_trusted_projects_unlocked()?;
     if trusted {
         projects.insert(trust_path);
@@ -416,11 +458,16 @@ pub fn set_pi_project_trusted(cwd: String, project_path: Option<String>, trusted
 fn canonical_project_path(cwd: &str) -> Result<String, String> {
     std::fs::canonicalize(cwd)
         .map_err(|error| format!("Could not resolve Pi working directory: {error}"))?
-        .to_str().map(str::to_string)
+        .to_str()
+        .map(str::to_string)
         .ok_or_else(|| "Pi working directory is not valid UTF-8".to_string())
 }
 
-fn is_project_trusted(trusted_projects: &HashSet<String>, cwd: &str, project_path: Option<&str>) -> bool {
+fn is_project_trusted(
+    trusted_projects: &HashSet<String>,
+    cwd: &str,
+    project_path: Option<&str>,
+) -> bool {
     trusted_projects.contains(cwd)
         || project_path.is_some_and(|project_path| {
             trusted_projects.contains(project_path)
@@ -432,7 +479,10 @@ fn workspace_belongs_to_project(cwd: &str, project_path: &str) -> bool {
     if Path::new(cwd).starts_with(project_path) {
         return true;
     }
-    match (git_common_directory(cwd), git_common_directory(project_path)) {
+    match (
+        git_common_directory(cwd),
+        git_common_directory(project_path),
+    ) {
         (Some(cwd_git_dir), Some(project_git_dir)) => cwd_git_dir == project_git_dir,
         _ => false,
     }
@@ -440,7 +490,13 @@ fn workspace_belongs_to_project(cwd: &str, project_path: &str) -> bool {
 
 fn git_common_directory(path: &str) -> Option<PathBuf> {
     let output = Command::new("git")
-        .args(["-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .args([
+            "-C",
+            path,
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -451,16 +507,21 @@ fn git_common_directory(path: &str) -> Option<PathBuf> {
 }
 
 fn read_trusted_projects() -> Result<HashSet<String>, String> {
-    let _guard = TRUST_FILE_LOCK.lock().map_err(|_| "Pi trust lock poisoned".to_string())?;
+    let _guard = TRUST_FILE_LOCK
+        .lock()
+        .map_err(|_| "Pi trust lock poisoned".to_string())?;
     read_trusted_projects_unlocked()
 }
 
 fn read_trusted_projects_unlocked() -> Result<HashSet<String>, String> {
     let mut path = app_data_dir()?;
     path.push("pi-trusted-projects.json");
-    if !path.exists() { return Ok(HashSet::new()); }
+    if !path.exists() {
+        return Ok(HashSet::new());
+    }
     let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
-    serde_json::from_slice(&bytes).map_err(|error| format!("Could not read trusted Pi projects: {error}"))
+    serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Could not read trusted Pi projects: {error}"))
 }
 
 fn project_trust_flag(approved: bool) -> &'static str {
@@ -499,7 +560,13 @@ fn pi_runtime_path(pi: &std::path::Path) -> Option<std::ffi::OsString> {
 
     let executable_dir = pi.parent()?;
     let mut paths = vec![executable_dir.to_path_buf()];
-    paths.extend(env::var_os("PATH").as_deref().map(env::split_paths).into_iter().flatten());
+    paths.extend(
+        env::var_os("PATH")
+            .as_deref()
+            .map(env::split_paths)
+            .into_iter()
+            .flatten(),
+    );
     env::join_paths(paths).ok()
 }
 
@@ -537,7 +604,7 @@ fn find_pi() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_project_trusted, project_trust_flag, safe_session_key};
+    use super::{is_project_trusted, kanban_session_parts, project_trust_flag, safe_session_key};
     use std::collections::HashSet;
 
     #[test]
@@ -546,9 +613,22 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_card_scoped_pi_sessions() {
+        assert_eq!(
+            kanban_session_parts("kanban-card:superthread:42:main"),
+            Some(("superthread:42", "main"))
+        );
+        assert_eq!(kanban_session_parts("workspace:123"), None);
+    }
+
+    #[test]
     fn workspace_directories_inherit_project_trust_only_when_related() {
         let trusted = HashSet::from(["/repo".to_string()]);
-        assert!(is_project_trusted(&trusted, "/repo/workspaces/one", Some("/repo")));
+        assert!(is_project_trusted(
+            &trusted,
+            "/repo/workspaces/one",
+            Some("/repo")
+        ));
         assert!(!is_project_trusted(&trusted, "/unrelated", Some("/repo")));
     }
 

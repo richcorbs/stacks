@@ -30,6 +30,38 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
             onChange={(e) => setDialog({ ...dialog, path: e.target.value })}
           />
         </label>
+        <label>
+          Work board
+          <select value={dialog.kanbanSource ?? 'local'} onChange={(e) => setDialog({ ...dialog, kanbanSource: e.target.value as 'superthread' | 'local' })}>
+            <option value="local">Local Stacks board</option>
+            <option value="superthread">Superthread</option>
+          </select>
+        </label>
+        <label>
+          Start work command <span>(optional)</span>
+          <input
+            value={dialog.startWorkCommand ?? ''}
+            placeholder={dialog.kanbanSource === 'superthread' ? 'stwork {card_number}' : 'Uses built-in Git worktree setup'}
+            onChange={(e) => setDialog({ ...dialog, startWorkCommand: e.target.value })}
+          />
+          <small className="dialogFieldHint">Placeholders: {'{card_number}'}, {'{card_title}'}, {'{branch}'}, {'{worktree}'}. The final directory becomes the card worktree.</small>
+        </label>
+        <label>
+          Server command <span>(optional)</span>
+          <input
+            value={dialog.serverCommand ?? ''}
+            placeholder="bin/dev"
+            onChange={(e) => setDialog({ ...dialog, serverCommand: e.target.value })}
+          />
+        </label>
+        <label>
+          Console command <span>(optional)</span>
+          <input
+            value={dialog.consoleCommand ?? ''}
+            placeholder="bin/rails console"
+            onChange={(e) => setDialog({ ...dialog, consoleCommand: e.target.value })}
+          />
+        </label>
       </>
     );
   }

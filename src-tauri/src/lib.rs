@@ -8,6 +8,7 @@ mod automation;
 mod fs_paths;
 mod git;
 mod github;
+mod kanban;
 mod menu;
 mod notifications;
 mod open;
@@ -25,13 +26,24 @@ mod workspace_setup;
 use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
 use automation::{complete_automation_request, drain_automation_requests, AutomationState};
-use git::{git_diff_files, git_file_diff, git_info, remove_git_worktree};
-use github::{github_action_runs, github_current_pull_request, github_merge_pull_request, github_pull_requests};
+use git::{cleanup_git_worktree, git_diff_files, git_file_diff, git_info, remove_git_worktree};
+use github::{
+    github_action_runs, github_current_pull_request, github_merge_pull_request,
+    github_pull_requests,
+};
+use kanban::{
+    kanban_associate_workspace, kanban_cards, kanban_create_local_card, kanban_delete_card,
+    kanban_finish_local_refinement, kanban_open_card, kanban_reorder_cards, kanban_set_project,
+    kanban_set_status, kanban_sync_superthread_cards, kanban_update_local_card,
+};
 use menu::app_menu;
 use notifications::notify_attention;
 use open::{open_path_in_editor, open_url};
 use pi_image::read_pi_image;
-use pi_rpc::{delete_pi_session, pi_project_trusted, send_pi_rpc, set_pi_project_trusted, start_pi_session, stop_pi_session, PiRpcRegistry};
+use pi_rpc::{
+    delete_pi_session, pi_project_trusted, send_pi_rpc, set_pi_project_trusted, start_pi_session,
+    stop_pi_session, PiRpcRegistry,
+};
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
 use settings::{
@@ -123,10 +135,22 @@ pub fn run() {
             git_diff_files,
             git_file_diff,
             remove_git_worktree,
+            cleanup_git_worktree,
             github_pull_requests,
             github_current_pull_request,
             github_action_runs,
             github_merge_pull_request,
+            kanban_cards,
+            kanban_create_local_card,
+            kanban_update_local_card,
+            kanban_finish_local_refinement,
+            kanban_open_card,
+            kanban_delete_card,
+            kanban_sync_superthread_cards,
+            kanban_set_status,
+            kanban_reorder_cards,
+            kanban_set_project,
+            kanban_associate_workspace,
             drain_automation_requests,
             complete_automation_request,
             superthread_boards,

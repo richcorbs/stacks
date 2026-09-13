@@ -29,14 +29,14 @@ export function useWorkspaceDialogCommands({
   updateTerminalPane,
   createWorkspace,
 }: WorkspaceDialogCommandOptions) {
-  async function addProject(name: string, path: string) {
+  async function addProject(name: string, path: string, kanbanSource: 'superthread' | 'local' = 'local', startWorkCommand?: string, serverCommand?: string, consoleCommand?: string) {
     const existing = store.projects.find((p) => p.path === path);
     if (existing) {
       selectWorkspace(existing.id, existing.workspaces[0]?.id ?? null);
       return existing;
     }
     const id = await invoke<string>('new_id');
-    const project: Project = { id, name, path, workspaces: [], collapsed: false };
+    const project: Project = { id, name, path, workspaces: [], collapsed: false, kanban_source: kanbanSource, start_work_command: startWorkCommand, server_command: serverCommand, console_command: consoleCommand };
     setStore((s) => ({ projects: [...s.projects, project] }));
     selectWorkspace(id, null);
     return project;
@@ -57,7 +57,7 @@ export function useWorkspaceDialogCommands({
       selectWorkspace(existing.id, existing.workspaces[0]?.id ?? null);
       return;
     }
-    setDialog({ kind: 'project', name: basename(selected), path: selected, openTerminalAfterCreate: true });
+    setDialog({ kind: 'project', name: basename(selected), path: selected, kanbanSource: 'local', startWorkCommand: '', serverCommand: '', consoleCommand: '', openTerminalAfterCreate: true });
   }
 
   function openWorkspaceDialog(project: Project) {

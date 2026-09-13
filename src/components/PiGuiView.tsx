@@ -13,7 +13,7 @@ import { TerminalControls } from './TerminalControls';
 import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiMessage, PiToolCard } from './PiTranscript';
 
-export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
+export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, initialPrompt, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -22,6 +22,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   maximized: boolean;
   canToggleMaximize: boolean;
   restartRequestNonce: number;
+  initialPrompt?: string;
   fontSize: number;
   onFocus: () => void;
   onClose: () => void;
@@ -50,6 +51,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const preventSummaryToggleRef = useRef(false);
   const historyIndexRef = useRef<number | null>(null);
   const historyDraftRef = useRef('');
+  const initialPromptSentRef = useRef(false);
 
   useEffect(() => {
     invoke<boolean>('pi_project_trusted', { cwd, projectPath: project.path }).then(setProjectTrusted).catch(() => setProjectTrusted(false));
@@ -68,6 +70,15 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     previousVisibleRef.current = visible;
     if (becameVisible && pi.stopped) pi.restart().catch(() => {});
   }, [pi.restart, pi.stopped, visible]);
+
+  useEffect(() => {
+    if (!visible || !initialPrompt || initialPromptSentRef.current || pi.starting || pi.stopped || pi.isStreaming || pi.messages.length > 0) return;
+    initialPromptSentRef.current = true;
+    pi.prompt(initialPrompt, []).catch((error) => {
+      initialPromptSentRef.current = false;
+      console.error('Could not start the Pi conversation', error);
+    });
+  }, [initialPrompt, pi.isStreaming, pi.messages.length, pi.prompt, pi.starting, pi.stopped, visible]);
 
   useEffect(() => {
     if (!restartRequestNonce || handledRestartNonceRef.current === restartRequestNonce) return;
@@ -569,9 +580,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           />
           </div>
           {pi.isStreaming ? (
-            <button className="piComposerAction stop" type="button" onClick={() => pi.abort().catch(() => {})} title="Stop Pi">■</button>
+            <button className="piComposerAction stop" type="button" onClick={() => pi.abort().catch(() => {})} title="Stop Pi" aria-label="Stop Pi"><span className="piStopSquare" aria-hidden="true" /></button>
           ) : (
-            <button className="piComposerAction" type="button" disabled={(!prompt.trim() && attachments.length === 0) || pi.starting} onClick={() => submit().catch(console.error)} title="Send">↑</button>
+            <button className="piComposerAction" type="button" disabled={(!prompt.trim() && attachments.length === 0) || pi.starting} onClick={() => submit().catch(console.error)} title="Send" aria-label="Send"><svg className="piSendArrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4.5 6.5 8 3l3.5 3.5" /></svg></button>
           )}
         </div>
       </div>

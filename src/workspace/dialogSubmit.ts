@@ -24,7 +24,7 @@ type SubmitWorkspaceDialogOptions = {
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null, initialInput?: string, paneKind?: 'terminal' | 'pi') => Promise<void>;
   updateTerminalPane: (workspaceId: string, terminalId: string, paneKind: 'terminal' | 'pi', command: string | null) => Promise<void>;
-  addProject: (name: string, path: string) => Promise<Project>;
+  addProject: (name: string, path: string, kanbanSource?: 'superthread' | 'local', startWorkCommand?: string, serverCommand?: string, consoleCommand?: string) => Promise<Project>;
   createWorkspace: CreateWorkspace;
 };
 
@@ -44,7 +44,7 @@ export async function submitWorkspaceDialog({
     const name = dialog.name.trim();
     const path = dialog.path.trim();
     if (!name || !path) return;
-    const project = await addProject(name, path);
+    const project = await addProject(name, path, dialog.kanbanSource, dialog.startWorkCommand?.trim(), dialog.serverCommand?.trim(), dialog.consoleCommand?.trim());
     if (dialog.openTerminalAfterCreate) {
       setDialog(null);
       window.setTimeout(() => {
@@ -66,7 +66,15 @@ export async function submitWorkspaceDialog({
     const name = dialog.name.trim();
     const path = dialog.path.trim();
     if (!name || !path) return;
-    setStore((s) => ({ projects: s.projects.map((p) => p.id === dialog.projectId ? { ...p, name, path } : p) }));
+    setStore((s) => ({ projects: s.projects.map((p) => p.id === dialog.projectId ? {
+      ...p,
+      name,
+      path,
+      kanban_source: dialog.kanbanSource ?? 'local',
+      start_work_command: dialog.startWorkCommand?.trim() || undefined,
+      server_command: dialog.serverCommand?.trim() || undefined,
+      console_command: dialog.consoleCommand?.trim() || undefined,
+    } : p) }));
     setDialog(null);
     return;
   }

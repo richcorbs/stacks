@@ -1,6 +1,10 @@
 use portable_pty::{native_pty_system, PtySize};
 use serde::{Deserialize, Serialize};
-use std::{io::{Read, Write}, sync::Mutex, thread};
+use std::{
+    io::{Read, Write},
+    sync::Mutex,
+    thread,
+};
 use tauri::{Emitter, State, Window};
 
 use crate::pty_command::build_shell_command;
@@ -31,24 +35,42 @@ pub fn spawn_pty(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let generation = generation.unwrap_or_else(|| format!("{}:{}", terminal_id, uuid::Uuid::new_v4()));
+    let generation =
+        generation.unwrap_or_else(|| format!("{}:{}", terminal_id, uuid::Uuid::new_v4()));
     let pty_system = native_pty_system();
     let pair = pty_system
-        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| e.to_string())?;
 
-    let child = pair.slave.spawn_command(build_shell_command(cwd, command)).map_err(|e| e.to_string())?;
+    let child = pair
+        .slave
+        .spawn_command(build_shell_command(cwd, command))
+        .map_err(|e| e.to_string())?;
     drop(pair.slave);
 
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
     {
-        let mut guard = registry.lock().map_err(|_| "PTY registry lock poisoned".to_string())?;
+        let mut guard = registry
+            .lock()
+            .map_err(|_| "PTY registry lock poisoned".to_string())?;
         if let Some(mut old) = guard.terminals.remove(&terminal_id) {
-            let _ = old.child.kill();
+            terminate_pty_child(old.child.as_mut());
         }
-        guard.terminals.insert(terminal_id.clone(), PtyHandle { master: pair.master, writer, child });
+        guard.terminals.insert(
+            terminal_id.clone(),
+            PtyHandle {
+                master: pair.master,
+                writer,
+                child,
+            },
+        );
     }
 
     thread::spawn(move || {
@@ -57,38 +79,203 @@ pub fn spawn_pty(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let _ = window.emit("pty-data", PtyData { terminal_id: terminal_id.clone(), generation: generation.clone(), data: buf[..n].to_vec() });
+                    let _ = window.emit(
+                        "pty-data",
+                        PtyData {
+                            terminal_id: terminal_id.clone(),
+                            generation: generation.clone(),
+                            data: buf[..n].to_vec(),
+                        },
+                    );
                 }
                 Err(_) => break,
             }
         }
-        let _ = window.emit("pty-exit", PtyExit { terminal_id, generation, status: None });
+        let _ = window.emit(
+            "pty-exit",
+            PtyExit {
+                terminal_id,
+                generation,
+                status: None,
+            },
+        );
     });
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn write_pty(registry: State<'_, Mutex<PtyRegistry>>, terminal_id: String, data: Vec<u8>) -> Result<(), String> {
-    let mut guard = registry.lock().map_err(|_| "PTY registry lock poisoned".to_string())?;
-    let handle = guard.terminals.get_mut(&terminal_id).ok_or_else(|| "Unknown PTY terminal".to_string())?;
+pub fn write_pty(
+    registry: State<'_, Mutex<PtyRegistry>>,
+    terminal_id: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    let mut guard = registry
+        .lock()
+        .map_err(|_| "PTY registry lock poisoned".to_string())?;
+    let handle = guard
+        .terminals
+        .get_mut(&terminal_id)
+        .ok_or_else(|| "Unknown PTY terminal".to_string())?;
     handle.writer.write_all(&data).map_err(|e| e.to_string())?;
     handle.writer.flush().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn resize_pty(registry: State<'_, Mutex<PtyRegistry>>, terminal_id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let mut guard = registry.lock().map_err(|_| "PTY registry lock poisoned".to_string())?;
-    let handle = guard.terminals.get_mut(&terminal_id).ok_or_else(|| "Unknown PTY terminal".to_string())?;
-    handle.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| e.to_string())
+pub fn resize_pty(
+    registry: State<'_, Mutex<PtyRegistry>>,
+    terminal_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let mut guard = registry
+        .lock()
+        .map_err(|_| "PTY registry lock poisoned".to_string())?;
+    let handle = guard
+        .terminals
+        .get_mut(&terminal_id)
+        .ok_or_else(|| "Unknown PTY terminal".to_string())?;
+    handle
+        .master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn kill_pty(registry: State<'_, Mutex<PtyRegistry>>, terminal_id: String) -> Result<(), String> {
-    let mut guard = registry.lock().map_err(|_| "PTY registry lock poisoned".to_string())?;
-    if let Some(mut handle) = guard.terminals.remove(&terminal_id) {
-        let _ = handle.child.kill();
+pub fn kill_pty(
+    registry: State<'_, Mutex<PtyRegistry>>,
+    terminal_id: String,
+    expected_cwd: Option<String>,
+) -> Result<(), String> {
+    let handle = {
+        let mut guard = registry
+            .lock()
+            .map_err(|_| "PTY registry lock poisoned".to_string())?;
+        guard.terminals.remove(&terminal_id)
+    };
+    if let Some(mut handle) = handle {
+        terminate_pty_child(handle.child.as_mut());
+    }
+    if terminal_id.ends_with(":terminal:server") {
+        terminate_port_listeners(3000, expected_cwd.as_deref());
     }
     Ok(())
 }
 
+fn terminate_pty_child(child: &mut dyn portable_pty::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.process_id() {
+        // Procfile runners may put Rails and Solid Queue into child process
+        // groups. Capture the complete tree before killing the shell, while
+        // parent/child relationships are still available.
+        let process_ids = descendant_process_ids(pid);
+        let own_group = unsafe { libc::getpgrp() };
+        let mut groups = std::collections::HashSet::new();
+        for process_id in &process_ids {
+            let group_id = unsafe { libc::getpgid(*process_id as i32) };
+            if group_id > 0 && group_id != own_group {
+                groups.insert(group_id);
+            }
+        }
+        for group_id in &groups {
+            unsafe { libc::kill(-*group_id, libc::SIGTERM) };
+        }
+        for process_id in &process_ids {
+            unsafe { libc::kill(*process_id as i32, libc::SIGTERM) };
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        for group_id in &groups {
+            unsafe { libc::kill(-*group_id, libc::SIGKILL) };
+        }
+        for process_id in &process_ids {
+            unsafe { libc::kill(*process_id as i32, libc::SIGKILL) };
+        }
+    }
+    let _ = child.kill();
+}
+
+#[cfg(unix)]
+fn terminate_port_listeners(port: u16, expected_cwd: Option<&str>) {
+    let output = std::process::Command::new("lsof")
+        .args(["-tiTCP", &format!(":{port}"), "-sTCP:LISTEN"])
+        .output();
+    let Ok(output) = output else { return };
+    let process_ids: Vec<u32> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .filter(|pid| {
+            expected_cwd
+                .is_none_or(|cwd| process_cwd(*pid).is_some_and(|path| path.starts_with(cwd)))
+        })
+        .collect();
+    let own_group = unsafe { libc::getpgrp() };
+    let groups: std::collections::HashSet<i32> = process_ids
+        .iter()
+        .filter_map(|pid| {
+            let group = unsafe { libc::getpgid(*pid as i32) };
+            (group > 0 && group != own_group).then_some(group)
+        })
+        .collect();
+    for group in &groups {
+        unsafe { libc::kill(-*group, libc::SIGTERM) };
+    }
+    for pid in &process_ids {
+        unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
+    }
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    for group in &groups {
+        unsafe { libc::kill(-*group, libc::SIGKILL) };
+    }
+    for pid in &process_ids {
+        unsafe { libc::kill(*pid as i32, libc::SIGKILL) };
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_port_listeners(_port: u16, _expected_cwd: Option<&str>) {}
+
+#[cfg(unix)]
+fn process_cwd(pid: u32) -> Option<String> {
+    let output = std::process::Command::new("lsof")
+        .args(["-a", "-d", "cwd", "-p", &pid.to_string(), "-Fn"])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix('n').map(str::to_string))
+}
+
+#[cfg(unix)]
+fn descendant_process_ids(root: u32) -> Vec<u32> {
+    let output = std::process::Command::new("ps")
+        .args(["-axo", "pid=,ppid="])
+        .output();
+    let Ok(output) = output else {
+        return vec![root];
+    };
+    let mut children = std::collections::HashMap::<u32, Vec<u32>>::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(pid), Some(ppid)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let (Ok(pid), Ok(ppid)) = (pid.parse::<u32>(), ppid.parse::<u32>()) else {
+            continue;
+        };
+        children.entry(ppid).or_default().push(pid);
+    }
+    let mut result = vec![root];
+    let mut index = 0;
+    while index < result.len() {
+        if let Some(direct_children) = children.get(&result[index]) {
+            result.extend(direct_children);
+        }
+        index += 1;
+    }
+    result
+}

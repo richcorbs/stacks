@@ -72,6 +72,30 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, state: AutomationSt
             focus_main_window(&app)?;
             return Ok(AutomationResponse::success("Activated Stacks"));
         }
+        if client_request.action == "updateLocalCard" {
+            let card_id = client_request
+                .card_id
+                .as_deref()
+                .ok_or_else(|| "A scoped card ID is required".to_string())?;
+            crate::kanban::kanban_update_local_card(
+                card_id.to_string(),
+                client_request.title,
+                client_request.content,
+            )?;
+            return Ok(AutomationResponse::success("Updated the local card"));
+        }
+        if client_request.action == "finishLocalCardRefinement" {
+            let card_id = client_request
+                .card_id
+                .ok_or_else(|| "A scoped card ID is required".to_string())?;
+            let content = client_request
+                .content
+                .ok_or_else(|| "A final card description is required".to_string())?;
+            crate::kanban::kanban_finish_local_refinement(card_id, client_request.title, content)?;
+            return Ok(AutomationResponse::success(
+                "Saved the final brief and finished refinement",
+            ));
+        }
 
         let request = AutomationRequest {
             request_id: Uuid::new_v4().to_string(),
@@ -79,6 +103,7 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, state: AutomationSt
             name: client_request.name,
             startup_command: client_request.startup_command,
             run_once: client_request.run_once,
+            card_id: client_request.card_id,
         };
         let (response_tx, response_rx) = mpsc::channel();
         state.insert(request.clone(), response_tx);

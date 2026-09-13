@@ -4,6 +4,7 @@ import type { ResolvedAppSettings } from '../settingsModel';
 import type { PaletteItem } from './CommandPalette';
 import type { DeveloperServicesTab } from '../developerServices';
 import type { GithubCurrentPullRequest } from '../github/types';
+import type { KanbanCard, KanbanWorkspace } from '../kanban/types';
 
 export type WorkspaceViewModel = {
   project: Project;
@@ -41,6 +42,7 @@ export type SidebarLayoutProps = {
 };
 
 export type MainLayoutProps = {
+  projects: Project[];
   activeProjectName: string | null;
   activeWorkspaceName: string | null;
   activeProjectNotes: string;
@@ -51,6 +53,7 @@ export type MainLayoutProps = {
   maximizedWorkspaceIds: MaximizedWorkspaceIds;
   broadcastWorkspaceIds: Record<string, boolean>;
   appSettings: ResolvedAppSettings;
+  setKanbanProjectId: (projectId: string) => void;
   searchTerminalRequest: { terminalId: string; nonce: number } | null;
   restartTerminalRequest: { terminalId: string; nonce: number } | null;
   resizeSplit: (workspaceId: string, path: string, ratio: number) => void;
@@ -68,6 +71,9 @@ export type MainLayoutProps = {
   changeProjectNotes: (notes: string) => void;
   toggleDeveloperServices: () => void;
   developerServicesVisible: boolean;
+  openProjectDialog: () => void;
+  cleanupCard: (card: KanbanCard) => Promise<boolean>;
+  startWork: (cardId: string) => Promise<boolean>;
 };
 
 export type DeveloperServicesLayoutProps = {
@@ -81,7 +87,7 @@ export type DeveloperServicesLayoutProps = {
   githubPollSeconds: number;
   githubMergeStrategy: 'merge' | 'squash' | 'rebase';
   superthreadEnabled: boolean;
-  startWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<boolean>;
+  startWork: (projectId: string, cardNumber: string, cardTitle: string) => Promise<KanbanWorkspace | null>;
 };
 
 export type OverlayLayoutProps = {

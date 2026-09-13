@@ -15,7 +15,7 @@ const AUTOMATION_EVENT: &str = "automation-request";
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 
-fn socket_path() -> Result<PathBuf, String> {
+pub(crate) fn socket_path() -> Result<PathBuf, String> {
     let name = if cfg!(debug_assertions) {
         "automation-dev.sock"
     } else {

@@ -75,7 +75,25 @@ describe('keyboardShortcutRouter', () => {
     expect(h.adjustTerminalFontSize).not.toHaveBeenCalled();
   });
 
-  it('toggles project notes with Shift-Cmd-O', () => {
+  it('routes card terminal split shortcuts with distinct orientations', () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('document', { querySelector: vi.fn(() => ({})) });
+    vi.stubGlobal('window', { dispatchEvent });
+    const event = (shiftKey: boolean) => ({
+      key: shiftKey ? 'D' : 'd', code: 'KeyD', metaKey: true, ctrlKey: false, altKey: false, shiftKey,
+      getModifierState: (modifier: string) => modifier === 'Shift' && shiftKey,
+      target: {}, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent);
+
+    handleMetaShortcutKeyDown(event(false), handlers());
+    handleMetaShortcutKeyDown(event(true), handlers());
+
+    expect(dispatchEvent.mock.calls[0][0].detail.direction).toBe('row');
+    expect(dispatchEvent.mock.calls[1][0].detail.direction).toBe('column');
+    vi.unstubAllGlobals();
+  });
+
+  it('does not reserve the removed project notes shortcut', () => {
     const h = handlers();
     const event = {
       key: 'o', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true,
@@ -84,8 +102,8 @@ describe('keyboardShortcutRouter', () => {
 
     handleMetaShortcutKeyDown(event, h);
 
-    expect(h.toggleProjectNotes).toHaveBeenCalledOnce();
-    expect(event.preventDefault).toHaveBeenCalled();
+    expect(h.toggleProjectNotes).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
   });
 
   it('leaves Cmd-V to editable fields', () => {

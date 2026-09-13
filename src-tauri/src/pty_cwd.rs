@@ -20,19 +20,29 @@ pub struct PtyRegistry {
 
 impl PtyProcessRegistry for PtyRegistry {
     fn process_id_for_terminal(&self, terminal_id: &str) -> Result<Option<u32>, String> {
-        let handle = self.terminals.get(terminal_id).ok_or_else(|| "Unknown PTY terminal".to_string())?;
+        let handle = self
+            .terminals
+            .get(terminal_id)
+            .ok_or_else(|| "Unknown PTY terminal".to_string())?;
         Ok(handle.child.process_id())
     }
 }
 
 #[tauri::command]
-pub fn pty_cwd(registry: State<'_, Mutex<PtyRegistry>>, terminal_id: String) -> Result<Option<String>, String> {
+pub fn pty_cwd(
+    registry: State<'_, Mutex<PtyRegistry>>,
+    terminal_id: String,
+) -> Result<Option<String>, String> {
     let pid = {
-        let guard = registry.lock().map_err(|_| "PTY registry lock poisoned".to_string())?;
+        let guard = registry
+            .lock()
+            .map_err(|_| "PTY registry lock poisoned".to_string())?;
         guard.process_id_for_terminal(&terminal_id)?
     };
 
-    let Some(pid) = pid else { return Ok(None); };
+    let Some(pid) = pid else {
+        return Ok(None);
+    };
     let output = Command::new("lsof")
         .args(["-a", "-d", "cwd", "-p", &pid.to_string(), "-Fn"])
         .output()

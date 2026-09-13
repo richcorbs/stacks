@@ -19,6 +19,14 @@ struct Project {
     workspaces: Vec<WorkspaceEntry>,
     #[serde(default)]
     collapsed: bool,
+    #[serde(default)]
+    kanban_source: Option<String>,
+    #[serde(default)]
+    start_work_command: Option<String>,
+    #[serde(default)]
+    server_command: Option<String>,
+    #[serde(default)]
+    console_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +79,8 @@ mod tests {
             }]
         }"#;
 
-        let store: ProjectStore = serde_json::from_str(text).expect("legacy store should deserialize");
+        let store: ProjectStore =
+            serde_json::from_str(text).expect("legacy store should deserialize");
         assert_eq!(store.projects.len(), 1);
         assert_eq!(store.projects[0].workspaces.len(), 1);
         assert_eq!(store.projects[0].workspaces[0].id, "w1");
@@ -94,6 +103,10 @@ mod tests {
                     splits: None,
                 }],
                 collapsed: false,
+                kanban_source: None,
+                start_work_command: None,
+                server_command: None,
+                console_command: None,
             }],
         };
 

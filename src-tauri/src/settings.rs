@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fs, sync::{Mutex, OnceLock}};
+use std::{
+    collections::HashMap,
+    fs,
+    sync::{Mutex, OnceLock},
+};
 use tauri::Window;
 
 use crate::fs_paths::app_data_file;
@@ -36,7 +40,9 @@ fn load_settings_from_disk() -> AppSettings {
 }
 
 fn update_settings_on_disk(update: impl FnOnce(&mut AppSettings)) -> Result<(), String> {
-    let _guard = settings_file_lock().lock().map_err(|_| "Settings file lock poisoned".to_string())?;
+    let _guard = settings_file_lock()
+        .lock()
+        .map_err(|_| "Settings file lock poisoned".to_string())?;
     let mut settings = read_settings_from_disk_unlocked();
     update(&mut settings);
     write_settings_to_disk_unlocked(&settings)
@@ -81,7 +87,10 @@ pub fn save_sidebar_width(width: u32) -> Result<(), String> {
 
 #[tauri::command]
 pub fn save_developer_services_state(visible: bool, active_tab: String) -> Result<(), String> {
-    if !matches!(active_tab.as_str(), "superthread" | "diff" | "pull-requests" | "actions") {
+    if !matches!(
+        active_tab.as_str(),
+        "superthread" | "diff" | "pull-requests" | "actions"
+    ) {
         return Err("Invalid developer services tab".to_string());
     }
     update_settings_on_disk(|settings| {
@@ -101,7 +110,10 @@ pub fn save_pending_pr_cleanup(operation: PendingPrCleanup) -> Result<(), String
         || operation.project_id.trim().is_empty()
         || operation.workspace_id.trim().is_empty()
         || operation.pane_id.trim().is_empty()
-        || !matches!(operation.stage.as_str(), "ready-to-merge" | "merged" | "cleanup-running" | "cleanup-completed")
+        || !matches!(
+            operation.stage.as_str(),
+            "ready-to-merge" | "merged" | "cleanup-running" | "cleanup-completed"
+        )
     {
         return Err("Invalid pending PR cleanup operation".to_string());
     }
@@ -131,7 +143,12 @@ pub fn save_workspace_focus(
         settings.active_project_id = active_project_id.filter(|id| !id.trim().is_empty());
         settings.active_workspace_id = active_workspace_id.filter(|id| !id.trim().is_empty());
         settings.focused_terminal_by_workspace_id = Some(focused_terminal_by_workspace_id);
-        settings.maximized_workspace_ids = Some(maximized_workspace_ids.into_iter().filter(|(_, maximized)| *maximized).collect());
+        settings.maximized_workspace_ids = Some(
+            maximized_workspace_ids
+                .into_iter()
+                .filter(|(_, maximized)| *maximized)
+                .collect(),
+        );
     })
 }
 
@@ -155,4 +172,3 @@ pub fn reset_settings() -> Result<(), String> {
 pub fn load_window_state() -> Option<WindowState> {
     load_settings_from_disk().window
 }
-
