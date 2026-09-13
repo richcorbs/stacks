@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
-import { fetchSuperthreadBoards, fetchSuperthreadCard, fetchSuperthreadCards, fetchSuperthreadLists } from '../superthread/api';
-import { associateKanbanWorkspace, createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards } from './api';
-import type { KanbanCard, KanbanStatus, KanbanSyncCard, KanbanWorkspace } from './types';
-import { isManagedSuperthreadList } from './workflow';
+import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards } from './api';
+import type { CardProviderAdapter, KanbanCard, KanbanStatus } from './types';
 
-export function useKanbanBoard(spaces: string, workspaceSlug: string, superthreadEnabled: boolean) {
+export function useKanbanBoard(provider: CardProviderAdapter | null) {
   const [cards, setCards] = useState<KanbanCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -29,36 +27,21 @@ export function useKanbanBoard(spaces: string, workspaceSlug: string, superthrea
   }, []);
 
   const sync = useCallback(async (refresh = false) => {
-    if (!superthreadEnabled) return;
+    if (!provider) return;
     setSyncing(true);
     setError(null);
     try {
-      const response = await fetchSuperthreadBoards(spaces, refresh);
-      const snapshots = (await Promise.all(response.boards.map(async (board) => {
-        const lists = await fetchSuperthreadLists(board.id);
-        const listById = new Map(lists.map((list) => [list.id, list]));
-        const boardCards = await fetchSuperthreadCards(board.id, workspaceSlug);
-        return boardCards.map((card): KanbanSyncCard => {
-          const listTitle = listById.get(card.list_id)?.title ?? card.list_title;
-          return {
-            ...card,
-            board_id: board.id,
-            board_title: board.title,
-            list_title: listTitle,
-            in_scope: isManagedSuperthreadList(board.title, listTitle),
-          };
-        });
-      }))).flat();
-      setCards(await syncKanbanCards(snapshots));
+      const response = await provider.sync(refresh);
+      setCards(await syncKanbanCards(response.cards));
       if (response.warnings.length > 0) {
-        setError(`${response.warnings.length} Superthread scope${response.warnings.length === 1 ? '' : 's'} could not be read.`);
+        setError(`${response.warnings.length} provider scope${response.warnings.length === 1 ? '' : 's'} could not be read.`);
       }
     } catch (syncError) {
       setError(errorMessage(syncError));
     } finally {
       setSyncing(false);
     }
-  }, [spaces, superthreadEnabled, workspaceSlug]);
+  }, [provider]);
 
   useEffect(() => {
     load().then(() => sync(false)).catch(console.error);
@@ -152,14 +135,8 @@ export function useKanbanBoard(spaces: string, workspaceSlug: string, superthrea
     return updated;
   }
 
-  async function associate(id: string, workspace: KanbanWorkspace) {
-    const updated = await associateKanbanWorkspace(id, workspace.projectId, workspace.workspaceId);
-    setCards((current) => current.map((card) => card.id === id ? updated : card));
-    return updated;
-  }
-
   async function loadDetails(card: KanbanCard) {
-    if (card.id.startsWith('local:')) {
+    if (card.provider === 'local') {
       try {
         const refreshed = await fetchKanbanCards();
         const updated = refreshed.find((item) => item.id === card.id);
@@ -170,15 +147,9 @@ export function useKanbanBoard(spaces: string, workspaceSlug: string, superthrea
       }
     }
     try {
-      const detail = await fetchSuperthreadCard(card.external_id, workspaceSlug);
-      const synced = await syncKanbanCards([{
-        ...detail,
-        board_id: card.board_id,
-        board_title: card.board_title,
-        list_id: card.list_id,
-        list_title: card.list_title,
-        in_scope: true,
-      }]);
+      const detail = await provider?.load?.(card);
+      if (!detail) return card;
+      const synced = await syncKanbanCards([detail]);
       const updated = synced.find((item) => item.id === card.id);
       if (!updated) return card;
       setCards((current) => current.map((item) => item.id === card.id ? updated : item));
@@ -188,7 +159,7 @@ export function useKanbanBoard(spaces: string, workspaceSlug: string, superthrea
     }
   }
 
-  return { cards, loading, syncing, error, load, sync, createLocal, interact, remove, reorder, move, assignProject, associate, loadDetails };
+  return { cards, loading, syncing, error, load, sync, createLocal, interact, remove, reorder, move, assignProject, loadDetails };
 }
 
 function cardAgentSession(paneId: string): { cardId: string; thread: 'planning' | 'work' } | null {

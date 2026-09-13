@@ -35,7 +35,7 @@ export function useWorkspaceCrudCommands({
       projectId: project.id,
       name: project.name,
       path: project.path,
-      kanbanSource: project.kanban_source ?? (project.name.trim().toLocaleLowerCase() === 'arcasa' ? 'superthread' : 'local'),
+      kanbanSource: project.kanban_source ?? 'local',
       startWorkCommand: project.start_work_command ?? '',
       serverCommand: project.server_command ?? '',
       consoleCommand: project.console_command ?? '',

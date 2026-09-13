@@ -20,7 +20,8 @@ import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
 import { disposeTerminalSessions } from '../terminalSessionManager';
-import { associateKanbanWorkspace, fetchKanbanCards } from '../kanban/api';
+import { createKanbanEnvironment, fetchKanbanCards } from '../kanban/api';
+import type { CardServiceDefinition } from '../kanban/types';
 import type { KanbanCard } from '../kanban/types';
 import type { GitInfo } from '../types';
 import { developerServicesShortcutState, type DeveloperServicesTab } from '../developerServices';
@@ -282,7 +283,7 @@ export function useAppRootModel() {
   async function createKanbanWorkspace(projectId: string, cardNumber: string, cardTitle: string) {
     const project = store.projects.find((candidate) => candidate.id === projectId);
     if (!project) throw new Error('Selected project not found');
-    const usesSuperthread = project.kanban_source === 'superthread' || (!project.kanban_source && project.name.trim().toLocaleLowerCase() === 'arcasa');
+    const usesSuperthread = project.kanban_source === 'superthread';
     const input = usesSuperthread
       ? buildSuperthreadWorkspaceInput(store, projectId, cardNumber, cardTitle, {
           command: project.start_work_command || appSettings.superthread_start_work_command,
@@ -308,32 +309,42 @@ export function useAppRootModel() {
     if (starting.has(cardId)) throw new Error('Work is already being started for this card');
     starting.add(cardId);
     try {
-      if (!cardId.startsWith('local:')) throw new Error('Only local cards can start work through the Stacks extension');
       const card = (await fetchKanbanCards()).find((candidate) => candidate.id === cardId);
       if (!card) throw new Error('The scoped local card was not found');
       if (!card.project_id) throw new Error('The card is not assigned to a project');
       const project = store.projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('The card project was not found');
-      if (card.workspace_id) {
-        const workspace = project.workspaces.find((candidate) => candidate.id === card.workspace_id);
-        if (!workspace) throw new Error('The card references an environment that no longer exists');
+      if (card.environment) {
         return {
           ok: true,
-          message: `Work is already started on #${card.external_id} in ${workspace.cwd || project.path}`,
-          workspaceId: workspace.id,
+          message: `Work is already started on #${card.external_id} in ${card.environment.worktree_path}`,
+          workspaceId: card.environment.id,
         };
       }
       if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
 
-      const creation = await createKanbanWorkspace(card.project_id, card.external_id, card.title);
-      await associateKanbanWorkspace(card.id, creation.projectId, creation.workspace.id);
-      const worktree = creation.workspace.cwd || project.path;
+      const input = card.provider === 'local'
+        ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title)
+        : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, {
+            command: project.start_work_command || appSettings.superthread_start_work_command,
+            workspaceName: appSettings.superthread_workspace_name_template,
+          });
+      const setupCommand = input.setupCommand?.trim();
+      const setup = setupCommand
+        ? await invoke<{ cwd: string; output: string }>('run_workspace_setup', { command: setupCommand, cwd: project.path })
+        : { cwd: project.path, output: '' };
+      const worktree = setup.cwd;
       const git = await invoke<GitInfo | null>('git_info', { path: worktree }).catch(() => null);
+      const services: CardServiceDefinition[] = [
+        project.server_command?.trim() ? { id: '', name: 'server', command: project.server_command.trim(), sort_order: 0 } : null,
+        project.console_command?.trim() ? { id: '', name: 'console', command: project.console_command.trim(), sort_order: 1 } : null,
+      ].filter((service): service is CardServiceDefinition => service !== null);
+      const updated = await createKanbanEnvironment(card.id, card.project_id, worktree, git?.branch ?? '', services);
       showToast(`Started work on #${card.external_id}`);
       return {
         ok: true,
         message: `Started work on #${card.external_id}\nWorktree: ${worktree}${git?.branch ? `\nBranch: ${git.branch}` : ''}`,
-        workspaceId: creation.workspace.id,
+        workspaceId: updated.environment?.id ?? null,
       };
     } finally {
       starting.delete(cardId);
@@ -441,25 +452,28 @@ export function useAppRootModel() {
 
   async function cleanupKanbanCard(card: KanbanCard) {
     await Promise.all([
-      invoke('delete_pi_session', { paneId: `kanban-card:${card.id}:planning` }),
-      invoke('delete_pi_session', { paneId: `kanban-card:${card.id}:work` }),
-      ...(['shell', 'server', 'console'] as const).map((mode) => {
-        const terminalId = `kanban-card:${card.id}:terminal:${mode}`;
+      ...Array.from(new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [
+        `kanban-card:${card.id}:planning`, `kanban-card:${card.id}:work`,
+      ])).map((paneId) => invoke('delete_pi_session', { paneId })),
+      ...Array.from(new Set([
+        ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []),
+        ...(card.environment?.services.map((service) => `kanban-card:${card.id}:terminal:${service.name}`) ?? []),
+      ])).map((terminalId) => {
         disposeTerminalSessions([terminalId]);
-        return invoke('kill_pty', { terminalId });
+        return invoke('kill_pty', { terminalId, expectedCwd: card.environment?.worktree_path });
       }),
     ]);
-    if (!card.project_id || !card.workspace_id) return true;
+    if (!card.project_id || !card.environment) return true;
     const project = store.projects.find((candidate) => candidate.id === card.project_id);
-    const cardWorkspace = project?.workspaces.find((candidate) => candidate.id === card.workspace_id);
-    if (!project || !cardWorkspace) return true;
-    const path = cardWorkspace.cwd || project.path;
+    if (!project) return true;
+    const path = card.environment.worktree_path;
     const git = await invoke<GitInfo | null>('git_info', { path });
-    return deleteWorkspace(project.id, cardWorkspace.id, () => invoke('cleanup_git_worktree', {
+    await invoke('cleanup_git_worktree', {
       repositoryPath: project.path,
       worktreePath: path,
-      branch: git?.branch ?? '',
-    }));
+      branch: git?.branch ?? card.environment.branch,
+    });
+    return true;
   }
 
   const { commandPaletteItems } = useAppShortcutHandlers({

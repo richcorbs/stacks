@@ -166,11 +166,11 @@ fn spawn_pi_session(
     if let Some(path) = runtime_path {
         pi_command.env("PATH", path);
     }
-    if let Some((card_id, thread)) = kanban_session_parts(pane_id) {
+    if let Some(owner) = crate::kanban::card_pi_session(pane_id)? {
         let socket = crate::automation::socket_path()?;
         pi_command
-            .env("STACKS_CARD_ID", card_id)
-            .env("STACKS_CARD_THREAD", thread)
+            .env("STACKS_CARD_ID", owner.card_id)
+            .env("STACKS_CARD_THREAD", owner.thread)
             .env("STACKS_AUTOMATION_SOCKET", socket);
     }
     process_group::configure(&mut pi_command);
@@ -380,34 +380,13 @@ fn emit_event(window: &Window, pane_id: &str, generation: &str, event: Value) {
 }
 
 fn session_dir(pane_id: &str) -> Result<PathBuf, String> {
-    if let Some((card_id, session_name)) = kanban_session_parts(pane_id) {
-        let mut session_root = crate::kanban::card_directory(card_id)?;
-        session_root.push("pi-sessions");
-        let directory = session_root.join(safe_session_key(session_name));
-        if session_name == "planning" && !directory.exists() {
-            let legacy = session_root.join("main");
-            if legacy.exists() {
-                std::fs::rename(&legacy, &directory).map_err(|error| {
-                    format!("Could not migrate the card planning session: {error}")
-                })?;
-            }
-        }
-        return Ok(directory);
+    if let Some(owner) = crate::kanban::card_pi_session(pane_id)? {
+        return Ok(owner.directory);
     }
     let mut directory = app_data_dir()?;
     directory.push("pi-sessions");
     directory.push(safe_session_key(pane_id));
     Ok(directory)
-}
-
-fn kanban_session_parts(pane_id: &str) -> Option<(&str, &str)> {
-    let scoped = pane_id.strip_prefix("kanban-card:")?;
-    let (card_id, session_name) = scoped.rsplit_once(':')?;
-    if card_id.is_empty() || session_name.is_empty() {
-        None
-    } else {
-        Some((card_id, session_name))
-    }
 }
 
 #[tauri::command]
@@ -604,21 +583,12 @@ fn find_pi() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_project_trusted, kanban_session_parts, project_trust_flag, safe_session_key};
+    use super::{is_project_trusted, project_trust_flag, safe_session_key};
     use std::collections::HashSet;
 
     #[test]
     fn creates_safe_session_directory_names() {
         assert_eq!(safe_session_key("workspace:123"), "workspace_123");
-    }
-
-    #[test]
-    fn recognizes_card_scoped_pi_sessions() {
-        assert_eq!(
-            kanban_session_parts("kanban-card:superthread:42:main"),
-            Some(("superthread:42", "main"))
-        );
-        assert_eq!(kanban_session_parts("workspace:123"), None);
     }
 
     #[test]

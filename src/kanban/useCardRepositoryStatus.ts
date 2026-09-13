@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GithubCurrentPullRequest } from '../github/types';
-import type { GitInfo, Project } from '../types';
+import type { GitInfo } from '../types';
 import type { KanbanCard } from './types';
 
 export type CardRepositoryStatus = {
@@ -9,14 +9,10 @@ export type CardRepositoryStatus = {
   pullRequest: GithubCurrentPullRequest | null;
 };
 
-export function useCardRepositoryStatus(cards: KanbanCard[], projects: Project[], intervalMs = 30_000) {
-  const targets = useMemo(() => cards.flatMap((card) => {
-    if (!card.project_id || !card.workspace_id) return [];
-    const project = projects.find((candidate) => candidate.id === card.project_id);
-    const workspace = project?.workspaces.find((candidate) => candidate.id === card.workspace_id);
-    if (!project || !workspace) return [];
-    return [{ cardId: card.id, path: workspace.cwd || project.path }];
-  }), [cards, projects]);
+export function useCardRepositoryStatus(cards: KanbanCard[], intervalMs = 30_000) {
+  const targets = useMemo(() => cards.flatMap((card) => card.environment
+    ? [{ cardId: card.id, path: card.environment.worktree_path }]
+    : []), [cards]);
   const [statuses, setStatuses] = useState<Record<string, CardRepositoryStatus>>({});
 
   useEffect(() => {

@@ -469,7 +469,7 @@ pub async fn git_file_diff(path: String, file: String) -> Result<GitFileDiff, St
 fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
     safe_relative_path(file)?;
     let root = repository_root(path)?;
-    ensure_diff_sources_bounded(&root, &file)?;
+    ensure_diff_sources_bounded(&root, file)?;
     let working_files = working_tree_files(&root)?;
     let committed_base = working_files
         .is_empty()
@@ -491,7 +491,7 @@ fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
         command.arg("HEAD");
     }
     let output = command
-        .args(["--", &file])
+        .args(["--", file])
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
@@ -500,7 +500,7 @@ fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
     let mut patch = String::from_utf8_lossy(&output.stdout).to_string();
     if patch.is_empty() {
         let tracked = Command::new("git")
-            .args(["-C", &root, "ls-files", "--error-unmatch", "--", &file])
+            .args(["-C", &root, "ls-files", "--error-unmatch", "--", file])
             .output()
             .map_err(|error| error.to_string())?
             .status
@@ -508,7 +508,7 @@ fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
         if tracked {
             return Err("This file no longer has changes; refresh the diff file tree".to_string());
         }
-        let file_path = Path::new(&root).join(&file);
+        let file_path = Path::new(&root).join(file);
         let text = if std::fs::symlink_metadata(&file_path)
             .map(|metadata| metadata.file_type().is_symlink())
             .unwrap_or(false)
