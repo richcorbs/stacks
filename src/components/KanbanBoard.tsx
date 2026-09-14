@@ -491,7 +491,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
               <button type="button" disabled={newCardCreating} onClick={() => setNewCardOpen(false)}>Cancel</button>
               <button type="button" disabled={newCardCreating || !newCardTitle.trim()} onClick={() => createCard('close')}>Add card</button>
               <button type="button" disabled={newCardCreating || !newCardTitle.trim()} onClick={() => createCard('continue')}>Add card &amp; more</button>
-              <button className="primaryAction" type="submit" disabled={newCardCreating || !newCardTitle.trim()}>Add and open</button>
+              <button className="primaryAction" type="submit" disabled={newCardCreating || !newCardTitle.trim()}>Add &amp; open</button>
             </div>
           </form>
         </div>
