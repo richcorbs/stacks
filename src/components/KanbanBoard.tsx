@@ -401,7 +401,9 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                       </span>
                       <strong>{card.title}</strong>
                       <span className="kanbanCardMeta">
-                        <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>
+                        {card.provider !== 'local' && (
+                          <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>
+                        )}
                         <span className="kanbanCardIndicators">
                           {hasGitChanges(repositoryStatus?.git) && (
                             <span className="kanbanGitBadge" title={`${repositoryStatus.git?.branch} working tree changes`}>
