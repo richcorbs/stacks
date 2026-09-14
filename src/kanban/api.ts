@@ -1,9 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CardEnvironmentPane, CardServiceDefinition, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { CardEnvironmentHealth, CardEnvironmentPane, CardServiceDefinition, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
   return invoke<KanbanCard[]>('kanban_cards');
+}
+
+export function fetchKanbanEnvironmentHealth(cardIds: string[]) {
+  return invoke<CardEnvironmentHealth[]>('kanban_environment_health', { cardIds });
 }
 
 export function createLocalKanbanCard(projectId: string, title: string, content: string) {
