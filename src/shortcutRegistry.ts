@@ -10,6 +10,14 @@ export type ShortcutDefinition = {
 };
 
 export const SHORTCUT_DEFINITIONS = {
+  'switch-project': {
+    action: 'switch-project',
+    title: 'Switch Project',
+    hint: '⇧⌘P',
+    keywords: 'kanban board project select change',
+    key: 'p',
+    shift: true,
+  },
   'toggle-diff': {
     action: 'toggle-diff',
     title: 'Focus / Toggle Diff Panel',

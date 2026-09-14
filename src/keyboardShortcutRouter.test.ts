@@ -23,6 +23,7 @@ function handlers(): ShortcutHandlers {
     adjustTerminalFontSize: vi.fn(),
     adjustUiFontSize: vi.fn(),
     openCommandPalette: vi.fn(),
+    openProjectSwitcher: vi.fn(),
     openTerminalSearch: vi.fn(),
     openSettings: vi.fn(),
     toggleSidebar: vi.fn(),
@@ -239,6 +240,25 @@ describe('keyboardShortcutRouter', () => {
 
     expect(h.focusNextWorkspaceWithUnseenOutput).toHaveBeenCalled();
     expect(h.openWorkspaceDialog).not.toHaveBeenCalled();
+  });
+
+  it('uses Cmd-Shift-P to open the project switcher instead of the command palette', () => {
+    const h = handlers();
+    const event = {
+      key: 'P',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: true,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    handleMetaShortcutKeyDown(event, h);
+
+    expect(h.openProjectSwitcher).toHaveBeenCalledOnce();
+    expect(h.openCommandPalette).not.toHaveBeenCalled();
+    expect(event.preventDefault).toHaveBeenCalled();
   });
 
   it('uses Cmd-R to toggle Superthread instead of reloading', () => {

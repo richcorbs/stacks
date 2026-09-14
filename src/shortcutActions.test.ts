@@ -27,6 +27,7 @@ function handlers(overrides: Partial<ShortcutHandlers> = {}): ShortcutHandlers {
     adjustTerminalFontSize: vi.fn(),
     adjustUiFontSize: vi.fn(),
     openCommandPalette: vi.fn(),
+    openProjectSwitcher: vi.fn(),
     openTerminalSearch: vi.fn(),
     openSettings: vi.fn(),
     toggleSidebar: vi.fn(),
@@ -67,6 +68,7 @@ describe('runShortcutAction', () => {
     runShortcutAction('toggle-github-pull-requests', h);
     runShortcutAction('toggle-diff', h);
     runShortcutAction('toggle-project-notes', h);
+    runShortcutAction('switch-project', h);
     runShortcutAction('quit', h);
 
     expect(h.splitTerminal).toHaveBeenNthCalledWith(1, 'row');
@@ -82,6 +84,7 @@ describe('runShortcutAction', () => {
     expect(h.toggleGithubPullRequests).toHaveBeenCalled();
     expect(h.toggleDiff).toHaveBeenCalled();
     expect(h.toggleProjectNotes).toHaveBeenCalled();
+    expect(h.openProjectSwitcher).toHaveBeenCalled();
     expect(h.requestQuit).toHaveBeenCalled();
   });
 

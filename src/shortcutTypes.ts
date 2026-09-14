@@ -9,6 +9,7 @@ export type ShortcutAction =
   | 'clear-terminal'
   | 'search-terminal'
   | 'command-palette'
+  | 'switch-project'
   | 'settings'
   | 'toggle-sidebar'
   | 'toggle-superthread'
@@ -47,6 +48,7 @@ export type ShortcutHandlers = {
   adjustTerminalFontSize: (delta: number) => void;
   adjustUiFontSize: (delta: number) => void;
   openCommandPalette: () => void;
+  openProjectSwitcher: () => void;
   openTerminalSearch: () => void;
   openSettings: () => void;
   toggleSidebar: () => void;

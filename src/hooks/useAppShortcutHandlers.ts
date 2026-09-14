@@ -6,6 +6,7 @@ import { clearFocusedTerminal, runShortcutAction } from '../shortcutActions';
 import type { ShortcutAction } from '../shortcutTypes';
 import { useCommandPaletteItems } from './useCommandPaletteItems';
 import type { AppShortcutHandlerOptions } from './useAppShortcutHandlersTypes';
+import { canOpenProjectSwitcher, OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 
 export function useAppShortcutHandlers({
   store,
@@ -140,6 +141,9 @@ export function useAppShortcutHandlers({
     adjustTerminalFontSize,
     adjustUiFontSize,
     openCommandPalette: () => setCommandPaletteOpen(true),
+    openProjectSwitcher: () => {
+      if (canOpenProjectSwitcher(document)) window.dispatchEvent(new CustomEvent(OPEN_PROJECT_SWITCHER_EVENT));
+    },
     openTerminalSearch,
     openSettings: () => setSettingsOpen(true),
     toggleSidebar,
