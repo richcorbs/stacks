@@ -1,12 +1,14 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import DOMPurify from 'dompurify';
 import type { Project, SplitNode, TerminalEntry } from '../types';
 import { useKanbanBoard } from '../kanban/useKanbanBoard';
-import { KANBAN_LANES, adjacentKanbanStatus, kanbanTransitionLabel, reorderKanbanCardIds } from '../kanban/workflow';
+import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
-import { saveKanbanEnvironmentLayout } from '../kanban/api';
+import { mergeKanbanCard, saveKanbanEnvironmentLayout, setKanbanMergeTarget } from '../kanban/api';
+import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
 import { useDiffReview } from '../diffReview/useDiffReview';
@@ -113,14 +115,14 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   async function cleanupMergedCards() {
     const mergedCards = visibleCards.filter((card) => card.status === 'merged');
     setOpenLaneMenu(null);
-    if (mergedCards.length === 0 || !window.confirm(`Clean up ${mergedCards.length} merged ${mergedCards.length === 1 ? 'card' : 'cards'}?\n\nThis permanently removes their local card directories, branches, worktrees, and environments.`)) return;
+    if (mergedCards.length === 0 || !window.confirm(`Clean up ${mergedCards.length} merged ${mergedCards.length === 1 ? 'card' : 'cards'}?\n\nThis removes their card-owned processes, source worktrees, safely deletable branches, and environments. Cards remain in Merged.`)) return;
     setCleaningMerged(true);
     const failures: string[] = [];
     for (const card of mergedCards) {
       try {
         const cleaned = await onCleanupCard(card);
         if (!cleaned) failures.push(card.title);
-        else await board.remove(card.id);
+        else await board.load();
       } catch (error) {
         console.error(error);
         failures.push(card.title);
@@ -371,6 +373,23 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             await board.load();
             return true;
           }}
+          onCleanup={async (environmentRevision) => {
+            const current = selectedCard.environment
+              ? { ...selectedCard, environment: { ...selectedCard.environment, revision: environmentRevision } }
+              : selectedCard;
+            if (!await onCleanupCard(current)) return;
+            await board.load();
+          }}
+          onCardUpdated={setSelectedCard}
+          onDelete={async () => {
+            await board.remove(selectedCard.id);
+            setSelectedCard(null);
+          }}
+          onReload={async () => {
+            const updated = await board.loadDetails(selectedCard);
+            setSelectedCard(updated);
+            return updated;
+          }}
         />
       )}
     </div>
@@ -381,7 +400,7 @@ type CardView = 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console'
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
 
-function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onClose, onUpdate, onMove, onOpenChat, onStartWork }: {
+function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onClose, onUpdate, onMove, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
   card: KanbanCard;
   projects: Project[];
   terminalFontSize: number;
@@ -393,9 +412,14 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   onMove: (status: KanbanStatus) => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
   onStartWork: () => Promise<boolean>;
+  onCleanup: (environmentRevision: number) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onReload: () => Promise<KanbanCard>;
+  onCardUpdated: (card: KanbanCard) => void;
 }) {
   const projectId = card.project_id ?? projects.find((candidate) => candidate.kanban_source === card.provider)?.id ?? '';
   const [working, setWorking] = useState(false);
+  const [workflowOperation, setWorkflowOperation] = useState<CardWorkflowAction['kind'] | null>(null);
   const [activeView, setActiveView] = useState<CardView>(() => card.status !== 'needs_refinement' && card.status !== 'ready' && card.project_id ? 'chat' : 'overview');
   const [actionError, setActionError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -404,6 +428,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const [reloadingCard, setReloadingCard] = useState(false);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
   const [serverRunning, setServerRunning] = useState(() => Boolean(getTerminalSession(cardTerminalId(card.id, 'server'))?.running));
   const [consoleRunning, setConsoleRunning] = useState(() => Boolean(getTerminalSession(cardTerminalId(card.id, 'console'))?.running));
@@ -413,6 +438,10 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const [shellTree, setShellTree] = useState<SplitNode>(() => card.environment?.split_layout ?? { kind: 'leaf', terminalId: initialShellId });
   const [focusedShellPane, setFocusedShellPane] = useState(() => card.environment?.focused_pane_id ?? initialShellId);
   const environmentRevisionRef = useRef(card.environment?.revision ?? 0);
+  const savedLayoutSignatureRef = useRef(layoutSignature(
+    card.environment?.split_layout ?? { kind: 'leaf', terminalId: initialShellId },
+    card.environment?.focused_pane_id ?? initialShellId,
+  ));
   const [pendingCloseShellPane, setPendingCloseShellPane] = useState<string | null>(null);
   const diffReview = useDiffReview(card.id);
   const sanitizedContent = useMemo(() => DOMPurify.sanitize(card.content, {
@@ -426,10 +455,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const statusLabel = KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
-  const previous = adjacentKanbanStatus(card.status, -1);
-  const next = adjacentKanbanStatus(card.status, 1);
-  const previousLabel = kanbanTransitionLabel(card.status, -1);
-  const nextLabel = kanbanTransitionLabel(card.status, 1);
+  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card, projectAvailable: Boolean(projectId), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, card, projectId, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
     ...(project ? ['chat' as const] : []),
@@ -494,18 +520,48 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
     }
   }
 
+  async function reloadCard() {
+    setReloadingCard(true);
+    try {
+      const updated = await onReload();
+      environmentRevisionRef.current = updated.environment?.revision ?? 0;
+      if (updated.environment) {
+        const focusedPane = updated.environment.focused_pane_id ?? collectLeafTerminalIds(updated.environment.split_layout)[0] ?? initialShellId;
+        savedLayoutSignatureRef.current = layoutSignature(updated.environment.split_layout, focusedPane);
+        setShellTree(updated.environment.split_layout);
+        setFocusedShellPane(focusedPane);
+      }
+      setActionError(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReloadingCard(false);
+    }
+  }
+
   useEffect(() => {
-    if (!card.environment) return;
+    const environmentId = card.environment?.id;
+    if (!environmentId) return;
+    const signature = layoutSignature(shellTree, focusedShellPane);
+    if (signature === savedLayoutSignatureRef.current) return;
     const timer = window.setTimeout(() => {
       const panes: CardEnvironmentPane[] = shellTerminalIds.map((id, index) => ({
         id, role: 'shell', kind: 'terminal', command: null, sort_order: index,
       }));
       saveKanbanEnvironmentLayout(card.id, shellTree, focusedShellPane || null, panes, environmentRevisionRef.current)
-        .then((updated) => { environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current; })
+        .then((updated) => {
+          environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current;
+          savedLayoutSignatureRef.current = signature;
+          onCardUpdated(updated);
+        })
         .catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [card.id, card.environment, focusedShellPane, shellTerminalIds, shellTree]);
+  }, [card.id, card.environment?.id, focusedShellPane, shellTerminalIds, shellTree]);
+
+  useEffect(() => {
+    environmentRevisionRef.current = Math.max(environmentRevisionRef.current, card.environment?.revision ?? 0);
+  }, [card.environment?.revision]);
 
   useEffect(() => {
     const handleDetailKeyboard = (event: KeyboardEvent) => {
@@ -648,24 +704,50 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
     setEnabled(false);
   }
 
-  async function run(action: () => Promise<unknown>) {
+  async function run(action: () => Promise<unknown>, operation: CardWorkflowAction['kind'] | null = null) {
     setWorking(true);
-    try { await action(); } finally { setWorking(false); }
+    setWorkflowOperation(operation);
+    try { await action(); } finally { setWorking(false); setWorkflowOperation(null); }
   }
 
-  async function openChat() {
-    if (!projectId) return;
+  async function performWorkflowAction(action: CardWorkflowAction) {
+    if (action.disabledReason) return;
+    if (action.confirmation && !window.confirm(`${action.confirmation.title}\n\n${action.confirmation.detail}`)) return;
     setActionError(null);
-    setActiveView('chat');
-    setWorking(true);
-    try {
-      await onOpenChat(projectId);
-    } catch (error) {
-      setActiveView('overview');
-      setActionError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setWorking(false);
-    }
+    await run(async () => {
+      switch (action.kind) {
+        case 'open_refinement':
+          if (!projectId) return;
+          await onOpenChat(projectId);
+          setActiveView('chat'); return;
+        case 'open_agent': setActiveView('chat'); return;
+        case 'finish_refinement': await onMove('ready'); return;
+        case 'return_to_refinement': await onMove('needs_refinement'); setActiveView('chat'); return;
+        case 'start_work': if (await onStartWork()) setActiveView('chat'); return;
+        case 'request_changes':
+          if (card.status === 'approved') await onMove('needs_human');
+          setActiveView('chat'); return;
+        case 'approve': await onMove('approved'); return;
+        case 'reopen': await onMove(card.environment ? 'approved' : 'ready'); return;
+        case 'merge': {
+          if (!card.environment) throw new Error('Card environment is missing');
+          const result = await mergeKanbanCard(card.id, card.workflow_revision, environmentRevisionRef.current);
+          await onReload();
+          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          return;
+        }
+        case 'cleanup': await onCleanup(environmentRevisionRef.current); return;
+        case 'delete': await onDelete(); return;
+        case 'set_merge_target': {
+          if (!card.environment) throw new Error('Card environment is missing');
+          const selected = await open({ directory: true, multiple: false, title: 'Select registered merge target worktree' });
+          if (!selected) return;
+          await setKanbanMergeTarget(card.id, selected, environmentRevisionRef.current);
+          await onReload();
+          return;
+        }
+      }
+    }, action.kind).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
   }
 
   function submitDiffReview() {
@@ -721,7 +803,12 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
             </span>
           )}
         </nav>
-        {actionError && <div className="kanbanActionError">{actionError}</div>}
+        {actionError?.includes('environment changed') && <div className="kanbanActionError" role="alert">
+          <span>{actionError}</span>
+          <button type="button" disabled={reloadingCard} onClick={reloadCard}>
+            {reloadingCard ? 'Reloading…' : 'Reload card'}
+          </button>
+        </div>}
         <section className={`kanbanDetailContent cardView${activeView === 'overview' ? ' active' : ''}${editing ? ' editing' : ''}`}>
           {editing ? (
             <div className="kanbanCardDescriptionEditor">
@@ -733,6 +820,15 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               ? <div className="kanbanLocalDescription">{card.content}</div>
               : <div dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
             : <p className="kanbanMuted">No description.</p>}
+          {!editing && card.events.length > 0 && <details className="cardHistory">
+            <summary>History ({card.events.length})</summary>
+            <ol>{card.events.map((event) => <li key={event.id}>
+              <time>{new Date(event.created_at * 1000).toLocaleString()}</time>
+              <span>{event.actor} · {event.event_type} · {event.outcome}</span>
+              <strong>{event.from_status && event.to_status ? `${event.from_status} → ${event.to_status}` : event.summary}</strong>
+              {event.error_detail && <small>{event.error_detail}</small>}
+            </li>)}</ol>
+          </details>}
         </section>
         {project && (
           <section className={`cardChatView cardView${showChat ? ' active' : ''}`} aria-label="Card chat">
@@ -816,53 +912,36 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         </section>
         {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={serverEnabled} active={activeView === 'server'} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={consoleEnabled} active={activeView === 'console'} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        <footer>
+        <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
           {editing ? (
             <div className="kanbanEditActions">
               <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
               <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>{savingEdit ? 'Saving…' : 'Save'}</button>
             </div>
-          ) : showChat ? (
-            card.status === 'needs_refinement' ? (
-              <button className="primaryAction cardFinishRefinement" type="button" disabled={working} onClick={() => run(() => onMove('ready'))}>Finish refinement</button>
-            ) : null
-          ) : activeView === 'diff' ? (
-            <>
-              <button type="button" onClick={() => requestView('overview')}>Back to card</button>
-              <button type="button" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>Refresh the diff</button>
-            </>
-          ) : activeView === 'terminal' ? (
-            <>
-              <button type="button" onClick={() => requestView('overview')}>Back to card</button>
-              <span className="kanbanMuted">Commands run in the card worktree.</span>
-            </>
-          ) : activeView === 'server' || activeView === 'console' ? null : (
-            <>
-              <div className="kanbanDetailTransitions">
-                {previous && previousLabel && <button type="button" disabled={working} onClick={() => run(() => onMove(previous))}>← {previousLabel}</button>}
-                {next && nextLabel && card.status !== 'needs_refinement' && (card.status !== 'ready' || Boolean(card.environment)) && (
-                  <button type="button" disabled={working} onClick={() => run(() => onMove(next))}>{nextLabel} →</button>
-                )}
-              </div>
-              {card.status === 'needs_refinement' ? (
-                <div className="kanbanStartWork">
-                  <button className="primaryAction" type="button" disabled={working || !projectId} onClick={openChat}>
-                    {working ? 'Opening…' : 'Refine'}
-                  </button>
-                </div>
-              ) : card.environment ? (
-                <button className="primaryAction" type="button" onClick={() => requestView('terminal')}>Open terminal</button>
-              ) : card.status === 'ready' ? (
-                <div className="kanbanStartWork">
-                  <button className="primaryAction" type="button" disabled={working || !projectId} onClick={() => run(async () => {
-                    if (await onStartWork()) setActiveView('chat');
-                  })}>
-                    {working ? 'Starting…' : 'Start agent work'}
-                  </button>
-                </div>
-              ) : null}
-            </>
-          )}
+          ) : <>
+            <div className="cardFooterSecondary" aria-label="Tab controls">
+              {activeView === 'diff' && <button type="button" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>Refresh diff</button>}
+              {activeView === 'terminal' && <span className="kanbanMuted">Commands run in the card worktree.</span>}
+              {(activeView === 'server' || activeView === 'console') && <span className="kanbanMuted">Controls are in the tab.</span>}
+            </div>
+            <div className="cardFooterContext" aria-live="polite">
+              <strong>{statusLabel}</strong>
+              {working && <span>Working…</span>}
+              {!working && actionError && !actionError.includes('environment changed') && <span className="cardFooterError" role="alert">{actionError}</span>}
+              {!working && !actionError && card.status === 'merged' && !card.environment && <span>A new environment is required to resume work.</span>}
+            </div>
+            <div className="cardFooterActions" aria-label="Workflow actions">
+              {workflowActions.map((action) => <button
+                key={action.kind}
+                type="button"
+                className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}`}
+                disabled={working || Boolean(action.disabledReason)}
+                title={action.disabledReason}
+                aria-label={action.label}
+                onClick={() => performWorkflowAction(action)}
+              >{action.loading ? 'Working…' : action.label}</button>)}
+            </div>
+          </>}
         </footer>
       </article>
     </div>
@@ -916,6 +995,10 @@ function CardServiceTerminal({ mode, command, enabled, active, card, project, ca
       />
     </Suspense> : <div className="kanbanEmpty">{mode === 'server' ? 'Rails server' : 'Rails console'} is stopped. Use the play button in the tab to start it.</div>}
   </section>;
+}
+
+function layoutSignature(tree: SplitNode, focusedPaneId: string | null) {
+  return JSON.stringify([tree, focusedPaneId]);
 }
 
 function clearWrappedPrompt(term: import('@xterm/xterm').Terminal) {

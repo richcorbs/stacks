@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjacentKanbanStatus, isManagedSuperthreadList, kanbanTransitionLabel, reorderKanbanCardIds } from './workflow';
+import { adjacentKanbanStatus, isManagedSuperthreadList, reorderKanbanCardIds } from './workflow';
 
 describe('Kanban workflow', () => {
   it('imports execution columns from every board', () => {
@@ -26,12 +26,5 @@ describe('Kanban workflow', () => {
   it('reorders cards without changing their column membership', () => {
     expect(reorderKanbanCardIds(['a', 'b', 'c'], 'c', 'a')).toEqual(['c', 'a', 'b']);
     expect(reorderKanbanCardIds(['a', 'b', 'c'], 'a', null)).toEqual(['b', 'c', 'a']);
-  });
-
-  it('describes transitions as workflow actions', () => {
-    expect(kanbanTransitionLabel('needs_refinement', 1)).toBe('Refine');
-    expect(kanbanTransitionLabel('agent_working', 1)).toBe('Request human review');
-    expect(kanbanTransitionLabel('needs_human', -1)).toBe('Send back for more work');
-    expect(kanbanTransitionLabel('merged', 1)).toBeNull();
   });
 });

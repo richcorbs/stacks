@@ -32,10 +32,11 @@ use github::{
     github_pull_requests,
 };
 use kanban::{
-    kanban_cards, kanban_create_environment, kanban_create_local_card, kanban_delete_card,
-    kanban_finish_local_refinement, kanban_open_card, kanban_reorder_cards,
-    kanban_save_environment_layout, kanban_set_project, kanban_set_status,
-    kanban_sync_superthread_cards, kanban_update_local_card,
+    kanban_cards, kanban_cleanup_environment, kanban_create_environment, kanban_create_local_card,
+    kanban_delete_card, kanban_environment_start_preflight, kanban_finish_local_refinement,
+    kanban_merge_card, kanban_open_card, kanban_reorder_cards, kanban_save_environment_layout,
+    kanban_set_merge_target, kanban_set_project, kanban_set_status, kanban_sync_superthread_cards,
+    kanban_update_local_card,
 };
 use menu::app_menu;
 use notifications::notify_attention;
@@ -151,7 +152,11 @@ pub fn run() {
             kanban_set_status,
             kanban_reorder_cards,
             kanban_set_project,
+            kanban_environment_start_preflight,
+            kanban_cleanup_environment,
             kanban_create_environment,
+            kanban_set_merge_target,
+            kanban_merge_card,
             kanban_save_environment_layout,
             drain_automation_requests,
             complete_automation_request,

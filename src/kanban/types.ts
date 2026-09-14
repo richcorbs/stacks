@@ -30,12 +30,30 @@ export type CardEnvironment = {
   project_id: string;
   worktree_path: string;
   branch: string;
+  repository_id: string | null;
+  target_checkout_path: string | null;
+  target_branch: string | null;
+  source_revision: string | null;
+  target_revision: string | null;
   lifecycle_state: 'creating' | 'ready' | 'cleanup_pending' | 'cleanup_failed';
   revision: number;
   split_layout: import('../types').SplitNode;
   focused_pane_id: string | null;
   panes: CardEnvironmentPane[];
   services: CardServiceDefinition[];
+};
+
+export type CardEvent = {
+  id: number;
+  created_at: number;
+  actor: 'user' | 'agent' | 'system';
+  event_type: string;
+  outcome: 'success' | 'failure';
+  from_status: KanbanStatus | null;
+  to_status: KanbanStatus | null;
+  summary: string | null;
+  error_code: string | null;
+  error_detail: string | null;
 };
 
 export type KanbanCard = {
@@ -51,11 +69,13 @@ export type KanbanCard = {
   card_url: string;
   assignee_names: string[];
   status: KanbanStatus;
+  workflow_revision: number;
   project_id: string | null;
   environment: CardEnvironment | null;
   created_at: number;
   updated_at: number;
   sort_order: number;
+  events: CardEvent[];
 };
 
 /** Compatibility result for the legacy Superthread panel; cards themselves no longer own workspaces. */

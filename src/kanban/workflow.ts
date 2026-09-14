@@ -25,26 +25,6 @@ export function adjacentKanbanStatus(status: KanbanStatus, offset: -1 | 1) {
   return KANBAN_STATUSES[index + offset] ?? null;
 }
 
-const FORWARD_LABELS: Partial<Record<KanbanStatus, string>> = {
-  needs_refinement: 'Refine',
-  ready: 'Start agent work',
-  agent_working: 'Request human review',
-  needs_human: 'Approve',
-  approved: 'Mark merged',
-};
-
-const BACK_LABELS: Partial<Record<KanbanStatus, string>> = {
-  ready: 'Needs more refinement',
-  agent_working: 'Return to ready',
-  needs_human: 'Send back for more work',
-  approved: 'Request changes',
-  merged: 'Reopen',
-};
-
-export function kanbanTransitionLabel(status: KanbanStatus, direction: -1 | 1) {
-  return (direction === 1 ? FORWARD_LABELS : BACK_LABELS)[status] ?? null;
-}
-
 export function reorderKanbanCardIds(ids: string[], sourceId: string, beforeId: string | null) {
   const reordered = ids.filter((id) => id !== sourceId);
   const targetIndex = beforeId ? reordered.indexOf(beforeId) : reordered.length;

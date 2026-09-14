@@ -264,7 +264,7 @@ pub async fn cleanup_git_worktree(
             return Ok(());
         }
         let deleted = Command::new("git")
-            .args(["-C", &repository_path, "branch", "-D", "--", branch])
+            .args(["-C", &repository_path, "branch", "-d", "--", branch])
             .output()
             .map_err(|error| error.to_string())?;
         if !deleted.status.success() {
