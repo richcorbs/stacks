@@ -389,7 +389,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .cardHistory li strong { color: #aebdcb; font-weight: 500; }
 .cardHistory li small { grid-column: 2 / -1; color: #d38b91; white-space: pre-wrap; }
 .kanbanMuted { color: #607389; }
-.kanbanDetail > footer { flex: 0 0 auto; min-width: 0; min-height: 62px; box-sizing: border-box; padding: 10px 20px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; border-top: 1px solid #223142; background: #101923; }
+.kanbanDetail > footer { flex: 0 0 auto; min-width: 0; min-height: 62px; box-sizing: border-box; padding: 10px 14px 10px 20px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; border-top: 1px solid #223142; background: #101923; }
 .cardFooterContext, .cardFooterActions { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .cardFooterContext { align-items: flex-start; justify-content: center; flex-direction: column; gap: 2px; overflow: hidden; color: #93a4b7; font-size: calc(10px + var(--ui-font-delta, 0px)); text-align: left; }
 .cardFooterContext > span { box-sizing: border-box; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
