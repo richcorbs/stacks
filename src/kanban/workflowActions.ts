@@ -67,6 +67,7 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
         if (project?.delivery_workflow === 'github_pull_request') {
           if (!card.pull_request || card.pull_request.state === 'closed') return [
             { kind: 'request_changes', label: 'Request changes' },
+            { kind: 'ship', label: 'Ship It again' },
             { kind: 'create_pr', label: 'Create PR', primary: true },
           ];
           if (card.pull_request.state === 'merged') return [];
@@ -78,6 +79,7 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
         }
         return [
           { kind: 'request_changes', label: 'Request changes' },
+          { kind: 'ship', label: 'Ship It again' },
           { kind: 'merge_local', label: 'Merge locally', primary: true, confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } },
         ];
       }

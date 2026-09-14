@@ -1219,14 +1219,17 @@ fn approve_and_commit(
     let expected_agent_cycle = match status.as_str() {
         "needs_human" => card_revision == expected_card || card_revision == expected_card + 2,
         "agent_working" => card_revision == expected_card + 1,
+        "approved" => card_revision == expected_card,
         _ => false,
     };
     if !expected_agent_cycle {
-        return Err(if status == "needs_human" || status == "agent_working" {
-            "Card changed; reload before approving".to_string()
-        } else {
-            "Only a Needs you card can be approved".to_string()
-        });
+        return Err(
+            if status == "needs_human" || status == "agent_working" || status == "approved" {
+                "Card changed; reload before approving".to_string()
+            } else {
+                "Only a Needs you or Ready to merge card can be approved".to_string()
+            },
+        );
     }
     let (source_path, source_branch, repository_id, environment_revision, lifecycle_state): (String, String, Option<String>, i64, String) = transaction
         .query_row(
@@ -1280,8 +1283,8 @@ fn approve_and_commit(
     let source_tip = git_output(canonical_path, &["rev-parse", "HEAD"])?;
     let now = unix_timestamp();
     let changed_rows = transaction.execute(
-        "UPDATE kanban_cards SET status='approved', feature_environment=?1, delivery_error=NULL, workflow_revision=workflow_revision+1, updated_at=?2,
-         sort_order=(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status='approved')
+        "UPDATE kanban_cards SET status='approved', feature_environment=CASE WHEN status='approved' THEN feature_environment ELSE ?1 END, delivery_error=NULL, workflow_revision=workflow_revision+1, updated_at=?2,
+         sort_order=CASE WHEN status='approved' THEN sort_order ELSE (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status='approved') END
          WHERE id=?3 AND workflow_revision=?4 AND status=?5",
         params![feature_environment as i64, now, id, card_revision, status],
     ).map_err(db_error)?;
@@ -1300,7 +1303,11 @@ fn approve_and_commit(
     let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
     Ok(WorkflowOperationResult {
         card,
-        message: "Work committed and verified; card is Ready to merge".to_string(),
+        message: if status == "approved" {
+            "Work re-verified; source revision refreshed for merging".to_string()
+        } else {
+            "Work committed and verified; card is Ready to merge".to_string()
+        },
         idempotent: false,
     })
 }
@@ -3336,6 +3343,47 @@ mod tests {
             [], |row| Ok((row.get(0)?, row.get(1)?)),
         ).unwrap();
         assert_eq!(event, ("approve_and_commit".into(), "success".into()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn approved_card_can_be_shipped_again_after_its_source_revision_changes() {
+        let (root, target, source) = merge_repository();
+        let mut connection = approval_connection(&source, &target);
+        let first = approve_and_commit(&mut connection, "local:approve", 5, 2, false).unwrap();
+        assert_eq!(first.card.status, "approved");
+
+        fs::write(source.join("after-ship.txt"), "follow-up\n").unwrap();
+        git_ok(&source, &["add", "."]);
+        git_ok(&source, &["commit", "-m", "follow-up after ship"]);
+        let changed_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let merge_error = merge_card(&mut connection, "local:approve", 6, 3).unwrap_err();
+        assert!(
+            merge_error.to_lowercase().contains("ship it again"),
+            "{merge_error}"
+        );
+
+        let refreshed = approve_and_commit(&mut connection, "local:approve", 6, 3, false).unwrap();
+        assert_eq!(refreshed.card.status, "approved");
+        assert_eq!(refreshed.card.workflow_revision, 7);
+        assert_eq!(
+            refreshed
+                .card
+                .environment
+                .as_ref()
+                .unwrap()
+                .source_revision
+                .as_deref(),
+            Some(changed_tip.as_str())
+        );
+        assert!(refreshed.message.contains("re-verified"));
+        assert_eq!(
+            merge_card(&mut connection, "local:approve", 7, 4)
+                .unwrap()
+                .card
+                .status,
+            "done"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
