@@ -4,7 +4,7 @@ import { Type } from "typebox";
 
 type StacksResponse = { ok: boolean; message: string };
 type CardRequest = {
-  action: "createLocalCard" | "updateLocalCard" | "finishLocalCardRefinement" | "startLocalCardWork";
+  action: "createLocalCard" | "updateLocalCard" | "finishLocalCardRefinement" | "finishExternalCardRefinement" | "startLocalCardWork";
   projectId?: string;
   cardId?: string;
   title?: string;
@@ -51,11 +51,35 @@ export default function stacksCards(pi: ExtensionAPI) {
     });
   }
 
-  // Card editing and workflow tools remain limited to the owning local card's
-  // planning conversation. Ordinary project sessions only receive create_card.
-  if (!cardId?.startsWith("local:") || thread !== "planning" || kanbanSource !== "local") return;
+  // Card workflow tools remain limited to the owning card's planning
+  // conversation. Ordinary project sessions only receive create_card.
+  if (!cardId || thread !== "planning") return;
   const request = (payload: Omit<CardRequest, "cardId">, signal?: AbortSignal) =>
     sendRequest(socketPath, { ...payload, cardId }, signal);
+
+  if (cardId.startsWith("superthread:") && kanbanSource === "superthread") {
+    pi.registerTool({
+      name: "finish_refinement",
+      label: "Finish refinement",
+      description: "Move the active externally managed card to Ready for agent in Stacks. Call this only after the complete final brief has been successfully saved to the source card.",
+      promptSnippet: "Move the active externally managed card to Ready for agent after its final brief is saved",
+      promptGuidelines: [
+        "Use the source provider's card tools to save the complete final brief before calling finish_refinement.",
+        "Call finish_refinement only after the source card update succeeds and only when the user explicitly approves the final brief or asks to finish refinement.",
+      ],
+      parameters: Type.Object({}),
+      async execute(_toolCallId, _params, signal) {
+        const response = await request({ action: "finishExternalCardRefinement" }, signal);
+        return {
+          content: [{ type: "text", text: response.message }],
+          details: { cardId, updated: "status" },
+        };
+      },
+    });
+    return;
+  }
+
+  if (!cardId.startsWith("local:")) return;
 
   pi.registerTool({
     name: "update_card_description",

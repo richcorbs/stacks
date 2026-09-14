@@ -119,6 +119,15 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, state: AutomationSt
                 "Saved the final brief and finished refinement",
             ));
         }
+        if client_request.action == "finishExternalCardRefinement" {
+            let card_id = client_request
+                .card_id
+                .ok_or_else(|| "A scoped card ID is required".to_string())?;
+            crate::kanban::kanban_finish_external_refinement(card_id)?;
+            return Ok(AutomationResponse::success(
+                "Finished refinement and moved the card to Ready for agent",
+            ));
+        }
 
         let request = AutomationRequest {
             request_id: Uuid::new_v4().to_string(),

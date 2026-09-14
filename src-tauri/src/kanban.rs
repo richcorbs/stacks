@@ -324,6 +324,54 @@ pub(crate) fn finish_local_refinement(
     get_card(connection, id)?.ok_or_else(|| "Local Kanban card was not found".to_string())
 }
 
+pub(crate) fn kanban_finish_external_refinement(id: String) -> Result<KanbanCard, String> {
+    with_connection(|connection| finish_external_refinement(connection, &id))
+}
+
+pub(crate) fn finish_external_refinement(
+    connection: &mut Connection,
+    id: &str,
+) -> Result<KanbanCard, String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let (provider, status, revision): (String, String, i64) = transaction
+        .query_row(
+            "SELECT external_provider, status, workflow_revision FROM kanban_cards WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    if provider != "superthread" {
+        return Err("Only an externally managed card can use this refinement action".to_string());
+    }
+    if status == "ready" {
+        transaction.commit().map_err(db_error)?;
+        return get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string());
+    }
+    if status != "needs_refinement" {
+        return Err("Only a card being refined can finish refinement".to_string());
+    }
+    let now = unix_timestamp();
+    let changed = transaction.execute(
+        "UPDATE kanban_cards SET status = 'ready', workflow_revision = workflow_revision + 1, updated_at = ?1,
+            sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'ready')
+         WHERE id = ?2 AND status = 'needs_refinement' AND workflow_revision = ?3",
+        params![now, id, revision],
+    ).map_err(db_error)?;
+    if changed == 0 {
+        return Err("Card changed; reload before finishing refinement".to_string());
+    }
+    transaction.execute(
+        "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, 'agent', 'status_transition', 'success', 'needs_refinement', 'ready')",
+        params![id, now],
+    ).map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
+}
+
 #[tauri::command]
 pub fn kanban_open_card(id: String) -> Result<String, String> {
     with_connection(|connection| {
@@ -3000,6 +3048,56 @@ mod tests {
         local_card(&mut connection);
 
         assert!(finish_local_refinement(&mut connection, "local:test", None, "  ").is_err());
+        assert_eq!(
+            get_card(&connection, "local:test").unwrap().unwrap().status,
+            "needs_refinement"
+        );
+    }
+
+    #[test]
+    fn finishing_external_refinement_marks_the_card_ready_and_is_idempotent() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let now = unix_timestamp();
+        connection.execute(
+            "INSERT INTO kanban_cards
+             (id, external_provider, external_id, title, content, status, workflow_revision, created_at, updated_at)
+             VALUES ('superthread:42', 'superthread', '42', 'External card', 'Saved final brief', 'needs_refinement', 4, ?1, ?1)",
+            [now],
+        ).unwrap();
+
+        let updated = finish_external_refinement(&mut connection, "superthread:42").unwrap();
+        assert_eq!(updated.status, "ready");
+        assert_eq!(updated.workflow_revision, 5);
+        assert_eq!(connection.query_row(
+            "SELECT COUNT(*) FROM card_events WHERE card_id='superthread:42' AND from_status='needs_refinement' AND to_status='ready'",
+            [],
+            |row| row.get::<_, i64>(0),
+        ).unwrap(), 1);
+
+        let retried = finish_external_refinement(&mut connection, "superthread:42").unwrap();
+        assert_eq!(retried.status, "ready");
+        assert_eq!(retried.workflow_revision, 5);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM card_events WHERE card_id='superthread:42'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn external_refinement_action_rejects_local_cards() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        local_card(&mut connection);
+
+        let error = finish_external_refinement(&mut connection, "local:test").unwrap_err();
+        assert!(error.contains("externally managed card"));
         assert_eq!(
             get_card(&connection, "local:test").unwrap().unwrap().status,
             "needs_refinement"
