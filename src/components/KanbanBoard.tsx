@@ -7,14 +7,16 @@ import { useKanbanBoard } from '../kanban/useKanbanBoard';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
-import { mergeKanbanCard, saveKanbanEnvironmentLayout, setKanbanMergeTarget } from '../kanban/api';
+import { approveAndCommitKanbanCard, mergeKanbanCard, saveKanbanEnvironmentLayout, setKanbanMergeTarget } from '../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
-import { hasGitChanges, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
+import { hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
+import { runApproveAndCommit } from '../kanban/approveAndCommit';
+import { sendPromptToPiAndWait } from '../pi/promptEvent';
 import { canEditKanbanCard, hasDirtyCardDraft } from '../kanban/cardEditing';
 import { GithubStatusIcon } from './GithubStatusIcon';
 import { TerminalView } from './TerminalView';
@@ -456,6 +458,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const projectId = card.project_id ?? projects.find((candidate) => candidate.kanban_source === card.provider)?.id ?? '';
   const [working, setWorking] = useState(false);
   const [workflowOperation, setWorkflowOperation] = useState<CardWorkflowAction['kind'] | null>(null);
+  const workflowRunningRef = useRef(false);
   const [activeView, setActiveView] = useState<CardView>(() => card.status !== 'needs_refinement' && card.status !== 'ready' && card.project_id ? 'chat' : 'overview');
   const [actionError, setActionError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -491,7 +494,8 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const statusLabel = KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
-  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card, projectAvailable: Boolean(projectId), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, card, projectId, workflowOperation]);
+  const workflowCard = workflowOperation === 'approve_and_commit' ? { ...card, status: 'needs_human' as const } : card;
+  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, projectAvailable: Boolean(projectId), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, projectId, workflowCard, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
     ...(project ? ['chat' as const] : []),
@@ -741,13 +745,19 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   }
 
   async function run(action: () => Promise<unknown>, operation: CardWorkflowAction['kind'] | null = null) {
+    if (workflowRunningRef.current) return;
+    workflowRunningRef.current = true;
     setWorking(true);
     setWorkflowOperation(operation);
-    try { await action(); } finally { setWorking(false); setWorkflowOperation(null); }
+    try { await action(); } finally {
+      workflowRunningRef.current = false;
+      setWorking(false);
+      setWorkflowOperation(null);
+    }
   }
 
   async function performWorkflowAction(action: CardWorkflowAction) {
-    if (action.disabledReason) return;
+    if (workflowRunningRef.current || action.disabledReason) return;
     if (action.confirmation && !window.confirm(`${action.confirmation.title}\n\n${action.confirmation.detail}`)) return;
     setActionError(null);
     await run(async () => {
@@ -763,7 +773,24 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         case 'request_changes':
           if (card.status === 'approved') await onMove('needs_human');
           setActiveView('chat'); return;
-        case 'approve': await onMove('approved'); return;
+        case 'approve_and_commit': {
+          if (!card.environment) throw new Error('Card environment is missing');
+          const expectedWorkflowRevision = card.workflow_revision;
+          const expectedEnvironmentRevision = environmentRevisionRef.current;
+          const result = await runApproveAndCommit({
+            showAgent: () => setActiveView('chat'),
+            sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'work'), prompt),
+            finalize: () => approveAndCommitKanbanCard(card.id, expectedWorkflowRevision, expectedEnvironmentRevision),
+            refresh: async () => {
+              const updated = await onReload();
+              environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current;
+              setDiffRefreshNonce((nonce) => nonce + 1);
+              window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+            },
+          });
+          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          return;
+        }
         case 'reopen': await onMove(card.environment ? 'approved' : 'ready'); return;
         case 'merge': {
           if (!card.environment) throw new Error('Card environment is missing');
