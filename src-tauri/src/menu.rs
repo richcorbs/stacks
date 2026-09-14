@@ -18,6 +18,12 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
             Some("Cmd+N"),
         ),
         (
+            "menu-shortcut-switch-project",
+            "Switch Project",
+            "Cmd+Shift+P",
+            Some("Cmd+Shift+P"),
+        ),
+        (
             "menu-shortcut-focus-next-unseen-workspace",
             "Focus Next Workspace with Unseen Output",
             "Cmd+Shift+N",

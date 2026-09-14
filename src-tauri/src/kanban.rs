@@ -783,6 +783,175 @@ pub fn kanban_set_merge_target(
 }
 
 #[tauri::command]
+pub async fn kanban_approve_and_commit(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_environment_revision: i64,
+) -> Result<WorkflowOperationResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = REPOSITORY_OPERATION_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "Repository operation lock failed".to_string())?;
+        with_connection(|connection| {
+            approve_and_commit_with_failure_record(
+                connection,
+                &id,
+                expected_workflow_revision,
+                expected_environment_revision,
+            )
+        })
+    })
+    .await
+    .map_err(|error| format!("Approval worker failed: {error}"))?
+}
+
+fn approve_and_commit_with_failure_record(
+    connection: &mut Connection,
+    id: &str,
+    expected_card: i64,
+    expected_environment: i64,
+) -> Result<WorkflowOperationResult, String> {
+    let result = approve_and_commit(connection, id, expected_card, expected_environment);
+    if let Err(detail) = &result {
+        let _ = connection.execute(
+            "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, error_code, error_detail) VALUES (?1, ?2, 'user', 'approve_and_commit', 'failure', 'approval_failed', ?3)",
+            params![id, unix_timestamp(), detail],
+        );
+    }
+    result
+}
+
+fn approve_and_commit(
+    connection: &mut Connection,
+    id: &str,
+    expected_card: i64,
+    expected_environment: i64,
+) -> Result<WorkflowOperationResult, String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let (status, card_revision): (String, i64) = transaction
+        .query_row(
+            "SELECT status, workflow_revision FROM kanban_cards WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    let expected_agent_cycle = match status.as_str() {
+        "needs_human" => card_revision == expected_card || card_revision == expected_card + 2,
+        "agent_working" => card_revision == expected_card + 1,
+        _ => false,
+    };
+    if !expected_agent_cycle {
+        return Err(if status == "needs_human" || status == "agent_working" {
+            "Card changed; reload before approving".to_string()
+        } else {
+            "Only a Needs you card can be approved".to_string()
+        });
+    }
+    let (source_path, source_branch, repository_id, environment_revision, lifecycle_state): (String, String, Option<String>, i64, String) = transaction
+        .query_row(
+            "SELECT worktree_path, branch, repository_id, revision, lifecycle_state FROM card_environments WHERE card_id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "This card has no work environment to approve".to_string())?;
+    if environment_revision != expected_environment {
+        return Err("Card environment changed; reload before approving".to_string());
+    }
+    if lifecycle_state != "ready" {
+        return Err("Card work environment is not ready for approval".to_string());
+    }
+    let repository_id = repository_id
+        .ok_or_else(|| "Card work environment has no recorded repository".to_string())?;
+    let canonical_path = Path::new(&source_path)
+        .canonicalize()
+        .map_err(|error| format!("Source checkout does not exist at {source_path}: {error}"))?;
+    let canonical_path = canonical_path
+        .to_str()
+        .ok_or_else(|| "Source checkout path is not valid UTF-8".to_string())?;
+    if repository_identity(canonical_path)? != repository_id {
+        return Err("Source checkout belongs to a different repository".to_string());
+    }
+    let current_branch = git_output(
+        canonical_path,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )
+    .map_err(|_| "Source checkout is detached; a named branch is required".to_string())?;
+    if current_branch != source_branch {
+        return Err(format!(
+            "Source checkout is on {current_branch}, expected {source_branch}"
+        ));
+    }
+    if has_git_operation(canonical_path)? {
+        return Err("Source checkout has an in-progress Git operation".to_string());
+    }
+    let status_output = git_output(
+        canonical_path,
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+    )?;
+    let (created, changed, deleted) = git_status_counts(&status_output);
+    if created + changed + deleted > 0 {
+        return Err(format!(
+            "Approval failed: worktree is not clean ({created} new, {changed} modified, {deleted} deleted files remain)"
+        ));
+    }
+    let source_tip = git_output(canonical_path, &["rev-parse", "HEAD"])?;
+    let now = unix_timestamp();
+    let changed_rows = transaction.execute(
+        "UPDATE kanban_cards SET status='approved', workflow_revision=workflow_revision+1, updated_at=?1,
+         sort_order=(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status='approved')
+         WHERE id=?2 AND workflow_revision=?3 AND status=?4",
+        params![now, id, card_revision, status],
+    ).map_err(db_error)?;
+    if changed_rows == 0 {
+        return Err("Card changed; reload before approving".to_string());
+    }
+    transaction.execute(
+        "UPDATE card_environments SET source_revision=?1, revision=revision+1, updated_at=?2 WHERE card_id=?3 AND revision=?4",
+        params![source_tip, now, id, expected_environment],
+    ).map_err(db_error)?;
+    transaction.execute(
+        "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status, summary) VALUES (?1, ?2, 'user', 'approve_and_commit', 'success', ?3, 'approved', 'Verified clean source worktree')",
+        params![id, now, status],
+    ).map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+    Ok(WorkflowOperationResult {
+        card,
+        message: "Work committed and verified; card is Ready to merge".to_string(),
+        idempotent: false,
+    })
+}
+
+fn git_status_counts(text: &str) -> (u32, u32, u32) {
+    let mut created = 0;
+    let mut changed = 0;
+    let mut deleted = 0;
+    for line in text.lines().filter(|line| line.len() >= 2) {
+        let status = &line[..2];
+        let index = status.as_bytes()[0] as char;
+        let worktree = status.as_bytes()[1] as char;
+        if status == "??" || index == 'A' || worktree == 'A' {
+            created += 1;
+        } else if index == 'D' || worktree == 'D' {
+            deleted += 1;
+        } else if [index, worktree]
+            .iter()
+            .any(|value| matches!(value, 'M' | 'R' | 'C' | 'T' | 'U'))
+        {
+            changed += 1;
+        }
+    }
+    (created, changed, deleted)
+}
+
+#[tauri::command]
 pub async fn kanban_merge_card(
     id: String,
     expected_workflow_revision: i64,
@@ -1763,6 +1932,123 @@ mod tests {
         git_ok(&source, &["add", "."]);
         git_ok(&source, &["commit", "-m", "feature"]);
         (root, target, source)
+    }
+
+    fn approval_connection(source: &Path, target: &Path) -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let now = unix_timestamp();
+        connection.execute("INSERT INTO kanban_cards (id, external_provider, external_id, title, status, workflow_revision, created_at, updated_at) VALUES ('local:approve', 'local:p', '1', 'Approve', 'needs_human', 5, ?1, ?1)", [now]).unwrap();
+        let repository = repository_identity(target.to_str().unwrap()).unwrap();
+        let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        connection.execute("INSERT INTO card_environments (id, card_id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, lifecycle_state, revision, created_at, updated_at) VALUES ('approve-e', 'local:approve', 'p', ?1, 'feature', ?2, ?3, 'main', ?4, ?5, 'ready', 2, ?6, ?6)", params![source.to_str().unwrap(), repository, target.to_str().unwrap(), source_tip, target_tip, now]).unwrap();
+        connection
+    }
+
+    #[test]
+    fn approval_accepts_clean_committed_work_and_records_transition() {
+        let (root, target, source) = merge_repository();
+        let mut connection = approval_connection(&source, &target);
+        let result =
+            approve_and_commit_with_failure_record(&mut connection, "local:approve", 5, 2).unwrap();
+        assert_eq!(result.card.status, "approved");
+        assert_eq!(result.card.workflow_revision, 6);
+        assert_eq!(result.card.environment.unwrap().revision, 3);
+        let event: (String, String) = connection.query_row(
+            "SELECT event_type, outcome FROM card_events WHERE card_id='local:approve' ORDER BY id DESC LIMIT 1",
+            [], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(event, ("approve_and_commit".into(), "success".into()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn approval_reconciles_the_expected_agent_status_cycle() {
+        for (status, revision) in [("agent_working", 6), ("needs_human", 7)] {
+            let (root, target, source) = merge_repository();
+            let mut connection = approval_connection(&source, &target);
+            connection.execute("UPDATE kanban_cards SET status=?1, workflow_revision=?2 WHERE id='local:approve'", params![status, revision]).unwrap();
+            let result = approve_and_commit(&mut connection, "local:approve", 5, 2).unwrap();
+            assert_eq!(result.card.status, "approved");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn approval_reports_modified_staged_untracked_and_deleted_files() {
+        enum Dirty {
+            Modified,
+            Staged,
+            Untracked,
+            Deleted,
+        }
+        for (dirty, expected_counts) in [
+            (Dirty::Modified, "0 new, 1 modified, 0 deleted"),
+            (Dirty::Staged, "0 new, 1 modified, 0 deleted"),
+            (Dirty::Untracked, "1 new, 0 modified, 0 deleted"),
+            (Dirty::Deleted, "0 new, 0 modified, 1 deleted"),
+        ] {
+            let (root, target, source) = merge_repository();
+            let mut connection = approval_connection(&source, &target);
+            match dirty {
+                Dirty::Modified => fs::write(source.join("feature.txt"), "changed\n").unwrap(),
+                Dirty::Staged => {
+                    fs::write(source.join("feature.txt"), "staged\n").unwrap();
+                    git_ok(&source, &["add", "feature.txt"]);
+                }
+                Dirty::Untracked => fs::write(source.join("new.txt"), "new\n").unwrap(),
+                Dirty::Deleted => fs::remove_file(source.join("feature.txt")).unwrap(),
+            }
+            let detail =
+                approve_and_commit_with_failure_record(&mut connection, "local:approve", 5, 2)
+                    .unwrap_err();
+            assert!(detail.contains("worktree is not clean"), "{detail}");
+            assert!(detail.contains(expected_counts), "{detail}");
+            assert!(detail.contains("files remain"), "{detail}");
+            assert_eq!(
+                get_card(&connection, "local:approve")
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                "needs_human"
+            );
+            let failure: (String, String) = connection.query_row(
+                "SELECT outcome, error_detail FROM card_events WHERE card_id='local:approve' ORDER BY id DESC LIMIT 1",
+                [], |row| Ok((row.get(0)?, row.get(1)?)),
+            ).unwrap();
+            assert_eq!(failure.0, "failure");
+            assert!(failure.1.contains("files remain"));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn approval_rejects_wrong_branch_and_stale_revisions() {
+        let (root, target, source) = merge_repository();
+        let mut connection = approval_connection(&source, &target);
+        connection
+            .execute(
+                "UPDATE card_environments SET branch='unexpected' WHERE card_id='local:approve'",
+                [],
+            )
+            .unwrap();
+        assert!(approve_and_commit(&mut connection, "local:approve", 5, 2)
+            .unwrap_err()
+            .contains("expected unexpected"));
+        connection
+            .execute(
+                "UPDATE card_environments SET branch='feature' WHERE card_id='local:approve'",
+                [],
+            )
+            .unwrap();
+        assert!(approve_and_commit(&mut connection, "local:approve", 4, 2)
+            .unwrap_err()
+            .contains("Card changed"));
+        assert!(approve_and_commit(&mut connection, "local:approve", 5, 1)
+            .unwrap_err()
+            .contains("environment changed"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -40,6 +40,7 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     adjustTerminalFontSize,
     adjustUiFontSize,
     openCommandPalette,
+    openProjectSwitcher,
     openTerminalSearch,
     openSettings,
     toggleSidebar,
@@ -74,6 +75,9 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
       break;
     case 'command-palette':
       openCommandPalette();
+      break;
+    case 'switch-project':
+      openProjectSwitcher();
       break;
     case 'settings':
       openSettings();
