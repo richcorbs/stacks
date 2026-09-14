@@ -10,6 +10,10 @@ export function createLocalKanbanCard(projectId: string, projectName: string, ti
   return invoke<KanbanCard>('kanban_create_local_card', { projectId, projectName, title, content });
 }
 
+export function updateLocalKanbanCard(id: string, title: string, content: string) {
+  return invoke<KanbanCard>('kanban_update_local_card', { id, title, content });
+}
+
 export function openKanbanCard(id: string) {
   return invoke<string>('kanban_open_card', { id });
 }
