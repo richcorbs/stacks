@@ -22,6 +22,8 @@ import { SplitView } from './WorkspaceTerminalTree';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { disposeTerminalSession, getTerminalSession } from '../terminalSessionManager';
 import { superthreadCardProvider } from '../superthread/cardProvider';
+import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
+import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -44,7 +46,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const provider = useMemo(() => superthreadEnabled ? superthreadCardProvider(spaces, workspaceSlug) : null, [spaces, superthreadEnabled, workspaceSlug]);
   const board = useKanbanBoard(provider);
   const defaultProject = projects.find((project) => project.kanban_source === 'superthread') ?? projects[0] ?? null;
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
+  const projectSwitcherTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [newCardOpen, setNewCardOpen] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
   const [newCardDescription, setNewCardDescription] = useState('');
@@ -72,6 +75,15 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   useEffect(() => () => {
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
   }, []);
+
+  useEffect(() => {
+    const handleOpenProjectSwitcher = () => {
+      if (projectSwitcherOpen || selectedCard || newCardOpen || openLaneMenu || draggingId) return;
+      setProjectSwitcherOpen(true);
+    };
+    window.addEventListener(OPEN_PROJECT_SWITCHER_EVENT, handleOpenProjectSwitcher);
+    return () => window.removeEventListener(OPEN_PROJECT_SWITCHER_EVENT, handleOpenProjectSwitcher);
+  }, [draggingId, newCardOpen, openLaneMenu, projectSwitcherOpen, selectedCard]);
 
   useEffect(() => {
     const handleBoardNavigation = (event: KeyboardEvent) => {
@@ -213,23 +225,21 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   return (
     <div className="kanbanView">
       <header className="kanbanHeader">
-        <div className="kanbanProjectPicker">
-          <button className="kanbanProjectPickerButton" type="button" onClick={() => setProjectMenuOpen((open) => !open)}>
-            <span><strong>{selectedProject?.name ?? 'Select project'}</strong><small>{selectedProjectIsSuperthread ? 'Superthread' : 'Local board'}</small></span>
-            <span className={`kanbanProjectChevron${projectMenuOpen ? ' open' : ''}`} />
-          </button>
-          {projectMenuOpen && <div className="kanbanProjectMenu">
-            {projects.map((project) => {
-              const source = project.kanban_source ?? 'local';
-              return <button type="button" className={project.id === selectedProject?.id ? 'selected' : ''} key={project.id} onClick={() => {
-                onSelectProject(project.id);
-                setProjectMenuOpen(false);
-                setKeyboardFocusedCardId(null);
-              }}><span>{project.name}</span><small>{source === 'superthread' ? 'Superthread' : 'Local board'}</small></button>;
-            })}
-            <button className="kanbanProjectMenuAdd" type="button" onClick={() => { setProjectMenuOpen(false); onAddProject(); }}>Add project…</button>
-          </div>}
-        </div>
+        <button
+          ref={projectSwitcherTriggerRef}
+          className="kanbanProjectTitleRow"
+          type="button"
+          aria-haspopup="dialog"
+          onClick={() => {
+            setOpenLaneMenu(null);
+            setProjectSwitcherOpen(true);
+          }}
+        >
+          <span>
+            <span className="kanbanProjectTitle"><strong>{selectedProject?.name ?? 'Select project'}</strong><ProjectSwitchIcon /></span>
+            <small>{selectedProjectIsSuperthread ? 'Superthread' : 'Local board'}</small>
+          </span>
+        </button>
         <div className="kanbanHeaderActions">
           {!selectedProjectIsSuperthread && selectedProject && <button className="primaryAction" type="button" onClick={() => setNewCardOpen(true)}>Add card</button>}
           {selectedProjectIsSuperthread && <button type="button" disabled={board.syncing || !superthreadEnabled} onClick={() => board.sync(true)}>
@@ -329,6 +339,24 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           <span>{selectedProjectIsSuperthread ? (superthreadEnabled ? 'Sync Superthread to bring in cards from the managed columns.' : 'Enable Superthread in Settings to import active cards.') : 'Add a card to begin planning the work.'}</span>
         </div>
       )}
+      <ProjectSwitcherDialog
+        open={projectSwitcherOpen}
+        projects={projects}
+        currentProjectId={selectedProject?.id ?? null}
+        onCancel={() => {
+          setProjectSwitcherOpen(false);
+          requestAnimationFrame(() => projectSwitcherTriggerRef.current?.focus());
+        }}
+        onSelect={(project) => {
+          onSelectProject(project.id);
+          setKeyboardFocusedCardId(null);
+          setProjectSwitcherOpen(false);
+        }}
+        onAddProject={() => {
+          setProjectSwitcherOpen(false);
+          onAddProject();
+        }}
+      />
       {newCardOpen && selectedProject && !selectedProjectIsSuperthread && (
         <div className="modalBackdrop" onMouseDown={() => setNewCardOpen(false)}>
           <form className="modal kanbanNewCardDialog" onMouseDown={(event) => event.stopPropagation()} onSubmit={async (event) => {
@@ -393,6 +421,14 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
         />
       )}
     </div>
+  );
+}
+
+function ProjectSwitchIcon() {
+  return (
+    <svg className="kanbanProjectSwitchIcon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M3 5h9m0 0-2.5-2.5M12 5 9.5 7.5M13 11H4m0 0 2.5 2.5M4 11l2.5-2.5" />
+    </svg>
   );
 }
 

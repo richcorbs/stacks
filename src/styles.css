@@ -298,18 +298,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanView { position: absolute; inset: 0; z-index: 25; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: #0b1118; }
 .kanbanHeader { position: relative; z-index: 45; flex: 0 0 auto; min-height: 72px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #1d2a38; background: #0e1620; }
 .kanbanHeaderActions { display: flex; align-items: center; gap: 8px; }
-.kanbanProjectPicker { position: relative; }
-.kanbanProjectPickerButton { min-width: 220px; padding: 7px 10px 7px 12px !important; border-color: #304459 !important; background: #121d28 !important; display: flex; align-items: center; justify-content: space-between; gap: 20px; text-align: left; }
-.kanbanProjectPickerButton > span:first-child { display: flex; flex-direction: column; gap: 2px; }
-.kanbanProjectPickerButton strong { color: #d0dae4; font-size: calc(14px + var(--ui-font-delta, 0px)); }
-.kanbanProjectPickerButton small { color: #6f8397; font-size: calc(9px + var(--ui-font-delta, 0px)); }
-.kanbanProjectChevron { width: 7px; height: 7px; border-right: 1px solid #8095a9; border-bottom: 1px solid #8095a9; transform: rotate(45deg) translateY(-2px); transition: transform 120ms ease; }
-.kanbanProjectChevron.open { transform: rotate(225deg) translate(-2px, -1px); }
-.kanbanProjectMenu { position: absolute; z-index: 50; top: calc(100% + 6px); left: 0; width: 260px; padding: 5px; border: 1px solid #304256; border-radius: 8px; background: #111b26; box-shadow: 0 12px 28px #0008; }
-.kanbanProjectMenu button { width: 100%; padding: 8px 9px; border: 0; background: transparent; display: flex; align-items: center; justify-content: space-between; color: #9eb0c1; text-align: left; }
-.kanbanProjectMenu button:hover, .kanbanProjectMenu button.selected { background: #1b2b3a; color: #d5dfe8; }
-.kanbanProjectMenu small { color: #617589; font-size: 9px; }
-.kanbanProjectMenu .kanbanProjectMenuAdd { margin-top: 4px; border-top: 1px solid #263647; border-radius: 0 0 5px 5px; color: #7fa5c5; }
+.kanbanProjectTitleRow { min-width: 220px; padding: 7px 10px 7px 12px !important; border-color: transparent !important; background: transparent !important; display: flex; align-items: center; text-align: left; }
+.kanbanProjectTitleRow:hover, .kanbanProjectTitleRow:focus-visible { border-color: #304459 !important; background: #121d28 !important; outline: none; }
+.kanbanProjectTitleRow > span { display: flex; flex-direction: column; gap: 2px; }
+.kanbanProjectTitle { display: flex; align-items: center; gap: 7px; }
+.kanbanProjectTitleRow strong { color: #d0dae4; font-size: calc(14px + var(--ui-font-delta, 0px)); }
+.kanbanProjectTitleRow small { color: #6f8397; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.kanbanProjectSwitchIcon { width: 14px; height: 14px; fill: none; stroke: #71879b; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+.kanbanProjectTitleRow:hover .kanbanProjectSwitchIcon, .kanbanProjectTitleRow:focus-visible .kanbanProjectSwitchIcon { stroke: #9cb2c5; }
 .kanbanHeader h1 { margin: 0 0 4px; color: #d2dce7; font-size: calc(18px + var(--ui-font-delta, 0px)); font-weight: 650; }
 .kanbanHeader p { margin: 0; color: #718399; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanHeader button, .kanbanDetail > footer button { border: 1px solid #2a3b4e; border-radius: 7px; background: #182431; padding: 7px 10px; cursor: pointer; }
@@ -347,6 +343,16 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanWelcome span { font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanNewCardDialog { width: min(560px, calc(100vw - 32px)); }
 .kanbanNewCardDialog textarea { box-sizing: border-box; width: 100%; resize: vertical; }
+.projectSwitcherDialog { width: min(460px, calc(100vw - 32px)); outline: none; }
+.projectSwitcherList { max-height: min(440px, 60vh); padding: 4px; overflow-y: auto; border: 1px solid #27394b; border-radius: 9px; background: #0d141c; }
+.projectSwitcherList button { box-sizing: border-box; width: 100%; padding: 10px 11px; border: 0; border-radius: 6px; background: transparent; color: #aab9c8; display: flex; text-align: left; cursor: pointer; }
+.projectSwitcherList button.highlighted { background: #1b2b3a; color: #d5dfe8; outline: none; }
+.projectSwitcherList button > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.projectSwitcherList strong { overflow: hidden; color: inherit; font-size: calc(12px + var(--ui-font-delta, 0px)); font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+.projectSwitcherList small { color: #65798d; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.projectSwitcherEmpty { padding: 14px 10px; color: #65778a; text-align: center; font-size: calc(11px + var(--ui-font-delta, 0px)); }
+.projectSwitcherAdd { margin-top: 10px; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: #718ba3; cursor: pointer; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.projectSwitcherAdd:hover, .projectSwitcherAdd:focus-visible { background: #182531; color: #9ab0c4; outline: none; }
 .kanbanDetailBackdrop { z-index: 60; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 16px; }
 .kanbanDetail { width: min(1000px, calc(100vw - 32px)); max-width: 1000px; height: 95dvh; max-height: 95dvh; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #101821; border: 1px solid #2a3b4e; border-radius: 12px; box-shadow: 0 24px 80px rgba(0, 0, 0, .55); }
 .kanbanDetail > header { box-sizing: border-box; flex: 0 0 auto; min-width: 0; min-height: 82px; padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid #223142; }
