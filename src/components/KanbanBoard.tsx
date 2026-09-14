@@ -34,6 +34,8 @@ import { CardWorkflowControls } from './CardWorkflowControls';
 import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
 import { DirectProjectWork } from './DirectProjectWork';
 import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from '../directWork';
+import { useCardGitSummary } from '../kanban/useCardGitSummary';
+import { CardGitSummary } from './CardGitSummary';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
@@ -676,6 +678,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   }), [card.content]);
   const project = projects.find((candidate) => candidate.id === projectId);
   const cardPath = card.environment?.worktree_path ?? null;
+  const gitChangeSummary = useCardGitSummary(cardPath, card.environment?.target_branch ?? null);
   const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
   const serverCommand = project?.server_command?.trim() ?? '';
   const consoleCommand = project?.console_command?.trim() ?? '';
@@ -1022,7 +1025,11 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         }
         case 'delete': await onDelete(); return;
       }
-    }, action.kind).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
+    }, action.kind).then(() => {
+      if (['start_work', 'ship', 'ship_with_fe', 'merge_local', 'cleanup', 'close'].includes(action.kind)) {
+        window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+      }
+    }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
   }
 
   function submitDiffReview() {
@@ -1056,6 +1063,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               ) : <span className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>}
               <a href={card.card_url} onClick={(event) => openExternalLink(event, card.card_url)}>#{card.external_id}</a>
               <span className="kanbanCardStatus">{statusLabel}</span>
+              <CardGitSummary summary={gitChangeSummary} />
               {editable && !editing && (
                 <button className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={beginEditing}>
                   <span aria-hidden="true" />
