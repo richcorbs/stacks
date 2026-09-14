@@ -17,13 +17,6 @@ export type CardEnvironmentPane = {
   sort_order: number;
 };
 
-export type CardServiceDefinition = {
-  id: string;
-  name: string;
-  command: string;
-  sort_order: number;
-};
-
 export type CardEnvironment = {
   id: string;
   card_id: string;
@@ -40,7 +33,6 @@ export type CardEnvironment = {
   split_layout: import('../types').SplitNode;
   focused_pane_id: string | null;
   panes: CardEnvironmentPane[];
-  services: CardServiceDefinition[];
 };
 
 export type EnvironmentHealthStep = 'work' | 'approval' | 'merge' | 'cleanup';

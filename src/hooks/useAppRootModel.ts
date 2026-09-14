@@ -20,8 +20,7 @@ import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
 import { disposeTerminalSessions } from '../terminalSessionManager';
-import { createKanbanEnvironment, fetchKanbanCards, preflightKanbanEnvironment } from '../kanban/api';
-import type { CardServiceDefinition } from '../kanban/types';
+import { createKanbanEnvironment, fetchKanbanCards, fetchKanbanEnvironmentHealth, preflightKanbanEnvironment } from '../kanban/api';
 import type { KanbanCard } from '../kanban/types';
 import type { GitInfo } from '../types';
 import { developerServicesShortcutState, type DeveloperServicesTab } from '../developerServices';
@@ -317,6 +316,8 @@ export function useAppRootModel() {
       const project = store.projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('The card project was not found');
       if (card.environment) {
+        const health = (await fetchKanbanEnvironmentHealth([card.id]))[0];
+        if (health?.issues.length) throw new Error(health.issues[0].message);
         return {
           ok: true,
           message: `Work is already started on #${card.external_id} in ${card.environment.worktree_path}`,
@@ -325,7 +326,7 @@ export function useAppRootModel() {
       }
       if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
 
-      const preflight = await preflightKanbanEnvironment(card.id, project.path, card.workflow_revision);
+      const preflight = await preflightKanbanEnvironment(card.id, card.workflow_revision);
       const input = card.provider === 'local'
         ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title)
         : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, {
@@ -338,13 +339,9 @@ export function useAppRootModel() {
         : { cwd: project.path, output: '' };
       const worktree = setup.cwd;
       const git = await invoke<GitInfo | null>('git_info', { path: worktree }).catch(() => null);
-      const services: CardServiceDefinition[] = [
-        project.server_command?.trim() ? { id: '', name: 'server', command: project.server_command.trim(), sort_order: 0 } : null,
-        project.console_command?.trim() ? { id: '', name: 'console', command: project.console_command.trim(), sort_order: 1 } : null,
-      ].filter((service): service is CardServiceDefinition => service !== null);
       let updated: KanbanCard;
       try {
-        updated = await createKanbanEnvironment(card.id, card.project_id, worktree, services, preflight, card.workflow_revision);
+        updated = await createKanbanEnvironment(card.id, worktree, preflight, card.workflow_revision);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new Error(`${detail}\nSetup result: ${worktree}\nSetup output:\n${setup.output.trim() || '(no output)'}`);
@@ -466,7 +463,8 @@ export function useAppRootModel() {
       ])).map((paneId) => deletePersistentPiSession(paneId)),
       ...Array.from(new Set([
         ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []),
-        ...(card.environment?.services.map((service) => `kanban-card:${card.id}:terminal:${service.name}`) ?? []),
+        `kanban-card:${card.id}:terminal:server`,
+        `kanban-card:${card.id}:terminal:console`,
       ])).map((terminalId) => {
         disposeTerminalSessions([terminalId]);
         return invoke('kill_pty', { terminalId, expectedCwd: card.environment?.worktree_path });
@@ -531,8 +529,8 @@ export function useAppRootModel() {
     openTerminalSearch,
     openDirectoryInEditor,
     openOneTimeCommand: () => setOneTimeCommandOpen(true),
-    openNewCard: (project) => window.dispatchEvent(new CustomEvent('stacks:new-card', { detail: { projectId: project.id } })),
-    openDirectProjectWork: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project.id } })),
+    openNewCard: (project) => window.dispatchEvent(new CustomEvent('stacks:new-card', { detail: { projectId: project?.id } })),
+    openDirectProjectWork: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project?.id } })),
     openAddCmdPCommand: () => setAddCmdPCommandOpen(true),
     openEditCmdPCommand: setEditingCmdPCommand,
     openDeleteCmdPCommand: setDeletingCmdPCommand,

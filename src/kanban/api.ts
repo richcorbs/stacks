@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CardEnvironmentHealth, CardEnvironmentPane, CardServiceDefinition, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
@@ -45,12 +45,12 @@ export function setKanbanProject(id: string, projectId: string) {
 export type EnvironmentStartPreflight = { repository_id: string; target_checkout_path: string; target_branch: string; target_revision: string };
 export type WorkflowOperationResult = { card: KanbanCard; message: string; idempotent: boolean };
 
-export function preflightKanbanEnvironment(id: string, targetCheckoutPath: string, expectedWorkflowRevision: number) {
-  return invoke<EnvironmentStartPreflight>('kanban_environment_start_preflight', { id, targetCheckoutPath, expectedWorkflowRevision });
+export function preflightKanbanEnvironment(id: string, expectedWorkflowRevision: number) {
+  return invoke<EnvironmentStartPreflight>('kanban_environment_start_preflight', { id, expectedWorkflowRevision });
 }
 
-export function createKanbanEnvironment(id: string, projectId: string, worktreePath: string, services: CardServiceDefinition[], preflight: EnvironmentStartPreflight, expectedWorkflowRevision: number) {
-  return invoke<KanbanCard>('kanban_create_environment', { id, projectId, worktreePath, services,
+export function createKanbanEnvironment(id: string, worktreePath: string, preflight: EnvironmentStartPreflight, expectedWorkflowRevision: number) {
+  return invoke<KanbanCard>('kanban_create_environment', { id, worktreePath,
     repositoryId: preflight.repository_id, targetCheckoutPath: preflight.target_checkout_path,
     targetBranch: preflight.target_branch, targetRevision: preflight.target_revision, expectedWorkflowRevision });
 }

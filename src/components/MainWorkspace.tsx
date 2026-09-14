@@ -12,7 +12,7 @@ type MainWorkspaceProps = {
   superthreadWorkspaceSlug: string;
   superthreadEnabled: boolean;
   selectedProjectId: string | null;
-  onSelectProject: (projectId: string) => void;
+  onSelectProject: (projectId: string | null) => void;
   onAddProject: () => void;
   onCleanupCard: (card: KanbanCard) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<boolean>;

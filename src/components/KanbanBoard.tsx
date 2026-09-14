@@ -26,7 +26,7 @@ import { SplitView } from './WorkspaceTerminalTree';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { disposeTerminalSession, getTerminalSession } from '../terminalSessionManager';
 import { superthreadCardProvider } from '../superthread/cardProvider';
-import { selectedKanbanProject, shouldEnableSuperthreadProvider, visibleSuperthreadError } from '../kanban/providerSelection';
+import { filterKanbanCards, localKanbanProjects, mergeFilteredLaneOrder, owningProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
@@ -44,7 +44,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   superthreadEnabled: boolean;
   projects: Project[];
   selectedProjectId: string | null;
-  onSelectProject: (projectId: string) => void;
+  onSelectProject: (projectId: string | null) => void;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -53,28 +53,27 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   onCleanupCard: (card: KanbanCard) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<boolean>;
 }) {
-  const selectedProject = selectedKanbanProject(projects, selectedProjectId);
-  const selectedProjectIsSuperthread = selectedProject?.kanban_source === 'superthread';
-  const superthreadProviderEnabled = shouldEnableSuperthreadProvider(selectedProject, superthreadEnabled);
+  const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
+  const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
+  const superthreadOwner = uniqueSuperthreadProject(projects);
   const provider = useMemo(
-    () => superthreadProviderEnabled ? superthreadCardProvider(spaces, workspaceSlug) : null,
-    [selectedProject?.id, spaces, superthreadProviderEnabled, workspaceSlug],
+    () => superthreadEnabled && superthreadOwner.project ? superthreadCardProvider(spaces, workspaceSlug) : null,
+    [spaces, superthreadEnabled, superthreadOwner.project?.id, workspaceSlug],
   );
   const board = useKanbanBoard(provider);
-  const providerError = visibleSuperthreadError(selectedProject, board.providerError);
+  const providerError = board.providerError ?? (superthreadEnabled ? superthreadOwner.error : null);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
-  const projectSwitcherTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct'>('filter');
   const [newCardOpen, setNewCardOpen] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
   const [newCardDescription, setNewCardDescription] = useState('');
+  const [newCardProjectId, setNewCardProjectId] = useState('');
   const [newCardError, setNewCardError] = useState<string | null>(null);
   const [newCardCreating, setNewCardCreating] = useState(false);
   const newCardTitleRef = useRef<HTMLInputElement | null>(null);
   const clipboardOperationRef = useRef(new WeakMap<HTMLInputElement | HTMLTextAreaElement, number>());
-  const visibleCards = useMemo(() => board.cards.filter((card) => selectedProjectIsSuperthread
-    ? card.provider === 'superthread'
-    : card.project_id === selectedProject?.id && card.provider === 'local'),
-  [board.cards, selectedProject?.id, selectedProjectIsSuperthread]);
+  const visibleCards = useMemo(() => filterKanbanCards(board.cards, filterProjectId), [board.cards, filterProjectId]);
+  const localProjects = useMemo(() => localKanbanProjects(projects), [projects]);
   const { statuses: repositoryStatuses, recheckEnvironment } = useCardRepositoryStatus(visibleCards);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
@@ -89,8 +88,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const [cleaningMerged, setCleaningMerged] = useState(false);
 
   useEffect(() => {
-    if (selectedProject && !projects.some((project) => project.id === selectedProjectId)) onSelectProject(selectedProject.id);
-  }, [onSelectProject, projects, selectedProject, selectedProjectId]);
+    if (selectedProjectId && !filterProjectId) onSelectProject(null);
+  }, [filterProjectId, onSelectProject, selectedProjectId]);
 
   useEffect(() => () => {
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
@@ -99,29 +98,33 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   useEffect(() => {
     const openNewCard = (event: Event) => {
       const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
-      if (projectId !== selectedProject?.id || selectedProject.kanban_source === 'superthread') return;
+      const requested = localProjects.find((project) => project.id === projectId);
+      setNewCardProjectId(requested?.id ?? (selectedProject?.kanban_source !== 'superthread' ? selectedProject?.id ?? '' : ''));
       setNewCardError(null);
       setNewCardOpen(true);
     };
     window.addEventListener('stacks:new-card', openNewCard);
     return () => window.removeEventListener('stacks:new-card', openNewCard);
-  }, [selectedProject]);
+  }, [localProjects, selectedProject]);
 
   useEffect(() => {
     const openDirectWork = (event: Event) => {
       const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
       const project = projects.find((candidate) => candidate.id === projectId);
-      if (!project) return;
-      onSelectProject(project.id);
-      setDirectWorkProjectId(project.id);
+      if (project) setDirectWorkProjectId(project.id);
+      else {
+        setProjectPickerPurpose('direct');
+        setProjectSwitcherOpen(true);
+      }
     };
     window.addEventListener(OPEN_DIRECT_WORK_EVENT, openDirectWork);
     return () => window.removeEventListener(OPEN_DIRECT_WORK_EVENT, openDirectWork);
-  }, [onSelectProject, projects]);
+  }, [projects]);
 
   useEffect(() => {
     const handleOpenProjectSwitcher = () => {
       if (projectSwitcherOpen || selectedCard || newCardOpen || openLaneMenu || draggingId) return;
+      setProjectPickerPurpose('filter');
       setProjectSwitcherOpen(true);
     };
     window.addEventListener(OPEN_PROJECT_SWITCHER_EVENT, handleOpenProjectSwitcher);
@@ -184,18 +187,21 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   }
 
   async function createCard(outcome: 'close' | 'continue' | 'open') {
-    if (newCardCreating || !selectedProject || selectedProject.kanban_source === 'superthread' || !newCardTitle.trim()) return;
+    const destination = localProjects.find((project) => project.id === newCardProjectId);
+    if (newCardCreating || !destination || !newCardTitle.trim()) return;
     setNewCardCreating(true);
     setNewCardError(null);
     try {
-      const card = await board.createLocal(selectedProject.id, newCardTitle, newCardDescription);
+      const card = await board.createLocal(destination.id, newCardTitle, newCardDescription);
       setNewCardTitle('');
       setNewCardDescription('');
+      const filteredOut = Boolean(filterProjectId && filterProjectId !== destination.id);
       if (outcome === 'open') {
         setNewCardOpen(false);
+        if (filteredOut) window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Card added to ${destination.name}; it is hidden by the current filter` } }));
         await openCard(card);
       } else {
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Card added' } }));
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: filteredOut ? `Card added to ${destination.name}; it is hidden by the current filter` : `Card added to ${destination.name}` } }));
         if (outcome === 'close') setNewCardOpen(false);
         else requestAnimationFrame(() => newCardTitleRef.current?.focus());
       }
@@ -308,31 +314,43 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     window.setTimeout(() => { suppressCardClickRef.current = false; }, 0);
     if (beforeId === undefined) return;
     const currentIds = visibleCards.filter((card) => card.status === drag.status).map((card) => card.id);
-    await board.reorder(drag.status, reorderKanbanCardIds(currentIds, drag.cardId, beforeId)).catch(console.error);
+    const visibleOrder = reorderKanbanCardIds(currentIds, drag.cardId, beforeId);
+    await board.reorder(drag.status, mergeFilteredLaneOrder(board.cards, drag.status, visibleOrder)).catch(console.error);
   }
 
   return (
     <div className="kanbanView">
       <header className="kanbanHeader">
-        <button
-          ref={projectSwitcherTriggerRef}
-          className="kanbanProjectTitleRow"
-          type="button"
-          aria-haspopup="dialog"
-          onClick={() => {
-            setOpenLaneMenu(null);
-            setProjectSwitcherOpen(true);
-          }}
-        >
+        <div className="kanbanProjectTitleRow">
           <span>
-            <span className="kanbanProjectTitle"><strong>{selectedProject?.name ?? 'Select project'}</strong><ProjectSwitchIcon /></span>
-            <small>{selectedProjectIsSuperthread ? 'Superthread' : 'Local board'}</small>
+            <span className="kanbanProjectTitle"><strong>Board</strong></span>
+            <small>Cross-project workflow</small>
           </span>
-        </button>
+          <label className="kanbanProjectFilter">
+            <span>Project</span>
+            <select aria-label="Filter board by project" value={filterProjectId ?? ''} onChange={(event) => {
+              onSelectProject(event.target.value || null);
+              setKeyboardFocusedCardId(null);
+            }}>
+              <option value="">All projects</option>
+              {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
+            </select>
+          </label>
+        </div>
         <div className="kanbanHeaderActions">
-          {!selectedProjectIsSuperthread && selectedProject && <button className="primaryAction" type="button" onClick={() => { setNewCardError(null); setNewCardOpen(true); }}>+ Add card</button>}
-          {selectedProject && <button type="button" onClick={() => setDirectWorkProjectId(selectedProject.id)}>Direct project work</button>}
-          {selectedProjectIsSuperthread && <button type="button" disabled={board.syncing || !superthreadEnabled} onClick={() => board.sync(true)}>
+          <button className="primaryAction" type="button" disabled={localProjects.length === 0} onClick={() => {
+            setNewCardProjectId(selectedProject && (selectedProject.kanban_source ?? 'local') === 'local' ? selectedProject.id : '');
+            setNewCardError(null);
+            setNewCardOpen(true);
+          }}>+ Add card</button>
+          <button type="button" disabled={projects.length === 0} onClick={() => {
+            if (selectedProject) setDirectWorkProjectId(selectedProject.id);
+            else {
+              setProjectPickerPurpose('direct');
+              setProjectSwitcherOpen(true);
+            }
+          }}>Direct project work</button>
+          {superthreadEnabled && <button type="button" disabled={board.syncing || !superthreadOwner.project} onClick={() => board.sync(true)}>
             <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
           </button>}
         </div>
@@ -396,6 +414,9 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                       }}
                     >
                       <span className="kanbanCardSource">
+                        <span className={`kanbanProjectBadge${owningProject(card, projects) ? '' : ' invalid'}`}>
+                          {owningProject(card, projects)?.name ?? 'Unknown project'}
+                        </span>
                         {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title} · </span>}
                         <span className="kanbanCardNumber">#{card.external_id}</span>
                       </span>
@@ -442,21 +463,21 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
       )}
       {!board.loading && visibleCards.length === 0 && (
         <div className="kanbanWelcome">
-          <strong>{selectedProjectIsSuperthread ? 'No active work imported yet.' : 'No cards yet.'}</strong>
-          <span>{selectedProjectIsSuperthread ? (superthreadEnabled ? 'Sync Superthread to bring in cards from the managed columns.' : 'Enable Superthread in Settings to import active cards.') : 'Add a card to begin planning the work.'}</span>
+          <strong>No cards in this view.</strong>
+          <span>{filterProjectId ? 'Choose All projects or add a card for this project.' : 'Add a card or sync Superthread to begin planning work.'}</span>
         </div>
       )}
       <ProjectSwitcherDialog
         open={projectSwitcherOpen}
         projects={projects}
-        currentProjectId={selectedProject?.id ?? null}
-        onCancel={() => {
-          setProjectSwitcherOpen(false);
-          requestAnimationFrame(() => projectSwitcherTriggerRef.current?.focus());
-        }}
+        currentProjectId={null}
+        onCancel={() => setProjectSwitcherOpen(false)}
         onSelect={(project) => {
-          onSelectProject(project.id);
-          setKeyboardFocusedCardId(null);
+          if (projectPickerPurpose === 'direct') setDirectWorkProjectId(project.id);
+          else {
+            onSelectProject(project.id);
+            setKeyboardFocusedCardId(null);
+          }
           setProjectSwitcherOpen(false);
         }}
         onAddProject={() => {
@@ -464,21 +485,25 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           onAddProject();
         }}
       />
-      {newCardOpen && selectedProject && !selectedProjectIsSuperthread && (
+      {newCardOpen && (
         <div className="modalBackdrop" onMouseDown={() => { if (!newCardCreating) setNewCardOpen(false); }}>
           <form className="modal kanbanNewCardDialog" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => {
             event.preventDefault();
             createCard('open');
           }}>
             <h2>Add card</h2>
+            <label>Project<select autoFocus value={newCardProjectId} disabled={newCardCreating} required onChange={(event) => setNewCardProjectId(event.target.value)}>
+              <option value="" disabled>Select a local project…</option>
+              {localProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
+            </select></label>
             <label>Title<input ref={newCardTitleRef} autoFocus disabled={newCardCreating} value={newCardTitle} onChange={(event) => { invalidateClipboardOperation(event.currentTarget); setNewCardTitle(event.target.value); }} onKeyDown={(event) => handleNewCardClipboard(event, setNewCardTitle)} /></label>
             <label>Description<textarea rows={8} disabled={newCardCreating} value={newCardDescription} onChange={(event) => { invalidateClipboardOperation(event.currentTarget); setNewCardDescription(event.target.value); }} onKeyDown={(event) => handleNewCardClipboard(event, setNewCardDescription)} /></label>
             {newCardError && <div className="kanbanEditError" role="alert">{newCardError}</div>}
             <div className="modalActions">
               <button type="button" disabled={newCardCreating} onClick={() => setNewCardOpen(false)}>Cancel</button>
-              <button type="button" disabled={newCardCreating || !newCardTitle.trim()} onClick={() => createCard('close')}>Add card</button>
-              <button type="button" disabled={newCardCreating || !newCardTitle.trim()} onClick={() => createCard('continue')}>Add card &amp; more</button>
-              <button className="primaryAction" type="submit" disabled={newCardCreating || !newCardTitle.trim()}>Add &amp; open</button>
+              <button type="button" disabled={newCardCreating || !newCardProjectId || !newCardTitle.trim()} onClick={() => createCard('close')}>Add card</button>
+              <button type="button" disabled={newCardCreating || !newCardProjectId || !newCardTitle.trim()} onClick={() => createCard('continue')}>Add card &amp; more</button>
+              <button className="primaryAction" type="submit" disabled={newCardCreating || !newCardProjectId || !newCardTitle.trim()}>Add &amp; open</button>
             </div>
           </form>
         </div>
@@ -542,14 +567,6 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   );
 }
 
-function ProjectSwitchIcon() {
-  return (
-    <svg className="kanbanProjectSwitchIcon" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3 5h9m0 0-2.5-2.5M12 5 9.5 7.5M13 11H4m0 0 2.5 2.5M4 11l2.5-2.5" />
-    </svg>
-  );
-}
-
 type CardView = 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console';
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
@@ -574,7 +591,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   onReload: () => Promise<KanbanCard>;
   onCardUpdated: (card: KanbanCard) => void;
 }) {
-  const projectId = card.project_id ?? projects.find((candidate) => candidate.kanban_source === card.provider)?.id ?? '';
+  const projectId = card.project_id ?? '';
   const [working, setWorking] = useState(false);
   const [workflowOperation, setWorkflowOperation] = useState<CardWorkflowAction['kind'] | null>(null);
   const workflowRunningRef = useRef(false);
@@ -609,13 +626,13 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const project = projects.find((candidate) => candidate.id === projectId);
   const cardPath = card.environment?.worktree_path ?? null;
   const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
-  const serverCommand = card.environment?.services.find((service) => service.name === 'server')?.command ?? '';
-  const consoleCommand = card.environment?.services.find((service) => service.name === 'console')?.command ?? '';
+  const serverCommand = project?.server_command?.trim() ?? '';
+  const consoleCommand = project?.console_command?.trim() ?? '';
   const statusLabel = KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
   const workflowCard = workflowOperation === 'approve_and_commit' ? { ...card, status: 'needs_human' as const } : card;
-  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, projectAvailable: Boolean(projectId), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, projectId, workflowCard, workflowOperation]);
+  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, projectAvailable: Boolean(project), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
     ...(project ? ['chat' as const] : []),
@@ -969,6 +986,14 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         <header>
           <div className="kanbanDetailHeading">
             <div className="kanbanDetailHeaderMeta">
+              {card.provider === 'local' && !card.environment ? (
+                <select className="kanbanProjectAssignment" aria-label="Owning project" value={projectId} onChange={(event) => {
+                  onOpenChat(event.target.value).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
+                }}>
+                  {!project && <option value="">Unknown project</option>}
+                  {localKanbanProjects(projects).map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}
+                </select>
+              ) : <span className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>}
               <a href={card.card_url} onClick={(event) => openExternalLink(event, card.card_url)}>#{card.external_id}</a>
               <span className="kanbanCardStatus">{statusLabel}</span>
               {editable && !editing && (
@@ -1015,6 +1040,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           </button>
         </div>}
         <section className={`kanbanDetailContent cardView${activeView === 'overview' ? ' active' : ''}${editing ? ' editing' : ''}`}>
+          {!project && <aside className="cardEnvironmentWarningPanel" role="alert"><div><strong>Card ownership is invalid</strong><span>This card references a project that no longer exists. Project-dependent actions are blocked.</span></div></aside>}
           {environmentHealth && environmentHealth.issues.length > 0 && (
             <aside className="cardEnvironmentWarningPanel" aria-labelledby="card-environment-warning-title">
               <div>
