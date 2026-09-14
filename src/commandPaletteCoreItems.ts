@@ -6,6 +6,7 @@ type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 export function commandPaletteCoreItems({
   activeProject,
+  selectedKanbanProject,
   activeWorkspace,
   activeWorkspaceId,
   activeTerminalId,
@@ -45,6 +46,7 @@ export function commandPaletteCoreItems({
   onToggleBroadcast,
 }: {
   activeProject: Project | null;
+  selectedKanbanProject: Project | null;
   activeWorkspace: WorkspaceEntry | null;
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
@@ -89,8 +91,8 @@ export function commandPaletteCoreItems({
   let items: PaletteItem[] = [
     { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder workspace', action: onNewProject },
     { id: 'new-workspace', title: 'New Workspace', subtitle: activeProject ? `${activeProject.name} • ⌘N` : 'Choose or create a project first', keywords: 'create tab shell workspace', action: () => activeProject ? onNewWorkspace(activeProject) : onNewProject() },
-    { id: 'edit-project', title: 'Edit Project', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'rename path directory workspace', action: () => { if (activeProject) onEditProject(activeProject); } },
-    { id: 'delete-project', title: 'Delete Project', subtitle: activeProject ? activeProject.name : 'Select a project first', keywords: 'remove delete project directory', danger: true, action: () => { if (activeProject) onDeleteProject(activeProject.id); } },
+    { id: 'edit-project', title: 'Edit Project', subtitle: selectedKanbanProject ? selectedKanbanProject.name : 'Select a project first', keywords: 'rename path directory workspace', action: () => { if (selectedKanbanProject) onEditProject(selectedKanbanProject); } },
+    { id: 'delete-project', title: 'Delete Project', subtitle: selectedKanbanProject ? selectedKanbanProject.name : 'Select a project first', keywords: 'remove delete project directory', danger: true, action: () => { if (selectedKanbanProject) onDeleteProject(selectedKanbanProject.id); } },
     { id: 'edit-workspace', title: 'Edit Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'rename command startup shell workspace', action: () => { if (activeProject && activeWorkspace) onEditWorkspace(activeProject, activeWorkspace); } },
     { id: 'delete-workspace', title: 'Delete Current Workspace', subtitle: activeWorkspace ? `${activeWorkspace.name}${activeProject ? ` • ${activeProject.name}` : ''}` : 'Select a workspace first', keywords: 'remove delete workspace', danger: true, action: () => { if (activeProject && activeWorkspace) onDeleteWorkspace(activeProject.id, activeWorkspace.id); } },
     { id: 'delete-multiple-workspaces', title: 'Delete Other Workspace(s)', subtitle: 'Match workspace names from a comma-separated list', keywords: 'bulk remove delete workspace names comma', danger: true, action: onDeleteMultipleWorkspaces },
