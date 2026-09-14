@@ -1,7 +1,8 @@
+import type { Project } from '../types';
 import type { KanbanCard } from './types';
 
 export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'start_work' | 'return_to_refinement' |
-  'approve_and_commit' | 'request_changes' | 'merge' | 'reopen' | 'cleanup' | 'delete' | 'set_merge_target';
+  'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'close' | 'delete';
 
 export type CardWorkflowAction = {
   kind: CardWorkflowActionKind;
@@ -16,6 +17,7 @@ export type CardWorkflowAction = {
 
 export type CardWorkflowContext = {
   card: KanbanCard;
+  project?: Project | null;
   projectAvailable: boolean;
   activeTab?: 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console';
   operation?: { kind: CardWorkflowActionKind; error?: string } | null;
@@ -30,40 +32,56 @@ export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWor
     ...action,
     loading: context.operation?.kind === action.kind && !context.operation.error,
     error: context.operation?.kind === action.kind ? context.operation.error : undefined,
-    disabledReason: action.disabledReason ?? (action.kind === 'merge' && context.backendPreflight && !context.backendPreflight.ok
+    disabledReason: action.disabledReason ?? (action.kind === 'merge_local' && context.backendPreflight && !context.backendPreflight.ok
       ? context.backendPreflight.message ?? 'Merge preflight failed'
       : undefined),
   }));
 }
 
-function baseCardWorkflowActions({ card, projectAvailable }: CardWorkflowContext): CardWorkflowAction[] {
+function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkflowContext): CardWorkflowAction[] {
   const environment = card.environment;
-  switch (card.status) {
-    case 'needs_refinement':
-      return [
+  const close: CardWorkflowAction = { kind: 'close', label: 'Close card', destructive: true, confirmation: { title: 'Close card?', detail: 'Moves this card to Done · Closed and stops its processes. The worktree, branch, and changes are preserved.' } };
+  const actions: CardWorkflowAction[] = (() => {
+    switch (card.status) {
+      case 'needs_refinement': return [
         { kind: 'open_refinement', label: 'Open refinement', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         { kind: 'write_plan_and_finish_refinement', label: 'Write plan & finish refinement', disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         ...(!environment && card.provider === 'local' ? [{ kind: 'delete' as const, label: 'Delete card', destructive: true, confirmation: { title: 'Delete card?', detail: 'This permanently deletes this local draft.' } }] : []),
       ];
-    case 'ready': return [
-      { kind: 'return_to_refinement', label: 'Return to refinement' },
-      { kind: 'start_work', label: 'Start work', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
-    ];
-    case 'agent_working': return [];
-    case 'needs_human': return [
-      { kind: 'request_changes', label: 'Request changes' },
-      { kind: 'approve_and_commit', label: 'Approve and commit', primary: true },
-    ];
-    case 'approved': return environment?.target_branch ? [
-      { kind: 'request_changes', label: 'Request changes' },
-      { kind: 'merge', label: `Merge into ${environment.target_branch}`, primary: true, confirmation: { title: `Merge into ${environment.target_branch}?`, detail: `Merge ${environment.branch} into ${environment.target_branch} with an explicit merge commit. Cleanup is separate.` } },
-    ] : [
-      { kind: 'request_changes', label: 'Request changes' },
-      { kind: 'set_merge_target', label: 'Set merge target…', primary: true },
-    ];
-    case 'merged': return environment ? [
-      { kind: 'reopen', label: 'Reopen to Ready to merge' },
-      { kind: 'cleanup', label: 'Clean up', destructive: true, confirmation: { title: 'Clean up environment?', detail: 'Removes only card-owned processes, source worktree, and safely deletable source branch. The card remains Merged.' } },
-    ] : [{ kind: 'reopen', label: 'Reopen to Ready for agent', primary: true }];
-  }
+      case 'ready': return [
+        { kind: 'return_to_refinement', label: 'Return to refinement' },
+        { kind: 'start_work', label: 'Start work', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
+      ];
+      case 'agent_working': return [];
+      case 'needs_human': return [
+        { kind: 'request_changes', label: 'Request changes' },
+        { kind: 'ship', label: 'Ship It', primary: true },
+        ...(project?.delivery_workflow === 'github_pull_request' && project.supports_feature_environments
+          ? [{ kind: 'ship_with_fe' as const, label: 'Ship it w/FE' }]
+          : []),
+      ];
+      case 'approved': {
+        if (project?.delivery_workflow === 'github_pull_request') {
+          if (!card.pull_request || card.pull_request.state === 'closed') return [
+            { kind: 'request_changes', label: 'Request changes' },
+            { kind: 'create_pr', label: 'Create PR', primary: true },
+          ];
+          if (card.pull_request.state === 'merged') return [];
+          return [
+            { kind: 'request_changes', label: 'Request changes' },
+            { kind: 'open_pr', label: 'Open PR' },
+            { kind: 'merge_pr', label: 'Merge PR', primary: true, disabledReason: card.pull_request.blockers.join('; ') || undefined },
+          ];
+        }
+        return [
+          { kind: 'request_changes', label: 'Request changes' },
+          { kind: 'merge_local', label: 'Merge locally', primary: true, confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } },
+        ];
+      }
+      case 'done': return environment ? [
+        { kind: 'cleanup', label: 'Clean up', destructive: true, confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
+      ] : [];
+    }
+  })();
+  return card.status === 'done' ? actions : [...actions, close];
 }

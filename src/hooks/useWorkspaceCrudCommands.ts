@@ -40,6 +40,12 @@ export function useWorkspaceCrudCommands({
       startWorkCommand: project.start_work_command ?? '',
       serverCommand: project.server_command ?? '',
       consoleCommand: project.console_command ?? '',
+      deliveryWorkflow: project.delivery_workflow ?? 'local_merge',
+      targetBranch: project.target_branch ?? 'main',
+      supportsFeatureEnvironments: project.supports_feature_environments ?? false,
+      githubMergeStrategy: project.github_merge_strategy ?? 'merge',
+      requirePassingCi: project.require_passing_ci ?? true,
+      requireApproval: project.require_approval ?? false,
     });
   }
 

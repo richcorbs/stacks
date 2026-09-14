@@ -195,7 +195,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       workspaceSlug: options.appSettings.superthread_workspace_slug,
       activePath: options.activePath,
       githubPollSeconds: options.appSettings.github_poll_interval_seconds,
-      githubMergeStrategy: options.appSettings.github_merge_strategy,
+      githubMergeStrategy: 'merge',
       superthreadEnabled: options.appSettings.superthread_enabled,
       startWork: options.startSuperthreadWork,
     },

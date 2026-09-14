@@ -5,7 +5,7 @@ import { CardWorkflowControls } from './CardWorkflowControls';
 
 const actions: CardWorkflowAction[] = [
   { kind: 'request_changes', label: 'Request changes' },
-  { kind: 'approve_and_commit', label: 'Approve and commit', primary: true, loading: true },
+  { kind: 'ship', label: 'Ship It', primary: true, loading: true },
 ];
 
 describe('CardWorkflowControls', () => {
@@ -27,8 +27,8 @@ describe('CardWorkflowControls', () => {
     expect(buttons.every((button) => button.includes('disabled=""'))).toBe(true);
     expect(buttons[0]).toContain('aria-label="Request changes"');
     expect(buttons[0]).toContain('>Request changes</button>');
-    expect(buttons[1]).toContain('aria-label="Approve and commit"');
-    expect(buttons[1]).toContain('>Approve and commit</button>');
+    expect(buttons[1]).toContain('aria-label="Ship It"');
+    expect(buttons[1]).toContain('>Ship It</button>');
     expect(buttons.every((button) => !button.includes('Working…'))).toBe(true);
   });
 

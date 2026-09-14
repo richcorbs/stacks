@@ -111,8 +111,6 @@ pub struct AppSettings {
     #[serde(default)]
     pub github_poll_interval_seconds: Option<u32>,
     #[serde(default)]
-    pub github_merge_strategy: Option<String>,
-    #[serde(default)]
     pub kanban_project_id: Option<String>,
     #[serde(default)]
     pub active_project_id: Option<String>,
@@ -151,9 +149,6 @@ impl AppSettings {
         self.github_poll_interval_seconds = next
             .github_poll_interval_seconds
             .map(|value| value.clamp(10, 3600));
-        self.github_merge_strategy = next
-            .github_merge_strategy
-            .filter(|value| matches!(value.as_str(), "merge" | "squash" | "rebase"));
         self.kanban_project_id = non_empty(next.kanban_project_id);
         self.custom_cmd_p_commands = next.custom_cmd_p_commands.map(|commands| {
             commands

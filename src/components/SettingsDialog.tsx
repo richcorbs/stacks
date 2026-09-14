@@ -160,18 +160,7 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               onChange={(event) => update({ github_poll_interval_seconds: Number(event.target.value) })}
             />
           </label>
-          <div className="settingsHint">GitHub pull requests and actions refresh every 60 seconds by default.</div>
-          <label>
-            Pull request merge strategy
-            <select
-              value={draft.github_merge_strategy}
-              onChange={(event) => update({ github_merge_strategy: event.target.value as ResolvedAppSettings['github_merge_strategy'] })}
-            >
-              <option value="merge">Merge commit</option>
-              <option value="squash">Squash and merge</option>
-              <option value="rebase">Rebase and merge</option>
-            </select>
-          </label>
+          <div className="settingsHint">GitHub pull requests and actions refresh every 60 seconds by default. Merge policy is configured per project.</div>
         </section>
         <div className="modalActions">
           <button type="button" onClick={onClose}>Cancel</button>

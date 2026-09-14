@@ -28,6 +28,31 @@ struct Project {
     server_command: Option<String>,
     #[serde(default)]
     console_command: Option<String>,
+    #[serde(default = "default_delivery_workflow")]
+    delivery_workflow: String,
+    #[serde(default = "default_target_branch")]
+    target_branch: String,
+    #[serde(default)]
+    supports_feature_environments: bool,
+    #[serde(default = "default_merge_strategy")]
+    github_merge_strategy: String,
+    #[serde(default = "default_true")]
+    require_passing_ci: bool,
+    #[serde(default)]
+    require_approval: bool,
+}
+
+fn default_delivery_workflow() -> String {
+    "local_merge".to_string()
+}
+fn default_target_branch() -> String {
+    "main".to_string()
+}
+fn default_merge_strategy() -> String {
+    "merge".to_string()
+}
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,7 +97,25 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
          );
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (2, unixepoch());",
         )
-        .map_err(db_error)
+        .map_err(db_error)?;
+    let columns = connection
+        .prepare("PRAGMA table_info(projects)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    for (name, sql) in [
+        ("delivery_workflow", "ALTER TABLE projects ADD COLUMN delivery_workflow TEXT NOT NULL DEFAULT 'local_merge'"),
+        ("target_branch", "ALTER TABLE projects ADD COLUMN target_branch TEXT NOT NULL DEFAULT 'main'"),
+        ("supports_feature_environments", "ALTER TABLE projects ADD COLUMN supports_feature_environments INTEGER NOT NULL DEFAULT 0"),
+        ("github_merge_strategy", "ALTER TABLE projects ADD COLUMN github_merge_strategy TEXT NOT NULL DEFAULT 'merge'"),
+        ("require_passing_ci", "ALTER TABLE projects ADD COLUMN require_passing_ci INTEGER NOT NULL DEFAULT 1"),
+        ("require_approval", "ALTER TABLE projects ADD COLUMN require_approval INTEGER NOT NULL DEFAULT 0"),
+    ] {
+        if !columns.iter().any(|column| column == name) { connection.execute(sql, []).map_err(db_error)?; }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -246,7 +289,8 @@ fn migrate_legacy_card_environments(connection: &mut Connection) -> Result<(), S
 
 fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
     let mut project_statement = connection.prepare(
-        "SELECT id, name, path, notes, collapsed, kanban_source, start_work_command, server_command, console_command
+        "SELECT id, name, path, notes, collapsed, kanban_source, start_work_command, server_command, console_command,
+                delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval
          FROM projects ORDER BY sort_order, rowid"
     ).map_err(db_error)?;
     let projects = project_statement
@@ -261,6 +305,12 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
                 start_work_command: row.get(6)?,
                 server_command: row.get(7)?,
                 console_command: row.get(8)?,
+                delivery_workflow: row.get(9)?,
+                target_branch: row.get(10)?,
+                supports_feature_environments: row.get::<_, i64>(11)? != 0,
+                github_merge_strategy: row.get(12)?,
+                require_passing_ci: row.get::<_, i64>(13)? != 0,
+                require_approval: row.get::<_, i64>(14)? != 0,
                 workspaces: Vec::new(),
             })
         })
@@ -293,11 +343,21 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
         .execute("DELETE FROM projects", [])
         .map_err(db_error)?;
     for (project_index, project) in store.projects.iter().enumerate() {
+        let target_branch = normalize_target_branch(&project.target_branch);
+        if !valid_branch_name(target_branch) {
+            return Err(format!(
+                "Invalid target branch for project {}",
+                project.name
+            ));
+        }
         transaction.execute(
-            "INSERT INTO projects (id, name, path, notes, collapsed, kanban_source, start_work_command, server_command, console_command, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO projects (id, name, path, notes, collapsed, kanban_source, start_work_command, server_command, console_command, sort_order,
+                 delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![project.id, project.name, project.path, project.notes, project.collapsed as i64,
-                project.kanban_source, project.start_work_command, project.server_command, project.console_command, project_index as i64],
+                project.kanban_source, project.start_work_command, project.server_command, project.console_command, project_index as i64,
+                normalize_delivery_workflow(&project.delivery_workflow), target_branch, project.supports_feature_environments as i64,
+                normalize_merge_strategy(&project.github_merge_strategy), project.require_passing_ci as i64, project.require_approval as i64],
         ).map_err(db_error)?;
         for (workspace_index, workspace) in project.workspaces.iter().enumerate() {
             transaction.execute(
@@ -308,6 +368,43 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
         }
     }
     transaction.commit().map_err(db_error)
+}
+
+fn normalize_delivery_workflow(value: &str) -> &str {
+    if value == "github_pull_request" {
+        value
+    } else {
+        "local_merge"
+    }
+}
+
+fn normalize_target_branch(value: &str) -> &str {
+    let value = value.trim();
+    if value.is_empty() {
+        "main"
+    } else {
+        value
+    }
+}
+
+fn valid_branch_name(value: &str) -> bool {
+    !value.starts_with('-')
+        && !value.ends_with('/')
+        && !value.ends_with('.')
+        && !value.ends_with(".lock")
+        && !value.contains("..")
+        && !value.contains("@{")
+        && !value.chars().any(|character| {
+            character.is_control() || character.is_whitespace() || "~^:?*[\\".contains(character)
+        })
+}
+
+fn normalize_merge_strategy(value: &str) -> &str {
+    if matches!(value, "squash" | "rebase") {
+        value
+    } else {
+        "merge"
+    }
 }
 
 fn db_error(error: rusqlite::Error) -> String {
@@ -337,6 +434,12 @@ mod tests {
                 start_work_command: None,
                 server_command: Some("npm run dev".into()),
                 console_command: None,
+                delivery_workflow: default_delivery_workflow(),
+                target_branch: default_target_branch(),
+                supports_feature_environments: false,
+                github_merge_strategy: default_merge_strategy(),
+                require_passing_ci: true,
+                require_approval: false,
             }],
         }
     }
@@ -346,6 +449,11 @@ mod tests {
         let text = r#"{"projects":[{"id":"p1","name":"Project","path":"/repo","terminals":[{"id":"w1","name":"Dev","command":"npm run dev","cwd":"/repo"}]}]}"#;
         let store: ProjectStore = serde_json::from_str(text).unwrap();
         assert_eq!(store.projects[0].workspaces[0].id, "w1");
+        assert_eq!(store.projects[0].delivery_workflow, "local_merge");
+        assert_eq!(store.projects[0].target_branch, "main");
+        assert_eq!(store.projects[0].github_merge_strategy, "merge");
+        assert!(store.projects[0].require_passing_ci);
+        assert!(!store.projects[0].require_approval);
     }
 
     #[test]
@@ -402,6 +510,12 @@ mod tests {
             start_work_command: None,
             server_command: None,
             console_command: None,
+            delivery_workflow: default_delivery_workflow(),
+            target_branch: default_target_branch(),
+            supports_feature_environments: false,
+            github_merge_strategy: default_merge_strategy(),
+            require_passing_ci: true,
+            require_approval: false,
         });
         write_store(&mut connection, &store).unwrap();
 
@@ -466,5 +580,9 @@ mod tests {
             read_store(&connection).unwrap().projects[0].workspaces[0].name,
             "Dev"
         );
+        let project = &read_store(&connection).unwrap().projects[0];
+        assert_eq!(project.delivery_workflow, "local_merge");
+        assert_eq!(project.target_branch, "main");
+        assert!(project.require_passing_ci);
     }
 }
