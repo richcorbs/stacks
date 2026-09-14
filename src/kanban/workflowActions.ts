@@ -18,7 +18,6 @@ export type CardWorkflowContext = {
   card: KanbanCard;
   projectAvailable: boolean;
   activeTab?: 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console';
-  runtimeActive?: boolean;
   operation?: { kind: CardWorkflowActionKind; error?: string } | null;
   backendPreflight?: { ok: boolean; message?: string } | null;
 };
@@ -26,7 +25,7 @@ export type CardWorkflowContext = {
 /** Pure source of truth for workflow labels and availability in every card tab. */
 export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWorkflowAction[] {
   const actions = baseCardWorkflowActions(context)
-    .filter((action) => action.kind !== 'open_refinement' || context.activeTab !== 'chat');
+    .filter((action) => (action.kind !== 'open_refinement' && action.kind !== 'open_agent') || context.activeTab !== 'chat');
   return actions.map((action) => ({
     ...action,
     loading: context.operation?.kind === action.kind && !context.operation.error,
@@ -37,7 +36,7 @@ export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWor
   }));
 }
 
-function baseCardWorkflowActions({ card, projectAvailable, runtimeActive = false }: CardWorkflowContext): CardWorkflowAction[] {
+function baseCardWorkflowActions({ card, projectAvailable }: CardWorkflowContext): CardWorkflowAction[] {
   const environment = card.environment;
   switch (card.status) {
     case 'needs_refinement':
@@ -50,7 +49,7 @@ function baseCardWorkflowActions({ card, projectAvailable, runtimeActive = false
       { kind: 'return_to_refinement', label: 'Return to refinement' },
       { kind: 'start_work', label: 'Start work', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
     ];
-    case 'agent_working': return [{ kind: 'open_agent', label: runtimeActive ? 'Open Agent' : 'Open Agent', primary: true }];
+    case 'agent_working': return [{ kind: 'open_agent', label: 'Open Agent', primary: true }];
     case 'needs_human': return [
       { kind: 'request_changes', label: 'Request changes' },
       { kind: 'approve_and_commit', label: 'Approve and commit', primary: true },

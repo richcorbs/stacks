@@ -40,6 +40,18 @@ describe('merge and reopen actions', () => {
         ['open_refinement', 'finish_refinement', 'delete'],
       ]);
   });
+  it('hides Open Agent on the Agent tab only', () => {
+    const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
+    expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('agent_working'), projectAvailable: true, activeTab }).map((action) => action.kind)))
+      .toEqual([
+        ['open_agent'],
+        [],
+        ['open_agent'],
+        ['open_agent'],
+        ['open_agent'],
+        ['open_agent'],
+      ]);
+  });
   it('never offers deletion for provider cards', () => {
     const providerCard = { ...card('needs_refinement'), provider: 'superthread' as const };
     expect(deriveCardWorkflowActions({ card: providerCard, projectAvailable: true }).some((action) => action.kind === 'delete')).toBe(false);
