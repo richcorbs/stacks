@@ -40,6 +40,18 @@ describe('merge and reopen actions', () => {
         ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
       ]);
   });
+  it('hides Open Agent on the Agent tab only', () => {
+    const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
+    expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('agent_working'), projectAvailable: true, activeTab }).map((action) => action.kind)))
+      .toEqual([
+        ['open_agent'],
+        [],
+        ['open_agent'],
+        ['open_agent'],
+        ['open_agent'],
+        ['open_agent'],
+      ]);
+  });
   it('labels and gates the combined refinement action', () => {
     const available = deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: true })[1];
     expect(available).toMatchObject({
