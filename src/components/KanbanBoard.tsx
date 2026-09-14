@@ -28,6 +28,7 @@ import { superthreadCardProvider } from '../superthread/cardProvider';
 import { selectedKanbanProject, shouldEnableSuperthreadProvider, visibleSuperthreadError } from '../kanban/providerSelection';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
+import { AsyncButtonLabel } from './AsyncButtonLabel';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -277,7 +278,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
         <div className="kanbanHeaderActions">
           {!selectedProjectIsSuperthread && selectedProject && <button className="primaryAction" type="button" onClick={() => { setNewCardError(null); setNewCardOpen(true); }}>Add card</button>}
           {selectedProjectIsSuperthread && <button type="button" disabled={board.syncing || !superthreadEnabled} onClick={() => board.sync(true)}>
-            {board.syncing ? 'Syncing…' : 'Sync Superthread'}
+            <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
           </button>}
         </div>
       </header>
@@ -305,7 +306,9 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                           <button type="button" aria-label="Merged card actions" disabled={cleaningMerged} onClick={() => setOpenLaneMenu((current) => current === 'merged' ? null : 'merged')}>•••</button>
                           {openLaneMenu === 'merged' && (
                             <span className="kanbanLaneMenuPopover">
-                              <button type="button" disabled={cards.length === 0 || cleaningMerged} onClick={() => cleanupMergedCards()}>{cleaningMerged ? 'Cleaning up…' : 'Clean up all'}</button>
+                              <button type="button" disabled={cards.length === 0 || cleaningMerged} onClick={() => cleanupMergedCards()}>
+                                <AsyncButtonLabel idle="Clean up all" busy="Cleaning up…" isBusy={cleaningMerged} />
+                              </button>
                             </span>
                           )}
                         </span>
@@ -912,7 +915,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         {actionError?.includes('environment changed') && <div className="kanbanActionError" role="alert">
           <span>{actionError}</span>
           <button type="button" disabled={reloadingCard} onClick={reloadCard}>
-            {reloadingCard ? 'Reloading…' : 'Reload card'}
+            <AsyncButtonLabel idle="Reload card" busy="Reloading…" isBusy={reloadingCard} />
           </button>
         </div>}
         <section className={`kanbanDetailContent cardView${activeView === 'overview' ? ' active' : ''}${editing ? ' editing' : ''}`}>
@@ -1022,7 +1025,9 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           {editing ? (
             <div className="kanbanEditActions">
               <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
-              <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>{savingEdit ? 'Saving…' : 'Save'}</button>
+              <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
+                <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
+              </button>
             </div>
           ) : <>
             <div className="cardFooterContext" aria-live="polite">
@@ -1034,12 +1039,14 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               {workflowActions.map((action) => <button
                 key={action.kind}
                 type="button"
-                className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}${action.kind === 'write_plan_and_finish_refinement' ? ' writePlanAction' : ''}`}
+                className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}`}
                 disabled={working || Boolean(action.disabledReason)}
                 title={action.disabledReason}
-                aria-label={action.label}
+                aria-label={action.loading ? 'Working…' : action.label}
                 onClick={() => performWorkflowAction(action)}
-              >{action.loading ? 'Working…' : action.label}</button>)}
+              >
+                <AsyncButtonLabel idle={action.label} busy="Working…" isBusy={Boolean(action.loading)} />
+              </button>)}
             </div>
           </>}
         </footer>
