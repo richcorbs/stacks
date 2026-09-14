@@ -68,7 +68,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       const optimistic = { ...card, status: nextStatus };
       cardsRef.current = cardsRef.current.map((candidate) => candidate.id === session.cardId ? optimistic : candidate);
       setCards(cardsRef.current);
-      setKanbanStatus(session.cardId, nextStatus).then((updated) => {
+      setKanbanStatus(session.cardId, nextStatus, card.workflow_revision, 'agent').then((updated) => {
         cardsRef.current = cardsRef.current.map((candidate) => candidate.id === session.cardId ? updated : candidate);
         setCards(cardsRef.current);
       }).catch((statusError) => {
@@ -119,7 +119,9 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     const previous = cards;
     setCards((current) => current.map((card) => card.id === id ? { ...card, status } : card));
     try {
-      const updated = await setKanbanStatus(id, status);
+      const expectedRevision = cardsRef.current.find((card) => card.id === id)?.workflow_revision;
+      if (expectedRevision === undefined) throw new Error('Card was not found; reload the board');
+      const updated = await setKanbanStatus(id, status, expectedRevision);
       setCards((current) => current.map((card) => card.id === id ? updated : card));
       return updated;
     } catch (moveError) {

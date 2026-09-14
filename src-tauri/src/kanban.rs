@@ -1,10 +1,15 @@
 use crate::fs_paths::app_data_file;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static REPOSITORY_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 const STATUSES: [&str; 6] = [
     "needs_refinement",
@@ -65,12 +70,31 @@ pub struct CardEnvironment {
     project_id: String,
     worktree_path: String,
     branch: String,
+    repository_id: Option<String>,
+    target_checkout_path: Option<String>,
+    target_branch: Option<String>,
+    source_revision: Option<String>,
+    target_revision: Option<String>,
     lifecycle_state: String,
     revision: i64,
     split_layout: serde_json::Value,
     focused_pane_id: Option<String>,
     panes: Vec<CardPane>,
     services: Vec<CardServiceDefinition>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CardEvent {
+    id: i64,
+    created_at: i64,
+    actor: String,
+    event_type: String,
+    outcome: String,
+    from_status: Option<String>,
+    to_status: Option<String>,
+    summary: Option<String>,
+    error_code: Option<String>,
+    error_detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,12 +111,14 @@ pub struct KanbanCard {
     card_url: String,
     assignee_names: Vec<String>,
     status: String,
+    workflow_revision: i64,
     project_id: Option<String>,
     environment: Option<CardEnvironment>,
     created_at: i64,
     updated_at: i64,
     sort_order: i64,
     in_scope: bool,
+    events: Vec<CardEvent>,
 }
 
 #[tauri::command]
@@ -193,7 +219,7 @@ pub(crate) fn finish_local_refinement(
     let transaction = connection.transaction().map_err(db_error)?;
     update_local_card(&transaction, id, title, Some(content))?;
     let changed = transaction.execute(
-        "UPDATE kanban_cards SET status = 'ready', updated_at = ?1,
+        "UPDATE kanban_cards SET status = 'ready', workflow_revision = workflow_revision + 1, updated_at = ?1,
             sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'ready')
          WHERE id = ?2 AND status IN ('needs_refinement', 'ready')",
         params![unix_timestamp(), id],
@@ -201,6 +227,7 @@ pub(crate) fn finish_local_refinement(
     if changed == 0 {
         return Err("Only a card being refined can finish refinement".to_string());
     }
+    transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, 'agent', 'status_transition', 'success', 'needs_refinement', 'ready')", params![id, unix_timestamp()]).map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     get_card(connection, id)?.ok_or_else(|| "Local Kanban card was not found".to_string())
 }
@@ -357,18 +384,20 @@ pub fn kanban_delete_card(id: String) -> Result<(), String> {
         let Some(card) = get_card(connection, &id)? else {
             return Ok(());
         };
+        if card.provider != "local"
+            || card.status != "needs_refinement"
+            || card.environment.is_some()
+        {
+            return Err(
+                "Only local Needs refinement cards without environments can be deleted".to_string(),
+            );
+        }
         let directory = card_directory(&id)?;
         if directory.exists() {
             fs::remove_dir_all(&directory)
                 .map_err(|error| format!("Could not remove card directory: {error}"))?;
         }
         let transaction = connection.transaction().map_err(db_error)?;
-        if id.starts_with("superthread:") {
-            transaction.execute(
-                "INSERT OR REPLACE INTO kanban_cleaned_cards (external_provider, external_id, cleaned_at) VALUES ('superthread', ?1, ?2)",
-                params![card.external_id, unix_timestamp()],
-            ).map_err(db_error)?;
-        }
         transaction
             .execute("DELETE FROM kanban_cards WHERE id = ?1", [&id])
             .map_err(db_error)?;
@@ -377,43 +406,57 @@ pub fn kanban_delete_card(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn kanban_set_status(id: String, status: String) -> Result<KanbanCard, String> {
+pub fn kanban_set_status(
+    id: String,
+    status: String,
+    expected_revision: i64,
+    actor: String,
+) -> Result<KanbanCard, String> {
     if !STATUSES.contains(&status.as_str()) {
         return Err(format!("Unknown Kanban status: {status}"));
     }
     with_connection(|connection| {
         ensure_card_directory(&id)?;
-        let current: String = connection
+        let (current, revision): (String, i64) = connection
             .query_row(
-                "SELECT status FROM kanban_cards WHERE id = ?1",
+                "SELECT status, workflow_revision FROM kanban_cards WHERE id = ?1",
                 [&id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| "Kanban card was not found".to_string())?;
-        let current_index = STATUSES
-            .iter()
-            .position(|candidate| *candidate == current)
-            .unwrap_or(usize::MAX);
-        let next_index = STATUSES
-            .iter()
-            .position(|candidate| *candidate == status)
-            .unwrap_or(usize::MAX);
-        if current_index.abs_diff(next_index) > 1 {
+        if revision != expected_revision {
+            return Err("Card changed; reload before trying again".to_string());
+        }
+        let legal = matches!(
+            (current.as_str(), status.as_str()),
+            ("needs_refinement", "ready")
+                | ("ready", "needs_refinement")
+                | ("ready", "agent_working")
+                | ("agent_working", "needs_human")
+                | ("needs_human", "agent_working")
+                | ("needs_human", "approved")
+                | ("approved", "needs_human")
+                | ("merged", "approved")
+                | ("merged", "ready")
+        );
+        if current != status && !legal {
             return Err(format!(
                 "Illegal Kanban transition from {current} to {status}"
             ));
         }
         let changed = connection.execute(
-            "UPDATE kanban_cards SET status = ?1, updated_at = ?2,
+            "UPDATE kanban_cards SET status = ?1, workflow_revision = workflow_revision + 1, updated_at = ?2,
                 sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = ?1)
-             WHERE id = ?3",
-            params![status, unix_timestamp(), id],
+             WHERE id = ?3 AND workflow_revision = ?4",
+            params![status, unix_timestamp(), id, expected_revision],
         ).map_err(db_error)?;
         if changed == 0 {
-            return Err("Kanban card was not found".to_string());
+            return Err("Card changed; reload before trying again".to_string());
         }
+        connection.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, ?3, 'status_transition', 'success', ?4, ?5)",
+            params![id, unix_timestamp(), if actor == "agent" { "agent" } else { "user" }, current, status]).map_err(db_error)?;
         get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
 }
@@ -462,30 +505,91 @@ pub fn kanban_set_project(id: String, project_id: String) -> Result<KanbanCard, 
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct EnvironmentStartPreflight {
+    repository_id: String,
+    target_checkout_path: String,
+    target_branch: String,
+    target_revision: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkflowOperationResult {
+    card: KanbanCard,
+    message: String,
+    idempotent: bool,
+}
+
 #[tauri::command]
-pub fn kanban_create_environment(
+pub fn kanban_environment_start_preflight(
     id: String,
-    project_id: String,
-    worktree_path: String,
-    branch: String,
-    services: Vec<CardServiceDefinition>,
-) -> Result<KanbanCard, String> {
-    if project_id.trim().is_empty() || worktree_path.trim().is_empty() {
-        return Err("Project and worktree path are required".to_string());
-    }
+    target_checkout_path: String,
+    expected_workflow_revision: i64,
+) -> Result<EnvironmentStartPreflight, String> {
     with_connection(|connection| {
-        ensure_card_directory(&id)?;
-        let transaction = connection.transaction().map_err(db_error)?;
-        let card_status = transaction
+        let (status, revision): (String, i64) = connection
             .query_row(
-                "SELECT status FROM kanban_cards WHERE id = ?1",
+                "SELECT status, workflow_revision FROM kanban_cards WHERE id = ?1",
                 [&id],
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| "Kanban card was not found".to_string())?;
-        if card_status != "ready" && card_status != "agent_working" {
+        if revision != expected_workflow_revision {
+            return Err("Card changed; reload before starting work".to_string());
+        }
+        if status != "ready" {
+            return Err("The card must be Ready for agent before work can start".to_string());
+        }
+        validate_checkout(&target_checkout_path, None)
+    })
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri command fields stay explicit for frontend serialization.
+pub fn kanban_create_environment(
+    id: String,
+    project_id: String,
+    worktree_path: String,
+    services: Vec<CardServiceDefinition>,
+    repository_id: String,
+    target_checkout_path: String,
+    target_branch: String,
+    target_revision: String,
+    expected_workflow_revision: i64,
+) -> Result<KanbanCard, String> {
+    if project_id.trim().is_empty() || worktree_path.trim().is_empty() {
+        return Err("Project and worktree path are required".to_string());
+    }
+    let target = validate_checkout(&target_checkout_path, Some(&repository_id))?;
+    if target.target_branch != target_branch || target.target_revision != target_revision {
+        return Err(format!("Target checkout changed during setup: {target_checkout_path}. Recover the setup result manually."));
+    }
+    let source = validate_checkout(&worktree_path, Some(&repository_id))?;
+    if source.target_checkout_path == target_checkout_path {
+        return Err(format!("Setup returned the target checkout itself: {worktree_path}. Recover any setup output manually."));
+    }
+    if source.target_branch == target_branch {
+        return Err(format!("Setup must create a source branch different from {target_branch}: {worktree_path}. Recover it manually."));
+    }
+    ensure_registered_distinct_worktree(&target_checkout_path, &worktree_path)?;
+    with_connection(|connection| {
+        ensure_card_directory(&id)?;
+        let transaction = connection.transaction().map_err(db_error)?;
+        let (card_status, workflow_revision): (String, i64) = transaction
+            .query_row(
+                "SELECT status, workflow_revision FROM kanban_cards WHERE id = ?1",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| "Kanban card was not found".to_string())?;
+        if workflow_revision != expected_workflow_revision {
+            return Err("Card changed; reload before creating its environment".to_string());
+        }
+        if card_status != "ready" {
             return Err(
                 "A card environment can only be created when the card is ready for agent work"
                     .to_string(),
@@ -495,13 +599,16 @@ pub fn kanban_create_environment(
         let now = unix_timestamp();
         transaction.execute(
             "INSERT INTO card_environments
-             (id, card_id, project_id, worktree_path, branch, lifecycle_state, revision, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'ready', 1, ?6, ?6)
+             (id, card_id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, lifecycle_state, revision, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'ready', 1, ?11, ?11)
              ON CONFLICT(card_id) DO UPDATE SET project_id = excluded.project_id,
                worktree_path = excluded.worktree_path, branch = excluded.branch,
-               lifecycle_state = 'ready', revision = card_environments.revision + 1,
-               updated_at = excluded.updated_at",
-            params![environment_id, id, project_id.trim(), worktree_path.trim(), branch.trim(), now],
+               repository_id = excluded.repository_id, target_checkout_path = excluded.target_checkout_path,
+               target_branch = excluded.target_branch, source_revision = excluded.source_revision,
+               target_revision = excluded.target_revision, lifecycle_state = 'ready',
+               revision = card_environments.revision + 1, updated_at = excluded.updated_at",
+            params![environment_id, id, project_id.trim(), worktree_path.trim(), source.target_branch, repository_id,
+                target_checkout_path, target_branch, source.target_revision, target_revision, now],
         ).map_err(db_error)?;
         let environment_id: String = transaction
             .query_row(
@@ -542,10 +649,12 @@ pub fn kanban_create_environment(
             params![environment_id, serde_json::json!({"kind":"leaf", "terminalId":shell_pane}).to_string(), shell_pane, now],
         ).map_err(db_error)?;
         transaction.execute(
-            "UPDATE kanban_cards SET project_id = ?1, workspace_id = NULL, status = 'agent_working', updated_at = ?2,
+            "UPDATE kanban_cards SET project_id = ?1, workspace_id = NULL, status = 'agent_working', workflow_revision = workflow_revision + 1, updated_at = ?2,
              sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'agent_working') WHERE id = ?3",
             params![project_id.trim(), now, id],
         ).map_err(db_error)?;
+        transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status, summary) VALUES (?1, ?2, 'user', 'environment_start', 'success', 'ready', 'agent_working', ?3)",
+            params![id, now, format!("Created source worktree {} on {}", worktree_path, source.target_branch)]).map_err(db_error)?;
         transaction.commit().map_err(db_error)?;
         get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
@@ -598,6 +707,248 @@ pub fn kanban_save_environment_layout(
     })
 }
 
+#[tauri::command]
+pub fn kanban_set_merge_target(
+    id: String,
+    target_checkout_path: String,
+    expected_environment_revision: i64,
+) -> Result<KanbanCard, String> {
+    with_connection(|connection| {
+        let (source_path, expected_repository): (String, Option<String>) = connection.query_row("SELECT worktree_path, repository_id FROM card_environments WHERE card_id=?1 AND revision=?2", params![id, expected_environment_revision], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(db_error)?.ok_or_else(|| "Card environment changed; reload before setting its merge target".to_string())?;
+        let source_repository = repository_identity(&source_path)?;
+        if expected_repository.is_some_and(|expected| expected != source_repository) {
+            return Err("Recorded source repository no longer matches".to_string());
+        }
+        let target = validate_checkout(&target_checkout_path, Some(&source_repository))?;
+        ensure_registered_distinct_worktree(&target.target_checkout_path, &source_path)?;
+        let source_branch = git_output(
+            &source_path,
+            &["symbolic-ref", "--quiet", "--short", "HEAD"],
+        )?;
+        if source_branch == target.target_branch {
+            return Err("Source and target branches must be different".to_string());
+        }
+        connection.execute("UPDATE card_environments SET repository_id=?1, target_checkout_path=?2, target_branch=?3, target_revision=?4, source_revision=?5, revision=revision+1, updated_at=?6 WHERE card_id=?7 AND revision=?8",
+            params![source_repository, target.target_checkout_path, target.target_branch, target.target_revision, git_output(&source_path, &["rev-parse", "HEAD"])?, unix_timestamp(), id, expected_environment_revision]).map_err(db_error)?;
+        get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
+    })
+}
+
+#[tauri::command]
+pub async fn kanban_merge_card(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_environment_revision: i64,
+) -> Result<WorkflowOperationResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = REPOSITORY_OPERATION_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "Repository operation lock failed".to_string())?;
+        let result = with_connection(|connection| {
+            merge_card(
+                connection,
+                &id,
+                expected_workflow_revision,
+                expected_environment_revision,
+            )
+        });
+        if let Err(detail) = &result {
+            if !detail.starts_with("Git merge failed") {
+                record_operation_failure(&id, "merge", "merge_preflight_failed", detail);
+            }
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("Merge worker failed: {error}"))?
+}
+
+fn merge_card(
+    connection: &mut Connection,
+    id: &str,
+    expected_card: i64,
+    expected_environment: i64,
+) -> Result<WorkflowOperationResult, String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let (status, card_revision): (String, i64) = transaction
+        .query_row(
+            "SELECT status, workflow_revision FROM kanban_cards WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    if status != "approved" {
+        return Err("Only a Ready to merge card can be merged".to_string());
+    }
+    if card_revision != expected_card {
+        return Err("Card changed; reload before merging".to_string());
+    }
+    let (source_path, source_branch, repository_id, target_path, target_branch, environment_revision): (String, String, Option<String>, Option<String>, Option<String>, i64) = transaction.query_row(
+        "SELECT worktree_path, branch, repository_id, target_checkout_path, target_branch, revision FROM card_environments WHERE card_id=?1", [id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+    ).optional().map_err(db_error)?.ok_or_else(|| "This card has no environment to merge".to_string())?;
+    if environment_revision != expected_environment {
+        return Err("Card environment changed; reload before merging".to_string());
+    }
+    let repository_id = repository_id
+        .ok_or_else(|| "Set merge target before merging this legacy environment".to_string())?;
+    let target_path = target_path
+        .ok_or_else(|| "Set merge target before merging this legacy environment".to_string())?;
+    let target_branch = target_branch
+        .ok_or_else(|| "Set merge target before merging this legacy environment".to_string())?;
+    let source = validate_checkout(&source_path, Some(&repository_id))?;
+    let target = validate_checkout(&target_path, Some(&repository_id))?;
+    if source.target_branch != source_branch {
+        return Err(format!(
+            "Source checkout is on {}, expected {source_branch}",
+            source.target_branch
+        ));
+    }
+    if target.target_branch != target_branch {
+        return Err(format!(
+            "Target checkout is on {}, expected {target_branch}",
+            target.target_branch
+        ));
+    }
+    ensure_registered_distinct_worktree(&target_path, &source_path)?;
+    git_output(
+        &target_path,
+        &[
+            "show-ref",
+            "--verify",
+            &format!("refs/heads/{source_branch}"),
+        ],
+    )?;
+    git_output(
+        &target_path,
+        &[
+            "show-ref",
+            "--verify",
+            &format!("refs/heads/{target_branch}"),
+        ],
+    )?;
+    let source_tip = git_output(&source_path, &["rev-parse", "HEAD"])?;
+    let already = Command::new("git")
+        .args([
+            "-C",
+            &target_path,
+            "merge-base",
+            "--is-ancestor",
+            &source_tip,
+            "HEAD",
+        ])
+        .status()
+        .map_err(|error| error.to_string())?
+        .success();
+    if !already {
+        let output = Command::new("git")
+            .args(["-C", &target_path, "merge", "--no-ff", "--", &source_branch])
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if has_git_operation(&target_path).unwrap_or(false) {
+                let _ = Command::new("git")
+                    .args(["-C", &target_path, "merge", "--abort"])
+                    .status();
+            }
+            transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, error_code, error_detail) VALUES (?1, ?2, 'user', 'merge', 'failure', 'git_merge_failed', ?3)", params![id, unix_timestamp(), detail]).map_err(db_error)?;
+            transaction.commit().map_err(db_error)?;
+            return Err(format!(
+                "Git merge failed; the Stacks merge was aborted. {detail}"
+            ));
+        }
+    }
+    let verified = Command::new("git")
+        .args([
+            "-C",
+            &target_path,
+            "merge-base",
+            "--is-ancestor",
+            &source_tip,
+            "HEAD",
+        ])
+        .status()
+        .map_err(|error| error.to_string())?
+        .success();
+    if !verified {
+        return Err(
+            "Merge completed but ancestry verification failed; card remains Ready to merge"
+                .to_string(),
+        );
+    }
+    transaction.execute("UPDATE card_environments SET source_revision=?1, target_revision=?2, revision=revision+1, updated_at=?3 WHERE card_id=?4 AND revision=?5", params![source_tip, git_output(&target_path, &["rev-parse", "HEAD"])?, unix_timestamp(), id, expected_environment]).map_err(db_error)?;
+    transaction.execute("UPDATE kanban_cards SET status='merged', workflow_revision=workflow_revision+1, updated_at=?1 WHERE id=?2 AND workflow_revision=?3", params![unix_timestamp(), id, expected_card]).map_err(db_error)?;
+    transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status, summary) VALUES (?1, ?2, 'user', 'merge', 'success', 'approved', 'merged', ?3)", params![id, unix_timestamp(), if already { "Source was already reachable from target" } else { "Created explicit merge commit" }]).map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+    Ok(WorkflowOperationResult {
+        card,
+        message: if already {
+            format!("{source_branch} was already merged into {target_branch}")
+        } else {
+            format!("Merged {source_branch} into {target_branch}")
+        },
+        idempotent: already,
+    })
+}
+
+#[tauri::command]
+pub async fn kanban_cleanup_environment(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_environment_revision: i64,
+) -> Result<KanbanCard, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = REPOSITORY_OPERATION_LOCK.get_or_init(|| Mutex::new(())).lock().map_err(|_| "Repository operation lock failed".to_string())?;
+        let result = with_connection(|connection| {
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_error)?;
+            let (status, card_revision): (String, i64) = transaction.query_row("SELECT status, workflow_revision FROM kanban_cards WHERE id=?1", [&id], |row| Ok((row.get(0)?, row.get(1)?))).map_err(db_error)?;
+            if status != "merged" { return Err("Only a Merged card environment can be cleaned up".to_string()); }
+            if card_revision != expected_workflow_revision { return Err("Card changed; reload before cleanup".to_string()); }
+            let (source_path, source_branch, repository_id, target_path, target_branch, recorded_tip, environment_revision): (String, String, String, String, String, String, i64) = transaction.query_row(
+                "SELECT worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, revision FROM card_environments WHERE card_id=?1", [&id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+            ).map_err(db_error)?;
+            if environment_revision != expected_environment_revision { return Err("Card environment changed; reload before cleanup".to_string()); }
+            let source = validate_checkout(&source_path, Some(&repository_id))?;
+            let target = validate_checkout(&target_path, Some(&repository_id))?;
+            if source.target_branch != source_branch || target.target_branch != target_branch { return Err("Source or target checkout changed branches before cleanup".to_string()); }
+            let current_tip = git_output(&source_path, &["rev-parse", "HEAD"])?;
+            if current_tip != recorded_tip { return Err("The source branch has new commits since merge; merge again before cleanup".to_string()); }
+            if !Command::new("git").args(["-C", &target_path, "merge-base", "--is-ancestor", &current_tip, "HEAD"]).status().map_err(|error| error.to_string())?.success() {
+                return Err("The source tip is no longer reachable from the recorded target".to_string());
+            }
+            ensure_registered_distinct_worktree(&target_path, &source_path)?;
+            let removed = Command::new("git").args(["-C", &target_path, "worktree", "remove", "--", &source_path]).output().map_err(|error| error.to_string())?;
+            if !removed.status.success() { return Err(format!("Git could not remove the source worktree: {}", String::from_utf8_lossy(&removed.stderr).trim())); }
+            let deleted = Command::new("git").args(["-C", &target_path, "branch", "-d", "--", &source_branch]).output().map_err(|error| error.to_string())?;
+            if !deleted.status.success() { return Err(format!("Worktree was removed, but Git safely retained the source branch: {}", String::from_utf8_lossy(&deleted.stderr).trim())); }
+            transaction.execute("DELETE FROM card_environments WHERE card_id=?1 AND revision=?2", params![id, expected_environment_revision]).map_err(db_error)?;
+            transaction.execute("UPDATE kanban_cards SET workflow_revision=workflow_revision+1, updated_at=?1 WHERE id=?2 AND workflow_revision=?3", params![unix_timestamp(), id, expected_workflow_revision]).map_err(db_error)?;
+            transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, summary) VALUES (?1, ?2, 'user', 'cleanup', 'success', 'Removed source worktree and branch')", params![id, unix_timestamp()]).map_err(db_error)?;
+            transaction.commit().map_err(db_error)?;
+            get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
+        });
+        if let Err(detail) = &result { record_operation_failure(&id, "cleanup", "cleanup_failed", detail); }
+        result
+    }).await.map_err(|error| format!("Cleanup worker failed: {error}"))?
+}
+
+fn record_operation_failure(card_id: &str, event_type: &str, error_code: &str, detail: &str) {
+    let _ = with_connection(|connection| {
+        connection.execute(
+        "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, error_code, error_detail) VALUES (?1, ?2, 'user', ?3, 'failure', ?4, ?5)",
+        params![card_id, unix_timestamp(), event_type, error_code, detail],
+    ).map(|_| ()).map_err(db_error)
+    });
+}
+
 fn next_local_card_number(connection: &Connection, project_id: &str) -> Result<i64, String> {
     connection
         .query_row(
@@ -644,6 +995,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             assignee_names TEXT NOT NULL DEFAULT '[]',
             status TEXT NOT NULL DEFAULT 'needs_refinement'
                 CHECK(status IN ('needs_refinement', 'ready', 'agent_working', 'needs_human', 'approved', 'merged')),
+            workflow_revision INTEGER NOT NULL DEFAULT 1,
             project_id TEXT,
             workspace_id TEXT,
             created_at INTEGER NOT NULL,
@@ -669,6 +1021,11 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             project_id TEXT NOT NULL,
             worktree_path TEXT NOT NULL,
             branch TEXT NOT NULL DEFAULT '',
+            repository_id TEXT,
+            target_checkout_path TEXT,
+            target_branch TEXT,
+            source_revision TEXT,
+            target_revision TEXT,
             lifecycle_state TEXT NOT NULL DEFAULT 'ready' CHECK(lifecycle_state IN ('creating', 'ready', 'cleanup_pending', 'cleanup_failed')),
             revision INTEGER NOT NULL DEFAULT 1,
             created_at INTEGER NOT NULL,
@@ -688,6 +1045,25 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             focused_pane_id TEXT,
             updated_at INTEGER NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS card_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            created_at INTEGER NOT NULL,
+            actor TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            from_status TEXT,
+            to_status TEXT,
+            summary TEXT,
+            error_code TEXT,
+            error_detail TEXT
+         );
+         CREATE INDEX IF NOT EXISTS card_events_card_idx ON card_events(card_id, created_at DESC);
+         CREATE TRIGGER IF NOT EXISTS card_events_bound AFTER INSERT ON card_events BEGIN
+            DELETE FROM card_events WHERE card_id = NEW.card_id AND id NOT IN (
+              SELECT id FROM card_events WHERE card_id = NEW.card_id ORDER BY created_at DESC, id DESC LIMIT 200
+            );
+         END;
          CREATE TABLE IF NOT EXISTS card_service_definitions (
             id TEXT PRIMARY KEY,
             environment_id TEXT NOT NULL REFERENCES card_environments(id) ON DELETE CASCADE,
@@ -728,6 +1104,47 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(db_error)?;
     }
+    if !columns.iter().any(|column| column == "workflow_revision") {
+        connection
+            .execute(
+                "ALTER TABLE kanban_cards ADD COLUMN workflow_revision INTEGER NOT NULL DEFAULT 1",
+                [],
+            )
+            .map_err(db_error)?;
+    }
+    let environment_columns = connection
+        .prepare("PRAGMA table_info(card_environments)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    for (name, sql) in [
+        (
+            "repository_id",
+            "ALTER TABLE card_environments ADD COLUMN repository_id TEXT",
+        ),
+        (
+            "target_checkout_path",
+            "ALTER TABLE card_environments ADD COLUMN target_checkout_path TEXT",
+        ),
+        (
+            "target_branch",
+            "ALTER TABLE card_environments ADD COLUMN target_branch TEXT",
+        ),
+        (
+            "source_revision",
+            "ALTER TABLE card_environments ADD COLUMN source_revision TEXT",
+        ),
+        (
+            "target_revision",
+            "ALTER TABLE card_environments ADD COLUMN target_revision TEXT",
+        ),
+    ] {
+        if !environment_columns.iter().any(|column| column == name) {
+            connection.execute(sql, []).map_err(db_error)?;
+        }
+    }
     Ok(())
 }
 
@@ -735,7 +1152,7 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
     let mut cards = {
         let mut statement = connection.prepare(
             "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
-                    card_url, assignee_names, status, project_id, created_at, updated_at, sort_order, in_scope
+                    card_url, assignee_names, status, workflow_revision, project_id, created_at, updated_at, sort_order, in_scope
              FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC"
         ).map_err(db_error)?;
         let mapped = statement.query_map([], map_card).map_err(db_error)?;
@@ -743,6 +1160,7 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
     };
     for card in &mut cards {
         card.environment = load_environment(connection, &card.id)?;
+        card.events = load_events(connection, &card.id)?;
     }
     Ok(cards)
 }
@@ -750,25 +1168,49 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
 fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, String> {
     let mut card = connection.query_row(
         "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
-                card_url, assignee_names, status, project_id, created_at, updated_at, sort_order, in_scope
+                card_url, assignee_names, status, workflow_revision, project_id, created_at, updated_at, sort_order, in_scope
          FROM kanban_cards WHERE id = ?1",
         [id],
         map_card,
     ).optional().map_err(db_error)?;
     if let Some(card) = &mut card {
         card.environment = load_environment(connection, id)?;
+        card.events = load_events(connection, id)?;
     }
     Ok(card)
+}
+
+fn load_events(connection: &Connection, card_id: &str) -> Result<Vec<CardEvent>, String> {
+    let mut statement = connection.prepare("SELECT id, created_at, actor, event_type, outcome, from_status, to_status, summary, error_code, error_detail FROM card_events WHERE card_id=?1 ORDER BY created_at DESC, id DESC LIMIT 100").map_err(db_error)?;
+    let events = statement
+        .query_map([card_id], |row| {
+            Ok(CardEvent {
+                id: row.get(0)?,
+                created_at: row.get(1)?,
+                actor: row.get(2)?,
+                event_type: row.get(3)?,
+                outcome: row.get(4)?,
+                from_status: row.get(5)?,
+                to_status: row.get(6)?,
+                summary: row.get(7)?,
+                error_code: row.get(8)?,
+                error_detail: row.get(9)?,
+            })
+        })
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    Ok(events)
 }
 
 fn load_environment(
     connection: &Connection,
     card_id: &str,
 ) -> Result<Option<CardEnvironment>, String> {
-    let Some((id, project_id, worktree_path, branch, lifecycle_state, revision)) = connection.query_row(
-        "SELECT id, project_id, worktree_path, branch, lifecycle_state, revision FROM card_environments WHERE card_id = ?1",
+    let Some((id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, lifecycle_state, revision)) = connection.query_row(
+        "SELECT id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, lifecycle_state, revision FROM card_environments WHERE card_id = ?1",
         [card_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?)),
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, Option<String>>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, String>(9)?, row.get::<_, i64>(10)?)),
     ).optional().map_err(db_error)? else { return Ok(None); };
     let (split_layout, focused_pane_id) = connection
         .query_row(
@@ -818,6 +1260,11 @@ fn load_environment(
         project_id,
         worktree_path,
         branch,
+        repository_id,
+        target_checkout_path,
+        target_branch,
+        source_revision,
+        target_revision,
         lifecycle_state,
         revision,
         split_layout,
@@ -848,13 +1295,136 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
         card_url: row.get(9)?,
         assignee_names: serde_json::from_str(&row.get::<_, String>(10)?).unwrap_or_default(),
         status: row.get(11)?,
-        project_id: row.get(12)?,
+        workflow_revision: row.get(12)?,
+        project_id: row.get(13)?,
         environment: None,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
-        sort_order: row.get(15)?,
-        in_scope: row.get(16)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
+        sort_order: row.get(16)?,
+        in_scope: row.get(17)?,
+        events: Vec::new(),
     })
+}
+
+fn git_output(path: &str, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            format!("Git command failed in {path}")
+        } else {
+            detail
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn repository_identity(path: &str) -> Result<String, String> {
+    let common = git_output(path, &["rev-parse", "--git-common-dir"])?;
+    let common = if Path::new(&common).is_absolute() {
+        PathBuf::from(common)
+    } else {
+        Path::new(path).join(common)
+    };
+    common
+        .canonicalize()
+        .map_err(|error| format!("Could not identify repository for {path}: {error}"))?
+        .to_str()
+        .map(str::to_string)
+        .ok_or_else(|| "Repository path is not valid UTF-8".to_string())
+}
+
+fn has_git_operation(path: &str) -> Result<bool, String> {
+    for marker in [
+        "MERGE_HEAD",
+        "rebase-merge",
+        "rebase-apply",
+        "CHERRY_PICK_HEAD",
+    ] {
+        let marker_path = git_output(path, &["rev-parse", "--git-path", marker])?;
+        let marker_path = if Path::new(&marker_path).is_absolute() {
+            PathBuf::from(marker_path)
+        } else {
+            Path::new(path).join(marker_path)
+        };
+        if marker_path.exists() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn validate_checkout(
+    path: &str,
+    expected_repository: Option<&str>,
+) -> Result<EnvironmentStartPreflight, String> {
+    let canonical = Path::new(path)
+        .canonicalize()
+        .map_err(|error| format!("Checkout does not exist at {path}: {error}"))?;
+    let canonical = canonical
+        .to_str()
+        .ok_or_else(|| "Checkout path is not valid UTF-8".to_string())?
+        .to_string();
+    let repository_id = repository_identity(&canonical)?;
+    if expected_repository.is_some_and(|expected| expected != repository_id) {
+        return Err(format!(
+            "Checkout at {path} belongs to a different repository"
+        ));
+    }
+    let branch = git_output(&canonical, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .map_err(|_| format!("Checkout at {path} is detached; a named branch is required"))?;
+    if !git_output(
+        &canonical,
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+    )?
+    .is_empty()
+    {
+        return Err(format!(
+            "Checkout at {path} has modified or untracked files"
+        ));
+    }
+    if has_git_operation(&canonical)? {
+        return Err(format!(
+            "Checkout at {path} has an in-progress Git operation"
+        ));
+    }
+    let revision = git_output(&canonical, &["rev-parse", "HEAD"])?;
+    Ok(EnvironmentStartPreflight {
+        repository_id,
+        target_checkout_path: canonical,
+        target_branch: branch,
+        target_revision: revision,
+    })
+}
+
+fn ensure_registered_distinct_worktree(target: &str, source: &str) -> Result<(), String> {
+    let output = git_output(target, &["worktree", "list", "--porcelain"])?;
+    let paths = output
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .collect::<Vec<_>>();
+    let source = Path::new(source)
+        .canonicalize()
+        .map_err(|error| format!("Setup result at {source} cannot be validated: {error}"))?;
+    let target = Path::new(target)
+        .canonicalize()
+        .map_err(|error| format!("Target checkout cannot be validated: {error}"))?;
+    if source == target
+        || !paths
+            .iter()
+            .any(|path| Path::new(path).canonicalize().ok().as_ref() == Some(&source))
+    {
+        return Err(format!(
+            "Setup result {} is not a distinct registered worktree; recover it manually",
+            source.display()
+        ));
+    }
+    Ok(())
 }
 
 fn unix_timestamp() -> i64 {
@@ -1070,6 +1640,89 @@ mod tests {
             .directory
             .ends_with("superthread_42/pi-sessions/planning"));
         assert!(card_pi_session("workspace:123").unwrap().is_none());
+    }
+
+    fn git_ok(path: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn merge_repository() -> (PathBuf, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "stacks-card-merge-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let target = root.join("target");
+        let source = root.join("source");
+        fs::create_dir_all(&target).unwrap();
+        git_ok(&target, &["init", "-b", "main"]);
+        git_ok(&target, &["config", "user.email", "stacks@example.com"]);
+        git_ok(&target, &["config", "user.name", "Stacks Tests"]);
+        fs::write(target.join("base.txt"), "base\n").unwrap();
+        git_ok(&target, &["add", "."]);
+        git_ok(&target, &["commit", "-m", "base"]);
+        git_ok(
+            &target,
+            &["worktree", "add", "-b", "feature", source.to_str().unwrap()],
+        );
+        fs::write(source.join("feature.txt"), "feature\n").unwrap();
+        git_ok(&source, &["add", "."]);
+        git_ok(&source, &["commit", "-m", "feature"]);
+        (root, target, source)
+    }
+
+    #[test]
+    fn merge_creates_explicit_commit_and_transitions_only_after_verification() {
+        let (root, target, source) = merge_repository();
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let now = unix_timestamp();
+        connection.execute("INSERT INTO kanban_cards (id, external_provider, external_id, title, status, workflow_revision, created_at, updated_at) VALUES ('local:merge', 'local:p', '1', 'Merge', 'approved', 3, ?1, ?1)", [now]).unwrap();
+        let repository = repository_identity(target.to_str().unwrap()).unwrap();
+        let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        connection.execute("INSERT INTO card_environments (id, card_id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, revision, created_at, updated_at) VALUES ('e', 'local:merge', 'p', ?1, 'feature', ?2, ?3, 'main', ?4, ?5, 2, ?6, ?6)", params![source.to_str().unwrap(), repository, target.to_str().unwrap(), source_tip, target_tip, now]).unwrap();
+        let result = merge_card(&mut connection, "local:merge", 3, 2).unwrap();
+        assert_eq!(result.card.status, "merged");
+        assert_eq!(
+            git_output(
+                target.to_str().unwrap(),
+                &["rev-list", "--parents", "-n", "1", "HEAD"]
+            )
+            .unwrap()
+            .split_whitespace()
+            .count(),
+            3
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn start_preflight_rejects_dirty_and_detached_targets() {
+        let (root, target, _source) = merge_repository();
+        fs::write(target.join("dirty.txt"), "dirty\n").unwrap();
+        assert!(validate_checkout(target.to_str().unwrap(), None)
+            .unwrap_err()
+            .contains("modified or untracked"));
+        fs::remove_file(target.join("dirty.txt")).unwrap();
+        git_ok(&target, &["checkout", "--detach"]);
+        assert!(validate_checkout(target.to_str().unwrap(), None)
+            .unwrap_err()
+            .contains("detached"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -20,7 +20,7 @@ import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
 import { disposeTerminalSessions } from '../terminalSessionManager';
-import { createKanbanEnvironment, fetchKanbanCards } from '../kanban/api';
+import { createKanbanEnvironment, fetchKanbanCards, preflightKanbanEnvironment } from '../kanban/api';
 import type { CardServiceDefinition } from '../kanban/types';
 import type { KanbanCard } from '../kanban/types';
 import type { GitInfo } from '../types';
@@ -323,6 +323,7 @@ export function useAppRootModel() {
       }
       if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
 
+      const preflight = await preflightKanbanEnvironment(card.id, project.path, card.workflow_revision);
       const input = card.provider === 'local'
         ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title)
         : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, {
@@ -339,7 +340,13 @@ export function useAppRootModel() {
         project.server_command?.trim() ? { id: '', name: 'server', command: project.server_command.trim(), sort_order: 0 } : null,
         project.console_command?.trim() ? { id: '', name: 'console', command: project.console_command.trim(), sort_order: 1 } : null,
       ].filter((service): service is CardServiceDefinition => service !== null);
-      const updated = await createKanbanEnvironment(card.id, card.project_id, worktree, git?.branch ?? '', services);
+      let updated: KanbanCard;
+      try {
+        updated = await createKanbanEnvironment(card.id, card.project_id, worktree, services, preflight, card.workflow_revision);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`${detail}\nSetup result: ${worktree}\nSetup output:\n${setup.output.trim() || '(no output)'}`);
+      }
       showToast(`Started work on #${card.external_id}`);
       return {
         ok: true,
@@ -465,13 +472,11 @@ export function useAppRootModel() {
     ]);
     if (!card.project_id || !card.environment) return true;
     const project = store.projects.find((candidate) => candidate.id === card.project_id);
-    if (!project) return true;
-    const path = card.environment.worktree_path;
-    const git = await invoke<GitInfo | null>('git_info', { path });
-    await invoke('cleanup_git_worktree', {
-      repositoryPath: project.path,
-      worktreePath: path,
-      branch: git?.branch ?? card.environment.branch,
+    if (!project) throw new Error('The card project was not found');
+    await invoke('kanban_cleanup_environment', {
+      id: card.id,
+      expectedWorkflowRevision: card.workflow_revision,
+      expectedEnvironmentRevision: card.environment.revision,
     });
     return true;
   }
