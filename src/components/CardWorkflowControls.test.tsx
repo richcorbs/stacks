@@ -32,6 +32,28 @@ describe('CardWorkflowControls', () => {
     expect(buttons.every((button) => !button.includes('Working…'))).toBe(true);
   });
 
+  it('maps explicit action appearances to stable classes', () => {
+    const markup = renderToStaticMarkup(
+      <CardWorkflowControls
+        actions={[
+          { kind: 'close', label: 'Close card', destructive: true, appearance: 'neutral-ghost' },
+          { kind: 'delete', label: 'Delete card', destructive: true, appearance: 'danger-ghost' },
+          { kind: 'cleanup', label: 'Clean up', destructive: true, appearance: 'regular' },
+        ]}
+        working={false}
+        actionError={null}
+        mergedWithoutEnvironment={false}
+        onAction={() => {}}
+      />,
+    );
+    const buttons = markup.match(/<button[\s\S]*?<\/button>/g) ?? [];
+
+    expect(buttons[0]).toContain('class="workflowActionNeutralGhost"');
+    expect(buttons[1]).toContain('class="workflowActionDangerGhost"');
+    expect(buttons[2]).toContain('class="workflowActionRegular"');
+    expect(markup).not.toContain('destructiveAction');
+  });
+
   it('restores each action’s normal availability after workflow progress settles', () => {
     const markup = renderToStaticMarkup(
       <CardWorkflowControls
