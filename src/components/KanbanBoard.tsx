@@ -30,6 +30,7 @@ import { selectedKanbanProject, shouldEnableSuperthreadProvider, visibleSuperthr
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
+import { CardWorkflowControls } from './CardWorkflowControls';
 import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
@@ -1114,26 +1115,13 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
                 <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
               </button>
             </div>
-          ) : <>
-            <div className="cardFooterContext" aria-live="polite">
-              {working && <span>Working…</span>}
-              {!working && actionError && !actionError.includes('environment changed') && <span className="cardFooterError" role="alert">{actionError}</span>}
-              {!working && !actionError && card.status === 'merged' && !card.environment && <span>A new environment is required to resume work.</span>}
-            </div>
-            <div className="cardFooterActions" aria-label="Workflow actions">
-              {workflowActions.map((action) => <button
-                key={action.kind}
-                type="button"
-                className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}`}
-                disabled={working || Boolean(action.disabledReason)}
-                title={action.disabledReason}
-                aria-label={action.loading ? 'Working…' : action.label}
-                onClick={() => performWorkflowAction(action)}
-              >
-                <AsyncButtonLabel idle={action.label} busy="Working…" isBusy={Boolean(action.loading)} />
-              </button>)}
-            </div>
-          </>}
+          ) : <CardWorkflowControls
+            actions={workflowActions}
+            working={working}
+            actionError={actionError}
+            mergedWithoutEnvironment={card.status === 'merged' && !card.environment}
+            onAction={performWorkflowAction}
+          />}
         </footer>
       </article>
     </div>
