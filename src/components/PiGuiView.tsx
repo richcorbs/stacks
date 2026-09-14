@@ -32,7 +32,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 }) {
   const cwd = terminal.cwd || workspace.cwd || project.path;
   const [projectTrusted, setProjectTrusted] = useState(false);
-  const pi = usePiSession(terminal.id, cwd, workspace.id, project.path);
+  const pi = usePiSession(terminal.id, cwd, workspace.id, project.id, project.path);
   const [prompt, setPrompt] = useState('');
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [attachments, setAttachments] = useState<Array<PiPromptImage & { name: string; byteSize: number }>>([]);

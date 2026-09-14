@@ -78,7 +78,7 @@ export function ProjectSwitcherDialog({ open, projects, currentProjectId, onSele
           })}
           {projects.length === 0 && <div className="projectSwitcherEmpty">No projects configured</div>}
         </div>
-        <button className="projectSwitcherAdd" type="button" onClick={onAddProject}>Add Project</button>
+        <button className="projectSwitcherAdd" type="button" onClick={onAddProject}>+ Add Project</button>
       </div>
     </div>
   );

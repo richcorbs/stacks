@@ -46,7 +46,7 @@ fn legacy_store_path() -> Result<std::path::PathBuf, String> {
     app_data_file("projects.json")
 }
 
-fn migrate_store_schema(connection: &Connection) -> Result<(), String> {
+pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS projects (
@@ -88,6 +88,42 @@ pub fn load_store() -> Result<ProjectStore, String> {
         migrate_legacy_card_environments(connection)?;
         read_store(connection)
     })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PiProjectScope {
+    pub id: String,
+    pub name: String,
+    pub kanban_source: String,
+}
+
+pub(crate) fn pi_project_scope(project_id: &str) -> Result<PiProjectScope, String> {
+    kanban::with_connection(|connection| pi_project_scope_from_connection(connection, project_id))
+}
+
+fn pi_project_scope_from_connection(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<PiProjectScope, String> {
+    migrate_store_schema(connection)?;
+    connection
+        .query_row(
+            "SELECT id, name, COALESCE(kanban_source, 'local') FROM projects WHERE id = ?1",
+            [project_id],
+            |row| {
+                Ok(PiProjectScope {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    kanban_source: row.get(2)?,
+                })
+            },
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => {
+                "The Pi session's owning Stacks project was not found".to_string()
+            }
+            other => db_error(other),
+        })
 }
 
 #[tauri::command]
@@ -347,6 +383,43 @@ mod tests {
         assert_eq!(status, "approved");
         assert_eq!(path, "/repo");
         assert_eq!(service, "npm run dev");
+    }
+
+    #[test]
+    fn resolves_pi_scope_only_from_persisted_project_metadata() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        let mut store = sample_store();
+        store.projects.push(Project {
+            id: "remote".into(),
+            name: "Remote".into(),
+            path: "/remote".into(),
+            notes: String::new(),
+            workspaces: Vec::new(),
+            collapsed: false,
+            kanban_source: Some("superthread".into()),
+            start_work_command: None,
+            server_command: None,
+            console_command: None,
+        });
+        write_store(&mut connection, &store).unwrap();
+
+        assert_eq!(
+            pi_project_scope_from_connection(&connection, "p1").unwrap(),
+            PiProjectScope {
+                id: "p1".into(),
+                name: "Project".into(),
+                kanban_source: "local".into()
+            }
+        );
+        assert_eq!(
+            pi_project_scope_from_connection(&connection, "remote")
+                .unwrap()
+                .kanban_source,
+            "superthread"
+        );
+        assert!(pi_project_scope_from_connection(&connection, "model-selected-missing").is_err());
     }
 
     #[test]

@@ -121,6 +121,16 @@ pub struct KanbanCard {
     events: Vec<CardEvent>,
 }
 
+impl KanbanCard {
+    pub(crate) fn number(&self) -> &str {
+        &self.external_id
+    }
+
+    pub(crate) fn board_title(&self) -> &str {
+        &self.board_title
+    }
+}
+
 #[tauri::command]
 pub fn kanban_cards() -> Result<Vec<KanbanCard>, String> {
     with_connection(list_cards)
@@ -129,31 +139,69 @@ pub fn kanban_cards() -> Result<Vec<KanbanCard>, String> {
 #[tauri::command]
 pub fn kanban_create_local_card(
     project_id: String,
-    project_name: String,
     title: String,
     content: String,
 ) -> Result<KanbanCard, String> {
-    let title = title.trim();
-    if project_id.trim().is_empty() || title.is_empty() {
-        return Err("Project and title are required".to_string());
+    create_local_card_for_project(&project_id, &title, &content)
+}
+
+pub(crate) fn create_local_card_for_project(
+    project_id: &str,
+    title: &str,
+    content: &str,
+) -> Result<KanbanCard, String> {
+    let scope = crate::store::pi_project_scope(project_id)?;
+    if !is_local_kanban_source(&scope.kanban_source) {
+        return Err("Cards can only be created for a local Kanban project".to_string());
     }
     with_connection(|connection| {
-        let transaction = connection.transaction().map_err(db_error)?;
-        let next_number = next_local_card_number(&transaction, &project_id)?;
-        let id = format!("local:{}", uuid::Uuid::new_v4());
-        let now = unix_timestamp();
-        let sort_order: i64 = transaction.query_row(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards WHERE status = 'needs_refinement' AND project_id = ?1",
-            [&project_id], |row| row.get(0),
-        ).map_err(db_error)?;
-        transaction.execute(
-            "INSERT INTO kanban_cards
-             (id, external_provider, external_id, title, content, board_id, board_title, status, project_id, created_at, updated_at, sort_order, in_scope)
-             VALUES (?1, 'local:' || ?5, ?2, ?3, ?4, ?5, ?6, 'needs_refinement', ?5, ?7, ?7, ?8, 1)",
-            params![id, next_number.to_string(), title, content.trim(), project_id, project_name.trim(), now, sort_order],
-        ).map_err(db_error)?;
-        transaction.commit().map_err(db_error)?;
-        get_card(connection, &id)?.ok_or_else(|| "Created card was not found".to_string())
+        create_local_card(connection, &scope.id, &scope.name, title, content)
+    })
+}
+
+fn is_local_kanban_source(source: &str) -> bool {
+    source == "local"
+}
+
+fn create_local_card(
+    connection: &mut Connection,
+    project_id: &str,
+    project_name: &str,
+    title: &str,
+    content: &str,
+) -> Result<KanbanCard, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Card title is required".to_string());
+    }
+    let transaction = connection.transaction().map_err(db_error)?;
+    let next_number = next_local_card_number(&transaction, project_id)?;
+    let id = format!("local:{}", uuid::Uuid::new_v4());
+    let now = unix_timestamp();
+    let sort_order: i64 = transaction.query_row(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards WHERE status = 'needs_refinement' AND project_id = ?1",
+        [project_id], |row| row.get(0),
+    ).map_err(db_error)?;
+    transaction.execute(
+        "INSERT INTO kanban_cards
+         (id, external_provider, external_id, title, content, board_id, board_title, status, project_id, created_at, updated_at, sort_order, in_scope)
+         VALUES (?1, 'local:' || ?5, ?2, ?3, ?4, ?5, ?6, 'needs_refinement', ?5, ?7, ?7, ?8, 1)",
+        params![id, next_number.to_string(), title, content.trim(), project_id, project_name.trim(), now, sort_order],
+    ).map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    get_card(connection, &id)?.ok_or_else(|| "Created card was not found".to_string())
+}
+
+pub(crate) fn card_project_id(id: &str) -> Result<Option<String>, String> {
+    with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT project_id FROM kanban_cards WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)
     })
 }
 
@@ -1763,6 +1811,39 @@ mod tests {
         assert_eq!(next_local_card_number(&connection, "one").unwrap(), 1);
         assert_eq!(next_local_card_number(&connection, "one").unwrap(), 2);
         assert_eq!(next_local_card_number(&connection, "two").unwrap(), 1);
+    }
+
+    #[test]
+    fn local_card_creation_assigns_project_status_description_number_and_order() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+
+        let first =
+            create_local_card(&mut connection, "p1", "Project One", " First card ", "").unwrap();
+        let second = create_local_card(
+            &mut connection,
+            "p1",
+            "Project One",
+            "Second card",
+            " Details ",
+        )
+        .unwrap();
+
+        assert_eq!(first.external_id, "1");
+        assert_eq!(first.status, "needs_refinement");
+        assert_eq!(first.project_id.as_deref(), Some("p1"));
+        assert_eq!(first.board_title, "Project One");
+        assert_eq!(first.content, "");
+        assert_eq!(first.sort_order, 0);
+        assert_eq!(second.external_id, "2");
+        assert_eq!(second.content, "Details");
+        assert_eq!(second.sort_order, 1);
+    }
+
+    #[test]
+    fn create_card_tool_is_eligible_only_for_local_projects() {
+        assert!(is_local_kanban_source("local"));
+        assert!(!is_local_kanban_source("superthread"));
     }
 
     #[test]

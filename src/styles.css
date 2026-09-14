@@ -8,6 +8,9 @@
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; width: 100%; height: 100%; overflow: hidden; }
 button { font: inherit; color: inherit; }
+.asyncButtonLabel { display: inline-grid; white-space: nowrap; }
+.asyncButtonLabel > span { grid-area: 1 / 1; }
+.asyncButtonLabel > span[aria-hidden="true"] { visibility: hidden; pointer-events: none; }
 
 .app { display: flex; height: 100vh; background: #0b0f14; }
 .sidebar {
@@ -351,7 +354,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .projectSwitcherList strong { overflow: hidden; color: inherit; font-size: calc(12px + var(--ui-font-delta, 0px)); font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
 .projectSwitcherList small { color: #65798d; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .projectSwitcherEmpty { padding: 14px 10px; color: #65778a; text-align: center; font-size: calc(11px + var(--ui-font-delta, 0px)); }
-.projectSwitcherAdd { margin-top: 10px; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: #718ba3; cursor: pointer; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.projectSwitcherAdd { margin-top: 10px; padding: 7px 9px; border: 1px solid #2d3d4f; border-radius: 6px; background: transparent; color: #718ba3; cursor: pointer; font-size: calc(12px + var(--ui-font-delta, 0px)); }
 .projectSwitcherAdd:hover, .projectSwitcherAdd:focus-visible { background: #182531; color: #9ab0c4; outline: none; }
 .kanbanDetailBackdrop { z-index: 60; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 16px; }
 .kanbanDetail { width: min(1000px, calc(100vw - 32px)); max-width: 1000px; height: 95dvh; max-height: 95dvh; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #101821; border: 1px solid #2a3b4e; border-radius: 12px; box-shadow: 0 24px 80px rgba(0, 0, 0, .55); }

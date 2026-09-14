@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
 import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
 import type { CardProviderAdapter, KanbanCard, KanbanStatus } from './types';
+import { KanbanSyncRequestGate } from './syncRequestGate';
 
 export function useKanbanBoard(provider: CardProviderAdapter | null) {
   const [cards, setCards] = useState<KanbanCard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
   const cardsRef = useRef(cards);
+  const syncGate = useRef(new KanbanSyncRequestGate());
 
   useEffect(() => {
     cardsRef.current = cards;
@@ -23,29 +28,53 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       setError(errorMessage(loadError));
     } finally {
       setLoading(false);
+      setInitialLoadComplete(true);
     }
   }, []);
 
   const sync = useCallback(async (refresh = false) => {
     if (!provider) return;
+    const generation = syncGate.current.begin();
     setSyncing(true);
-    setError(null);
+    setProviderError(null);
     try {
       const response = await provider.sync(refresh);
-      setCards(await syncKanbanCards(response.cards));
+      if (!syncGate.current.isCurrent(generation)) return;
+      const syncedCards = await syncGate.current.persistIfCurrent(generation, () => syncKanbanCards(response.cards));
+      if (!syncedCards || !syncGate.current.isCurrent(generation)) return;
+      setCards(syncedCards);
       if (response.warnings.length > 0) {
-        setError(`${response.warnings.length} provider scope${response.warnings.length === 1 ? '' : 's'} could not be read.`);
+        setProviderError(`${response.warnings.length} provider scope${response.warnings.length === 1 ? '' : 's'} could not be read.`);
       }
     } catch (syncError) {
-      setError(errorMessage(syncError));
+      if (syncGate.current.isCurrent(generation)) setProviderError(errorMessage(syncError));
     } finally {
-      setSyncing(false);
+      if (syncGate.current.isCurrent(generation)) setSyncing(false);
     }
   }, [provider]);
 
   useEffect(() => {
-    load().then(() => sync(false)).catch(console.error);
-  }, [load, sync]);
+    load().catch(console.error);
+  }, [load]);
+
+  useEffect(() => {
+    if (initialLoadComplete && provider) sync(false).catch(console.error);
+  }, [initialLoadComplete, provider, sync]);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+    getCurrentWindow().listen<KanbanCard>('kanban-card-changed', (event) => {
+      setCards((current) => mergeChangedKanbanCard(current, event.payload));
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unsubscribe = cleanup;
+    }).catch(console.error);
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -85,8 +114,8 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     };
   }, [load]);
 
-  async function createLocal(projectId: string, projectName: string, title: string, content: string) {
-    const created = await createLocalKanbanCard(projectId, projectName, title, content);
+  async function createLocal(projectId: string, title: string, content: string) {
+    const created = await createLocalKanbanCard(projectId, title, content);
     setCards((current) => [...current, created]);
     return created;
   }
@@ -167,7 +196,13 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     }
   }
 
-  return { cards, loading, syncing, error, load, sync, createLocal, update, interact, remove, reorder, move, assignProject, loadDetails };
+  return { cards, loading, syncing, error, providerError, load, sync, createLocal, update, interact, remove, reorder, move, assignProject, loadDetails };
+}
+
+export function mergeChangedKanbanCard(cards: KanbanCard[], changed: KanbanCard) {
+  const existingIndex = cards.findIndex((card) => card.id === changed.id);
+  if (existingIndex < 0) return [...cards, changed];
+  return cards.map((card) => card.id === changed.id ? changed : card);
 }
 
 function cardAgentSession(paneId: string): { cardId: string; thread: 'planning' | 'work' } | null {
