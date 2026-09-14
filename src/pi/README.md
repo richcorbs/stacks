@@ -5,12 +5,13 @@ Pi GUI panes use one persistent `pi --mode rpc` process per pane ID.
 ## Ownership
 
 - Rust (`src-tauri/src/pi_rpc.rs`) owns child processes, stdin serialization, process generations, cleanup, and session directories.
-- `usePiSession.ts` owns the typed RPC request broker and translates events into UI state.
-- `PiGuiView.tsx` owns presentation only.
+- `sessionController.ts` owns one pane-ID-keyed frontend controller for the app lifetime. It owns the typed RPC request broker, sole pane event subscription, generation filtering, transcript/tool/queue projection, completion eligibility, and structured UI requests.
+- `usePiSession.ts` is a `useSyncExternalStore` adapter. Mounting or unmounting it only adds or removes a React snapshot subscriber.
+- `PiGuiView.tsx` owns presentation and publishes whether its Agent view is currently open.
 - The persisted split leaf is authoritative for pane kind; `PaneEntry` is its runtime projection and must be rebuilt from the split tree during workspace initialization.
 - Pi session files live under the app data directory in `pi-sessions/<pane-id>/`.
 
-React mount/unmount does not own process lifetime. Split-tree remounts must not terminate a conversation. Explicit stop, pane deletion, workspace deletion, project deletion, and app shutdown control the backend process.
+React mount/unmount does not own process or frontend session lifetime. Split-tree remounts, card closure, and project switching must not terminate a conversation or detach its frontend event projection. Explicit stop still controls the process; pane/card/workspace/project deletion removes the persistent controller after backend deletion; app shutdown remains the final process cleanup boundary.
 
 ## Lifecycle rules
 
@@ -20,7 +21,8 @@ React mount/unmount does not own process lifetime. Split-tree remounts must not 
 - Removing a Pi pane permanently calls `delete_pi_session`; stopping it retains its session.
 - Pi process start and exit events feed the shared `terminal-running-changed` projection so Pi-only workspaces receive the sidebar's running status dot. Assistant deltas and tool starts also emit `terminal-output`, giving background Pi workspaces the same fresh/unseen activity dots as terminals. A naturally settled agent run emits `app-attention`; the application-level notification hook filters out the active, focused workspace and honors the notification setting. User-aborted runs do not notify.
 - Child processes are reaped by a dedicated process thread. Pi and setup shells run in dedicated process groups so stop, timeout, and app shutdown also terminate tool descendants.
-- Concurrent starts for one pane are idempotent; remounts wait for the in-flight owner.
+- Concurrent starts for one pane are idempotent. React Strict Mode and remounts reuse the same controller and backend subscription rather than issuing another start.
+- Initial hydration merges durable history with any `message_end` events received while hydration is in flight. Activity revisions prevent an older `get_state` response from overwriting newer start/settle state.
 
 ## Workspace setup
 
@@ -43,6 +45,8 @@ RPC requests use unique IDs and resolve only when their matching response arrive
 While Pi is working, Enter sends the composer through RPC `steer`, and Option+Enter sends it through RPC `follow_up`, matching Pi's CLI behavior. Pending steering messages and follow-ups are projected from `queue_update` events and displayed as subdued, labeled user bubbles in the conversation rather than inside the composer. When Pi delivers one, its user `message_end` removes the queued projection and the durable message renders with normal user styling.
 
 RPC extensions and skills can return text to the composer through the fire-and-forget `extension_ui_request` method `set_editor_text`; the session projects that request into `PiGuiView`, which replaces and focuses the composer text.
+
+Structured `extension_ui_request` methods (`confirm`, `select`, `input`, and `editor`) are retained by the controller even with no mounted view. A card Agent tab counts as open when its detail is mounted with Agent selected; OS/window focus is irrelevant. A hidden work-thread request conditionally moves an `agent_working` card to `needs_human` and emits an attention notification. Responding conditionally restores `agent_working` before forwarding the response. Timeout, replacement, or controller deletion reconciles only the exact status revision created by that request, so manual or automation changes win. Planning-thread requests never alter workflow status.
 
 App-level focus restoration emits `pane-focus-request` when the active pane has no xterm session. Active Pi panes listen for their pane ID and restore composer focus after dialogs, settings, palettes, and context menus close. Pane activation, app-window focus, and non-interactive clicks within a Pi pane also restore composer focus.
 

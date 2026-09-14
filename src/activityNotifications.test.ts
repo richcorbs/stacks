@@ -18,6 +18,7 @@ describe('activity notifications', () => {
       title: 'Pi finished',
       body: 'Stacks — Notifications',
     });
+    expect(attentionNotification({ ...event, kind: 'pi-request' }, store).title).toBe('Pi needs your input');
     expect(attentionNotification({ ...event, kind: 'process-exit' }, store).title).toBe('Terminal exited');
   });
 });

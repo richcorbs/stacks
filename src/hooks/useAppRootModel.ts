@@ -27,6 +27,7 @@ import type { GitInfo } from '../types';
 import { developerServicesShortcutState, type DeveloperServicesTab } from '../developerServices';
 import { updateProjectNotes } from '../projectNotes';
 import { OPEN_DIRECT_WORK_EVENT } from '../directWork';
+import { deletePersistentPiSession } from '../pi/sessionController';
 
 const encoder = new TextEncoder();
 
@@ -462,7 +463,7 @@ export function useAppRootModel() {
     await Promise.all([
       ...Array.from(new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [
         `kanban-card:${card.id}:planning`, `kanban-card:${card.id}:work`,
-      ])).map((paneId) => invoke('delete_pi_session', { paneId })),
+      ])).map((paneId) => deletePersistentPiSession(paneId)),
       ...Array.from(new Set([
         ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []),
         ...(card.environment?.services.map((service) => `kanban-card:${card.id}:terminal:${service.name}`) ?? []),

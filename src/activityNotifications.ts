@@ -2,7 +2,7 @@ import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notif
 import type { Store } from './types';
 
 export type AttentionEvent = {
-  kind: 'pi-complete' | 'process-exit';
+  kind: 'pi-complete' | 'pi-request' | 'process-exit';
   workspaceId: string;
   terminalId: string;
 };
@@ -12,7 +12,7 @@ export function attentionNotification(event: AttentionEvent, store: Store) {
   const workspace = project?.workspaces.find((candidate) => candidate.id === event.workspaceId);
   const location = [project?.name, workspace?.name].filter(Boolean).join(' — ') || 'Background workspace';
   return {
-    title: event.kind === 'pi-complete' ? 'Pi finished' : 'Terminal exited',
+    title: event.kind === 'pi-complete' ? 'Pi finished' : event.kind === 'pi-request' ? 'Pi needs your input' : 'Terminal exited',
     body: location,
   };
 }

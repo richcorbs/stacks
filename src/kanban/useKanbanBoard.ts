@@ -4,6 +4,8 @@ import { subscribeAllPiEvents } from '../pi/eventBroker';
 import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
 import type { CardProviderAdapter, KanbanCard, KanbanStatus } from './types';
 import { KanbanSyncRequestGate } from './syncRequestGate';
+import { setPiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
+import { deletePersistentPiSession } from '../pi/sessionController';
 
 export function useKanbanBoard(provider: CardProviderAdapter | null) {
   const [cards, setCards] = useState<KanbanCard[]>([]);
@@ -13,6 +15,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
   const [error, setError] = useState<string | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const cardsRef = useRef(cards);
+  const uiRequestBlocksRef = useRef(new Map<string, Promise<KanbanCard | null>>());
   const syncGate = useRef(new KanbanSyncRequestGate());
 
   useEffect(() => {
@@ -65,7 +68,11 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     let unsubscribe: (() => void) | undefined;
     let cancelled = false;
     getCurrentWindow().listen<KanbanCard>('kanban-card-changed', (event) => {
-      setCards((current) => mergeChangedKanbanCard(current, event.payload));
+      setCards((current) => {
+        const merged = mergeChangedKanbanCard(current, event.payload);
+        cardsRef.current = merged;
+        return merged;
+      });
     }).then((cleanup) => {
       if (cancelled) cleanup();
       else unsubscribe = cleanup;
@@ -75,6 +82,55 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => setPiUiRequestWorkflowHandler({
+    received: (paneId, requestId, viewOpen) => {
+      const session = cardAgentSession(paneId);
+      if (!session || session.thread !== 'work' || viewOpen) return;
+      const card = cardsRef.current.find((candidate) => candidate.id === session.cardId);
+      if (!card || card.status !== 'agent_working') return;
+      const key = `${paneId}:${requestId}`;
+      if (uiRequestBlocksRef.current.has(key)) return;
+      const transition = setKanbanStatus(card.id, 'needs_human', card.workflow_revision, 'agent').then((updated) => {
+        cardsRef.current = cardsRef.current.map((candidate) => candidate.id === card.id ? updated : candidate);
+        setCards(cardsRef.current);
+        return updated;
+      }).catch((statusError) => {
+        const message = `Pi needs input, but the card status could not be updated: ${errorMessage(statusError)}`;
+        setError(message);
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } }));
+        load().catch(console.error);
+        return null;
+      });
+      uiRequestBlocksRef.current.set(key, transition);
+    },
+    beforeResponse: async (paneId, requestId) => {
+      await reconcileUiRequestBlock(paneId, requestId, true);
+    },
+    dismissed: async (paneId, requestId, restoreWorking) => {
+      await reconcileUiRequestBlock(paneId, requestId, false, restoreWorking);
+    },
+  }), [load]);
+
+  async function reconcileUiRequestBlock(paneId: string, requestId: string, responding: boolean, restoreWorking = true) {
+    const key = `${paneId}:${requestId}`;
+    const transition = uiRequestBlocksRef.current.get(key);
+    if (!transition) return;
+    uiRequestBlocksRef.current.delete(key);
+    const blocked = await transition;
+    if (!blocked) {
+      if (responding) throw new Error('the automatic Needs you transition failed');
+      return;
+    }
+    if (!restoreWorking) return;
+    const current = cardsRef.current.find((candidate) => candidate.id === blocked.id);
+    // Only undo the exact status/revision written by this request. A manual or
+    // automation update wins and must never be overwritten.
+    if (!shouldRestoreUiRequestCard(current, blocked)) return;
+    const updated = await setKanbanStatus(current.id, 'agent_working', current.workflow_revision, 'agent');
+    cardsRef.current = cardsRef.current.map((candidate) => candidate.id === current.id ? updated : candidate);
+    setCards(cardsRef.current);
+  }
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -132,6 +188,10 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
 
   async function remove(id: string) {
     await deleteKanbanCard(id);
+    await Promise.all([
+      deletePersistentPiSession(`kanban-card:${id}:planning`).catch(() => {}),
+      deletePersistentPiSession(`kanban-card:${id}:work`).catch(() => {}),
+    ]);
     setCards((current) => current.filter((card) => card.id !== id));
   }
 
@@ -205,7 +265,11 @@ export function mergeChangedKanbanCard(cards: KanbanCard[], changed: KanbanCard)
   return cards.map((card) => card.id === changed.id ? changed : card);
 }
 
-function cardAgentSession(paneId: string): { cardId: string; thread: 'planning' | 'work' } | null {
+export function shouldRestoreUiRequestCard(current: KanbanCard | undefined, blocked: KanbanCard): current is KanbanCard {
+  return Boolean(current && current.status === 'needs_human' && current.workflow_revision === blocked.workflow_revision);
+}
+
+export function cardAgentSession(paneId: string): { cardId: string; thread: 'planning' | 'work' } | null {
   const prefix = 'kanban-card:';
   if (!paneId.startsWith(prefix)) return null;
   for (const thread of ['planning', 'work'] as const) {
