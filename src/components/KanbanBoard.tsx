@@ -286,7 +286,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           </span>
         </button>
         <div className="kanbanHeaderActions">
-          {!selectedProjectIsSuperthread && selectedProject && <button className="primaryAction" type="button" onClick={() => { setNewCardError(null); setNewCardOpen(true); }}>Add card</button>}
+          {!selectedProjectIsSuperthread && selectedProject && <button className="primaryAction" type="button" onClick={() => { setNewCardError(null); setNewCardOpen(true); }}>+ Add card</button>}
           {selectedProjectIsSuperthread && <button type="button" disabled={board.syncing || !superthreadEnabled} onClick={() => board.sync(true)}>
             {board.syncing ? 'Syncing…' : 'Sync Superthread'}
           </button>}
