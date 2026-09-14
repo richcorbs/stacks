@@ -29,6 +29,18 @@ export function uniqueSuperthreadProject(projects: Project[]): { project: Projec
   };
 }
 
+export function canManuallySyncSuperthread(
+  superthreadEnabled: boolean,
+  superthreadProject: Project | null,
+  projectFilterId: string | null,
+): boolean {
+  return Boolean(
+    superthreadEnabled
+    && superthreadProject
+    && (!projectFilterId || projectFilterId === superthreadProject.id),
+  );
+}
+
 /**
  * Reorders visible cards by replacing only their slots in the complete global lane.
  * Hidden cards therefore retain both their relative order and their lane positions.

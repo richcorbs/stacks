@@ -326,10 +326,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanProjectFilter { display: flex; align-items: center; gap: 7px; color: #7f93a6; font-size: calc(10px + var(--ui-font-delta, 0px)); }
 .kanbanProjectFilter select { min-width: 150px; }
 .kanbanProjectTitleRow:hover, .kanbanProjectTitleRow:focus-visible { border-color: #304459 !important; background: #121d28 !important; outline: none; }
-.kanbanProjectTitleRow > span { display: flex; flex-direction: column; gap: 2px; }
-.kanbanProjectTitle { display: flex; align-items: center; gap: 7px; }
+.kanbanProjectTitle { display: flex; align-items: center; }
 .kanbanProjectTitleRow strong { color: #d0dae4; font-size: calc(14px + var(--ui-font-delta, 0px)); }
-.kanbanProjectTitleRow small { color: #6f8397; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .kanbanProjectSwitchIcon { width: 14px; height: 14px; fill: none; stroke: #71879b; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
 .kanbanProjectTitleRow:hover .kanbanProjectSwitchIcon, .kanbanProjectTitleRow:focus-visible .kanbanProjectSwitchIcon { stroke: #9cb2c5; }
 .kanbanHeader h1 { margin: 0 0 4px; color: #d2dce7; font-size: calc(18px + var(--ui-font-delta, 0px)); font-weight: 650; }

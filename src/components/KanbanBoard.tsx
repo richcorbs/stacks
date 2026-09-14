@@ -26,7 +26,7 @@ import { SplitView } from './WorkspaceTerminalTree';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { disposeTerminalSession, getTerminalSession } from '../terminalSessionManager';
 import { superthreadCardProvider } from '../superthread/cardProvider';
-import { filterKanbanCards, localKanbanProjects, mergeFilteredLaneOrder, owningProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
+import { canManuallySyncSuperthread, filterKanbanCards, localKanbanProjects, mergeFilteredLaneOrder, owningProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
@@ -64,7 +64,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     [spaces, superthreadEnabled, superthreadOwner.project?.id, workspaceSlug],
   );
   const board = useKanbanBoard(provider);
-  const providerError = board.providerError ?? (superthreadEnabled ? superthreadOwner.error : null);
+  const showSuperthreadSync = canManuallySyncSuperthread(superthreadEnabled, superthreadOwner.project, filterProjectId);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct'>('filter');
   const [newCardOpen, setNewCardOpen] = useState(false);
@@ -360,12 +360,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     <div className="kanbanView">
       <header className="kanbanHeader">
         <div className="kanbanProjectTitleRow">
-          <span>
-            <span className="kanbanProjectTitle"><strong>Board</strong></span>
-            <small>Cross-project workflow</small>
-          </span>
+          <span className="kanbanProjectTitle"><strong>Board</strong></span>
           <label className="kanbanProjectFilter">
-            <span>Project</span>
             <select aria-label="Filter board by project" value={filterProjectId ?? ''} onChange={(event) => {
               onSelectProject(event.target.value || null);
               setKeyboardFocusedCardId(null);
@@ -388,13 +384,13 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
               setProjectSwitcherOpen(true);
             }
           }}>Direct project work</button>
-          {superthreadEnabled && <button type="button" disabled={board.syncing || !superthreadOwner.project} onClick={() => board.sync(true)}>
+          {showSuperthreadSync && <button type="button" disabled={board.syncing} onClick={() => board.sync(true)}>
             <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
           </button>}
         </div>
       </header>
       {board.error && <div className="kanbanNotice">{board.error}</div>}
-      {providerError && <div className="kanbanNotice">{providerError}</div>}
+      {board.providerError && <div className="kanbanNotice">{board.providerError}</div>}
       {board.loading ? (
         <div className="kanbanEmpty">Loading work…</div>
       ) : (
