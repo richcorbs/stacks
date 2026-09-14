@@ -1,7 +1,7 @@
 import type { KanbanCard } from './types';
 
 export type CardWorkflowActionKind = 'open_refinement' | 'finish_refinement' | 'start_work' | 'return_to_refinement' |
-  'open_agent' | 'approve' | 'request_changes' | 'merge' | 'reopen' | 'cleanup' | 'delete' | 'set_merge_target';
+  'open_agent' | 'approve_and_commit' | 'request_changes' | 'merge' | 'reopen' | 'cleanup' | 'delete' | 'set_merge_target';
 
 export type CardWorkflowAction = {
   kind: CardWorkflowActionKind;
@@ -53,7 +53,7 @@ function baseCardWorkflowActions({ card, projectAvailable, runtimeActive = false
     case 'agent_working': return [{ kind: 'open_agent', label: runtimeActive ? 'Open Agent' : 'Open Agent', primary: true }];
     case 'needs_human': return [
       { kind: 'request_changes', label: 'Request changes' },
-      { kind: 'approve', label: 'Approve', primary: true },
+      { kind: 'approve_and_commit', label: 'Approve and commit', primary: true },
     ];
     case 'approved': return environment?.target_branch ? [
       { kind: 'request_changes', label: 'Request changes' },

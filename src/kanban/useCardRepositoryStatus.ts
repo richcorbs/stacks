@@ -4,6 +4,8 @@ import type { GithubCurrentPullRequest } from '../github/types';
 import type { GitInfo } from '../types';
 import type { KanbanCard } from './types';
 
+export const REFRESH_CARD_REPOSITORY_STATUS_EVENT = 'stacks:refresh-card-repository-status';
+
 export type CardRepositoryStatus = {
   git: GitInfo | null;
   pullRequest: GithubCurrentPullRequest | null;
@@ -18,23 +20,33 @@ export function useCardRepositoryStatus(cards: KanbanCard[], intervalMs = 30_000
   useEffect(() => {
     let cancelled = false;
     let running = false;
+    let refreshQueued = false;
     const refresh = async () => {
-      if (running) return;
+      if (running) {
+        refreshQueued = true;
+        return;
+      }
       running = true;
-      const results = await Promise.all(targets.map(async ({ cardId, path }) => {
-        const [git, pullRequest] = await Promise.all([
-          invoke<GitInfo | null>('git_info', { path }).catch(() => null),
-          invoke<GithubCurrentPullRequest | null>('github_current_pull_request', { path }).catch(() => null),
-        ]);
-        return [cardId, { git, pullRequest }] as const;
-      }));
+      do {
+        refreshQueued = false;
+        const results = await Promise.all(targets.map(async ({ cardId, path }) => {
+          const [git, pullRequest] = await Promise.all([
+            invoke<GitInfo | null>('git_info', { path }).catch(() => null),
+            invoke<GithubCurrentPullRequest | null>('github_current_pull_request', { path }).catch(() => null),
+          ]);
+          return [cardId, { git, pullRequest }] as const;
+        }));
+        if (!cancelled) setStatuses(Object.fromEntries(results));
+      } while (refreshQueued && !cancelled);
       running = false;
-      if (!cancelled) setStatuses(Object.fromEntries(results));
     };
-    refresh().catch(console.error);
-    const timer = window.setInterval(() => refresh().catch(console.error), intervalMs);
+    const requestRefresh = () => refresh().catch(console.error);
+    requestRefresh();
+    window.addEventListener(REFRESH_CARD_REPOSITORY_STATUS_EVENT, requestRefresh);
+    const timer = window.setInterval(requestRefresh, intervalMs);
     return () => {
       cancelled = true;
+      window.removeEventListener(REFRESH_CARD_REPOSITORY_STATUS_EVENT, requestRefresh);
       window.clearInterval(timer);
     };
   }, [intervalMs, targets]);
