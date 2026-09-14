@@ -12,11 +12,12 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tauri::{Emitter, State, Window};
+use tauri::{path::BaseDirectory, Emitter, Manager, State, Window};
 
 use crate::{fs_paths::app_data_dir, process_group};
 
 static TRUST_FILE_LOCK: Mutex<()> = Mutex::new(());
+static LEGACY_EXTENSION_LOCK: Mutex<()> = Mutex::new(());
 
 pub struct PiRpcHandle {
     stdin: ChildStdin,
@@ -24,6 +25,7 @@ pub struct PiRpcHandle {
     stop_tx: mpsc::Sender<mpsc::Sender<()>>,
     alive: Arc<AtomicBool>,
     cwd: String,
+    project_id: String,
     approve_project: bool,
 }
 
@@ -65,6 +67,7 @@ pub fn start_pi_session(
     pane_id: String,
     cwd: String,
     project_path: Option<String>,
+    project_id: String,
 ) -> Result<String, String> {
     if pane_id.trim().is_empty() {
         return Err("Pi pane ID is required".to_string());
@@ -74,6 +77,18 @@ pub fn start_pi_session(
         .as_deref()
         .map(canonical_project_path)
         .transpose()?;
+    let project = crate::store::pi_project_scope(&project_id)?;
+    if let Some(owner) = crate::kanban::card_pi_session(&pane_id)? {
+        let card_project_id = crate::kanban::card_project_id(&owner.card_id)?.ok_or_else(|| {
+            "The card-scoped Pi session's owning project was not found".to_string()
+        })?;
+        if card_project_id != project.id {
+            return Err(
+                "The card-scoped Pi session does not belong to the supplied Stacks project"
+                    .to_string(),
+            );
+        }
+    }
     let trusted_projects = read_trusted_projects()?;
     let approve_project = is_project_trusted(&trusted_projects, &cwd, project_path.as_deref());
 
@@ -88,6 +103,7 @@ pub fn start_pi_session(
         if let Some(handle) = guard.sessions.get(&pane_id) {
             if handle.alive.load(Ordering::Acquire)
                 && handle.cwd == cwd
+                && handle.project_id == project.id
                 && handle.approve_project == approve_project
             {
                 return Ok(handle.generation.clone());
@@ -110,7 +126,7 @@ pub fn start_pi_session(
         handle.stop();
     }
 
-    let result = spawn_pi_session(&window, &pane_id, &cwd, approve_project);
+    let result = spawn_pi_session(&window, &pane_id, &cwd, &project, approve_project);
     let mut guard = registry
         .lock()
         .map_err(|_| "Pi session registry lock poisoned".to_string())?;
@@ -135,6 +151,7 @@ fn spawn_pi_session(
     window: &Window,
     pane_id: &str,
     cwd: &str,
+    project: &crate::store::PiProjectScope,
     approve_project: bool,
 ) -> Result<PiRpcHandle, String> {
     let pi =
@@ -142,6 +159,8 @@ fn spawn_pi_session(
     let runtime_path = pi_runtime_path(&pi);
     let session_dir = session_dir(pane_id)?;
     std::fs::create_dir_all(&session_dir).map_err(|error| error.to_string())?;
+    migrate_legacy_stacks_extension()?;
+    let extension_path = stacks_extension_path(window)?;
 
     let generation = uuid::Uuid::new_v4().to_string();
     let trust_flag = project_trust_flag(approve_project);
@@ -152,6 +171,10 @@ fn spawn_pi_session(
             "--mode",
             "rpc",
             trust_flag,
+            "--extension",
+            extension_path
+                .to_str()
+                .ok_or_else(|| "Bundled Stacks Pi extension path is invalid".to_string())?,
             "--session-dir",
             session_dir
                 .to_str()
@@ -166,12 +189,18 @@ fn spawn_pi_session(
     if let Some(path) = runtime_path {
         pi_command.env("PATH", path);
     }
+    pi_command
+        .env("STACKS_PROJECT_ID", &project.id)
+        .env("STACKS_PROJECT_NAME", &project.name)
+        .env("STACKS_KANBAN_SOURCE", &project.kanban_source)
+        .env(
+            "STACKS_AUTOMATION_SOCKET",
+            crate::automation::socket_path()?,
+        );
     if let Some(owner) = crate::kanban::card_pi_session(pane_id)? {
-        let socket = crate::automation::socket_path()?;
         pi_command
             .env("STACKS_CARD_ID", owner.card_id)
-            .env("STACKS_CARD_THREAD", owner.thread)
-            .env("STACKS_AUTOMATION_SOCKET", socket);
+            .env("STACKS_CARD_THREAD", owner.thread);
     }
     process_group::configure(&mut pi_command);
     let mut child = pi_command
@@ -281,6 +310,7 @@ fn spawn_pi_session(
         stop_tx,
         alive,
         cwd: cwd.to_string(),
+        project_id: project.id.clone(),
         approve_project,
     })
 }
@@ -524,6 +554,76 @@ fn safe_session_key(pane_id: &str) -> String {
         .collect()
 }
 
+fn stacks_extension_path(window: &Window) -> Result<PathBuf, String> {
+    let bundled = window
+        .app_handle()
+        .path()
+        .resolve("stacks-cards.ts", BaseDirectory::Resource)
+        .map_err(|error| format!("Could not resolve the bundled Stacks Pi extension: {error}"))?;
+    if bundled.is_file() {
+        return Ok(bundled);
+    }
+    #[cfg(debug_assertions)]
+    {
+        let development =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/stacks-cards.ts");
+        if development.is_file() {
+            return Ok(development);
+        }
+    }
+    Err(format!(
+        "The bundled Stacks Pi extension is missing at {}. Rebuild or reinstall Stacks.",
+        bundled.display()
+    ))
+}
+
+fn migrate_legacy_stacks_extension() -> Result<(), String> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(());
+    };
+    migrate_legacy_stacks_extension_at(
+        &home.join(".pi/agent/extensions/stacks-cards.ts"),
+        &home.join(".pi/agent/extensions/stacks-cards.ts.stacks-backup"),
+    )
+}
+
+fn migrate_legacy_stacks_extension_at(source: &Path, backup: &Path) -> Result<(), String> {
+    let _guard = LEGACY_EXTENSION_LOCK
+        .lock()
+        .map_err(|_| "Legacy Stacks Pi extension migration lock poisoned".to_string())?;
+    if !source.exists() {
+        return Ok(());
+    }
+    if backup.exists() {
+        return Err(format!(
+            "Cannot migrate legacy Stacks Pi extension because backup already exists at {}. Move or remove one file, then retry.",
+            backup.display()
+        ));
+    }
+    let source_text = std::fs::read_to_string(source).map_err(|error| {
+        format!(
+            "Could not inspect legacy Stacks Pi extension at {}: {error}",
+            source.display()
+        )
+    })?;
+    if !is_recognized_legacy_stacks_extension(&source_text) {
+        return Err(format!(
+            "A customized or unrecognized Stacks Pi extension exists at {}. Move it out of the Pi extensions directory, then retry so Stacks does not load duplicate tools.",
+            source.display()
+        ));
+    }
+    std::fs::rename(source, backup).map_err(|error| {
+        format!(
+            "Could not preserve the legacy Stacks Pi extension as {}: {error}. Move it manually, then retry.",
+            backup.display()
+        )
+    })
+}
+
+fn is_recognized_legacy_stacks_extension(source: &str) -> bool {
+    source.as_bytes() == include_bytes!("../migrations/stacks-cards.legacy.ts.txt")
+}
+
 fn pi_runtime_path(pi: &std::path::Path) -> Option<std::ffi::OsString> {
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let login_path = Command::new(shell)
@@ -583,8 +683,11 @@ fn find_pi() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_project_trusted, project_trust_flag, safe_session_key};
-    use std::collections::HashSet;
+    use super::{
+        is_project_trusted, migrate_legacy_stacks_extension_at, project_trust_flag,
+        safe_session_key,
+    };
+    use std::{collections::HashSet, fs};
 
     #[test]
     fn creates_safe_session_directory_names() {
@@ -606,5 +709,63 @@ mod tests {
     fn does_not_trust_projects_without_explicit_approval() {
         assert_eq!(project_trust_flag(false), "--no-approve");
         assert_eq!(project_trust_flag(true), "--approve");
+    }
+
+    fn legacy_extension_text() -> &'static str {
+        include_str!("../migrations/stacks-cards.legacy.ts.txt")
+    }
+
+    #[test]
+    fn reversibly_renames_the_recognized_legacy_extension() {
+        let directory =
+            std::env::temp_dir().join(format!("stacks-extension-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("stacks-cards.ts");
+        let backup = directory.join("stacks-cards.ts.stacks-backup");
+        fs::write(&source, legacy_extension_text()).unwrap();
+
+        migrate_legacy_stacks_extension_at(&source, &backup).unwrap();
+
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read_to_string(&backup).unwrap(),
+            legacy_extension_text()
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn refuses_to_overwrite_a_legacy_extension_backup() {
+        let directory =
+            std::env::temp_dir().join(format!("stacks-extension-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("stacks-cards.ts");
+        let backup = directory.join("stacks-cards.ts.stacks-backup");
+        fs::write(&source, legacy_extension_text()).unwrap();
+        fs::write(&backup, "existing backup").unwrap();
+
+        let error = migrate_legacy_stacks_extension_at(&source, &backup).unwrap_err();
+
+        assert!(error.contains("backup already exists"));
+        assert!(source.exists());
+        assert_eq!(fs::read_to_string(&backup).unwrap(), "existing backup");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn refuses_to_disable_an_unrecognized_global_extension() {
+        let directory =
+            std::env::temp_dir().join(format!("stacks-extension-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("stacks-cards.ts");
+        let backup = directory.join("stacks-cards.ts.stacks-backup");
+        fs::write(&source, "export default function customized() {}").unwrap();
+
+        let error = migrate_legacy_stacks_extension_at(&source, &backup).unwrap_err();
+
+        assert!(error.contains("customized or unrecognized"));
+        assert!(source.exists());
+        assert!(!backup.exists());
+        fs::remove_dir_all(directory).unwrap();
     }
 }

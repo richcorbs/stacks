@@ -60,8 +60,10 @@ pub fn activate_existing_instance() -> bool {
         startup_command: None,
         run_once: None,
         card_id: None,
+        project_id: None,
         title: None,
         content: None,
+        description: None,
     };
     send_request(request, Duration::from_secs(2))
         .map(|response| response.ok)
@@ -126,8 +128,10 @@ fn parse_workspace_args(args: &[String]) -> Result<ClientRequest, String> {
         startup_command,
         run_once,
         card_id: None,
+        project_id: None,
         title: None,
         content: None,
+        description: None,
     })
 }
 
@@ -309,8 +313,10 @@ mod tests {
                 startup_command: None,
                 run_once: None,
                 card_id: None,
+                project_id: None,
                 title: None,
                 content: None,
+                description: None,
             },
             Duration::from_secs(1),
         )

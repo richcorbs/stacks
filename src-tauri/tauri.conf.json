@@ -36,6 +36,9 @@
       "icons/icon.ico"
     ],
     "targets": "all",
+    "resources": {
+      "resources/stacks-cards.ts": "stacks-cards.ts"
+    },
     "category": "DeveloperTool",
     "macOS": {
       "signingIdentity": "-"

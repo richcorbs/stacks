@@ -529,6 +529,7 @@ export function useAppRootModel() {
     openTerminalSearch,
     openDirectoryInEditor,
     openOneTimeCommand: () => setOneTimeCommandOpen(true),
+    openNewCard: (project) => window.dispatchEvent(new CustomEvent('stacks:new-card', { detail: { projectId: project.id } })),
     openAddCmdPCommand: () => setAddCmdPCommandOpen(true),
     openEditCmdPCommand: setEditingCmdPCommand,
     openDeleteCmdPCommand: setDeletingCmdPCommand,

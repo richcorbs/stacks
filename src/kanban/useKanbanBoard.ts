@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
 import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
 import type { CardProviderAdapter, KanbanCard, KanbanStatus } from './types';
@@ -50,6 +51,21 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     let cancelled = false;
+    getCurrentWindow().listen<KanbanCard>('kanban-card-changed', (event) => {
+      setCards((current) => mergeChangedKanbanCard(current, event.payload));
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unsubscribe = cleanup;
+    }).catch(console.error);
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
     subscribeAllPiEvents((envelope) => {
       const session = cardAgentSession(envelope.pane_id);
       const eventType = typeof envelope.event?.type === 'string' ? envelope.event.type : '';
@@ -85,8 +101,8 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     };
   }, [load]);
 
-  async function createLocal(projectId: string, projectName: string, title: string, content: string) {
-    const created = await createLocalKanbanCard(projectId, projectName, title, content);
+  async function createLocal(projectId: string, title: string, content: string) {
+    const created = await createLocalKanbanCard(projectId, title, content);
     setCards((current) => [...current, created]);
     return created;
   }
@@ -168,6 +184,12 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
   }
 
   return { cards, loading, syncing, error, load, sync, createLocal, update, interact, remove, reorder, move, assignProject, loadDetails };
+}
+
+export function mergeChangedKanbanCard(cards: KanbanCard[], changed: KanbanCard) {
+  const existingIndex = cards.findIndex((card) => card.id === changed.id);
+  if (existingIndex < 0) return [...cards, changed];
+  return cards.map((card) => card.id === changed.id ? changed : card);
 }
 
 function cardAgentSession(paneId: string): { cardId: string; thread: 'planning' | 'work' } | null {

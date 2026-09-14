@@ -72,6 +72,29 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, state: AutomationSt
             focus_main_window(&app)?;
             return Ok(AutomationResponse::success("Activated Stacks"));
         }
+        if client_request.action == "createLocalCard" {
+            let project_id = client_request
+                .project_id
+                .as_deref()
+                .ok_or_else(|| "A Stacks-scoped project ID is required".to_string())?;
+            let title = client_request
+                .title
+                .as_deref()
+                .ok_or_else(|| "A card title is required".to_string())?;
+            let card = crate::kanban::create_local_card_for_project(
+                project_id,
+                title,
+                client_request.description.as_deref().unwrap_or(""),
+            )?;
+            app.emit("kanban-card-changed", &card).map_err(|error| {
+                format!("Created card, but could not refresh the board: {error}")
+            })?;
+            return Ok(AutomationResponse::success(format!(
+                "Created local card #{} in Needs refinement for {}",
+                card.number(),
+                card.board_title()
+            )));
+        }
         if client_request.action == "updateLocalCard" {
             let card_id = client_request
                 .card_id
