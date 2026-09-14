@@ -54,6 +54,11 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const initialPromptSentRef = useRef(false);
 
   useEffect(() => {
+    pi.setViewOpen(active && visible);
+    return () => pi.setViewOpen(false);
+  }, [active, pi.setViewOpen, visible]);
+
+  useEffect(() => {
     invoke<boolean>('pi_project_trusted', { cwd, projectPath: project.path }).then(setProjectTrusted).catch(() => setProjectTrusted(false));
   }, [cwd, project.path]);
 

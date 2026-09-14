@@ -15,6 +15,7 @@ import {
   type RollbackWorkspace,
   type WorkspaceCreation,
 } from '../workspace/createWorkspace';
+import { deletePersistentPiSession } from '../pi/sessionController';
 
 type WorkspaceCreationOptions = {
   store: Store;
@@ -51,7 +52,7 @@ export function useWorkspaceCreation(options: WorkspaceCreationOptions): Workspa
     terminalIds.forEach(clearOneTimeStartupCommand);
     disposeTerminalSessions(terminalIds);
     creation.terminals.forEach((pane) => {
-      if (pane.kind === 'pi') invoke('delete_pi_session', { paneId: pane.id }).catch(() => {});
+      if (pane.kind === 'pi') deletePersistentPiSession(pane.id).catch(() => {});
       else invoke('kill_pty', { terminalId: pane.id }).catch(() => {});
     });
     optionsRef.current.removeTerminalState(creation.workspace.id);

@@ -3,6 +3,7 @@ import type React from 'react';
 import type { DialogState, TerminalEntry, Project, Store, WorkspaceEntry } from '../types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
 import { collectLeafTerminals } from '../utils';
+import { deletePersistentPiSession, deletePiSessionController } from '../pi/sessionController';
 
 type WorkspaceCrudCommandOptions = {
   store: Store;
@@ -65,7 +66,7 @@ export function useWorkspaceCrudCommands({
     disposeTerminalSessions(panes.filter((pane) => pane.kind !== 'pi').map((pane) => pane.id));
     try {
       await Promise.all([
-        ...panes.filter((pane) => pane.kind === 'pi').map((pane) => invoke('delete_pi_session', { paneId: pane.id })),
+        ...panes.filter((pane) => pane.kind === 'pi').map((pane) => deletePersistentPiSession(pane.id)),
         ...panes.filter((pane) => pane.kind !== 'pi').map((pane) => invoke('kill_pty', { terminalId: pane.id })),
       ]);
     } catch (error) {
@@ -125,7 +126,8 @@ export function useWorkspaceCrudCommands({
     try {
       const directPaneIds = await invoke<string[]>('project_direct_delete', { projectId });
       disposeTerminalSessions(directPaneIds);
-      await Promise.all(panes.filter((pane) => pane.kind === 'pi').map((pane) => invoke('delete_pi_session', { paneId: pane.id })));
+      directPaneIds.forEach(deletePiSessionController);
+      await Promise.all(panes.filter((pane) => pane.kind === 'pi').map((pane) => deletePersistentPiSession(pane.id)));
     } catch (error) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete project processes: ${String(error)}` } }));
       return;

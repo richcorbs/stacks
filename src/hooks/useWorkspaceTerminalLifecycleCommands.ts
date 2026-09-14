@@ -5,6 +5,7 @@ import { rebalanceSplits, removeLeaf, setLeafCommand, setLeafPaneKind } from '..
 import { disposeTerminalSession, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { terminalIdsForWorkspace, previousTerminalIdAfterClose } from '../workspace/selectors';
 import { isWorkspaceMaximized, setWorkspaceMaximized, shouldClearMaximizedTerminalAfterClose } from '../workspace/maximize';
+import { deletePersistentPiSession } from '../pi/sessionController';
 
 export function useWorkspaceTerminalLifecycleCommands({
   maximizedWorkspaceIds,
@@ -57,7 +58,7 @@ export function useWorkspaceTerminalLifecycleCommands({
 
     if (currentKind !== paneKind) {
       if (currentKind === 'pi') {
-        await invoke('delete_pi_session', { paneId: terminalId });
+        await deletePersistentPiSession(terminalId);
       } else {
         disposeTerminalSession(terminalId);
         await invoke('kill_pty', { terminalId }).catch(() => {});
@@ -104,7 +105,7 @@ export function useWorkspaceTerminalLifecycleCommands({
 
     if (closingPane?.kind === 'pi') {
       try {
-        await invoke('delete_pi_session', { paneId: terminalId });
+        await deletePersistentPiSession(terminalId);
       } catch (error) {
         window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete Pi session: ${String(error)}` } }));
         return;
