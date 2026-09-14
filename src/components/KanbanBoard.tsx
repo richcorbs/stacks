@@ -896,7 +896,6 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           if (!projectId) return;
           await onOpenChat(projectId);
           setActiveView('chat'); return;
-        case 'open_agent': setActiveView('chat'); return;
         case 'write_plan_and_finish_refinement':
           await runWritePlanAndFinishRefinement({
             showAgent: () => setActiveView('chat'),
@@ -1135,22 +1134,24 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         </section>
         {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={serverEnabled} active={activeView === 'server'} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={consoleEnabled} active={activeView === 'console'} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
-          {editing ? (
-            <div className="kanbanEditActions">
-              <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
-              <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
-                <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
-              </button>
-            </div>
-          ) : <CardWorkflowControls
-            actions={workflowActions}
-            working={working}
-            actionError={actionError}
-            mergedWithoutEnvironment={card.status === 'merged' && !card.environment}
-            onAction={performWorkflowAction}
-          />}
-        </footer>
+        {card.status !== 'agent_working' && (
+          <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
+            {editing ? (
+              <div className="kanbanEditActions">
+                <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
+                <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
+                  <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
+                </button>
+              </div>
+            ) : <CardWorkflowControls
+              actions={workflowActions}
+              working={working}
+              actionError={actionError}
+              mergedWithoutEnvironment={card.status === 'merged' && !card.environment}
+              onAction={performWorkflowAction}
+            />}
+          </footer>
+        )}
       </article>
     </div>
     {pendingCloseShellPane && (
