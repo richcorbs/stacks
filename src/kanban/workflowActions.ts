@@ -1,7 +1,7 @@
 import type { KanbanCard } from './types';
 
 export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'start_work' | 'return_to_refinement' |
-  'open_agent' | 'approve_and_commit' | 'request_changes' | 'merge' | 'reopen' | 'cleanup' | 'delete' | 'set_merge_target';
+  'approve_and_commit' | 'request_changes' | 'merge' | 'reopen' | 'cleanup' | 'delete' | 'set_merge_target';
 
 export type CardWorkflowAction = {
   kind: CardWorkflowActionKind;
@@ -25,7 +25,7 @@ export type CardWorkflowContext = {
 /** Pure source of truth for workflow labels and availability in every card tab. */
 export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWorkflowAction[] {
   const actions = baseCardWorkflowActions(context)
-    .filter((action) => (action.kind !== 'open_refinement' && action.kind !== 'open_agent') || context.activeTab !== 'chat');
+    .filter((action) => action.kind !== 'open_refinement' || context.activeTab !== 'chat');
   return actions.map((action) => ({
     ...action,
     loading: context.operation?.kind === action.kind && !context.operation.error,
@@ -49,7 +49,7 @@ function baseCardWorkflowActions({ card, projectAvailable }: CardWorkflowContext
       { kind: 'return_to_refinement', label: 'Return to refinement' },
       { kind: 'start_work', label: 'Start work', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
     ];
-    case 'agent_working': return [{ kind: 'open_agent', label: 'Open Agent', primary: true }];
+    case 'agent_working': return [];
     case 'needs_human': return [
       { kind: 'request_changes', label: 'Request changes' },
       { kind: 'approve_and_commit', label: 'Approve and commit', primary: true },

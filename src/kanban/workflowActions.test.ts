@@ -9,7 +9,7 @@ function card(status: KanbanStatus, environment: KanbanCard['environment'] = nul
 it.each([
   ['needs_refinement', ['open_refinement', 'write_plan_and_finish_refinement', 'delete']],
   ['ready', ['return_to_refinement', 'start_work']],
-  ['agent_working', ['open_agent']],
+  ['agent_working', []],
   ['needs_human', ['request_changes', 'approve_and_commit']],
 ] as const)('derives %s actions', (status, kinds) => {
   expect(deriveCardWorkflowActions({ card: card(status), projectAvailable: true }).map((action) => action.kind)).toEqual(kinds);
@@ -40,17 +40,10 @@ describe('merge and reopen actions', () => {
         ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
       ]);
   });
-  it('hides Open Agent on the Agent tab only', () => {
+  it('has no Agent working actions on any tab', () => {
     const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
     expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('agent_working'), projectAvailable: true, activeTab }).map((action) => action.kind)))
-      .toEqual([
-        ['open_agent'],
-        [],
-        ['open_agent'],
-        ['open_agent'],
-        ['open_agent'],
-        ['open_agent'],
-      ]);
+      .toEqual(tabs.map(() => []));
   });
   it('labels and gates the combined refinement action', () => {
     const available = deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: true })[1];
