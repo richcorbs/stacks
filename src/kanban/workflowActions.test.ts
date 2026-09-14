@@ -26,6 +26,18 @@ describe('merge and reopen actions', () => {
     expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('needs_human'), projectAvailable: true, activeTab }).map((action) => action.kind)))
       .toEqual(tabs.map(() => ['request_changes', 'approve']));
   });
+  it('hides Open refinement on the Agent tab only', () => {
+    const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
+    expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: true, activeTab }).map((action) => action.kind)))
+      .toEqual([
+        ['open_refinement', 'finish_refinement', 'delete'],
+        ['finish_refinement', 'delete'],
+        ['open_refinement', 'finish_refinement', 'delete'],
+        ['open_refinement', 'finish_refinement', 'delete'],
+        ['open_refinement', 'finish_refinement', 'delete'],
+        ['open_refinement', 'finish_refinement', 'delete'],
+      ]);
+  });
   it('never offers deletion for provider cards', () => {
     const providerCard = { ...card('needs_refinement'), provider: 'superthread' as const };
     expect(deriveCardWorkflowActions({ card: providerCard, projectAvailable: true }).some((action) => action.kind === 'delete')).toBe(false);

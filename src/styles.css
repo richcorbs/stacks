@@ -389,31 +389,40 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .cardHistory li strong { color: #aebdcb; font-weight: 500; }
 .cardHistory li small { grid-column: 2 / -1; color: #d38b91; white-space: pre-wrap; }
 .kanbanMuted { color: #607389; }
-.kanbanDetail > footer { flex: 0 0 62px; min-width: 0; box-sizing: border-box; padding: 10px 20px; display: grid; grid-template-columns: minmax(140px, 1fr) minmax(160px, auto) minmax(280px, 1fr); align-items: center; gap: 16px; border-top: 1px solid #223142; background: #101923; }
-.cardFooterSecondary, .cardFooterContext, .cardFooterActions { min-width: 0; display: flex; align-items: center; gap: 8px; }
-.cardFooterContext { justify-content: center; flex-direction: column; gap: 2px; color: #93a4b7; font-size: calc(10px + var(--ui-font-delta, 0px)); text-align: center; }
+.kanbanDetail > footer { flex: 0 0 auto; min-width: 0; min-height: 62px; box-sizing: border-box; padding: 10px 20px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; border-top: 1px solid #223142; background: #101923; }
+.cardFooterContext, .cardFooterActions { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.cardFooterContext { align-items: flex-start; justify-content: center; flex-direction: column; gap: 2px; overflow: hidden; color: #93a4b7; font-size: calc(10px + var(--ui-font-delta, 0px)); text-align: left; }
 .cardFooterContext strong { color: #c3cfdb; font-size: calc(11px + var(--ui-font-delta, 0px)); }
-.cardFooterContext .cardFooterError { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e08b91; }
-.cardFooterActions { justify-content: flex-end; }
+.cardFooterContext > span { box-sizing: border-box; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cardFooterContext .cardFooterError { color: #e08b91; }
+.cardFooterActions { justify-content: flex-end; flex-wrap: wrap; }
 .cardFooterActions button { white-space: nowrap; }
 .cardFooterActions .destructiveAction { border-color: #60383d; color: #d79298; }
-.kanbanEditActions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.cardWorkflowFooter.editing { grid-template-columns: 1fr; align-items: center; }
+.kanbanEditActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .superthreadSelectedProject { color: #8295a8; font-size: calc(11px + var(--ui-font-delta, 0px)); font-weight: 650; }
 .kanbanDetail .primaryAction { background: #25496b; border-color: #3d6d98; }
 .kanbanDetail.cardWorkspace { width: min(1000px, calc(100vw - 32px)); }
 .cardWorkspaceTabs { flex: 0 0 auto; min-height: 38px; padding: 0 20px; display: flex; align-items: end; gap: 16px; border-bottom: 1px solid #223142; background: #0e1620; }
 .cardWorkspaceTabs button { padding: 10px 10px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #6f8297; font-size: calc(10px + var(--ui-font-delta, 0px)); font-weight: 650; letter-spacing: .05em; }
 .cardWorkspaceTabs button.active { border-bottom-color: #6295c2; color: #b9cad9; }
+.cardDiffTab { align-self: stretch; display: inline-flex; align-items: end; border-bottom: 2px solid transparent; }
+.cardDiffTab.active { border-bottom-color: #6295c2; }
+.cardWorkspaceTabs .cardDiffTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
+.cardWorkspaceTabs .cardDiffTab.active .cardDiffTabLabel { color: #b9cad9; }
 .cardServiceTabs { align-self: stretch; display: inline-flex; align-items: stretch; gap: 16px; }
 .cardServiceTab { display: inline-flex; align-items: end; gap: 0; border-bottom: 2px solid transparent; }
 .cardServiceTab.active { border-bottom-color: #6295c2; }
 .cardWorkspaceTabs .cardServiceTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
 .cardWorkspaceTabs .cardServiceTab.active .cardServiceTabLabel { color: #b9cad9; }
-.cardWorkspaceTabs button.cardServiceToggle { width: 20px; height: 20px; margin-bottom: 7px; padding: 0; border: 1px solid #344657; border-radius: 5px; background: #151f29; display: grid; place-items: center; color: #73879a; }
-.cardWorkspaceTabs button.cardServiceToggle:hover { border-color: #4a6278; color: #aabac8; }
+.cardWorkspaceTabs button.cardServiceToggle, .cardWorkspaceTabs button.cardDiffRefresh { width: 20px; height: 20px; margin-bottom: 7px; padding: 0; border: 1px solid #344657; border-radius: 5px; background: #151f29; display: grid; place-items: center; color: #73879a; }
+.cardWorkspaceTabs button.cardServiceToggle:hover, .cardWorkspaceTabs button.cardDiffRefresh:hover { border-color: #4a6278; color: #aabac8; }
 .cardWorkspaceTabs button.cardServiceToggle.running { border-color: #416b55; background: #15271e; color: #70bd8d; }
 .servicePlayIcon { width: 0; height: 0; margin-left: 1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid currentColor; }
 .serviceStopIcon { width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.diffRefreshIcon { position: relative; width: 11px; height: 11px; }
+.diffRefreshIcon::before { content: ''; position: absolute; inset: 1px; border: 1.5px solid currentColor; border-left-color: transparent; border-radius: 50%; }
+.diffRefreshIcon::after { content: ''; position: absolute; left: 0; top: 1px; width: 0; height: 0; border-top: 2.5px solid transparent; border-bottom: 2.5px solid transparent; border-right: 4px solid currentColor; transform: rotate(-25deg); }
 .cardView { display: none !important; }
 .cardView.active { display: flex !important; }
 .kanbanDetailContent.cardView.active { display: block !important; }

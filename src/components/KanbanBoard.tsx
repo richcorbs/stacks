@@ -824,7 +824,14 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         <nav className="cardWorkspaceTabs" aria-label="Card views">
           <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => requestView('overview')}>Card</button>
           <button className={showChat ? 'active' : ''} type="button" disabled={!project} onClick={() => requestView('chat')}>Agent</button>
-          <button className={activeView === 'diff' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => requestView('diff')}>Diff</button>
+          <span className={`cardDiffTab${activeView === 'diff' ? ' active' : ''}`}>
+            <button className="cardDiffTabLabel" type="button" disabled={!cardPath} onClick={() => requestView('diff')}>Diff</button>
+            {activeView === 'diff' && (
+              <button className="cardDiffRefresh" type="button" aria-label="Refresh diff" title="Refresh diff" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>
+                <span className="diffRefreshIcon" aria-hidden="true" />
+              </button>
+            )}
+          </span>
           <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => requestView('terminal')}>Terminal</button>
           {cardPath && (serverCommand || consoleCommand) && (
             <span className="cardServiceTabs" aria-label="Card services">
@@ -955,11 +962,6 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>{savingEdit ? 'Saving…' : 'Save'}</button>
             </div>
           ) : <>
-            <div className="cardFooterSecondary" aria-label="Tab controls">
-              {activeView === 'diff' && <button type="button" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>Refresh diff</button>}
-              {activeView === 'terminal' && <span className="kanbanMuted">Commands run in the card worktree.</span>}
-              {(activeView === 'server' || activeView === 'console') && <span className="kanbanMuted">Controls are in the tab.</span>}
-            </div>
             <div className="cardFooterContext" aria-live="polite">
               <strong>{statusLabel}</strong>
               {working && <span>Working…</span>}
