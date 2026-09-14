@@ -27,7 +27,10 @@ mod workspace_setup;
 use app_events::{handle_menu_event, setup_main_window};
 use app_stats::app_stats;
 use automation::{complete_automation_request, drain_automation_requests, AutomationState};
-use git::{cleanup_git_worktree, git_diff_files, git_file_diff, git_info, remove_git_worktree};
+use git::{
+    cleanup_git_worktree, git_change_summary, git_diff_files, git_file_diff, git_info,
+    remove_git_worktree,
+};
 use github::{
     github_action_runs, github_current_pull_request, github_merge_pull_request,
     github_pull_requests,
@@ -140,6 +143,7 @@ pub fn run() {
             delete_pi_session,
             app_stats,
             git_info,
+            git_change_summary,
             git_diff_files,
             git_file_diff,
             remove_git_worktree,

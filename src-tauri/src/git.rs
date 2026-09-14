@@ -1,7 +1,7 @@
 use crate::github::current_pull_request_for_path;
 use serde::Serialize;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Component, Path, PathBuf},
     process::Command,
 };
@@ -15,6 +15,13 @@ pub struct GitInfo {
     branch: String,
     created: u32,
     changed: u32,
+    deleted: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GitChangeSummary {
+    added: u32,
+    modified: u32,
     deleted: u32,
 }
 
@@ -129,6 +136,131 @@ pub fn git_info(path: String) -> Result<Option<GitInfo>, String> {
         changed,
         deleted,
     }))
+}
+
+fn command_error(output: &std::process::Output, fallback: &str) -> String {
+    let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if detail.is_empty() {
+        fallback.to_string()
+    } else {
+        detail
+    }
+}
+
+fn parse_snapshot_diff(output: &[u8]) -> Result<HashMap<Vec<u8>, char>, String> {
+    let entries = output
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .collect::<Vec<_>>();
+    let mut files = HashMap::new();
+    let mut index = 0;
+    while index < entries.len() {
+        let status = entries[index];
+        let Some(kind) = status.first().copied().map(char::from) else {
+            return Err("Git returned an empty file status".to_string());
+        };
+        let renamed_or_copied = matches!(kind, 'R' | 'C');
+        let path_index = index + if renamed_or_copied { 2 } else { 1 };
+        let Some(path) = entries.get(path_index) else {
+            return Err("Git returned an incomplete file status record".to_string());
+        };
+        files.insert(path.to_vec(), if renamed_or_copied { 'M' } else { kind });
+        index += if renamed_or_copied { 3 } else { 2 };
+    }
+    Ok(files)
+}
+
+fn load_git_change_summary(path: &str, target_branch: &str) -> Result<GitChangeSummary, String> {
+    let target_branch = target_branch.trim();
+    if target_branch.is_empty() {
+        return Err("The target branch is required".to_string());
+    }
+    let target_ref = format!("refs/heads/{target_branch}");
+    let valid_ref = Command::new("git")
+        .args(["check-ref-format", &target_ref])
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !valid_ref.success() {
+        return Err("The target branch name is invalid".to_string());
+    }
+
+    let merge_base = Command::new("git")
+        .args(["-C", path, "merge-base", "HEAD", &target_ref])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !merge_base.status.success() {
+        return Err(command_error(
+            &merge_base,
+            "Could not resolve the target branch merge base",
+        ));
+    }
+    let merge_base = String::from_utf8_lossy(&merge_base.stdout)
+        .trim()
+        .to_string();
+    if merge_base.is_empty() {
+        return Err("Could not resolve the target branch merge base".to_string());
+    }
+
+    // Comparing a tree-ish directly to the working tree combines committed, indexed,
+    // and unstaged tracked changes into each file's final state relative to the base.
+    let diff = Command::new("git")
+        .args([
+            "-C",
+            path,
+            "diff",
+            "--name-status",
+            "-z",
+            "--find-renames",
+            "--find-copies-harder",
+            &merge_base,
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !diff.status.success() {
+        return Err(command_error(&diff, "Could not compare the card worktree"));
+    }
+    let mut files = parse_snapshot_diff(&diff.stdout)?;
+
+    let untracked = Command::new("git")
+        .args([
+            "-C",
+            path,
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !untracked.status.success() {
+        return Err(command_error(&untracked, "Could not list untracked files"));
+    }
+    for path in untracked
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+    {
+        files.entry(path.to_vec()).or_insert('A');
+    }
+
+    Ok(GitChangeSummary {
+        added: files.values().filter(|status| **status == 'A').count() as u32,
+        modified: files
+            .values()
+            .filter(|status| !matches!(**status, 'A' | 'D'))
+            .count() as u32,
+        deleted: files.values().filter(|status| **status == 'D').count() as u32,
+    })
+}
+
+#[tauri::command]
+pub async fn git_change_summary(
+    path: String,
+    target_branch: String,
+) -> Result<GitChangeSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || load_git_change_summary(&path, &target_branch))
+        .await
+        .map_err(|error| format!("Git summary worker failed: {error}"))?
 }
 
 fn repository_root(path: &str) -> Result<String, String> {
@@ -575,7 +707,14 @@ mod tests {
             "Stacks Tests",
         ]);
         fs::write(repository.join("README.md"), "test\n").unwrap();
-        git(&["-C", repository.to_str().unwrap(), "add", "README.md"]);
+        fs::write(repository.join("base-delete.txt"), "delete me\n").unwrap();
+        git(&[
+            "-C",
+            repository.to_str().unwrap(),
+            "add",
+            "README.md",
+            "base-delete.txt",
+        ]);
         git(&[
             "-C",
             repository.to_str().unwrap(),
@@ -593,6 +732,173 @@ mod tests {
             worktree.to_str().unwrap(),
         ]);
         (repository, worktree)
+    }
+
+    fn git(path: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn commit_all(path: &Path, message: &str) {
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-m", message]);
+    }
+
+    fn summary(worktree: &Path) -> GitChangeSummary {
+        load_git_change_summary(worktree.to_str().unwrap(), "main").unwrap()
+    }
+
+    fn clean_up(repository: &Path) {
+        fs::remove_dir_all(repository.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn summarizes_committed_additions_modifications_and_deletions() {
+        let (repository, worktree) = test_repository("summary-committed");
+        fs::write(worktree.join("README.md"), "changed\n").unwrap();
+        fs::write(worktree.join("added.txt"), "added\n").unwrap();
+        fs::remove_file(worktree.join("base-delete.txt")).unwrap();
+        commit_all(&worktree, "final committed state");
+        assert_eq!(
+            summary(&worktree),
+            GitChangeSummary {
+                added: 1,
+                modified: 1,
+                deleted: 1
+            }
+        );
+
+        fs::write(repository.join("from-base.txt"), "base\n").unwrap();
+        commit_all(&repository, "advance target");
+        // The target-only file is after the merge base and must not appear as a source deletion.
+        assert_eq!(
+            summary(&worktree),
+            GitChangeSummary {
+                added: 1,
+                modified: 1,
+                deleted: 1
+            }
+        );
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn summarizes_staged_unstaged_untracked_and_deleted_files() {
+        let (repository, worktree) = test_repository("summary-working-tree");
+        fs::write(worktree.join("staged.txt"), "staged\n").unwrap();
+        git(&worktree, &["add", "staged.txt"]);
+        fs::write(worktree.join("README.md"), "unstaged\n").unwrap();
+        fs::write(worktree.join("untracked name.txt"), "untracked\n").unwrap();
+        fs::remove_file(worktree.join("base-delete.txt")).unwrap();
+        assert_eq!(
+            summary(&worktree),
+            GitChangeSummary {
+                added: 2,
+                modified: 1,
+                deleted: 1
+            }
+        );
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn combines_committed_and_uncommitted_changes_without_double_counting() {
+        let (repository, worktree) = test_repository("summary-combined");
+        fs::write(worktree.join("README.md"), "committed change\n").unwrap();
+        commit_all(&worktree, "change readme");
+        fs::write(worktree.join("README.md"), "working change\n").unwrap();
+        assert_eq!(
+            summary(&worktree),
+            GitChangeSummary {
+                added: 0,
+                modified: 1,
+                deleted: 0
+            }
+        );
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn uses_final_worktree_state_relative_to_the_merge_base() {
+        let (repository, worktree) = test_repository("summary-final-state");
+        fs::write(worktree.join("temporary.txt"), "temporary\n").unwrap();
+        fs::write(worktree.join("README.md"), "committed change\n").unwrap();
+        commit_all(&worktree, "temporary branch changes");
+        fs::remove_file(worktree.join("temporary.txt")).unwrap();
+        fs::write(worktree.join("README.md"), "test\n").unwrap();
+        assert_eq!(
+            summary(&worktree),
+            GitChangeSummary {
+                added: 0,
+                modified: 0,
+                deleted: 0
+            }
+        );
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn classifies_renames_and_copies_as_modified_with_unusual_names() {
+        let (repository, worktree) = test_repository("summary-renames");
+        fs::copy(
+            worktree.join("README.md"),
+            worktree.join("copy with spaces.txt"),
+        )
+        .unwrap();
+        git(&worktree, &["add", "copy with spaces.txt"]);
+        git(&worktree, &["mv", "README.md", "renamed\nfile.md"]);
+        assert_eq!(
+            summary(&worktree),
+            GitChangeSummary {
+                added: 0,
+                modified: 2,
+                deleted: 0
+            }
+        );
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn uses_the_head_target_merge_base_for_divergent_history() {
+        let (repository, worktree) = test_repository("summary-divergent");
+        fs::write(repository.join("target-only.txt"), "target\n").unwrap();
+        commit_all(&repository, "target change");
+        fs::write(worktree.join("source-only.txt"), "source\n").unwrap();
+        commit_all(&worktree, "source change");
+        assert_eq!(
+            summary(&worktree),
+            GitChangeSummary {
+                added: 1,
+                modified: 0,
+                deleted: 0
+            }
+        );
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn returns_clean_counts_and_rejects_a_missing_local_target() {
+        let (repository, worktree) = test_repository("summary-clean");
+        assert_eq!(
+            summary(&worktree),
+            GitChangeSummary {
+                added: 0,
+                modified: 0,
+                deleted: 0
+            }
+        );
+        assert!(load_git_change_summary(worktree.to_str().unwrap(), "missing").is_err());
+        clean_up(&repository);
     }
 
     #[test]
