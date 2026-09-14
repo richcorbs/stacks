@@ -8,6 +8,7 @@ export function useCommandPaletteItems(options: CommandPaletteItemOptions) {
     options.sidebarWorkspaces,
     options.terminalsByWorkspaceId,
     options.activeProject,
+    options.selectedKanbanProject,
     options.activeWorkspace,
     options.activeWorkspaceId,
     options.activeTerminalId,

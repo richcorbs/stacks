@@ -20,6 +20,17 @@ describe('Kanban provider selection', () => {
     expect(shouldEnableSuperthreadProvider(selected, true)).toBe(true);
   });
 
+  it('falls back to the Superthread project for null or removed selections', () => {
+    expect(selectedKanbanProject([local, superthread], null)).toBe(superthread);
+    expect(selectedKanbanProject([local, superthread], 'removed')).toBe(superthread);
+  });
+
+  it('falls back to the first project when no Superthread project exists', () => {
+    const otherLocal = project('other-local', 'local');
+    expect(selectedKanbanProject([local, otherLocal], null)).toBe(local);
+    expect(selectedKanbanProject([], null)).toBeNull();
+  });
+
   it('keeps the provider disabled when the integration is disabled', () => {
     expect(shouldEnableSuperthreadProvider(superthread, false)).toBe(false);
   });

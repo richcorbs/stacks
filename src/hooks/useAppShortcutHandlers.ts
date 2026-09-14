@@ -7,6 +7,7 @@ import type { ShortcutAction } from '../shortcutTypes';
 import { useCommandPaletteItems } from './useCommandPaletteItems';
 import type { AppShortcutHandlerOptions } from './useAppShortcutHandlersTypes';
 import { canOpenProjectSwitcher, OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
+import { selectedKanbanProject } from '../kanban/providerSelection';
 
 export function useAppShortcutHandlers({
   store,
@@ -74,7 +75,7 @@ export function useAppShortcutHandlers({
     sidebarWorkspaces,
     terminalsByWorkspaceId,
     activeProject,
-    selectedKanbanProject: store.projects.find((project) => project.id === appSettings.kanban_project_id) ?? null,
+    selectedKanbanProject: selectedKanbanProject(store.projects, appSettings.kanban_project_id),
     activeWorkspace,
     activeWorkspaceId,
     activeTerminalId,

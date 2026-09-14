@@ -235,15 +235,66 @@ describe('buildCommandPaletteItems', () => {
     expect(onCycleTerminal).toHaveBeenCalledWith(0);
   });
 
-  it('requests deletion of the active project from the palette', () => {
+  it('uses the Kanban-selected project for project commands and the active project for workspace commands', () => {
+    const kanbanProject: Project = { id: 'p2', name: 'Board Project', path: '/repo/board', workspaces: [] };
+    const onNewWorkspace = vi.fn();
+    const onEditProject = vi.fn();
     const onDeleteProject = vi.fn();
-    const items = palette({ onDeleteProject });
+    const onEditWorkspace = vi.fn();
+    const onDeleteWorkspace = vi.fn();
+    const items = palette({
+      selectedKanbanProject: kanbanProject,
+      onNewWorkspace,
+      onEditProject,
+      onDeleteProject,
+      onEditWorkspace,
+      onDeleteWorkspace,
+    });
 
+    const editProject = items.find((item) => item.id === 'edit-project');
     const deleteProject = items.find((item) => item.id === 'delete-project');
+    expect(editProject?.subtitle).toBe('Board Project');
+    expect(deleteProject?.subtitle).toBe('Board Project');
     expect(deleteProject?.danger).toBe(true);
-    deleteProject?.action();
 
-    expect(onDeleteProject).toHaveBeenCalledWith('p1');
+    editProject?.action();
+    deleteProject?.action();
+    items.find((item) => item.id === 'new-workspace')?.action();
+    items.find((item) => item.id === 'edit-workspace')?.action();
+    items.find((item) => item.id === 'delete-workspace')?.action();
+
+    expect(onEditProject).toHaveBeenCalledWith(kanbanProject);
+    expect(onDeleteProject).toHaveBeenCalledWith('p2');
+    expect(onNewWorkspace).toHaveBeenCalledWith(project);
+    expect(onEditWorkspace).toHaveBeenCalledWith(project, workspace);
+    expect(onDeleteWorkspace).toHaveBeenCalledWith('p1', 't1');
+  });
+
+  it('safely disables project commands when no Kanban project is selected', () => {
+    const onEditProject = vi.fn();
+    const onDeleteProject = vi.fn();
+    const items = palette({
+      store: { projects: [] },
+      activeProject: null,
+      selectedKanbanProject: null,
+      activeWorkspace: null,
+      activeWorkspaceId: null,
+      activeTerminalId: null,
+      sidebarWorkspaces: [],
+      terminalsByWorkspaceId: {},
+      onEditProject,
+      onDeleteProject,
+    });
+
+    const editProject = items.find((item) => item.id === 'edit-project');
+    const deleteProject = items.find((item) => item.id === 'delete-project');
+    expect(editProject?.subtitle).toBe('Select a project first');
+    expect(deleteProject?.subtitle).toBe('Select a project first');
+
+    editProject?.action();
+    deleteProject?.action();
+    expect(onEditProject).not.toHaveBeenCalled();
+    expect(onDeleteProject).not.toHaveBeenCalled();
   });
 
   it('opens bulk workspace deletion from the palette', () => {

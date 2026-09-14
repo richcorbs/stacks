@@ -83,6 +83,19 @@ pub struct CardEnvironment {
     services: Vec<CardServiceDefinition>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct EnvironmentHealthIssue {
+    code: String,
+    message: String,
+    step: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardEnvironmentHealth {
+    card_id: String,
+    issues: Vec<EnvironmentHealthIssue>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CardEvent {
     id: i64,
@@ -134,6 +147,22 @@ impl KanbanCard {
 #[tauri::command]
 pub fn kanban_cards() -> Result<Vec<KanbanCard>, String> {
     with_connection(list_cards)
+}
+
+#[tauri::command]
+pub async fn kanban_environment_health(
+    card_ids: Vec<String>,
+) -> Result<Vec<CardEnvironmentHealth>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        with_connection(|connection| {
+            card_ids
+                .iter()
+                .map(|card_id| environment_health(connection, card_id))
+                .collect()
+        })
+    })
+    .await
+    .map_err(|error| format!("Environment health worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -1523,6 +1552,320 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
     })
 }
 
+fn health_issue(code: &str, message: impl Into<String>, step: &str) -> EnvironmentHealthIssue {
+    EnvironmentHealthIssue {
+        code: code.to_string(),
+        message: message.into(),
+        step: step.to_string(),
+    }
+}
+
+fn environment_health(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<CardEnvironmentHealth, String> {
+    let card = get_card(connection, card_id)?
+        .ok_or_else(|| format!("Kanban card {card_id} was not found"))?;
+    let mut issues = Vec::new();
+    let required_step = match card.status.as_str() {
+        "agent_working" => Some("work"),
+        "needs_human" => Some("approval"),
+        "approved" => Some("merge"),
+        _ => None,
+    };
+    let Some(environment) = card.environment else {
+        if let Some(step) = required_step {
+            issues.push(health_issue(
+                "environment_missing",
+                format!("This card needs a usable environment before {step}."),
+                step,
+            ));
+        }
+        return Ok(CardEnvironmentHealth {
+            card_id: card.id,
+            issues,
+        });
+    };
+
+    let source_step = match card.status.as_str() {
+        "needs_human" => "approval",
+        "approved" => "merge",
+        "merged" => "cleanup",
+        _ => "work",
+    };
+    let target_step = if card.status == "merged" {
+        "cleanup"
+    } else {
+        "merge"
+    };
+    if environment.lifecycle_state != "ready" {
+        issues.push(health_issue(
+            "environment_not_ready",
+            "The recorded environment is not ready for workflow operations.",
+            source_step,
+        ));
+    }
+    if environment.project_id.trim().is_empty() {
+        issues.push(health_issue(
+            "project_metadata_missing",
+            "The environment has no recorded project.",
+            source_step,
+        ));
+    }
+    if environment.branch.trim().is_empty() {
+        issues.push(health_issue(
+            "source_branch_missing",
+            "The source branch metadata is missing.",
+            source_step,
+        ));
+    }
+    let repository_id = environment
+        .repository_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    if repository_id.is_none() {
+        issues.push(health_issue(
+            "repository_metadata_missing",
+            "The environment has no recorded repository. Set the merge target again.",
+            if card.status == "agent_working" || card.status == "needs_human" {
+                "approval"
+            } else {
+                target_step
+            },
+        ));
+    }
+    let target_path = environment
+        .target_checkout_path
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    if target_path.is_none() {
+        issues.push(health_issue(
+            "target_checkout_missing",
+            "The target checkout metadata is missing. Set the merge target before continuing.",
+            target_step,
+        ));
+    }
+    let target_branch = environment
+        .target_branch
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    if target_branch.is_none() {
+        issues.push(health_issue(
+            "target_branch_missing",
+            "The target branch metadata is missing. Set the merge target before continuing.",
+            target_step,
+        ));
+    } else if target_branch == Some(environment.branch.as_str()) {
+        issues.push(health_issue(
+            "source_target_branch_same",
+            "The source and target branches are not distinct.",
+            target_step,
+        ));
+    }
+    if card.status == "merged"
+        && environment
+            .source_revision
+            .as_deref()
+            .is_none_or(str::is_empty)
+    {
+        issues.push(health_issue(
+            "source_revision_missing",
+            "The merged source revision metadata is missing.",
+            "cleanup",
+        ));
+    }
+
+    let source_path = environment.worktree_path.as_str();
+    let source_canonical = match Path::new(source_path).canonicalize() {
+        Ok(path) => Some(path),
+        Err(_) => {
+            issues.push(health_issue(
+                "source_checkout_unavailable",
+                format!("The source checkout is missing or inaccessible at {source_path}."),
+                source_step,
+            ));
+            None
+        }
+    };
+    let mut source_tip = None;
+    if let Some(source) = source_canonical.as_ref().and_then(|path| path.to_str()) {
+        match repository_identity(source) {
+            Ok(actual) if repository_id.is_some_and(|expected| expected != actual) => {
+                issues.push(health_issue(
+                    "source_repository_mismatch",
+                    "The source checkout belongs to a different repository.",
+                    source_step,
+                ))
+            }
+            Err(_) => issues.push(health_issue(
+                "source_repository_unavailable",
+                "Stacks could not identify the source repository.",
+                source_step,
+            )),
+            _ => {}
+        }
+        match git_output(source, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+            Ok(branch) if !environment.branch.is_empty() && branch != environment.branch => issues
+                .push(health_issue(
+                    "source_branch_mismatch",
+                    format!(
+                        "The source checkout is on {branch}, expected {}.",
+                        environment.branch
+                    ),
+                    source_step,
+                )),
+            Err(_) => issues.push(health_issue(
+                "source_checkout_detached",
+                "The source checkout is detached; a named branch is required.",
+                source_step,
+            )),
+            _ => {}
+        }
+        match has_git_operation(source) {
+            Ok(true) => issues.push(health_issue(
+                "source_git_operation_in_progress",
+                "The source checkout has an in-progress Git operation.",
+                source_step,
+            )),
+            Err(_) => issues.push(health_issue(
+                "source_git_state_unavailable",
+                "Stacks could not determine whether the source checkout has an in-progress Git operation.",
+                source_step,
+            )),
+            _ => {}
+        }
+        match git_output(source, &["rev-parse", "HEAD"]) {
+            Ok(revision) => source_tip = Some(revision),
+            Err(_) => issues.push(health_issue(
+                "source_revision_unavailable",
+                "Stacks could not read the source checkout revision.",
+                source_step,
+            )),
+        }
+    }
+
+    let target_canonical = if let Some(target_path) = target_path {
+        match Path::new(target_path).canonicalize() {
+            Ok(path) => Some(path),
+            Err(_) => {
+                issues.push(health_issue(
+                    "target_checkout_unavailable",
+                    format!("The target checkout is missing or inaccessible at {target_path}."),
+                    target_step,
+                ));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(target) = target_canonical.as_ref().and_then(|path| path.to_str()) {
+        match repository_identity(target) {
+            Ok(actual) if repository_id.is_some_and(|expected| expected != actual) => {
+                issues.push(health_issue(
+                    "target_repository_mismatch",
+                    "The target checkout belongs to a different repository.",
+                    target_step,
+                ))
+            }
+            Err(_) => issues.push(health_issue(
+                "target_repository_unavailable",
+                "Stacks could not identify the target repository.",
+                target_step,
+            )),
+            _ => {}
+        }
+        match git_output(target, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+            Ok(branch) if target_branch.is_some_and(|expected| expected != branch) => {
+                issues.push(health_issue(
+                    "target_branch_mismatch",
+                    format!(
+                        "The target checkout is on {branch}, expected {}.",
+                        target_branch.unwrap_or_default()
+                    ),
+                    target_step,
+                ))
+            }
+            Err(_) => issues.push(health_issue(
+                "target_checkout_detached",
+                "The target checkout is detached; a named branch is required.",
+                target_step,
+            )),
+            _ => {}
+        }
+        match has_git_operation(target) {
+            Ok(true) => issues.push(health_issue(
+                "target_git_operation_in_progress",
+                "The target checkout has an in-progress Git operation.",
+                target_step,
+            )),
+            Err(_) => issues.push(health_issue(
+                "target_git_state_unavailable",
+                "Stacks could not determine whether the target checkout has an in-progress Git operation.",
+                target_step,
+            )),
+            _ => {}
+        }
+    }
+
+    if let (Some(target), Some(source)) = (
+        target_canonical.as_ref().and_then(|path| path.to_str()),
+        source_canonical.as_ref().and_then(|path| path.to_str()),
+    ) {
+        let registered = ensure_registered_distinct_worktree(target, source).is_ok();
+        if !registered {
+            issues.push(health_issue(
+                "source_worktree_not_registered",
+                "The source checkout is not a distinct registered worktree of the target repository.",
+                target_step,
+            ));
+        }
+        if card.status == "merged" && registered {
+            if let (Some(recorded), Some(current)) = (
+                environment.source_revision.as_deref(),
+                source_tip.as_deref(),
+            ) {
+                if recorded != current {
+                    issues.push(health_issue(
+                        "source_revision_changed",
+                        "The source branch has new commits since merge; merge again before cleanup.",
+                        "cleanup",
+                    ));
+                } else {
+                    match git_status_success(target, &["merge-base", "--is-ancestor", current, "HEAD"]) {
+                        Ok(false) => issues.push(health_issue(
+                            "source_revision_not_merged",
+                            "The merged source revision is no longer reachable from the target branch.",
+                            "cleanup",
+                        )),
+                        Err(_) => issues.push(health_issue(
+                            "ancestry_check_failed",
+                            "Stacks could not verify that the source revision is reachable from the target branch.",
+                            "cleanup",
+                        )),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(CardEnvironmentHealth {
+        card_id: card.id,
+        issues,
+    })
+}
+
+fn git_status_success(path: &str, args: &[&str]) -> Result<bool, String> {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .status()
+        .map(|status| status.success())
+        .map_err(|error| error.to_string())
+}
+
 fn git_output(path: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
@@ -1562,6 +1905,7 @@ fn has_git_operation(path: &str) -> Result<bool, String> {
         "rebase-merge",
         "rebase-apply",
         "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
     ] {
         let marker_path = git_output(path, &["rev-parse", "--git-path", marker])?;
         let marker_path = if Path::new(&marker_path).is_absolute() {
@@ -1926,10 +2270,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "stacks-card-merge-{}-{}",
             std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            uuid::Uuid::new_v4()
         ));
         let target = root.join("target");
         let source = root.join("source");
@@ -2124,6 +2465,141 @@ mod tests {
         assert!(validate_target_checkout(target.to_str().unwrap(), None)
             .unwrap_err()
             .contains("detached"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn health_codes(connection: &Connection, card_id: &str) -> Vec<String> {
+        environment_health(connection, card_id)
+            .unwrap()
+            .issues
+            .into_iter()
+            .map(|issue| issue.code)
+            .collect()
+    }
+
+    #[test]
+    fn environment_health_is_status_aware_when_environment_is_absent() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        local_card(&mut connection);
+        for status in ["needs_refinement", "ready", "merged"] {
+            connection
+                .execute(
+                    "UPDATE kanban_cards SET status=?1 WHERE id='local:test'",
+                    [status],
+                )
+                .unwrap();
+            assert!(
+                health_codes(&connection, "local:test").is_empty(),
+                "{status}"
+            );
+        }
+        for (status, step) in [
+            ("agent_working", "work"),
+            ("needs_human", "approval"),
+            ("approved", "merge"),
+        ] {
+            connection
+                .execute(
+                    "UPDATE kanban_cards SET status=?1 WHERE id='local:test'",
+                    [status],
+                )
+                .unwrap();
+            let health = environment_health(&connection, "local:test").unwrap();
+            assert_eq!(health.issues[0].code, "environment_missing");
+            assert_eq!(health.issues[0].step, step);
+        }
+    }
+
+    #[test]
+    fn environment_health_accepts_healthy_and_dirty_active_worktrees() {
+        let (root, target, source) = merge_repository();
+        let connection = approval_connection(&source, &target);
+        assert!(health_codes(&connection, "local:approve").is_empty());
+        fs::write(
+            source.join("feature.txt"),
+            "ordinary implementation change\n",
+        )
+        .unwrap();
+        assert!(health_codes(&connection, "local:approve").is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn environment_health_reports_metadata_repository_branch_and_git_operation_blockers() {
+        let (root, target, source) = merge_repository();
+        let connection = approval_connection(&source, &target);
+        connection.execute("UPDATE card_environments SET target_checkout_path=NULL, target_branch=NULL WHERE card_id='local:approve'", []).unwrap();
+        let codes = health_codes(&connection, "local:approve");
+        assert!(codes.contains(&"target_checkout_missing".to_string()));
+        assert!(codes.contains(&"target_branch_missing".to_string()));
+
+        connection.execute("UPDATE card_environments SET target_checkout_path=?1, target_branch='wrong-target', branch='wrong', repository_id='wrong-repository' WHERE card_id='local:approve'", [target.to_str().unwrap()]).unwrap();
+        let operation_marker = git_output(
+            source.to_str().unwrap(),
+            &["rev-parse", "--git-path", "MERGE_HEAD"],
+        )
+        .unwrap();
+        fs::write(&operation_marker, "in progress\n").unwrap();
+        let codes = health_codes(&connection, "local:approve");
+        assert!(codes.contains(&"source_repository_mismatch".to_string()));
+        assert!(codes.contains(&"target_repository_mismatch".to_string()));
+        assert!(codes.contains(&"source_branch_mismatch".to_string()));
+        assert!(codes.contains(&"target_branch_mismatch".to_string()));
+        assert!(codes.contains(&"source_git_operation_in_progress".to_string()));
+        fs::remove_file(operation_marker).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn environment_health_reports_missing_detached_and_unregistered_source_worktrees() {
+        let (root, target, source) = merge_repository();
+        let connection = approval_connection(&source, &target);
+        git_ok(&source, &["checkout", "--detach"]);
+        assert!(health_codes(&connection, "local:approve")
+            .contains(&"source_checkout_detached".to_string()));
+        git_ok(&source, &["checkout", "feature"]);
+
+        connection.execute("UPDATE card_environments SET worktree_path=?1, branch='main' WHERE card_id='local:approve'", [target.to_str().unwrap()]).unwrap();
+        assert!(health_codes(&connection, "local:approve")
+            .contains(&"source_worktree_not_registered".to_string()));
+        connection.execute("UPDATE card_environments SET worktree_path='/missing/stacks/source' WHERE card_id='local:approve'", []).unwrap();
+        assert!(health_codes(&connection, "local:approve")
+            .contains(&"source_checkout_unavailable".to_string()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn environment_health_checks_merged_cleanup_revisions_and_ancestry() {
+        let (root, target, source) = merge_repository();
+        let connection = approval_connection(&source, &target);
+        git_ok(&target, &["merge", "--no-ff", "feature", "-m", "merge"]);
+        let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        connection
+            .execute(
+                "UPDATE kanban_cards SET status='merged' WHERE id='local:approve'",
+                [],
+            )
+            .unwrap();
+        connection.execute("UPDATE card_environments SET source_revision=?1, target_revision=?2 WHERE card_id='local:approve'", params![source_tip, target_tip]).unwrap();
+        assert!(health_codes(&connection, "local:approve").is_empty());
+
+        fs::write(source.join("later.txt"), "later\n").unwrap();
+        git_ok(&source, &["add", "."]);
+        git_ok(&source, &["commit", "-m", "later"]);
+        assert!(health_codes(&connection, "local:approve")
+            .contains(&"source_revision_changed".to_string()));
+
+        let new_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        connection
+            .execute(
+                "UPDATE card_environments SET source_revision=?1 WHERE card_id='local:approve'",
+                [new_tip],
+            )
+            .unwrap();
+        assert!(health_codes(&connection, "local:approve")
+            .contains(&"source_revision_not_merged".to_string()));
         fs::remove_dir_all(root).unwrap();
     }
 

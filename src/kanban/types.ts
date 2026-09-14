@@ -43,6 +43,19 @@ export type CardEnvironment = {
   services: CardServiceDefinition[];
 };
 
+export type EnvironmentHealthStep = 'work' | 'approval' | 'merge' | 'cleanup';
+
+export type EnvironmentHealthIssue = {
+  code: string;
+  message: string;
+  step: EnvironmentHealthStep;
+};
+
+export type CardEnvironmentHealth = {
+  card_id: string;
+  issues: EnvironmentHealthIssue[];
+};
+
 export type CardEvent = {
   id: number;
   created_at: number;
