@@ -7,7 +7,7 @@ function card(status: KanbanStatus, environment: KanbanCard['environment'] = nul
 }
 
 it.each([
-  ['needs_refinement', ['open_refinement', 'finish_refinement', 'delete']],
+  ['needs_refinement', ['open_refinement', 'write_plan_and_finish_refinement', 'delete']],
   ['ready', ['return_to_refinement', 'start_work']],
   ['agent_working', ['open_agent']],
   ['needs_human', ['request_changes', 'approve_and_commit']],
@@ -32,13 +32,31 @@ describe('merge and reopen actions', () => {
     const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
     expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: true, activeTab }).map((action) => action.kind)))
       .toEqual([
-        ['open_refinement', 'finish_refinement', 'delete'],
-        ['finish_refinement', 'delete'],
-        ['open_refinement', 'finish_refinement', 'delete'],
-        ['open_refinement', 'finish_refinement', 'delete'],
-        ['open_refinement', 'finish_refinement', 'delete'],
-        ['open_refinement', 'finish_refinement', 'delete'],
+        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
+        ['write_plan_and_finish_refinement', 'delete'],
+        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
+        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
+        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
+        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
       ]);
+  });
+  it('labels and gates the combined refinement action', () => {
+    const available = deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: true })[1];
+    expect(available).toMatchObject({
+      kind: 'write_plan_and_finish_refinement',
+      label: 'Write plan & finish refinement',
+    });
+    expect(available.disabledReason).toBeUndefined();
+
+    const unavailable = deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: false })[1];
+    expect(unavailable.disabledReason).toBe('Assign a project first');
+
+    const loading = deriveCardWorkflowActions({
+      card: card('needs_refinement'),
+      projectAvailable: true,
+      operation: { kind: 'write_plan_and_finish_refinement' },
+    })[1];
+    expect(loading.loading).toBe(true);
   });
   it('never offers deletion for provider cards', () => {
     const providerCard = { ...card('needs_refinement'), provider: 'superthread' as const };
