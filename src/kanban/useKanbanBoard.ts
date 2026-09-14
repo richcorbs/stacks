@@ -13,6 +13,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
   const [error, setError] = useState<string | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const cardsRef = useRef(cards);
+  const initialLoadStartedRef = useRef(false);
   const syncGate = useRef(new KanbanSyncRequestGate());
 
   useEffect(() => {
@@ -20,16 +21,14 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
   }, [cards]);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setCards(await fetchKanbanCards());
-      setError(null);
-    } catch (loadError) {
-      setError(errorMessage(loadError));
-    } finally {
-      setLoading(false);
-      setInitialLoadComplete(true);
-    }
+    await performKanbanLoad({
+      initial: beginKanbanLoad(initialLoadStartedRef),
+      fetchCards: fetchKanbanCards,
+      setCards,
+      setError,
+      setLoading,
+      setInitialLoadComplete,
+    });
   }, []);
 
   const sync = useCallback(async (refresh = false) => {
@@ -197,6 +196,36 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
   }
 
   return { cards, loading, syncing, error, providerError, load, sync, createLocal, update, interact, remove, reorder, move, assignProject, loadDetails };
+}
+
+type KanbanLoadOptions = {
+  initial: boolean;
+  fetchCards: () => Promise<KanbanCard[]>;
+  setCards: (cards: KanbanCard[]) => void;
+  setError: (error: string | null) => void;
+  setLoading: (loading: boolean) => void;
+  setInitialLoadComplete: (complete: boolean) => void;
+};
+
+export function beginKanbanLoad(initialLoadStarted: { current: boolean }) {
+  const initial = !initialLoadStarted.current;
+  initialLoadStarted.current = true;
+  return initial;
+}
+
+export async function performKanbanLoad({ initial, fetchCards, setCards, setError, setLoading, setInitialLoadComplete }: KanbanLoadOptions) {
+  if (initial) setLoading(true);
+  try {
+    setCards(await fetchCards());
+    setError(null);
+  } catch (loadError) {
+    setError(errorMessage(loadError));
+  } finally {
+    if (initial) {
+      setLoading(false);
+      setInitialLoadComplete(true);
+    }
+  }
 }
 
 export function mergeChangedKanbanCard(cards: KanbanCard[], changed: KanbanCard) {
