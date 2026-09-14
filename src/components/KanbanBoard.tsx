@@ -963,7 +963,6 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
             </div>
           ) : <>
             <div className="cardFooterContext" aria-live="polite">
-              <strong>{statusLabel}</strong>
               {working && <span>Working…</span>}
               {!working && actionError && !actionError.includes('environment changed') && <span className="cardFooterError" role="alert">{actionError}</span>}
               {!working && !actionError && card.status === 'merged' && !card.environment && <span>A new environment is required to resume work.</span>}
