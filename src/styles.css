@@ -7,7 +7,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; width: 100%; height: 100%; overflow: hidden; }
-button { font: inherit; color: inherit; text-transform: uppercase; }
+button { font: inherit; color: inherit; font-size: calc(12px + var(--ui-font-delta, 0px)); font-weight: 600; text-transform: uppercase; }
 select {
   appearance: none;
   -webkit-appearance: none;
@@ -348,7 +348,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanLane > header p { margin: 4px 0 0; color: #5f7287; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .kanbanLaneCards { flex: 1; min-height: 0; padding: 8px; overflow-y: auto; }
 .kanbanCardWrapper { position: relative; }
-.kanbanCard { width: 100%; margin: 0 0 8px; padding: 10px; display: flex; flex-direction: column; gap: 7px; text-align: left; border: 1px solid #263647; border-radius: 8px; background: #151f2a; color: #bdc9d5; cursor: grab; touch-action: none; user-select: none; box-shadow: 0 3px 9px rgba(0, 0, 0, .12); }
+.kanbanCard { width: 100%; margin: 0 0 8px; padding: 10px; display: flex; flex-direction: column; gap: 7px; text-align: left; text-transform: none; border: 1px solid #263647; border-radius: 8px; background: #151f2a; color: #bdc9d5; cursor: grab; touch-action: none; user-select: none; box-shadow: 0 3px 9px rgba(0, 0, 0, .12); }
 .kanbanCard.keyboardFocused { outline: 2px solid #4f83ad; outline-offset: 1px; border-color: #466b8d; }
 .kanbanCard:active { cursor: grabbing; }
 .kanbanCard.dragging { opacity: .42; }
