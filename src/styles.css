@@ -396,8 +396,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanDetail { width: min(1000px, calc(100vw - 32px)); max-width: 1000px; height: 95dvh; max-height: 95dvh; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #101821; border: 1px solid #2a3b4e; border-radius: 12px; box-shadow: 0 24px 80px rgba(0, 0, 0, .55); }
 .kanbanDetail > header { box-sizing: border-box; flex: 0 0 auto; min-width: 0; min-height: 82px; padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid #223142; }
 .kanbanDetailHeading { flex: 1; min-width: 0; }
-.kanbanDetail > header span { color: #687c92; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanDetail > header span:not(.gitAdded):not(.gitChanged):not(.gitRemoved) { color: #687c92; font-size: calc(10px + var(--ui-font-delta, 0px)); }
 .kanbanDetailHeaderMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.kanbanCardGitSummary { display: inline-flex; align-items: center; gap: 6px; font: 650 calc(10px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; white-space: nowrap; }
 .directProjectWork .kanbanDetailHeaderMeta span:last-child { max-width: min(70vw, 720px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .directWorkGitStatus { display: flex; align-items: center; gap: 10px; margin-top: 6px; color: #8da2b5; font: 600 calc(11px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; }
 .directWorkGitStatus strong { color: #c7a772; }
