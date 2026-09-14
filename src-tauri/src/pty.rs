@@ -153,13 +153,42 @@ pub fn kill_pty(
     terminal_id: String,
     _expected_cwd: Option<String>,
 ) -> Result<(), String> {
-    let handle = {
+    kill_ptys(registry.inner(), &[terminal_id])
+}
+
+pub(crate) fn kill_ptys_with_prefix(
+    registry: &Mutex<PtyRegistry>,
+    prefix: &str,
+) -> Result<Vec<String>, String> {
+    let terminal_ids = {
+        let guard = registry
+            .lock()
+            .map_err(|_| "PTY registry lock poisoned".to_string())?;
+        guard
+            .terminals
+            .keys()
+            .filter(|id| id.starts_with(prefix))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    kill_ptys(registry, &terminal_ids)?;
+    Ok(terminal_ids)
+}
+
+pub(crate) fn kill_ptys(
+    registry: &Mutex<PtyRegistry>,
+    terminal_ids: &[String],
+) -> Result<(), String> {
+    let handles = {
         let mut guard = registry
             .lock()
             .map_err(|_| "PTY registry lock poisoned".to_string())?;
-        guard.terminals.remove(&terminal_id)
+        terminal_ids
+            .iter()
+            .filter_map(|id| guard.terminals.remove(id))
+            .collect::<Vec<_>>()
     };
-    if let Some(mut handle) = handle {
+    for mut handle in handles {
         terminate_pty_child(handle.child.as_mut());
     }
     Ok(())

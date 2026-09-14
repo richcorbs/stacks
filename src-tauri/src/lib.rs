@@ -15,6 +15,7 @@ mod open;
 mod pi_image;
 mod pi_rpc;
 mod process_group;
+mod project_direct;
 mod pty;
 mod pty_command;
 mod pty_cwd;
@@ -46,6 +47,9 @@ use pi_image::read_pi_image;
 use pi_rpc::{
     delete_pi_session, pi_project_trusted, send_pi_rpc, set_pi_project_trusted, start_pi_session,
     stop_pi_session, PiRpcRegistry,
+};
+use project_direct::{
+    project_direct_delete, project_direct_load_or_create, project_direct_save_layout,
 };
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
@@ -161,6 +165,9 @@ pub fn run() {
             kanban_approve_and_commit,
             kanban_merge_card,
             kanban_save_environment_layout,
+            project_direct_load_or_create,
+            project_direct_save_layout,
+            project_direct_delete,
             drain_automation_requests,
             complete_automation_request,
             superthread_boards,

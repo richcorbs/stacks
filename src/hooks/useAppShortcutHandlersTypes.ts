@@ -51,6 +51,7 @@ export type AppShortcutHandlerOptions = {
   openDirectoryInEditor: () => void;
   openOneTimeCommand: () => void;
   openNewCard: (project: Project) => void;
+  openDirectProjectWork: (project: Project) => void;
   openAddCmdPCommand: () => void;
   openEditCmdPCommand: (command: CustomCmdPCommand) => void;
   openDeleteCmdPCommand: (command: CustomCmdPCommand) => void;

@@ -619,7 +619,7 @@ pub fn kanban_environment_start_preflight(
         if status != "ready" {
             return Err("The card must be Ready for agent before work can start".to_string());
         }
-        validate_checkout(&target_checkout_path, None)
+        validate_target_checkout(&target_checkout_path, None)
     })
 }
 
@@ -639,7 +639,7 @@ pub fn kanban_create_environment(
     if project_id.trim().is_empty() || worktree_path.trim().is_empty() {
         return Err("Project and worktree path are required".to_string());
     }
-    let target = validate_checkout(&target_checkout_path, Some(&repository_id))?;
+    let target = validate_target_checkout(&target_checkout_path, Some(&repository_id))?;
     if target.target_branch != target_branch || target.target_revision != target_revision {
         return Err(format!("Target checkout changed during setup: {target_checkout_path}. Recover the setup result manually."));
     }
@@ -1924,6 +1924,21 @@ fn validate_checkout(
     path: &str,
     expected_repository: Option<&str>,
 ) -> Result<EnvironmentStartPreflight, String> {
+    validate_checkout_with_policy(path, expected_repository, true)
+}
+
+fn validate_target_checkout(
+    path: &str,
+    expected_repository: Option<&str>,
+) -> Result<EnvironmentStartPreflight, String> {
+    validate_checkout_with_policy(path, expected_repository, false)
+}
+
+fn validate_checkout_with_policy(
+    path: &str,
+    expected_repository: Option<&str>,
+    require_clean: bool,
+) -> Result<EnvironmentStartPreflight, String> {
     let canonical = Path::new(path)
         .canonicalize()
         .map_err(|error| format!("Checkout does not exist at {path}: {error}"))?;
@@ -1939,11 +1954,12 @@ fn validate_checkout(
     }
     let branch = git_output(&canonical, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .map_err(|_| format!("Checkout at {path} is detached; a named branch is required"))?;
-    if !git_output(
-        &canonical,
-        &["status", "--porcelain=v1", "--untracked-files=all"],
-    )?
-    .is_empty()
+    if require_clean
+        && !git_output(
+            &canonical,
+            &["status", "--porcelain=v1", "--untracked-files=all"],
+        )?
+        .is_empty()
     {
         return Err(format!(
             "Checkout at {path} has modified or untracked files"
@@ -2419,15 +2435,34 @@ mod tests {
     }
 
     #[test]
-    fn start_preflight_rejects_dirty_and_detached_targets() {
+    fn start_preflight_allows_dirty_targets_but_source_validation_remains_strict() {
         let (root, target, _source) = merge_repository();
-        fs::write(target.join("dirty.txt"), "dirty\n").unwrap();
+        let committed_head = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        fs::write(target.join("base.txt"), "modified only in primary\n").unwrap();
+        fs::write(target.join("dirty.txt"), "untracked only in primary\n").unwrap();
+        let preflight = validate_target_checkout(target.to_str().unwrap(), None).unwrap();
+        assert_eq!(preflight.target_revision, committed_head);
+        let dirty_source = root.join("dirty-source");
+        git_ok(
+            &target,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "dirty-feature",
+                dirty_source.to_str().unwrap(),
+            ],
+        );
+        assert_eq!(
+            fs::read_to_string(dirty_source.join("base.txt")).unwrap(),
+            "base\n"
+        );
+        assert!(!dirty_source.join("dirty.txt").exists());
         assert!(validate_checkout(target.to_str().unwrap(), None)
             .unwrap_err()
             .contains("modified or untracked"));
-        fs::remove_file(target.join("dirty.txt")).unwrap();
         git_ok(&target, &["checkout", "--detach"]);
-        assert!(validate_checkout(target.to_str().unwrap(), None)
+        assert!(validate_target_checkout(target.to_str().unwrap(), None)
             .unwrap_err()
             .contains("detached"));
         fs::remove_dir_all(root).unwrap();

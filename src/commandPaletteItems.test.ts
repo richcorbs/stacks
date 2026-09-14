@@ -45,6 +45,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onOpenDirectoryInEditor: vi.fn(),
     onRunOneTimeCommand: vi.fn(),
     onNewCard: vi.fn(),
+    onDirectProjectWork: vi.fn(),
     customCmdPCommands: [],
     onAddCmdPCommand: vi.fn(),
     onEditCmdPCommand: vi.fn(),
@@ -82,6 +83,15 @@ describe('buildCommandPaletteItems', () => {
       'project-workspace-p1',
       'terminal-t1:0',
     ]));
+  });
+
+  it('opens Direct project work for the selected board project only', () => {
+    const onDirectProjectWork = vi.fn();
+    const item = palette({ onDirectProjectWork }).find((candidate) => candidate.id === 'direct-project-work');
+    item?.action();
+    expect(item?.subtitle).toBe('Work in Stacks');
+    expect(onDirectProjectWork).toHaveBeenCalledWith(project);
+    expect(palette({ selectedKanbanProject: null }).some((candidate) => candidate.id === 'direct-project-work')).toBe(false);
   });
 
   it('offers New Card only for the selected local board project', () => {
