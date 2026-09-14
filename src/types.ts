@@ -6,7 +6,26 @@ import type { WebLinksAddon } from '@xterm/addon-web-links';
 export type Store = { projects: Project[] };
 export type CustomCmdPCommand = { id: string; label: string; command: string; direction: 'row' | 'column'; execute: boolean };
 export type WorkspaceTemplate = { id: string; label: string; name: string; command: string; setupCommand: string; rows: number; columns: number; firstPaneKind: PaneKind };
-export type Project = { id: string; name: string; path: string; notes?: string; workspaces: WorkspaceEntry[]; collapsed?: boolean; kanban_source?: 'superthread' | 'local'; start_work_command?: string; server_command?: string; console_command?: string };
+export type DeliveryWorkflow = 'local_merge' | 'github_pull_request';
+export type GithubMergeStrategy = 'merge' | 'squash' | 'rebase';
+export type Project = {
+  id: string;
+  name: string;
+  path: string;
+  notes?: string;
+  workspaces: WorkspaceEntry[];
+  collapsed?: boolean;
+  kanban_source?: 'superthread' | 'local';
+  start_work_command?: string;
+  server_command?: string;
+  console_command?: string;
+  delivery_workflow?: DeliveryWorkflow;
+  target_branch?: string;
+  supports_feature_environments?: boolean;
+  github_merge_strategy?: GithubMergeStrategy;
+  require_passing_ci?: boolean;
+  require_approval?: boolean;
+};
 export type PaneKind = 'terminal' | 'pi';
 export type WorkspaceEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
 type PaneEntryBase = { id: string; workspaceId: string; command?: string | null; cwd?: string | null; temporary?: boolean };
@@ -76,8 +95,8 @@ export type AppSettings = {
   superthread_workspace_name_template?: string | null;
   superthread_enabled?: boolean | null;
   github_poll_interval_seconds?: number | null;
-  github_merge_strategy?: 'merge' | 'squash' | 'rebase' | null;
   kanban_project_id?: string | null;
+  kanban_done_collapsed?: boolean | null;
   active_project_id?: string | null;
   active_workspace_id?: string | null;
   focused_terminal_by_workspace_id?: Record<string, string> | null;
@@ -112,11 +131,12 @@ export type TerminalSession = {
   pendingInitialInputCleanup?: () => void;
 };
 
+type ProjectDialogSettings = { name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean };
 export type DialogState =
-  | { kind: 'project'; name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; serverCommand?: string; consoleCommand?: string; openTerminalAfterCreate?: boolean }
+  | ({ kind: 'project'; openTerminalAfterCreate?: boolean } & ProjectDialogSettings)
   | { kind: 'workspace'; projectId: string; name: string; command: string; setupCommand: string; rows: number; columns: number; firstPaneKind: PaneKind }
   | { kind: 'split'; workspaceId: string; targetTerminalId: string; direction: 'row' | 'column'; command: string; paneKind: PaneKind }
-  | { kind: 'editProject'; projectId: string; name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; serverCommand?: string; consoleCommand?: string }
+  | ({ kind: 'editProject'; projectId: string } & ProjectDialogSettings)
   | { kind: 'editWorkspace'; projectId: string; workspaceId: string; name: string; command: string; cwd: string }
   | { kind: 'editTerminal'; workspaceId: string; terminalId: string; command: string; paneKind: PaneKind };
 export type ContextMenuState =

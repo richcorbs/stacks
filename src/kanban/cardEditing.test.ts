@@ -13,7 +13,7 @@ describe('canEditKanbanCard', () => {
     expect(canEditKanbanCard({ provider: 'local', status: 'agent_working' })).toBe(false);
     expect(canEditKanbanCard({ provider: 'local', status: 'needs_human' })).toBe(false);
     expect(canEditKanbanCard({ provider: 'local', status: 'approved' })).toBe(false);
-    expect(canEditKanbanCard({ provider: 'local', status: 'merged' })).toBe(false);
+    expect(canEditKanbanCard({ provider: 'local', status: 'done' })).toBe(false);
   });
 });
 

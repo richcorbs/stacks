@@ -338,10 +338,20 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanNotice { padding: 7px 18px; border-bottom: 1px solid #423427; background: #211b16; color: #d0a46f; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanLanes { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 12px; overflow-x: auto; overflow-y: hidden; }
 .kanbanLane { flex: 1 0 210px; min-width: 210px; max-width: 330px; min-height: 0; display: flex; flex-direction: column; border: 1px solid #1d2a38; border-radius: 9px; background: #101821; overflow: hidden; }
+.kanbanLane.collapsed { flex: 0 0 38px; min-width: 38px; max-width: 38px; }
 .kanbanLane > header { flex: 0 0 auto; padding: 11px 11px 9px; border-bottom: 1px solid #1c2936; background: #121c27; }
+.kanbanLane > header.kanbanLaneCollapsedHeader { padding: 8px 6px; display: flex; justify-content: center; border-bottom: 0; }
 .kanbanLane > header > div { display: flex; justify-content: space-between; gap: 8px; color: #aebdcb; font-size: calc(12px + var(--ui-font-delta, 0px)); }
 .kanbanLane > header span { color: #62768c; font: calc(10px + var(--ui-font-delta, 0px)) ui-monospace, monospace; }
 .kanbanLaneHeaderActions { display: inline-flex; align-items: center; gap: 7px; }
+.kanbanDoneToggle { flex: 0 0 auto; width: 24px; height: 22px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #74879b; cursor: pointer; }
+.kanbanDoneToggle:hover, .kanbanDoneToggle:focus-visible { background: #1c2936; color: #a8bacb; outline: none; }
+.kanbanDoneToggle:focus-visible { box-shadow: 0 0 0 2px #416b8f; }
+.kanbanDoneToggleIcon { position: relative; width: 15px; height: 14px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 3px; opacity: .9; }
+.kanbanDoneToggleIcon::before { content: ''; position: absolute; top: 0; bottom: 0; right: 4px; width: 1px; background: currentColor; opacity: .85; }
+.kanbanDoneToggleIcon::after { content: ''; position: absolute; top: 4px; left: 2px; width: 4px; height: 4px; border-top: 1px solid currentColor; border-right: 1px solid currentColor; }
+.kanbanDoneToggleIcon.collapse::after { transform: rotate(45deg); }
+.kanbanDoneToggleIcon.expand::after { left: 3px; transform: rotate(-135deg); }
 .kanbanLaneMenu { position: relative; display: inline-flex; }
 .kanbanLaneMenu > button { width: 24px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #74879b; cursor: pointer; font-size: 10px; letter-spacing: -1px; }
 .kanbanLaneMenuPopover { position: absolute; top: 24px; right: 0; z-index: 40; width: 130px; padding: 5px; border: 1px solid #304154; border-radius: 7px; background: #151f2a; box-shadow: 0 12px 30px #0009; }
@@ -441,7 +451,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .cardFooterContext .cardFooterError { color: #e08b91; }
 .cardFooterActions { justify-content: flex-end; flex-wrap: wrap; }
 .cardFooterActions button { white-space: nowrap; }
-.cardFooterActions .destructiveAction { border-color: #60383d; color: #d79298; }
+.cardFooterActions button.workflowActionNeutralGhost,
+.cardFooterActions button.workflowActionDangerGhost { padding: 8px 11px; border: 0; background: transparent; }
+.cardFooterActions button.workflowActionNeutralGhost { color: #93a4b7; }
+.cardFooterActions button.workflowActionDangerGhost { color: #d79298; }
+.cardFooterActions button.workflowActionNeutralGhost:hover:not(:disabled),
+.cardFooterActions button.workflowActionNeutralGhost:focus-visible { outline: 2px solid rgba(147, 164, 183, .25); outline-offset: 1px; background: transparent; color: #c4d0dc; }
+.cardFooterActions button.workflowActionDangerGhost:hover:not(:disabled),
+.cardFooterActions button.workflowActionDangerGhost:focus-visible { outline: 2px solid rgba(215, 146, 152, .25); outline-offset: 1px; background: transparent; color: #f0aab0; }
 .cardWorkflowFooter.editing { grid-template-columns: 1fr; align-items: center; }
 .kanbanEditActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .superthreadSelectedProject { color: #8295a8; font-size: calc(11px + var(--ui-font-delta, 0px)); font-weight: 650; }

@@ -1,5 +1,4 @@
 import type { AppSettings, CustomCmdPCommand, WorkspaceTemplate } from './types';
-import type { GithubMergeStrategy } from './github/types';
 import {
   clampUiFontSize,
   clampTerminalFontSize,
@@ -43,8 +42,8 @@ export type ResolvedAppSettings = {
   superthread_workspace_name_template: string;
   superthread_enabled: boolean;
   github_poll_interval_seconds: number;
-  github_merge_strategy: GithubMergeStrategy;
   kanban_project_id: string | null;
+  kanban_done_collapsed: boolean;
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
@@ -70,8 +69,8 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   superthread_workspace_name_template: '{card_number} {card_title}',
   superthread_enabled: true,
   github_poll_interval_seconds: 60,
-  github_merge_strategy: 'merge',
   kanban_project_id: null,
+  kanban_done_collapsed: true,
 };
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
@@ -98,8 +97,8 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     superthread_workspace_name_template: settings?.superthread_workspace_name_template?.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
     superthread_enabled: settings?.superthread_enabled ?? DEFAULT_APP_SETTINGS.superthread_enabled,
     github_poll_interval_seconds: clampGithubPollInterval(settings?.github_poll_interval_seconds),
-    github_merge_strategy: normalizeGithubMergeStrategy(settings?.github_merge_strategy),
     kanban_project_id: settings?.kanban_project_id?.trim() || null,
+    kanban_done_collapsed: settings?.kanban_done_collapsed ?? DEFAULT_APP_SETTINGS.kanban_done_collapsed,
   };
 }
 
@@ -127,8 +126,8 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     superthread_workspace_name_template: settings.superthread_workspace_name_template.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
     superthread_enabled: settings.superthread_enabled,
     github_poll_interval_seconds: clampGithubPollInterval(settings.github_poll_interval_seconds),
-    github_merge_strategy: normalizeGithubMergeStrategy(settings.github_merge_strategy),
     kanban_project_id: settings.kanban_project_id?.trim() || null,
+    kanban_done_collapsed: settings.kanban_done_collapsed,
   };
 }
 
@@ -136,10 +135,6 @@ export function clampGithubPollInterval(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.round(Math.min(3600, Math.max(10, value)))
     : DEFAULT_APP_SETTINGS.github_poll_interval_seconds;
-}
-
-function normalizeGithubMergeStrategy(value: string | null | undefined): GithubMergeStrategy {
-  return value === 'squash' || value === 'rebase' ? value : 'merge';
 }
 
 function normalizeWorkspaceTemplates(templates: WorkspaceTemplate[] | null | undefined): WorkspaceTemplate[] {

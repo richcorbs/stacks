@@ -23,6 +23,6 @@ describe('card repository status', () => {
       code: 'health_check_failed', step: 'approval',
     });
     expect(healthCheckFailure(card('approved'), 'failed').issues[0].step).toBe('merge');
-    expect(healthCheckFailure(card('merged'), 'failed').issues[0].step).toBe('cleanup');
+    expect(healthCheckFailure(card('done'), 'failed').issues[0].step).toBe('cleanup');
   });
 });

@@ -5,7 +5,7 @@ import { CardWorkflowControls } from './CardWorkflowControls';
 
 const actions: CardWorkflowAction[] = [
   { kind: 'request_changes', label: 'Request changes' },
-  { kind: 'approve_and_commit', label: 'Approve & commit', primary: true, loading: true },
+  { kind: 'ship', label: 'Ship It', primary: true, loading: true },
 ];
 
 describe('CardWorkflowControls', () => {
@@ -27,9 +27,31 @@ describe('CardWorkflowControls', () => {
     expect(buttons.every((button) => button.includes('disabled=""'))).toBe(true);
     expect(buttons[0]).toContain('aria-label="Request changes"');
     expect(buttons[0]).toContain('>Request changes</button>');
-    expect(buttons[1]).toContain('aria-label="Approve &amp; commit"');
-    expect(buttons[1]).toContain('>Approve &amp; commit</button>');
+    expect(buttons[1]).toContain('aria-label="Ship It"');
+    expect(buttons[1]).toContain('>Ship It</button>');
     expect(buttons.every((button) => !button.includes('Working…'))).toBe(true);
+  });
+
+  it('maps explicit action appearances to stable classes', () => {
+    const markup = renderToStaticMarkup(
+      <CardWorkflowControls
+        actions={[
+          { kind: 'close', label: 'Close card', destructive: true, appearance: 'neutral-ghost' },
+          { kind: 'delete', label: 'Delete card', destructive: true, appearance: 'danger-ghost' },
+          { kind: 'cleanup', label: 'Clean up', destructive: true, appearance: 'regular' },
+        ]}
+        working={false}
+        actionError={null}
+        mergedWithoutEnvironment={false}
+        onAction={() => {}}
+      />,
+    );
+    const buttons = markup.match(/<button[\s\S]*?<\/button>/g) ?? [];
+
+    expect(buttons[0]).toContain('class="workflowActionNeutralGhost"');
+    expect(buttons[1]).toContain('class="workflowActionDangerGhost"');
+    expect(buttons[2]).toContain('class="workflowActionRegular"');
+    expect(markup).not.toContain('destructiveAction');
   });
 
   it('restores each action’s normal availability after workflow progress settles', () => {

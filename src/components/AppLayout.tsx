@@ -21,6 +21,8 @@ export function AppLayout({ appStyle, main, overlays }: {
         superthreadEnabled={main.appSettings.superthread_enabled}
         selectedProjectId={main.appSettings.kanban_project_id}
         onSelectProject={main.setKanbanProjectId}
+        doneCollapsed={main.appSettings.kanban_done_collapsed}
+        onDoneCollapsedChange={main.setKanbanDoneCollapsed}
         onAddProject={main.openProjectDialog}
         onCleanupCard={main.cleanupCard}
         onStartWork={main.startWork}

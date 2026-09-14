@@ -59,8 +59,24 @@ export function setKanbanMergeTarget(id: string, targetCheckoutPath: string, exp
   return invoke<KanbanCard>('kanban_set_merge_target', { id, targetCheckoutPath, expectedEnvironmentRevision });
 }
 
-export function approveAndCommitKanbanCard(id: string, expectedWorkflowRevision: number, expectedEnvironmentRevision: number) {
-  return invoke<WorkflowOperationResult>('kanban_approve_and_commit', { id, expectedWorkflowRevision, expectedEnvironmentRevision });
+export function approveAndCommitKanbanCard(id: string, expectedWorkflowRevision: number, expectedEnvironmentRevision: number, featureEnvironment = false) {
+  return invoke<WorkflowOperationResult>('kanban_approve_and_commit', { id, expectedWorkflowRevision, expectedEnvironmentRevision, featureEnvironment });
+}
+
+export function closeKanbanCard(id: string, expectedRevision: number) {
+  return invoke<KanbanCard>('kanban_close_card', { id, expectedRevision });
+}
+
+export function refreshKanbanPullRequest(id: string) {
+  return invoke<KanbanCard>('kanban_refresh_pull_request', { id });
+}
+
+export function createKanbanPullRequest(id: string, expectedWorkflowRevision: number) {
+  return invoke<KanbanCard>('kanban_create_pull_request', { id, expectedWorkflowRevision });
+}
+
+export function mergeKanbanPullRequest(id: string, expectedWorkflowRevision: number) {
+  return invoke<KanbanCard>('kanban_merge_pull_request', { id, expectedWorkflowRevision });
 }
 
 export function mergeKanbanCard(id: string, expectedWorkflowRevision: number, expectedEnvironmentRevision: number) {

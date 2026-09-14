@@ -1,20 +1,20 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { open } from '@tauri-apps/plugin-dialog';
 import DOMPurify from 'dompurify';
 import type { Project, SplitNode, TerminalEntry } from '../types';
 import { useKanbanBoard } from '../kanban/useKanbanBoard';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
-import { approveAndCommitKanbanCard, mergeKanbanCard, saveKanbanEnvironmentLayout, setKanbanMergeTarget } from '../kanban/api';
+import { approveAndCommitKanbanCard, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, refreshKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
+import { deletePersistentPiSession } from '../pi/sessionController';
 import { environmentHealthTooltip, hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
 import { runApproveAndCommit } from '../kanban/approveAndCommit';
 import { runWritePlanAndFinishRefinement } from '../kanban/writePlanAndFinishRefinement';
@@ -34,17 +34,20 @@ import { CardWorkflowControls } from './CardWorkflowControls';
 import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
 import { DirectProjectWork } from './DirectProjectWork';
 import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from '../directWork';
+import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
 
-export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, projects, selectedProjectId, onSelectProject, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: {
+export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, projects, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: {
   spaces: string;
   workspaceSlug: string;
   superthreadEnabled: boolean;
   projects: Project[];
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
+  doneCollapsed: boolean;
+  onDoneCollapsedChange: (collapsed: boolean) => void;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -81,6 +84,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
   const [keyboardFocusedCardId, setKeyboardFocusedCardId] = useState<string | null>(null);
+  const doneToggleRef = useRef<HTMLButtonElement | null>(null);
+  const keyboardCards = useMemo(() => keyboardNavigableCards(visibleCards, doneCollapsed), [doneCollapsed, visibleCards]);
   const pointerDragRef = useRef<{ cardId: string; status: KanbanStatus; startX: number; startY: number; clientX: number; clientY: number; dragging: boolean } | null>(null);
   const dragScrollFrameRef = useRef<number | null>(null);
   const suppressCardClickRef = useRef(false);
@@ -94,6 +99,19 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   useEffect(() => () => {
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
   }, []);
+
+  useEffect(() => {
+    if (selectedProject?.delivery_workflow !== 'github_pull_request') return;
+    let cancelled = false;
+    const reconcile = async () => {
+      const targets = visibleCards.filter((card) => card.environment && card.status !== 'needs_refinement' && card.status !== 'ready');
+      await Promise.all(targets.map((card) => refreshKanbanPullRequest(card.id).catch(() => null)));
+      if (!cancelled && targets.length) await board.load();
+    };
+    void reconcile();
+    const timer = window.setInterval(() => void reconcile(), 30_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [selectedProject?.id, selectedProject?.delivery_workflow]);
 
   useEffect(() => {
     const openNewCard = (event: Event) => {
@@ -132,18 +150,26 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   }, [draggingId, newCardOpen, openLaneMenu, projectSwitcherOpen, selectedCard]);
 
   useEffect(() => {
+    if (!doneCollapsed) return;
+    setOpenLaneMenu((current) => current === 'done' ? null : current);
+    setKeyboardFocusedCardId((currentId) => (
+      visibleCards.some((card) => card.id === currentId && card.status === 'done') ? null : currentId
+    ));
+  }, [doneCollapsed, visibleCards]);
+
+  useEffect(() => {
     const handleBoardNavigation = (event: KeyboardEvent) => {
       if (selectedCard || event.metaKey || event.ctrlKey || event.altKey || isEditableElement(event.target)) return;
       const key = event.key.toLocaleLowerCase();
       if (!['h', 'j', 'k', 'l', 'enter'].includes(key)) return;
       if (key === 'enter') {
-        const card = visibleCards.find((candidate) => candidate.id === keyboardFocusedCardId);
+        const card = keyboardCards.find((candidate) => candidate.id === keyboardFocusedCardId);
         if (!card) return;
         event.preventDefault();
         openCard(card);
         return;
       }
-      const nextCard = adjacentBoardCard(visibleCards, keyboardFocusedCardId, key as 'h' | 'j' | 'k' | 'l');
+      const nextCard = adjacentBoardCard(keyboardCards, keyboardFocusedCardId, key as 'h' | 'j' | 'k' | 'l');
       if (!nextCard) return;
       event.preventDefault();
       setKeyboardFocusedCardId(nextCard.id);
@@ -156,7 +182,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     };
     window.addEventListener('keydown', handleBoardNavigation);
     return () => window.removeEventListener('keydown', handleBoardNavigation);
-  }, [visibleCards, keyboardFocusedCardId, selectedCard]);
+  }, [keyboardCards, keyboardFocusedCardId, selectedCard]);
 
   useEffect(() => {
     if (!selectedCard) return;
@@ -219,10 +245,22 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     setSelectedCard(await board.loadDetails(card));
   }
 
+  function toggleDoneCollapsed() {
+    const collapsed = !doneCollapsed;
+    if (collapsed) {
+      setOpenLaneMenu(null);
+      setKeyboardFocusedCardId((currentId) => (
+        visibleCards.some((card) => card.id === currentId && card.status === 'done') ? null : currentId
+      ));
+    }
+    onDoneCollapsedChange(collapsed);
+    requestAnimationFrame(() => doneToggleRef.current?.focus());
+  }
+
   async function cleanupMergedCards() {
-    const mergedCards = visibleCards.filter((card) => card.status === 'merged');
+    const mergedCards = visibleCards.filter((card) => card.status === 'done' && card.completion_outcome === 'merged');
     setOpenLaneMenu(null);
-    if (mergedCards.length === 0 || !window.confirm(`Clean up ${mergedCards.length} merged ${mergedCards.length === 1 ? 'card' : 'cards'}?\n\nThis removes their card-owned processes, source worktrees, safely deletable branches, and environments. Cards remain in Merged.`)) return;
+    if (mergedCards.length === 0 || !window.confirm(`Clean up ${mergedCards.length} merged ${mergedCards.length === 1 ? 'card' : 'cards'}?\n\nThis removes their card-owned processes, source worktrees, safely deletable branches, and environments. Cards remain in Done · Merged.`)) return;
     setCleaningMerged(true);
     const failures: string[] = [];
     for (const card of mergedCards) {
@@ -365,31 +403,43 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             const cards = visibleCards.filter((card) => card.status === lane.status);
             return (
               <section
-                className="kanbanLane"
+                className={`kanbanLane${lane.status === 'done' && doneCollapsed ? ' collapsed' : ''}`}
                 key={lane.status}
                 data-kanban-lane-status={lane.status}
               >
-                <header>
-                  <div>
-                    <strong>{lane.label}</strong>
-                    <span className="kanbanLaneHeaderActions">
-                      <span>{cards.length}</span>
-                      {lane.status === 'merged' && (
-                        <span className="kanbanLaneMenu">
-                          <button type="button" aria-label="Merged card actions" disabled={cleaningMerged} onClick={() => setOpenLaneMenu((current) => current === 'merged' ? null : 'merged')}>•••</button>
-                          {openLaneMenu === 'merged' && (
-                            <span className="kanbanLaneMenuPopover">
-                              <button type="button" disabled={cards.length === 0 || cleaningMerged} onClick={() => cleanupMergedCards()}>
-                                <AsyncButtonLabel idle="Clean up all" busy="Cleaning up…" isBusy={cleaningMerged} />
-                              </button>
+                {lane.status === 'done' && doneCollapsed ? (
+                  <header className="kanbanLaneCollapsedHeader">
+                    <button ref={doneToggleRef} className="kanbanDoneToggle" type="button" aria-label="Expand Done column" aria-expanded={false} onClick={toggleDoneCollapsed}>
+                      <span className="kanbanDoneToggleIcon expand" aria-hidden="true" />
+                    </button>
+                  </header>
+                ) : (<>
+                  <header>
+                    <div>
+                      <strong>{lane.label}</strong>
+                      <span className="kanbanLaneHeaderActions">
+                        <span>{cards.length}</span>
+                        {lane.status === 'done' && (
+                          <>
+                            <span className="kanbanLaneMenu">
+                              <button type="button" aria-label="Done card actions" disabled={cleaningMerged} onClick={() => setOpenLaneMenu((current) => current === 'done' ? null : 'done')}>•••</button>
+                              {openLaneMenu === 'done' && (
+                                <span className="kanbanLaneMenuPopover">
+                                  <button type="button" disabled={cards.length === 0 || cleaningMerged} onClick={() => cleanupMergedCards()}>
+                                    <AsyncButtonLabel idle="Clean up all" busy="Cleaning up…" isBusy={cleaningMerged} />
+                                  </button>
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </header>
-                <div className="kanbanLaneCards">
+                            <button ref={doneToggleRef} className="kanbanDoneToggle" type="button" aria-label="Collapse Done column" aria-expanded={true} onClick={toggleDoneCollapsed}>
+                              <span className="kanbanDoneToggleIcon collapse" aria-hidden="true" />
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  </header>
+                  <div className="kanbanLaneCards">
                   {cards.map((card) => {
                     const repositoryStatus = repositoryStatuses[card.id];
                     const environmentHealth = repositoryStatus?.environmentHealth;
@@ -433,10 +483,10 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                               {repositoryStatus.git!.deleted > 0 && <span className="gitRemoved">-{repositoryStatus.git!.deleted}</span>}
                             </span>
                           )}
-                          {repositoryStatus?.pullRequest && (
-                            <span className="kanbanPrBadge" title={`${repositoryStatus.pullRequest.draft ? 'Draft ' : ''}PR #${repositoryStatus.pullRequest.number}: ${repositoryStatus.pullRequest.title}`}>
-                              PR #{repositoryStatus.pullRequest.number}
-                              <GithubStatusIcon status={repositoryStatus.pullRequest.ci_status} context="CI" />
+                          {card.pull_request?.state === 'open' && (
+                            <span className={`kanbanPrBadge ${card.pull_request.blockers.length === 0 ? 'ready' : 'blocked'}`} title={card.pull_request.blockers.length ? card.pull_request.blockers.join('\n') : 'Pull request is ready to merge'}>
+                              PR #{card.pull_request.number}
+                              <GithubStatusIcon status={card.pull_request.blockers.length === 0 ? 'success' : 'failure'} context="CI" label="PR readiness" />
                             </span>
                           )}
                         </span>
@@ -454,8 +504,9 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                     )}
                     </div>;
                   })}
-                  {cards.length === 0 && <div className="kanbanLaneEmpty">Drop cards here</div>}
-                </div>
+                    {cards.length === 0 && <div className="kanbanLaneEmpty">Drop cards here</div>}
+                  </div>
+                </>)}
               </section>
             );
           })}
@@ -628,11 +679,11 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
   const serverCommand = project?.server_command?.trim() ?? '';
   const consoleCommand = project?.console_command?.trim() ?? '';
-  const statusLabel = KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
+  const statusLabel = card.status === 'done' ? `Done · ${card.completion_outcome === 'merged' ? 'Merged' : 'Closed'}` : KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
-  const workflowCard = workflowOperation === 'approve_and_commit' ? { ...card, status: 'needs_human' as const } : card;
-  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, projectAvailable: Boolean(project), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
+  const workflowCard = workflowOperation === 'ship' || workflowOperation === 'ship_with_fe' ? { ...card, status: 'needs_human' as const } : card;
+  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, projectAvailable: Boolean(project), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
     ...(project ? ['chat' as const] : []),
@@ -925,14 +976,15 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         case 'request_changes':
           if (card.status === 'approved') await onMove('needs_human');
           setActiveView('chat'); return;
-        case 'approve_and_commit': {
+        case 'ship':
+        case 'ship_with_fe': {
           if (!card.environment) throw new Error('Card environment is missing');
           const expectedWorkflowRevision = card.workflow_revision;
           const expectedEnvironmentRevision = environmentRevisionRef.current;
           const result = await runApproveAndCommit({
             showAgent: () => setActiveView('chat'),
             sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'work'), prompt),
-            finalize: () => approveAndCommitKanbanCard(card.id, expectedWorkflowRevision, expectedEnvironmentRevision),
+            finalize: () => approveAndCommitKanbanCard(card.id, expectedWorkflowRevision, expectedEnvironmentRevision, action.kind === 'ship_with_fe'),
             refresh: async () => {
               const updated = await onReload();
               environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current;
@@ -943,24 +995,32 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
           return;
         }
-        case 'reopen': await onMove(card.environment ? 'approved' : 'ready'); return;
-        case 'merge': {
+        case 'merge_local': {
           if (!card.environment) throw new Error('Card environment is missing');
           const result = await mergeKanbanCard(card.id, card.workflow_revision, environmentRevisionRef.current);
           await onReload();
           window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
           return;
         }
-        case 'cleanup': await onCleanup(environmentRevisionRef.current); return;
-        case 'delete': await onDelete(); return;
-        case 'set_merge_target': {
-          if (!card.environment) throw new Error('Card environment is missing');
-          const selected = await open({ directory: true, multiple: false, title: 'Select registered merge target worktree' });
-          if (!selected) return;
-          await setKanbanMergeTarget(card.id, selected, environmentRevisionRef.current);
-          await onReload();
-          return;
+        case 'create_pr': {
+          setActiveView('chat');
+          await sendPromptToPiAndWait(cardPaneId(card.id, 'work'), `Generate succinct pull request metadata from the completed diff and commits. Write exactly one JSON object with string fields "title" and "body" to $(git rev-parse --git-dir)/stacks-pr-metadata.json. Do not alter the worktree or commits.`);
+          const updated = await createKanbanPullRequest(card.id, card.workflow_revision);
+          onCardUpdated(updated); return;
         }
+        case 'open_pr': if (card.pull_request?.url) await invoke('open_url', { url: card.pull_request.url }); return;
+        case 'merge_pr': onCardUpdated(await mergeKanbanPullRequest(card.id, card.workflow_revision)); return;
+        case 'cleanup': await onCleanup(environmentRevisionRef.current); return;
+        case 'close': {
+          const piPaneIds = new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [cardPaneId(card.id, 'planning'), cardPaneId(card.id, 'work')]);
+          await Promise.all([
+            ...Array.from(piPaneIds).map(deletePersistentPiSession),
+            ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => { disposeTerminalSession(pane.id); return invoke('kill_pty', { terminalId: pane.id, expectedCwd: card.environment?.worktree_path }); }) ?? []),
+            ...(['server', 'console'].map((service) => invoke('kill_pty', { terminalId: `kanban-card:${card.id}:terminal:${service}`, expectedCwd: card.environment?.worktree_path }))),
+          ]);
+          onCardUpdated(await closeKanbanCard(card.id, card.workflow_revision)); return;
+        }
+        case 'delete': await onDelete(); return;
       }
     }, action.kind).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
   }
@@ -1068,6 +1128,17 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               ? <div className="kanbanLocalDescription">{card.content}</div>
               : <div dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
             : <p className="kanbanMuted">No description.</p>}
+          {!editing && card.pull_request && <aside className="cardEnvironmentWarningPanel cardPullRequestStatus">
+            <div><strong>Pull request #{card.pull_request.number}</strong><span>{card.pull_request.state}</span></div>
+            <a href={card.pull_request.url} onClick={(event) => openExternalLink(event, card.pull_request!.url)}>{card.pull_request.title}</a>
+            <ul>
+              <li><span>CI: {card.pull_request.ci_status}</span></li>
+              <li><span>Review: {card.pull_request.review_state}</span></li>
+              <li><span>Conflicts: {card.pull_request.has_conflicts ? 'yes' : 'none'}</span></li>
+              {card.pull_request.blockers.map((blocker) => <li key={blocker}><span>{blocker}</span></li>)}
+            </ul>
+          </aside>}
+          {!editing && card.delivery_error && <div className="kanbanActionError" role="alert">{card.delivery_error}</div>}
           {!editing && card.events.length > 0 && <details className="cardHistory">
             <summary>History ({card.events.length})</summary>
             <ol>{card.events.map((event) => <li key={event.id}>
@@ -1160,24 +1231,22 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         </section>
         {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={serverEnabled} active={activeView === 'server'} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={consoleEnabled} active={activeView === 'console'} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        {card.status !== 'agent_working' && (
-          <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
-            {editing ? (
-              <div className="kanbanEditActions">
-                <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
-                <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
-                  <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
-                </button>
-              </div>
-            ) : <CardWorkflowControls
-              actions={workflowActions}
-              working={working}
-              actionError={actionError}
-              mergedWithoutEnvironment={card.status === 'merged' && !card.environment}
-              onAction={performWorkflowAction}
-            />}
-          </footer>
-        )}
+        <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
+          {editing ? (
+            <div className="kanbanEditActions">
+              <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
+              <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
+                <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
+              </button>
+            </div>
+          ) : <CardWorkflowControls
+            actions={workflowActions}
+            working={working}
+            actionError={actionError}
+            mergedWithoutEnvironment={card.status === 'done' && !card.environment}
+            onAction={performWorkflowAction}
+          />}
+        </footer>
       </article>
     </div>
     {pendingCloseShellPane && (
@@ -1259,24 +1328,6 @@ function clearWrappedPrompt(term: import('@xterm/xterm').Terminal) {
   const rowsAboveCursor = cursorLine - promptStart;
   if (rowsAboveCursor === 0) return '\r\x1b[2K';
   return `\r\x1b[2K${'\x1b[1A\x1b[2K'.repeat(rowsAboveCursor)}\x1b[${rowsAboveCursor}B\r`;
-}
-
-function adjacentBoardCard(cards: KanbanCard[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l') {
-  const lanes = KANBAN_LANES.map((lane) => cards.filter((card) => card.status === lane.status));
-  const first = lanes.find((lane) => lane.length > 0)?.[0] ?? null;
-  const current = cards.find((card) => card.id === currentId);
-  if (!current) return first;
-  const laneIndex = KANBAN_LANES.findIndex((lane) => lane.status === current.status);
-  const rowIndex = lanes[laneIndex]?.findIndex((card) => card.id === current.id) ?? 0;
-  if (direction === 'j' || direction === 'k') {
-    const lane = lanes[laneIndex] ?? [];
-    return lane[Math.max(0, Math.min(lane.length - 1, rowIndex + (direction === 'j' ? 1 : -1)))] ?? current;
-  }
-  const step = direction === 'l' ? 1 : -1;
-  for (let index = laneIndex + step; index >= 0 && index < lanes.length; index += step) {
-    if (lanes[index].length > 0) return lanes[index][Math.min(rowIndex, lanes[index].length - 1)];
-  }
-  return current;
 }
 
 function isEditableElement(target: EventTarget | null) {

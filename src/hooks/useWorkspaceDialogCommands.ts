@@ -29,14 +29,14 @@ export function useWorkspaceDialogCommands({
   updateTerminalPane,
   createWorkspace,
 }: WorkspaceDialogCommandOptions) {
-  async function addProject(name: string, path: string, kanbanSource: 'superthread' | 'local' = 'local', startWorkCommand?: string, serverCommand?: string, consoleCommand?: string) {
+  async function addProject(name: string, path: string, kanbanSource: 'superthread' | 'local' = 'local', startWorkCommand?: string, serverCommand?: string, consoleCommand?: string, deliveryWorkflow: Project['delivery_workflow'] = 'local_merge', targetBranch = 'main', supportsFeatureEnvironments = false, githubMergeStrategy: Project['github_merge_strategy'] = 'merge', requirePassingCi = true, requireApproval = false) {
     const existing = store.projects.find((p) => p.path === path);
     if (existing) {
       selectWorkspace(existing.id, existing.workspaces[0]?.id ?? null);
       return existing;
     }
     const id = await invoke<string>('new_id');
-    const project: Project = { id, name, path, workspaces: [], collapsed: false, kanban_source: kanbanSource, start_work_command: startWorkCommand, server_command: serverCommand, console_command: consoleCommand };
+    const project: Project = { id, name, path, workspaces: [], collapsed: false, kanban_source: kanbanSource, start_work_command: startWorkCommand, server_command: serverCommand, console_command: consoleCommand, delivery_workflow: deliveryWorkflow, target_branch: targetBranch.trim() || 'main', supports_feature_environments: supportsFeatureEnvironments, github_merge_strategy: githubMergeStrategy, require_passing_ci: requirePassingCi, require_approval: requireApproval };
     setStore((s) => ({ projects: [...s.projects, project] }));
     selectWorkspace(id, null);
     return project;
@@ -57,7 +57,7 @@ export function useWorkspaceDialogCommands({
       selectWorkspace(existing.id, existing.workspaces[0]?.id ?? null);
       return;
     }
-    setDialog({ kind: 'project', name: basename(selected), path: selected, kanbanSource: 'local', startWorkCommand: '', serverCommand: '', consoleCommand: '', openTerminalAfterCreate: true });
+    setDialog({ kind: 'project', name: basename(selected), path: selected, kanbanSource: 'local', startWorkCommand: '', serverCommand: '', consoleCommand: '', deliveryWorkflow: 'local_merge', targetBranch: 'main', supportsFeatureEnvironments: false, githubMergeStrategy: 'merge', requirePassingCi: true, requireApproval: false, openTerminalAfterCreate: true });
   }
 
   function openWorkspaceDialog(project: Project) {

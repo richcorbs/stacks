@@ -16,7 +16,7 @@ export type CardRepositoryStatus = {
 export function healthCheckFailure(card: Pick<KanbanCard, 'id' | 'status'>, error: unknown): CardEnvironmentHealth {
   const step: EnvironmentHealthStep = card.status === 'needs_human' ? 'approval'
     : card.status === 'approved' ? 'merge'
-      : card.status === 'merged' ? 'cleanup' : 'work';
+      : card.status === 'done' ? 'cleanup' : 'work';
   const detail = error instanceof Error ? error.message : String(error);
   return {
     card_id: card.id,

@@ -1,73 +1,62 @@
 import { describe, expect, it } from 'vitest';
 import { deriveCardWorkflowActions } from './workflowActions';
 import type { KanbanCard, KanbanStatus } from './types';
+import type { Project } from '../types';
 
 function card(status: KanbanStatus, environment: KanbanCard['environment'] = null): KanbanCard {
   return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, project_id: 'p', environment, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
 }
+const localProject = { id: 'p', name: 'P', path: '/repo', workspaces: [], delivery_workflow: 'local_merge', target_branch: 'main' } as Project;
+const prProject = { ...localProject, delivery_workflow: 'github_pull_request', supports_feature_environments: true, require_passing_ci: true, require_approval: true } as Project;
+const kinds = (status: KanbanStatus, project: Project = localProject) => deriveCardWorkflowActions({ card: card(status), project, projectAvailable: true }).map((action) => action.kind);
 
-it.each([
-  ['needs_refinement', ['open_refinement', 'write_plan_and_finish_refinement', 'delete']],
-  ['ready', ['return_to_refinement', 'start_work']],
-  ['agent_working', []],
-  ['needs_human', ['request_changes', 'approve_and_commit']],
-] as const)('derives %s actions', (status, kinds) => {
-  expect(deriveCardWorkflowActions({ card: card(status), projectAvailable: true }).map((action) => action.kind)).toEqual(kinds);
-});
+describe('delivery workflow actions', () => {
+  it('offers Close card last on every active status and alone while the agent is working', () => {
+    for (const status of ['needs_refinement', 'ready', 'agent_working', 'needs_human', 'approved'] as KanbanStatus[]) {
+      const actionKinds = kinds(status);
+      expect(actionKinds.at(-1)).toBe('close');
+    }
+    expect(kinds('agent_working')).toEqual(['close']);
+    expect(kinds('done')).not.toContain('close');
+  });
 
-describe('merge and reopen actions', () => {
-  it('requires explicit target metadata for a legacy environment', () => {
-    const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: null, target_checkout_path: null, target_branch: null, source_revision: null, target_revision: null, lifecycle_state: 'ready' as const, revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
-    expect(deriveCardWorkflowActions({ card: card('approved', environment), projectAvailable: true })[1].kind).toBe('set_merge_target');
-    expect(deriveCardWorkflowActions({ card: card('merged', environment), projectAvailable: true }).map((action) => action.kind)).toEqual(['reopen', 'cleanup']);
-  });
-  it('keeps workflow actions stable on every tab', () => {
-    const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
-    expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('needs_human'), projectAvailable: true, activeTab }).map((action) => action.kind)))
-      .toEqual(tabs.map(() => ['request_changes', 'approve_and_commit']));
-    expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('needs_human'), projectAvailable: true, activeTab })[1].label))
-      .toEqual(tabs.map(() => 'Approve & commit'));
-  });
-  it('hides Open refinement on the Agent tab only', () => {
-    const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
-    expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: true, activeTab }).map((action) => action.kind)))
-      .toEqual([
-        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
-        ['write_plan_and_finish_refinement', 'delete'],
-        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
-        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
-        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
-        ['open_refinement', 'write_plan_and_finish_refinement', 'delete'],
-      ]);
-  });
-  it('has no Agent working actions on any tab', () => {
-    const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
-    expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('agent_working'), projectAvailable: true, activeTab }).map((action) => action.kind)))
-      .toEqual(tabs.map(() => []));
-  });
-  it('labels and gates the combined refinement action', () => {
-    const available = deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: true })[1];
-    expect(available).toMatchObject({
-      kind: 'write_plan_and_finish_refinement',
-      label: 'Write plan & finish refinement',
-    });
-    expect(available.disabledReason).toBeUndefined();
+  it('assigns appearance independently from destructive confirmation semantics', () => {
+    const draftActions = deriveCardWorkflowActions({ card: card('needs_refinement'), project: localProject, projectAvailable: true });
+    const close = draftActions.find((action) => action.kind === 'close');
+    const deleteAction = draftActions.find((action) => action.kind === 'delete');
+    const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
+    const cleanup = deriveCardWorkflowActions({ card: card('done', environment), project: localProject, projectAvailable: true })[0];
 
-    const unavailable = deriveCardWorkflowActions({ card: card('needs_refinement'), projectAvailable: false })[1];
-    expect(unavailable.disabledReason).toBe('Assign a project first');
+    expect(close).toMatchObject({ destructive: true, appearance: 'neutral-ghost', confirmation: { title: 'Close card?' } });
+    expect(deleteAction).toMatchObject({ destructive: true, appearance: 'danger-ghost', confirmation: { title: 'Delete card?' } });
+    expect(cleanup).toMatchObject({ destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?' } });
+  });
 
-    const loading = deriveCardWorkflowActions({
-      card: card('needs_refinement'),
-      projectAvailable: true,
-      operation: { kind: 'write_plan_and_finish_refinement' },
-    })[1];
-    expect(loading.loading).toBe(true);
+  it('uses Ship It and conditionally offers feature environment delivery', () => {
+    expect(kinds('needs_human')).toEqual(['request_changes', 'ship', 'close']);
+    expect(kinds('needs_human', prProject)).toEqual(['request_changes', 'ship', 'ship_with_fe', 'close']);
+    expect(deriveCardWorkflowActions({ card: card('needs_human'), project: prProject, projectAvailable: true })[1].label).toBe('Ship It');
   });
-  it('never offers deletion for provider cards', () => {
-    const providerCard = { ...card('needs_refinement'), provider: 'superthread' as const };
-    expect(deriveCardWorkflowActions({ card: providerCard, projectAvailable: true }).some((action) => action.kind === 'delete')).toBe(false);
+
+  it('derives local merge from live project settings', () => {
+    expect(kinds('approved')).toEqual(['request_changes', 'merge_local', 'close']);
   });
-  it('explains that cleaned merged cards need a new environment', () => {
-    expect(deriveCardWorkflowActions({ card: card('merged'), projectAvailable: true })[0].label).toContain('Ready for agent');
+
+  it('creates or merges a pull request based on persisted PR state', () => {
+    expect(kinds('approved', prProject)).toEqual(['request_changes', 'create_pr', 'close']);
+    const ready = { ...card('approved'), pull_request: { repository: 'o/r', number: 1, title: 'PR', url: 'https://example.test', state: 'open' as const, draft: false, ci_status: 'success' as const, review_state: 'approved' as const, has_conflicts: false, mergeable: true, blockers: [] } };
+    expect(deriveCardWorkflowActions({ card: ready, project: prProject, projectAvailable: true }).map((action) => action.kind)).toEqual(['request_changes', 'open_pr', 'merge_pr', 'close']);
+  });
+
+  it('blocks GitHub merge with every readiness reason', () => {
+    const blocked = { ...card('approved'), pull_request: { repository: 'o/r', number: 1, title: 'PR', url: '', state: 'open' as const, draft: true, ci_status: 'pending' as const, review_state: 'changes_requested' as const, has_conflicts: true, mergeable: false, blockers: ['Draft', 'CI pending', 'Changes requested'] } };
+    const action = deriveCardWorkflowActions({ card: blocked, project: prProject, projectAvailable: true }).find((candidate) => candidate.kind === 'merge_pr');
+    expect(action?.disabledReason).toBe('Draft; CI pending; Changes requested');
+  });
+
+  it('only offers outcome-aware cleanup for Done cards with environments', () => {
+    const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
+    expect(deriveCardWorkflowActions({ card: { ...card('done', environment), completion_outcome: 'closed' }, project: localProject, projectAvailable: true })[0].confirmation?.detail).toContain('branch is retained');
+    expect(kinds('done')).toEqual([]);
   });
 });

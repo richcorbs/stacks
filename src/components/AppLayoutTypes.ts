@@ -54,6 +54,7 @@ export type MainLayoutProps = {
   broadcastWorkspaceIds: Record<string, boolean>;
   appSettings: ResolvedAppSettings;
   setKanbanProjectId: (projectId: string | null) => void;
+  setKanbanDoneCollapsed: (collapsed: boolean) => void;
   searchTerminalRequest: { terminalId: string; nonce: number } | null;
   restartTerminalRequest: { terminalId: string; nonce: number } | null;
   resizeSplit: (workspaceId: string, path: string, ratio: number) => void;
