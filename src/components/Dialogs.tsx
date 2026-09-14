@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { DialogState } from '../types';
 import { DialogFields, dialogSubmitLabel } from './DialogFields';
+import { AsyncButtonLabel } from './AsyncButtonLabel';
 
 export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   dialog: DialogState;
@@ -20,7 +21,8 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
     });
   }, [dialog.kind]);
 
-  const setupRunning = submitting && dialog.kind === 'workspace' && Boolean(dialog.setupCommand.trim());
+  const hasWorkspaceSetup = dialog.kind === 'workspace' && Boolean(dialog.setupCommand.trim());
+  const setupRunning = submitting && hasWorkspaceSetup;
 
   function cancel() {
     if (setupRunning) invoke('cancel_workspace_setup').catch(console.error);
@@ -70,8 +72,16 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
         </fieldset>
         {submitError && <div className="dialogSubmitError">{submitError}</div>}
         <div className="modalActions">
-          <button type="button" disabled={submitting && !setupRunning} onClick={cancel}>{setupRunning ? 'Cancel setup' : 'Cancel'}</button>
-          <button className="primaryAction" disabled={submitting} type="submit">{submitting && dialog.kind === 'workspace' && dialog.setupCommand.trim() ? 'Running setup…' : dialogSubmitLabel(dialog.kind)}</button>
+          <button type="button" disabled={submitting && !setupRunning} onClick={cancel}>
+            {hasWorkspaceSetup
+              ? <AsyncButtonLabel idle="Cancel" busy="Cancel setup" isBusy={setupRunning} />
+              : 'Cancel'}
+          </button>
+          <button className="primaryAction" disabled={submitting} type="submit">
+            {hasWorkspaceSetup
+              ? <AsyncButtonLabel idle={dialogSubmitLabel(dialog.kind)} busy="Running setup…" isBusy={setupRunning} />
+              : dialogSubmitLabel(dialog.kind)}
+          </button>
         </div>
       </form>
     </div>

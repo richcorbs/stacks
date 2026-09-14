@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Project } from '../types';
 import type { SuperthreadCard } from '../superthread/types';
 import type { KanbanWorkspace } from '../kanban/types';
+import { AsyncButtonLabel } from './AsyncButtonLabel';
 
 export function SuperthreadProjectDialog({ card, projects, onCancel, onStart }: {
   card: SuperthreadCard;
@@ -48,7 +49,9 @@ export function SuperthreadProjectDialog({ card, projects, onCancel, onStart }: 
         </label>
         <div className="modalActions">
           <button type="button" disabled={starting} onClick={onCancel}>Cancel</button>
-          <button className="primaryAction" type="submit" disabled={!projectId || starting}>{starting ? 'Starting…' : 'Start Work'}</button>
+          <button className="primaryAction" type="submit" disabled={!projectId || starting}>
+            <AsyncButtonLabel idle="Start Work" busy="Starting…" isBusy={starting} />
+          </button>
         </div>
       </form>
     </div>
