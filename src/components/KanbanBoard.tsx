@@ -16,6 +16,7 @@ import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
 import { runApproveAndCommit } from '../kanban/approveAndCommit';
+import { runWritePlanAndFinishRefinement } from '../kanban/writePlanAndFinishRefinement';
 import { sendPromptToPiAndWait } from '../pi/promptEvent';
 import { canEditKanbanCard, hasDirtyCardDraft } from '../kanban/cardEditing';
 import { GithubStatusIcon } from './GithubStatusIcon';
@@ -767,7 +768,13 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           await onOpenChat(projectId);
           setActiveView('chat'); return;
         case 'open_agent': setActiveView('chat'); return;
-        case 'finish_refinement': await onMove('ready'); return;
+        case 'write_plan_and_finish_refinement':
+          await runWritePlanAndFinishRefinement({
+            showAgent: () => setActiveView('chat'),
+            sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'planning'), prompt),
+            refresh: onReload,
+          });
+          return;
         case 'return_to_refinement': await onMove('needs_refinement'); setActiveView('chat'); return;
         case 'start_work': if (await onStartWork()) setActiveView('chat'); return;
         case 'request_changes':
@@ -998,7 +1005,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               {workflowActions.map((action) => <button
                 key={action.kind}
                 type="button"
-                className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}`}
+                className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}${action.kind === 'write_plan_and_finish_refinement' ? ' writePlanAction' : ''}`}
                 disabled={working || Boolean(action.disabledReason)}
                 title={action.disabledReason}
                 aria-label={action.label}

@@ -396,6 +396,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .cardFooterContext .cardFooterError { color: #e08b91; }
 .cardFooterActions { justify-content: flex-end; flex-wrap: wrap; }
 .cardFooterActions button { white-space: nowrap; }
+.cardFooterActions .writePlanAction { box-sizing: border-box; width: 208px; }
 .cardFooterActions .destructiveAction { border-color: #60383d; color: #d79298; }
 .cardWorkflowFooter.editing { grid-template-columns: 1fr; align-items: center; }
 .kanbanEditActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }

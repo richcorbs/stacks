@@ -1,6 +1,6 @@
 import type { KanbanCard } from './types';
 
-export type CardWorkflowActionKind = 'open_refinement' | 'finish_refinement' | 'start_work' | 'return_to_refinement' |
+export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'start_work' | 'return_to_refinement' |
   'open_agent' | 'approve_and_commit' | 'request_changes' | 'merge' | 'reopen' | 'cleanup' | 'delete' | 'set_merge_target';
 
 export type CardWorkflowAction = {
@@ -43,7 +43,7 @@ function baseCardWorkflowActions({ card, projectAvailable, runtimeActive = false
     case 'needs_refinement':
       return [
         { kind: 'open_refinement', label: 'Open refinement', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
-        { kind: 'finish_refinement', label: 'Finish refinement' },
+        { kind: 'write_plan_and_finish_refinement', label: 'Write plan & finish refinement', disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         ...(!environment && card.provider === 'local' ? [{ kind: 'delete' as const, label: 'Delete card', destructive: true, confirmation: { title: 'Delete card?', detail: 'This permanently deletes this local draft.' } }] : []),
       ];
     case 'ready': return [
