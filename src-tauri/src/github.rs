@@ -345,20 +345,29 @@ fn action_status(status: &str, conclusion: &str) -> GithubStatus {
     }
 }
 
-fn repository_name(path: &str) -> Result<String, String> {
-    let repository = run_gh(
-        Some(Path::new(path)),
-        &[
-            "repo",
-            "view",
-            "--json",
-            "nameWithOwner",
-            "--jq",
-            ".nameWithOwner",
-        ],
-    )?
-    .trim()
-    .to_string();
+pub(crate) fn repository_name(path: &str) -> Result<String, String> {
+    let remote = Command::new("git")
+        .args(["-C", path, "remote", "get-url", "origin"])
+        .output()
+        .map_err(|error| format!("Could not inspect the Git remote: {error}"))?;
+    if !remote.status.success() {
+        return Err("The project checkout has no usable origin remote".to_string());
+    }
+    let url = String::from_utf8_lossy(&remote.stdout)
+        .trim()
+        .trim_end_matches(".git")
+        .to_string();
+    let repository = if let Some(rest) = url.strip_prefix("git@github.com:") {
+        rest.to_string()
+    } else if let Some(rest) = url.strip_prefix("ssh://git@github.com/") {
+        rest.to_string()
+    } else if let Some(rest) = url.strip_prefix("https://github.com/") {
+        rest.to_string()
+    } else if let Some(rest) = url.strip_prefix("http://github.com/") {
+        rest.to_string()
+    } else {
+        return Err("The origin remote is not a GitHub repository".to_string());
+    };
     validate_repository(&repository)?;
     Ok(repository)
 }
@@ -381,7 +390,7 @@ fn validate_repository(repository: &str) -> Result<(), String> {
     }
 }
 
-fn run_gh(current_dir: Option<&Path>, args: &[&str]) -> Result<String, String> {
+pub(crate) fn run_gh(current_dir: Option<&Path>, args: &[&str]) -> Result<String, String> {
     let gh = find_gh()
         .ok_or_else(|| "GitHub CLI not found. Install and authenticate `gh`.".to_string())?;
     let mut command = Command::new(&gh);

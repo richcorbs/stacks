@@ -6,7 +6,7 @@ export const KANBAN_LANES: Array<{ status: KanbanStatus; label: string }> = [
   { status: 'agent_working', label: 'Agent working' },
   { status: 'needs_human', label: 'Needs you' },
   { status: 'approved', label: 'Ready to merge' },
-  { status: 'merged', label: 'Merged' },
+  { status: 'done', label: 'Done' },
 ];
 
 export const EXECUTION_SUPERTHREAD_LISTS = new Set(['doing', 'in review', 'qa']);
@@ -18,6 +18,10 @@ export function isManagedSuperthreadList(boardTitle: string, listTitle: string) 
   const list = listTitle.trim().toLocaleLowerCase();
   if (EXECUTION_SUPERTHREAD_LISTS.has(list)) return true;
   return board === 'dev - active' && DEV_ACTIVE_INTAKE_LISTS.has(list);
+}
+
+export function completionLabel(outcome: 'merged' | 'closed' | null) {
+  return outcome === 'merged' ? 'Done · Merged' : outcome === 'closed' ? 'Done · Closed' : 'Done';
 }
 
 export function adjacentKanbanStatus(status: KanbanStatus, offset: -1 | 1) {

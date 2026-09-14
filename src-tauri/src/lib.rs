@@ -33,10 +33,11 @@ use github::{
     github_pull_requests,
 };
 use kanban::{
-    kanban_approve_and_commit, kanban_cards, kanban_cleanup_environment, kanban_create_environment,
-    kanban_create_local_card, kanban_delete_card, kanban_environment_health,
-    kanban_environment_start_preflight, kanban_finish_local_refinement, kanban_merge_card,
-    kanban_open_card, kanban_reorder_cards, kanban_save_environment_layout,
+    kanban_approve_and_commit, kanban_cards, kanban_cleanup_environment, kanban_close_card,
+    kanban_create_environment, kanban_create_local_card, kanban_create_pull_request,
+    kanban_delete_card, kanban_environment_health, kanban_environment_start_preflight,
+    kanban_finish_local_refinement, kanban_merge_card, kanban_merge_pull_request, kanban_open_card,
+    kanban_refresh_pull_request, kanban_reorder_cards, kanban_save_environment_layout,
     kanban_set_merge_target, kanban_set_project, kanban_set_status, kanban_sync_superthread_cards,
     kanban_update_local_card,
 };
@@ -160,7 +161,11 @@ pub fn run() {
             kanban_environment_health,
             kanban_environment_start_preflight,
             kanban_cleanup_environment,
+            kanban_close_card,
             kanban_create_environment,
+            kanban_create_pull_request,
+            kanban_refresh_pull_request,
+            kanban_merge_pull_request,
             kanban_set_merge_target,
             kanban_approve_and_commit,
             kanban_merge_card,

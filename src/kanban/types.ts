@@ -4,7 +4,7 @@ export const KANBAN_STATUSES = [
   'agent_working',
   'needs_human',
   'approved',
-  'merged',
+  'done',
 ] as const;
 
 export type KanbanStatus = typeof KANBAN_STATUSES[number];
@@ -51,6 +51,20 @@ export type EnvironmentHealthIssue = {
   step: EnvironmentHealthStep;
 };
 
+export type CardPullRequest = {
+  repository: string;
+  number: number;
+  title: string;
+  url: string;
+  state: 'open' | 'closed' | 'merged';
+  draft: boolean;
+  ci_status: 'pending' | 'success' | 'failure' | 'no_ci' | 'unknown';
+  review_state: 'approved' | 'changes_requested' | 'pending' | 'unknown';
+  has_conflicts: boolean;
+  mergeable: boolean;
+  blockers: string[];
+};
+
 export type CardEnvironmentHealth = {
   card_id: string;
   issues: EnvironmentHealthIssue[];
@@ -82,6 +96,11 @@ export type KanbanCard = {
   card_url: string;
   assignee_names: string[];
   status: KanbanStatus;
+  completion_outcome?: 'merged' | 'closed' | null;
+  feature_environment?: boolean;
+  pull_request?: CardPullRequest | null;
+  delivery_operation_stage?: string | null;
+  delivery_error?: string | null;
   workflow_revision: number;
   project_id: string | null;
   environment: CardEnvironment | null;

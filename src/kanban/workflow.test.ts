@@ -20,7 +20,7 @@ describe('Kanban workflow', () => {
   it('moves through the local workflow in order', () => {
     expect(adjacentKanbanStatus('needs_refinement', 1)).toBe('ready');
     expect(adjacentKanbanStatus('needs_human', -1)).toBe('agent_working');
-    expect(adjacentKanbanStatus('merged', 1)).toBeNull();
+    expect(adjacentKanbanStatus('done', 1)).toBeNull();
   });
 
   it('reorders cards without changing their column membership', () => {

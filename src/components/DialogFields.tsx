@@ -38,6 +38,39 @@ export function DialogFields({ dialog, setDialog, firstInputRef, chooseEditWorks
           </select>
         </label>
         <label>
+          Delivery workflow
+          <select value={dialog.deliveryWorkflow ?? 'local_merge'} onChange={(e) => setDialog({ ...dialog, deliveryWorkflow: e.target.value as 'local_merge' | 'github_pull_request' })}>
+            <option value="local_merge">Local merge</option>
+            <option value="github_pull_request">GitHub pull request</option>
+          </select>
+        </label>
+        <label>
+          Target branch
+          <input value={dialog.targetBranch ?? 'main'} required onChange={(e) => setDialog({ ...dialog, targetBranch: e.target.value })} />
+        </label>
+        {(dialog.deliveryWorkflow ?? 'local_merge') === 'github_pull_request' && <>
+          <label className="checkboxLabel">
+            <input type="checkbox" checked={dialog.supportsFeatureEnvironments ?? false} onChange={(e) => setDialog({ ...dialog, supportsFeatureEnvironments: e.target.checked })} />
+            Supports feature environments
+          </label>
+          <label>
+            Merge strategy
+            <select value={dialog.githubMergeStrategy ?? 'merge'} onChange={(e) => setDialog({ ...dialog, githubMergeStrategy: e.target.value as 'merge' | 'squash' | 'rebase' })}>
+              <option value="merge">Merge commit</option>
+              <option value="squash">Squash</option>
+              <option value="rebase">Rebase</option>
+            </select>
+          </label>
+          <label className="checkboxLabel">
+            <input type="checkbox" checked={dialog.requirePassingCi ?? true} onChange={(e) => setDialog({ ...dialog, requirePassingCi: e.target.checked })} />
+            Require passing CI
+          </label>
+          <label className="checkboxLabel">
+            <input type="checkbox" checked={dialog.requireApproval ?? false} onChange={(e) => setDialog({ ...dialog, requireApproval: e.target.checked })} />
+            Require approval
+          </label>
+        </>}
+        <label>
           Start work command <span>(optional)</span>
           <input
             value={dialog.startWorkCommand ?? ''}

@@ -24,7 +24,7 @@ type SubmitWorkspaceDialogOptions = {
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   completeSplitTerminal: (workspaceId: string, focusedTerminalId: string, direction: 'row' | 'column', command: string | null, initialInput?: string, paneKind?: 'terminal' | 'pi') => Promise<void>;
   updateTerminalPane: (workspaceId: string, terminalId: string, paneKind: 'terminal' | 'pi', command: string | null) => Promise<void>;
-  addProject: (name: string, path: string, kanbanSource?: 'superthread' | 'local', startWorkCommand?: string, serverCommand?: string, consoleCommand?: string) => Promise<Project>;
+  addProject: (name: string, path: string, kanbanSource?: 'superthread' | 'local', startWorkCommand?: string, serverCommand?: string, consoleCommand?: string, deliveryWorkflow?: Project['delivery_workflow'], targetBranch?: string, supportsFeatureEnvironments?: boolean, githubMergeStrategy?: Project['github_merge_strategy'], requirePassingCi?: boolean, requireApproval?: boolean) => Promise<Project>;
   createWorkspace: CreateWorkspace;
 };
 
@@ -44,7 +44,9 @@ export async function submitWorkspaceDialog({
     const name = dialog.name.trim();
     const path = dialog.path.trim();
     if (!name || !path) return;
-    const project = await addProject(name, path, dialog.kanbanSource, dialog.startWorkCommand?.trim(), dialog.serverCommand?.trim(), dialog.consoleCommand?.trim());
+    const targetBranch = dialog.targetBranch?.trim();
+    if (!targetBranch) return;
+    const project = await addProject(name, path, dialog.kanbanSource, dialog.startWorkCommand?.trim(), dialog.serverCommand?.trim(), dialog.consoleCommand?.trim(), dialog.deliveryWorkflow, targetBranch, dialog.supportsFeatureEnvironments, dialog.githubMergeStrategy, dialog.requirePassingCi, dialog.requireApproval);
     if (dialog.openTerminalAfterCreate) {
       setDialog(null);
       window.setTimeout(() => {
@@ -74,6 +76,12 @@ export async function submitWorkspaceDialog({
       start_work_command: dialog.startWorkCommand?.trim() || undefined,
       server_command: dialog.serverCommand?.trim() || undefined,
       console_command: dialog.consoleCommand?.trim() || undefined,
+      delivery_workflow: dialog.deliveryWorkflow ?? 'local_merge',
+      target_branch: dialog.targetBranch?.trim() || 'main',
+      supports_feature_environments: dialog.supportsFeatureEnvironments ?? false,
+      github_merge_strategy: dialog.githubMergeStrategy ?? 'merge',
+      require_passing_ci: dialog.requirePassingCi ?? true,
+      require_approval: dialog.requireApproval ?? false,
     } : p) }));
     setDialog(null);
     return;
