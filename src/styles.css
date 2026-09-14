@@ -347,6 +347,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanLaneMenuPopover button:hover:not(:disabled) { background: #342329; }
 .kanbanLane > header p { margin: 4px 0 0; color: #5f7287; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .kanbanLaneCards { flex: 1; min-height: 0; padding: 8px; overflow-y: auto; }
+.kanbanCardWrapper { position: relative; }
 .kanbanCard { width: 100%; margin: 0 0 8px; padding: 10px; display: flex; flex-direction: column; gap: 7px; text-align: left; border: 1px solid #263647; border-radius: 8px; background: #151f2a; color: #bdc9d5; cursor: grab; touch-action: none; user-select: none; box-shadow: 0 3px 9px rgba(0, 0, 0, .12); }
 .kanbanCard.keyboardFocused { outline: 2px solid #4f83ad; outline-offset: 1px; border-color: #466b8d; }
 .kanbanCard:active { cursor: grabbing; }
@@ -357,10 +358,12 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanCard > strong { font-size: calc(12px + var(--ui-font-delta, 0px)); line-height: 1.35; font-weight: 580; }
 .kanbanCardMeta { display: flex; align-items: center; justify-content: space-between; gap: 7px; color: #73869a; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .kanbanCardIndicators { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; flex: 0 0 auto; }
+.kanbanCardWrapper.hasEnvironmentWarning .kanbanCardIndicators { padding-right: 22px; }
 .kanbanGitBadge, .kanbanPrBadge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border: 1px solid #304256; border-radius: 5px; background: #101923; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .kanbanPrBadge { color: #91aeca; }
 .kanbanPrBadge .githubCiIcon { width: 11px; height: 11px; font-size: 8px; }
-.kanbanEnvironmentBadge { color: #77b999; font-size: 8px; }
+.kanbanEnvironmentWarning { position: absolute; right: 9px; bottom: 16px; z-index: 1; width: 17px; height: 17px; padding: 0; display: inline-grid; place-items: center; border: 1px solid #8b4149; border-radius: 50%; background: #351b20; color: #f09aa2; cursor: pointer; font: 700 10px/1 ui-monospace, monospace; }
+.kanbanEnvironmentWarning:hover, .kanbanEnvironmentWarning:focus-visible { border-color: #c45d67; background: #482128; color: #ffc1c6; outline: 2px solid rgba(196, 93, 103, .25); outline-offset: 1px; }
 .kanbanLaneEmpty { padding: 14px 5px; text-align: center; color: #405266; font-size: calc(10px + var(--ui-font-delta, 0px)); border: 1px dashed #223243; border-radius: 7px; }
 .kanbanEmpty, .kanbanWelcome { display: grid; place-items: center; color: #708298; }
 .kanbanWelcome { position: absolute; inset: 72px 0 0; align-content: center; gap: 7px; pointer-events: none; }
@@ -406,6 +409,16 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanCardDescriptionEditor textarea:focus { border-color: #6396c1; box-shadow: 0 0 0 2px rgba(84, 139, 185, .16); }
 .kanbanEditError { flex: 0 0 auto; color: #e18d94; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanLocalDescription { white-space: pre-wrap; }
+.cardEnvironmentWarningPanel { margin: 0 0 20px; padding: 13px 14px; border: 1px solid #67373d; border-radius: 8px; background: #26171b; color: #dca2a7; }
+.cardEnvironmentWarningPanel > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cardEnvironmentWarningPanel strong { color: #f0b1b6; font-size: calc(12px + var(--ui-font-delta, 0px)); }
+.cardEnvironmentWarningPanel > div > span { color: #aa7379; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.cardEnvironmentWarningPanel ul { margin: 10px 0; padding: 0; display: grid; gap: 7px; list-style: none; }
+.cardEnvironmentWarningPanel li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cardEnvironmentWarningPanel li span { color: #d7b0b3; }
+.cardEnvironmentWarningPanel li small { flex: none; color: #b8787f; text-transform: capitalize; }
+.cardEnvironmentWarningPanel button { padding: 5px 9px; border: 1px solid #74444a; border-radius: 6px; background: #321c21; color: #efb0b5; cursor: pointer; }
+.cardEnvironmentWarningPanel button:disabled { cursor: default; opacity: .6; }
 .cardHistory { margin-top: 28px; padding-top: 16px; border-top: 1px solid #223142; }
 .cardHistory summary { cursor: pointer; color: #8fa4b8; font-weight: 650; }
 .cardHistory ol { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }

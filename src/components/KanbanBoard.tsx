@@ -7,7 +7,7 @@ import type { Project, SplitNode, TerminalEntry } from '../types';
 import { useKanbanBoard } from '../kanban/useKanbanBoard';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
-import type { CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
+import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
 import { approveAndCommitKanbanCard, mergeKanbanCard, saveKanbanEnvironmentLayout, setKanbanMergeTarget } from '../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
@@ -15,7 +15,7 @@ import { DiffOverlay } from './DiffOverlay';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
-import { hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
+import { environmentHealthTooltip, hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
 import { runApproveAndCommit } from '../kanban/approveAndCommit';
 import { runWritePlanAndFinishRefinement } from '../kanban/writePlanAndFinishRefinement';
 import { sendPromptToPiAndWait } from '../pi/promptEvent';
@@ -72,8 +72,9 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     ? card.provider === 'superthread'
     : card.project_id === selectedProject?.id && card.provider === 'local'),
   [board.cards, selectedProject?.id, selectedProjectIsSuperthread]);
-  const repositoryStatuses = useCardRepositoryStatus(visibleCards);
+  const { statuses: repositoryStatuses, recheckEnvironment } = useCardRepositoryStatus(visibleCards);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
+  const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
   const [keyboardFocusedCardId, setKeyboardFocusedCardId] = useState<string | null>(null);
@@ -189,7 +190,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     }
   }
 
-  async function openCard(card: KanbanCard) {
+  async function openCard(card: KanbanCard, initialView?: CardView) {
+    setSelectedCardInitialView(initialView);
     setSelectedCard(card);
     await board.interact(card.id);
     setSelectedCard(await board.loadDetails(card));
@@ -355,10 +357,12 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                 <div className="kanbanLaneCards">
                   {cards.map((card) => {
                     const repositoryStatus = repositoryStatuses[card.id];
-                    return <button
+                    const environmentHealth = repositoryStatus?.environmentHealth;
+                    const healthTooltip = environmentHealthTooltip(environmentHealth);
+                    return <div className={`kanbanCardWrapper${environmentHealth?.issues.length ? ' hasEnvironmentWarning' : ''}`} key={card.id}>
+                    <button
                       className={`kanbanCard${draggingId === card.id ? ' dragging' : ''}${dropBeforeId === card.id ? ' dropBefore' : ''}${keyboardFocusedCardId === card.id ? ' keyboardFocused' : ''}`}
                       type="button"
-                      key={card.id}
                       data-kanban-card-id={card.id}
                       onPointerDown={(event) => beginPointerDrag(event, card)}
                       onPointerMove={updatePointerDrag}
@@ -395,10 +399,20 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                               <GithubStatusIcon status={repositoryStatus.pullRequest.ci_status} context="CI" />
                             </span>
                           )}
-                          {card.environment && <span className="kanbanEnvironmentBadge" title="Card environment is ready">●</span>}
                         </span>
                       </span>
-                    </button>;
+                    </button>
+                    {environmentHealth && environmentHealth.issues.length > 0 && (
+                      <button
+                        className="kanbanEnvironmentWarning"
+                        type="button"
+                        title={healthTooltip}
+                        aria-label={`Environment warning: ${healthTooltip}`}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        onClick={() => openCard(card, 'overview')}
+                      ><span aria-hidden="true">!</span></button>
+                    )}
+                    </div>;
                   })}
                   {cards.length === 0 && <div className="kanbanLaneEmpty">Drop cards here</div>}
                 </div>
@@ -458,6 +472,9 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           terminalFontFamily={terminalFontFamily}
           terminalScrollback={terminalScrollback}
           copyOnSelect={copyOnSelect}
+          initialView={selectedCardInitialView}
+          environmentHealth={repositoryStatuses[selectedCard.id]?.environmentHealth}
+          onRecheckEnvironment={() => recheckEnvironment(selectedCard.id)}
           onClose={() => setSelectedCard(null)}
           onUpdate={(title, content) => board.update(selectedCard.id, title, content).then((updated) => {
             setSelectedCard(updated);
@@ -508,13 +525,16 @@ type CardView = 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console'
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
 
-function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onClose, onUpdate, onMove, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
+function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, onRecheckEnvironment, onClose, onUpdate, onMove, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
   card: KanbanCard;
   projects: Project[];
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
   copyOnSelect: boolean;
+  initialView?: CardView;
+  environmentHealth?: CardEnvironmentHealth;
+  onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
   onClose: () => void;
   onUpdate: (title: string, content: string) => Promise<KanbanCard>;
   onMove: (status: KanbanStatus) => Promise<unknown>;
@@ -529,8 +549,9 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const [working, setWorking] = useState(false);
   const [workflowOperation, setWorkflowOperation] = useState<CardWorkflowAction['kind'] | null>(null);
   const workflowRunningRef = useRef(false);
-  const [activeView, setActiveView] = useState<CardView>(() => card.status !== 'needs_refinement' && card.status !== 'ready' && card.project_id ? 'chat' : 'overview');
+  const [activeView, setActiveView] = useState<CardView>(() => initialView ?? (card.status !== 'needs_refinement' && card.status !== 'ready' && card.project_id ? 'chat' : 'overview'));
   const [actionError, setActionError] = useState<string | null>(null);
+  const [recheckingEnvironment, setRecheckingEnvironment] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(card.title);
   const [draftContent, setDraftContent] = useState(card.content);
@@ -627,6 +648,16 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
       setEditError(error instanceof Error ? error.message : String(error));
     } finally {
       setSavingEdit(false);
+    }
+  }
+
+  async function recheckEnvironmentHealth() {
+    if (recheckingEnvironment) return;
+    setRecheckingEnvironment(true);
+    try {
+      await onRecheckEnvironment();
+    } finally {
+      setRecheckingEnvironment(false);
     }
   }
 
@@ -956,6 +987,23 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           </button>
         </div>}
         <section className={`kanbanDetailContent cardView${activeView === 'overview' ? ' active' : ''}${editing ? ' editing' : ''}`}>
+          {environmentHealth && environmentHealth.issues.length > 0 && (
+            <aside className="cardEnvironmentWarningPanel" aria-labelledby="card-environment-warning-title">
+              <div>
+                <strong id="card-environment-warning-title">Environment needs attention</strong>
+                <span>{environmentHealth.issues.length === 1 ? '1 blocker detected' : `${environmentHealth.issues.length} blockers detected`}</span>
+              </div>
+              <ul>{environmentHealth.issues.map((issue) => (
+                <li key={`${issue.code}:${issue.step}`}>
+                  <span>{issue.message}</span>
+                  <small>Affects {issue.step}</small>
+                </li>
+              ))}</ul>
+              <button type="button" disabled={recheckingEnvironment} onClick={recheckEnvironmentHealth}>
+                <AsyncButtonLabel idle="Recheck" busy="Rechecking…" isBusy={recheckingEnvironment} />
+              </button>
+            </aside>
+          )}
           {editing ? (
             <div className="kanbanCardDescriptionEditor">
               <textarea aria-label="Card description" value={draftContent} onChange={(event) => { setDraftContent(event.target.value); setEditError(null); }} />
