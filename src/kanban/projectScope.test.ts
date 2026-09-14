@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../types';
 import type { KanbanCard } from './types';
-import { filterKanbanCards, mergeFilteredLaneOrder, owningProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from './projectScope';
+import { canManuallySyncSuperthread, filterKanbanCards, mergeFilteredLaneOrder, owningProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from './projectScope';
 
 const projects: Project[] = [project('one'), project('two')];
 
@@ -30,6 +30,37 @@ describe('cross-project Kanban scope', () => {
     const remote = { ...project('remote'), kanban_source: 'superthread' as const };
     expect(uniqueSuperthreadProject([...projects, remote]).project).toBe(remote);
     expect(uniqueSuperthreadProject([...projects, remote, { ...remote, id: 'other' }]).error).toMatch(/multiple/);
+  });
+});
+
+describe('manual Superthread sync visibility', () => {
+  const remote = { ...project('remote'), kanban_source: 'superthread' as const };
+
+  it('is available for all projects with one Superthread owner', () => {
+    const owner = uniqueSuperthreadProject([...projects, remote]).project;
+    expect(canManuallySyncSuperthread(true, owner, null)).toBe(true);
+  });
+
+  it('is available when the Superthread owner is selected', () => {
+    expect(canManuallySyncSuperthread(true, remote, remote.id)).toBe(true);
+  });
+
+  it('is hidden when a local project is selected', () => {
+    expect(canManuallySyncSuperthread(true, remote, projects[0].id)).toBe(false);
+  });
+
+  it('is hidden with no Superthread owner', () => {
+    expect(canManuallySyncSuperthread(true, uniqueSuperthreadProject(projects).project, null)).toBe(false);
+  });
+
+  it('is hidden with multiple Superthread owners', () => {
+    const otherRemote = { ...remote, id: 'other-remote' };
+    const owner = uniqueSuperthreadProject([...projects, remote, otherRemote]).project;
+    expect(canManuallySyncSuperthread(true, owner, null)).toBe(false);
+  });
+
+  it('is hidden when the integration is disabled', () => {
+    expect(canManuallySyncSuperthread(false, remote, null)).toBe(false);
   });
 });
 
