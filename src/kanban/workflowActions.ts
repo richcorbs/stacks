@@ -52,7 +52,7 @@ function baseCardWorkflowActions({ card, projectAvailable }: CardWorkflowContext
     case 'agent_working': return [];
     case 'needs_human': return [
       { kind: 'request_changes', label: 'Request changes' },
-      { kind: 'approve_and_commit', label: 'Approve and commit', primary: true },
+      { kind: 'approve_and_commit', label: 'Approve & commit', primary: true },
     ];
     case 'approved': return environment?.target_branch ? [
       { kind: 'request_changes', label: 'Request changes' },

@@ -26,7 +26,7 @@ describe('merge and reopen actions', () => {
     expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('needs_human'), projectAvailable: true, activeTab }).map((action) => action.kind)))
       .toEqual(tabs.map(() => ['request_changes', 'approve_and_commit']));
     expect(tabs.map((activeTab) => deriveCardWorkflowActions({ card: card('needs_human'), projectAvailable: true, activeTab })[1].label))
-      .toEqual(tabs.map(() => 'Approve and commit'));
+      .toEqual(tabs.map(() => 'Approve & commit'));
   });
   it('hides Open refinement on the Agent tab only', () => {
     const tabs = ['overview', 'chat', 'diff', 'terminal', 'server', 'console'] as const;
