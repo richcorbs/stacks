@@ -423,6 +423,34 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_store_saves_preserve_project_direct_work_state() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        write_store(&mut connection, &sample_store()).unwrap();
+        crate::project_direct::migrate(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO project_direct_work (project_id, revision, split_layout, focused_pane_id, created_at, updated_at) VALUES ('p1', 3, '{\"kind\":\"leaf\",\"terminalId\":\"project-direct:p1:terminal:shell\"}', 'project-direct:p1:terminal:shell', 1, 2)",
+            [],
+        ).unwrap();
+
+        let mut updated = sample_store();
+        updated.projects[0].name = "Renamed".into();
+        write_store(&mut connection, &updated).unwrap();
+
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT revision FROM project_direct_work WHERE project_id='p1'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            3
+        );
+    }
+
+    #[test]
     fn round_trips_projects_through_sqlite() {
         let mut connection = Connection::open_in_memory().unwrap();
         kanban::migrate(&connection).unwrap();

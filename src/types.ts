@@ -93,6 +93,9 @@ export type TerminalSession = {
   starting: boolean;
   running: boolean;
   startupError: string | null;
+  startupCwd?: string;
+  startupCommand?: string | null;
+  startupConfiguredCommand?: string | null;
   lastPtySize: TermSize | null;
   dataDisposable: { dispose: () => void };
   selectionDisposable: { dispose: () => void };

@@ -26,6 +26,7 @@ import type { KanbanCard } from '../kanban/types';
 import type { GitInfo } from '../types';
 import { developerServicesShortcutState, type DeveloperServicesTab } from '../developerServices';
 import { updateProjectNotes } from '../projectNotes';
+import { OPEN_DIRECT_WORK_EVENT } from '../directWork';
 
 const encoder = new TextEncoder();
 
@@ -530,6 +531,7 @@ export function useAppRootModel() {
     openDirectoryInEditor,
     openOneTimeCommand: () => setOneTimeCommandOpen(true),
     openNewCard: (project) => window.dispatchEvent(new CustomEvent('stacks:new-card', { detail: { projectId: project.id } })),
+    openDirectProjectWork: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project.id } })),
     openAddCmdPCommand: () => setAddCmdPCommandOpen(true),
     openEditCmdPCommand: setEditingCmdPCommand,
     openDeleteCmdPCommand: setDeletingCmdPCommand,

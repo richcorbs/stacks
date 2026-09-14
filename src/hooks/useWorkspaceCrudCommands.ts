@@ -123,9 +123,11 @@ export function useWorkspaceCrudCommands({
     const panes = project.workspaces.flatMap(panesForWorkspace);
     disposeTerminalSessions(panes.filter((pane) => pane.kind !== 'pi').map((pane) => pane.id));
     try {
+      const directPaneIds = await invoke<string[]>('project_direct_delete', { projectId });
+      disposeTerminalSessions(directPaneIds);
       await Promise.all(panes.filter((pane) => pane.kind === 'pi').map((pane) => invoke('delete_pi_session', { paneId: pane.id })));
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete Pi session: ${String(error)}` } }));
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete project processes: ${String(error)}` } }));
       return;
     }
     panes.filter((pane) => pane.kind !== 'pi').forEach((pane) => invoke('kill_pty', { terminalId: pane.id }).catch(() => {}));

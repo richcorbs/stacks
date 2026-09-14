@@ -41,6 +41,7 @@ export type CommandPaletteItemOptions = {
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
   onNewCard: (project: Project) => void;
+  onDirectProjectWork: (project: Project) => void;
   customCmdPCommands: CustomCmdPCommand[];
   onAddCmdPCommand: () => void;
   onEditCmdPCommand: (command: CustomCmdPCommand) => void;
@@ -62,6 +63,7 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
   const activePaneKind = activePanes.find((pane) => pane.id === activeTerminalId)?.kind ?? 'terminal';
   return [
     ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount, activePaneKind }),
+    ...directWorkItems(selectedKanbanProject, options.onDirectProjectWork),
     ...newCardItems(selectedKanbanProject, options.onNewCard),
     ...customCommandItems(customCmdPCommands, onSplitTerminalWithCommand),
     ...customCommandEditItems(customCmdPCommands, onEditCmdPCommand),
@@ -73,6 +75,17 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
     ...projectItems(store.projects, onNewWorkspace),
     ...terminalItems(activeWorkspaceId, activeTerminalId, terminalsByWorkspaceId, onCycleTerminal),
   ];
+}
+
+function directWorkItems(project: Project | null, onOpen: (project: Project) => void): PaletteItem[] {
+  if (!project) return [];
+  return [{
+    id: 'direct-project-work',
+    title: 'Direct project work',
+    subtitle: `Work in ${project.name}`,
+    keywords: 'direct project primary checkout agent terminal diff',
+    action: () => onOpen(project),
+  }];
 }
 
 function newCardItems(project: Project | null, onNewCard: (project: Project) => void): PaletteItem[] {

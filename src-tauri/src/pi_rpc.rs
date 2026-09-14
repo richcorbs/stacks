@@ -89,6 +89,14 @@ pub fn start_pi_session(
             );
         }
     }
+    if let Some(owner_project_id) = crate::project_direct::project_direct_owner(&pane_id) {
+        if owner_project_id != project.id {
+            return Err(
+                "The Direct project work Pi session does not belong to the supplied Stacks project"
+                    .to_string(),
+            );
+        }
+    }
     let trusted_projects = read_trusted_projects()?;
     let approve_project = is_project_trusted(&trusted_projects, &cwd, project_path.as_deref());
 
@@ -359,14 +367,21 @@ pub fn delete_pi_session(
     registry: State<'_, Mutex<PiRpcRegistry>>,
     pane_id: String,
 ) -> Result<(), String> {
+    delete_pi_session_impl(registry.inner(), &pane_id)
+}
+
+pub(crate) fn delete_pi_session_impl(
+    registry: &Mutex<PiRpcRegistry>,
+    pane_id: &str,
+) -> Result<(), String> {
     let handle = {
         let mut guard = registry
             .lock()
             .map_err(|_| "Pi session registry lock poisoned".to_string())?;
-        if guard.starting.contains(&pane_id) {
-            guard.cancelled.insert(pane_id.clone());
+        if guard.starting.contains(pane_id) {
+            guard.cancelled.insert(pane_id.to_string());
         }
-        guard.sessions.remove(&pane_id)
+        guard.sessions.remove(pane_id)
     };
     if let Some(handle) = handle {
         handle.stop();
@@ -379,9 +394,9 @@ pub fn delete_pi_session(
             .lock()
             .map_err(|_| "Pi session registry lock poisoned".to_string())?
             .starting
-            .contains(&pane_id);
+            .contains(pane_id);
         if !starting {
-            let directory = session_dir(&pane_id)?;
+            let directory = session_dir(pane_id)?;
             if directory.exists() {
                 std::fs::remove_dir_all(directory).map_err(|error| error.to_string())?;
             }

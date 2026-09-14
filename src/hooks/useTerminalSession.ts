@@ -58,6 +58,13 @@ export function useTerminalSession({
     const host = hostRef.current!;
     let cancelled = false;
     let session = getTerminalSession(terminal.id);
+    const desiredCwd = terminal.cwd || workspace.cwd || project.path;
+
+    if (session?.startupCwd && (session.startupCwd !== desiredCwd || session.startupConfiguredCommand !== (persistedStartupCommand || null))) {
+      disposeTerminalSession(terminal.id);
+      invoke('kill_pty', { terminalId: terminal.id, expectedCwd: session.startupCwd }).catch(() => {});
+      session = undefined;
+    }
 
     if (session && !session.spawned && !session.starting) {
       disposeTerminalSession(terminal.id);
@@ -83,6 +90,9 @@ export function useTerminalSession({
       const generation = `${terminal.id}:${Date.now()}:${Math.random()}`;
       session.starting = true;
       session.startupError = null;
+      session.startupCwd = desiredCwd;
+      session.startupCommand = startupCommand || null;
+      session.startupConfiguredCommand = persistedStartupCommand || null;
       const listenersReady = attachTerminalPtyListeners({ session, terminalId: terminal.id, workspaceId: workspace.id, generation });
       requestAnimationFrame(() => {
         listenersReady
@@ -92,7 +102,7 @@ export function useTerminalSession({
             fit,
             terminalId: terminal.id,
             generation,
-            cwd: terminal.cwd || workspace.cwd || project.path,
+            cwd: desiredCwd,
             command: startupCommand || null,
             active,
             isCancelled: () => cancelled,

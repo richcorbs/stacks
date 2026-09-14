@@ -31,6 +31,8 @@ import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
 import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
+import { DirectProjectWork } from './DirectProjectWork';
+import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from '../directWork';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -74,6 +76,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   [board.cards, selectedProject?.id, selectedProjectIsSuperthread]);
   const repositoryStatuses = useCardRepositoryStatus(visibleCards);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
+  const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
   const [keyboardFocusedCardId, setKeyboardFocusedCardId] = useState<string | null>(null);
@@ -101,6 +104,18 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     window.addEventListener('stacks:new-card', openNewCard);
     return () => window.removeEventListener('stacks:new-card', openNewCard);
   }, [selectedProject]);
+
+  useEffect(() => {
+    const openDirectWork = (event: Event) => {
+      const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
+      const project = projects.find((candidate) => candidate.id === projectId);
+      if (!project) return;
+      onSelectProject(project.id);
+      setDirectWorkProjectId(project.id);
+    };
+    window.addEventListener(OPEN_DIRECT_WORK_EVENT, openDirectWork);
+    return () => window.removeEventListener(OPEN_DIRECT_WORK_EVENT, openDirectWork);
+  }, [onSelectProject, projects]);
 
   useEffect(() => {
     const handleOpenProjectSwitcher = () => {
@@ -313,6 +328,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
         </button>
         <div className="kanbanHeaderActions">
           {!selectedProjectIsSuperthread && selectedProject && <button className="primaryAction" type="button" onClick={() => { setNewCardError(null); setNewCardOpen(true); }}>+ Add card</button>}
+          {selectedProject && <button type="button" onClick={() => setDirectWorkProjectId(selectedProject.id)}>Direct project work</button>}
           {selectedProjectIsSuperthread && <button type="button" disabled={board.syncing || !superthreadEnabled} onClick={() => board.sync(true)}>
             <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
           </button>}
@@ -449,6 +465,16 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             </div>
           </form>
         </div>
+      )}
+      {directWorkProjectId && projects.find((project) => project.id === directWorkProjectId) && (
+        <DirectProjectWork
+          project={projects.find((project) => project.id === directWorkProjectId)!}
+          terminalFontSize={terminalFontSize}
+          terminalFontFamily={terminalFontFamily}
+          terminalScrollback={terminalScrollback}
+          copyOnSelect={copyOnSelect}
+          onClose={() => setDirectWorkProjectId(null)}
+        />
       )}
       {selectedCard && (
         <KanbanCardDetail
@@ -1194,15 +1220,15 @@ function isEditableElement(target: EventTarget | null) {
 }
 
 function cardWorkspaceId(cardId: string) {
-  return `kanban-card:${cardId}`;
+  return workOwnerId({ kind: 'card', cardId });
 }
 
 function cardPaneId(cardId: string, thread: CardChatThread) {
-  return `${cardWorkspaceId(cardId)}:${thread}`;
+  return workAgentId({ kind: 'card', cardId }, thread);
 }
 
 function cardTerminalId(cardId: string, mode: string) {
-  return `${cardWorkspaceId(cardId)}:terminal:${mode}`;
+  return workTerminalId({ kind: 'card', cardId }, mode);
 }
 
 function cardChatPrompt(card: KanbanCard, thread: CardChatThread) {
