@@ -96,6 +96,7 @@ export type AppSettings = {
   superthread_enabled?: boolean | null;
   github_poll_interval_seconds?: number | null;
   kanban_project_id?: string | null;
+  kanban_done_collapsed?: boolean | null;
   active_project_id?: string | null;
   active_workspace_id?: string | null;
   focused_terminal_by_workspace_id?: Record<string, string> | null;

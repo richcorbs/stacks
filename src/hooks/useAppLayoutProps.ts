@@ -165,6 +165,7 @@ export function useAppLayoutProps(options: UseAppLayoutPropsOptions): {
       broadcastWorkspaceIds: options.broadcastWorkspaceIds,
       appSettings: options.appSettings,
       setKanbanProjectId: (projectId) => options.setAppSettings((current) => ({ ...current, kanban_project_id: projectId })),
+      setKanbanDoneCollapsed: (collapsed) => options.setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })),
       searchTerminalRequest: options.searchTerminalRequest,
       restartTerminalRequest: options.restartTerminalRequest,
       resizeSplit: options.resizeSplit,

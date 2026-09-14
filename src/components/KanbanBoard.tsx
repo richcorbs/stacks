@@ -34,17 +34,20 @@ import { CardWorkflowControls } from './CardWorkflowControls';
 import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
 import { DirectProjectWork } from './DirectProjectWork';
 import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from '../directWork';
+import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
 
-export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, projects, selectedProjectId, onSelectProject, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: {
+export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, projects, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: {
   spaces: string;
   workspaceSlug: string;
   superthreadEnabled: boolean;
   projects: Project[];
   selectedProjectId: string | null;
   onSelectProject: (projectId: string) => void;
+  doneCollapsed: boolean;
+  onDoneCollapsedChange: (collapsed: boolean) => void;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -82,6 +85,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
   const [keyboardFocusedCardId, setKeyboardFocusedCardId] = useState<string | null>(null);
+  const doneToggleRef = useRef<HTMLButtonElement | null>(null);
+  const keyboardCards = useMemo(() => keyboardNavigableCards(visibleCards, doneCollapsed), [doneCollapsed, visibleCards]);
   const pointerDragRef = useRef<{ cardId: string; status: KanbanStatus; startX: number; startY: number; clientX: number; clientY: number; dragging: boolean } | null>(null);
   const dragScrollFrameRef = useRef<number | null>(null);
   const suppressCardClickRef = useRef(false);
@@ -142,18 +147,26 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   }, [draggingId, newCardOpen, openLaneMenu, projectSwitcherOpen, selectedCard]);
 
   useEffect(() => {
+    if (!doneCollapsed) return;
+    setOpenLaneMenu((current) => current === 'done' ? null : current);
+    setKeyboardFocusedCardId((currentId) => (
+      visibleCards.some((card) => card.id === currentId && card.status === 'done') ? null : currentId
+    ));
+  }, [doneCollapsed, visibleCards]);
+
+  useEffect(() => {
     const handleBoardNavigation = (event: KeyboardEvent) => {
       if (selectedCard || event.metaKey || event.ctrlKey || event.altKey || isEditableElement(event.target)) return;
       const key = event.key.toLocaleLowerCase();
       if (!['h', 'j', 'k', 'l', 'enter'].includes(key)) return;
       if (key === 'enter') {
-        const card = visibleCards.find((candidate) => candidate.id === keyboardFocusedCardId);
+        const card = keyboardCards.find((candidate) => candidate.id === keyboardFocusedCardId);
         if (!card) return;
         event.preventDefault();
         openCard(card);
         return;
       }
-      const nextCard = adjacentBoardCard(visibleCards, keyboardFocusedCardId, key as 'h' | 'j' | 'k' | 'l');
+      const nextCard = adjacentBoardCard(keyboardCards, keyboardFocusedCardId, key as 'h' | 'j' | 'k' | 'l');
       if (!nextCard) return;
       event.preventDefault();
       setKeyboardFocusedCardId(nextCard.id);
@@ -166,7 +179,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     };
     window.addEventListener('keydown', handleBoardNavigation);
     return () => window.removeEventListener('keydown', handleBoardNavigation);
-  }, [visibleCards, keyboardFocusedCardId, selectedCard]);
+  }, [keyboardCards, keyboardFocusedCardId, selectedCard]);
 
   useEffect(() => {
     if (!selectedCard) return;
@@ -224,6 +237,18 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     setSelectedCard(card);
     await board.interact(card.id);
     setSelectedCard(await board.loadDetails(card));
+  }
+
+  function toggleDoneCollapsed() {
+    const collapsed = !doneCollapsed;
+    if (collapsed) {
+      setOpenLaneMenu(null);
+      setKeyboardFocusedCardId((currentId) => (
+        visibleCards.some((card) => card.id === currentId && card.status === 'done') ? null : currentId
+      ));
+    }
+    onDoneCollapsedChange(collapsed);
+    requestAnimationFrame(() => doneToggleRef.current?.focus());
   }
 
   async function cleanupMergedCards() {
@@ -360,31 +385,43 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             const cards = visibleCards.filter((card) => card.status === lane.status);
             return (
               <section
-                className="kanbanLane"
+                className={`kanbanLane${lane.status === 'done' && doneCollapsed ? ' collapsed' : ''}`}
                 key={lane.status}
                 data-kanban-lane-status={lane.status}
               >
-                <header>
-                  <div>
-                    <strong>{lane.label}</strong>
-                    <span className="kanbanLaneHeaderActions">
-                      <span>{cards.length}</span>
-                      {lane.status === 'done' && (
-                        <span className="kanbanLaneMenu">
-                          <button type="button" aria-label="Done card actions" disabled={cleaningMerged} onClick={() => setOpenLaneMenu((current) => current === 'done' ? null : 'done')}>•••</button>
-                          {openLaneMenu === 'done' && (
-                            <span className="kanbanLaneMenuPopover">
-                              <button type="button" disabled={cards.length === 0 || cleaningMerged} onClick={() => cleanupMergedCards()}>
-                                <AsyncButtonLabel idle="Clean up all" busy="Cleaning up…" isBusy={cleaningMerged} />
-                              </button>
+                {lane.status === 'done' && doneCollapsed ? (
+                  <header className="kanbanLaneCollapsedHeader">
+                    <button ref={doneToggleRef} className="kanbanDoneToggle" type="button" aria-label="Expand Done column" aria-expanded={false} onClick={toggleDoneCollapsed}>
+                      <span className="kanbanDoneToggleIcon expand" aria-hidden="true" />
+                    </button>
+                  </header>
+                ) : (<>
+                  <header>
+                    <div>
+                      <strong>{lane.label}</strong>
+                      <span className="kanbanLaneHeaderActions">
+                        <span>{cards.length}</span>
+                        {lane.status === 'done' && (
+                          <>
+                            <span className="kanbanLaneMenu">
+                              <button type="button" aria-label="Done card actions" disabled={cleaningMerged} onClick={() => setOpenLaneMenu((current) => current === 'done' ? null : 'done')}>•••</button>
+                              {openLaneMenu === 'done' && (
+                                <span className="kanbanLaneMenuPopover">
+                                  <button type="button" disabled={cards.length === 0 || cleaningMerged} onClick={() => cleanupMergedCards()}>
+                                    <AsyncButtonLabel idle="Clean up all" busy="Cleaning up…" isBusy={cleaningMerged} />
+                                  </button>
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </header>
-                <div className="kanbanLaneCards">
+                            <button ref={doneToggleRef} className="kanbanDoneToggle" type="button" aria-label="Collapse Done column" aria-expanded={true} onClick={toggleDoneCollapsed}>
+                              <span className="kanbanDoneToggleIcon collapse" aria-hidden="true" />
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  </header>
+                  <div className="kanbanLaneCards">
                   {cards.map((card) => {
                     const repositoryStatus = repositoryStatuses[card.id];
                     const environmentHealth = repositoryStatus?.environmentHealth;
@@ -446,8 +483,9 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                     )}
                     </div>;
                   })}
-                  {cards.length === 0 && <div className="kanbanLaneEmpty">Drop cards here</div>}
-                </div>
+                    {cards.length === 0 && <div className="kanbanLaneEmpty">Drop cards here</div>}
+                  </div>
+                </>)}
               </section>
             );
           })}
@@ -1264,24 +1302,6 @@ function clearWrappedPrompt(term: import('@xterm/xterm').Terminal) {
   const rowsAboveCursor = cursorLine - promptStart;
   if (rowsAboveCursor === 0) return '\r\x1b[2K';
   return `\r\x1b[2K${'\x1b[1A\x1b[2K'.repeat(rowsAboveCursor)}\x1b[${rowsAboveCursor}B\r`;
-}
-
-function adjacentBoardCard(cards: KanbanCard[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l') {
-  const lanes = KANBAN_LANES.map((lane) => cards.filter((card) => card.status === lane.status));
-  const first = lanes.find((lane) => lane.length > 0)?.[0] ?? null;
-  const current = cards.find((card) => card.id === currentId);
-  if (!current) return first;
-  const laneIndex = KANBAN_LANES.findIndex((lane) => lane.status === current.status);
-  const rowIndex = lanes[laneIndex]?.findIndex((card) => card.id === current.id) ?? 0;
-  if (direction === 'j' || direction === 'k') {
-    const lane = lanes[laneIndex] ?? [];
-    return lane[Math.max(0, Math.min(lane.length - 1, rowIndex + (direction === 'j' ? 1 : -1)))] ?? current;
-  }
-  const step = direction === 'l' ? 1 : -1;
-  for (let index = laneIndex + step; index >= 0 && index < lanes.length; index += step) {
-    if (lanes[index].length > 0) return lanes[index][Math.min(rowIndex, lanes[index].length - 1)];
-  }
-  return current;
 }
 
 function isEditableElement(target: EventTarget | null) {

@@ -19,6 +19,14 @@ describe('settingsModel', () => {
     expect(toPersistedAppSettings(settings).kanban_project_id).toBe('project-1');
   });
 
+  it('defaults Done to collapsed and preserves the latest explicit choice', () => {
+    expect(resolveAppSettings({}).kanban_done_collapsed).toBe(true);
+
+    const expanded = resolveAppSettings({ kanban_done_collapsed: false });
+    expect(expanded.kanban_done_collapsed).toBe(false);
+    expect(toPersistedAppSettings(expanded).kanban_done_collapsed).toBe(false);
+  });
+
   it('clamps the GitHub polling interval', () => {
     expect(resolveAppSettings({ github_poll_interval_seconds: 1 }).github_poll_interval_seconds).toBe(10);
     expect(resolveAppSettings({ github_poll_interval_seconds: 9000 }).github_poll_interval_seconds).toBe(3600);
