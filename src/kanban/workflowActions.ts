@@ -4,11 +4,14 @@ import type { KanbanCard } from './types';
 export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'start_work' | 'return_to_refinement' |
   'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'close' | 'delete';
 
+export type CardWorkflowActionAppearance = 'regular' | 'neutral-ghost' | 'danger-ghost';
+
 export type CardWorkflowAction = {
   kind: CardWorkflowActionKind;
   label: string;
   primary?: boolean;
   destructive?: boolean;
+  appearance?: CardWorkflowActionAppearance;
   confirmation?: { title: string; detail: string };
   disabledReason?: string;
   loading?: boolean;
@@ -40,13 +43,13 @@ export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWor
 
 function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkflowContext): CardWorkflowAction[] {
   const environment = card.environment;
-  const close: CardWorkflowAction = { kind: 'close', label: 'Close card', destructive: true, confirmation: { title: 'Close card?', detail: 'Moves this card to Done · Closed and stops its processes. The worktree, branch, and changes are preserved.' } };
+  const close: CardWorkflowAction = { kind: 'close', label: 'Close card', destructive: true, appearance: 'neutral-ghost', confirmation: { title: 'Close card?', detail: 'Moves this card to Done · Closed and stops its processes. The worktree, branch, and changes are preserved.' } };
   const actions: CardWorkflowAction[] = (() => {
     switch (card.status) {
       case 'needs_refinement': return [
         { kind: 'open_refinement', label: 'Open refinement', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         { kind: 'write_plan_and_finish_refinement', label: 'Write plan & finish refinement', disabledReason: projectAvailable ? undefined : 'Assign a project first' },
-        ...(!environment && card.provider === 'local' ? [{ kind: 'delete' as const, label: 'Delete card', destructive: true, confirmation: { title: 'Delete card?', detail: 'This permanently deletes this local draft.' } }] : []),
+        ...(!environment && card.provider === 'local' ? [{ kind: 'delete' as const, label: 'Delete card', destructive: true, appearance: 'danger-ghost' as const, confirmation: { title: 'Delete card?', detail: 'This permanently deletes this local draft.' } }] : []),
       ];
       case 'ready': return [
         { kind: 'return_to_refinement', label: 'Return to refinement' },
@@ -79,7 +82,7 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
         ];
       }
       case 'done': return environment ? [
-        { kind: 'cleanup', label: 'Clean up', destructive: true, confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
+        { kind: 'cleanup', label: 'Clean up', destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
       ] : [];
     }
   })();

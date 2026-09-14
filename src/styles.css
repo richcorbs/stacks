@@ -437,7 +437,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .cardFooterContext .cardFooterError { color: #e08b91; }
 .cardFooterActions { justify-content: flex-end; flex-wrap: wrap; }
 .cardFooterActions button { white-space: nowrap; }
-.cardFooterActions .destructiveAction { border-color: #60383d; color: #d79298; }
+.cardFooterActions button.workflowActionNeutralGhost,
+.cardFooterActions button.workflowActionDangerGhost { padding: 8px 11px; border: 0; background: transparent; }
+.cardFooterActions button.workflowActionNeutralGhost { color: #93a4b7; }
+.cardFooterActions button.workflowActionDangerGhost { color: #d79298; }
+.cardFooterActions button.workflowActionNeutralGhost:hover:not(:disabled),
+.cardFooterActions button.workflowActionNeutralGhost:focus-visible { outline: 2px solid rgba(147, 164, 183, .25); outline-offset: 1px; background: transparent; color: #c4d0dc; }
+.cardFooterActions button.workflowActionDangerGhost:hover:not(:disabled),
+.cardFooterActions button.workflowActionDangerGhost:focus-visible { outline: 2px solid rgba(215, 146, 152, .25); outline-offset: 1px; background: transparent; color: #f0aab0; }
 .cardWorkflowFooter.editing { grid-template-columns: 1fr; align-items: center; }
 .kanbanEditActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .superthreadSelectedProject { color: #8295a8; font-size: calc(11px + var(--ui-font-delta, 0px)); font-weight: 650; }

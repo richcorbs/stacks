@@ -1,4 +1,10 @@
-import type { CardWorkflowAction } from '../kanban/workflowActions';
+import type { CardWorkflowAction, CardWorkflowActionAppearance } from '../kanban/workflowActions';
+
+const appearanceClasses: Record<CardWorkflowActionAppearance, string> = {
+  regular: 'workflowActionRegular',
+  'neutral-ghost': 'workflowActionNeutralGhost',
+  'danger-ghost': 'workflowActionDangerGhost',
+};
 
 export function CardWorkflowControls({ actions, working, actionError, mergedWithoutEnvironment, onAction }: {
   actions: CardWorkflowAction[];
@@ -17,7 +23,7 @@ export function CardWorkflowControls({ actions, working, actionError, mergedWith
       {actions.map((action) => <button
         key={action.kind}
         type="button"
-        className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}`}
+        className={[action.primary && 'primaryAction', action.appearance && appearanceClasses[action.appearance]].filter(Boolean).join(' ')}
         disabled={working || Boolean(action.disabledReason)}
         title={action.disabledReason}
         aria-label={action.label}

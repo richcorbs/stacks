@@ -11,11 +11,25 @@ const prProject = { ...localProject, delivery_workflow: 'github_pull_request', s
 const kinds = (status: KanbanStatus, project: Project = localProject) => deriveCardWorkflowActions({ card: card(status), project, projectAvailable: true }).map((action) => action.kind);
 
 describe('delivery workflow actions', () => {
-  it('offers Close card on every active status', () => {
+  it('offers Close card last on every active status and alone while the agent is working', () => {
     for (const status of ['needs_refinement', 'ready', 'agent_working', 'needs_human', 'approved'] as KanbanStatus[]) {
-      expect(kinds(status)).toContain('close');
+      const actionKinds = kinds(status);
+      expect(actionKinds.at(-1)).toBe('close');
     }
+    expect(kinds('agent_working')).toEqual(['close']);
     expect(kinds('done')).not.toContain('close');
+  });
+
+  it('assigns appearance independently from destructive confirmation semantics', () => {
+    const draftActions = deriveCardWorkflowActions({ card: card('needs_refinement'), project: localProject, projectAvailable: true });
+    const close = draftActions.find((action) => action.kind === 'close');
+    const deleteAction = draftActions.find((action) => action.kind === 'delete');
+    const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
+    const cleanup = deriveCardWorkflowActions({ card: card('done', environment), project: localProject, projectAvailable: true })[0];
+
+    expect(close).toMatchObject({ destructive: true, appearance: 'neutral-ghost', confirmation: { title: 'Close card?' } });
+    expect(deleteAction).toMatchObject({ destructive: true, appearance: 'danger-ghost', confirmation: { title: 'Delete card?' } });
+    expect(cleanup).toMatchObject({ destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?' } });
   });
 
   it('uses Ship It and conditionally offers feature environment delivery', () => {
