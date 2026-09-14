@@ -57,14 +57,6 @@ pub struct CardPane {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CardServiceDefinition {
-    id: String,
-    name: String,
-    command: String,
-    sort_order: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CardEnvironment {
     id: String,
     card_id: String,
@@ -81,7 +73,6 @@ pub struct CardEnvironment {
     split_layout: serde_json::Value,
     focused_pane_id: Option<String>,
     panes: Vec<CardPane>,
-    services: Vec<CardServiceDefinition>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -167,7 +158,10 @@ impl KanbanCard {
 
 #[tauri::command]
 pub fn kanban_cards() -> Result<Vec<KanbanCard>, String> {
-    with_connection(list_cards)
+    with_connection(|connection| {
+        reconcile_card_ownership(connection)?;
+        list_cards(connection)
+    })
 }
 
 #[tauri::command]
@@ -229,8 +223,8 @@ fn create_local_card(
     let id = format!("local:{}", uuid::Uuid::new_v4());
     let now = unix_timestamp();
     let sort_order: i64 = transaction.query_row(
-        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards WHERE status = 'needs_refinement' AND project_id = ?1",
-        [project_id], |row| row.get(0),
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards WHERE status = 'needs_refinement'",
+        [], |row| row.get(0),
     ).map_err(db_error)?;
     transaction.execute(
         "INSERT INTO kanban_cards
@@ -357,6 +351,97 @@ pub(crate) struct CardPiSession {
     pub directory: std::path::PathBuf,
 }
 
+pub(crate) fn validate_card_pi_start(
+    card_id: &str,
+    thread: &str,
+    cwd: &str,
+    supplied_project_id: &str,
+) -> Result<(), String> {
+    with_connection(|connection| {
+        crate::store::migrate_store_schema(connection)?;
+        let (project_id, provider, project_path): (String, String, String) = connection.query_row(
+            "SELECT c.project_id, c.external_provider, p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
+            [card_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).optional().map_err(db_error)?.ok_or_else(|| "The card-scoped Pi session has invalid project ownership".to_string())?;
+        if project_id != supplied_project_id {
+            return Err(
+                "The card-scoped Pi session does not belong to the supplied Stacks project"
+                    .to_string(),
+            );
+        }
+        let source: String = connection
+            .query_row(
+                "SELECT COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
+                [&project_id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        if (provider == "superthread") != (source == "superthread") {
+            return Err(
+                "The card's owning project is not compatible with its provider".to_string(),
+            );
+        }
+        let expected_path = if thread == "work" {
+            validate_card_environment_project(connection, card_id)?;
+            connection
+                .query_row(
+                    "SELECT worktree_path FROM card_environments WHERE card_id=?1",
+                    [card_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(db_error)?
+        } else {
+            project_path
+        };
+        if Path::new(cwd).canonicalize().ok() != Path::new(&expected_path).canonicalize().ok() {
+            return Err("Card Pi startup was blocked because its CWD does not match its owning project environment".to_string());
+        }
+        Ok(())
+    })
+}
+
+pub(crate) fn validate_card_terminal_start(
+    terminal_id: &str,
+    cwd: &str,
+    requested_command: Option<String>,
+) -> Result<Option<String>, String> {
+    let Some(scoped) = terminal_id.strip_prefix("kanban-card:") else {
+        return Ok(requested_command);
+    };
+    let Some((card_id, role)) = scoped.rsplit_once(":terminal:") else {
+        return Ok(requested_command);
+    };
+    with_connection(|connection| {
+        validate_card_environment_project(connection, card_id)?;
+        let (project_id, worktree_path): (String, String) = connection.query_row(
+            "SELECT c.project_id, e.worktree_path FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
+            [card_id], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(db_error)?;
+        if Path::new(cwd).canonicalize().ok() != Path::new(&worktree_path).canonicalize().ok() {
+            return Err("Card terminal startup was blocked because its CWD does not match the card environment".to_string());
+        }
+        let live_command = match role {
+            "server" => connection
+                .query_row(
+                    "SELECT server_command FROM projects WHERE id=?1",
+                    [&project_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .map_err(db_error)?,
+            "console" => connection
+                .query_row(
+                    "SELECT console_command FROM projects WHERE id=?1",
+                    [&project_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .map_err(db_error)?,
+            _ => requested_command,
+        };
+        Ok(live_command
+            .and_then(|value| (!value.trim().is_empty()).then(|| value.trim().to_string())))
+    })
+}
+
 pub(crate) fn card_pi_session(pane_id: &str) -> Result<Option<CardPiSession>, String> {
     let Some(scoped) = pane_id.strip_prefix("kanban-card:") else {
         return Ok(None);
@@ -402,17 +487,106 @@ fn safe_card_key(id: &str) -> String {
         .collect()
 }
 
+fn unique_superthread_project_id(connection: &Connection) -> Result<String, String> {
+    crate::store::migrate_store_schema(connection)?;
+    let ids = connection
+        .prepare("SELECT id FROM projects WHERE kanban_source = 'superthread' ORDER BY id")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    match ids.as_slice() {
+        [id] => Ok(id.clone()),
+        [] => Err("Superthread sync requires exactly one Stacks project configured with kanban_source 'superthread'.".to_string()),
+        _ => Err("Superthread sync is blocked because multiple Stacks projects are configured with kanban_source 'superthread'.".to_string()),
+    }
+}
+
+fn reconcile_card_ownership(connection: &Connection) -> Result<(), String> {
+    crate::store::migrate_store_schema(connection)?;
+    let superthread_ids = connection
+        .prepare("SELECT id FROM projects WHERE kanban_source = 'superthread' ORDER BY id")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    let rows = connection
+        .prepare("SELECT id, external_provider, project_id, board_id FROM kanban_cards ORDER BY id")
+        .map_err(db_error)?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    for (id, provider, stored_project, board_id) in rows {
+        let owner = if provider == "superthread" {
+            match superthread_ids.as_slice() {
+                [owner] => owner.clone(),
+                [] => return Err(format!("Card {id} has no owner: configure exactly one Superthread Kanban project.")),
+                _ => return Err(format!("Card {id} has ambiguous ownership: multiple Superthread Kanban projects are configured.")),
+            }
+        } else if provider.starts_with("local:") {
+            let provider_project = provider.strip_prefix("local:").unwrap_or_default();
+            stored_project
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| (!provider_project.is_empty()).then(|| provider_project.to_string()))
+                .or_else(|| (!board_id.trim().is_empty()).then(|| board_id.clone()))
+                .ok_or_else(|| format!("Local card {id} has no deterministic project ownership."))?
+        } else {
+            return Err(format!("Card {id} uses unsupported provider {provider}."));
+        };
+        let source: Option<String> = connection
+            .query_row(
+                "SELECT COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
+                [&owner],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?;
+        let compatible = matches!(
+            (provider.as_str(), source.as_deref()),
+            ("superthread", Some("superthread"))
+        ) || (provider.starts_with("local:")
+            && source.as_deref() == Some("local"));
+        if !compatible {
+            return Err(format!("Card {id} references missing or incompatible project {owner}. Repair its project configuration before using the board."));
+        }
+        if stored_project.as_deref() != Some(owner.as_str()) {
+            connection
+                .execute(
+                    "UPDATE kanban_cards SET project_id=?1 WHERE id=?2",
+                    params![owner, id],
+                )
+                .map_err(db_error)?;
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn kanban_sync_superthread_cards(
     cards: Vec<KanbanCardSnapshot>,
 ) -> Result<Vec<KanbanCard>, String> {
-    with_connection(|connection| sync_cards(connection, cards))
+    with_connection(|connection| {
+        reconcile_card_ownership(connection)?;
+        sync_cards(connection, cards)
+    })
 }
 
 fn sync_cards(
     connection: &mut Connection,
     cards: Vec<KanbanCardSnapshot>,
 ) -> Result<Vec<KanbanCard>, String> {
+    let superthread_project_id = unique_superthread_project_id(connection)?;
     let now = unix_timestamp();
     let transaction = connection.transaction().map_err(db_error)?;
     for card in cards {
@@ -443,8 +617,8 @@ fn sync_cards(
         transaction.execute(
             "INSERT INTO kanban_cards (
                 id, external_provider, external_id, title, content, board_id, board_title,
-                list_id, list_title, card_url, assignee_names, status, created_at, updated_at, sort_order, in_scope
-             ) VALUES (?1, 'superthread', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'needs_refinement', ?11, ?11,
+                list_id, list_title, card_url, assignee_names, status, project_id, created_at, updated_at, sort_order, in_scope
+             ) VALUES (?1, 'superthread', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'needs_refinement', ?11, ?12, ?12,
                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards WHERE status = 'needs_refinement'), 1)
              ON CONFLICT(external_provider, external_id) DO UPDATE SET
                 title = excluded.title,
@@ -455,6 +629,7 @@ fn sync_cards(
                 list_title = excluded.list_title,
                 card_url = excluded.card_url,
                 assignee_names = excluded.assignee_names,
+                project_id = excluded.project_id,
                 in_scope = 1,
                 updated_at = excluded.updated_at",
             params![
@@ -468,12 +643,76 @@ fn sync_cards(
                 card.list_title,
                 card.card_url,
                 serde_json::to_string(&card.assignee_names).map_err(|error| error.to_string())?,
+                superthread_project_id,
                 now,
             ],
         ).map_err(db_error)?;
     }
     transaction.commit().map_err(db_error)?;
     list_cards(connection)
+}
+
+fn validate_project_deletion(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Vec<String>, String> {
+    let active: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM kanban_cards WHERE project_id=?1 AND status != 'done'",
+            [project_id],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    let environments: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id WHERE e.project_id=?1 OR c.project_id=?1",
+            [project_id],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if active > 0 || environments > 0 {
+        return Err(format!("Project deletion is blocked: finish its {active} active card(s) and clean up its {environments} card environment(s) first."));
+    }
+    connection
+        .prepare("SELECT id FROM kanban_cards WHERE project_id=?1")
+        .map_err(db_error)?
+        .query_map([project_id], |row| row.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)
+}
+
+#[tauri::command]
+pub fn kanban_validate_project_deletion(project_id: String) -> Result<(), String> {
+    with_connection(|connection| validate_project_deletion(connection, &project_id).map(|_| ()))
+}
+
+#[tauri::command]
+pub fn kanban_delete_project_records(project_id: String) -> Result<(), String> {
+    with_connection(|connection| {
+        let card_ids = validate_project_deletion(connection, &project_id)?;
+        let transaction = connection.transaction().map_err(db_error)?;
+        transaction
+            .execute(
+                "DELETE FROM kanban_cards WHERE project_id=?1",
+                [&project_id],
+            )
+            .map_err(db_error)?;
+        transaction
+            .execute(
+                "DELETE FROM kanban_project_sequences WHERE project_id=?1",
+                [&project_id],
+            )
+            .map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
+        for card_id in card_ids {
+            let directory = card_directory(&card_id)?;
+            if directory.exists() {
+                fs::remove_dir_all(directory).map_err(|error| format!("Completed card history was deleted, but its files could not be removed: {error}"))?;
+            }
+        }
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -624,17 +863,34 @@ pub fn kanban_set_project(id: String, project_id: String) -> Result<KanbanCard, 
     if project_id.trim().is_empty() {
         return Err("Project is required".to_string());
     }
+    let destination = crate::store::pi_project_scope(&project_id)?;
+    if !is_local_kanban_source(&destination.kanban_source) {
+        return Err("Cards can only be reassigned to a local Kanban project".to_string());
+    }
     with_connection(|connection| {
         ensure_card_directory(&id)?;
-        let changed = connection
-            .execute(
-                "UPDATE kanban_cards SET project_id = ?1, updated_at = ?2 WHERE id = ?3",
-                params![project_id, unix_timestamp(), id],
-            )
-            .map_err(db_error)?;
-        if changed == 0 {
-            return Err("Kanban card was not found".to_string());
+        let (provider, current_project_id, current_number, has_environment):
+            (String, Option<String>, String, bool) = connection.query_row(
+            "SELECT external_provider, project_id, external_id, EXISTS(SELECT 1 FROM card_environments WHERE card_id=kanban_cards.id) FROM kanban_cards WHERE id=?1",
+            [&id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)? != 0)),
+        ).optional().map_err(db_error)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+        if !provider.starts_with("local:") {
+            return Err("Superthread cards cannot be reassigned".to_string());
         }
+        if has_environment {
+            return Err(
+                "A card cannot be reassigned after its environment has been created".to_string(),
+            );
+        }
+        let destination_number = if current_project_id.as_deref() == Some(destination.id.as_str()) {
+            current_number
+        } else {
+            next_local_card_number(connection, &destination.id)?.to_string()
+        };
+        connection.execute(
+            "UPDATE kanban_cards SET project_id=?1, external_provider='local:' || ?1, external_id=?2, board_id=?1, board_title=?3, updated_at=?4 WHERE id=?5",
+            params![destination.id, destination_number, destination.name, unix_timestamp(), id],
+        ).map_err(db_error)?;
         get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
 }
@@ -657,36 +913,41 @@ pub struct WorkflowOperationResult {
 #[tauri::command]
 pub fn kanban_environment_start_preflight(
     id: String,
-    target_checkout_path: String,
     expected_workflow_revision: i64,
 ) -> Result<EnvironmentStartPreflight, String> {
     with_connection(|connection| {
-        let (status, revision): (String, i64) = connection
+        let (status, revision, project_id, provider): (String, i64, String, String) = connection
             .query_row(
-                "SELECT status, workflow_revision FROM kanban_cards WHERE id = ?1",
+                "SELECT status, workflow_revision, project_id, external_provider FROM kanban_cards WHERE id = ?1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()
             .map_err(db_error)?
-            .ok_or_else(|| "Kanban card was not found".to_string())?;
+            .ok_or_else(|| "Kanban card was not found or has invalid project ownership".to_string())?;
         if revision != expected_workflow_revision {
             return Err("Card changed; reload before starting work".to_string());
         }
         if status != "ready" {
             return Err("The card must be Ready for agent before work can start".to_string());
         }
-        let settings = project_delivery_settings(connection, &id)?;
-        let configured = Path::new(&settings.path)
-            .canonicalize()
-            .map_err(|error| format!("Project checkout does not exist: {error}"))?;
-        let requested = Path::new(&target_checkout_path)
-            .canonicalize()
-            .map_err(|error| format!("Target checkout does not exist: {error}"))?;
-        if configured != requested {
-            return Err("Work must start from the card project's primary checkout".to_string());
+        crate::store::migrate_store_schema(connection)?;
+        let source: String = connection
+            .query_row(
+                "SELECT COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
+                [&project_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| "The card's owning project no longer exists".to_string())?;
+        if (provider == "superthread") != (source == "superthread") {
+            return Err(
+                "The card's owning project is not compatible with its provider".to_string(),
+            );
         }
-        let preflight = validate_target_checkout(&target_checkout_path, None)?;
+        let settings = project_delivery_settings(connection, &id)?;
+        let preflight = validate_target_checkout(&settings.path, None)?;
         if preflight.target_branch != settings.target_branch {
             return Err(format!(
                 "Project checkout must be clean and checked out on configured target branch {}",
@@ -701,17 +962,15 @@ pub fn kanban_environment_start_preflight(
 #[allow(clippy::too_many_arguments)] // Tauri command fields stay explicit for frontend serialization.
 pub fn kanban_create_environment(
     id: String,
-    project_id: String,
     worktree_path: String,
-    services: Vec<CardServiceDefinition>,
     repository_id: String,
     target_checkout_path: String,
     target_branch: String,
     target_revision: String,
     expected_workflow_revision: i64,
 ) -> Result<KanbanCard, String> {
-    if project_id.trim().is_empty() || worktree_path.trim().is_empty() {
-        return Err("Project and worktree path are required".to_string());
+    if worktree_path.trim().is_empty() {
+        return Err("Worktree path is required".to_string());
     }
     let target = validate_target_checkout(&target_checkout_path, Some(&repository_id))?;
     if target.target_branch != target_branch || target.target_revision != target_revision {
@@ -728,11 +987,11 @@ pub fn kanban_create_environment(
     with_connection(|connection| {
         ensure_card_directory(&id)?;
         let transaction = connection.transaction().map_err(db_error)?;
-        let (card_status, workflow_revision): (String, i64) = transaction
+        let (card_status, workflow_revision, project_id, provider): (String, i64, String, String) = transaction
             .query_row(
-                "SELECT status, workflow_revision FROM kanban_cards WHERE id = ?1",
+                "SELECT status, workflow_revision, project_id, external_provider FROM kanban_cards WHERE id = ?1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()
             .map_err(db_error)?
@@ -746,6 +1005,23 @@ pub fn kanban_create_environment(
                     .to_string(),
             );
         }
+        let (current_project_path, project_source): (String, String) = transaction
+            .query_row(
+                "SELECT path, COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
+                [&project_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| "The card's owning project no longer exists".to_string())?;
+        if (provider == "superthread") != (project_source == "superthread") {
+            return Err(
+                "The card's owning project is not compatible with its provider".to_string(),
+            );
+        }
+        if repository_identity(&current_project_path)? != repository_id {
+            return Err("The card project's configured checkout belongs to a different repository; recover the setup result manually".to_string());
+        }
         let environment_id = format!("environment:{}", uuid::Uuid::new_v4());
         let now = unix_timestamp();
         transaction.execute(
@@ -758,7 +1034,7 @@ pub fn kanban_create_environment(
                target_branch = excluded.target_branch, source_revision = excluded.source_revision,
                target_revision = excluded.target_revision, lifecycle_state = 'ready',
                revision = card_environments.revision + 1, updated_at = excluded.updated_at",
-            params![environment_id, id, project_id.trim(), worktree_path.trim(), source.target_branch, repository_id,
+            params![environment_id, id, project_id, worktree_path.trim(), source.target_branch, repository_id,
                 target_checkout_path, target_branch, source.target_revision, target_revision, now],
         ).map_err(db_error)?;
         let environment_id: String = transaction
@@ -768,22 +1044,6 @@ pub fn kanban_create_environment(
                 |row| row.get(0),
             )
             .map_err(db_error)?;
-        transaction
-            .execute(
-                "DELETE FROM card_service_definitions WHERE environment_id = ?1",
-                [&environment_id],
-            )
-            .map_err(db_error)?;
-        for (index, service) in services.into_iter().enumerate() {
-            let command = service.command.trim();
-            if command.is_empty() {
-                continue;
-            }
-            transaction.execute(
-                "INSERT INTO card_service_definitions (id, environment_id, name, command, sort_order) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![if service.id.is_empty() { format!("service:{}", uuid::Uuid::new_v4()) } else { service.id }, environment_id, service.name.trim(), command, index as i64],
-            ).map_err(db_error)?;
-        }
         let shell_pane = format!("kanban-card:{id}:terminal:shell");
         transaction.execute(
             "INSERT OR IGNORE INTO card_panes (id, environment_id, role, kind, sort_order) VALUES (?1, ?2, 'shell', 'terminal', 0)",
@@ -802,7 +1062,7 @@ pub fn kanban_create_environment(
         transaction.execute(
             "UPDATE kanban_cards SET project_id = ?1, workspace_id = NULL, status = 'agent_working', workflow_revision = workflow_revision + 1, updated_at = ?2,
              sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'agent_working') WHERE id = ?3",
-            params![project_id.trim(), now, id],
+            params![project_id, now, id],
         ).map_err(db_error)?;
         transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status, summary) VALUES (?1, ?2, 'user', 'environment_start', 'success', 'ready', 'agent_working', ?3)",
             params![id, now, format!("Created source worktree {} on {}", worktree_path, source.target_branch)]).map_err(db_error)?;
@@ -820,6 +1080,7 @@ pub fn kanban_save_environment_layout(
     expected_revision: i64,
 ) -> Result<KanbanCard, String> {
     with_connection(|connection| {
+        validate_card_environment_project(connection, &id)?;
         let transaction = connection.transaction().map_err(db_error)?;
         let environment_id: String = transaction
             .query_row(
@@ -865,6 +1126,7 @@ pub fn kanban_set_merge_target(
     expected_environment_revision: i64,
 ) -> Result<KanbanCard, String> {
     with_connection(|connection| {
+        validate_card_environment_project(connection, &id)?;
         let (source_path, expected_repository): (String, Option<String>) = connection.query_row("SELECT worktree_path, repository_id FROM card_environments WHERE card_id=?1 AND revision=?2", params![id, expected_environment_revision], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(db_error)?.ok_or_else(|| "Card environment changed; reload before setting its merge target".to_string())?;
         let source_repository = repository_identity(&source_path)?;
         if expected_repository.is_some_and(|expected| expected != source_repository) {
@@ -941,6 +1203,7 @@ fn approve_and_commit(
     expected_environment: i64,
     feature_environment: bool,
 ) -> Result<WorkflowOperationResult, String> {
+    validate_card_environment_project(connection, id)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(db_error)?;
@@ -956,14 +1219,17 @@ fn approve_and_commit(
     let expected_agent_cycle = match status.as_str() {
         "needs_human" => card_revision == expected_card || card_revision == expected_card + 2,
         "agent_working" => card_revision == expected_card + 1,
+        "approved" => card_revision == expected_card,
         _ => false,
     };
     if !expected_agent_cycle {
-        return Err(if status == "needs_human" || status == "agent_working" {
-            "Card changed; reload before approving".to_string()
-        } else {
-            "Only a Needs you card can be approved".to_string()
-        });
+        return Err(
+            if status == "needs_human" || status == "agent_working" || status == "approved" {
+                "Card changed; reload before approving".to_string()
+            } else {
+                "Only a Needs you or Ready to merge card can be approved".to_string()
+            },
+        );
     }
     let (source_path, source_branch, repository_id, environment_revision, lifecycle_state): (String, String, Option<String>, i64, String) = transaction
         .query_row(
@@ -1017,8 +1283,8 @@ fn approve_and_commit(
     let source_tip = git_output(canonical_path, &["rev-parse", "HEAD"])?;
     let now = unix_timestamp();
     let changed_rows = transaction.execute(
-        "UPDATE kanban_cards SET status='approved', feature_environment=?1, delivery_error=NULL, workflow_revision=workflow_revision+1, updated_at=?2,
-         sort_order=(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status='approved')
+        "UPDATE kanban_cards SET status='approved', feature_environment=CASE WHEN status='approved' THEN feature_environment ELSE ?1 END, delivery_error=NULL, workflow_revision=workflow_revision+1, updated_at=?2,
+         sort_order=CASE WHEN status='approved' THEN sort_order ELSE (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status='approved') END
          WHERE id=?3 AND workflow_revision=?4 AND status=?5",
         params![feature_environment as i64, now, id, card_revision, status],
     ).map_err(db_error)?;
@@ -1037,7 +1303,11 @@ fn approve_and_commit(
     let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
     Ok(WorkflowOperationResult {
         card,
-        message: "Work committed and verified; card is Ready to merge".to_string(),
+        message: if status == "approved" {
+            "Work re-verified; source revision refreshed for merging".to_string()
+        } else {
+            "Work committed and verified; card is Ready to merge".to_string()
+        },
         idempotent: false,
     })
 }
@@ -1100,6 +1370,7 @@ fn merge_card(
     expected_card: i64,
     expected_environment: i64,
 ) -> Result<WorkflowOperationResult, String> {
+    validate_card_environment_project(connection, id)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(db_error)?;
@@ -1263,6 +1534,7 @@ pub async fn kanban_cleanup_environment(
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = REPOSITORY_OPERATION_LOCK.get_or_init(|| Mutex::new(())).lock().map_err(|_| "Repository operation lock failed".to_string())?;
         let result = with_connection(|connection| {
+            validate_card_environment_project(connection, &id)?;
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_error)?;
             let (status, completion_outcome, card_revision, delivery_stage): (String, Option<String>, i64, Option<String>) = transaction.query_row("SELECT status, completion_outcome, workflow_revision, delivery_operation_stage FROM kanban_cards WHERE id=?1", [&id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).map_err(db_error)?;
             if status != "done" { return Err("Only a Done card environment can be cleaned up".to_string()); }
@@ -2061,19 +2333,6 @@ fn load_environment(
         .map_err(db_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(db_error)?;
-    let mut service_statement = connection.prepare("SELECT id, name, command, sort_order FROM card_service_definitions WHERE environment_id = ?1 ORDER BY sort_order").map_err(db_error)?;
-    let services = service_statement
-        .query_map([&id], |row| {
-            Ok(CardServiceDefinition {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                command: row.get(2)?,
-                sort_order: row.get(3)?,
-            })
-        })
-        .map_err(db_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_error)?;
     Ok(Some(CardEnvironment {
         id,
         card_id: card_id.to_string(),
@@ -2090,7 +2349,6 @@ fn load_environment(
         split_layout,
         focused_pane_id,
         panes,
-        services,
     }))
 }
 
@@ -2129,6 +2387,38 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
         in_scope: row.get(21)?,
         events: Vec::new(),
     })
+}
+
+fn validate_card_environment_project(connection: &Connection, card_id: &str) -> Result<(), String> {
+    crate::store::migrate_store_schema(connection)?;
+    let (card_project, environment_project, repository_id, provider): (String, String, Option<String>, String) = connection.query_row(
+        "SELECT c.project_id, e.project_id, e.repository_id, c.external_provider FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
+        [card_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).optional().map_err(db_error)?.ok_or_else(|| "The card environment or project ownership is missing".to_string())?;
+    if card_project != environment_project {
+        return Err("The card/environment project mismatch blocks this operation".to_string());
+    }
+    let (project_path, source): (String, String) = connection
+        .query_row(
+            "SELECT path, COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
+            [&card_project],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "The card's owning project no longer exists".to_string())?;
+    if (provider == "superthread") != (source == "superthread") {
+        return Err("The card's owning project is not compatible with its provider".to_string());
+    }
+    if let Some(expected) = repository_id.filter(|value| !value.trim().is_empty()) {
+        if repository_identity(&project_path)? != expected {
+            return Err(
+                "The owning project's configured checkout belongs to a different Git repository"
+                    .to_string(),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn health_issue(code: &str, message: impl Into<String>, step: &str) -> EnvironmentHealthIssue {
@@ -2184,10 +2474,33 @@ fn environment_health(
             source_step,
         ));
     }
+    let card_project_id = card.project_id.as_deref().unwrap_or_default();
     if environment.project_id.trim().is_empty() {
         issues.push(health_issue(
             "project_metadata_missing",
             "The environment has no recorded project.",
+            source_step,
+        ));
+    } else if environment.project_id != card_project_id {
+        issues.push(health_issue(
+            "environment_project_mismatch",
+            "The card and its environment belong to different projects. Project-dependent operations are blocked.",
+            source_step,
+        ));
+    }
+    crate::store::migrate_store_schema(connection)?;
+    let project_path: Option<String> = connection
+        .query_row(
+            "SELECT path FROM projects WHERE id=?1",
+            [card_project_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_error)?;
+    if project_path.is_none() {
+        issues.push(health_issue(
+            "card_project_missing",
+            "The card's owning project no longer exists.",
             source_step,
         ));
     }
@@ -2253,6 +2566,24 @@ fn environment_health(
             "The merged source revision metadata is missing.",
             "cleanup",
         ));
+    }
+
+    if let (Some(project_path), Some(expected_repository)) =
+        (project_path.as_deref(), repository_id)
+    {
+        match repository_identity(project_path) {
+            Ok(actual) if actual != expected_repository => issues.push(health_issue(
+                "project_repository_mismatch",
+                "The owning project's configured checkout belongs to a different repository.",
+                source_step,
+            )),
+            Err(_) => issues.push(health_issue(
+                "project_checkout_unavailable",
+                "Stacks could not identify the owning project's configured repository.",
+                source_step,
+            )),
+            _ => {}
+        }
     }
 
     let source_path = environment.worktree_path.as_str();
@@ -2602,6 +2933,14 @@ fn db_error(error: rusqlite::Error) -> String {
 mod tests {
     use super::*;
 
+    fn test_project(connection: &Connection, id: &str, source: &str, path: &str) {
+        crate::store::migrate_store_schema(connection).unwrap();
+        connection.execute(
+            "INSERT OR REPLACE INTO projects (id, name, path, kanban_source, sort_order) VALUES (?1, ?1, ?2, ?3, 0)",
+            params![id, path, source],
+        ).unwrap();
+    }
+
     fn local_card(connection: &mut Connection) -> KanbanCard {
         let transaction = connection.transaction().unwrap();
         let now = unix_timestamp();
@@ -2671,6 +3010,12 @@ mod tests {
     fn sync_preserves_local_workflow_state() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
+        test_project(
+            &connection,
+            "superthread-project",
+            "superthread",
+            "/tmp/superthread",
+        );
         let snapshot = || KanbanCardSnapshot {
             id: "42".into(),
             title: "First title".into(),
@@ -2695,11 +3040,76 @@ mod tests {
         let cards = sync_cards(&mut connection, vec![changed]).unwrap();
         assert_eq!(cards[0].status, "approved");
         assert_eq!(cards[0].title, "Updated upstream");
+        assert_eq!(cards[0].project_id.as_deref(), Some("superthread-project"));
     }
 
     #[test]
     fn rejects_unknown_statuses() {
         assert!(!STATUSES.contains(&"waiting_for_magic"));
+    }
+
+    #[test]
+    fn reconciles_local_and_superthread_ownership_deterministically() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        test_project(&connection, "local-owner", "local", "/tmp/local");
+        test_project(&connection, "remote-owner", "superthread", "/tmp/remote");
+        connection.execute(
+            "INSERT INTO kanban_cards (id, external_provider, external_id, title, project_id, created_at, updated_at) VALUES
+             ('local:legacy', 'local:local-owner', '1', 'Local', NULL, 1, 1),
+             ('superthread:legacy', 'superthread', '2', 'Remote', 'local-owner', 1, 1)", [],
+        ).unwrap();
+
+        reconcile_card_ownership(&connection).unwrap();
+
+        assert_eq!(
+            get_card(&connection, "local:legacy")
+                .unwrap()
+                .unwrap()
+                .project_id
+                .as_deref(),
+            Some("local-owner")
+        );
+        assert_eq!(
+            get_card(&connection, "superthread:legacy")
+                .unwrap()
+                .unwrap()
+                .project_id
+                .as_deref(),
+            Some("remote-owner")
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_superthread_ownership_and_blocked_project_deletion() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        test_project(&connection, "remote-one", "superthread", "/tmp/one");
+        test_project(&connection, "remote-two", "superthread", "/tmp/two");
+        connection.execute(
+            "INSERT INTO kanban_cards (id, external_provider, external_id, title, project_id, created_at, updated_at) VALUES ('superthread:legacy', 'superthread', '1', 'Remote', NULL, 1, 1)", [],
+        ).unwrap();
+        assert!(reconcile_card_ownership(&connection)
+            .unwrap_err()
+            .contains("ambiguous"));
+
+        test_project(&connection, "local-owner", "local", "/tmp/local");
+        connection.execute(
+            "INSERT INTO kanban_cards (id, external_provider, external_id, title, status, project_id, created_at, updated_at) VALUES ('local:active', 'local:local-owner', '1', 'Active', 'ready', 'local-owner', 1, 1)", [],
+        ).unwrap();
+        assert!(validate_project_deletion(&connection, "local-owner")
+            .unwrap_err()
+            .contains("active card"));
+        connection
+            .execute(
+                "UPDATE kanban_cards SET status='done', completion_outcome='merged' WHERE id='local:active'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            validate_project_deletion(&connection, "local-owner").unwrap(),
+            vec!["local:active"]
+        );
     }
 
     #[test]
@@ -2724,6 +3134,12 @@ mod tests {
     fn does_not_reimport_cleaned_cards() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
+        test_project(
+            &connection,
+            "superthread-project",
+            "superthread",
+            "/tmp/superthread",
+        );
         connection.execute(
             "INSERT INTO kanban_cleaned_cards (external_provider, external_id, cleaned_at) VALUES ('superthread', '42', 1)",
             [],
@@ -2790,7 +3206,7 @@ mod tests {
     }
 
     #[test]
-    fn environment_aggregate_restores_layout_panes_and_service_definitions() {
+    fn environment_aggregate_restores_layout_and_panes() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
         local_card(&mut connection);
@@ -2805,11 +3221,6 @@ mod tests {
             "INSERT INTO card_layouts (environment_id, split_layout, focused_pane_id, updated_at)
              VALUES ('environment:test', '{\"kind\":\"leaf\",\"terminalId\":\"pane:shell\"}', 'pane:shell', 1)", [],
         ).unwrap();
-        connection.execute(
-            "INSERT INTO card_service_definitions (id, environment_id, name, command, sort_order)
-             VALUES ('service:server', 'environment:test', 'server', 'npm run dev', 0)", [],
-        ).unwrap();
-
         let environment = get_card(&connection, "local:test")
             .unwrap()
             .unwrap()
@@ -2818,7 +3229,6 @@ mod tests {
         assert_eq!(environment.worktree_path, "/repo-card-1");
         assert_eq!(environment.revision, 4);
         assert_eq!(environment.panes[0].id, "pane:shell");
-        assert_eq!(environment.services[0].command, "npm run dev");
         assert_eq!(environment.split_layout["terminalId"], "pane:shell");
     }
 
@@ -2908,8 +3318,9 @@ mod tests {
     fn approval_connection(source: &Path, target: &Path) -> Connection {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
+        test_project(&connection, "p", "local", target.to_str().unwrap());
         let now = unix_timestamp();
-        connection.execute("INSERT INTO kanban_cards (id, external_provider, external_id, title, status, workflow_revision, created_at, updated_at) VALUES ('local:approve', 'local:p', '1', 'Approve', 'needs_human', 5, ?1, ?1)", [now]).unwrap();
+        connection.execute("INSERT INTO kanban_cards (id, external_provider, external_id, title, status, workflow_revision, project_id, created_at, updated_at) VALUES ('local:approve', 'local:p', '1', 'Approve', 'needs_human', 5, 'p', ?1, ?1)", [now]).unwrap();
         let repository = repository_identity(target.to_str().unwrap()).unwrap();
         let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
         let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
@@ -2932,6 +3343,47 @@ mod tests {
             [], |row| Ok((row.get(0)?, row.get(1)?)),
         ).unwrap();
         assert_eq!(event, ("approve_and_commit".into(), "success".into()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn approved_card_can_be_shipped_again_after_its_source_revision_changes() {
+        let (root, target, source) = merge_repository();
+        let mut connection = approval_connection(&source, &target);
+        let first = approve_and_commit(&mut connection, "local:approve", 5, 2, false).unwrap();
+        assert_eq!(first.card.status, "approved");
+
+        fs::write(source.join("after-ship.txt"), "follow-up\n").unwrap();
+        git_ok(&source, &["add", "."]);
+        git_ok(&source, &["commit", "-m", "follow-up after ship"]);
+        let changed_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let merge_error = merge_card(&mut connection, "local:approve", 6, 3).unwrap_err();
+        assert!(
+            merge_error.to_lowercase().contains("ship it again"),
+            "{merge_error}"
+        );
+
+        let refreshed = approve_and_commit(&mut connection, "local:approve", 6, 3, false).unwrap();
+        assert_eq!(refreshed.card.status, "approved");
+        assert_eq!(refreshed.card.workflow_revision, 7);
+        assert_eq!(
+            refreshed
+                .card
+                .environment
+                .as_ref()
+                .unwrap()
+                .source_revision
+                .as_deref(),
+            Some(changed_tip.as_str())
+        );
+        assert!(refreshed.message.contains("re-verified"));
+        assert_eq!(
+            merge_card(&mut connection, "local:approve", 7, 4)
+                .unwrap()
+                .card
+                .status,
+            "done"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3041,7 +3493,7 @@ mod tests {
         migrate(&connection).unwrap();
         crate::store::migrate_store_schema(&connection).unwrap();
         let now = unix_timestamp();
-        connection.execute("INSERT INTO projects (id,name,path,delivery_workflow,target_branch,github_merge_strategy,require_passing_ci,require_approval) VALUES ('p','Project',?1,'local_merge','main','merge',1,0)", [target.to_str().unwrap()]).unwrap();
+        connection.execute("INSERT INTO projects (id,name,path,kanban_source,delivery_workflow,target_branch,github_merge_strategy,require_passing_ci,require_approval) VALUES ('p','Project',?1,'local','local_merge','main','merge',1,0)", [target.to_str().unwrap()]).unwrap();
         connection.execute("INSERT INTO kanban_cards (id, external_provider, external_id, title, status, workflow_revision, project_id, created_at, updated_at) VALUES ('local:merge', 'local:p', '1', 'Merge', 'approved', 3, 'p', ?1, ?1)", [now]).unwrap();
         let repository = repository_identity(target.to_str().unwrap()).unwrap();
         let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();

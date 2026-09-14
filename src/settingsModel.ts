@@ -43,6 +43,7 @@ export type ResolvedAppSettings = {
   superthread_enabled: boolean;
   github_poll_interval_seconds: number;
   kanban_project_id: string | null;
+  kanban_done_collapsed: boolean;
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
@@ -69,6 +70,7 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   superthread_enabled: true,
   github_poll_interval_seconds: 60,
   kanban_project_id: null,
+  kanban_done_collapsed: true,
 };
 
 export function resolveAppSettings(settings: AppSettings | null | undefined): ResolvedAppSettings {
@@ -96,6 +98,7 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     superthread_enabled: settings?.superthread_enabled ?? DEFAULT_APP_SETTINGS.superthread_enabled,
     github_poll_interval_seconds: clampGithubPollInterval(settings?.github_poll_interval_seconds),
     kanban_project_id: settings?.kanban_project_id?.trim() || null,
+    kanban_done_collapsed: settings?.kanban_done_collapsed ?? DEFAULT_APP_SETTINGS.kanban_done_collapsed,
   };
 }
 
@@ -124,6 +127,7 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     superthread_enabled: settings.superthread_enabled,
     github_poll_interval_seconds: clampGithubPollInterval(settings.github_poll_interval_seconds),
     kanban_project_id: settings.kanban_project_id?.trim() || null,
+    kanban_done_collapsed: settings.kanban_done_collapsed,
   };
 }
 

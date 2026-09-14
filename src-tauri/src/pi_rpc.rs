@@ -88,6 +88,7 @@ pub fn start_pi_session(
                     .to_string(),
             );
         }
+        crate::kanban::validate_card_pi_start(&owner.card_id, &owner.thread, &cwd, &project.id)?;
     }
     if let Some(owner_project_id) = crate::project_direct::project_direct_owner(&pane_id) {
         if owner_project_id != project.id {

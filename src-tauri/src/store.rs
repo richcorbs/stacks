@@ -264,20 +264,6 @@ fn migrate_legacy_card_environments(connection: &mut Connection) -> Result<(), S
          FROM card_environments e WHERE e.id LIKE 'environment:legacy:%'",
         [now],
     ).map_err(db_error)?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO card_service_definitions (id, environment_id, name, command, sort_order)
-         SELECT 'service:legacy:server:' || e.card_id, e.id, 'server', p.server_command, 0
-         FROM card_environments e JOIN projects p ON p.id = e.project_id
-         WHERE p.server_command IS NOT NULL AND trim(p.server_command) != ''",
-        [],
-    ).map_err(db_error)?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO card_service_definitions (id, environment_id, name, command, sort_order)
-         SELECT 'service:legacy:console:' || e.card_id, e.id, 'console', p.console_command, 1
-         FROM card_environments e JOIN projects p ON p.id = e.project_id
-         WHERE p.console_command IS NOT NULL AND trim(p.console_command) != ''",
-        [],
-    ).map_err(db_error)?;
     transaction
         .execute(
             "INSERT INTO schema_migrations(version, applied_at) VALUES (3, ?1)",
@@ -335,7 +321,62 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
 }
 
 fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), String> {
+    let incoming_ids = store
+        .projects
+        .iter()
+        .map(|project| project.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let removed_projects = connection
+        .prepare("SELECT id FROM projects")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?
+        .into_iter()
+        .filter(|id| !incoming_ids.contains(id.as_str()))
+        .collect::<Vec<_>>();
+    let mut removed_card_ids = Vec::new();
+    for project_id in &removed_projects {
+        let active: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM kanban_cards WHERE project_id=?1 AND status != 'done'",
+                [project_id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        let environments: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id WHERE e.project_id=?1 OR c.project_id=?1",
+                [project_id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        if active > 0 || environments > 0 {
+            return Err(format!("Project deletion is blocked: finish its {active} active card(s) and clean up its {environments} card environment(s) first."));
+        }
+        removed_card_ids.extend(
+            connection
+                .prepare("SELECT id FROM kanban_cards WHERE project_id=?1")
+                .map_err(db_error)?
+                .query_map([project_id], |row| row.get::<_, String>(0))
+                .map_err(db_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(db_error)?,
+        );
+    }
     let transaction = connection.transaction().map_err(db_error)?;
+    for project_id in &removed_projects {
+        transaction
+            .execute("DELETE FROM kanban_cards WHERE project_id=?1", [project_id])
+            .map_err(db_error)?;
+        transaction
+            .execute(
+                "DELETE FROM kanban_project_sequences WHERE project_id=?1",
+                [project_id],
+            )
+            .map_err(db_error)?;
+    }
     transaction
         .execute("DELETE FROM legacy_workspaces", [])
         .map_err(db_error)?;
@@ -367,7 +408,18 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
             ).map_err(db_error)?;
         }
     }
-    transaction.commit().map_err(db_error)
+    transaction.commit().map_err(db_error)?;
+    for card_id in removed_card_ids {
+        let directory = crate::kanban::card_directory(&card_id)?;
+        if directory.exists() {
+            fs::remove_dir_all(&directory).map_err(|error| {
+                format!(
+                    "Project was deleted, but completed card files could not be removed: {error}"
+                )
+            })?;
+        }
+    }
+    Ok(())
 }
 
 fn normalize_delivery_workflow(value: &str) -> &str {
@@ -483,14 +535,14 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        let service: String = connection
-            .query_row("SELECT command FROM card_service_definitions", [], |row| {
+        let service_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM card_service_definitions", [], |row| {
                 row.get(0)
             })
             .unwrap();
         assert_eq!(status, "approved");
         assert_eq!(path, "/repo");
-        assert_eq!(service, "npm run dev");
+        assert_eq!(service_count, 0);
     }
 
     #[test]
@@ -561,6 +613,47 @@ mod tests {
                 )
                 .unwrap(),
             3
+        );
+    }
+
+    #[test]
+    fn project_deletion_blocks_active_work_and_removes_completed_history() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        write_store(&mut connection, &sample_store()).unwrap();
+        connection.execute(
+            "INSERT INTO kanban_cards (id, external_provider, external_id, title, status, project_id, created_at, updated_at) VALUES ('local:owned', 'local:p1', '1', 'Owned', 'ready', 'p1', 1, 1)", [],
+        ).unwrap();
+
+        let empty = ProjectStore::default();
+        assert!(write_store(&mut connection, &empty)
+            .unwrap_err()
+            .contains("active card"));
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM projects WHERE id='p1'", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+
+        connection
+            .execute(
+                "UPDATE kanban_cards SET status='done', completion_outcome='merged' WHERE id='local:owned'",
+                [],
+            )
+            .unwrap();
+        write_store(&mut connection, &empty).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM kanban_cards WHERE id='local:owned'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
         );
     }
 

@@ -57,7 +57,7 @@ export function ConfirmQuitDialog({ onCancel, onConfirm }: { onCancel: () => voi
 export function ConfirmDeleteProjectDialog({ projectName, onCancel, onConfirm }: { projectName: string; onCancel: () => void; onConfirm: () => void }) {
   return (
     <ConfirmDialog title="Delete project?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will remove “{projectName}” and terminate all workspaces in this project.</p>
+      <p>This will remove “{projectName}”, terminate all workspaces, and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p>
     </ConfirmDialog>
   );
 }

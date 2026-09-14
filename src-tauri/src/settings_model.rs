@@ -113,6 +113,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub kanban_project_id: Option<String>,
     #[serde(default)]
+    pub kanban_done_collapsed: Option<bool>,
+    #[serde(default)]
     pub active_project_id: Option<String>,
     #[serde(default)]
     pub active_workspace_id: Option<String>,
@@ -150,6 +152,7 @@ impl AppSettings {
             .github_poll_interval_seconds
             .map(|value| value.clamp(10, 3600));
         self.kanban_project_id = non_empty(next.kanban_project_id);
+        self.kanban_done_collapsed = next.kanban_done_collapsed;
         self.custom_cmd_p_commands = next.custom_cmd_p_commands.map(|commands| {
             commands
                 .into_iter()

@@ -12,7 +12,9 @@ type MainWorkspaceProps = {
   superthreadWorkspaceSlug: string;
   superthreadEnabled: boolean;
   selectedProjectId: string | null;
-  onSelectProject: (projectId: string) => void;
+  onSelectProject: (projectId: string | null) => void;
+  doneCollapsed: boolean;
+  onDoneCollapsedChange: (collapsed: boolean) => void;
   onAddProject: () => void;
   onCleanupCard: (card: KanbanCard) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<boolean>;
@@ -29,6 +31,8 @@ export function MainWorkspace({
   superthreadEnabled,
   selectedProjectId,
   onSelectProject,
+  doneCollapsed,
+  onDoneCollapsedChange,
   onAddProject,
   onCleanupCard,
   onStartWork,
@@ -43,6 +47,8 @@ export function MainWorkspace({
           projects={projects}
           selectedProjectId={selectedProjectId}
           onSelectProject={onSelectProject}
+          doneCollapsed={doneCollapsed}
+          onDoneCollapsedChange={onDoneCollapsedChange}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}
           terminalScrollback={terminalScrollback}
