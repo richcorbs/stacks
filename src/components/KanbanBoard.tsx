@@ -585,6 +585,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           })}
           onMove={(status) => board.move(selectedCard.id, status).then(setSelectedCard)}
           onOpenChat={async (projectId) => {
+            if (selectedCard.project_id === projectId) return;
             const updated = await board.assignProject(selectedCard.id, projectId);
             setSelectedCard(updated);
           }}
