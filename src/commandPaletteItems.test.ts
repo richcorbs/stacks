@@ -13,6 +13,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     sidebarWorkspaces: [{ project, workspace }],
     terminalsByWorkspaceId: { t1: [terminal] },
     activeProject: project,
+    selectedKanbanProject: project,
     activeWorkspace: workspace,
     activeWorkspaceId: 't1',
     activeTerminalId: 't1:0',
@@ -43,6 +44,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(),
     onRunOneTimeCommand: vi.fn(),
+    onNewCard: vi.fn(),
     customCmdPCommands: [],
     onAddCmdPCommand: vi.fn(),
     onEditCmdPCommand: vi.fn(),
@@ -80,6 +82,18 @@ describe('buildCommandPaletteItems', () => {
       'project-workspace-p1',
       'terminal-t1:0',
     ]));
+  });
+
+  it('offers New Card only for the selected local board project', () => {
+    const onNewCard = vi.fn();
+    const item = palette({ onNewCard }).find((candidate) => candidate.id === 'new-card');
+    item?.action();
+    expect(item?.subtitle).toBe('Add to Stacks');
+    expect(onNewCard).toHaveBeenCalledWith(project);
+
+    const superthread = { ...project, kanban_source: 'superthread' as const };
+    expect(palette({ selectedKanbanProject: superthread }).some((candidate) => candidate.id === 'new-card')).toBe(false);
+    expect(palette({ selectedKanbanProject: null }).some((candidate) => candidate.id === 'new-card')).toBe(false);
   });
 
   it('focuses the next workspace with unseen output from the command palette', () => {

@@ -9,6 +9,7 @@ export type CommandPaletteItemOptions = {
   sidebarWorkspaces: SidebarWorkspace[];
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
   activeProject: Project | null;
+  selectedKanbanProject: Project | null;
   activeWorkspace: WorkspaceEntry | null;
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
@@ -39,6 +40,7 @@ export type CommandPaletteItemOptions = {
   onRestartApp: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
+  onNewCard: (project: Project) => void;
   customCmdPCommands: CustomCmdPCommand[];
   onAddCmdPCommand: () => void;
   onEditCmdPCommand: (command: CustomCmdPCommand) => void;
@@ -54,12 +56,13 @@ export type CommandPaletteItemOptions = {
 };
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
-  const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeProject, activeWorkspaceId, activeTerminalId, customCmdPCommands, onSplitTerminalWithCommand, onEditCmdPCommand, onDeleteCmdPCommand, workspaceTemplates, onUseWorkspaceTemplate, onEditWorkspaceTemplate, onDeleteWorkspaceTemplate, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
+  const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeProject, selectedKanbanProject, activeWorkspaceId, activeTerminalId, customCmdPCommands, onSplitTerminalWithCommand, onEditCmdPCommand, onDeleteCmdPCommand, workspaceTemplates, onUseWorkspaceTemplate, onEditWorkspaceTemplate, onDeleteWorkspaceTemplate, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
   const activePanes = activeWorkspaceId ? terminalsByWorkspaceId[activeWorkspaceId] ?? [] : [];
   const activeWorkspaceTerminalCount = activePanes.filter((pane) => !pane.temporary && pane.kind !== 'pi').length;
   const activePaneKind = activePanes.find((pane) => pane.id === activeTerminalId)?.kind ?? 'terminal';
   return [
     ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount, activePaneKind }),
+    ...newCardItems(selectedKanbanProject, options.onNewCard),
     ...customCommandItems(customCmdPCommands, onSplitTerminalWithCommand),
     ...customCommandEditItems(customCmdPCommands, onEditCmdPCommand),
     ...customCommandDeleteItems(customCmdPCommands, onDeleteCmdPCommand),
@@ -70,6 +73,17 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
     ...projectItems(store.projects, onNewWorkspace),
     ...terminalItems(activeWorkspaceId, activeTerminalId, terminalsByWorkspaceId, onCycleTerminal),
   ];
+}
+
+function newCardItems(project: Project | null, onNewCard: (project: Project) => void): PaletteItem[] {
+  if (!project || project.kanban_source === 'superthread') return [];
+  return [{
+    id: 'new-card',
+    title: 'New Card',
+    subtitle: `Add to ${project.name}`,
+    keywords: 'new add create local kanban card',
+    action: () => onNewCard(project),
+  }];
 }
 
 function customCommandItems(

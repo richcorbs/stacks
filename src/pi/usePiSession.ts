@@ -25,7 +25,7 @@ type PendingRequest = {
   timer: number;
 };
 
-export function usePiSession(paneId: string, cwd: string, workspaceId: string, projectPath: string) {
+export function usePiSession(paneId: string, cwd: string, workspaceId: string, projectId: string, projectPath: string) {
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [context, setContext] = useState<PiSessionContext>(EMPTY_CONTEXT);
   const [streamingText, setStreamingText] = useState('');
@@ -269,7 +269,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
         // Accept events from the first generation while startup is in flight so
         // an immediate process exit or diagnostic is not silently discarded.
         generationRef.current = null;
-        invoke<string>('start_pi_session', { paneId, cwd, projectPath })
+        invoke<string>('start_pi_session', { paneId, cwd, projectPath, projectId })
           .then(async (generation) => {
             generationRef.current = generation;
             await Promise.all([refreshState(), refreshMessages()]);
@@ -305,7 +305,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
       pendingRequests.current.clear();
       if (streamingFrameRef.current !== null) cancelAnimationFrame(streamingFrameRef.current);
     };
-  }, [appendStreamingText, cwd, paneId, projectPath, refreshAvailableModels, refreshAvailableThinkingLevels, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText, workspaceId, writeCommand]);
+  }, [appendStreamingText, cwd, paneId, projectId, projectPath, refreshAvailableModels, refreshAvailableThinkingLevels, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText, workspaceId, writeCommand]);
 
   useEffect(() => {
     if (!uiRequest?.timeout) return;
@@ -402,7 +402,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     generationRef.current = 'restarting';
     try {
       await invoke('stop_pi_session', { paneId });
-      const generation = await invoke<string>('start_pi_session', { paneId, cwd, projectPath });
+      const generation = await invoke<string>('start_pi_session', { paneId, cwd, projectPath, projectId });
       generationRef.current = generation;
       await Promise.all([refreshState(), refreshMessages()]);
       refreshCommands().catch(() => setCommands(GUI_BUILTIN_COMMANDS));
@@ -419,7 +419,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     } finally {
       setStarting(false);
     }
-  }, [cwd, paneId, projectPath, refreshAvailableModels, refreshAvailableThinkingLevels, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText]);
+  }, [cwd, paneId, projectId, projectPath, refreshAvailableModels, refreshAvailableThinkingLevels, refreshCommands, refreshMessages, refreshState, refreshStats, resetStreamingText]);
 
   return { messages, context, commands, availableModels, availableThinkingLevels, queuedSteering, queuedFollowUps, editorTextRequest, streamingText, isStreamingText, isStreaming, tools, error, starting, stopped, uiRequest, prompt, runBuiltinCommand, steer, followUp, abort, selectModel, selectThinkingLevel, restart, respondToUiRequest };
 }

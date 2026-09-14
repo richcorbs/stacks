@@ -50,6 +50,7 @@ export type AppShortcutHandlerOptions = {
   openTerminalSearch: () => void;
   openDirectoryInEditor: () => void;
   openOneTimeCommand: () => void;
+  openNewCard: (project: Project) => void;
   openAddCmdPCommand: () => void;
   openEditCmdPCommand: (command: CustomCmdPCommand) => void;
   openDeleteCmdPCommand: (command: CustomCmdPCommand) => void;

@@ -6,8 +6,8 @@ export function fetchKanbanCards() {
   return invoke<KanbanCard[]>('kanban_cards');
 }
 
-export function createLocalKanbanCard(projectId: string, projectName: string, title: string, content: string) {
-  return invoke<KanbanCard>('kanban_create_local_card', { projectId, projectName, title, content });
+export function createLocalKanbanCard(projectId: string, title: string, content: string) {
+  return invoke<KanbanCard>('kanban_create_local_card', { projectId, title, content });
 }
 
 export function updateLocalKanbanCard(id: string, title: string, content: string) {

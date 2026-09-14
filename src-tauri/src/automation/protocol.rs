@@ -33,9 +33,13 @@ pub(crate) struct ClientRequest {
     #[serde(default)]
     pub card_id: Option<String>,
     #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
     pub content: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 impl AutomationResponse {
