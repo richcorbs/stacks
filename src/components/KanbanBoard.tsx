@@ -24,6 +24,7 @@ import { SplitView } from './WorkspaceTerminalTree';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { disposeTerminalSession, getTerminalSession } from '../terminalSessionManager';
 import { superthreadCardProvider } from '../superthread/cardProvider';
+import { selectedKanbanProject, shouldEnableSuperthreadProvider, visibleSuperthreadError } from '../kanban/providerSelection';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 
@@ -45,16 +46,20 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   onCleanupCard: (card: KanbanCard) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<boolean>;
 }) {
-  const provider = useMemo(() => superthreadEnabled ? superthreadCardProvider(spaces, workspaceSlug) : null, [spaces, superthreadEnabled, workspaceSlug]);
+  const selectedProject = selectedKanbanProject(projects, selectedProjectId);
+  const selectedProjectIsSuperthread = selectedProject?.kanban_source === 'superthread';
+  const superthreadProviderEnabled = shouldEnableSuperthreadProvider(selectedProject, superthreadEnabled);
+  const provider = useMemo(
+    () => superthreadProviderEnabled ? superthreadCardProvider(spaces, workspaceSlug) : null,
+    [selectedProject?.id, spaces, superthreadProviderEnabled, workspaceSlug],
+  );
   const board = useKanbanBoard(provider);
-  const defaultProject = projects.find((project) => project.kanban_source === 'superthread') ?? projects[0] ?? null;
+  const providerError = visibleSuperthreadError(selectedProject, board.providerError);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const projectSwitcherTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [newCardOpen, setNewCardOpen] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
   const [newCardDescription, setNewCardDescription] = useState('');
-  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? defaultProject;
-  const selectedProjectIsSuperthread = selectedProject?.kanban_source === 'superthread';
   const visibleCards = useMemo(() => board.cards.filter((card) => selectedProjectIsSuperthread
     ? card.provider === 'superthread'
     : card.project_id === selectedProject?.id && card.provider === 'local'),
@@ -71,8 +76,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const [cleaningMerged, setCleaningMerged] = useState(false);
 
   useEffect(() => {
-    if (defaultProject && !projects.some((project) => project.id === selectedProjectId)) onSelectProject(defaultProject.id);
-  }, [defaultProject, onSelectProject, projects, selectedProjectId]);
+    if (selectedProject && !projects.some((project) => project.id === selectedProjectId)) onSelectProject(selectedProject.id);
+  }, [onSelectProject, projects, selectedProject, selectedProjectId]);
 
   useEffect(() => () => {
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
@@ -250,6 +255,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
         </div>
       </header>
       {board.error && <div className="kanbanNotice">{board.error}</div>}
+      {providerError && <div className="kanbanNotice">{providerError}</div>}
       {board.loading ? (
         <div className="kanbanEmpty">Loading work…</div>
       ) : (
