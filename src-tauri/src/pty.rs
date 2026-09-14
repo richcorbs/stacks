@@ -38,6 +38,7 @@ pub fn spawn_pty(
 ) -> Result<(), String> {
     let generation =
         generation.unwrap_or_else(|| format!("{}:{}", terminal_id, uuid::Uuid::new_v4()));
+    let command = crate::kanban::validate_card_terminal_start(&terminal_id, &cwd, command)?;
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {

@@ -12,7 +12,7 @@ type MainWorkspaceProps = {
   superthreadWorkspaceSlug: string;
   superthreadEnabled: boolean;
   selectedProjectId: string | null;
-  onSelectProject: (projectId: string) => void;
+  onSelectProject: (projectId: string | null) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
   onAddProject: () => void;

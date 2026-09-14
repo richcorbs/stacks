@@ -38,12 +38,13 @@ describe('delivery workflow actions', () => {
     expect(deriveCardWorkflowActions({ card: card('needs_human'), project: prProject, projectAvailable: true })[1].label).toBe('Ship It');
   });
 
-  it('derives local merge from live project settings', () => {
-    expect(kinds('approved')).toEqual(['request_changes', 'merge_local', 'close']);
+  it('allows an approved source to be shipped again before local merge', () => {
+    expect(kinds('approved')).toEqual(['request_changes', 'ship', 'merge_local', 'close']);
+    expect(deriveCardWorkflowActions({ card: card('approved'), project: localProject, projectAvailable: true })[1].label).toBe('Ship It again');
   });
 
   it('creates or merges a pull request based on persisted PR state', () => {
-    expect(kinds('approved', prProject)).toEqual(['request_changes', 'create_pr', 'close']);
+    expect(kinds('approved', prProject)).toEqual(['request_changes', 'ship', 'create_pr', 'close']);
     const ready = { ...card('approved'), pull_request: { repository: 'o/r', number: 1, title: 'PR', url: 'https://example.test', state: 'open' as const, draft: false, ci_status: 'success' as const, review_state: 'approved' as const, has_conflicts: false, mergeable: true, blockers: [] } };
     expect(deriveCardWorkflowActions({ card: ready, project: prProject, projectAvailable: true }).map((action) => action.kind)).toEqual(['request_changes', 'open_pr', 'merge_pr', 'close']);
   });

@@ -128,12 +128,19 @@ export function useWorkspaceCrudCommands({
     if (!project) return;
     const workspaceIds = project.workspaces.map((workspace) => workspace.id);
     const panes = project.workspaces.flatMap(panesForWorkspace);
+    try {
+      await invoke('kanban_validate_project_deletion', { projectId });
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: String(error) } }));
+      return;
+    }
     disposeTerminalSessions(panes.filter((pane) => pane.kind !== 'pi').map((pane) => pane.id));
     try {
       const directPaneIds = await invoke<string[]>('project_direct_delete', { projectId });
       disposeTerminalSessions(directPaneIds);
       directPaneIds.forEach(deletePiSessionController);
       await Promise.all(panes.filter((pane) => pane.kind === 'pi').map((pane) => deletePersistentPiSession(pane.id)));
+      await invoke('kanban_delete_project_records', { projectId });
     } catch (error) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not delete project processes: ${String(error)}` } }));
       return;

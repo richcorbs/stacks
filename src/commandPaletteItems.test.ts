@@ -85,16 +85,20 @@ describe('buildCommandPaletteItems', () => {
     ]));
   });
 
-  it('opens Direct project work for the selected board project only', () => {
+  it('opens Direct project work directly for a filter or prompts from All projects', () => {
     const onDirectProjectWork = vi.fn();
     const item = palette({ onDirectProjectWork }).find((candidate) => candidate.id === 'direct-project-work');
     item?.action();
     expect(item?.subtitle).toBe('Work in Stacks');
     expect(onDirectProjectWork).toHaveBeenCalledWith(project);
-    expect(palette({ selectedKanbanProject: null }).some((candidate) => candidate.id === 'direct-project-work')).toBe(false);
+
+    const allProjects = palette({ selectedKanbanProject: null, onDirectProjectWork }).find((candidate) => candidate.id === 'direct-project-work');
+    allProjects?.action();
+    expect(allProjects?.subtitle).toBe('Choose a project');
+    expect(onDirectProjectWork).toHaveBeenCalledWith(null);
   });
 
-  it('offers New Card only for the selected local board project', () => {
+  it('preselects a filtered local project and otherwise prompts for New Card ownership', () => {
     const onNewCard = vi.fn();
     const item = palette({ onNewCard }).find((candidate) => candidate.id === 'new-card');
     item?.action();
@@ -102,8 +106,11 @@ describe('buildCommandPaletteItems', () => {
     expect(onNewCard).toHaveBeenCalledWith(project);
 
     const superthread = { ...project, kanban_source: 'superthread' as const };
-    expect(palette({ selectedKanbanProject: superthread }).some((candidate) => candidate.id === 'new-card')).toBe(false);
-    expect(palette({ selectedKanbanProject: null }).some((candidate) => candidate.id === 'new-card')).toBe(false);
+    const prompted = palette({ selectedKanbanProject: superthread, onNewCard }).find((candidate) => candidate.id === 'new-card');
+    prompted?.action();
+    expect(prompted?.subtitle).toBe('Choose a local project');
+    expect(onNewCard).toHaveBeenCalledWith(null);
+    expect(palette({ selectedKanbanProject: null }).some((candidate) => candidate.id === 'new-card')).toBe(true);
   });
 
   it('focuses the next workspace with unseen output from the command palette', () => {

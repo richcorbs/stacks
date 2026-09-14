@@ -1,46 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../types';
-import { selectedKanbanProject, shouldEnableSuperthreadProvider, visibleSuperthreadError } from './providerSelection';
+import { selectedKanbanProject } from './providerSelection';
 
-const local = project('local', 'local');
-const superthread = project('remote', 'superthread');
+const local = project('local');
+const remote = project('remote');
 
-describe('Kanban provider selection', () => {
-  it('disables Superthread access for a selected local project', () => {
-    const selected = selectedKanbanProject([superthread, local], local.id);
-
-    expect(selected).toBe(local);
-    expect(shouldEnableSuperthreadProvider(selected, true)).toBe(false);
+describe('Kanban project filter selection', () => {
+  it('returns the explicitly filtered project', () => {
+    expect(selectedKanbanProject([remote, local], local.id)).toBe(local);
   });
 
-  it('enables Superthread access immediately for a selected Superthread project', () => {
-    const selected = selectedKanbanProject([local, superthread], superthread.id);
-
-    expect(selected).toBe(superthread);
-    expect(shouldEnableSuperthreadProvider(selected, true)).toBe(true);
+  it('represents All projects and stale filters as no selected project', () => {
+    expect(selectedKanbanProject([local, remote], null)).toBeNull();
+    expect(selectedKanbanProject([local, remote], 'removed')).toBeNull();
   });
 
-  it('falls back to the Superthread project for null or removed selections', () => {
-    expect(selectedKanbanProject([local, superthread], null)).toBe(superthread);
-    expect(selectedKanbanProject([local, superthread], 'removed')).toBe(superthread);
-  });
-
-  it('falls back to the first project when no Superthread project exists', () => {
-    const otherLocal = project('other-local', 'local');
-    expect(selectedKanbanProject([local, otherLocal], null)).toBe(local);
+  it('does not guess a project', () => {
     expect(selectedKanbanProject([], null)).toBeNull();
-  });
-
-  it('keeps the provider disabled when the integration is disabled', () => {
-    expect(shouldEnableSuperthreadProvider(superthread, false)).toBe(false);
-  });
-
-  it('only exposes synchronization errors on Superthread projects', () => {
-    expect(visibleSuperthreadError(superthread, 'Sync failed')).toBe('Sync failed');
-    expect(visibleSuperthreadError(local, 'Sync failed')).toBeNull();
   });
 });
 
-function project(id: string, source: 'local' | 'superthread'): Project {
-  return { id, name: id, path: `/tmp/${id}`, workspaces: [], kanban_source: source };
+function project(id: string): Project {
+  return { id, name: id, path: `/tmp/${id}`, workspaces: [], kanban_source: 'local' };
 }

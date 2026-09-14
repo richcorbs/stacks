@@ -40,8 +40,8 @@ export type CommandPaletteItemOptions = {
   onRestartApp: () => void;
   onOpenDirectoryInEditor: () => void;
   onRunOneTimeCommand: () => void;
-  onNewCard: (project: Project) => void;
-  onDirectProjectWork: (project: Project) => void;
+  onNewCard: (project: Project | null) => void;
+  onDirectProjectWork: (project: Project | null) => void;
   customCmdPCommands: CustomCmdPCommand[];
   onAddCmdPCommand: () => void;
   onEditCmdPCommand: (command: CustomCmdPCommand) => void;
@@ -77,25 +77,24 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
   ];
 }
 
-function directWorkItems(project: Project | null, onOpen: (project: Project) => void): PaletteItem[] {
-  if (!project) return [];
+function directWorkItems(project: Project | null, onOpen: (project: Project | null) => void): PaletteItem[] {
   return [{
     id: 'direct-project-work',
     title: 'Direct project work',
-    subtitle: `Work in ${project.name}`,
+    subtitle: project ? `Work in ${project.name}` : 'Choose a project',
     keywords: 'direct project primary checkout agent terminal diff',
     action: () => onOpen(project),
   }];
 }
 
-function newCardItems(project: Project | null, onNewCard: (project: Project) => void): PaletteItem[] {
-  if (!project || project.kanban_source === 'superthread') return [];
+function newCardItems(project: Project | null, onNewCard: (project: Project | null) => void): PaletteItem[] {
+  const compatibleProject = project?.kanban_source === 'superthread' ? null : project;
   return [{
     id: 'new-card',
     title: 'New Card',
-    subtitle: `Add to ${project.name}`,
+    subtitle: compatibleProject ? `Add to ${compatibleProject.name}` : 'Choose a local project',
     keywords: 'new add create local kanban card',
-    action: () => onNewCard(project),
+    action: () => onNewCard(compatibleProject),
   }];
 }
 
