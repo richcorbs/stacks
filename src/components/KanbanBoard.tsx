@@ -62,6 +62,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const [newCardTitle, setNewCardTitle] = useState('');
   const [newCardDescription, setNewCardDescription] = useState('');
   const [newCardError, setNewCardError] = useState<string | null>(null);
+  const [newCardCreating, setNewCardCreating] = useState(false);
+  const newCardTitleRef = useRef<HTMLInputElement | null>(null);
   const visibleCards = useMemo(() => board.cards.filter((card) => selectedProjectIsSuperthread
     ? card.provider === 'superthread'
     : card.project_id === selectedProject?.id && card.provider === 'local'),
@@ -138,17 +140,26 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     if (current && current !== selectedCard) setSelectedCard(current);
   }, [board.cards, selectedCard]);
 
-  async function createCard(openAfterCreation: boolean) {
-    if (!selectedProject || selectedProject.kanban_source === 'superthread' || !newCardTitle.trim()) return;
+  async function createCard(outcome: 'close' | 'continue' | 'open') {
+    if (newCardCreating || !selectedProject || selectedProject.kanban_source === 'superthread' || !newCardTitle.trim()) return;
+    setNewCardCreating(true);
     setNewCardError(null);
     try {
       const card = await board.createLocal(selectedProject.id, newCardTitle, newCardDescription);
       setNewCardTitle('');
       setNewCardDescription('');
-      setNewCardOpen(false);
-      if (openAfterCreation) await openCard(card);
+      if (outcome === 'open') {
+        setNewCardOpen(false);
+        await openCard(card);
+      } else {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Card added' } }));
+        if (outcome === 'close') setNewCardOpen(false);
+        else requestAnimationFrame(() => newCardTitleRef.current?.focus());
+      }
     } catch (error) {
       setNewCardError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setNewCardCreating(false);
     }
   }
 
@@ -393,19 +404,20 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
         }}
       />
       {newCardOpen && selectedProject && !selectedProjectIsSuperthread && (
-        <div className="modalBackdrop" onMouseDown={() => setNewCardOpen(false)}>
+        <div className="modalBackdrop" onMouseDown={() => { if (!newCardCreating) setNewCardOpen(false); }}>
           <form className="modal kanbanNewCardDialog" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => {
             event.preventDefault();
-            createCard(true);
+            createCard('open');
           }}>
             <h2>Add card</h2>
-            <label>Title<input autoFocus value={newCardTitle} onChange={(event) => setNewCardTitle(event.target.value)} /></label>
-            <label>Description<textarea rows={8} value={newCardDescription} onChange={(event) => setNewCardDescription(event.target.value)} /></label>
+            <label>Title<input ref={newCardTitleRef} autoFocus disabled={newCardCreating} value={newCardTitle} onChange={(event) => setNewCardTitle(event.target.value)} /></label>
+            <label>Description<textarea rows={8} disabled={newCardCreating} value={newCardDescription} onChange={(event) => setNewCardDescription(event.target.value)} /></label>
             {newCardError && <div className="kanbanEditError" role="alert">{newCardError}</div>}
             <div className="modalActions">
-              <button type="button" onClick={() => setNewCardOpen(false)}>Cancel</button>
-              <button type="button" disabled={!newCardTitle.trim()} onClick={() => createCard(false)}>Add card</button>
-              <button className="primaryAction" type="submit" disabled={!newCardTitle.trim()}>Add and open</button>
+              <button type="button" disabled={newCardCreating} onClick={() => setNewCardOpen(false)}>Cancel</button>
+              <button type="button" disabled={newCardCreating || !newCardTitle.trim()} onClick={() => createCard('close')}>Add card</button>
+              <button type="button" disabled={newCardCreating || !newCardTitle.trim()} onClick={() => createCard('continue')}>Add card &amp; more</button>
+              <button className="primaryAction" type="submit" disabled={newCardCreating || !newCardTitle.trim()}>Add and open</button>
             </div>
           </form>
         </div>
