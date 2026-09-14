@@ -368,10 +368,14 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             await board.load();
             return true;
           }}
-          onCleanup={async () => {
-            if (!await onCleanupCard(selectedCard)) return;
+          onCleanup={async (environmentRevision) => {
+            const current = selectedCard.environment
+              ? { ...selectedCard, environment: { ...selectedCard.environment, revision: environmentRevision } }
+              : selectedCard;
+            if (!await onCleanupCard(current)) return;
             await board.load();
           }}
+          onCardUpdated={setSelectedCard}
           onDelete={async () => {
             await board.remove(selectedCard.id);
             setSelectedCard(null);
@@ -391,7 +395,7 @@ type CardView = 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console'
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
 
-function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onClose, onMove, onOpenChat, onStartWork, onCleanup, onDelete, onReload }: {
+function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onClose, onMove, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
   card: KanbanCard;
   projects: Project[];
   terminalFontSize: number;
@@ -402,9 +406,10 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   onMove: (status: KanbanStatus) => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
   onStartWork: () => Promise<boolean>;
-  onCleanup: () => Promise<void>;
+  onCleanup: (environmentRevision: number) => Promise<void>;
   onDelete: () => Promise<void>;
   onReload: () => Promise<KanbanCard>;
+  onCardUpdated: (card: KanbanCard) => void;
 }) {
   const projectId = card.project_id ?? projects.find((candidate) => candidate.kanban_source === card.provider)?.id ?? '';
   const [working, setWorking] = useState(false);
@@ -421,6 +426,10 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const [shellTree, setShellTree] = useState<SplitNode>(() => card.environment?.split_layout ?? { kind: 'leaf', terminalId: initialShellId });
   const [focusedShellPane, setFocusedShellPane] = useState(() => card.environment?.focused_pane_id ?? initialShellId);
   const environmentRevisionRef = useRef(card.environment?.revision ?? 0);
+  const savedLayoutSignatureRef = useRef(layoutSignature(
+    card.environment?.split_layout ?? { kind: 'leaf', terminalId: initialShellId },
+    card.environment?.focused_pane_id ?? initialShellId,
+  ));
   const [pendingCloseShellPane, setPendingCloseShellPane] = useState<string | null>(null);
   const diffReview = useDiffReview(card.id);
   const sanitizedContent = useMemo(() => DOMPurify.sanitize(card.content, {
@@ -454,8 +463,10 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
       const updated = await onReload();
       environmentRevisionRef.current = updated.environment?.revision ?? 0;
       if (updated.environment) {
+        const focusedPane = updated.environment.focused_pane_id ?? collectLeafTerminalIds(updated.environment.split_layout)[0] ?? initialShellId;
+        savedLayoutSignatureRef.current = layoutSignature(updated.environment.split_layout, focusedPane);
         setShellTree(updated.environment.split_layout);
-        setFocusedShellPane(updated.environment.focused_pane_id ?? collectLeafTerminalIds(updated.environment.split_layout)[0] ?? initialShellId);
+        setFocusedShellPane(focusedPane);
       }
       setActionError(null);
     } catch (error) {
@@ -466,17 +477,28 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   }
 
   useEffect(() => {
-    if (!card.environment) return;
+    const environmentId = card.environment?.id;
+    if (!environmentId) return;
+    const signature = layoutSignature(shellTree, focusedShellPane);
+    if (signature === savedLayoutSignatureRef.current) return;
     const timer = window.setTimeout(() => {
       const panes: CardEnvironmentPane[] = shellTerminalIds.map((id, index) => ({
         id, role: 'shell', kind: 'terminal', command: null, sort_order: index,
       }));
       saveKanbanEnvironmentLayout(card.id, shellTree, focusedShellPane || null, panes, environmentRevisionRef.current)
-        .then((updated) => { environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current; })
+        .then((updated) => {
+          environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current;
+          savedLayoutSignatureRef.current = signature;
+          onCardUpdated(updated);
+        })
         .catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [card.id, card.environment, focusedShellPane, shellTerminalIds, shellTree]);
+  }, [card.id, card.environment?.id, focusedShellPane, shellTerminalIds, shellTree]);
+
+  useEffect(() => {
+    environmentRevisionRef.current = Math.max(environmentRevisionRef.current, card.environment?.revision ?? 0);
+  }, [card.environment?.revision]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -626,18 +648,18 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         case 'reopen': await onMove(card.environment ? 'approved' : 'ready'); return;
         case 'merge': {
           if (!card.environment) throw new Error('Card environment is missing');
-          const result = await mergeKanbanCard(card.id, card.workflow_revision, card.environment.revision);
+          const result = await mergeKanbanCard(card.id, card.workflow_revision, environmentRevisionRef.current);
           await onReload();
           window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
           return;
         }
-        case 'cleanup': await onCleanup(); return;
+        case 'cleanup': await onCleanup(environmentRevisionRef.current); return;
         case 'delete': await onDelete(); return;
         case 'set_merge_target': {
           if (!card.environment) throw new Error('Card environment is missing');
           const selected = await open({ directory: true, multiple: false, title: 'Select registered merge target worktree' });
           if (!selected) return;
-          await setKanbanMergeTarget(card.id, selected, card.environment.revision);
+          await setKanbanMergeTarget(card.id, selected, environmentRevisionRef.current);
           await onReload();
           return;
         }
@@ -871,6 +893,10 @@ function CardServiceTerminal({ mode, command, enabled, active, card, project, ca
       />
     </Suspense> : <div className="kanbanEmpty">{mode === 'server' ? 'Rails server' : 'Rails console'} is stopped. Use the play button in the tab to start it.</div>}
   </section>;
+}
+
+function layoutSignature(tree: SplitNode, focusedPaneId: string | null) {
+  return JSON.stringify([tree, focusedPaneId]);
 }
 
 function clearWrappedPrompt(term: import('@xterm/xterm').Terminal) {
