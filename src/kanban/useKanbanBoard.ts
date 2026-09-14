@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
-import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards } from './api';
+import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
 import type { CardProviderAdapter, KanbanCard, KanbanStatus } from './types';
 
 export function useKanbanBoard(provider: CardProviderAdapter | null) {
@@ -91,6 +91,12 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     return created;
   }
 
+  async function update(id: string, title: string, content: string) {
+    const updated = await updateLocalKanbanCard(id, title, content);
+    setCards((current) => current.map((card) => card.id === id ? updated : card));
+    return updated;
+  }
+
   async function interact(id: string) {
     await openKanbanCard(id);
   }
@@ -161,7 +167,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     }
   }
 
-  return { cards, loading, syncing, error, load, sync, createLocal, interact, remove, reorder, move, assignProject, loadDetails };
+  return { cards, loading, syncing, error, load, sync, createLocal, update, interact, remove, reorder, move, assignProject, loadDetails };
 }
 
 function cardAgentSession(paneId: string): { cardId: string; thread: 'planning' | 'work' } | null {

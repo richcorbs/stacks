@@ -15,6 +15,7 @@ import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { hasGitChanges, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
+import { canEditKanbanCard, hasDirtyCardDraft } from '../kanban/cardEditing';
 import { GithubStatusIcon } from './GithubStatusIcon';
 import { TerminalView } from './TerminalView';
 import { SplitView } from './WorkspaceTerminalTree';
@@ -358,6 +359,10 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           terminalScrollback={terminalScrollback}
           copyOnSelect={copyOnSelect}
           onClose={() => setSelectedCard(null)}
+          onUpdate={(title, content) => board.update(selectedCard.id, title, content).then((updated) => {
+            setSelectedCard(updated);
+            return updated;
+          })}
           onMove={(status) => board.move(selectedCard.id, status).then(setSelectedCard)}
           onOpenChat={async (projectId) => {
             const updated = await board.assignProject(selectedCard.id, projectId);
@@ -395,7 +400,7 @@ type CardView = 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console'
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
 
-function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onClose, onMove, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
+function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onClose, onUpdate, onMove, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
   card: KanbanCard;
   projects: Project[];
   terminalFontSize: number;
@@ -403,6 +408,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   terminalScrollback: number;
   copyOnSelect: boolean;
   onClose: () => void;
+  onUpdate: (title: string, content: string) => Promise<KanbanCard>;
   onMove: (status: KanbanStatus) => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
   onStartWork: () => Promise<boolean>;
@@ -416,6 +422,12 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const [workflowOperation, setWorkflowOperation] = useState<CardWorkflowAction['kind'] | null>(null);
   const [activeView, setActiveView] = useState<CardView>(() => card.status !== 'needs_refinement' && card.status !== 'ready' && card.project_id ? 'chat' : 'overview');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(card.title);
+  const [draftContent, setDraftContent] = useState(card.content);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const [reloadingCard, setReloadingCard] = useState(false);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
   const [serverRunning, setServerRunning] = useState(() => Boolean(getTerminalSession(cardTerminalId(card.id, 'server'))?.running));
@@ -441,6 +453,8 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const serverCommand = card.environment?.services.find((service) => service.name === 'server')?.command ?? '';
   const consoleCommand = card.environment?.services.find((service) => service.name === 'console')?.command ?? '';
   const statusLabel = KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
+  const editable = canEditKanbanCard(card);
+  const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card, projectAvailable: Boolean(projectId), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, card, projectId, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
@@ -456,6 +470,55 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
     cwd: cardPath,
     temporary: true,
   }])), [card.id, cardPath, shellTerminalIds]);
+
+  function beginEditing() {
+    if (!editable || activeView !== 'overview') return;
+    setDraftTitle(card.title);
+    setDraftContent(card.content);
+    setEditError(null);
+    setEditing(true);
+    requestAnimationFrame(() => titleInputRef.current?.focus());
+  }
+
+  function cancelEditing() {
+    setDraftTitle(card.title);
+    setDraftContent(card.content);
+    setEditError(null);
+    setEditing(false);
+  }
+
+  function confirmDiscardEdits() {
+    return !editing || !editDirty || window.confirm('Discard your unsaved card edits?');
+  }
+
+  function requestView(view: CardView) {
+    if (view === activeView) return true;
+    if (savingEdit || !confirmDiscardEdits()) return false;
+    if (editing) cancelEditing();
+    setActiveView(view);
+    return true;
+  }
+
+  function requestClose() {
+    if (savingEdit || !confirmDiscardEdits()) return;
+    onClose();
+  }
+
+  async function saveEdit() {
+    if (savingEdit) return;
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      const updated = await onUpdate(draftTitle, draftContent);
+      setDraftTitle(updated.title);
+      setDraftContent(updated.content);
+      setEditing(false);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   async function reloadCard() {
     setReloadingCard(true);
@@ -501,22 +564,42 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   }, [card.environment?.revision]);
 
   useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || pendingCloseShellPane || document.querySelector('.confirmModal')) return;
-      const focused = document.activeElement as HTMLElement | null;
-      if (isEditableElement(focused)) {
+    const handleDetailKeyboard = (event: KeyboardEvent) => {
+      if (pendingCloseShellPane || document.querySelector('.confirmModal')) return;
+      if (editing && event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
-        focused?.blur();
+        if (!savingEdit) cancelEditing();
         return;
       }
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
+      if (editing && event.key === 'Enter' && event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        saveEdit().catch(console.error);
+        return;
+      }
+      if (event.key === 'Escape') {
+        const focused = document.activeElement as HTMLElement | null;
+        if (isEditableElement(focused)) {
+          event.preventDefault();
+          event.stopPropagation();
+          focused?.blur();
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        requestClose();
+        return;
+      }
+      if (!editing && editable && activeView === 'overview' && event.key.toLocaleLowerCase() === 'e'
+        && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableElement(event.target)) {
+        event.preventDefault();
+        beginEditing();
+      }
     };
-    window.addEventListener('keydown', handleEscape, true);
-    return () => window.removeEventListener('keydown', handleEscape, true);
-  }, [onClose, pendingCloseShellPane]);
+    window.addEventListener('keydown', handleDetailKeyboard, true);
+    return () => window.removeEventListener('keydown', handleDetailKeyboard, true);
+  }, [activeView, card.content, card.title, draftContent, draftTitle, editable, editDirty, editing, onClose, onUpdate, pendingCloseShellPane, savingEdit]);
 
   useEffect(() => {
     const handleTabShortcut = (event: Event) => {
@@ -530,16 +613,16 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           5: serverCommand ? 'server' : undefined,
           6: consoleCommand ? 'console' : undefined,
         } as Partial<Record<number, CardView>>)[detail.number];
-        if (target && cardTabs.includes(target)) setActiveView(target);
+        if (target && cardTabs.includes(target)) requestView(target);
         return;
       }
       if (!detail?.direction || cardTabs.length === 0) return;
       const currentIndex = Math.max(0, cardTabs.indexOf(activeView));
-      setActiveView(cardTabs[(currentIndex + detail.direction + cardTabs.length) % cardTabs.length]);
+      requestView(cardTabs[(currentIndex + detail.direction + cardTabs.length) % cardTabs.length]);
     };
     window.addEventListener('stacks:card-tab-shortcut', handleTabShortcut);
     return () => window.removeEventListener('stacks:card-tab-shortcut', handleTabShortcut);
-  }, [activeView, cardTabs, consoleCommand, serverCommand]);
+  }, [activeView, card.content, card.title, cardTabs, consoleCommand, draftContent, draftTitle, editDirty, editing, serverCommand]);
 
   useEffect(() => {
     const splitTerminal = (direction: 'row' | 'column', requestedPane?: string) => {
@@ -683,31 +766,38 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
 
   const showChat = activeView === 'chat';
   return <>
-    <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={onClose}>
-      <article className={`kanbanDetail cardWorkspace${showChat ? ' chatActive' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
+    <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={requestClose}>
+      <article className={`kanbanDetail cardWorkspace${showChat ? ' chatActive' : ''}${editing ? ' editing' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
         <header>
-          <div>
+          <div className="kanbanDetailHeading">
             <div className="kanbanDetailHeaderMeta">
               <a href={card.card_url} onClick={(event) => openExternalLink(event, card.card_url)}>#{card.external_id}</a>
               <span className="kanbanCardStatus">{statusLabel}</span>
+              {editable && !editing && (
+                <button className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={beginEditing}>
+                  <span aria-hidden="true" />
+                </button>
+              )}
             </div>
-            <h2>{card.title}</h2>
+            {editing
+              ? <input ref={titleInputRef} className="kanbanCardTitleInput" aria-label="Card title" required value={draftTitle} onChange={(event) => { setDraftTitle(event.target.value); setEditError(null); }} />
+              : <h2>{card.title}</h2>}
           </div>
-          <button type="button" aria-label="Close card" onClick={onClose}>×</button>
+          <button type="button" aria-label="Close card" onClick={requestClose}>×</button>
         </header>
         <nav className="cardWorkspaceTabs" aria-label="Card views">
-          <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => setActiveView('overview')}>Card</button>
-          <button className={showChat ? 'active' : ''} type="button" disabled={!project} onClick={() => setActiveView('chat')}>Agent</button>
-          <button className={activeView === 'diff' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => setActiveView('diff')}>Diff</button>
-          <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => setActiveView('terminal')}>Terminal</button>
+          <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => requestView('overview')}>Card</button>
+          <button className={showChat ? 'active' : ''} type="button" disabled={!project} onClick={() => requestView('chat')}>Agent</button>
+          <button className={activeView === 'diff' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => requestView('diff')}>Diff</button>
+          <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => requestView('terminal')}>Terminal</button>
           {cardPath && (serverCommand || consoleCommand) && (
             <span className="cardServiceTabs" aria-label="Card services">
               {serverCommand && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
-                <button className="cardServiceTabLabel" type="button" onClick={() => setActiveView('server')}>Server</button>
+                <button className="cardServiceTabLabel" type="button" onClick={() => requestView('server')}>Server</button>
                 <button className={`cardServiceToggle${serverRunning ? ' running' : ''}`} type="button" onClick={() => toggleService('server')} aria-label={serverEnabled ? 'Stop server' : 'Start server'} aria-pressed={serverEnabled}><span className={serverEnabled ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
               </span>}
               {consoleCommand && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
-                <button className="cardServiceTabLabel" type="button" onClick={() => setActiveView('console')}>Console</button>
+                <button className="cardServiceTabLabel" type="button" onClick={() => requestView('console')}>Console</button>
                 <button className={`cardServiceToggle${consoleRunning ? ' running' : ''}`} type="button" onClick={() => toggleService('console')} aria-label={consoleEnabled ? 'Stop console' : 'Start console'} aria-pressed={consoleEnabled}><span className={consoleEnabled ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
               </span>}
             </span>
@@ -719,13 +809,18 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
             {reloadingCard ? 'Reloading…' : 'Reload card'}
           </button>
         </div>}
-        <section className={`kanbanDetailContent cardView${activeView === 'overview' ? ' active' : ''}`}>
-          {card.content
+        <section className={`kanbanDetailContent cardView${activeView === 'overview' ? ' active' : ''}${editing ? ' editing' : ''}`}>
+          {editing ? (
+            <div className="kanbanCardDescriptionEditor">
+              <textarea aria-label="Card description" value={draftContent} onChange={(event) => { setDraftContent(event.target.value); setEditError(null); }} />
+              {editError && <div className="kanbanEditError" role="alert">{editError}</div>}
+            </div>
+          ) : card.content
             ? card.provider === 'local'
               ? <div className="kanbanLocalDescription">{card.content}</div>
               : <div dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
             : <p className="kanbanMuted">No description.</p>}
-          {card.events.length > 0 && <details className="cardHistory">
+          {!editing && card.events.length > 0 && <details className="cardHistory">
             <summary>History ({card.events.length})</summary>
             <ol>{card.events.map((event) => <li key={event.id}>
               <time>{new Date(event.created_at * 1000).toLocaleString()}</time>
@@ -817,29 +912,36 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         </section>
         {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={serverEnabled} active={activeView === 'server'} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={consoleEnabled} active={activeView === 'console'} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        <footer className="cardWorkflowFooter">
-          <div className="cardFooterSecondary" aria-label="Tab controls">
-            {activeView === 'diff' && <button type="button" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>Refresh diff</button>}
-            {activeView === 'terminal' && <span className="kanbanMuted">Commands run in the card worktree.</span>}
-            {(activeView === 'server' || activeView === 'console') && <span className="kanbanMuted">Controls are in the tab.</span>}
-          </div>
-          <div className="cardFooterContext" aria-live="polite">
-            <strong>{statusLabel}</strong>
-            {working && <span>Working…</span>}
-            {!working && actionError && !actionError.includes('environment changed') && <span className="cardFooterError" role="alert">{actionError}</span>}
-            {!working && !actionError && card.status === 'merged' && !card.environment && <span>A new environment is required to resume work.</span>}
-          </div>
-          <div className="cardFooterActions" aria-label="Workflow actions">
-            {workflowActions.map((action) => <button
-              key={action.kind}
-              type="button"
-              className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}`}
-              disabled={working || Boolean(action.disabledReason)}
-              title={action.disabledReason}
-              aria-label={action.label}
-              onClick={() => performWorkflowAction(action)}
-            >{action.loading ? 'Working…' : action.label}</button>)}
-          </div>
+        <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
+          {editing ? (
+            <div className="kanbanEditActions">
+              <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
+              <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>{savingEdit ? 'Saving…' : 'Save'}</button>
+            </div>
+          ) : <>
+            <div className="cardFooterSecondary" aria-label="Tab controls">
+              {activeView === 'diff' && <button type="button" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>Refresh diff</button>}
+              {activeView === 'terminal' && <span className="kanbanMuted">Commands run in the card worktree.</span>}
+              {(activeView === 'server' || activeView === 'console') && <span className="kanbanMuted">Controls are in the tab.</span>}
+            </div>
+            <div className="cardFooterContext" aria-live="polite">
+              <strong>{statusLabel}</strong>
+              {working && <span>Working…</span>}
+              {!working && actionError && !actionError.includes('environment changed') && <span className="cardFooterError" role="alert">{actionError}</span>}
+              {!working && !actionError && card.status === 'merged' && !card.environment && <span>A new environment is required to resume work.</span>}
+            </div>
+            <div className="cardFooterActions" aria-label="Workflow actions">
+              {workflowActions.map((action) => <button
+                key={action.kind}
+                type="button"
+                className={`${action.primary ? 'primaryAction' : ''}${action.destructive ? ' destructiveAction' : ''}`}
+                disabled={working || Boolean(action.disabledReason)}
+                title={action.disabledReason}
+                aria-label={action.label}
+                onClick={() => performWorkflowAction(action)}
+              >{action.loading ? 'Working…' : action.label}</button>)}
+            </div>
+          </>}
         </footer>
       </article>
     </div>
