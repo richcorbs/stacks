@@ -1,5 +1,6 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { open } from '@tauri-apps/plugin-dialog';
 import DOMPurify from 'dompurify';
 import type { Project, SplitNode, TerminalEntry } from '../types';
@@ -29,6 +30,7 @@ import { selectedKanbanProject, shouldEnableSuperthreadProvider, visibleSuperthr
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
+import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -65,6 +67,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const [newCardError, setNewCardError] = useState<string | null>(null);
   const [newCardCreating, setNewCardCreating] = useState(false);
   const newCardTitleRef = useRef<HTMLInputElement | null>(null);
+  const clipboardOperationRef = useRef(new WeakMap<HTMLInputElement | HTMLTextAreaElement, number>());
   const visibleCards = useMemo(() => board.cards.filter((card) => selectedProjectIsSuperthread
     ? card.provider === 'superthread'
     : card.project_id === selectedProject?.id && card.provider === 'local'),
@@ -140,6 +143,28 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     const current = board.cards.find((card) => card.id === selectedCard.id);
     if (current && current !== selectedCard) setSelectedCard(current);
   }, [board.cards, selectedCard]);
+
+  function invalidateClipboardOperation(control: HTMLInputElement | HTMLTextAreaElement) {
+    clipboardOperationRef.current.set(control, (clipboardOperationRef.current.get(control) ?? 0) + 1);
+  }
+
+  function handleNewCardClipboard(
+    event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+    setValue: (value: string) => void,
+  ) {
+    const control = event.currentTarget;
+    const operation = (clipboardOperationRef.current.get(control) ?? 0) + 1;
+    clipboardOperationRef.current.set(control, operation);
+    void handleEditableClipboardKeyDown({
+      event,
+      isCurrent: () => clipboardOperationRef.current.get(control) === operation,
+      readText,
+      requestFrame: (callback) => requestAnimationFrame(callback),
+      setValue,
+      showError: (message) => window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } })),
+      writeText,
+    });
+  }
 
   async function createCard(outcome: 'close' | 'continue' | 'open') {
     if (newCardCreating || !selectedProject || selectedProject.kanban_source === 'superthread' || !newCardTitle.trim()) return;
@@ -413,8 +438,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             createCard('open');
           }}>
             <h2>Add card</h2>
-            <label>Title<input ref={newCardTitleRef} autoFocus disabled={newCardCreating} value={newCardTitle} onChange={(event) => setNewCardTitle(event.target.value)} /></label>
-            <label>Description<textarea rows={8} disabled={newCardCreating} value={newCardDescription} onChange={(event) => setNewCardDescription(event.target.value)} /></label>
+            <label>Title<input ref={newCardTitleRef} autoFocus disabled={newCardCreating} value={newCardTitle} onChange={(event) => { invalidateClipboardOperation(event.currentTarget); setNewCardTitle(event.target.value); }} onKeyDown={(event) => handleNewCardClipboard(event, setNewCardTitle)} /></label>
+            <label>Description<textarea rows={8} disabled={newCardCreating} value={newCardDescription} onChange={(event) => { invalidateClipboardOperation(event.currentTarget); setNewCardDescription(event.target.value); }} onKeyDown={(event) => handleNewCardClipboard(event, setNewCardDescription)} /></label>
             {newCardError && <div className="kanbanEditError" role="alert">{newCardError}</div>}
             <div className="modalActions">
               <button type="button" disabled={newCardCreating} onClick={() => setNewCardOpen(false)}>Cancel</button>
