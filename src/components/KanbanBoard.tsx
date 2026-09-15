@@ -45,6 +45,7 @@ import { CardEnvironmentBranch } from './CardEnvironmentBranch';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 import { initialCardView, type CardView } from '../kanban/cardView';
 import { candidateParents, childCountLabel, hierarchyStatusLabel, statusLabel as childStatusLabel } from '../kanban/hierarchy';
+import { useWorkflowOperation } from '../kanban/useWorkflowOperation';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -681,9 +682,8 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   onNavigate: (id: string) => void;
 }) {
   const projectId = card.project_id ?? '';
-  const [working, setWorking] = useState(false);
-  const [workflowOperation, setWorkflowOperation] = useState<CardWorkflowAction['kind'] | null>(null);
-  const workflowRunningRef = useRef(false);
+  const workflow = useWorkflowOperation();
+  const { operation: workflowOperation, working } = workflow;
   const [activeView, setActiveView] = useState<CardView>(() => card.hierarchy_finalized ? 'overview' : initialCardView(initialView));
   const [actionError, setActionError] = useState<string | null>(null);
   const [recheckingEnvironment, setRecheckingEnvironment] = useState(false);
@@ -1058,23 +1058,11 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
     setEnabled(false);
   }
 
-  async function run(action: () => Promise<unknown>, operation: CardWorkflowAction['kind'] | null = null) {
-    if (workflowRunningRef.current) return;
-    workflowRunningRef.current = true;
-    setWorking(true);
-    setWorkflowOperation(operation);
-    try { await action(); } finally {
-      workflowRunningRef.current = false;
-      setWorking(false);
-      setWorkflowOperation(null);
-    }
-  }
-
   async function performWorkflowAction(action: CardWorkflowAction) {
-    if (workflowRunningRef.current || action.disabledReason) return;
+    if (workflow.isRunning() || action.disabledReason) return;
     if (action.confirmation && !window.confirm(`${action.confirmation.title}\n\n${action.confirmation.detail}`)) return;
     setActionError(null);
-    await run(async () => {
+    await workflow.run(action.kind, async () => {
       switch (action.kind) {
         case 'open_refinement':
           if (!projectId) return;
@@ -1139,8 +1127,8 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
         }
         case 'delete': await onDelete(); return;
       }
-    }, action.kind).then(() => {
-      if (['start_work', 'ship', 'ship_with_fe', 'merge_local', 'cleanup', 'close'].includes(action.kind)) {
+    }).then((started) => {
+      if (started && ['start_work', 'ship', 'ship_with_fe', 'merge_local', 'cleanup', 'close'].includes(action.kind)) {
         window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
       }
     }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
