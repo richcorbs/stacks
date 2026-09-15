@@ -120,17 +120,20 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
 
 #[tauri::command]
 pub fn load_store() -> Result<ProjectStore, String> {
-    kanban::with_connection(|connection| {
-        migrate_store_schema(connection)?;
-        let count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
-            .map_err(db_error)?;
-        if count == 0 {
-            migrate_legacy_json(connection)?;
-        }
-        migrate_legacy_card_environments(connection)?;
-        read_store(connection)
-    })
+    kanban::with_connection(|connection| read_store(connection))
+}
+
+pub(crate) fn migrate_legacy_data(
+    connection: &mut Connection,
+    import_legacy_json: bool,
+) -> Result<(), String> {
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
+        .map_err(db_error)?;
+    if import_legacy_json && count == 0 {
+        migrate_legacy_json(connection)?;
+    }
+    migrate_legacy_card_environments(connection)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -148,7 +151,6 @@ fn pi_project_scope_from_connection(
     connection: &Connection,
     project_id: &str,
 ) -> Result<PiProjectScope, String> {
-    migrate_store_schema(connection)?;
     connection
         .query_row(
             "SELECT id, name, COALESCE(kanban_source, 'local') FROM projects WHERE id = ?1",
@@ -171,10 +173,7 @@ fn pi_project_scope_from_connection(
 
 #[tauri::command]
 pub fn save_store(store: ProjectStore) -> Result<(), String> {
-    kanban::with_connection(|connection| {
-        migrate_store_schema(connection)?;
-        write_store(connection, &store)
-    })?;
+    kanban::with_connection(|connection| write_store(connection, &store))?;
     write_legacy_json_mirror(&store)
 }
 

@@ -174,6 +174,7 @@ pub fn run() {
             cancel_workspace_setup,
         ])
         .setup(|app| {
+            kanban::initialize_database().map_err(std::io::Error::other)?;
             kanban::set_app_handle(app.handle().clone());
             setup_main_window(app)?;
             let state = app.state::<AutomationState>().inner().clone();
@@ -185,5 +186,8 @@ pub fn run() {
         .run(tauri::generate_context!());
 
     automation::cleanup_server(&automation_state);
-    run_result.expect("error while running tauri application");
+    if let Err(error) = run_result {
+        eprintln!("Stacks failed to start: {error}");
+        std::process::exit(1);
+    }
 }

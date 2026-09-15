@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter};
 static REPOSITORY_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static BOARD_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+static DATABASE_INITIALIZATION: OnceLock<Result<(), String>> = OnceLock::new();
 
 pub(crate) fn set_app_handle(app: AppHandle) {
     let _ = APP_HANDLE.set(app);
@@ -676,7 +677,6 @@ pub(crate) fn validate_card_pi_start(
     supplied_project_id: &str,
 ) -> Result<(), String> {
     with_connection(|connection| {
-        crate::store::migrate_store_schema(connection)?;
         let (project_id, provider, project_path): (String, String, String) = connection.query_row(
             "SELECT c.project_id, c.external_provider, p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
             [card_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -806,7 +806,6 @@ fn safe_card_key(id: &str) -> String {
 }
 
 fn unique_superthread_project_id(connection: &Connection) -> Result<String, String> {
-    crate::store::migrate_store_schema(connection)?;
     let ids = connection
         .prepare("SELECT id FROM projects WHERE kanban_source = 'superthread' ORDER BY id")
         .map_err(db_error)?
@@ -822,14 +821,19 @@ fn unique_superthread_project_id(connection: &Connection) -> Result<String, Stri
 }
 
 fn reconcile_card_ownership(connection: &Connection) -> Result<(), String> {
-    crate::store::migrate_store_schema(connection)?;
-    let superthread_ids = connection
-        .prepare("SELECT id FROM projects WHERE kanban_source = 'superthread' ORDER BY id")
+    let projects = connection
+        .prepare("SELECT id, COALESCE(kanban_source, 'local') FROM projects ORDER BY id")
         .map_err(db_error)?
-        .query_map([], |row| row.get::<_, String>(0))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(db_error)?
-        .collect::<Result<Vec<_>, _>>()
+        .collect::<Result<HashMap<_, _>, _>>()
         .map_err(db_error)?;
+    let superthread_ids = projects
+        .iter()
+        .filter_map(|(id, source)| (source == "superthread").then(|| id.clone()))
+        .collect::<Vec<_>>();
     let rows = connection
         .prepare("SELECT id, external_provider, project_id, board_id FROM kanban_cards ORDER BY id")
         .map_err(db_error)?
@@ -862,19 +866,11 @@ fn reconcile_card_ownership(connection: &Connection) -> Result<(), String> {
         } else {
             return Err(format!("Card {id} uses unsupported provider {provider}."));
         };
-        let source: Option<String> = connection
-            .query_row(
-                "SELECT COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
-                [&owner],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db_error)?;
+        let source = projects.get(&owner).map(String::as_str);
         let compatible = matches!(
-            (provider.as_str(), source.as_deref()),
+            (provider.as_str(), source),
             ("superthread", Some("superthread"))
-        ) || (provider.starts_with("local:")
-            && source.as_deref() == Some("local"));
+        ) || (provider.starts_with("local:") && source == Some("local"));
         if !compatible {
             return Err(format!("Card {id} references missing or incompatible project {owner}. Repair its project configuration before using the board."));
         }
@@ -1465,7 +1461,6 @@ pub fn kanban_environment_start_preflight(
         if status != "ready" {
             return Err("The card must be Ready for agent before work can start".to_string());
         }
-        crate::store::migrate_store_schema(connection)?;
         let source: String = connection
             .query_row(
                 "SELECT COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
@@ -2351,7 +2346,9 @@ fn refresh_pull_request(
 }
 
 #[tauri::command]
-pub async fn kanban_refresh_pull_request(id: String) -> Result<KanbanPullRequestRefreshResult, String> {
+pub async fn kanban_refresh_pull_request(
+    id: String,
+) -> Result<KanbanPullRequestRefreshResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let refresh_result = with_connection(|connection| refresh_pull_request(connection, &id));
         let error = refresh_result.err();
@@ -2474,6 +2471,63 @@ fn next_local_card_number(connection: &Connection, project_id: &str) -> Result<i
         .map_err(db_error)
 }
 
+pub(crate) fn initialize_database() -> Result<(), String> {
+    initialize_once(&DATABASE_INITIALIZATION, || {
+        let path = app_data_file("workflow.sqlite3")
+            .map_err(|error| format!("Could not locate the Kanban database: {error}"))?;
+        let mut connection = Connection::open(&path).map_err(|error| {
+            format!(
+                "Could not open the Kanban database at {}: {error}",
+                path.display()
+            )
+        })?;
+        configure_connection(&connection)?;
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(|error| format!("Could not enable WAL mode: {error}"))?;
+        initialize_connection(&mut connection, true)
+    })
+}
+
+fn initialize_once(
+    state: &OnceLock<Result<(), String>>,
+    initialize: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    state.get_or_init(initialize).clone()
+}
+
+fn initialize_connection(
+    connection: &mut Connection,
+    import_legacy_json: bool,
+) -> Result<(), String> {
+    migrate(connection).map_err(|error| format!("Could not initialize Kanban schema: {error}"))?;
+    crate::store::migrate_store_schema(connection)
+        .map_err(|error| format!("Could not initialize project-store schema: {error}"))?;
+    crate::project_direct::migrate(connection)
+        .map_err(|error| format!("Could not initialize Direct-work schema: {error}"))?;
+    crate::store::migrate_legacy_data(connection, import_legacy_json)
+        .map_err(|error| format!("Could not initialize legacy project data: {error}"))?;
+    connection
+        .pragma_update(None, "foreign_keys", "ON")
+        .map_err(|error| format!("Could not re-enable database foreign keys: {error}"))?;
+    let foreign_keys: i64 = connection
+        .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+        .map_err(db_error)?;
+    if foreign_keys != 1 {
+        return Err("Database initialization completed without foreign keys enabled".to_string());
+    }
+    Ok(())
+}
+
+fn configure_connection(connection: &Connection) -> Result<(), String> {
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| format!("Could not configure the database busy timeout: {error}"))?;
+    connection
+        .pragma_update(None, "foreign_keys", "ON")
+        .map_err(|error| format!("Could not enable database foreign keys: {error}"))
+}
+
 pub(crate) fn with_connection<T>(
     work: impl FnOnce(&mut Connection) -> Result<T, String>,
 ) -> Result<T, String> {
@@ -2487,10 +2541,7 @@ pub(crate) fn with_connection<T>(
         .map_err(|_| "Kanban board operation lock failed".to_string())?;
     let path = app_data_file("workflow.sqlite3")?;
     let mut connection = Connection::open(path).map_err(db_error)?;
-    connection
-        .busy_timeout(std::time::Duration::from_secs(5))
-        .map_err(db_error)?;
-    migrate(&connection)?;
+    configure_connection(&connection)?;
     let before = serialized_board_entities(&mut connection)?;
     let result = work(&mut connection);
     let after = serialized_board_entities(&mut connection)?;
@@ -2609,9 +2660,7 @@ fn commit_board_revision(
 
 pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     connection.execute_batch(
-        "PRAGMA journal_mode = WAL;
-         PRAGMA foreign_keys = ON;
-         CREATE TABLE IF NOT EXISTS schema_migrations (
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY,
             applied_at INTEGER NOT NULL
          );
@@ -2986,12 +3035,10 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
         let mapped = statement.query_map([], map_card).map_err(db_error)?;
         mapped.collect::<Result<Vec<_>, _>>().map_err(db_error)?
     };
-    for card in &mut cards {
-        card.environment = load_environment(connection, &card.id)?;
-        card.pull_request = load_pull_request(connection, card)?;
-        card.events = load_events(connection, &card.id)?;
-    }
-    enrich_relationships(connection, &mut cards)?;
+    load_environments_batched(connection, &mut cards)?;
+    load_pull_requests_batched(connection, &mut cards)?;
+    load_events_batched(connection, &mut cards)?;
+    enrich_relationships_batched(connection, &mut cards)?;
     Ok(cards)
 }
 
@@ -3014,6 +3061,90 @@ fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, Str
         *card = cards.remove(0);
     }
     Ok(card)
+}
+
+fn enrich_relationships_batched(
+    connection: &Connection,
+    cards: &mut [KanbanCard],
+) -> Result<(), String> {
+    let indexes = cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| (card.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    {
+        let mut statement = connection
+            .prepare(
+                "SELECT c.id, p.id, p.external_id, p.title, p.status
+             FROM kanban_cards c JOIN kanban_cards p ON p.id=c.parent_id
+             WHERE c.in_scope=1",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    CardRelationshipSummary {
+                        id: row.get(1)?,
+                        external_id: row.get(2)?,
+                        title: row.get(3)?,
+                        status: row.get(4)?,
+                    },
+                ))
+            })
+            .map_err(db_error)?;
+        for row in rows {
+            let (card_id, parent) = row.map_err(db_error)?;
+            if let Some(index) = indexes.get(&card_id) {
+                cards[*index].parent = Some(parent);
+            }
+        }
+    }
+    {
+        let mut statement = connection
+            .prepare(
+                "SELECT parent_id, id, external_id, title, status FROM kanban_cards
+             WHERE in_scope=1 AND parent_id IS NOT NULL
+             ORDER BY parent_id, created_at, CAST(external_id AS INTEGER), id",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    CardRelationshipSummary {
+                        id: row.get(1)?,
+                        external_id: row.get(2)?,
+                        title: row.get(3)?,
+                        status: row.get(4)?,
+                    },
+                ))
+            })
+            .map_err(db_error)?;
+        for row in rows {
+            let (parent_id, child) = row.map_err(db_error)?;
+            if let Some(index) = indexes.get(&parent_id) {
+                cards[*index].children.push(child);
+            }
+        }
+    }
+    for card in cards {
+        card.child_count = card.child_count.max(card.children.len() as u64);
+        if card.hierarchy_finalized && !card.children.is_empty() {
+            card.status = card
+                .children
+                .iter()
+                .min_by_key(|child| {
+                    STATUSES
+                        .iter()
+                        .position(|status| *status == child.status)
+                        .unwrap_or(STATUSES.len())
+                })
+                .map(|child| child.status.clone())
+                .unwrap_or(card.status.clone());
+        }
+    }
+    Ok(())
 }
 
 fn relationship_summary(
@@ -3104,6 +3235,192 @@ fn enrich_relationships(connection: &Connection, cards: &mut [KanbanCard]) -> Re
     Ok(())
 }
 
+fn load_environments_batched(
+    connection: &Connection,
+    cards: &mut [KanbanCard],
+) -> Result<(), String> {
+    let indexes = cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| (card.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let mut environment_indexes = HashMap::new();
+    {
+        let mut statement = connection.prepare(
+            "SELECT e.card_id, e.id, e.project_id, e.worktree_path, e.branch, e.repository_id,
+                    e.target_checkout_path, e.target_branch, e.source_revision, e.target_revision,
+                    e.lifecycle_state, e.revision, l.split_layout, l.focused_pane_id, l.layout_revision
+             FROM card_environments e
+             JOIN kanban_cards c ON c.id=e.card_id
+             LEFT JOIN card_layouts l ON l.environment_id=e.id
+             WHERE c.in_scope=1"
+        ).map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                let layout = row.get::<_, Option<String>>(12)?;
+                Ok((
+                    row.get::<_, String>(0)?,
+                    CardEnvironment {
+                        id: row.get(1)?,
+                        card_id: row.get(0)?,
+                        project_id: row.get(2)?,
+                        worktree_path: row.get(3)?,
+                        branch: row.get(4)?,
+                        repository_id: row.get(5)?,
+                        target_checkout_path: row.get(6)?,
+                        target_branch: row.get(7)?,
+                        source_revision: row.get(8)?,
+                        target_revision: row.get(9)?,
+                        lifecycle_state: row.get(10)?,
+                        revision: row.get(11)?,
+                        split_layout: layout
+                            .and_then(|value| serde_json::from_str(&value).ok())
+                            .unwrap_or(serde_json::json!({"kind":"empty"})),
+                        focused_pane_id: row.get(13)?,
+                        layout_revision: row.get::<_, Option<i64>>(14)?.unwrap_or(1),
+                        panes: Vec::new(),
+                    },
+                ))
+            })
+            .map_err(db_error)?;
+        for row in rows {
+            let (card_id, environment) = row.map_err(db_error)?;
+            if let Some(index) = indexes.get(&card_id) {
+                environment_indexes.insert(environment.id.clone(), *index);
+                cards[*index].environment = Some(environment);
+            }
+        }
+    }
+    let mut statement = connection
+        .prepare(
+            "SELECT p.environment_id, p.id, p.role, p.kind, p.command, p.sort_order
+         FROM card_panes p JOIN card_environments e ON e.id=p.environment_id
+         JOIN kanban_cards c ON c.id=e.card_id WHERE c.in_scope=1
+         ORDER BY p.environment_id, p.sort_order",
+        )
+        .map_err(db_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CardPane {
+                    id: row.get(1)?,
+                    role: row.get(2)?,
+                    kind: row.get(3)?,
+                    command: row.get(4)?,
+                    sort_order: row.get(5)?,
+                },
+            ))
+        })
+        .map_err(db_error)?;
+    for row in rows {
+        let (environment_id, pane) = row.map_err(db_error)?;
+        if let Some(index) = environment_indexes.get(&environment_id) {
+            if let Some(environment) = &mut cards[*index].environment {
+                environment.panes.push(pane);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn load_pull_requests_batched(
+    connection: &Connection,
+    cards: &mut [KanbanCard],
+) -> Result<(), String> {
+    let indexes = cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| (card.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let mut statement = connection
+        .prepare(
+            "SELECT pr.card_id, pr.repository, pr.number, pr.title, pr.url, pr.state, pr.draft,
+                pr.ci_status, pr.review_state, pr.has_conflicts, pr.mergeable,
+                p.require_passing_ci, p.require_approval
+         FROM card_pull_requests pr JOIN kanban_cards c ON c.id=pr.card_id
+         LEFT JOIN projects p ON p.id=c.project_id WHERE c.in_scope=1",
+        )
+        .map_err(db_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            let policies = (
+                row.get::<_, Option<i64>>(11)?
+                    .map(|value| value != 0)
+                    .unwrap_or(true),
+                row.get::<_, Option<i64>>(12)?
+                    .map(|value| value != 0)
+                    .unwrap_or(false),
+            );
+            Ok((
+                row.get::<_, String>(0)?,
+                CardPullRequest {
+                    repository: row.get(1)?,
+                    number: row.get::<_, i64>(2)? as u64,
+                    title: row.get(3)?,
+                    url: row.get(4)?,
+                    state: row.get(5)?,
+                    draft: row.get::<_, i64>(6)? != 0,
+                    ci_status: row.get(7)?,
+                    review_state: row.get(8)?,
+                    has_conflicts: row.get::<_, i64>(9)? != 0,
+                    mergeable: row.get::<_, i64>(10)? != 0,
+                    blockers: Vec::new(),
+                },
+                policies,
+            ))
+        })
+        .map_err(db_error)?;
+    for row in rows {
+        let (card_id, mut pull_request, policies) = row.map_err(db_error)?;
+        apply_pull_request_policy(&mut pull_request, policies);
+        if let Some(index) = indexes.get(&card_id) {
+            cards[*index].pull_request = Some(pull_request);
+        }
+    }
+    Ok(())
+}
+
+fn load_events_batched(connection: &Connection, cards: &mut [KanbanCard]) -> Result<(), String> {
+    let indexes = cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| (card.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let mut statement = connection.prepare(
+        "SELECT card_id, id, created_at, actor, event_type, outcome, from_status, to_status, summary, error_code, error_detail
+         FROM (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.card_id ORDER BY e.created_at DESC, e.id DESC) AS event_rank
+               FROM card_events e JOIN kanban_cards c ON c.id=e.card_id WHERE c.in_scope=1)
+         WHERE event_rank <= 100 ORDER BY card_id, created_at DESC, id DESC"
+    ).map_err(db_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CardEvent {
+                    id: row.get(1)?,
+                    created_at: row.get(2)?,
+                    actor: row.get(3)?,
+                    event_type: row.get(4)?,
+                    outcome: row.get(5)?,
+                    from_status: row.get(6)?,
+                    to_status: row.get(7)?,
+                    summary: row.get(8)?,
+                    error_code: row.get(9)?,
+                    error_detail: row.get(10)?,
+                },
+            ))
+        })
+        .map_err(db_error)?;
+    for row in rows {
+        let (card_id, event) = row.map_err(db_error)?;
+        if let Some(index) = indexes.get(&card_id) {
+            cards[*index].events.push(event);
+        }
+    }
+    Ok(())
+}
+
 fn load_pull_request(
     connection: &Connection,
     card: &KanbanCard,
@@ -3131,6 +3448,11 @@ fn load_pull_request(
                 .flatten()
         })
         .unwrap_or((true, false));
+    apply_pull_request_policy(&mut pull_request, policies);
+    Ok(Some(pull_request))
+}
+
+fn apply_pull_request_policy(pull_request: &mut CardPullRequest, policies: (bool, bool)) {
     if pull_request.state != "open" {
         pull_request.blockers.push(
             if pull_request.state == "merged" {
@@ -3177,7 +3499,6 @@ fn load_pull_request(
             .blockers
             .push("A current approval is required".to_string());
     }
-    Ok(Some(pull_request))
 }
 
 fn load_events(connection: &Connection, card_id: &str) -> Result<Vec<CardEvent>, String> {
@@ -3312,7 +3633,6 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
 }
 
 fn validate_card_environment_project(connection: &Connection, card_id: &str) -> Result<(), String> {
-    crate::store::migrate_store_schema(connection)?;
     let (card_project, environment_project, repository_id, provider): (String, String, Option<String>, String) = connection.query_row(
         "SELECT c.project_id, e.project_id, e.repository_id, c.external_provider FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
         [card_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -3410,7 +3730,6 @@ fn environment_health(
             source_step,
         ));
     }
-    crate::store::migrate_store_schema(connection)?;
     let project_path: Option<String> = connection
         .query_row(
             "SELECT path FROM projects WHERE id=?1",
@@ -3854,6 +4173,16 @@ fn db_error(error: rusqlite::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TRACED_READS: AtomicUsize = AtomicUsize::new(0);
+
+    fn count_traced_reads(sql: &str) {
+        let sql = sql.trim_start();
+        if sql.starts_with("SELECT") || sql.starts_with("WITH") {
+            TRACED_READS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 
     fn test_project(connection: &Connection, id: &str, source: &str, path: &str) {
         crate::store::migrate_store_schema(connection).unwrap();
@@ -3957,6 +4286,7 @@ mod tests {
     fn reorder_retry_is_idempotent_and_uses_one_timestamp() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
+        crate::store::migrate_store_schema(&connection).unwrap();
         for (index, id) in ["a", "hidden", "b"].iter().enumerate() {
             insert_ordered_card(&connection, id, "ready", index as i64, 10 + index as i64);
         }
@@ -4003,6 +4333,7 @@ mod tests {
     fn concurrent_reorder_conflicts_without_overwriting_first_order() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
+        crate::store::migrate_store_schema(&connection).unwrap();
         for (index, id) in ["a", "b", "c"].iter().enumerate() {
             insert_ordered_card(&connection, id, "ready", index as i64, 1);
         }
@@ -4119,6 +4450,7 @@ mod tests {
     fn reorder_uses_aggregate_parents_effective_child_lane() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
+        crate::store::migrate_store_schema(&connection).unwrap();
         insert_ordered_card(&connection, "parent", "ready", 0, 1);
         insert_ordered_card(&connection, "child", "needs_human", 1, 1);
         connection
@@ -4192,6 +4524,7 @@ mod tests {
     fn revision_bookkeeping_touches_derived_relationships_once_per_transaction() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
+        crate::store::migrate_store_schema(&connection).unwrap();
         connection
             .execute_batch(
                 "INSERT INTO kanban_cards
@@ -4241,6 +4574,7 @@ mod tests {
     fn revisions_report_deletion_and_card_order_has_stable_id_tie_breaker() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
+        crate::store::migrate_store_schema(&connection).unwrap();
         connection.execute_batch("INSERT INTO kanban_cards(id,external_provider,external_id,title,created_at,updated_at,sort_order)
             VALUES ('z','local:p','1','Z',1,1,0), ('a','local:p','2','A',1,1,0);").unwrap();
         assert_eq!(
@@ -4261,6 +4595,256 @@ mod tests {
             .unwrap();
         assert_eq!(change.removed_ids, vec!["a"]);
         assert_eq!(change.board_revision, 1);
+    }
+
+    fn aggregate_test_connection() -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        crate::store::migrate_store_schema(&connection).unwrap();
+        test_project(&connection, "one", "local", "/one");
+        test_project(&connection, "two", "local", "/two");
+        connection
+            .execute(
+                "UPDATE projects SET require_passing_ci=1, require_approval=1 WHERE id='one'",
+                [],
+            )
+            .unwrap();
+        for (id, project, external_id, status, parent_id, finalized, created, order) in [
+            ("local:parent", "one", "10", "approved", None, 1, 3, 0),
+            (
+                "local:child",
+                "one",
+                "2",
+                "needs_human",
+                Some("local:parent"),
+                0,
+                1,
+                1,
+            ),
+            ("local:other", "two", "1", "ready", None, 0, 2, 1),
+        ] {
+            connection.execute(
+                "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,project_id,parent_id,hierarchy_finalized,created_at,updated_at,sort_order)
+                 VALUES (?1,?2,?3,?1,?4,?5,?6,?7,?8,?8,?9)",
+                params![id, format!("local:{project}"), external_id, status, project, parent_id, finalized, created, order],
+            ).unwrap();
+        }
+        for (card_id, environment_id, project_id) in [
+            ("local:child", "environment:child", "one"),
+            ("local:other", "environment:other", "two"),
+        ] {
+            connection.execute(
+                "INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,lifecycle_state,revision,created_at,updated_at)
+                 VALUES (?1,?2,?3,?4,'feature','ready',4,1,1)",
+                params![environment_id, card_id, project_id, format!("/{project_id}/worktree")],
+            ).unwrap();
+        }
+        connection.execute("INSERT INTO card_layouts (environment_id,split_layout,focused_pane_id,layout_revision,updated_at) VALUES ('environment:child','not-json','pane:second',7,1)", []).unwrap();
+        for (id, environment, order) in [
+            ("pane:second", "environment:child", 2),
+            ("pane:first", "environment:child", 1),
+        ] {
+            connection.execute("INSERT INTO card_panes (id,environment_id,role,kind,sort_order) VALUES (?1,?2,'shell','terminal',?3)", params![id, environment, order]).unwrap();
+        }
+        connection.execute(
+            "INSERT INTO card_pull_requests (card_id,repository,number,title,url,state,draft,ci_status,review_state,has_conflicts,mergeable,updated_at)
+             VALUES ('local:child','org/repo',7,'PR','url','closed',1,'failure','changes_requested',1,0,1)", [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO card_pull_requests (card_id,repository,number,title,url,state,draft,ci_status,review_state,has_conflicts,mergeable,updated_at)
+             VALUES ('local:other','org/other',8,'PR','url','open',0,'failure','unknown',0,1,1)", [],
+        ).unwrap();
+        for index in 0..101 {
+            for card_id in ["local:child", "local:other"] {
+                connection.execute(
+                    "INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,5,'agent','test','success',?2)",
+                    params![card_id, index.to_string()],
+                ).unwrap();
+            }
+        }
+        // Keep one card's project metadata absent to exercise pull-request policy defaults.
+        connection
+            .execute("DELETE FROM projects WHERE id='two'", [])
+            .unwrap();
+        connection
+    }
+
+    #[test]
+    fn batched_list_preserves_aggregate_ownership_order_limits_and_defaults() {
+        let mut connection = aggregate_test_connection();
+        let cards = list_cards(&mut connection).unwrap();
+        assert_eq!(
+            cards
+                .iter()
+                .map(|card| card.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["local:parent", "local:child", "local:other"]
+        );
+
+        let parent = &cards[0];
+        assert_eq!(parent.status, "needs_human");
+        assert_eq!(parent.child_count, 1);
+        assert_eq!(
+            parent
+                .children
+                .iter()
+                .map(|child| child.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["local:child"]
+        );
+        assert_eq!(cards[1].parent.as_ref().unwrap().title, "local:parent");
+
+        let child_environment = cards[1].environment.as_ref().unwrap();
+        assert_eq!(
+            child_environment.split_layout,
+            serde_json::json!({"kind":"empty"})
+        );
+        assert_eq!(child_environment.layout_revision, 7);
+        assert_eq!(
+            child_environment.focused_pane_id.as_deref(),
+            Some("pane:second")
+        );
+        assert_eq!(
+            child_environment
+                .panes
+                .iter()
+                .map(|pane| pane.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pane:first", "pane:second"]
+        );
+        let other_environment = cards[2].environment.as_ref().unwrap();
+        assert_eq!(
+            other_environment.split_layout,
+            serde_json::json!({"kind":"empty"})
+        );
+        assert_eq!(other_environment.layout_revision, 1);
+        assert_eq!(other_environment.focused_pane_id, None);
+
+        assert_eq!(
+            cards[1].pull_request.as_ref().unwrap().blockers,
+            vec![
+                "Pull request was closed without merging",
+                "Pull request is a draft",
+                "Pull request has merge conflicts",
+                "GitHub merge readiness is unknown or blocked",
+                "CI is failing",
+                "A reviewer requested changes",
+                "A current approval is required",
+            ]
+        );
+        assert_eq!(
+            cards[2].pull_request.as_ref().unwrap().blockers,
+            vec!["CI is failing"]
+        );
+        for card in [&cards[1], &cards[2]] {
+            assert_eq!(card.events.len(), 100);
+            assert!(card
+                .events
+                .windows(2)
+                .all(|events| events[0].id > events[1].id));
+        }
+    }
+
+    #[test]
+    fn list_read_count_is_constant_and_get_card_remains_targeted() {
+        let mut connection = aggregate_test_connection();
+        connection.trace(Some(count_traced_reads));
+        TRACED_READS.store(0, Ordering::Relaxed);
+        list_cards(&mut connection).unwrap();
+        let initial_reads = TRACED_READS.load(Ordering::Relaxed);
+        assert_eq!(initial_reads, 7);
+        for index in 0..25 {
+            connection.execute(
+                "INSERT INTO kanban_cards (id,external_provider,external_id,title,project_id,created_at,updated_at,sort_order)
+                 VALUES (?1,'local:two',?2,?1,'two',10,10,10)",
+                params![format!("local:extra:{index}"), (index + 100).to_string()],
+            ).unwrap();
+        }
+        TRACED_READS.store(0, Ordering::Relaxed);
+        assert_eq!(list_cards(&mut connection).unwrap().len(), 28);
+        assert_eq!(TRACED_READS.load(Ordering::Relaxed), initial_reads);
+
+        let child = get_card(&connection, "local:child").unwrap().unwrap();
+        assert_eq!(child.environment.as_ref().unwrap().card_id, "local:child");
+        assert_eq!(child.events.len(), 100);
+        assert_eq!(child.children.len(), 0);
+    }
+
+    #[test]
+    fn initialization_builds_all_schemas_and_connection_pragmas_and_is_guarded() {
+        let path =
+            std::env::temp_dir().join(format!("stacks-kanban-{}.sqlite3", uuid::Uuid::new_v4()));
+        let mut connection = Connection::open(&path).unwrap();
+        configure_connection(&connection).unwrap();
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .unwrap();
+        initialize_connection(&mut connection, false).unwrap();
+        for table in ["kanban_cards", "projects", "project_direct_work"] {
+            assert_eq!(
+                connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                        [table],
+                        |row| row.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                1
+            );
+        }
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "foreign_keys", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "busy_timeout", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            5000
+        );
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                .unwrap(),
+            "wal"
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version=3",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        drop(connection);
+        let _ = std::fs::remove_file(path);
+
+        let state = OnceLock::new();
+        let calls = AtomicUsize::new(0);
+        assert!(initialize_once(&state, || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        })
+        .is_ok());
+        assert!(initialize_once(&state, || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        })
+        .is_ok());
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        let failed = OnceLock::new();
+        assert_eq!(
+            initialize_once(&failed, || Err("broken migration".into())).unwrap_err(),
+            "broken migration"
+        );
+        assert_eq!(
+            initialize_once(&failed, || Ok(())).unwrap_err(),
+            "broken migration"
+        );
     }
 
     #[test]
