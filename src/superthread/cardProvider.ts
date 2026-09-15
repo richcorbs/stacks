@@ -17,6 +17,9 @@ export function superthreadCardProvider(spaces: string, workspaceSlug: string): 
         list_title: card.list_title,
         card_url: card.card_url,
         assignee_names: card.assignee_names,
+        task_parent_id: card.task_parent?.id ?? null,
+        task_parent_title: card.task_parent?.title ?? null,
+        total_task_children: card.total_task_children ?? 0,
         in_scope: true,
       };
     },
@@ -26,7 +29,9 @@ export function superthreadCardProvider(spaces: string, workspaceSlug: string): 
         id: detail.id, title: detail.title, content: detail.content,
         board_id: card.board_id, board_title: card.board_title,
         list_id: card.list_id, list_title: card.list_title,
-        card_url: detail.card_url, assignee_names: detail.assignee_names, in_scope: true,
+        card_url: detail.card_url, assignee_names: detail.assignee_names,
+        task_parent_id: detail.task_parent?.id ?? null, task_parent_title: detail.task_parent?.title ?? null,
+        total_task_children: detail.total_task_children ?? 0, in_scope: true,
       };
     },
     async sync(refresh = false) {
@@ -47,6 +52,9 @@ export function superthreadCardProvider(spaces: string, workspaceSlug: string): 
             list_title: listTitle,
             card_url: card.card_url,
             assignee_names: card.assignee_names,
+            task_parent_id: card.task_parent?.id ?? null,
+            task_parent_title: card.task_parent?.title ?? null,
+            total_task_children: card.total_task_children ?? 0,
             in_scope: isManagedSuperthreadList(board.title, listTitle),
           };
         });

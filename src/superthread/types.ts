@@ -17,6 +17,8 @@ export type SuperthreadCard = {
   total_comments: number;
   assignee_names: string[];
   card_url: string;
+  task_parent?: { id: string; title: string } | null;
+  total_task_children?: number;
 };
 
 export type SuperthreadBoard = {

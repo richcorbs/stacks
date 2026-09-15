@@ -89,10 +89,11 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     const result = previous.catch(() => {}).then(async () => {
       const current = cardsRef.current.find((candidate) => candidate.id === cardId);
       if (!current || !expectedStatuses.includes(current.status) || (expectedRevision !== undefined && current.workflow_revision !== expectedRevision)) return null;
-      const updated = await setKanbanStatus(cardId, nextStatus, current.workflow_revision, 'agent');
-      cardsRef.current = cardsRef.current.map((candidate) => candidate.id === cardId ? updated : candidate);
-      setCards(cardsRef.current);
-      return updated;
+      await setKanbanStatus(cardId, nextStatus, current.workflow_revision, 'agent');
+      const refreshed = await fetchKanbanCards();
+      cardsRef.current = refreshed;
+      setCards(refreshed);
+      return refreshed.find((candidate) => candidate.id === cardId) ?? null;
     });
     const gate = result.then(() => undefined, (statusError) => {
       const message = `${failurePrefix ?? 'Card status could not be updated'}: ${errorMessage(statusError)}`;
@@ -176,15 +177,26 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     };
   }, [load]);
 
-  async function create(project: Project, title: string, content: string) {
-    const result = await createKanbanCardForProject(project, title, content, provider);
+  async function create(project: Project, title: string, content: string, parentId: string | null = null) {
+    const result = await createKanbanCardForProject(project, title, content, provider, undefined, parentId);
     if (result.persistedCards) setCards(result.persistedCards);
-    else setCards((current) => [...current, result.card]);
+    else if (parentId) {
+      const refreshed = await fetchKanbanCards();
+      cardsRef.current = refreshed;
+      setCards(refreshed);
+      return refreshed.find((card) => card.id === result.card.id) ?? result.card;
+    } else setCards((current) => [...current, result.card]);
     return result.card;
   }
 
-  async function update(id: string, title: string, content: string) {
-    const updated = await updateLocalKanbanCard(id, title, content);
+  async function update(id: string, title: string, content: string, parentId?: string | null) {
+    const updated = await updateLocalKanbanCard(id, title, content, parentId);
+    if (parentId !== undefined) {
+      const refreshed = await fetchKanbanCards();
+      cardsRef.current = refreshed;
+      setCards(refreshed);
+      return refreshed.find((card) => card.id === id) ?? updated;
+    }
     setCards((current) => current.map((card) => card.id === id ? updated : card));
     return updated;
   }
@@ -224,11 +236,12 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     }
     const current = cardsRef.current.find((card) => card.id === id);
     if (!current || !['refining', 'needs_refinement_input'].includes(current.status)) throw new Error('Card is no longer being refined; reload the board');
-    const updated = await setKanbanStatus(id, 'needs_refinement', current.workflow_revision, 'user');
-    cardsRef.current = cardsRef.current.map((card) => card.id === id ? updated : card);
-    setCards(cardsRef.current);
+    await setKanbanStatus(id, 'needs_refinement', current.workflow_revision, 'user');
+    const refreshed = await fetchKanbanCards();
+    cardsRef.current = refreshed;
+    setCards(refreshed);
     await getRetainedPiSessionController(paneId)?.stopRefinement();
-    return updated;
+    return refreshed.find((card) => card.id === id) ?? current;
   }
 
   async function move(id: string, status: KanbanStatus) {
@@ -237,9 +250,11 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     try {
       const expectedRevision = cardsRef.current.find((card) => card.id === id)?.workflow_revision;
       if (expectedRevision === undefined) throw new Error('Card was not found; reload the board');
-      const updated = await setKanbanStatus(id, status, expectedRevision);
-      setCards((current) => current.map((card) => card.id === id ? updated : card));
-      return updated;
+      await setKanbanStatus(id, status, expectedRevision);
+      const refreshed = await fetchKanbanCards();
+      cardsRef.current = refreshed;
+      setCards(refreshed);
+      return refreshed.find((card) => card.id === id) ?? previous.find((card) => card.id === id)!;
     } catch (moveError) {
       setCards(previous);
       setError(errorMessage(moveError));
@@ -281,7 +296,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
 }
 
 type CreateKanbanCardDependencies = {
-  createLocal: (projectId: string, title: string, content: string) => Promise<KanbanCard>;
+  createLocal: (projectId: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
   persistSuperthread: (cards: KanbanSyncCard[]) => Promise<KanbanCard[]>;
 };
 
@@ -294,11 +309,12 @@ export async function createKanbanCardForProject(
     createLocal: createLocalKanbanCard,
     persistSuperthread: syncKanbanCards,
   },
+  parentId: string | null = null,
 ): Promise<{ card: KanbanCard; persistedCards?: KanbanCard[] }> {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) throw new Error('Card title is required');
   if ((project.kanban_source ?? 'local') === 'local') {
-    return { card: await dependencies.createLocal(project.id, trimmedTitle, content) };
+    return { card: await dependencies.createLocal(project.id, trimmedTitle, content, parentId) };
   }
   if (provider?.kind !== 'superthread' || !provider.create) {
     throw new Error('Superthread card creation is unavailable because the integration is disabled');

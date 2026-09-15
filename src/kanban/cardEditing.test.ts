@@ -7,6 +7,7 @@ describe('canEditKanbanCard', () => {
     expect(canEditKanbanCard({ provider: 'local', status: 'refining' })).toBe(true);
     expect(canEditKanbanCard({ provider: 'local', status: 'needs_refinement_input' })).toBe(true);
     expect(canEditKanbanCard({ provider: 'local', status: 'ready' })).toBe(true);
+    expect(canEditKanbanCard({ provider: 'local', status: 'ready', hierarchy_finalized: true })).toBe(false);
   });
 
   it('keeps provider cards and local cards in later statuses read-only', () => {

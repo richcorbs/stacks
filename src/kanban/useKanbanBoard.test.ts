@@ -19,6 +19,10 @@ function card(id: string, title: string): KanbanCard {
     status: 'needs_refinement',
     workflow_revision: 1,
     project_id: 'p1',
+    parent: null,
+    child_count: 0,
+    children: [],
+    hierarchy_finalized: false,
     environment: null,
     created_at: 1,
     updated_at: 1,
@@ -147,7 +151,7 @@ describe('Kanban card creation', () => {
       createLocal: async (...args) => { received = args; return created; },
       persistSuperthread: async () => [],
     });
-    expect(received).toEqual(['p1', 'Local card', 'Brief']);
+    expect(received).toEqual(['p1', 'Local card', 'Brief', null]);
     expect(result.card).toBe(created);
   });
 

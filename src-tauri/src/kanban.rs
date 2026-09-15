@@ -41,6 +41,12 @@ pub struct KanbanCardSnapshot {
     pub card_url: String,
     #[serde(default)]
     pub assignee_names: Vec<String>,
+    #[serde(default)]
+    pub task_parent_id: Option<String>,
+    #[serde(default)]
+    pub task_parent_title: Option<String>,
+    #[serde(default)]
+    pub total_task_children: u64,
     #[serde(default = "default_true")]
     pub in_scope: bool,
 }
@@ -119,6 +125,22 @@ pub struct CardPullRequest {
     blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardRelationshipSummary {
+    id: String,
+    external_id: String,
+    title: String,
+    status: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ApprovedChildSpec {
+    #[serde(default)]
+    id: Option<String>,
+    title: String,
+    content: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct KanbanCard {
     id: String,
@@ -140,6 +162,10 @@ pub struct KanbanCard {
     delivery_error: Option<String>,
     workflow_revision: i64,
     project_id: Option<String>,
+    parent: Option<CardRelationshipSummary>,
+    child_count: u64,
+    children: Vec<CardRelationshipSummary>,
+    hierarchy_finalized: bool,
     environment: Option<CardEnvironment>,
     created_at: i64,
     updated_at: i64,
@@ -187,8 +213,15 @@ pub fn kanban_create_local_card(
     project_id: String,
     title: String,
     content: String,
+    parent_id: Option<String>,
 ) -> Result<KanbanCard, String> {
-    create_local_card_for_project(&project_id, &title, &content)
+    let card = create_local_card_for_project(&project_id, &title, &content)?;
+    if let Some(parent_id) = parent_id {
+        return with_connection(|connection| {
+            set_card_parent(connection, &card.id, Some(&parent_id))
+        });
+    }
+    Ok(card)
 }
 
 pub(crate) fn create_local_card_for_project(
@@ -256,9 +289,17 @@ pub fn kanban_update_local_card(
     id: String,
     title: Option<String>,
     content: Option<String>,
+    parent_id: Option<String>,
+    parent_specified: Option<bool>,
 ) -> Result<KanbanCard, String> {
     with_connection(|connection| {
-        update_local_card(connection, &id, title.as_deref(), content.as_deref())
+        if title.is_some() || content.is_some() {
+            update_local_card(connection, &id, title.as_deref(), content.as_deref())?;
+        }
+        if parent_specified.unwrap_or(false) {
+            set_card_parent(connection, &id, parent_id.as_deref())?;
+        }
+        get_card(connection, &id)?.ok_or_else(|| "Local Kanban card was not found".to_string())
     })
 }
 
@@ -280,7 +321,7 @@ pub(crate) fn update_local_card(
     }
     let changed = connection.execute(
         "UPDATE kanban_cards SET title = COALESCE(?1, title), content = COALESCE(?2, content), updated_at = ?3
-         WHERE id = ?4 AND external_provider LIKE 'local:%'",
+         WHERE id = ?4 AND external_provider LIKE 'local:%' AND hierarchy_finalized = 0",
         params![title, content.map(str::trim), unix_timestamp(), id],
     ).map_err(db_error)?;
     if changed == 0 {
@@ -294,9 +335,16 @@ pub fn kanban_finish_local_refinement(
     id: String,
     title: Option<String>,
     content: String,
+    children: Option<Vec<ApprovedChildSpec>>,
 ) -> Result<KanbanCard, String> {
     with_connection(|connection| {
-        finish_local_refinement(connection, &id, title.as_deref(), &content)
+        finish_local_refinement(
+            connection,
+            &id,
+            title.as_deref(),
+            &content,
+            children.as_deref(),
+        )
     })
 }
 
@@ -305,6 +353,7 @@ pub(crate) fn finish_local_refinement(
     id: &str,
     title: Option<&str>,
     content: &str,
+    children: Option<&[ApprovedChildSpec]>,
 ) -> Result<KanbanCard, String> {
     let content = content.trim();
     if content.is_empty() {
@@ -313,15 +362,21 @@ pub(crate) fn finish_local_refinement(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(db_error)?;
-    let source_status: String = transaction
+    let (source_status, project_id, parent_id, finalized, existing_child_count): (String, String, Option<String>, bool, i64) = transaction
         .query_row(
-            "SELECT status FROM kanban_cards WHERE id = ?1",
+            "SELECT status, project_id, parent_id, hierarchy_finalized, (SELECT COUNT(*) FROM kanban_cards child WHERE child.parent_id=kanban_cards.id) FROM kanban_cards WHERE id = ?1",
             [id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)? != 0, row.get(4)?)),
         )
         .optional()
         .map_err(db_error)?
         .ok_or_else(|| "Local Kanban card was not found".to_string())?;
+    if finalized || parent_id.is_some() && children.is_some_and(|items| !items.is_empty()) {
+        return Err("A child or finalized aggregate cannot be finalized as a parent".to_string());
+    }
+    if existing_child_count > 0 && children.is_none_or(|items| items.is_empty()) {
+        return Err("The approved breakdown must include every existing linked child".to_string());
+    }
     if !matches!(
         source_status.as_str(),
         "needs_refinement" | "refining" | "needs_refinement_input" | "ready"
@@ -329,7 +384,9 @@ pub(crate) fn finish_local_refinement(
         return Err("Only a card being refined can finish refinement".to_string());
     }
     update_local_card(&transaction, id, title, Some(content))?;
-    if source_status != "ready" {
+    if let Some(children) = children.filter(|items| !items.is_empty()) {
+        finalize_breakdown(&transaction, id, &project_id, children)?;
+    } else if source_status != "ready" {
         let now = unix_timestamp();
         transaction.execute(
             "UPDATE kanban_cards SET status = 'ready', workflow_revision = workflow_revision + 1, updated_at = ?1,
@@ -341,6 +398,145 @@ pub(crate) fn finish_local_refinement(
     }
     transaction.commit().map_err(db_error)?;
     get_card(connection, id)?.ok_or_else(|| "Local Kanban card was not found".to_string())
+}
+
+fn set_card_parent(
+    connection: &Connection,
+    child_id: &str,
+    parent_id: Option<&str>,
+) -> Result<KanbanCard, String> {
+    let (provider, status, project_id, has_children, finalized): (String, String, Option<String>, bool, bool) = connection.query_row(
+        "SELECT external_provider, status, project_id, EXISTS(SELECT 1 FROM kanban_cards WHERE parent_id=c.id), hierarchy_finalized FROM kanban_cards c WHERE id=?1",
+        [child_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)? != 0, row.get::<_, i64>(4)? != 0)),
+    ).optional().map_err(db_error)?.ok_or_else(|| "Local Kanban card was not found".to_string())?;
+    if !provider.starts_with("local:") || status != "needs_refinement" || finalized {
+        return Err("A parent can only be changed on a local card in Needs refinement".to_string());
+    }
+    if has_children {
+        return Err("A parent card cannot itself have a parent".to_string());
+    }
+    if let Some(parent_id) = parent_id {
+        if parent_id == child_id {
+            return Err("A card cannot be its own parent".to_string());
+        }
+        let (parent_provider, parent_project, parent_parent, parent_environment, parent_status, parent_finalized): (String, Option<String>, Option<String>, bool, String, bool) = connection.query_row(
+            "SELECT external_provider, project_id, parent_id, EXISTS(SELECT 1 FROM card_environments WHERE card_id=kanban_cards.id), status, hierarchy_finalized FROM kanban_cards WHERE id=?1",
+            [parent_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)? != 0, row.get(4)?, row.get::<_, i64>(5)? != 0)),
+        ).optional().map_err(db_error)?.ok_or_else(|| "The selected parent was not found".to_string())?;
+        if !parent_provider.starts_with("local:") || parent_project != project_id {
+            return Err("Parent and child must be local cards in the same project".to_string());
+        }
+        if parent_parent.is_some() {
+            return Err("A child card cannot itself have children".to_string());
+        }
+        if parent_environment
+            || parent_finalized
+            || !matches!(
+                parent_status.as_str(),
+                "needs_refinement" | "refining" | "needs_refinement_input" | "ready"
+            )
+        {
+            return Err(
+                "The selected card is not eligible to become an aggregate parent".to_string(),
+            );
+        }
+    }
+    connection
+        .execute(
+            "UPDATE kanban_cards SET parent_id=?1, updated_at=?2 WHERE id=?3",
+            params![parent_id, unix_timestamp(), child_id],
+        )
+        .map_err(db_error)?;
+    get_card(connection, child_id)?.ok_or_else(|| "Local Kanban card was not found".to_string())
+}
+
+fn finalize_breakdown(
+    transaction: &rusqlite::Transaction<'_>,
+    parent_id: &str,
+    project_id: &str,
+    specs: &[ApprovedChildSpec],
+) -> Result<(), String> {
+    use std::collections::HashSet;
+    let existing = transaction
+        .prepare("SELECT id FROM kanban_cards WHERE parent_id=?1 ORDER BY id")
+        .map_err(db_error)?
+        .query_map([parent_id], |row| row.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    let supplied = specs
+        .iter()
+        .filter_map(|spec| spec.id.clone())
+        .collect::<Vec<_>>();
+    if supplied.iter().collect::<HashSet<_>>().len() != supplied.len() {
+        return Err("Each existing child must appear exactly once".to_string());
+    }
+    let mut expected = existing.clone();
+    expected.sort();
+    let mut received = supplied.clone();
+    received.sort();
+    if expected != received {
+        return Err("The approved breakdown must include every existing linked child and no unrelated cards".to_string());
+    }
+    let now = unix_timestamp();
+    for spec in specs {
+        let title = spec.title.trim();
+        let content = spec.content.trim();
+        if title.is_empty() || content.is_empty() {
+            return Err(
+                "Every approved child needs a title and a self-contained brief".to_string(),
+            );
+        }
+        let child_id = if let Some(child_id) = &spec.id {
+            let (child_project, child_parent, status, provider): (Option<String>, Option<String>, String, String) = transaction.query_row(
+                "SELECT project_id, parent_id, status, external_provider FROM kanban_cards WHERE id=?1",
+                [child_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            ).optional().map_err(db_error)?.ok_or_else(|| "An approved existing child was not found".to_string())?;
+            if child_project.as_deref() != Some(project_id)
+                || child_parent.as_deref() != Some(parent_id)
+                || !provider.starts_with("local:")
+                || status != "needs_refinement"
+            {
+                return Err("Existing children must be linked local Needs refinement cards in the parent's project".to_string());
+            }
+            transaction
+                .execute(
+                    "UPDATE kanban_cards SET title=?1, content=?2 WHERE id=?3",
+                    params![title, content, child_id],
+                )
+                .map_err(db_error)?;
+            child_id.clone()
+        } else {
+            let number = next_local_card_number(transaction, project_id)?;
+            let child_id = format!("local:{}", uuid::Uuid::new_v4());
+            let project_name: String = transaction
+                .query_row(
+                    "SELECT name FROM projects WHERE id=?1",
+                    [project_id],
+                    |row| row.get(0),
+                )
+                .map_err(db_error)?;
+            transaction.execute(
+                "INSERT INTO kanban_cards (id, external_provider, external_id, title, content, board_id, board_title, status, project_id, parent_id, created_at, updated_at, sort_order, in_scope)
+                 VALUES (?1, 'local:' || ?2, ?3, ?4, ?5, ?2, ?6, 'needs_refinement', ?2, ?7, ?8, ?8,
+                    (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards WHERE status='needs_refinement'), 1)",
+                params![child_id, project_id, number.to_string(), title, content, project_name, parent_id, now],
+            ).map_err(db_error)?;
+            child_id
+        };
+        transaction.execute(
+            "UPDATE kanban_cards SET parent_id=?1, status='ready', workflow_revision=workflow_revision+1, updated_at=?2,
+             sort_order=(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status='ready') WHERE id=?3",
+            params![parent_id, now, child_id],
+        ).map_err(db_error)?;
+    }
+    transaction.execute(
+        "UPDATE kanban_cards SET hierarchy_finalized=1, status='ready', workflow_revision=workflow_revision+1, updated_at=?1 WHERE id=?2",
+        params![now, parent_id],
+    ).map_err(db_error)?;
+    Ok(())
 }
 
 pub(crate) fn kanban_finish_external_refinement(id: String) -> Result<KanbanCard, String> {
@@ -667,11 +863,13 @@ fn sync_cards(
             transaction.execute(
                 "UPDATE kanban_cards SET title = ?1, content = CASE WHEN ?2 = '' THEN content ELSE ?2 END,
                     board_id = ?3, board_title = ?4, list_id = ?5, list_title = ?6, card_url = ?7,
-                    assignee_names = ?8, in_scope = 0, updated_at = ?9
-                 WHERE external_provider = 'superthread' AND external_id = ?10",
+                    assignee_names = ?8, parent_id=?9, provider_parent_title=?10, provider_child_count=?11,
+                    hierarchy_finalized=CASE WHEN ?11 > 0 THEN 1 ELSE hierarchy_finalized END, in_scope = 0, updated_at = ?12
+                 WHERE external_provider = 'superthread' AND external_id = ?13",
                 params![card.title.trim(), card.content, card.board_id, card.board_title, card.list_id,
                     card.list_title, card.card_url, serde_json::to_string(&card.assignee_names).map_err(|error| error.to_string())?,
-                    now, card.id.trim()],
+                    card.task_parent_id.as_ref().map(|value| format!("superthread:{}", value)), card.task_parent_title,
+                    card.total_task_children as i64, now, card.id.trim()],
             ).map_err(db_error)?;
             continue;
         }
@@ -687,8 +885,10 @@ fn sync_cards(
         transaction.execute(
             "INSERT INTO kanban_cards (
                 id, external_provider, external_id, title, content, board_id, board_title,
-                list_id, list_title, card_url, assignee_names, status, project_id, created_at, updated_at, sort_order, in_scope
-             ) VALUES (?1, 'superthread', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'needs_refinement', ?11, ?12, ?12,
+                list_id, list_title, card_url, assignee_names, status, project_id, parent_id, provider_parent_title,
+                provider_child_count, hierarchy_finalized, created_at, updated_at, sort_order, in_scope
+             ) VALUES (?1, 'superthread', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'needs_refinement', ?11, ?12, ?13, ?14,
+                CASE WHEN ?14 > 0 THEN 1 ELSE 0 END, ?15, ?15,
                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards WHERE status = 'needs_refinement'), 1)
              ON CONFLICT(external_provider, external_id) DO UPDATE SET
                 title = excluded.title,
@@ -700,6 +900,10 @@ fn sync_cards(
                 card_url = excluded.card_url,
                 assignee_names = excluded.assignee_names,
                 project_id = excluded.project_id,
+                parent_id = excluded.parent_id,
+                provider_parent_title = excluded.provider_parent_title,
+                provider_child_count = excluded.provider_child_count,
+                hierarchy_finalized = excluded.hierarchy_finalized,
                 in_scope = 1,
                 updated_at = excluded.updated_at",
             params![
@@ -714,6 +918,9 @@ fn sync_cards(
                 card.card_url,
                 serde_json::to_string(&card.assignee_names).map_err(|error| error.to_string())?,
                 superthread_project_id,
+                card.task_parent_id.as_ref().map(|value| format!("superthread:{}", value)),
+                card.task_parent_title,
+                card.total_task_children as i64,
                 now,
             ],
         ).map_err(db_error)?;
@@ -785,19 +992,33 @@ pub fn kanban_delete_project_records(project_id: String) -> Result<(), String> {
     })
 }
 
+fn validate_card_deletion(connection: &Connection, id: &str) -> Result<bool, String> {
+    let Some(card) = get_card(connection, id)? else {
+        return Ok(false);
+    };
+    if card.provider != "local" || card.status != "needs_refinement" || card.environment.is_some() {
+        return Err(
+            "Only local Needs refinement cards without environments can be deleted".to_string(),
+        );
+    }
+    let child_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM kanban_cards WHERE parent_id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if child_count > 0 {
+        return Err("A parent with children cannot be deleted".to_string());
+    }
+    Ok(true)
+}
+
 #[tauri::command]
 pub fn kanban_delete_card(id: String) -> Result<(), String> {
     with_connection(|connection| {
-        let Some(card) = get_card(connection, &id)? else {
+        if !validate_card_deletion(connection, &id)? {
             return Ok(());
-        };
-        if card.provider != "local"
-            || card.status != "needs_refinement"
-            || card.environment.is_some()
-        {
-            return Err(
-                "Only local Needs refinement cards without environments can be deleted".to_string(),
-            );
         }
         let directory = card_directory(&id)?;
         if directory.exists() {
@@ -824,15 +1045,18 @@ pub fn kanban_set_status(
     }
     with_connection(|connection| {
         ensure_card_directory(&id)?;
-        let (current, revision): (String, i64) = connection
+        let (current, revision, finalized): (String, i64, bool) = connection
             .query_row(
-                "SELECT status, workflow_revision FROM kanban_cards WHERE id = ?1",
+                "SELECT status, workflow_revision, hierarchy_finalized FROM kanban_cards WHERE id = ?1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
             )
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| "Kanban card was not found".to_string())?;
+        if finalized {
+            return Err("A finalized aggregate parent has no workflow".to_string());
+        }
         if revision != expected_revision {
             return Err("Card changed; reload before trying again".to_string());
         }
@@ -880,15 +1104,18 @@ pub fn kanban_close_card(id: String, expected_revision: i64) -> Result<KanbanCar
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
-        let (status, revision): (String, i64) = transaction
+        let (status, revision, finalized): (String, i64, bool) = transaction
             .query_row(
-                "SELECT status, workflow_revision FROM kanban_cards WHERE id=?1",
+                "SELECT status, workflow_revision, hierarchy_finalized FROM kanban_cards WHERE id=?1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
             )
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| "Kanban card was not found".to_string())?;
+        if finalized {
+            return Err("A finalized aggregate parent has no workflow".to_string());
+        }
         if revision != expected_revision {
             return Err("Card changed; reload before closing".to_string());
         }
@@ -924,7 +1151,7 @@ pub fn kanban_reorder_cards(
         let transaction = connection.transaction().map_err(db_error)?;
         for (index, id) in card_ids.iter().enumerate() {
             let changed = transaction.execute(
-                "UPDATE kanban_cards SET sort_order = ?1, updated_at = ?2 WHERE id = ?3 AND status = ?4",
+                "UPDATE kanban_cards SET sort_order = ?1, updated_at = ?2 WHERE id = ?3 AND (status = ?4 OR hierarchy_finalized = 1)",
                 params![index as i64, unix_timestamp(), id, status],
             ).map_err(db_error)?;
             if changed == 0 {
@@ -947,10 +1174,10 @@ pub fn kanban_set_project(id: String, project_id: String) -> Result<KanbanCard, 
     }
     with_connection(|connection| {
         ensure_card_directory(&id)?;
-        let (provider, current_project_id, current_number, has_environment):
-            (String, Option<String>, String, bool) = connection.query_row(
-            "SELECT external_provider, project_id, external_id, EXISTS(SELECT 1 FROM card_environments WHERE card_id=kanban_cards.id) FROM kanban_cards WHERE id=?1",
-            [&id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)? != 0)),
+        let (provider, current_project_id, current_number, has_environment, parent_id, has_children):
+            (String, Option<String>, String, bool, Option<String>, bool) = connection.query_row(
+            "SELECT external_provider, project_id, external_id, EXISTS(SELECT 1 FROM card_environments WHERE card_id=kanban_cards.id), parent_id, EXISTS(SELECT 1 FROM kanban_cards child WHERE child.parent_id=kanban_cards.id) FROM kanban_cards WHERE id=?1",
+            [&id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)? != 0, row.get(4)?, row.get::<_, i64>(5)? != 0)),
         ).optional().map_err(db_error)?.ok_or_else(|| "Kanban card was not found".to_string())?;
         if !provider.starts_with("local:") {
             return Err("Superthread cards cannot be reassigned".to_string());
@@ -958,6 +1185,12 @@ pub fn kanban_set_project(id: String, project_id: String) -> Result<KanbanCard, 
         if has_environment {
             return Err(
                 "A card cannot be reassigned after its environment has been created".to_string(),
+            );
+        }
+        if parent_id.is_some() || has_children {
+            return Err(
+                "A card with hierarchy relationships cannot be moved to another project"
+                    .to_string(),
             );
         }
         let destination_number = if current_project_id.as_deref() == Some(destination.id.as_str()) {
@@ -994,15 +1227,18 @@ pub fn kanban_environment_start_preflight(
     expected_workflow_revision: i64,
 ) -> Result<EnvironmentStartPreflight, String> {
     with_connection(|connection| {
-        let (status, revision, project_id, provider): (String, i64, String, String) = connection
+        let (status, revision, project_id, provider, finalized): (String, i64, String, String, bool) = connection
             .query_row(
-                "SELECT status, workflow_revision, project_id, external_provider FROM kanban_cards WHERE id = ?1",
+                "SELECT status, workflow_revision, project_id, external_provider, hierarchy_finalized FROM kanban_cards WHERE id = ?1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get::<_, i64>(4)? != 0)),
             )
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| "Kanban card was not found or has invalid project ownership".to_string())?;
+        if finalized {
+            return Err("A finalized aggregate parent cannot start work".to_string());
+        }
         if revision != expected_workflow_revision {
             return Err("Card changed; reload before starting work".to_string());
         }
@@ -1065,15 +1301,18 @@ pub fn kanban_create_environment(
     with_connection(|connection| {
         ensure_card_directory(&id)?;
         let transaction = connection.transaction().map_err(db_error)?;
-        let (card_status, workflow_revision, project_id, provider): (String, i64, String, String) = transaction
+        let (card_status, workflow_revision, project_id, provider, finalized): (String, i64, String, String, bool) = transaction
             .query_row(
-                "SELECT status, workflow_revision, project_id, external_provider FROM kanban_cards WHERE id = ?1",
+                "SELECT status, workflow_revision, project_id, external_provider, hierarchy_finalized FROM kanban_cards WHERE id = ?1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get::<_, i64>(4)? != 0)),
             )
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| "Kanban card was not found".to_string())?;
+        if finalized {
+            return Err("A finalized aggregate parent cannot create an environment".to_string());
+        }
         if workflow_revision != expected_workflow_revision {
             return Err("Card changed; reload before creating its environment".to_string());
         }
@@ -2029,6 +2268,10 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             workflow_revision INTEGER NOT NULL DEFAULT 1,
             project_id TEXT,
             workspace_id TEXT,
+            parent_id TEXT,
+            hierarchy_finalized INTEGER NOT NULL DEFAULT 0,
+            provider_child_count INTEGER NOT NULL DEFAULT 0,
+            provider_parent_title TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
@@ -2121,6 +2364,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, unixepoch());"
     ).map_err(db_error)?;
     migrate_done_status(connection)?;
+    migrate_refinement_statuses(connection)?;
     let columns = connection
         .prepare("PRAGMA table_info(kanban_cards)")
         .map_err(db_error)?
@@ -2160,7 +2404,34 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(db_error)?;
     }
-    migrate_refinement_statuses(connection)?;
+    for (name, sql) in [
+        (
+            "parent_id",
+            "ALTER TABLE kanban_cards ADD COLUMN parent_id TEXT",
+        ),
+        (
+            "hierarchy_finalized",
+            "ALTER TABLE kanban_cards ADD COLUMN hierarchy_finalized INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "provider_child_count",
+            "ALTER TABLE kanban_cards ADD COLUMN provider_child_count INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "provider_parent_title",
+            "ALTER TABLE kanban_cards ADD COLUMN provider_parent_title TEXT",
+        ),
+    ] {
+        if !columns.iter().any(|column| column == name) {
+            connection.execute(sql, []).map_err(db_error)?;
+        }
+    }
+    connection
+        .execute_batch(
+            "CREATE INDEX IF NOT EXISTS kanban_cards_parent_idx ON kanban_cards(parent_id);
+         INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (51, unixepoch());",
+        )
+        .map_err(db_error)?;
     let environment_columns = connection
         .prepare("PRAGMA table_info(card_environments)")
         .map_err(db_error)?
@@ -2301,7 +2572,8 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
         let mut statement = connection.prepare(
             "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                     card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
-                    workflow_revision, project_id, created_at, updated_at, sort_order, in_scope
+                    workflow_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                    parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
              FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC"
         ).map_err(db_error)?;
         let mapped = statement.query_map([], map_card).map_err(db_error)?;
@@ -2312,6 +2584,7 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
         card.pull_request = load_pull_request(connection, card)?;
         card.events = load_events(connection, &card.id)?;
     }
+    enrich_relationships(connection, &mut cards)?;
     Ok(cards)
 }
 
@@ -2319,7 +2592,8 @@ fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, Str
     let mut card = connection.query_row(
         "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                 card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
-                workflow_revision, project_id, created_at, updated_at, sort_order, in_scope
+                workflow_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
          FROM kanban_cards WHERE id = ?1",
         [id],
         map_card,
@@ -2328,8 +2602,72 @@ fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, Str
         card.environment = load_environment(connection, id)?;
         card.pull_request = load_pull_request(connection, card)?;
         card.events = load_events(connection, id)?;
+        let mut cards = vec![card.clone()];
+        enrich_relationships(connection, &mut cards)?;
+        *card = cards.remove(0);
     }
     Ok(card)
+}
+
+fn relationship_summary(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<CardRelationshipSummary>, String> {
+    connection
+        .query_row(
+            "SELECT id, external_id, title, status FROM kanban_cards WHERE id=?1",
+            [id],
+            |row| {
+                Ok(CardRelationshipSummary {
+                    id: row.get(0)?,
+                    external_id: row.get(1)?,
+                    title: row.get(2)?,
+                    status: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(db_error)
+}
+
+fn enrich_relationships(connection: &Connection, cards: &mut [KanbanCard]) -> Result<(), String> {
+    for card in cards {
+        if let Some(parent) = &card.parent {
+            if let Some(summary) = relationship_summary(connection, &parent.id)? {
+                card.parent = Some(summary);
+            }
+        }
+        let mut statement = connection.prepare(
+            "SELECT id, external_id, title, status FROM kanban_cards WHERE parent_id=?1 AND in_scope=1 ORDER BY created_at, CAST(external_id AS INTEGER), id"
+        ).map_err(db_error)?;
+        card.children = statement
+            .query_map([&card.id], |row| {
+                Ok(CardRelationshipSummary {
+                    id: row.get(0)?,
+                    external_id: row.get(1)?,
+                    title: row.get(2)?,
+                    status: row.get(3)?,
+                })
+            })
+            .map_err(db_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        card.child_count = card.child_count.max(card.children.len() as u64);
+        if card.hierarchy_finalized && !card.children.is_empty() {
+            card.status = card
+                .children
+                .iter()
+                .min_by_key(|child| {
+                    STATUSES
+                        .iter()
+                        .position(|status| *status == child.status)
+                        .unwrap_or(STATUSES.len())
+                })
+                .map(|child| child.status.clone())
+                .unwrap_or(card.status.clone());
+        }
+    }
+    Ok(())
 }
 
 fn load_pull_request(
@@ -2489,6 +2827,8 @@ fn load_environment(
 }
 
 fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
+    let parent_id = row.get::<_, Option<String>>(22)?;
+    let provider_parent_title = row.get::<_, Option<String>>(25)?;
     Ok(KanbanCard {
         id: row.get(0)?,
         provider: {
@@ -2521,6 +2861,15 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
         updated_at: row.get(19)?,
         sort_order: row.get(20)?,
         in_scope: row.get(21)?,
+        parent: parent_id.map(|id| CardRelationshipSummary {
+            external_id: id.strip_prefix("superthread:").unwrap_or(&id).to_string(),
+            id,
+            title: provider_parent_title.unwrap_or_default(),
+            status: String::new(),
+        }),
+        hierarchy_finalized: row.get::<_, i64>(23)? != 0,
+        child_count: row.get::<_, i64>(24)? as u64,
+        children: Vec::new(),
         events: Vec::new(),
     })
 }
@@ -3121,6 +3470,7 @@ mod tests {
             "local:test",
             Some("Implementation brief"),
             "Outcome and acceptance criteria",
+            None,
         )
         .unwrap();
 
@@ -3135,10 +3485,156 @@ mod tests {
         migrate(&connection).unwrap();
         local_card(&mut connection);
 
-        assert!(finish_local_refinement(&mut connection, "local:test", None, "  ").is_err());
+        assert!(finish_local_refinement(&mut connection, "local:test", None, "  ", None).is_err());
         assert_eq!(
             get_card(&connection, "local:test").unwrap().unwrap().status,
             "needs_refinement"
+        );
+    }
+
+    #[test]
+    fn hierarchy_migration_defaults_are_additive() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO kanban_cards (id,external_provider,external_id,title,created_at,updated_at) VALUES ('legacy','local:p','1','Legacy',1,1)",
+            [],
+        ).unwrap();
+        let values: (Option<String>, i64, i64, Option<String>) = connection.query_row(
+            "SELECT parent_id,hierarchy_finalized,provider_child_count,provider_parent_title FROM kanban_cards WHERE id='legacy'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(values, (None, 0, 0, None));
+    }
+
+    #[test]
+    fn hierarchy_assignment_enforces_same_project_and_two_levels() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        for (id, project) in [("parent", "p1"), ("child", "p1"), ("other", "p2")] {
+            connection.execute(
+                "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,project_id,created_at,updated_at) VALUES (?1,'local:' || ?2,?1,?1,'needs_refinement',?2,1,1)",
+                params![id, project],
+            ).unwrap();
+        }
+        let assigned = set_card_parent(&connection, "child", Some("parent")).unwrap();
+        assert_eq!(
+            assigned.parent.as_ref().map(|parent| parent.id.as_str()),
+            Some("parent")
+        );
+        assert!(set_card_parent(&connection, "other", Some("parent"))
+            .unwrap_err()
+            .contains("same project"));
+        assert!(set_card_parent(&connection, "parent", Some("child"))
+            .unwrap_err()
+            .contains("cannot itself have a parent"));
+        assert!(set_card_parent(&connection, "child", Some("child"))
+            .unwrap_err()
+            .contains("own parent"));
+        assert!(set_card_parent(&connection, "child", None)
+            .unwrap()
+            .parent
+            .is_none());
+    }
+
+    #[test]
+    fn breakdown_is_atomic_numbers_children_and_derives_parent_status() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        test_project(&connection, "p", "local", "/tmp/p");
+        let parent = create_local_card(&mut connection, "p", "P", "Parent", "Draft").unwrap();
+        let draft = create_local_card(&mut connection, "p", "P", "Draft child", "Draft").unwrap();
+        set_card_parent(&connection, &draft.id, Some(&parent.id)).unwrap();
+        let specs = vec![
+            ApprovedChildSpec {
+                id: Some(draft.id.clone()),
+                title: "Existing".into(),
+                content: "Existing brief".into(),
+            },
+            ApprovedChildSpec {
+                id: None,
+                title: "New".into(),
+                content: "New brief".into(),
+            },
+        ];
+        let aggregate = finish_local_refinement(
+            &mut connection,
+            &parent.id,
+            Some("Aggregate"),
+            "Parent brief",
+            Some(&specs),
+        )
+        .unwrap();
+        assert!(aggregate.hierarchy_finalized);
+        assert_eq!(aggregate.child_count, 2);
+        assert_eq!(aggregate.status, "ready");
+        assert!(aggregate
+            .children
+            .iter()
+            .all(|child| child.status == "ready"));
+        assert_eq!(
+            aggregate
+                .children
+                .iter()
+                .map(|child| child.external_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2", "3"]
+        );
+
+        connection
+            .execute(
+                "UPDATE kanban_cards SET status='done' WHERE parent_id=?1",
+                [&parent.id],
+            )
+            .unwrap();
+        assert_eq!(
+            get_card(&connection, &parent.id).unwrap().unwrap().status,
+            "done"
+        );
+        connection
+            .execute(
+                "UPDATE kanban_cards SET status='needs_refinement' WHERE id=?1",
+                [&draft.id],
+            )
+            .unwrap();
+        assert_eq!(
+            get_card(&connection, &parent.id).unwrap().unwrap().status,
+            "needs_refinement"
+        );
+        assert!(update_local_card(&connection, &parent.id, Some("Unlocked"), None).is_err());
+        assert!(validate_card_deletion(&connection, &parent.id)
+            .unwrap_err()
+            .contains("children"));
+    }
+
+    #[test]
+    fn invalid_breakdown_rolls_back_parent_and_children() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        test_project(&connection, "p", "local", "/tmp/p");
+        let parent = create_local_card(&mut connection, "p", "P", "Parent", "Original").unwrap();
+        let draft =
+            create_local_card(&mut connection, "p", "P", "Draft", "Original child").unwrap();
+        set_card_parent(&connection, &draft.id, Some(&parent.id)).unwrap();
+        let invalid = vec![ApprovedChildSpec {
+            id: None,
+            title: "Replacement".into(),
+            content: "Brief".into(),
+        }];
+        assert!(finish_local_refinement(
+            &mut connection,
+            &parent.id,
+            None,
+            "Changed",
+            Some(&invalid)
+        )
+        .is_err());
+        let unchanged = get_card(&connection, &parent.id).unwrap().unwrap();
+        assert_eq!(unchanged.content, "Original");
+        assert!(!unchanged.hierarchy_finalized);
+        assert_eq!(
+            get_card(&connection, &draft.id).unwrap().unwrap().content,
+            "Original child"
         );
     }
 
@@ -3234,6 +3730,9 @@ mod tests {
             list_title: "Doing".into(),
             card_url: String::new(),
             assignee_names: vec!["Ada".into()],
+            task_parent_id: None,
+            task_parent_title: None,
+            total_task_children: 0,
             in_scope: true,
         };
         sync_cards(&mut connection, vec![snapshot()]).unwrap();
@@ -3249,6 +3748,51 @@ mod tests {
         assert_eq!(cards[0].status, "approved");
         assert_eq!(cards[0].title, "Updated upstream");
         assert_eq!(cards[0].project_id.as_deref(), Some("superthread-project"));
+    }
+
+    #[test]
+    fn superthread_sync_persists_parent_references_and_provider_counts() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        test_project(
+            &connection,
+            "superthread-project",
+            "superthread",
+            "/tmp/superthread",
+        );
+        let snapshot =
+            |id: &str, title: &str, parent: Option<(&str, &str)>, count| KanbanCardSnapshot {
+                id: id.into(),
+                title: title.into(),
+                content: String::new(),
+                board_id: "b".into(),
+                board_title: "Board".into(),
+                list_id: "l".into(),
+                list_title: "List".into(),
+                card_url: String::new(),
+                assignee_names: Vec::new(),
+                task_parent_id: parent.map(|value| value.0.into()),
+                task_parent_title: parent.map(|value| value.1.into()),
+                total_task_children: count,
+                in_scope: true,
+            };
+        let cards = sync_cards(
+            &mut connection,
+            vec![
+                snapshot("10", "Parent", None, 1),
+                snapshot("11", "Child", Some(("10", "Parent")), 0),
+            ],
+        )
+        .unwrap();
+        let parent = cards.iter().find(|card| card.external_id == "10").unwrap();
+        let child = cards.iter().find(|card| card.external_id == "11").unwrap();
+        assert_eq!(parent.child_count, 1);
+        assert!(parent.hierarchy_finalized);
+        assert_eq!(parent.children[0].id, child.id);
+        assert_eq!(
+            child.parent.as_ref().map(|value| value.id.as_str()),
+            Some("superthread:10")
+        );
     }
 
     #[test]
@@ -3287,9 +3831,14 @@ mod tests {
                 )
                 .unwrap();
 
-            let updated =
-                finish_local_refinement(&mut connection, "local:test", None, "Approved brief")
-                    .unwrap();
+            let updated = finish_local_refinement(
+                &mut connection,
+                "local:test",
+                None,
+                "Approved brief",
+                None,
+            )
+            .unwrap();
             assert_eq!(updated.status, "ready");
             let recorded: String = connection.query_row(
                 "SELECT from_status FROM card_events WHERE card_id='local:test' ORDER BY id DESC LIMIT 1",
@@ -3408,6 +3957,9 @@ mod tests {
                 list_title: "Doing".into(),
                 card_url: String::new(),
                 assignee_names: Vec::new(),
+                task_parent_id: None,
+                task_parent_title: None,
+                total_task_children: 0,
                 in_scope: true,
             }],
         )
@@ -3541,7 +4093,9 @@ mod tests {
                 delivery_operation_stage TEXT, delivery_error TEXT, workflow_revision INTEGER NOT NULL DEFAULT 1, project_id TEXT, workspace_id TEXT,
                 created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, in_scope INTEGER NOT NULL DEFAULT 1,
                 UNIQUE(external_provider,external_id));
-             INSERT INTO kanban_cards SELECT * FROM cards_expanded; DROP TABLE cards_expanded; COMMIT;
+             INSERT INTO kanban_cards (id,external_provider,external_id,title,content,board_id,board_title,list_id,list_title,card_url,assignee_names,status,completion_outcome,feature_environment,delivery_operation_stage,delivery_error,workflow_revision,project_id,workspace_id,created_at,updated_at,sort_order,in_scope)
+             SELECT id,external_provider,external_id,title,content,board_id,board_title,list_id,list_title,card_url,assignee_names,status,completion_outcome,feature_environment,delivery_operation_stage,delivery_error,workflow_revision,project_id,workspace_id,created_at,updated_at,sort_order,in_scope FROM cards_expanded;
+             DROP TABLE cards_expanded; COMMIT;
              PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;"
         ).unwrap();
 

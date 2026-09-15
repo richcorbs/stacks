@@ -101,6 +101,8 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, _state: AutomationS
                 card_id.to_string(),
                 client_request.title,
                 client_request.content,
+                client_request.parent_id,
+                client_request.parent_specified,
             )?;
             return Ok(AutomationResponse::success("Updated the local card"));
         }
@@ -111,7 +113,12 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, _state: AutomationS
             let content = client_request
                 .content
                 .ok_or_else(|| "A final card description is required".to_string())?;
-            crate::kanban::kanban_finish_local_refinement(card_id, client_request.title, content)?;
+            crate::kanban::kanban_finish_local_refinement(
+                card_id,
+                client_request.title,
+                content,
+                client_request.children,
+            )?;
             return Ok(AutomationResponse::success(
                 "Saved the final brief and finished refinement",
             ));

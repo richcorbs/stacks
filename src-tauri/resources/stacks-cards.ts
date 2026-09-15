@@ -10,6 +10,7 @@ type CardRequest = {
   title?: string;
   description?: string;
   content?: string;
+  children?: Array<{ id?: string; title: string; content: string }>;
 };
 
 export default function stacksCards(pi: ExtensionAPI) {
@@ -131,18 +132,25 @@ export default function stacksCards(pi: ExtensionAPI) {
   pi.registerTool({
     name: "finish_refinement",
     label: "Finish refinement",
-    description: "Atomically save the complete final brief to the active Stacks local card and move it to Ready for agent. Call this only after explicit user approval.",
+    description: "Atomically save the complete final brief. Optionally create/update an approved two-level breakdown of independently deployable child cards, link them, and move them to Ready for agent. Call this only after explicit user approval.",
     promptSnippet: "Save an approved final brief and move the active local card to Ready for agent",
     promptGuidelines: [
       "Use finish_refinement only when the user explicitly approves the final brief or explicitly asks to finish refinement.",
       "The finish_refinement description must be a self-contained implementation brief with outcome, acceptance criteria, technical approach, risks or open questions, and validation plan where applicable.",
+      "Propose self-contained, independently deployable children when that materially improves execution; do not split work unnecessarily.",
+      "When children are approved, include every existing linked child exactly once. Omitting one rejects the whole atomic operation.",
     ],
     parameters: Type.Object({
       description: Type.String({ description: "The complete final Markdown implementation brief", minLength: 1 }),
       title: Type.Optional(Type.String({ description: "An approved replacement title, when the title also changed", minLength: 1 })),
+      children: Type.Optional(Type.Array(Type.Object({
+        id: Type.Optional(Type.String({ description: "Existing linked child ID; omit to create a child" })),
+        title: Type.String({ description: "Approved child title", minLength: 1 }),
+        content: Type.String({ description: "Complete self-contained child implementation brief", minLength: 1 }),
+      }, { additionalProperties: false }), { minItems: 1 })),
     }),
     async execute(_toolCallId, params, signal) {
-      const response = await request({ action: "finishLocalCardRefinement", content: params.description, title: params.title }, signal);
+      const response = await request({ action: "finishLocalCardRefinement", content: params.description, title: params.title, children: params.children }, signal);
       return {
         content: [{ type: "text", text: response.message }],
         details: { cardId, updated: params.title ? ["title", "description", "status"] : ["description", "status"] },

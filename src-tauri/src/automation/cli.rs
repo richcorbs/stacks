@@ -24,6 +24,9 @@ pub fn activate_existing_instance() -> bool {
             title: None,
             content: None,
             description: None,
+            parent_id: None,
+            parent_specified: None,
+            children: None,
         },
         Duration::from_secs(2),
     )

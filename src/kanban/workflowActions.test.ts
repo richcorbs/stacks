@@ -4,13 +4,17 @@ import type { KanbanCard, KanbanStatus } from './types';
 import type { Project } from '../types';
 
 function card(status: KanbanStatus, environment: KanbanCard['environment'] = null): KanbanCard {
-  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, project_id: 'p', environment, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
+  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
 }
 const localProject = { id: 'p', name: 'P', path: '/repo', workspaces: [], delivery_workflow: 'local_merge', target_branch: 'main' } as Project;
 const prProject = { ...localProject, delivery_workflow: 'github_pull_request', supports_feature_environments: true, require_passing_ci: true, require_approval: true } as Project;
 const kinds = (status: KanbanStatus, project: Project = localProject) => deriveCardWorkflowActions({ card: card(status), project, projectAvailable: true }).map((action) => action.kind);
 
 describe('delivery workflow actions', () => {
+  it('suppresses every action for finalized aggregate parents', () => {
+    expect(deriveCardWorkflowActions({ card: { ...card('ready'), hierarchy_finalized: true, child_count: 1 }, project: localProject, projectAvailable: true })).toEqual([]);
+  });
+
   it('offers Close without delivery last on every active status and alone while the agent is working', () => {
     for (const status of ['needs_refinement', 'refining', 'needs_refinement_input', 'ready', 'agent_working', 'needs_human', 'approved'] as KanbanStatus[]) {
       const actions = deriveCardWorkflowActions({ card: card(status), project: localProject, projectAvailable: true });
