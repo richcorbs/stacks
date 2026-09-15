@@ -1379,6 +1379,12 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piSelectionPopup.below { transform: translate(-50%, 0); }
 .piSelectionPopup button { padding: 3px 6px; border: 0; border-radius: 3px; background: transparent; color: #9cadbe; cursor: pointer; font-size: calc(9px + var(--ui-font-delta, 0px)); line-height: 1.2; white-space: nowrap; }
 .piSelectionPopup button:hover { background: #263646; color: #d1dbe5; }
+.piStructuredRequest { width: min(560px, 92%); box-sizing: border-box; margin: 0 auto 16px; padding: 11px 12px; border: 1px solid #2b4053; border-radius: 8px; background: #101a24; color: #8599ac; }
+.piStructuredRequest > strong { display: block; color: #b8c6d3; font-size: calc(11px + var(--ui-font-delta, 0px)); font-weight: 600; }
+.piStructuredRequest p { margin: 5px 0 0; color: #7f92a5; font-size: calc(10px + var(--ui-font-delta, 0px)); line-height: 1.45; white-space: pre-wrap; }
+.piStructuredRequestActions { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px; }
+.piStructuredRequestActions button { padding: 5px 10px; border: 1px solid #38536b; border-radius: 6px; background: #172634; color: #aebdca; cursor: pointer; font: calc(10px + var(--ui-font-delta, 0px)) inherit; }
+.piStructuredRequestActions button:hover, .piStructuredRequestActions button:focus-visible { border-color: #557a99; background: #203446; color: #d5e0e9; outline: none; }
 .piExtensionOverlay { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: #05090db8; backdrop-filter: blur(2px); }
 .piExtensionDialog { width: min(460px, 100%); max-height: 80%; overflow: auto; padding: 17px; border: 1px solid #35495d; border-radius: 10px; background: #111b25; box-shadow: 0 16px 50px #0009; }
 .piExtensionDialog > strong { display: block; color: #d0dae5; font-size: calc(13px + var(--ui-font-delta, 0px)); }
