@@ -106,7 +106,7 @@ export function useAppRootModel() {
     if (startingCardIds.current.has(cardId)) return false;
     startingCardIds.current.add(cardId);
     try {
-      const card = (await fetchKanbanCards()).find((candidate) => candidate.id === cardId);
+      const card = (await fetchKanbanCards()).cards.find((candidate) => candidate.id === cardId);
       if (!card?.project_id) throw new Error('The card is not assigned to a project');
       const project = store.projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('The card project was not found');
