@@ -4,10 +4,11 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import DOMPurify from 'dompurify';
 import type { Project, SplitNode, TerminalEntry } from '../types';
 import { useKanbanBoard } from '../kanban/useKanbanBoard';
+import { canonicalCardById } from '../kanban/boardStore';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
-import { approveAndCommitKanbanCard, cleanupKanbanEnvironmentCreation, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, refreshKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
+import { approveAndCommitKanbanCard, cleanupKanbanEnvironmentCreation, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
@@ -15,7 +16,9 @@ import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { deletePersistentPiSession } from '../pi/sessionController';
-import { environmentHealthTooltip, hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
+import { environmentHealthTooltip, hasGitChanges } from '../kanban/useCardRepositoryStatus';
+import { REFRESH_CARD_REPOSITORY_STATUS_EVENT } from '../kanban/refreshCoordinator';
+import { useKanbanRefreshCoordinator } from '../kanban/useKanbanRefreshCoordinator';
 import { cardLocalComparisonTarget } from '../git/comparisonTarget';
 import { runApproveAndCommit } from '../kanban/approveAndCommit';
 import { runWritePlanAndFinishRefinement } from '../kanban/writePlanAndFinishRefinement';
@@ -30,7 +33,7 @@ import { buildOneTimeCommandScript } from '../oneTimeCommand';
 import { CARD_TERMINAL_COMMAND_EVENT, publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
 import { insertTemporaryPane, temporaryPaneCwd, type TemporaryPaneRun } from '../cardTerminalState';
 import { superthreadCardProvider } from '../superthread/cardProvider';
-import { canManuallySyncSuperthread, cardCreationAvailability, filterKanbanCards, localKanbanProjects, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
+import { buildFilteredLaneReorder, canManuallySyncSuperthread, cardCreationAvailability, filterKanbanCards, localKanbanProjects, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
@@ -38,11 +41,11 @@ import { CardWorkflowControls } from './CardWorkflowControls';
 import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
 import { DirectProjectWork } from './DirectProjectWork';
 import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from '../directWork';
-import { useCardGitSummary } from '../kanban/useCardGitSummary';
 import { CardGitSummary } from './CardGitSummary';
 import { CardPullRequestLink } from './CardPullRequestLink';
 import { CardEnvironmentBranch } from './CardEnvironmentBranch';
 import { CardProjectAssignment } from './CardProjectAssignment';
+import { CardCleanupStatus, cleanupPhaseLabel } from './CardCleanupStatus';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 import { initialCardView, type CardView } from '../kanban/cardView';
 import { candidateParents, childCountLabel, hierarchyStatusLabel, statusLabel as childStatusLabel } from '../kanban/hierarchy';
@@ -95,8 +98,14 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     [projects, selectedProject, superthreadEnabled],
   );
   const creationProjects = creationAvailability.destinations;
-  const { statuses: repositoryStatuses, recheckEnvironment } = useCardRepositoryStatus(visibleCards);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
+  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, recheckEnvironment } = useKanbanRefreshCoordinator({
+    cards: board.cards,
+    projects,
+    visibleCards,
+    activeCardId: selectedCard?.id ?? null,
+    patchCard: board.patchCard,
+  });
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
   const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -117,19 +126,6 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   useEffect(() => () => {
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
   }, []);
-
-  useEffect(() => {
-    if (selectedProject?.delivery_workflow !== 'github_pull_request') return;
-    let cancelled = false;
-    const reconcile = async () => {
-      const targets = visibleCards.filter((card) => card.environment && !['needs_refinement', 'refining', 'needs_refinement_input', 'ready'].includes(card.status));
-      await Promise.all(targets.map((card) => refreshKanbanPullRequest(card.id).catch(() => null)));
-      if (!cancelled && targets.length) await board.load();
-    };
-    void reconcile();
-    const timer = window.setInterval(() => void reconcile(), 30_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [selectedProject?.id, selectedProject?.delivery_workflow]);
 
   useEffect(() => {
     const openNewCard = (event: Event) => {
@@ -204,8 +200,13 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
 
   useEffect(() => {
     if (!selectedCard) return;
-    const current = board.cards.find((card) => card.id === selectedCard.id);
-    if (current && current !== selectedCard) setSelectedCard(current);
+    const current = canonicalCardById(board.cards, selectedCard.id);
+    if (current) {
+      if (current !== selectedCard) setSelectedCard(current);
+      return;
+    }
+    setSelectedCard(null);
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'This card was removed' } }));
   }, [board.cards, selectedCard]);
 
   function invalidateClipboardOperation(control: HTMLInputElement | HTMLTextAreaElement) {
@@ -277,9 +278,10 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   }
 
   async function cleanupMergedCards() {
-    const mergedCards = visibleCards.filter((card) => card.status === 'done' && card.completion_outcome === 'merged');
+    const mergedCards = visibleCards.filter((card) => card.status === 'done' && card.completion_outcome === 'merged' && (card.environment || card.cleanup_operation?.status !== 'completed'));
+    const newCleanups = mergedCards.filter((card) => !card.cleanup_operation);
     setOpenLaneMenu(null);
-    if (mergedCards.length === 0 || !window.confirm(`Clean up ${mergedCards.length} merged ${mergedCards.length === 1 ? 'card' : 'cards'}?\n\nThis removes their card-owned processes, source worktrees, safely deletable branches, and environments. Cards remain in Done · Merged.`)) return;
+    if (mergedCards.length === 0 || (newCleanups.length > 0 && !window.confirm(`Clean up ${newCleanups.length} merged ${newCleanups.length === 1 ? 'card' : 'cards'}?\n\nThis removes their card-owned processes, source worktrees, safely deletable branches, and environments. Cards remain in Done · Merged. Existing cleanup operations will be retried without another confirmation.`))) return;
     setCleaningMerged(true);
     const failures: string[] = [];
     for (const card of mergedCards) {
@@ -372,7 +374,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     if (beforeId === undefined) return;
     const currentIds = visibleCards.filter((card) => card.status === drag.status).map((card) => card.id);
     const visibleOrder = reorderKanbanCardIds(currentIds, drag.cardId, beforeId);
-    await board.reorder(drag.status, mergeFilteredLaneOrder(board.cards, drag.status, visibleOrder)).catch(console.error);
+    const reorder = buildFilteredLaneReorder(board.cards, drag.status, visibleOrder);
+    await board.reorder(drag.status, reorder.expectedCardIds, reorder.cardIds).catch(console.error);
   }
 
   return (
@@ -602,6 +605,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           copyOnSelect={copyOnSelect}
           initialView={selectedCardInitialView}
           environmentHealth={repositoryStatuses[selectedCard.id]?.environmentHealth}
+          gitChangeSummary={gitChangeSummary}
           onRecheckEnvironment={() => recheckEnvironment(selectedCard.id)}
           onClose={() => setSelectedCard(null)}
           onUpdate={(title, content, parentId) => board.update(selectedCard.id, title, content, parentId).then((updated) => {
@@ -624,11 +628,16 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             const current = selectedCard.environment
               ? { ...selectedCard, environment: { ...selectedCard.environment, revision: environmentRevision } }
               : selectedCard;
-            if (!await onCleanupCard(current)) return;
-            await board.load();
+            try {
+              if (!await onCleanupCard(current)) return;
+            } finally {
+              await board.load();
+              const updated = await board.loadDetails(current);
+              setSelectedCard(updated);
+            }
           }}
           onCardUpdated={(updated) => {
-            setSelectedCard(updated);
+            setSelectedCard(board.applyCardSnapshot(updated));
             if (updated.parent) board.load().catch(console.error);
           }}
           onNavigate={(id) => {
@@ -650,6 +659,11 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   );
 }
 
+function cleanupPhaseFromErrorCode(code: string): string {
+  const phase = code.replace(/^cleanup_/, '').replace(/_failed$/, '') as NonNullable<KanbanCard['cleanup_operation']>['phase'];
+  return cleanupPhaseLabel(phase) ?? phase.replaceAll('_', ' ');
+}
+
 function HierarchyBadges({ card }: { card: KanbanCard }) {
   return <>
     {card.parent && <span className="kanbanHierarchyBadge parent" title={card.parent.title} aria-label={`Parent: ${card.parent.title}`}>{card.parent.title}</span>}
@@ -665,7 +679,7 @@ type CardLayoutSnapshot = LayoutSaveSnapshot<{
   panes: CardEnvironmentPane[];
 }>;
 
-function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
+function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
   card: KanbanCard;
   cards: KanbanCard[];
   projects: Project[];
@@ -675,6 +689,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   copyOnSelect: boolean;
   initialView?: CardView;
   environmentHealth?: CardEnvironmentHealth;
+  gitChangeSummary: import('../types').GitChangeSummary | null;
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
   onClose: () => void;
   onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
@@ -731,7 +746,6 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   }), [card.content]);
   const project = projects.find((candidate) => candidate.id === projectId);
   const cardPath = card.environment?.worktree_path ?? null;
-  const gitChangeSummary = useCardGitSummary(cardPath, card.environment?.target_branch ?? null);
   const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
   const serverCommand = project?.server_command?.trim() ?? '';
   const consoleCommand = project?.console_command?.trim() ?? '';
@@ -1334,12 +1348,13 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
               {card.pull_request.blockers.map((blocker) => <li key={blocker}><span>{blocker}</span></li>)}
             </ul>
           </aside>}
+          {!editing && card.cleanup_operation && <CardCleanupStatus operation={card.cleanup_operation} />}
           {!editing && card.delivery_error && <div className="kanbanActionError" role="alert">{card.delivery_error}</div>}
           {!editing && card.events.length > 0 && <details className="cardHistory">
             <summary>History ({card.events.length})</summary>
             <ol>{card.events.map((event) => <li key={event.id}>
               <time>{new Date(event.created_at * 1000).toLocaleString()}</time>
-              <span>{event.actor} · {event.event_type} · {event.outcome}</span>
+              <span>{event.actor} · {event.event_type} · {event.outcome}{event.error_code?.startsWith('cleanup_') ? ` · ${cleanupPhaseFromErrorCode(event.error_code)}` : ''}</span>
               <strong>{event.from_status && event.to_status ? `${event.from_status} → ${event.to_status}` : event.summary}</strong>
               {event.error_detail && <small>{event.error_detail}</small>}
             </li>)}</ol>

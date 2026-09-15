@@ -22,7 +22,6 @@ import { fetchKanbanCards, fetchKanbanEnvironmentHealth, startKanbanEnvironment 
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
-import { deletePersistentPiSession } from '../pi/sessionController';
 import { runShortcutAction } from '../shortcutActions';
 import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
 
@@ -105,7 +104,7 @@ export function useAppRootModel() {
     if (startingCardIds.current.has(cardId)) return false;
     startingCardIds.current.add(cardId);
     try {
-      const card = (await fetchKanbanCards()).find((candidate) => candidate.id === cardId);
+      const card = (await fetchKanbanCards()).cards.find((candidate) => candidate.id === cardId);
       if (!card?.project_id) throw new Error('The card is not assigned to a project');
       const project = store.projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('The card project was not found');
@@ -134,12 +133,21 @@ export function useAppRootModel() {
     finally { startingCardIds.current.delete(cardId); }
   }
   async function cleanupCard(card: KanbanCard) {
-    await Promise.all([
-      ...Array.from(new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [`kanban-card:${card.id}:planning`, `kanban-card:${card.id}:work`])).map(deletePersistentPiSession),
-      ...Array.from(new Set([...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []), `kanban-card:${card.id}:terminal:server`, `kanban-card:${card.id}:terminal:console`])).map((terminalId) => { disposeTerminalSessions([terminalId]); return invoke('kill_pty', { terminalId, expectedCwd: card.environment?.worktree_path }); }),
-    ]);
-    if (card.environment) await invoke('kanban_cleanup_environment', { id: card.id, expectedWorkflowRevision: card.workflow_revision, expectedEnvironmentRevision: card.environment.revision });
-    return true;
+    const terminalIds = Array.from(new Set([
+      ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []),
+      `kanban-card:${card.id}:terminal:server`, `kanban-card:${card.id}:terminal:console`,
+    ]));
+    try {
+      await invoke('kanban_cleanup_environment', {
+        id: card.id,
+        expectedWorkflowRevision: card.workflow_revision,
+        expectedEnvironmentRevision: card.environment?.revision ?? 0,
+      });
+      return true;
+    } finally {
+      // The backend owns durable process cleanup. This only reconciles xterm UI caches.
+      disposeTerminalSessions(terminalIds);
+    }
   }
 
   const selectedProject = selectedKanbanProject(store.projects, appSettings.kanban_project_id);

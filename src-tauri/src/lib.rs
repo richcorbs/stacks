@@ -33,7 +33,7 @@ use github::{
     github_pull_requests,
 };
 use kanban::{
-    kanban_approve_and_commit, kanban_cards, kanban_cleanup_environment,
+    kanban_approve_and_commit, kanban_card_snapshot, kanban_cards, kanban_cleanup_environment,
     kanban_cleanup_environment_creation, kanban_close_card, kanban_create_local_card,
     kanban_create_pull_request, kanban_delete_card, kanban_delete_project_records,
     kanban_environment_health, kanban_environment_start_preflight, kanban_finish_local_refinement,
@@ -138,6 +138,7 @@ pub fn run() {
             github_action_runs,
             github_merge_pull_request,
             kanban_cards,
+            kanban_card_snapshot,
             kanban_create_local_card,
             kanban_update_local_card,
             kanban_finish_local_refinement,
@@ -174,6 +175,8 @@ pub fn run() {
             cancel_workspace_setup,
         ])
         .setup(|app| {
+            kanban::initialize_database().map_err(std::io::Error::other)?;
+            kanban::set_app_handle(app.handle().clone());
             setup_main_window(app)?;
             let state = app.state::<AutomationState>().inner().clone();
             if let Err(err) = automation::start_server(app.handle().clone(), state) {
@@ -184,5 +187,8 @@ pub fn run() {
         .run(tauri::generate_context!());
 
     automation::cleanup_server(&automation_state);
-    run_result.expect("error while running tauri application");
+    if let Err(error) = run_result {
+        eprintln!("Stacks failed to start: {error}");
+        std::process::exit(1);
+    }
 }

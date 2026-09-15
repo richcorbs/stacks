@@ -4,7 +4,7 @@ import type { KanbanCard, KanbanStatus } from './types';
 import type { Project } from '../types';
 
 function card(status: KanbanStatus, environment: KanbanCard['environment'] = null): KanbanCard {
-  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
+  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, record_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
 }
 const localProject = { id: 'p', name: 'P', path: '/repo', workspaces: [], delivery_workflow: 'local_merge', target_branch: 'main' } as Project;
 const prProject = { ...localProject, delivery_workflow: 'github_pull_request', supports_feature_environments: true, require_passing_ci: true, require_approval: true } as Project;
@@ -105,6 +105,16 @@ describe('delivery workflow actions', () => {
     const blocked = { ...card('approved'), pull_request: { repository: 'o/r', number: 1, title: 'PR', url: '', state: 'open' as const, draft: true, ci_status: 'pending' as const, review_state: 'changes_requested' as const, has_conflicts: true, mergeable: false, blockers: ['Draft', 'CI pending', 'Changes requested'] } };
     const action = deriveCardWorkflowActions({ card: blocked, project: prProject, projectAvailable: true }).find((candidate) => candidate.kind === 'merge_pr');
     expect(action?.disabledReason).toBe('Draft; CI pending; Changes requested');
+  });
+
+  it('retries a durable cleanup without repeating destructive confirmation', () => {
+    const retryCard = {
+      ...card('done'), completion_outcome: 'merged' as const,
+      cleanup_operation: { status: 'failed' as const, phase: 'remove_worktree' as const, error_code: 'cleanup_remove_worktree_failed', error_detail: 'Recover registration', started_at: 1, updated_at: 2, completed_at: null },
+    };
+    const cleanup = deriveCardWorkflowActions({ card: retryCard, project: localProject, projectAvailable: true })[0];
+    expect(cleanup).toMatchObject({ kind: 'cleanup', label: 'Retry cleanup' });
+    expect(cleanup.confirmation).toBeUndefined();
   });
 
   it('only offers outcome-aware cleanup for Done cards with environments', () => {

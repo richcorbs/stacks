@@ -60,6 +60,16 @@ export type CardPullRequest = {
   blockers: string[];
 };
 
+export type CardCleanupOperation = {
+  status: 'pending' | 'failed' | 'completed';
+  phase: 'runtime_sessions' | 'validate_repository' | 'remove_worktree' | 'delete_local_branch' | 'delete_remote_branch' | 'remove_metadata' | 'record_completion';
+  error_code: string | null;
+  error_detail: string | null;
+  started_at: number;
+  updated_at: number;
+  completed_at: number | null;
+};
+
 export type CardEnvironmentHealth = {
   card_id: string;
   issues: EnvironmentHealthIssue[];
@@ -115,6 +125,7 @@ export type KanbanCard = {
   delivery_operation_stage?: string | null;
   delivery_error?: string | null;
   workflow_revision: number;
+  record_revision: number;
   project_id: string | null;
   parent: CardRelationshipSummary | null;
   child_count: number;
@@ -122,12 +133,17 @@ export type KanbanCard = {
   hierarchy_finalized: boolean;
   environment: CardEnvironment | null;
   creation_operation?: EnvironmentCreationOperation | null;
+  cleanup_operation?: CardCleanupOperation | null;
   created_at: number;
   updated_at: number;
   sort_order: number;
   events: CardEvent[];
 };
 
+
+export type CardSnapshot = { card: KanbanCard; board_revision: number };
+export type BoardSnapshot = { cards: KanbanCard[]; board_revision: number };
+export type BoardChange = { upserts: KanbanCard[]; removed_ids: string[]; board_revision: number };
 
 export type KanbanSyncCard = {
   id: string;

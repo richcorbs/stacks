@@ -218,6 +218,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .cardEnvironmentWarningPanel li small { flex: none; color: #b8787f; text-transform: capitalize; }
 .cardEnvironmentWarningPanel button { padding: 5px 9px; border: 1px solid #74444a; border-radius: 6px; background: #321c21; color: #efb0b5; cursor: pointer; }
 .cardEnvironmentWarningPanel button:disabled { cursor: default; opacity: .6; }
+.cardCleanupStatus { margin: 0 0 20px; padding: 13px 14px; border: 1px solid #4a5369; border-radius: 8px; background: #1a202d; color: #b9c5d5; }
+.cardCleanupStatus > div { display: flex; justify-content: space-between; gap: 12px; }
+.cardCleanupStatus strong { color: #d5deea; }
+.cardCleanupStatus span, .cardCleanupStatus small { color: #8fa4b8; }
+.cardCleanupStatus p { margin: 10px 0; color: #e0a0a5; white-space: pre-wrap; }
 .cardHistory { margin-top: 28px; padding-top: 16px; border-top: 1px solid #223142; }
 .cardHistory summary { cursor: pointer; color: #8fa4b8; font-weight: 650; }
 .cardHistory ol { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
