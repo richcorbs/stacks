@@ -23,7 +23,6 @@ import { startKanbanEnvironment } from '../kanban/startEnvironment';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
-import { deletePersistentPiSession } from '../pi/sessionController';
 import { runShortcutAction } from '../shortcutActions';
 import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
 
@@ -124,12 +123,21 @@ export function useAppRootModel() {
     finally { startingCardIds.current.delete(cardId); }
   }
   async function cleanupCard(card: KanbanCard) {
-    await Promise.all([
-      ...Array.from(new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [`kanban-card:${card.id}:planning`, `kanban-card:${card.id}:work`])).map(deletePersistentPiSession),
-      ...Array.from(new Set([...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []), `kanban-card:${card.id}:terminal:server`, `kanban-card:${card.id}:terminal:console`])).map((terminalId) => { disposeTerminalSessions([terminalId]); return invoke('kill_pty', { terminalId, expectedCwd: card.environment?.worktree_path }); }),
-    ]);
-    if (card.environment) await invoke('kanban_cleanup_environment', { id: card.id, expectedWorkflowRevision: card.workflow_revision, expectedEnvironmentRevision: card.environment.revision });
-    return true;
+    const terminalIds = Array.from(new Set([
+      ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []),
+      `kanban-card:${card.id}:terminal:server`, `kanban-card:${card.id}:terminal:console`,
+    ]));
+    try {
+      await invoke('kanban_cleanup_environment', {
+        id: card.id,
+        expectedWorkflowRevision: card.workflow_revision,
+        expectedEnvironmentRevision: card.environment?.revision ?? 0,
+      });
+      return true;
+    } finally {
+      // The backend owns durable process cleanup. This only reconciles xterm UI caches.
+      disposeTerminalSessions(terminalIds);
+    }
   }
 
   const selectedProject = selectedKanbanProject(store.projects, appSettings.kanban_project_id);

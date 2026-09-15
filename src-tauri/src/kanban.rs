@@ -1,4 +1,9 @@
-use crate::fs_paths::app_data_file;
+use crate::{
+    fs_paths::app_data_file,
+    pi_rpc::{delete_pi_session_impl, PiRpcRegistry},
+    pty::kill_ptys,
+    pty_cwd::PtyRegistry,
+};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,7 +14,7 @@ use std::{
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 static REPOSITORY_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static BOARD_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -107,6 +112,17 @@ pub struct CardEnvironmentHealth {
     issues: Vec<EnvironmentHealthIssue>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardCleanupOperation {
+    status: String,
+    phase: String,
+    error_code: Option<String>,
+    error_detail: Option<String>,
+    started_at: i64,
+    updated_at: i64,
+    completed_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CardEvent {
     id: i64,
@@ -179,6 +195,7 @@ pub struct KanbanCard {
     children: Vec<CardRelationshipSummary>,
     hierarchy_finalized: bool,
     environment: Option<CardEnvironment>,
+    cleanup_operation: Option<CardCleanupOperation>,
     created_at: i64,
     updated_at: i64,
     sort_order: i64,
@@ -2083,64 +2100,583 @@ fn merge_card(
     })
 }
 
+const CLEANUP_PHASES: [&str; 7] = [
+    "runtime_sessions",
+    "validate_repository",
+    "remove_worktree",
+    "delete_local_branch",
+    "delete_remote_branch",
+    "remove_metadata",
+    "record_completion",
+];
+
+#[derive(Debug, Clone)]
+struct CleanupSnapshot {
+    card_id: String,
+    environment_id: String,
+    workflow_revision: i64,
+    environment_revision: i64,
+    status: String,
+    phase: String,
+    completion_outcome: String,
+    repository_id: String,
+    source_path: String,
+    target_path: String,
+    source_branch: String,
+    target_branch: String,
+    source_revision: String,
+    delete_local_branch: bool,
+    delete_remote_branch: bool,
+    merged_pr_head_revision: Option<String>,
+    pane_ids: Vec<(String, String)>,
+    registration_validated: bool,
+}
+
 #[tauri::command]
 pub async fn kanban_cleanup_environment(
+    app: AppHandle,
     id: String,
     expected_workflow_revision: i64,
     expected_environment_revision: i64,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK.get_or_init(|| Mutex::new(())).lock().map_err(|_| "Repository operation lock failed".to_string())?;
-        let result = with_connection(|connection| {
-            validate_card_environment_project(connection, &id)?;
-            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_error)?;
-            let (status, completion_outcome, card_revision, delivery_stage): (String, Option<String>, i64, Option<String>) = transaction.query_row("SELECT status, completion_outcome, workflow_revision, delivery_operation_stage FROM kanban_cards WHERE id=?1", [&id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).map_err(db_error)?;
-            if status != "done" { return Err("Only a Done card environment can be cleaned up".to_string()); }
-            if card_revision != expected_workflow_revision { return Err("Card changed; reload before cleanup".to_string()); }
-            let (source_path, source_branch, repository_id, target_path, target_branch, recorded_tip, environment_revision): (String, String, String, String, String, String, i64) = transaction.query_row(
-                "SELECT worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, revision FROM card_environments WHERE card_id=?1", [&id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
-            ).map_err(db_error)?;
-            if environment_revision != expected_environment_revision { return Err("Card environment changed; reload before cleanup".to_string()); }
-            if delivery_stage.as_deref() == Some("deleting_remote_branch") {
-                let remote_ref = format!("refs/heads/{source_branch}");
-                let remote = git_output(&target_path, &["ls-remote", "--heads", "origin", &remote_ref])?;
-                if !remote.is_empty() {
-                    let deleted = Command::new("git").args(["-C", &target_path, "push", "origin", "--delete", &source_branch]).output().map_err(|error| error.to_string())?;
-                    if !deleted.status.success() { return Err(format!("PR is merged, but remote branch deletion still failed: {}", String::from_utf8_lossy(&deleted.stderr).trim())); }
-                }
-                transaction.execute("UPDATE kanban_cards SET delivery_operation_stage=NULL, delivery_error=NULL WHERE id=?1", [&id]).map_err(db_error)?;
+        let pty_registry = app.state::<Mutex<PtyRegistry>>();
+        let pi_registry = app.state::<Mutex<PiRpcRegistry>>();
+        run_cleanup(
+            &id,
+            expected_workflow_revision,
+            expected_environment_revision,
+            pty_registry.inner(),
+            pi_registry.inner(),
+        )
+    })
+    .await
+    .map_err(|error| format!("Cleanup worker failed: {error}"))?
+}
+
+fn run_cleanup(
+    id: &str,
+    expected_workflow_revision: i64,
+    expected_environment_revision: i64,
+    pty_registry: &Mutex<PtyRegistry>,
+    pi_registry: &Mutex<PiRpcRegistry>,
+) -> Result<KanbanCard, String> {
+    let _guard = REPOSITORY_OPERATION_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "Repository operation lock failed".to_string())?;
+    initialize_cleanup(
+        id,
+        expected_workflow_revision,
+        expected_environment_revision,
+    )?;
+    loop {
+        let operation = with_connection(|connection| load_cleanup_snapshot(connection, id))?;
+        if operation.status == "completed" {
+            return with_connection(|connection| {
+                get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
+            });
+        }
+        let phase = operation.phase.clone();
+        if let Err(detail) = execute_cleanup_phase(&operation, pty_registry, pi_registry) {
+            let code = cleanup_error_code(&phase, &detail);
+            record_cleanup_failure(id, &phase, &code, &detail);
+            return Err(detail);
+        }
+        if let Err(detail) = advance_cleanup_phase(&operation) {
+            let code = cleanup_error_code(&phase, &detail);
+            record_cleanup_failure(id, &phase, &code, &detail);
+            return Err(detail);
+        }
+    }
+}
+
+fn initialize_cleanup(
+    card_id: &str,
+    expected_workflow_revision: i64,
+    expected_environment_revision: i64,
+) -> Result<(), String> {
+    with_connection(|connection| {
+        if connection
+            .query_row(
+                "SELECT COUNT(*) FROM card_cleanup_operations WHERE card_id=?1",
+                [card_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(db_error)?
+            > 0
+        {
+            return Ok(());
+        }
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        let (status, outcome, workflow_revision, delivery_stage): (String, Option<String>, i64, Option<String>) = transaction.query_row(
+            "SELECT status, completion_outcome, workflow_revision, delivery_operation_stage FROM kanban_cards WHERE id=?1", [card_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).map_err(db_error)?;
+        if status != "done" {
+            return Err("Only a Done card environment can be cleaned up".to_string());
+        }
+        if workflow_revision != expected_workflow_revision {
+            return Err("Card changed; reload before cleanup".to_string());
+        }
+        let outcome =
+            outcome.ok_or_else(|| "Done card has no recorded completion outcome".to_string())?;
+        let ownership_valid: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id JOIN projects p ON p.id=c.project_id WHERE c.id=?1 AND c.project_id=e.project_id",
+            [card_id], |row| row.get(0),
+        ).map_err(db_error)?;
+        if ownership_valid != 1 {
+            return Err("The card environment or project ownership is invalid".to_string());
+        }
+        let (environment_id, _project_id, source_path, source_branch, repository_id, target_path, target_branch, source_revision, target_revision, environment_revision): (String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64) = transaction.query_row(
+            "SELECT id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, revision FROM card_environments WHERE card_id=?1", [card_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?)),
+        ).map_err(db_error)?;
+        if environment_revision != expected_environment_revision {
+            return Err("Card environment changed; reload before cleanup".to_string());
+        }
+        let repository_id = repository_id
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "Cleanup requires a recorded repository identity".to_string())?;
+        let target_path =
+            target_path.ok_or_else(|| "Cleanup requires a recorded target checkout".to_string())?;
+        let target_branch =
+            target_branch.ok_or_else(|| "Cleanup requires a recorded target branch".to_string())?;
+        let source_revision = source_revision
+            .ok_or_else(|| "Cleanup requires a recorded source revision".to_string())?;
+        let panes = {
+            let mut statement = transaction
+                .prepare("SELECT id, kind FROM card_panes WHERE environment_id=?1 ORDER BY id")
+                .map_err(db_error)?;
+            let rows = statement
+                .query_map([&environment_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(db_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(db_error)?;
+            rows
+        };
+        let pane_ids = serde_json::to_string(&panes).map_err(|error| error.to_string())?;
+        let pr: Option<(String, i64, Option<String>)> = transaction.query_row(
+            "SELECT repository, number, head_revision FROM card_pull_requests WHERE card_id=?1 AND state='merged'", [card_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).optional().map_err(db_error)?;
+        let (pr_repository, pr_number, pr_head) = pr
+            .map(|value| (Some(value.0), Some(value.1), value.2))
+            .unwrap_or_default();
+        let now = unix_timestamp();
+        transaction.execute(
+            "INSERT INTO card_cleanup_operations (card_id,environment_id,workflow_revision,environment_revision,status,phase,completion_outcome,repository_id,source_path,target_path,source_branch,target_branch,source_revision,target_revision,delete_local_branch,delete_remote_branch,merged_pr_repository,merged_pr_number,merged_pr_head_revision,pane_ids,started_at,updated_at)
+             VALUES (?1,?2,?3,?4,'pending','runtime_sessions',?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?19)",
+            params![card_id, environment_id, workflow_revision, environment_revision, outcome, repository_id, source_path, target_path, source_branch, target_branch, source_revision, target_revision, (outcome == "merged") as i64, (delivery_stage.as_deref() == Some("deleting_remote_branch")) as i64, pr_repository, pr_number, pr_head, pane_ids, now],
+        ).map_err(db_error)?;
+        transaction.execute("UPDATE card_environments SET lifecycle_state='cleanup_pending', updated_at=?1 WHERE id=?2", params![now, environment_id]).map_err(db_error)?;
+        transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,?2,'user','cleanup_started','success','Cleanup intent and safety snapshot recorded')", params![card_id, now]).map_err(db_error)?;
+        transaction.commit().map_err(db_error)
+    })
+}
+
+fn load_cleanup_snapshot(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<CleanupSnapshot, String> {
+    connection.query_row(
+        "SELECT card_id,environment_id,workflow_revision,environment_revision,status,phase,completion_outcome,repository_id,source_path,target_path,source_branch,target_branch,source_revision,delete_local_branch,delete_remote_branch,merged_pr_head_revision,pane_ids,registration_validated FROM card_cleanup_operations WHERE card_id=?1",
+        [card_id], |row| {
+            let pane_json: String = row.get(16)?;
+            Ok(CleanupSnapshot {
+                card_id: row.get(0)?, environment_id: row.get(1)?, workflow_revision: row.get(2)?, environment_revision: row.get(3)?,
+                status: row.get(4)?, phase: row.get(5)?, completion_outcome: row.get(6)?, repository_id: row.get(7)?,
+                source_path: row.get(8)?, target_path: row.get(9)?, source_branch: row.get(10)?, target_branch: row.get(11)?, source_revision: row.get(12)?,
+                delete_local_branch: row.get::<_, i64>(13)? != 0, delete_remote_branch: row.get::<_, i64>(14)? != 0,
+                merged_pr_head_revision: row.get(15)?, pane_ids: serde_json::from_str(&pane_json).unwrap_or_default(), registration_validated: row.get::<_, i64>(17)? != 0,
+            })
+        },
+    ).map_err(db_error)
+}
+
+fn execute_cleanup_phase(
+    operation: &CleanupSnapshot,
+    pty_registry: &Mutex<PtyRegistry>,
+    pi_registry: &Mutex<PiRpcRegistry>,
+) -> Result<(), String> {
+    match operation.phase.as_str() {
+        "runtime_sessions" => cleanup_runtime_sessions(operation, pty_registry, pi_registry),
+        "validate_repository" => validate_cleanup_repository(operation),
+        "remove_worktree" => remove_cleanup_worktree(operation),
+        "delete_local_branch" => delete_cleanup_local_branch(operation),
+        "delete_remote_branch" => delete_cleanup_remote_branch(operation),
+        "remove_metadata" => remove_cleanup_metadata(operation),
+        "record_completion" => Ok(()),
+        phase => Err(format!("Unknown cleanup phase {phase}")),
+    }
+}
+
+fn cleanup_runtime_sessions(
+    operation: &CleanupSnapshot,
+    pty_registry: &Mutex<PtyRegistry>,
+    pi_registry: &Mutex<PiRpcRegistry>,
+) -> Result<(), String> {
+    let prefix = format!("kanban-card:{}:", operation.card_id);
+    let mut pty_ids = operation
+        .pane_ids
+        .iter()
+        .filter(|(_, kind)| kind == "terminal")
+        .map(|(id, _)| id.clone())
+        .collect::<HashSet<_>>();
+    pty_ids.extend([
+        format!("{prefix}terminal:server"),
+        format!("{prefix}terminal:console"),
+    ]);
+    kill_ptys(pty_registry, &pty_ids.into_iter().collect::<Vec<_>>())
+        .map_err(|error| format!("Could not stop card terminal sessions: {error}"))?;
+    let mut pi_ids = operation
+        .pane_ids
+        .iter()
+        .filter(|(_, kind)| kind == "pi")
+        .map(|(id, _)| id.clone())
+        .collect::<HashSet<_>>();
+    pi_ids.extend([format!("{prefix}planning"), format!("{prefix}work")]);
+    for pane_id in pi_ids {
+        delete_pi_session_impl(pi_registry, &pane_id)
+            .map_err(|error| format!("Could not delete Pi session {pane_id}: {error}"))?;
+    }
+    Ok(())
+}
+
+fn validate_cleanup_repository(operation: &CleanupSnapshot) -> Result<(), String> {
+    let target = validate_target_checkout(&operation.target_path, Some(&operation.repository_id))?;
+    if target.target_branch != operation.target_branch {
+        return Err(format!(
+            "Target checkout is on {}, expected {}",
+            target.target_branch, operation.target_branch
+        ));
+    }
+    let source = validate_checkout(&operation.source_path, Some(&operation.repository_id))?;
+    if source.target_checkout_path == target.target_checkout_path {
+        return Err("Cleanup refuses to remove the primary checkout".to_string());
+    }
+    if source.target_branch != operation.source_branch {
+        return Err(format!(
+            "Source checkout is on {}, expected {}",
+            source.target_branch, operation.source_branch
+        ));
+    }
+    if source.target_revision != operation.source_revision {
+        return Err("Source branch tip changed after cleanup intent was recorded".to_string());
+    }
+    ensure_registered_distinct_worktree(&operation.target_path, &operation.source_path)?;
+    match local_ref_tip(&operation.target_path, &operation.source_branch)? {
+        Some(tip) if tip == operation.source_revision => {}
+        Some(_) => {
+            return Err("Source branch tip changed after cleanup intent was recorded".to_string())
+        }
+        None => {
+            return Err("The recorded source branch is absent before worktree removal".to_string())
+        }
+    }
+    if operation.completion_outcome == "merged"
+        && operation.merged_pr_head_revision.as_deref() != Some(&operation.source_revision)
+    {
+        let merged = git_status_success(
+            &operation.target_path,
+            &[
+                "merge-base",
+                "--is-ancestor",
+                &operation.source_revision,
+                "HEAD",
+            ],
+        )?;
+        if !merged {
+            return Err(
+                "Source revision is not merged and no matching merged-PR evidence was recorded"
+                    .to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn remove_cleanup_worktree(operation: &CleanupSnapshot) -> Result<(), String> {
+    if Path::new(&operation.source_path).exists() {
+        // Repeat the complete safety check immediately before the destructive
+        // command; the worktree may have changed after the validation phase.
+        validate_cleanup_repository(operation)?;
+        let output = Command::new("git")
+            .args([
+                "-C",
+                &operation.target_path,
+                "worktree",
+                "remove",
+                "--",
+                &operation.source_path,
+            ])
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err(format!(
+                "Git could not remove the source worktree: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        return Ok(());
+    }
+    if !operation.registration_validated {
+        return Err(
+            "Source worktree is absent without persisted successful registration validation"
+                .to_string(),
+        );
+    }
+    validate_cleanup_target(operation).map_err(|error| {
+        format!("Target checkout changed while reconciling worktree removal: {error}")
+    })?;
+    match local_ref_tip(&operation.target_path, &operation.source_branch)? {
+        Some(tip) if tip == operation.source_revision => Ok(()),
+        Some(_) => Err("Source branch tip changed while reconciling worktree removal".to_string()),
+        None if !operation.delete_local_branch => Ok(()),
+        None => Err("Source branch disappeared before its deletion phase".to_string()),
+    }
+}
+
+fn delete_cleanup_local_branch(operation: &CleanupSnapshot) -> Result<(), String> {
+    if !operation.delete_local_branch {
+        return Ok(());
+    }
+    validate_cleanup_target(operation)?;
+    let Some(tip) = local_ref_tip(&operation.target_path, &operation.source_branch)? else {
+        return if operation.registration_validated {
+            Ok(())
+        } else {
+            Err("Local branch is absent without persisted cleanup validation evidence".to_string())
+        };
+    };
+    if tip != operation.source_revision {
+        return Err("Local source branch tip changed; it was not deleted".to_string());
+    }
+    let rewritten =
+        operation.merged_pr_head_revision.as_deref() == Some(&operation.source_revision);
+    if !rewritten
+        && !git_status_success(
+            &operation.target_path,
+            &[
+                "merge-base",
+                "--is-ancestor",
+                &operation.source_revision,
+                "HEAD",
+            ],
+        )?
+    {
+        return Err("Local source branch is not safely merged".to_string());
+    }
+    let flag = if rewritten { "-D" } else { "-d" };
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &operation.target_path,
+            "branch",
+            flag,
+            "--",
+            &operation.source_branch,
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Git safely retained the local source branch: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+fn delete_cleanup_remote_branch(operation: &CleanupSnapshot) -> Result<(), String> {
+    if !operation.delete_remote_branch {
+        return Ok(());
+    }
+    validate_cleanup_target(operation)?;
+    if !operation.registration_validated
+        || operation.merged_pr_head_revision.as_deref() != Some(&operation.source_revision)
+    {
+        return Err(
+            "Remote deletion requires persisted validation and matching merged-PR head evidence"
+                .to_string(),
+        );
+    }
+    let remote_ref = format!("refs/heads/{}", operation.source_branch);
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &operation.target_path,
+            "ls-remote",
+            "--heads",
+            "origin",
+            &remote_ref,
+        ])
+        .output()
+        .map_err(|error| format!("Remote branch lookup failed: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Remote branch lookup failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let Some(tip) = text.split_whitespace().next() else {
+        return Ok(());
+    };
+    if tip != operation.source_revision {
+        return Err("Remote source branch tip changed; it was not deleted".to_string());
+    }
+    let lease = format!(
+        "--force-with-lease={remote_ref}:{}",
+        operation.source_revision
+    );
+    let deleted = Command::new("git")
+        .args([
+            "-C",
+            &operation.target_path,
+            "push",
+            &lease,
+            "origin",
+            "--delete",
+            &operation.source_branch,
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if deleted.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Remote branch deletion failed: {}",
+            String::from_utf8_lossy(&deleted.stderr).trim()
+        ))
+    }
+}
+
+fn validate_cleanup_target(operation: &CleanupSnapshot) -> Result<(), String> {
+    let target = validate_target_checkout(&operation.target_path, Some(&operation.repository_id))?;
+    if target.target_branch != operation.target_branch {
+        return Err(format!(
+            "Target checkout is on {}, expected {}",
+            target.target_branch, operation.target_branch
+        ));
+    }
+    Ok(())
+}
+
+fn local_ref_tip(path: &str, branch: &str) -> Result<Option<String>, String> {
+    let reference = format!("refs/heads/{branch}");
+    let probe = Command::new("git")
+        .args(["-C", path, "show-ref", "--verify", "--quiet", &reference])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if probe.status.code() == Some(1) {
+        return Ok(None);
+    }
+    if !probe.status.success() {
+        return Err(format!(
+            "Could not inspect local source branch: {}",
+            String::from_utf8_lossy(&probe.stderr).trim()
+        ));
+    }
+    git_output(path, &["rev-parse", &reference]).map(Some)
+}
+
+fn remove_cleanup_metadata(operation: &CleanupSnapshot) -> Result<(), String> {
+    with_connection(|connection| {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        let removed = transaction
+            .execute(
+                "DELETE FROM card_environments WHERE id=?1 AND card_id=?2 AND revision=?3",
+                params![
+                    operation.environment_id,
+                    operation.card_id,
+                    operation.environment_revision
+                ],
+            )
+            .map_err(db_error)?;
+        if removed == 0 {
+            let still_exists = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM card_environments WHERE card_id=?1",
+                    [&operation.card_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(db_error)?
+                > 0;
+            if still_exists {
+                return Err("Environment metadata changed; cleanup will not remove it".to_string());
             }
-            let source = validate_checkout(&source_path, Some(&repository_id))?;
-            let target = validate_checkout(&target_path, Some(&repository_id))?;
-            if source.target_branch != source_branch || target.target_branch != target_branch { return Err("Source or target checkout changed branches before cleanup".to_string()); }
-            let current_tip = git_output(&source_path, &["rev-parse", "HEAD"])?;
-            if completion_outcome.as_deref() == Some("merged") && current_tip != recorded_tip { return Err("The source branch has new commits since merge; merge again before cleanup".to_string()); }
-            let rewritten_pr_evidence = transaction.query_row(
-                "SELECT COUNT(*) FROM card_pull_requests pr
-                 WHERE pr.card_id=?1 AND pr.state='merged' AND pr.head_revision=?2",
-                params![id, current_tip], |row| row.get::<_, i64>(0),
-            ).unwrap_or(0) > 0;
-            if completion_outcome.as_deref() == Some("merged") && !rewritten_pr_evidence && !Command::new("git").args(["-C", &target_path, "merge-base", "--is-ancestor", &current_tip, "HEAD"]).status().map_err(|error| error.to_string())?.success() {
-                return Err("The source tip is no longer reachable from the recorded target and no verified squash/rebase PR evidence exists".to_string());
+        } else {
+            let updated = transaction.execute("UPDATE kanban_cards SET workflow_revision=workflow_revision+1,updated_at=?1 WHERE id=?2 AND workflow_revision=?3", params![unix_timestamp(), operation.card_id, operation.workflow_revision]).map_err(db_error)?;
+            if updated == 0 {
+                return Err("Card changed before cleanup metadata removal".to_string());
             }
-            ensure_registered_distinct_worktree(&target_path, &source_path)?;
-            let removed = Command::new("git").args(["-C", &target_path, "worktree", "remove", "--", &source_path]).output().map_err(|error| error.to_string())?;
-            if !removed.status.success() { return Err(format!("Git could not remove the source worktree: {}", String::from_utf8_lossy(&removed.stderr).trim())); }
-            if completion_outcome.as_deref() == Some("merged") {
-                let delete_flag = if rewritten_pr_evidence { "-D" } else { "-d" };
-                let deleted = Command::new("git").args(["-C", &target_path, "branch", delete_flag, "--", &source_branch]).output().map_err(|error| error.to_string())?;
-                if !deleted.status.success() { return Err(format!("Worktree was removed, but Git safely retained the source branch: {}", String::from_utf8_lossy(&deleted.stderr).trim())); }
-            }
-            transaction.execute("DELETE FROM card_environments WHERE card_id=?1 AND revision=?2", params![id, expected_environment_revision]).map_err(db_error)?;
-            transaction.execute("UPDATE kanban_cards SET workflow_revision=workflow_revision+1, updated_at=?1 WHERE id=?2 AND workflow_revision=?3", params![unix_timestamp(), id, expected_workflow_revision]).map_err(db_error)?;
-            transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, summary) VALUES (?1, ?2, 'user', 'cleanup', 'success', ?3)", params![id, unix_timestamp(), if completion_outcome.as_deref() == Some("closed") { "Removed source worktree and retained branch" } else { "Removed source worktree and branch" }]).map_err(db_error)?;
-            transaction.commit().map_err(db_error)?;
-            get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
-        });
-        if let Err(detail) = &result { record_operation_failure(&id, "cleanup", "cleanup_failed", detail); }
-        result
-    }).await.map_err(|error| format!("Cleanup worker failed: {error}"))?
+        }
+        transaction.commit().map_err(db_error)
+    })
+}
+
+fn advance_cleanup_phase(operation: &CleanupSnapshot) -> Result<(), String> {
+    with_connection(|connection| advance_cleanup_phase_in_connection(connection, operation))
+}
+
+fn advance_cleanup_phase_in_connection(
+    connection: &mut Connection,
+    operation: &CleanupSnapshot,
+) -> Result<(), String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    if operation.phase == "record_completion" {
+        let now = unix_timestamp();
+        let changed = transaction.execute("UPDATE card_cleanup_operations SET status='completed',error_code=NULL,error_detail=NULL,completed_at=?1,updated_at=?1 WHERE card_id=?2 AND phase=?3 AND status!='completed'", params![now, operation.card_id, operation.phase]).map_err(db_error)?;
+        if changed == 0 {
+            return Err("Cleanup operation changed while recording completion".to_string());
+        }
+        transaction.execute("UPDATE kanban_cards SET delivery_operation_stage=NULL,delivery_error=NULL WHERE id=?1", [&operation.card_id]).map_err(db_error)?;
+        transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,?2,'user','cleanup','success',?3)", params![operation.card_id, now, if operation.completion_outcome == "closed" { "Removed source worktree and retained branches" } else { "Cleanup completed and safely deleted required branches" }]).map_err(db_error)?;
+    } else {
+        let next = next_cleanup_phase(&operation.phase)
+            .ok_or_else(|| "Unknown or terminal cleanup phase".to_string())?;
+        let now = unix_timestamp();
+        let validation = (operation.phase == "validate_repository") as i64;
+        let changed = transaction.execute("UPDATE card_cleanup_operations SET status='pending',phase=?1,error_code=NULL,error_detail=NULL,registration_validated=CASE WHEN ?2=1 THEN 1 ELSE registration_validated END,validation_completed_at=CASE WHEN ?2=1 THEN ?3 ELSE validation_completed_at END,updated_at=?3 WHERE card_id=?4 AND phase=?5 AND status!='completed'", params![next, validation, now, operation.card_id, operation.phase]).map_err(db_error)?;
+        if changed == 0 {
+            return Err("Cleanup operation changed while advancing its phase".to_string());
+        }
+        transaction.execute("UPDATE card_environments SET lifecycle_state='cleanup_pending',updated_at=?1 WHERE id=?2", params![now, operation.environment_id]).map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)
+}
+
+fn next_cleanup_phase(phase: &str) -> Option<&'static str> {
+    let index = CLEANUP_PHASES
+        .iter()
+        .position(|candidate| *candidate == phase)?;
+    CLEANUP_PHASES.get(index + 1).copied()
+}
+
+fn cleanup_error_code(phase: &str, _detail: &str) -> String {
+    format!("cleanup_{}_failed", phase)
+}
+
+fn record_cleanup_failure(card_id: &str, phase: &str, code: &str, detail: &str) {
+    let _ = with_connection(|connection| {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        transaction.execute("UPDATE card_cleanup_operations SET status='failed',error_code=?1,error_detail=?2,updated_at=?3 WHERE card_id=?4 AND phase=?5", params![code, detail, unix_timestamp(), card_id, phase]).map_err(db_error)?;
+        transaction.execute("UPDATE card_environments SET lifecycle_state='cleanup_failed',updated_at=?1 WHERE card_id=?2", params![unix_timestamp(), card_id]).map_err(db_error)?;
+        transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary,error_code,error_detail) VALUES (?1,?2,'user','cleanup','failure',?3,?4,?5)", params![card_id, unix_timestamp(), format!("Cleanup failed during {phase}"), code, detail]).map_err(db_error)?;
+        transaction.commit().map_err(db_error)
+    });
 }
 
 fn feature_environment_title(title: &str) -> String {
@@ -2744,6 +3280,44 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS card_cleanup_operations (
+            card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            environment_id TEXT NOT NULL,
+            workflow_revision INTEGER NOT NULL,
+            environment_revision INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending', 'failed', 'completed')),
+            phase TEXT NOT NULL,
+            completion_outcome TEXT NOT NULL CHECK(completion_outcome IN ('merged', 'closed')),
+            repository_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            target_path TEXT NOT NULL,
+            source_branch TEXT NOT NULL,
+            target_branch TEXT NOT NULL,
+            source_revision TEXT NOT NULL,
+            target_revision TEXT,
+            delete_local_branch INTEGER NOT NULL,
+            delete_remote_branch INTEGER NOT NULL,
+            merged_pr_repository TEXT,
+            merged_pr_number INTEGER,
+            merged_pr_head_revision TEXT,
+            pane_ids TEXT NOT NULL DEFAULT '[]',
+            registration_validated INTEGER NOT NULL DEFAULT 0,
+            validation_completed_at INTEGER,
+            error_code TEXT,
+            error_detail TEXT,
+            started_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            completed_at INTEGER
+         );
+         CREATE TRIGGER IF NOT EXISTS card_cleanup_snapshot_immutable BEFORE UPDATE ON card_cleanup_operations
+         WHEN NEW.environment_id IS NOT OLD.environment_id OR NEW.workflow_revision IS NOT OLD.workflow_revision
+           OR NEW.environment_revision IS NOT OLD.environment_revision OR NEW.completion_outcome IS NOT OLD.completion_outcome
+           OR NEW.repository_id IS NOT OLD.repository_id OR NEW.source_path IS NOT OLD.source_path OR NEW.target_path IS NOT OLD.target_path
+           OR NEW.source_branch IS NOT OLD.source_branch OR NEW.target_branch IS NOT OLD.target_branch OR NEW.source_revision IS NOT OLD.source_revision
+           OR NEW.target_revision IS NOT OLD.target_revision OR NEW.delete_local_branch IS NOT OLD.delete_local_branch OR NEW.delete_remote_branch IS NOT OLD.delete_remote_branch
+           OR NEW.merged_pr_repository IS NOT OLD.merged_pr_repository OR NEW.merged_pr_number IS NOT OLD.merged_pr_number
+           OR NEW.merged_pr_head_revision IS NOT OLD.merged_pr_head_revision OR NEW.pane_ids IS NOT OLD.pane_ids
+         BEGIN SELECT RAISE(ABORT, 'cleanup operation snapshot is immutable'); END;
          CREATE TABLE IF NOT EXISTS card_panes (
             id TEXT PRIMARY KEY,
             environment_id TEXT NOT NULL REFERENCES card_environments(id) ON DELETE CASCADE,
@@ -2895,6 +3469,31 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(db_error)?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS card_cleanup_operations (
+            card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            environment_id TEXT NOT NULL, workflow_revision INTEGER NOT NULL, environment_revision INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','failed','completed')), phase TEXT NOT NULL,
+            completion_outcome TEXT NOT NULL CHECK(completion_outcome IN ('merged','closed')),
+            repository_id TEXT NOT NULL, source_path TEXT NOT NULL, target_path TEXT NOT NULL,
+            source_branch TEXT NOT NULL, target_branch TEXT NOT NULL, source_revision TEXT NOT NULL, target_revision TEXT,
+            delete_local_branch INTEGER NOT NULL, delete_remote_branch INTEGER NOT NULL,
+            merged_pr_repository TEXT, merged_pr_number INTEGER, merged_pr_head_revision TEXT,
+            pane_ids TEXT NOT NULL DEFAULT '[]', registration_validated INTEGER NOT NULL DEFAULT 0,
+            validation_completed_at INTEGER, error_code TEXT, error_detail TEXT,
+            started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER
+         );
+         CREATE TRIGGER IF NOT EXISTS card_cleanup_snapshot_immutable BEFORE UPDATE ON card_cleanup_operations
+         WHEN NEW.environment_id IS NOT OLD.environment_id OR NEW.workflow_revision IS NOT OLD.workflow_revision
+           OR NEW.environment_revision IS NOT OLD.environment_revision OR NEW.completion_outcome IS NOT OLD.completion_outcome
+           OR NEW.repository_id IS NOT OLD.repository_id OR NEW.source_path IS NOT OLD.source_path OR NEW.target_path IS NOT OLD.target_path
+           OR NEW.source_branch IS NOT OLD.source_branch OR NEW.target_branch IS NOT OLD.target_branch OR NEW.source_revision IS NOT OLD.source_revision
+           OR NEW.target_revision IS NOT OLD.target_revision OR NEW.delete_local_branch IS NOT OLD.delete_local_branch OR NEW.delete_remote_branch IS NOT OLD.delete_remote_branch
+           OR NEW.merged_pr_repository IS NOT OLD.merged_pr_repository OR NEW.merged_pr_number IS NOT OLD.merged_pr_number
+           OR NEW.merged_pr_head_revision IS NOT OLD.merged_pr_head_revision OR NEW.pane_ids IS NOT OLD.pane_ids
+         BEGIN SELECT RAISE(ABORT, 'cleanup operation snapshot is immutable'); END;
+         INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (53, unixepoch());"
+    ).map_err(db_error)?;
     for (name, sql) in [
         (
             "repository_id",
@@ -3036,6 +3635,7 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
         mapped.collect::<Result<Vec<_>, _>>().map_err(db_error)?
     };
     load_environments_batched(connection, &mut cards)?;
+    load_cleanup_operations_batched(connection, &mut cards)?;
     load_pull_requests_batched(connection, &mut cards)?;
     load_events_batched(connection, &mut cards)?;
     enrich_relationships_batched(connection, &mut cards)?;
@@ -3054,6 +3654,7 @@ fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, Str
     ).optional().map_err(db_error)?;
     if let Some(card) = &mut card {
         card.environment = load_environment(connection, id)?;
+        card.cleanup_operation = load_cleanup_operation(connection, id)?;
         card.pull_request = load_pull_request(connection, card)?;
         card.events = load_events(connection, id)?;
         let mut cards = vec![card.clone()];
@@ -3324,6 +3925,44 @@ fn load_environments_batched(
     Ok(())
 }
 
+fn load_cleanup_operations_batched(
+    connection: &Connection,
+    cards: &mut [KanbanCard],
+) -> Result<(), String> {
+    let indexes = cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| (card.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let mut statement = connection.prepare(
+        "SELECT o.card_id, o.status, o.phase, o.error_code, o.error_detail, o.started_at, o.updated_at, o.completed_at
+         FROM card_cleanup_operations o JOIN kanban_cards c ON c.id=o.card_id WHERE c.in_scope=1",
+    ).map_err(db_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CardCleanupOperation {
+                    status: row.get(1)?,
+                    phase: row.get(2)?,
+                    error_code: row.get(3)?,
+                    error_detail: row.get(4)?,
+                    started_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                    completed_at: row.get(7)?,
+                },
+            ))
+        })
+        .map_err(db_error)?;
+    for row in rows {
+        let (card_id, operation) = row.map_err(db_error)?;
+        if let Some(index) = indexes.get(&card_id) {
+            cards[*index].cleanup_operation = Some(operation);
+        }
+    }
+    Ok(())
+}
+
 fn load_pull_requests_batched(
     connection: &Connection,
     cards: &mut [KanbanCard],
@@ -3524,6 +4163,20 @@ fn load_events(connection: &Connection, card_id: &str) -> Result<Vec<CardEvent>,
     Ok(events)
 }
 
+fn load_cleanup_operation(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<Option<CardCleanupOperation>, String> {
+    connection.query_row(
+        "SELECT status, phase, error_code, error_detail, started_at, updated_at, completed_at FROM card_cleanup_operations WHERE card_id=?1",
+        [card_id],
+        |row| Ok(CardCleanupOperation {
+            status: row.get(0)?, phase: row.get(1)?, error_code: row.get(2)?, error_detail: row.get(3)?,
+            started_at: row.get(4)?, updated_at: row.get(5)?, completed_at: row.get(6)?,
+        }),
+    ).optional().map_err(db_error)
+}
+
 fn load_environment(
     connection: &Connection,
     card_id: &str,
@@ -3615,6 +4268,7 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
         record_revision: row.get(17)?,
         project_id: row.get(18)?,
         environment: None,
+        cleanup_operation: None,
         created_at: row.get(19)?,
         updated_at: row.get(20)?,
         sort_order: row.get(21)?,
@@ -4752,7 +5406,9 @@ mod tests {
         TRACED_READS.store(0, Ordering::Relaxed);
         list_cards(&mut connection).unwrap();
         let initial_reads = TRACED_READS.load(Ordering::Relaxed);
-        assert_eq!(initial_reads, 7);
+        // Cards, environments/panes, cleanup operations, PRs, events, and
+        // relationships are each loaded in constant-size batches.
+        assert_eq!(initial_reads, 8);
         for index in 0..25 {
             connection.execute(
                 "INSERT INTO kanban_cards (id,external_provider,external_id,title,project_id,created_at,updated_at,sort_order)
@@ -6191,6 +6847,162 @@ mod tests {
             .unwrap();
         assert!(health_codes(&connection, "local:approve")
             .contains(&"source_revision_not_merged".to_string()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_phases_are_ordered_and_cover_every_resumable_boundary() {
+        let mut visited = vec![CLEANUP_PHASES[0]];
+        while let Some(next) = next_cleanup_phase(visited.last().unwrap()) {
+            visited.push(next);
+        }
+        assert_eq!(visited, CLEANUP_PHASES);
+        assert_eq!(next_cleanup_phase("record_completion"), None);
+    }
+
+    #[test]
+    fn cleanup_operation_schema_retains_completed_audit_after_environment_deletion() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        test_project(&connection, "p", "local", "/tmp/repo");
+        let now = unix_timestamp();
+        connection.execute("INSERT INTO kanban_cards (id,external_provider,external_id,title,status,completion_outcome,workflow_revision,project_id,created_at,updated_at) VALUES ('local:cleanup','local:p','64','Cleanup','done','closed',3,'p',?1,?1)", [now]).unwrap();
+        connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,revision,created_at,updated_at) VALUES ('cleanup-env','local:cleanup','p','/tmp/source','feature',2,?1,?1)", [now]).unwrap();
+        connection.execute("INSERT INTO card_cleanup_operations (card_id,environment_id,workflow_revision,environment_revision,status,phase,completion_outcome,repository_id,source_path,target_path,source_branch,target_branch,source_revision,delete_local_branch,delete_remote_branch,started_at,updated_at) VALUES ('local:cleanup','cleanup-env',3,2,'pending','remove_metadata','closed','repo','/tmp/source','/tmp/repo','feature','main','abc',0,0,?1,?1)", [now]).unwrap();
+        let immutable_error = connection.execute("UPDATE card_cleanup_operations SET source_revision='changed' WHERE card_id='local:cleanup'", []).unwrap_err();
+        assert!(immutable_error
+            .to_string()
+            .contains("snapshot is immutable"));
+        connection
+            .execute("DELETE FROM card_environments WHERE id='cleanup-env'", [])
+            .unwrap();
+        connection.execute("UPDATE card_cleanup_operations SET status='completed',phase='record_completion',completed_at=?1 WHERE card_id='local:cleanup'", [now]).unwrap();
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM card_cleanup_operations WHERE card_id='local:cleanup' AND status='completed'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        assert!(get_card(&connection, "local:cleanup")
+            .unwrap()
+            .unwrap()
+            .cleanup_operation
+            .is_some());
+    }
+
+    #[test]
+    fn cleanup_phase_advancement_is_compare_and_set_and_resumable_at_every_boundary() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        test_project(&connection, "p", "local", "/tmp/repo");
+        let now = unix_timestamp();
+        connection.execute("INSERT INTO kanban_cards (id,external_provider,external_id,title,status,completion_outcome,workflow_revision,project_id,created_at,updated_at) VALUES ('local:phases','local:p','64','Phases','done','closed',3,'p',?1,?1)", [now]).unwrap();
+        connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,revision,created_at,updated_at) VALUES ('phase-env','local:phases','p','/tmp/source','feature',2,?1,?1)", [now]).unwrap();
+        connection.execute("INSERT INTO card_cleanup_operations (card_id,environment_id,workflow_revision,environment_revision,status,phase,completion_outcome,repository_id,source_path,target_path,source_branch,target_branch,source_revision,delete_local_branch,delete_remote_branch,started_at,updated_at) VALUES ('local:phases','phase-env',3,2,'failed','runtime_sessions','closed','repo','/tmp/source','/tmp/repo','feature','main','abc',0,0,?1,?1)", [now]).unwrap();
+
+        let stale = load_cleanup_snapshot(&connection, "local:phases").unwrap();
+        advance_cleanup_phase_in_connection(&mut connection, &stale).unwrap();
+        assert!(advance_cleanup_phase_in_connection(&mut connection, &stale)
+            .unwrap_err()
+            .contains("changed"));
+        loop {
+            let current = load_cleanup_snapshot(&connection, "local:phases").unwrap();
+            if current.status == "completed" {
+                break;
+            }
+            advance_cleanup_phase_in_connection(&mut connection, &current).unwrap();
+        }
+        let completed = load_cleanup_snapshot(&connection, "local:phases").unwrap();
+        assert_eq!(completed.status, "completed");
+        assert!(completed.registration_validated);
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM card_events WHERE card_id='local:phases' AND event_type='cleanup' AND outcome='success'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    }
+
+    fn cleanup_snapshot(target: &Path, source: &Path, outcome: &str) -> CleanupSnapshot {
+        CleanupSnapshot {
+            card_id: "local:cleanup".into(),
+            environment_id: "env".into(),
+            workflow_revision: 1,
+            environment_revision: 1,
+            status: "pending".into(),
+            phase: "validate_repository".into(),
+            completion_outcome: outcome.into(),
+            repository_id: repository_identity(target.to_str().unwrap()).unwrap(),
+            source_path: source.to_str().unwrap().into(),
+            target_path: target.to_str().unwrap().into(),
+            source_branch: "feature".into(),
+            target_branch: "main".into(),
+            source_revision: git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+            delete_local_branch: outcome == "merged",
+            delete_remote_branch: false,
+            merged_pr_head_revision: None,
+            pane_ids: Vec::new(),
+            registration_validated: false,
+        }
+    }
+
+    #[test]
+    fn cleanup_reconciles_worktree_and_local_branch_side_effects() {
+        let (root, target, source) = merge_repository();
+        git_ok(&target, &["merge", "--no-ff", "feature", "-m", "merge"]);
+        let mut operation = cleanup_snapshot(&target, &source, "merged");
+        validate_cleanup_repository(&operation).unwrap();
+        operation.registration_validated = true;
+
+        remove_cleanup_worktree(&operation).unwrap();
+        assert!(!source.exists());
+        remove_cleanup_worktree(&operation).unwrap();
+        delete_cleanup_local_branch(&operation).unwrap();
+        assert!(local_ref_tip(target.to_str().unwrap(), "feature")
+            .unwrap()
+            .is_none());
+        delete_cleanup_local_branch(&operation).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_remote_deletion_uses_exact_tip_lease_and_reconciles_absence() {
+        let (root, target, source) = merge_repository();
+        git_ok(&target, &["merge", "--no-ff", "feature", "-m", "merge"]);
+        let remote = root.join("remote.git");
+        let output = Command::new("git")
+            .args(["init", "--bare", remote.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        git_ok(
+            &target,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        git_ok(&target, &["push", "origin", "feature"]);
+        let mut operation = cleanup_snapshot(&target, &source, "merged");
+        operation.registration_validated = true;
+        operation.delete_remote_branch = true;
+        operation.merged_pr_head_revision = Some(operation.source_revision.clone());
+        delete_cleanup_remote_branch(&operation).unwrap();
+        delete_cleanup_remote_branch(&operation).unwrap();
+
+        git_ok(&target, &["push", "origin", "main:feature"]);
+        assert!(delete_cleanup_remote_branch(&operation)
+            .unwrap_err()
+            .contains("tip changed"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_rejects_absent_unvalidated_and_changed_source_evidence() {
+        let (root, target, source) = merge_repository();
+        let mut operation = cleanup_snapshot(&target, &source, "closed");
+        fs::write(source.join("dirty.txt"), "unsafe\n").unwrap();
+        assert!(validate_cleanup_repository(&operation)
+            .unwrap_err()
+            .contains("modified or untracked"));
+        fs::remove_file(source.join("dirty.txt")).unwrap();
+        git_ok(&target, &["worktree", "remove", source.to_str().unwrap()]);
+        assert!(remove_cleanup_worktree(&operation)
+            .unwrap_err()
+            .contains("without persisted"));
+        operation.registration_validated = true;
+        remove_cleanup_worktree(&operation).unwrap();
+        git_ok(&target, &["branch", "-f", "feature", "main"]);
+        assert!(remove_cleanup_worktree(&operation)
+            .unwrap_err()
+            .contains("tip changed"));
         fs::remove_dir_all(root).unwrap();
     }
 

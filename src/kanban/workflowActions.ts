@@ -92,9 +92,12 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
           { kind: 'merge_local', label: 'Merge locally', primary: true, confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } },
         ];
       }
-      case 'done': return environment ? [
-        { kind: 'cleanup', label: 'Clean up', destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
-      ] : [];
+      case 'done': {
+        const retrying = Boolean(card.cleanup_operation && card.cleanup_operation.status !== 'completed');
+        return environment || retrying ? [
+          { kind: 'cleanup', label: retrying ? 'Retry cleanup' : 'Clean up', destructive: true, appearance: 'regular', confirmation: retrying ? undefined : { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
+        ] : [];
+      }
     }
   })();
   return card.status === 'done' ? actions : [...actions, close];

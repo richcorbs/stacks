@@ -45,6 +45,7 @@ import { CardGitSummary } from './CardGitSummary';
 import { CardPullRequestLink } from './CardPullRequestLink';
 import { CardEnvironmentBranch } from './CardEnvironmentBranch';
 import { CardProjectAssignment } from './CardProjectAssignment';
+import { CardCleanupStatus, cleanupPhaseLabel } from './CardCleanupStatus';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 import { initialCardView, type CardView } from '../kanban/cardView';
 import { candidateParents, childCountLabel, hierarchyStatusLabel, statusLabel as childStatusLabel } from '../kanban/hierarchy';
@@ -277,9 +278,10 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   }
 
   async function cleanupMergedCards() {
-    const mergedCards = visibleCards.filter((card) => card.status === 'done' && card.completion_outcome === 'merged');
+    const mergedCards = visibleCards.filter((card) => card.status === 'done' && card.completion_outcome === 'merged' && (card.environment || card.cleanup_operation?.status !== 'completed'));
+    const newCleanups = mergedCards.filter((card) => !card.cleanup_operation);
     setOpenLaneMenu(null);
-    if (mergedCards.length === 0 || !window.confirm(`Clean up ${mergedCards.length} merged ${mergedCards.length === 1 ? 'card' : 'cards'}?\n\nThis removes their card-owned processes, source worktrees, safely deletable branches, and environments. Cards remain in Done · Merged.`)) return;
+    if (mergedCards.length === 0 || (newCleanups.length > 0 && !window.confirm(`Clean up ${newCleanups.length} merged ${newCleanups.length === 1 ? 'card' : 'cards'}?\n\nThis removes their card-owned processes, source worktrees, safely deletable branches, and environments. Cards remain in Done · Merged. Existing cleanup operations will be retried without another confirmation.`))) return;
     setCleaningMerged(true);
     const failures: string[] = [];
     for (const card of mergedCards) {
@@ -626,8 +628,13 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             const current = selectedCard.environment
               ? { ...selectedCard, environment: { ...selectedCard.environment, revision: environmentRevision } }
               : selectedCard;
-            if (!await onCleanupCard(current)) return;
-            await board.load();
+            try {
+              if (!await onCleanupCard(current)) return;
+            } finally {
+              await board.load();
+              const updated = await board.loadDetails(current);
+              setSelectedCard(updated);
+            }
           }}
           onCardUpdated={(updated) => {
             setSelectedCard(board.applyCardSnapshot(updated));
@@ -650,6 +657,11 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
       )}
     </div>
   );
+}
+
+function cleanupPhaseFromErrorCode(code: string): string {
+  const phase = code.replace(/^cleanup_/, '').replace(/_failed$/, '') as NonNullable<KanbanCard['cleanup_operation']>['phase'];
+  return cleanupPhaseLabel(phase) ?? phase.replaceAll('_', ' ');
 }
 
 function HierarchyBadges({ card }: { card: KanbanCard }) {
@@ -1335,12 +1347,13 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
               {card.pull_request.blockers.map((blocker) => <li key={blocker}><span>{blocker}</span></li>)}
             </ul>
           </aside>}
+          {!editing && card.cleanup_operation && <CardCleanupStatus operation={card.cleanup_operation} />}
           {!editing && card.delivery_error && <div className="kanbanActionError" role="alert">{card.delivery_error}</div>}
           {!editing && card.events.length > 0 && <details className="cardHistory">
             <summary>History ({card.events.length})</summary>
             <ol>{card.events.map((event) => <li key={event.id}>
               <time>{new Date(event.created_at * 1000).toLocaleString()}</time>
-              <span>{event.actor} · {event.event_type} · {event.outcome}</span>
+              <span>{event.actor} · {event.event_type} · {event.outcome}{event.error_code?.startsWith('cleanup_') ? ` · ${cleanupPhaseFromErrorCode(event.error_code)}` : ''}</span>
               <strong>{event.from_status && event.to_status ? `${event.from_status} → ${event.to_status}` : event.summary}</strong>
               {event.error_detail && <small>{event.error_detail}</small>}
             </li>)}</ol>
