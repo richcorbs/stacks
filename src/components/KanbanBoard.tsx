@@ -37,6 +37,7 @@ import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from
 import { useCardGitSummary } from '../kanban/useCardGitSummary';
 import { CardGitSummary } from './CardGitSummary';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
+import { initialCardView, type CardView } from '../kanban/cardView';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -617,7 +618,6 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   );
 }
 
-type CardView = 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console';
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
 
@@ -645,7 +645,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const [working, setWorking] = useState(false);
   const [workflowOperation, setWorkflowOperation] = useState<CardWorkflowAction['kind'] | null>(null);
   const workflowRunningRef = useRef(false);
-  const [activeView, setActiveView] = useState<CardView>(() => initialView ?? (card.status !== 'needs_refinement' && card.status !== 'ready' && card.project_id ? 'chat' : 'overview'));
+  const [activeView, setActiveView] = useState<CardView>(() => initialCardView(initialView));
   const [actionError, setActionError] = useState<string | null>(null);
   const [recheckingEnvironment, setRecheckingEnvironment] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -1038,10 +1038,6 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
       else setActionError('Could not send the review to the card chat.');
     }));
   }
-
-  useEffect(() => {
-    if (card.status === 'ready') setActiveView('overview');
-  }, [card.status]);
 
   const showChat = activeView === 'chat';
   return <>
