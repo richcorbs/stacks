@@ -5317,10 +5317,8 @@ fn migrate_done_status(connection: &Connection) -> Result<(), String> {
             |row| row.get(0),
         )
         .map_err(db_error)?;
-    if sql.contains("'done'") {
-        return Ok(());
-    }
-    connection.execute_batch(
+    if !sql.contains("'done'") {
+        connection.execute_batch(
         "PRAGMA foreign_keys=OFF;
          PRAGMA legacy_alter_table=ON;
          BEGIN IMMEDIATE;
@@ -5348,7 +5346,27 @@ fn migrate_done_status(connection: &Connection) -> Result<(), String> {
          COMMIT;
          PRAGMA legacy_alter_table=OFF;
          PRAGMA foreign_keys=ON;"
-    ).map_err(db_error)
+        ).map_err(db_error)?;
+    }
+    connection
+        .execute(
+            "UPDATE card_events SET from_status='done' WHERE from_status='merged'",
+            [],
+        )
+        .map_err(db_error)?;
+    connection
+        .execute(
+            "UPDATE card_events SET to_status='done' WHERE to_status='merged'",
+            [],
+        )
+        .map_err(db_error)?;
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (72, unixepoch())",
+            [],
+        )
+        .map_err(db_error)?;
+    Ok(())
 }
 
 fn migrate_refinement_statuses(connection: &Connection) -> Result<(), String> {
@@ -8288,8 +8306,15 @@ mod tests {
             workflow_revision INTEGER NOT NULL DEFAULT 1, project_id TEXT, workspace_id TEXT, created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, in_scope INTEGER NOT NULL DEFAULT 1,
             UNIQUE(external_provider, external_id));
+            CREATE TABLE card_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+                actor TEXT NOT NULL, event_type TEXT NOT NULL, outcome TEXT NOT NULL,
+                from_status TEXT, to_status TEXT, summary TEXT, error_code TEXT, error_detail TEXT
+            );
             INSERT INTO kanban_cards (id,external_provider,external_id,title,status,created_at,updated_at)
-            VALUES ('legacy','local:p','1','Legacy','merged',1,1);").unwrap();
+            VALUES ('legacy','local:p','1','Legacy','merged',1,1);
+            INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status)
+            VALUES ('legacy',1,'user','merge','success','approved','merged');").unwrap();
         migrate(&connection).unwrap();
         let result: (String, Option<String>) = connection
             .query_row(
@@ -8299,6 +8324,17 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result, ("done".to_string(), Some("merged".to_string())));
+        let event_statuses: (Option<CardStatus>, Option<CardStatus>) = connection
+            .query_row(
+                "SELECT from_status,to_status FROM card_events WHERE card_id='legacy'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            event_statuses,
+            (Some(CardStatus::Approved), Some(CardStatus::Done))
+        );
     }
 
     #[test]
