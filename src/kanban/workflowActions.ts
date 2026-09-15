@@ -29,6 +29,7 @@ export type CardWorkflowContext = {
 
 /** Pure source of truth for workflow labels and availability in every card tab. */
 export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWorkflowAction[] {
+  if (context.card.hierarchy_finalized) return [];
   const actions = baseCardWorkflowActions(context)
     .filter((action) => action.kind !== 'open_refinement' || context.activeTab !== 'chat');
   return actions.map((action) => ({

@@ -39,6 +39,9 @@ describe('Superthread card provider creation', () => {
       list_title: 'Backlog',
       card_url: 'https://app.superthread.com/example/card-48',
       assignee_names: [],
+      task_parent_id: null,
+      task_parent_title: null,
+      total_task_children: 0,
       in_scope: true,
     });
     expect(createMock).toHaveBeenCalledWith({

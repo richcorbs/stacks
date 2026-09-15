@@ -64,6 +64,9 @@ pub fn activate_existing_instance() -> bool {
         title: None,
         content: None,
         description: None,
+        parent_id: None,
+        parent_specified: None,
+        children: None,
     };
     send_request(request, Duration::from_secs(2))
         .map(|response| response.ok)
@@ -132,6 +135,9 @@ fn parse_workspace_args(args: &[String]) -> Result<ClientRequest, String> {
         title: None,
         content: None,
         description: None,
+        parent_id: None,
+        parent_specified: None,
+        children: None,
     })
 }
 
@@ -317,6 +323,9 @@ mod tests {
                 title: None,
                 content: None,
                 description: None,
+                parent_id: None,
+                parent_specified: None,
+                children: None,
             },
             Duration::from_secs(1),
         )

@@ -10,12 +10,14 @@ export function fetchKanbanEnvironmentHealth(cardIds: string[]) {
   return invoke<CardEnvironmentHealth[]>('kanban_environment_health', { cardIds });
 }
 
-export function createLocalKanbanCard(projectId: string, title: string, content: string) {
-  return invoke<KanbanCard>('kanban_create_local_card', { projectId, title, content });
+export function createLocalKanbanCard(projectId: string, title: string, content: string, parentId: string | null = null) {
+  return invoke<KanbanCard>('kanban_create_local_card', { projectId, title, content, parentId });
 }
 
-export function updateLocalKanbanCard(id: string, title: string, content: string) {
-  return invoke<KanbanCard>('kanban_update_local_card', { id, title, content });
+export function updateLocalKanbanCard(id: string, title: string, content: string, parentId?: string | null) {
+  return invoke<KanbanCard>('kanban_update_local_card', {
+    id, title, content, parentId: parentId ?? null, parentSpecified: parentId !== undefined,
+  });
 }
 
 export function openKanbanCard(id: string) {

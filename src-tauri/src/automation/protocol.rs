@@ -1,3 +1,4 @@
+use crate::kanban::ApprovedChildSpec;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -40,6 +41,12 @@ pub(crate) struct ClientRequest {
     pub content: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub parent_specified: Option<bool>,
+    #[serde(default)]
+    pub children: Option<Vec<ApprovedChildSpec>>,
 }
 
 impl AutomationResponse {

@@ -6,7 +6,7 @@ import {
 } from './writePlanAndFinishRefinement';
 
 function card(status: KanbanStatus): KanbanCard {
-  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: 'Plan', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 2, project_id: 'p', environment: null, created_at: 1, updated_at: 2, sort_order: 0, events: [] };
+  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: 'Plan', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 2, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment: null, created_at: 1, updated_at: 2, sort_order: 0, events: [] };
 }
 
 describe('write plan and finish refinement workflow', () => {
@@ -26,9 +26,9 @@ describe('write plan and finish refinement workflow', () => {
     expect(result).toBe(updated);
     expect(calls).toEqual(['agent', 'prompt', 'refresh']);
     expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('complete, self-contained implementation plan');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('Only after the description update succeeds');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('card-management tools available in your context');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).not.toContain('update_card_description');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('self-contained, independently deployable child cards');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('do not split work unnecessarily');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('only after explicit approval');
   });
 
   it('refreshes and reports prompt delivery or execution failure without another transition', async () => {

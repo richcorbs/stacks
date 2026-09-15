@@ -77,6 +77,13 @@ export type CardEvent = {
   error_detail: string | null;
 };
 
+export type CardRelationshipSummary = {
+  id: string;
+  external_id: string;
+  title: string;
+  status: KanbanStatus;
+};
+
 export type KanbanCard = {
   id: string;
   provider: 'local' | 'superthread';
@@ -97,6 +104,10 @@ export type KanbanCard = {
   delivery_error?: string | null;
   workflow_revision: number;
   project_id: string | null;
+  parent: CardRelationshipSummary | null;
+  child_count: number;
+  children: CardRelationshipSummary[];
+  hierarchy_finalized: boolean;
   environment: CardEnvironment | null;
   created_at: number;
   updated_at: number;
@@ -117,6 +128,9 @@ export type KanbanSyncCard = {
   list_title: string;
   card_url: string;
   assignee_names: string[];
+  task_parent_id?: string | null;
+  task_parent_title?: string | null;
+  total_task_children?: number;
   in_scope: boolean;
 };
 

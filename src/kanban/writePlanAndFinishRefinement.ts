@@ -1,6 +1,6 @@
 import type { KanbanCard } from './types';
 
-export const WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT = `Review the card description and inspect the repository as needed. Write a complete, self-contained implementation plan that another agent can execute without this conversation. Include the desired outcome, acceptance criteria, technical approach, risks or open questions, and validation plan. Use the card-management tools available in your context to replace the card description with that plan. Only after the description update succeeds, use the available card-management tool to finish refinement. If updating the description fails, do not finish refinement; report the failure instead.`;
+export const WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT = `Review the card description and inspect the repository as needed. Write a complete, self-contained implementation plan that another agent can execute without this conversation. Include the desired outcome, acceptance criteria, technical approach, risks or open questions, and validation plan. When a breakdown would materially improve execution, propose self-contained, independently deployable child cards; do not split work unnecessarily. Include every existing linked draft child in any proposed breakdown. Use finish_refinement only after explicit approval so the final brief and any approved children are persisted atomically. If no breakdown is approved, finish the single card normally.`;
 
 export type WritePlanAndFinishRefinementDependencies = {
   showAgent: () => void;

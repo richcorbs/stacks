@@ -86,6 +86,13 @@ struct AuthStatus {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SuperthreadTaskParent {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SuperthreadCard {
     pub id: String,
     pub title: String,
@@ -106,6 +113,10 @@ pub struct SuperthreadCard {
     assignee_names: Vec<String>,
     #[serde(default)]
     card_url: String,
+    #[serde(default)]
+    pub task_parent: Option<SuperthreadTaskParent>,
+    #[serde(default)]
+    pub total_task_children: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -688,13 +699,20 @@ mod tests {
             "id":"2067",
             "title":"Example",
             "list_id":"doing",
-            "assignees":[{"user_id":"u1"}]
+            "assignees":[{"user_id":"u1"}],
+            "task_parent":{"id":"100","title":"Parent"},
+            "total_task_children":2
         }"#,
         )
         .unwrap();
         assert_eq!(card.id, "2067");
         assert_eq!(card.total_comments, 0);
         assert_eq!(card.assignees[0].user_id, "u1");
+        assert_eq!(
+            card.task_parent.as_ref().map(|parent| parent.id.as_str()),
+            Some("100")
+        );
+        assert_eq!(card.total_task_children, 2);
     }
 
     #[cfg(unix)]

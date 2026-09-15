@@ -40,6 +40,7 @@ import { CardGitSummary } from './CardGitSummary';
 import { CardPullRequestLink } from './CardPullRequestLink';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 import { initialCardView, type CardView } from '../kanban/cardView';
+import { candidateParents, childCountLabel, hierarchyStatusLabel, statusLabel as childStatusLabel } from '../kanban/hierarchy';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -76,6 +77,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const [newCardTitle, setNewCardTitle] = useState('');
   const [newCardDescription, setNewCardDescription] = useState('');
   const [newCardProjectId, setNewCardProjectId] = useState('');
+  const [newCardParentId, setNewCardParentId] = useState('');
   const [newCardError, setNewCardError] = useState<string | null>(null);
   const [newCardCreating, setNewCardCreating] = useState(false);
   const newCardTitleRef = useRef<HTMLInputElement | null>(null);
@@ -227,9 +229,10 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     setNewCardCreating(true);
     setNewCardError(null);
     try {
-      const card = await board.create(destination, newCardTitle, newCardDescription);
+      const card = await board.create(destination, newCardTitle, newCardDescription, newCardParentId || null);
       setNewCardTitle('');
       setNewCardDescription('');
+      setNewCardParentId('');
       const filteredOut = Boolean(filterProjectId && filterProjectId !== destination.id);
       if (outcome === 'open') {
         setNewCardOpen(false);
@@ -290,7 +293,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   }
 
   function beginPointerDrag(event: ReactPointerEvent, card: KanbanCard) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || card.hierarchy_finalized) return;
     pointerDragRef.current = {
       cardId: card.id,
       status: card.status,
@@ -469,11 +472,12 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                       }}
                     >
                       <span className="kanbanCardSource">
+                        <span className="kanbanCardNumber">#{card.external_id}</span>
                         <span className={`kanbanProjectBadge${owningProject(card, projects) ? '' : ' invalid'}`}>
                           {owningProject(card, projects)?.name ?? 'Unknown project'}
                         </span>
-                        {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title} · </span>}
-                        <span className="kanbanCardNumber">#{card.external_id}</span>
+                        <HierarchyBadges card={card} />
+                        {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title}</span>}
                       </span>
                       <strong>{card.title}</strong>
                       <span className="kanbanCardMeta">
@@ -548,10 +552,16 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             createCard('open');
           }}>
             <h2>Add card</h2>
-            <label>Project<select autoFocus value={newCardProjectId} disabled={newCardCreating} required onChange={(event) => setNewCardProjectId(event.target.value)}>
+            <label>Project<select autoFocus value={newCardProjectId} disabled={newCardCreating} required onChange={(event) => { setNewCardProjectId(event.target.value); setNewCardParentId(''); }}>
               <option value="" disabled>Select a project…</option>
               {creationProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select></label>
+            {(creationProjects.find((project) => project.id === newCardProjectId)?.kanban_source ?? 'local') === 'local' && (
+              <label>Parent<select value={newCardParentId} disabled={newCardCreating} onChange={(event) => setNewCardParentId(event.target.value)}>
+                <option value="">No parent</option>
+                {candidateParents(board.cards, { id: '', project_id: newCardProjectId }).map((candidate) => <option value={candidate.id} key={candidate.id}>#{candidate.external_id} {candidate.title}</option>)}
+              </select></label>
+            )}
             <label>Title<input ref={newCardTitleRef} autoFocus disabled={newCardCreating} value={newCardTitle} onChange={(event) => { invalidateClipboardOperation(event.currentTarget); setNewCardTitle(event.target.value); }} onKeyDown={(event) => handleNewCardClipboard(event, setNewCardTitle)} /></label>
             <label>Description<textarea rows={8} disabled={newCardCreating} value={newCardDescription} onChange={(event) => { invalidateClipboardOperation(event.currentTarget); setNewCardDescription(event.target.value); }} onKeyDown={(event) => handleNewCardClipboard(event, setNewCardDescription)} /></label>
             {newCardError && <div className="kanbanEditError" role="alert">{newCardError}</div>}
@@ -577,6 +587,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
       {selectedCard && (
         <KanbanCardDetail
           card={selectedCard}
+          cards={board.cards}
           projects={projects}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}
@@ -586,7 +597,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           environmentHealth={repositoryStatuses[selectedCard.id]?.environmentHealth}
           onRecheckEnvironment={() => recheckEnvironment(selectedCard.id)}
           onClose={() => setSelectedCard(null)}
-          onUpdate={(title, content) => board.update(selectedCard.id, title, content).then((updated) => {
+          onUpdate={(title, content, parentId) => board.update(selectedCard.id, title, content, parentId).then((updated) => {
             setSelectedCard(updated);
             return updated;
           })}
@@ -609,7 +620,14 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             if (!await onCleanupCard(current)) return;
             await board.load();
           }}
-          onCardUpdated={setSelectedCard}
+          onCardUpdated={(updated) => {
+            setSelectedCard(updated);
+            if (updated.parent) board.load().catch(console.error);
+          }}
+          onNavigate={(id) => {
+            const target = board.cards.find((candidate) => candidate.id === id);
+            if (target) openCard(target);
+          }}
           onDelete={async () => {
             await board.remove(selectedCard.id);
             setSelectedCard(null);
@@ -625,11 +643,19 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   );
 }
 
+function HierarchyBadges({ card }: { card: KanbanCard }) {
+  return <>
+    {card.parent && <span className="kanbanHierarchyBadge parent" title={card.parent.title} aria-label={`Parent: ${card.parent.title}`}>{card.parent.title}</span>}
+    {card.child_count > 0 && <span className="kanbanHierarchyBadge children">{childCountLabel(card.child_count)}</span>}
+  </>;
+}
+
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
 
-function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
+function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
   card: KanbanCard;
+  cards: KanbanCard[];
   projects: Project[];
   terminalFontSize: number;
   terminalFontFamily: string;
@@ -639,7 +665,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   environmentHealth?: CardEnvironmentHealth;
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
   onClose: () => void;
-  onUpdate: (title: string, content: string) => Promise<KanbanCard>;
+  onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
   onMove: (status: KanbanStatus) => Promise<unknown>;
   onStopRefinement: () => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
@@ -648,12 +674,13 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   onDelete: () => Promise<void>;
   onReload: () => Promise<KanbanCard>;
   onCardUpdated: (card: KanbanCard) => void;
+  onNavigate: (id: string) => void;
 }) {
   const projectId = card.project_id ?? '';
   const [working, setWorking] = useState(false);
   const [workflowOperation, setWorkflowOperation] = useState<CardWorkflowAction['kind'] | null>(null);
   const workflowRunningRef = useRef(false);
-  const [activeView, setActiveView] = useState<CardView>(() => initialCardView(initialView));
+  const [activeView, setActiveView] = useState<CardView>(() => card.hierarchy_finalized ? 'overview' : initialCardView(initialView));
   const [actionError, setActionError] = useState<string | null>(null);
   const [recheckingEnvironment, setRecheckingEnvironment] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -687,14 +714,14 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
   const serverCommand = project?.server_command?.trim() ?? '';
   const consoleCommand = project?.console_command?.trim() ?? '';
-  const statusLabel = card.status === 'done' ? `Done · ${card.completion_outcome === 'merged' ? 'Merged' : 'Closed'}` : KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
+  const statusLabel = hierarchyStatusLabel(card);
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
   const workflowCard = workflowOperation === 'ship' || workflowOperation === 'ship_with_fe' ? { ...card, status: 'needs_human' as const } : card;
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, projectAvailable: Boolean(project), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
-    ...(project ? ['chat' as const] : []),
+    ...(project && !card.hierarchy_finalized ? ['chat' as const] : []),
     ...(cardPath ? ['diff' as const, 'terminal' as const] : []),
     ...(cardPath && serverCommand ? ['server' as const] : []),
     ...(cardPath && consoleCommand ? ['console' as const] : []),
@@ -1055,7 +1082,8 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         <header>
           <div className="kanbanDetailHeading">
             <div className="kanbanDetailHeaderMeta">
-              {card.provider === 'local' && !card.environment ? (
+              <a href={card.card_url || undefined} onClick={(event) => card.card_url && openExternalLink(event, card.card_url)}>#{card.external_id}</a>
+              {card.provider === 'local' && !card.environment && !card.hierarchy_finalized ? (
                 <select className="kanbanProjectAssignment" aria-label="Owning project" value={projectId} onChange={(event) => {
                   onOpenChat(event.target.value).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
                 }}>
@@ -1063,7 +1091,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
                   {localKanbanProjects(projects).map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}
                 </select>
               ) : <span className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>}
-              <a href={card.card_url} onClick={(event) => openExternalLink(event, card.card_url)}>#{card.external_id}</a>
+              <HierarchyBadges card={card} />
               <span className="kanbanCardStatus">{statusLabel}</span>
               <CardGitSummary summary={gitChangeSummary} />
               <CardPullRequestLink pullRequest={card.pull_request} onOpen={openExternalLink} />
@@ -1081,28 +1109,30 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         </header>
         <nav className="cardWorkspaceTabs" aria-label="Card views">
           <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => requestView('overview')}>Card</button>
-          <button className={showChat ? 'active' : ''} type="button" disabled={!project} onClick={() => requestView('chat')}>Agent</button>
-          <span className={`cardDiffTab${activeView === 'diff' ? ' active' : ''}`}>
-            <button className="cardDiffTabLabel" type="button" disabled={!cardPath} onClick={() => requestView('diff')}>Diff</button>
-            {activeView === 'diff' && (
-              <button className="cardDiffRefresh" type="button" aria-label="Refresh diff" title="Refresh diff" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>
-                <span className="diffRefreshIcon" aria-hidden="true" />
-              </button>
-            )}
-          </span>
-          <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => requestView('terminal')}>Terminal</button>
-          {cardPath && (serverCommand || consoleCommand) && (
-            <span className="cardServiceTabs" aria-label="Card services">
-              {serverCommand && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
-                <button className="cardServiceTabLabel" type="button" onClick={() => requestView('server')}>Server</button>
-                <button className={`cardServiceToggle${serverRunning ? ' running' : ''}`} type="button" onClick={() => toggleService('server')} aria-label={serverEnabled ? 'Stop server' : 'Start server'} aria-pressed={serverEnabled}><span className={serverEnabled ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
-              </span>}
-              {consoleCommand && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
-                <button className="cardServiceTabLabel" type="button" onClick={() => requestView('console')}>Console</button>
-                <button className={`cardServiceToggle${consoleRunning ? ' running' : ''}`} type="button" onClick={() => toggleService('console')} aria-label={consoleEnabled ? 'Stop console' : 'Start console'} aria-pressed={consoleEnabled}><span className={consoleEnabled ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
-              </span>}
+          {!card.hierarchy_finalized && <>
+            <button className={showChat ? 'active' : ''} type="button" disabled={!project} onClick={() => requestView('chat')}>Agent</button>
+            <span className={`cardDiffTab${activeView === 'diff' ? ' active' : ''}`}>
+              <button className="cardDiffTabLabel" type="button" disabled={!cardPath} onClick={() => requestView('diff')}>Diff</button>
+              {activeView === 'diff' && (
+                <button className="cardDiffRefresh" type="button" aria-label="Refresh diff" title="Refresh diff" onClick={() => setDiffRefreshNonce((nonce) => nonce + 1)}>
+                  <span className="diffRefreshIcon" aria-hidden="true" />
+                </button>
+              )}
             </span>
-          )}
+            <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => requestView('terminal')}>Terminal</button>
+            {cardPath && (serverCommand || consoleCommand) && (
+              <span className="cardServiceTabs" aria-label="Card services">
+                {serverCommand && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
+                  <button className="cardServiceTabLabel" type="button" onClick={() => requestView('server')}>Server</button>
+                  <button className={`cardServiceToggle${serverRunning ? ' running' : ''}`} type="button" onClick={() => toggleService('server')} aria-label={serverEnabled ? 'Stop server' : 'Start server'} aria-pressed={serverEnabled}><span className={serverEnabled ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
+                </span>}
+                {consoleCommand && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
+                  <button className="cardServiceTabLabel" type="button" onClick={() => requestView('console')}>Console</button>
+                  <button className={`cardServiceToggle${consoleRunning ? ' running' : ''}`} type="button" onClick={() => toggleService('console')} aria-label={consoleEnabled ? 'Stop console' : 'Start console'} aria-pressed={consoleEnabled}><span className={consoleEnabled ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
+                </span>}
+              </span>
+            )}
+          </>}
         </nav>
         {actionError?.includes('environment changed') && <div className="kanbanActionError" role="alert">
           <span>{actionError}</span>
@@ -1111,6 +1141,16 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
           </button>
         </div>}
         <section className={`kanbanDetailContent cardView${activeView === 'overview' ? ' active' : ''}${editing ? ' editing' : ''}`}>
+          {card.provider === 'local' && card.status === 'needs_refinement' && !card.hierarchy_finalized && (
+            <label className="kanbanParentAssignment">Parent
+              <select aria-label="Parent card" value={card.parent?.id ?? ''} onChange={(event) => {
+                onUpdate(card.title, card.content, event.target.value || null).then(onCardUpdated).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
+              }}>
+                <option value="">No parent</option>
+                {candidateParents(cards, card).map((candidate) => <option value={candidate.id} key={candidate.id}>#{candidate.external_id} {candidate.title}</option>)}
+              </select>
+            </label>
+          )}
           {!project && <aside className="cardEnvironmentWarningPanel" role="alert"><div><strong>Card ownership is invalid</strong><span>This card references a project that no longer exists. Project-dependent actions are blocked.</span></div></aside>}
           {environmentHealth && environmentHealth.issues.length > 0 && (
             <aside className="cardEnvironmentWarningPanel" aria-labelledby="card-environment-warning-title">
@@ -1139,6 +1179,14 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               ? <div className="kanbanLocalDescription">{card.content}</div>
               : <div dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
             : <p className="kanbanMuted">No description.</p>}
+          {!editing && card.children.length > 0 && <section className="kanbanChildList" aria-label="Child cards">
+            <h3>{childCountLabel(card.child_count)}</h3>
+            <ul>{card.children.map((child) => <li key={child.id}>
+              <button type="button" onClick={() => onNavigate(child.id)}>
+                <span>#{child.external_id}</span><strong>{child.title}</strong><small>{childStatusLabel(child.status)}</small>
+              </button>
+            </li>)}</ul>
+          </section>}
           {!editing && card.pull_request && <aside className="cardEnvironmentWarningPanel cardPullRequestStatus">
             <div><strong>Pull request #{card.pull_request.number}</strong><span>{card.pull_request.state}</span></div>
             <a href={card.pull_request.url} onClick={(event) => openExternalLink(event, card.pull_request!.url)}>{card.pull_request.title}</a>
@@ -1160,7 +1208,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
             </li>)}</ol>
           </details>}
         </section>
-        {project && (
+        {project && !card.hierarchy_finalized && (
           <section className={`cardChatView cardView${showChat ? ' active' : ''}`} aria-label="Card chat">
             <div className="cardChat">
               <Suspense fallback={<div className="kanbanEmpty">Opening card chat…</div>}>
@@ -1364,10 +1412,13 @@ function cardChatPrompt(card: KanbanCard, thread: CardChatThread) {
   if (thread === 'work') {
     return `Implement ${cardReference}: ${card.title}. You are running in the dedicated worktree and branch for this card. Inspect the repository and card details, make the required changes, run appropriate tests, and keep me informed of progress and decisions. Ask when human input is required.\n\nDescription:\n${description}`;
   }
-  const localCardTools = card.provider === 'local'
-    ? ' When I ask you to save an updated description, persist the complete replacement with update_card_description. Only call finish_refinement after I explicitly approve the final brief or ask to finish refinement; pass it the complete self-contained brief. When I explicitly ask to start work on a Ready-for-agent card, call start_work rather than creating a branch or worktree yourself.'
+  const existingChildren = card.children.length > 0
+    ? ` Existing linked draft children (preserve every one in an approved breakdown): ${card.children.map((child) => `${child.id} (#${child.external_id} ${child.title}, ${childStatusLabel(child.status)})`).join('; ')}.`
     : '';
-  return `This is the planning conversation for ${cardReference}: ${card.title}. Do not implement or modify files in this session. Inspect the primary checkout as needed, ask focused questions one at a time, and work toward a concise brief with the desired outcome, acceptance criteria, technical approach, risks or open questions, and validation plan. I will explicitly finish refinement when satisfied.${localCardTools}\n\nDescription:\n${description}`;
+  const localCardTools = card.provider === 'local'
+    ? ' When useful, propose self-contained, independently deployable child cards, but do not split work unnecessarily. When I ask you to save an updated description, persist the complete replacement with update_card_description. Only call finish_refinement after I explicitly approve the final brief or breakdown; pass it the complete self-contained brief and every existing linked child. When I explicitly ask to start work on a Ready-for-agent card, call start_work rather than creating a branch or worktree yourself.'
+    : '';
+  return `This is the planning conversation for ${cardReference}: ${card.title}. Do not implement or modify files in this session. Inspect the primary checkout as needed, ask focused questions one at a time, and work toward a concise brief with the desired outcome, acceptance criteria, technical approach, risks or open questions, and validation plan. I will explicitly finish refinement when satisfied.${localCardTools}${existingChildren}\n\nDescription:\n${description}`;
 }
 
 function dropTargetAtPoint(sourceId: string, status: KanbanStatus, x: number, y: number): string | null | undefined {
