@@ -38,6 +38,7 @@ import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from
 import { useCardGitSummary } from '../kanban/useCardGitSummary';
 import { CardGitSummary } from './CardGitSummary';
 import { CardPullRequestLink } from './CardPullRequestLink';
+import { CardEnvironmentBranch } from './CardEnvironmentBranch';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 import { initialCardView, type CardView } from '../kanban/cardView';
 
@@ -1076,6 +1077,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
             {editing
               ? <input ref={titleInputRef} className="kanbanCardTitleInput" aria-label="Card title" required value={draftTitle} onChange={(event) => { setDraftTitle(event.target.value); setEditError(null); }} />
               : <h2>{card.title}</h2>}
+            <CardEnvironmentBranch branch={card.environment?.branch} />
           </div>
           <button type="button" aria-label="Close card details" onClick={requestClose}>×</button>
         </header>

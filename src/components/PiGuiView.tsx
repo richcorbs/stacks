@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
-import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
+import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
 import type { PiCommand, PiModel, PiPromptImage, PiSessionContext } from '../pi/types';
@@ -32,7 +32,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   onToggleMaximize: () => void;
 }) {
   const cwd = terminal.cwd || workspace.cwd || project.path;
-  const [projectTrusted, setProjectTrusted] = useState(false);
   const pi = usePiSession(terminal.id, cwd, workspace.id, project.id, project.path);
   const modalUiRequest = pi.uiRequest && !isStructuredPiUiRequest(pi.uiRequest) ? pi.uiRequest : null;
   const [prompt, setPrompt] = useState('');
@@ -40,7 +39,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [attachments, setAttachments] = useState<Array<PiPromptImage & { name: string; byteSize: number }>>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [extensionInput, setExtensionInput] = useState('');
-  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
   const [contextPicker, setContextPicker] = useState<'model' | 'thinking' | null>(null);
   const [contextPickerBusy, setContextPickerBusy] = useState(false);
@@ -59,18 +57,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     pi.setViewOpen(active && visible);
     return () => pi.setViewOpen(false);
   }, [active, pi.setViewOpen, visible]);
-
-  useEffect(() => {
-    invoke<boolean>('pi_project_trusted', { cwd, projectPath: project.path }).then(setProjectTrusted).catch(() => setProjectTrusted(false));
-  }, [cwd, project.path]);
-
-  useEffect(() => {
-    if (!visible) return;
-    const refresh = () => invoke<GitInfo | null>('git_info', { path: cwd }).then(setGitInfo).catch(() => setGitInfo(null));
-    refresh();
-    const timer = window.setInterval(refresh, 10_000);
-    return () => window.clearInterval(timer);
-  }, [cwd, visible]);
 
   useEffect(() => {
     const becameVisible = visible && !previousVisibleRef.current;
@@ -399,17 +385,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     }
   }
 
-  async function toggleProjectTrust() {
-    const nextTrusted = !projectTrusted;
-    const approved = window.confirm(nextTrusted
-      ? `Trust project-local Pi settings and extensions for:\n\n${project.path}\n\nThis applies to its workspace directories and Git worktrees. Project extensions execute with your user permissions.`
-      : `Revoke project-local Pi settings and extensions for:\n\n${project.path}?`);
-    if (!approved) return;
-    await invoke('set_pi_project_trusted', { cwd, projectPath: project.path, trusted: nextTrusted });
-    setProjectTrusted(nextTrusted);
-    await pi.restart();
-  }
-
   const { hiddenCount: hiddenMessageCount, messages: visibleMessages } = visiblePiMessages(pi.messages);
   const historicalToolArgs = useMemo(() => collectToolArgs(pi.messages), [pi.messages]);
 
@@ -602,10 +577,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         </div>
       </div>
       <div className="piGuiContext piGuiContextBar" aria-label="Pi session context">
-        <ContextItem value={compactPath(cwd)} title={`Working directory: ${cwd}`} />
-        <ContextSeparator />
-        <ContextItem value={gitInfo?.branch || '—'} title={`Git branch: ${gitInfo?.branch || 'unknown'}`} />
-        <ContextSeparator />
         <ContextPicker
           kind="model"
           open={contextPicker === 'model'}
@@ -659,8 +630,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               </button>;
             })}
         </ContextPicker>
-        <ContextSeparator />
-        <button className="piTrustButton" type="button" title="Change project trust" onClick={() => toggleProjectTrust().catch(() => {})}>{projectTrusted ? 'trusted' : 'not trusted'}</button>
         {pi.context.contextPercent !== null && <><ContextSeparator /><ContextUsage context={pi.context} /></>}
       </div>
 
@@ -692,10 +661,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       )}
     </div>
   );
-}
-
-function ContextItem({ value, title }: { value: string; title?: string }) {
-  return <span className="piContextItem" title={title || value}>{value}</span>;
 }
 
 function ContextPicker({ kind, open, value, title, disabled, onToggle, children }: {
@@ -763,9 +728,4 @@ function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) 
   input.style.height = `${height}px`;
   input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
   if (stickToBottom && conversation) conversation.scrollTop = conversation.scrollHeight;
-}
-
-function compactPath(path: string) {
-  const home = path.match(/^\/Users\/[^/]+/i)?.[0];
-  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 }
