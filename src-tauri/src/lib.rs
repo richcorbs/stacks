@@ -33,14 +33,15 @@ use github::{
     github_pull_requests,
 };
 use kanban::{
-    kanban_approve_and_commit, kanban_card_snapshot, kanban_cards, kanban_cleanup_environment,
-    kanban_cleanup_environment_creation, kanban_close_card, kanban_create_local_card,
-    kanban_create_pull_request, kanban_delete_card, kanban_delete_project_records,
-    kanban_environment_health, kanban_environment_start_preflight, kanban_finish_local_refinement,
-    kanban_merge_card, kanban_merge_pull_request, kanban_open_card, kanban_refresh_pull_request,
-    kanban_reorder_cards, kanban_save_environment_layout, kanban_set_merge_target,
-    kanban_set_project, kanban_set_status, kanban_start_environment, kanban_sync_superthread_cards,
-    kanban_update_local_card, kanban_validate_project_deletion,
+    kanban_abort_target_merge, kanban_approve_and_commit, kanban_card_snapshot, kanban_cards,
+    kanban_cleanup_environment, kanban_cleanup_environment_creation, kanban_close_card,
+    kanban_create_local_card, kanban_create_pull_request, kanban_delete_card,
+    kanban_delete_project_records, kanban_environment_health, kanban_environment_start_preflight,
+    kanban_finalize_target_merge, kanban_finish_local_refinement, kanban_merge_card,
+    kanban_merge_pull_request, kanban_open_card, kanban_prepare_target_merge,
+    kanban_refresh_pull_request, kanban_reorder_cards, kanban_save_environment_layout,
+    kanban_set_merge_target, kanban_set_project, kanban_set_status, kanban_start_environment,
+    kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
 };
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
@@ -162,6 +163,9 @@ pub fn run() {
             kanban_set_merge_target,
             kanban_approve_and_commit,
             kanban_merge_card,
+            kanban_prepare_target_merge,
+            kanban_finalize_target_merge,
+            kanban_abort_target_merge,
             kanban_save_environment_layout,
             project_direct_load_or_create,
             project_direct_save_layout,

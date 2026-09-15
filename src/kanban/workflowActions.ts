@@ -2,7 +2,7 @@ import type { Project } from '../types';
 import type { KanbanCard } from './types';
 
 export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'stop_refinement' | 'start_work' | 'return_to_refinement' |
-  'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'cleanup_creation' | 'close' | 'delete';
+  'ship' | 'ship_with_fe' | 'merge_target' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'cleanup_creation' | 'close' | 'delete';
 
 export type CardWorkflowActionAppearance = 'regular' | 'neutral-ghost' | 'danger-ghost';
 
@@ -71,6 +71,7 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
       case 'needs_human': return [
         { kind: 'request_changes', label: 'Request changes' },
         { kind: 'ship', label: 'Ship It', primary: true },
+        { kind: 'merge_target', label: 'Merge in target & resolve' },
         ...(project?.delivery_workflow === 'github_pull_request' && project.supports_feature_environments
           ? [{ kind: 'ship_with_fe' as const, label: 'Ship it w/FE' }]
           : []),
@@ -80,11 +81,14 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
           if (!card.pull_request || card.pull_request.state === 'closed') return [
             { kind: 'request_changes', label: 'Request changes' },
             { kind: 'ship', label: 'Ship It again' },
+            { kind: 'merge_target', label: 'Merge in target & resolve' },
             { kind: 'create_pr', label: 'Create PR', primary: true },
           ];
           if (card.pull_request.state === 'merged') return [];
           return [
             { kind: 'request_changes', label: 'Request changes' },
+            { kind: 'ship', label: 'Ship It again' },
+            { kind: 'merge_target', label: 'Merge in target & resolve' },
             { kind: 'open_pr', label: 'Open PR' },
             { kind: 'merge_pr', label: 'Merge PR', primary: true, disabledReason: card.pull_request.blockers.join('; ') || undefined },
           ];
@@ -92,6 +96,7 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
         return [
           { kind: 'request_changes', label: 'Request changes' },
           { kind: 'ship', label: 'Ship It again' },
+          { kind: 'merge_target', label: 'Merge in target & resolve' },
           { kind: 'merge_local', label: 'Merge locally', primary: true, confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } },
         ];
       }

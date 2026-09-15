@@ -94,6 +94,23 @@ export function mergeKanbanCard(id: string, expectedWorkflowRevision: number, ex
   return invoke<WorkflowOperationResult>('kanban_merge_card', { id, expectedWorkflowRevision, expectedEnvironmentRevision });
 }
 
+export type TargetMergePrepareResult = WorkflowOperationResult & {
+  operation_id: string | null;
+  state: 'noop' | 'merged' | 'conflicted';
+};
+
+export function prepareKanbanTargetMerge(id: string, expectedWorkflowRevision: number, expectedEnvironmentRevision: number) {
+  return invoke<TargetMergePrepareResult>('kanban_prepare_target_merge', { id, expectedWorkflowRevision, expectedEnvironmentRevision });
+}
+
+export function finalizeKanbanTargetMerge(id: string, operationId: string) {
+  return invoke<WorkflowOperationResult>('kanban_finalize_target_merge', { id, operationId });
+}
+
+export function abortKanbanTargetMerge(id: string, operationId: string) {
+  return invoke<KanbanCard>('kanban_abort_target_merge', { id, operationId });
+}
+
 export function saveKanbanEnvironmentLayout(id: string, splitLayout: SplitNode, focusedPaneId: string | null, panes: CardEnvironmentPane[], expectedLayoutRevision: number) {
   return invoke<KanbanCard>('kanban_save_environment_layout', { id, splitLayout, focusedPaneId, panes, expectedLayoutRevision });
 }
