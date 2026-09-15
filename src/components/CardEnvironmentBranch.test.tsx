@@ -10,8 +10,12 @@ describe('CardEnvironmentBranch', () => {
     </div>);
 
     expect(markup).toContain('aria-label="Environment branch: stacks/card-55-clean-up-the-sub-text-under-the-gui-input"');
-    expect(markup).toContain('class="kanbanCardHeaderBranchSymbol" aria-hidden="true">');
+    expect(markup).toContain('<svg class="kanbanCardHeaderBranchSymbol"');
+    expect(markup).toContain('aria-hidden="true"');
+    expect(markup).toContain('focusable="false"');
+    expect(markup).not.toContain('');
     expect(markup.indexOf('</h2>')).toBeLessThan(markup.indexOf('kanbanCardHeaderBranch'));
+    expect(markup.indexOf('</h2>')).toBeLessThan(markup.indexOf('<svg'));
   });
 
   it('stays beneath the title input while a card title is being edited', () => {
@@ -21,6 +25,7 @@ describe('CardEnvironmentBranch', () => {
     </div>);
 
     expect(markup.indexOf('kanbanCardTitleInput')).toBeLessThan(markup.indexOf('kanbanCardHeaderBranch'));
+    expect(markup.indexOf('kanbanCardTitleInput')).toBeLessThan(markup.indexOf('<svg'));
   });
 
   it.each([null, undefined, '', '   '])('renders nothing without an environment branch (%s)', (branch) => {
