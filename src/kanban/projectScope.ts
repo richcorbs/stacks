@@ -18,6 +18,30 @@ export function localKanbanProjects(projects: Project[]): Project[] {
   return projects.filter((project) => (project.kanban_source ?? 'local') === 'local');
 }
 
+export function cardCreationProjects(projects: Project[], superthreadEnabled: boolean): Project[] {
+  const superthread = uniqueSuperthreadProject(projects).project;
+  return projects.filter((project) => (
+    (project.kanban_source ?? 'local') === 'local'
+    || (superthreadEnabled && project.id === superthread?.id)
+  ));
+}
+
+export function preselectedCardProject(projects: Project[], selectedProject: Project | null): Project | null {
+  return selectedProject && projects.some((project) => project.id === selectedProject.id) ? selectedProject : null;
+}
+
+export function cardCreationAvailability(projects: Project[], selectedProject: Project | null, superthreadEnabled: boolean) {
+  const destinations = cardCreationProjects(projects, superthreadEnabled);
+  const selectedSuperthreadDisabled = selectedProject?.kanban_source === 'superthread' && !superthreadEnabled;
+  return {
+    destinations,
+    disabled: selectedSuperthreadDisabled || destinations.length === 0,
+    title: selectedSuperthreadDisabled
+      ? 'Enable the Superthread integration to add cards to this project'
+      : destinations.length === 0 ? 'Add a local-board project or enable a configured Superthread project' : undefined,
+  };
+}
+
 export function uniqueSuperthreadProject(projects: Project[]): { project: Project | null; error: string | null } {
   const matches = projects.filter((project) => project.kanban_source === 'superthread');
   if (matches.length === 1) return { project: matches[0], error: null };

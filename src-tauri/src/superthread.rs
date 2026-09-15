@@ -51,6 +51,9 @@ struct CardsResponse {
     cards: Vec<SuperthreadCard>,
 }
 
+const INTAKE_BOARD_TITLE: &str = "Dev - Active";
+const INTAKE_LIST_TITLE: &str = "Backlog";
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SuperthreadList {
     pub id: String,
@@ -166,6 +169,19 @@ pub async fn superthread_card(
 ) -> Result<SuperthreadCard, String> {
     let service = service.inner().clone();
     run_blocking(move || service.card(&card_id, workspace_slug.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn superthread_create_card(
+    service: State<'_, SuperthreadService>,
+    spaces: Vec<String>,
+    title: String,
+    content: String,
+    workspace_slug: Option<String>,
+) -> Result<SuperthreadCard, String> {
+    let service = service.inner().clone();
+    run_blocking(move || service.create_card(&spaces, &title, &content, workspace_slug.as_deref()))
+        .await
 }
 
 async fn run_blocking<T: Send + 'static>(
@@ -292,6 +308,61 @@ impl SuperthreadService {
         Ok(card)
     }
 
+    fn create_card(
+        &self,
+        included_spaces: &[String],
+        title: &str,
+        content: &str,
+        workspace_slug: Option<&str>,
+    ) -> Result<SuperthreadCard, String> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("Card title is required".to_string());
+        }
+
+        let matching_boards = self
+            .boards(included_spaces)?
+            .boards
+            .into_iter()
+            .filter(|board| normalized_title_matches(&board.title, INTAKE_BOARD_TITLE))
+            .collect::<Vec<_>>();
+        let board = require_unique_destination(matching_boards, "board", INTAKE_BOARD_TITLE)?;
+        let matching_lists = self
+            .board_lists(&board.id)?
+            .into_iter()
+            .filter(|list| normalized_title_matches(&list.title, INTAKE_LIST_TITLE))
+            .collect::<Vec<_>>();
+        let list = require_unique_destination(matching_lists, "list", INTAKE_LIST_TITLE)?;
+
+        let cli = self.cli_path()?;
+        let mut args = vec![
+            "cards",
+            "create",
+            "--board",
+            board.id.as_str(),
+            "--list",
+            list.id.as_str(),
+            "--title",
+            title,
+        ];
+        if !content.is_empty() {
+            args.extend(["--content", content]);
+        }
+        let mut card: SuperthreadCard = run_st_json(&cli, &args)?;
+        card.title = title.to_string();
+        card.content = content.to_string();
+        card.board_id = board.id;
+        card.board_title = board.title;
+        card.list_id = list.id;
+        card.list_title = list.title;
+        populate_assignee_names(&mut card, &self.user_names(&cli)?);
+        populate_card_url(
+            &mut card,
+            self.card_base_url(&cli, workspace_slug).as_deref(),
+        );
+        Ok(card)
+    }
+
     fn cli_path(&self) -> Result<PathBuf, String> {
         if let Some(path) = self.cli_path.lock().map_err(lock_error)?.clone() {
             return Ok(path);
@@ -345,6 +416,22 @@ impl SuperthreadService {
         if let Ok(mut urls) = self.card_base_urls.lock() {
             urls.clear();
         }
+    }
+}
+
+fn normalized_title_matches(title: &str, expected: &str) -> bool {
+    title.trim().eq_ignore_ascii_case(expected.trim())
+}
+
+fn require_unique_destination<T>(
+    mut matches: Vec<T>,
+    kind: &str,
+    title: &str,
+) -> Result<T, String> {
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err(format!("Superthread {kind} '{title}' was not found in the configured spaces")),
+        count => Err(format!("Superthread {kind} '{title}' is ambiguous: found {count} matches in the configured spaces")),
     }
 }
 
@@ -647,6 +734,134 @@ esac
         );
 
         let _ = fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    fn fixture_service(script: &str) -> (SuperthreadService, PathBuf) {
+        use std::{fs, os::unix::fs::PermissionsExt};
+        let path = env::temp_dir().join(format!("stacks-st-fixture-{}", uuid::Uuid::new_v4()));
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        let service = SuperthreadService::default();
+        *service.cli_path.lock().unwrap() = Some(path.clone());
+        (service, path)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_an_unassigned_card_in_the_unique_intake_destination() {
+        use std::fs;
+        let log = env::temp_dir().join(format!("stacks-st-log-{}", uuid::Uuid::new_v4()));
+        let script = format!(
+            r#"#!/bin/sh
+case "$1 $2" in
+  "spaces list") echo '[{{"id":"s1","title":"Configured"}}]' ;;
+  "boards list") echo '[{{"id":"b1","title":" dev - active "}}]' ;;
+  "boards get") echo '{{"lists":[{{"id":"l1","title":" BACKLOG ","behavior":"backlog"}}]}}' ;;
+  "cards create") printf '%s\n' "$*" > '{}'; echo '{{"id":"48","title":"ignored","list_id":"ignored","assignees":[]}}' ;;
+  "users list") echo '[]' ;;
+  *) echo "unexpected arguments: $*" >&2; exit 2 ;;
+esac
+"#,
+            log.display()
+        );
+        let (service, path) = fixture_service(&script);
+
+        let card = service
+            .create_card(
+                &["Configured".to_string()],
+                "  Ship card  ",
+                "Detailed brief",
+                Some("Example Workspace"),
+            )
+            .unwrap();
+
+        assert_eq!(card.title, "Ship card");
+        assert_eq!(card.content, "Detailed brief");
+        assert_eq!(card.board_id, "b1");
+        assert_eq!(card.board_title, " dev - active ");
+        assert_eq!(card.list_id, "l1");
+        assert_eq!(card.list_title, " BACKLOG ");
+        assert!(card.assignee_names.is_empty());
+        assert_eq!(
+            card.card_url,
+            "https://app.superthread.com/example-workspace/card-48"
+        );
+        let args = fs::read_to_string(&log).unwrap();
+        assert_eq!(args.trim(), "cards create --board b1 --list l1 --title Ship card --content Detailed brief --output json");
+        assert!(!args.contains("assignee"));
+
+        service
+            .create_card(
+                &["Configured".to_string()],
+                "No brief",
+                "",
+                Some("Example Workspace"),
+            )
+            .unwrap();
+        let args = fs::read_to_string(&log).unwrap();
+        assert_eq!(
+            args.trim(),
+            "cards create --board b1 --list l1 --title No brief --output json"
+        );
+
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(log);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validates_the_intake_destination_before_creation() {
+        use std::fs;
+        for (boards, lists, expected) in [
+            (
+                "[]",
+                r#"[{"id":"l1","title":"Backlog","behavior":"backlog"}]"#,
+                "was not found",
+            ),
+            (
+                r#"[{"id":"b1","title":"Dev - Active"},{"id":"b2","title":"DEV - ACTIVE"}]"#,
+                r#"[{"id":"l1","title":"Backlog","behavior":"backlog"}]"#,
+                "ambiguous",
+            ),
+            (
+                r#"[{"id":"b1","title":"Dev - Active"}]"#,
+                "[]",
+                "was not found",
+            ),
+            (
+                r#"[{"id":"b1","title":"Dev - Active"}]"#,
+                r#"[{"id":"l1","title":"Backlog","behavior":"backlog"},{"id":"l2","title":" backlog ","behavior":"backlog"}]"#,
+                "ambiguous",
+            ),
+        ] {
+            let marker = env::temp_dir().join(format!("stacks-st-create-{}", uuid::Uuid::new_v4()));
+            let script = format!(
+                r#"#!/bin/sh
+case "$1 $2" in
+  "spaces list") echo '[{{"id":"s1","title":"Configured"}}]' ;;
+  "boards list") echo '{}' ;;
+  "boards get") echo '{{"lists":{}}}' ;;
+  "cards create") touch '{}'; echo '{{"id":"48","title":"Card","list_id":"l1"}}' ;;
+  *) echo "unexpected arguments: $*" >&2; exit 2 ;;
+esac
+"#,
+                boards,
+                lists,
+                marker.display()
+            );
+            let (service, path) = fixture_service(&script);
+            let error = service
+                .create_card(&["Configured".to_string()], "Card", "", Some("test"))
+                .unwrap_err();
+            assert!(error.contains(expected), "unexpected error: {error}");
+            assert!(
+                !marker.exists(),
+                "create command ran after validation failed"
+            );
+            let _ = fs::remove_file(path);
+            let _ = fs::remove_file(marker);
+        }
     }
 
     #[cfg(unix)]

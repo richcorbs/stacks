@@ -1,10 +1,25 @@
 import type { CardProviderAdapter, KanbanSyncCard } from '../kanban/types';
 import { isManagedSuperthreadList } from '../kanban/workflow';
-import { fetchSuperthreadBoards, fetchSuperthreadCard, fetchSuperthreadCards, fetchSuperthreadLists } from './api';
+import { createSuperthreadCard, fetchSuperthreadBoards, fetchSuperthreadCard, fetchSuperthreadCards, fetchSuperthreadLists } from './api';
 
 export function superthreadCardProvider(spaces: string, workspaceSlug: string): CardProviderAdapter {
   return {
     kind: 'superthread',
+    async create(title, content) {
+      const card = await createSuperthreadCard({ spaces, workspaceSlug, title, content });
+      return {
+        id: card.id,
+        title: card.title,
+        content: card.content,
+        board_id: card.board_id,
+        board_title: card.board_title,
+        list_id: card.list_id,
+        list_title: card.list_title,
+        card_url: card.card_url,
+        assignee_names: card.assignee_names,
+        in_scope: true,
+      };
+    },
     async load(card) {
       const detail = await fetchSuperthreadCard(card.external_id, workspaceSlug);
       return {

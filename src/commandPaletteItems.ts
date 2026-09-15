@@ -1,6 +1,7 @@
 import type { CustomCmdPCommand, TerminalEntry, Project, Store, WorkspaceEntry, WorkspaceTemplate } from './types';
 import type { PaletteItem } from './components/CommandPalette';
 import { commandPaletteCoreItems } from './commandPaletteCoreItems';
+import { cardCreationProjects } from './kanban/projectScope';
 
 type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
@@ -10,6 +11,7 @@ export type CommandPaletteItemOptions = {
   terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
   activeProject: Project | null;
   selectedKanbanProject: Project | null;
+  superthreadEnabled: boolean;
   activeWorkspace: WorkspaceEntry | null;
   activeWorkspaceId: string | null;
   activeTerminalId: string | null;
@@ -64,7 +66,7 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
   return [
     ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount, activePaneKind }),
     ...directWorkItems(selectedKanbanProject, options.onDirectProjectWork),
-    ...newCardItems(selectedKanbanProject, options.onNewCard),
+    ...newCardItems(selectedKanbanProject, store.projects, options.superthreadEnabled, options.onNewCard),
     ...customCommandItems(customCmdPCommands, onSplitTerminalWithCommand),
     ...customCommandEditItems(customCmdPCommands, onEditCmdPCommand),
     ...customCommandDeleteItems(customCmdPCommands, onDeleteCmdPCommand),
@@ -87,13 +89,14 @@ function directWorkItems(project: Project | null, onOpen: (project: Project | nu
   }];
 }
 
-function newCardItems(project: Project | null, onNewCard: (project: Project | null) => void): PaletteItem[] {
-  const compatibleProject = project?.kanban_source === 'superthread' ? null : project;
+function newCardItems(project: Project | null, projects: Project[], superthreadEnabled: boolean, onNewCard: (project: Project | null) => void): PaletteItem[] {
+  const eligibleProjects = cardCreationProjects(projects, superthreadEnabled);
+  const compatibleProject = project && eligibleProjects.some((candidate) => candidate.id === project.id) ? project : null;
   return [{
     id: 'new-card',
     title: 'New Card',
-    subtitle: compatibleProject ? `Add to ${compatibleProject.name}` : 'Choose a local project',
-    keywords: 'new add create local kanban card',
+    subtitle: compatibleProject ? `Add to ${compatibleProject.name}` : 'Choose a project',
+    keywords: 'new add create local superthread kanban card',
     action: () => onNewCard(compatibleProject),
   }];
 }

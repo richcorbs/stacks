@@ -35,3 +35,10 @@ export type SuperthreadBoardsResponse = {
   boards: Array<Pick<SuperthreadBoard, 'id' | 'title'>>;
   warnings: IntegrationWarning[];
 };
+
+export type CreateSuperthreadCardRequest = {
+  spaces: string;
+  workspaceSlug: string;
+  title: string;
+  content: string;
+};

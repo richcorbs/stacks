@@ -14,6 +14,7 @@ function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[
     terminalsByWorkspaceId: { t1: [terminal] },
     activeProject: project,
     selectedKanbanProject: project,
+    superthreadEnabled: false,
     activeWorkspace: workspace,
     activeWorkspaceId: 't1',
     activeTerminalId: 't1:0',
@@ -98,7 +99,7 @@ describe('buildCommandPaletteItems', () => {
     expect(onDirectProjectWork).toHaveBeenCalledWith(null);
   });
 
-  it('preselects a filtered local project and otherwise prompts for New Card ownership', () => {
+  it('preselects eligible filtered projects and otherwise prompts for New Card ownership', () => {
     const onNewCard = vi.fn();
     const item = palette({ onNewCard }).find((candidate) => candidate.id === 'new-card');
     item?.action();
@@ -106,10 +107,15 @@ describe('buildCommandPaletteItems', () => {
     expect(onNewCard).toHaveBeenCalledWith(project);
 
     const superthread = { ...project, kanban_source: 'superthread' as const };
-    const prompted = palette({ selectedKanbanProject: superthread, onNewCard }).find((candidate) => candidate.id === 'new-card');
+    const prompted = palette({ store: { projects: [superthread] }, selectedKanbanProject: superthread, onNewCard }).find((candidate) => candidate.id === 'new-card');
     prompted?.action();
-    expect(prompted?.subtitle).toBe('Choose a local project');
+    expect(prompted?.subtitle).toBe('Choose a project');
     expect(onNewCard).toHaveBeenCalledWith(null);
+
+    const enabled = palette({ store: { projects: [superthread] }, selectedKanbanProject: superthread, superthreadEnabled: true, onNewCard }).find((candidate) => candidate.id === 'new-card');
+    enabled?.action();
+    expect(enabled?.subtitle).toBe('Add to Stacks');
+    expect(onNewCard).toHaveBeenLastCalledWith(superthread);
     expect(palette({ selectedKanbanProject: null }).some((candidate) => candidate.id === 'new-card')).toBe(true);
   });
 
