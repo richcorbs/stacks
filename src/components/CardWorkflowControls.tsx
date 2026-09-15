@@ -6,18 +6,20 @@ const appearanceClasses: Record<CardWorkflowActionAppearance, string> = {
   'danger-ghost': 'workflowActionDangerGhost',
 };
 
-export function CardWorkflowControls({ actions, working, actionError, mergedWithoutEnvironment, onAction }: {
+export function CardWorkflowControls({ actions, working, actionError, mergedWithoutEnvironment, recoveryMessage, onAction }: {
   actions: CardWorkflowAction[];
   working: boolean;
   actionError: string | null;
   mergedWithoutEnvironment: boolean;
+  recoveryMessage?: string | null;
   onAction: (action: CardWorkflowAction) => void;
 }) {
   return <>
     <div className="cardFooterContext" aria-live="polite">
       {working && <span>Working…</span>}
       {!working && actionError && !actionError.includes('environment changed') && <span className="cardFooterError" role="alert">{actionError}</span>}
-      {!working && !actionError && mergedWithoutEnvironment && <span>A new environment is required to resume work.</span>}
+      {!working && !actionError && recoveryMessage && <span className="cardFooterError" role="alert">{recoveryMessage}</span>}
+      {!working && !actionError && !recoveryMessage && mergedWithoutEnvironment && <span>A new environment is required to resume work.</span>}
     </div>
     <div className="cardFooterActions" aria-label="Workflow actions">
       {actions.map((action) => <button

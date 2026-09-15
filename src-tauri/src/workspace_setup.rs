@@ -25,8 +25,15 @@ pub struct WorkspaceSetupState {
 
 #[derive(Serialize)]
 pub struct WorkspaceSetupResult {
-    cwd: String,
-    output: String,
+    pub(crate) cwd: String,
+    pub(crate) output: String,
+}
+
+impl WorkspaceSetupState {
+    pub(crate) fn begin(&self) -> Arc<AtomicBool> {
+        self.cancelled.store(false, Ordering::Release);
+        Arc::clone(&self.cancelled)
+    }
 }
 
 #[tauri::command]
@@ -35,8 +42,7 @@ pub async fn run_workspace_setup(
     command: String,
     cwd: String,
 ) -> Result<WorkspaceSetupResult, String> {
-    state.cancelled.store(false, Ordering::Release);
-    let cancelled = Arc::clone(&state.cancelled);
+    let cancelled = state.begin();
     tauri::async_runtime::spawn_blocking(move || {
         run_workspace_setup_inner(command, cwd, &cancelled)
     })
@@ -54,13 +60,28 @@ fn run_workspace_setup_inner(
     cwd: String,
     cancelled: &AtomicBool,
 ) -> Result<WorkspaceSetupResult, String> {
-    if command.trim().is_empty() {
-        return Err("Setup command cannot be empty".to_string());
-    }
     let mut result_path = app_data_dir()?;
     result_path.push("setup-results");
     std::fs::create_dir_all(&result_path).map_err(|error| error.to_string())?;
     result_path.push(format!("{}.cwd", uuid::Uuid::new_v4()));
+    let result = run_workspace_setup_durable(command, cwd, cancelled, &result_path);
+    let _ = std::fs::remove_file(&result_path);
+    result
+}
+
+pub(crate) fn run_workspace_setup_durable(
+    command: String,
+    cwd: String,
+    cancelled: &AtomicBool,
+    result_path: &std::path::Path,
+) -> Result<WorkspaceSetupResult, String> {
+    if command.trim().is_empty() {
+        return Err("Setup command cannot be empty".to_string());
+    }
+    if let Some(parent) = result_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let _ = std::fs::remove_file(result_path);
 
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let script = r#"
@@ -85,6 +106,20 @@ exit "$__stacks_status"
     let mut child = setup_command
         .spawn()
         .map_err(|error| format!("Could not start workspace setup: {error}"))?;
+    let pid_path = result_path.with_extension("pid");
+    if let Err(error) = std::fs::write(&pid_path, child.id().to_string()) {
+        process_group::terminate(&mut child, Duration::from_millis(500));
+        return Err(format!(
+            "Could not persist workspace setup process identity: {error}"
+        ));
+    }
+    struct PidFile(std::path::PathBuf);
+    impl Drop for PidFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let _pid_file = PidFile(pid_path);
 
     let streams = (child.stdout.take(), child.stderr.take());
     let (stdout, stderr) = match streams {
@@ -106,7 +141,6 @@ exit "$__stacks_status"
                 process_group::terminate(&mut child, Duration::from_millis(500));
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
-                let _ = std::fs::remove_file(&result_path);
                 return Err("Workspace setup cancelled".to_string());
             }
             Ok(None) if started.elapsed() < SETUP_TIMEOUT => {
@@ -116,14 +150,12 @@ exit "$__stacks_status"
                 process_group::terminate(&mut child, Duration::from_millis(500));
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
-                let _ = std::fs::remove_file(&result_path);
                 return Err("Workspace setup timed out after 10 minutes".to_string());
             }
             Err(error) => {
                 process_group::terminate(&mut child, Duration::from_millis(500));
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
-                let _ = std::fs::remove_file(&result_path);
                 return Err(format!("Could not wait for workspace setup: {error}"));
             }
         }
@@ -137,7 +169,6 @@ exit "$__stacks_status"
         .collect::<Vec<_>>()
         .join("\n");
     if !status.success() {
-        let _ = std::fs::remove_file(&result_path);
         return Err(if output.is_empty() {
             format!(
                 "Workspace setup exited with status {}",
@@ -153,7 +184,6 @@ exit "$__stacks_status"
 
     let final_cwd = std::fs::read_to_string(&result_path)
         .map_err(|error| format!("Workspace setup did not report its final directory: {error}"))?;
-    let _ = std::fs::remove_file(&result_path);
     let final_cwd = final_cwd.trim();
     let metadata = std::fs::metadata(final_cwd)
         .map_err(|error| format!("Workspace setup returned an invalid directory: {error}"))?;

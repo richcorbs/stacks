@@ -54,17 +54,14 @@ export function setKanbanProject(id: string, projectId: string) {
   return invoke<CardSnapshot>('kanban_set_project', { id, projectId }).then(({ card }) => card);
 }
 
-export type EnvironmentStartPreflight = { repository_id: string; target_checkout_path: string; target_branch: string; target_revision: string };
 export type WorkflowOperationResult = { card: KanbanCard; message: string; idempotent: boolean };
 
-export function preflightKanbanEnvironment(id: string, expectedWorkflowRevision: number) {
-  return invoke<EnvironmentStartPreflight>('kanban_environment_start_preflight', { id, expectedWorkflowRevision });
+export function startKanbanEnvironment(id: string, expectedWorkflowRevision: number, setupCommand: string, customCommand: boolean, explicitRetry = false) {
+  return invoke<KanbanCard>('kanban_start_environment', { id, expectedWorkflowRevision, setupCommand, customCommand, explicitRetry });
 }
 
-export function createKanbanEnvironment(id: string, worktreePath: string, preflight: EnvironmentStartPreflight, expectedWorkflowRevision: number) {
-  return invoke<KanbanCard>('kanban_create_environment', { id, worktreePath,
-    repositoryId: preflight.repository_id, targetCheckoutPath: preflight.target_checkout_path,
-    targetBranch: preflight.target_branch, targetRevision: preflight.target_revision, expectedWorkflowRevision });
+export function cleanupKanbanEnvironmentCreation(id: string) {
+  return invoke<KanbanCard>('kanban_cleanup_environment_creation', { id });
 }
 
 export function setKanbanMergeTarget(id: string, targetCheckoutPath: string, expectedEnvironmentRevision: number) {

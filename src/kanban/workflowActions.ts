@@ -2,7 +2,7 @@ import type { Project } from '../types';
 import type { KanbanCard } from './types';
 
 export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'stop_refinement' | 'start_work' | 'return_to_refinement' |
-  'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'close' | 'delete';
+  'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'cleanup_creation' | 'close' | 'delete';
 
 export type CardWorkflowActionAppearance = 'regular' | 'neutral-ghost' | 'danger-ghost';
 
@@ -60,7 +60,10 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
         { kind: 'write_plan_and_finish_refinement', label: 'Write plan & finish refinement', disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         { kind: 'stop_refinement', label: 'Stop refinement', destructive: true, appearance: 'neutral-ghost' },
       ];
-      case 'ready': return [
+      case 'ready': return card.creation_operation ? [
+        { kind: 'start_work', label: 'Resume start', primary: true, disabledReason: projectAvailable ? undefined : 'Owning project is unavailable' },
+        ...(card.creation_operation.cleanup_available ? [{ kind: 'cleanup_creation' as const, label: 'Clean up', destructive: true, appearance: 'regular' as const, confirmation: { title: 'Clean up setup resources?', detail: 'Removes only the clean worktree and unchanged branch proven to have been created by this start operation.' } }] : []),
+      ] : [
         { kind: 'return_to_refinement', label: 'Return to refinement' },
         { kind: 'start_work', label: 'Start work', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
       ];
@@ -100,5 +103,5 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
       }
     }
   })();
-  return card.status === 'done' ? actions : [...actions, close];
+  return card.status === 'done' || card.creation_operation ? actions : [...actions, close];
 }
