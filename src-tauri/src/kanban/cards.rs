@@ -6,7 +6,6 @@ use super::{
 };
 
 pub(in crate::kanban) fn kanban_cards_operation() -> Result<BoardSnapshot, String> {
-    with_connection(|connection| reconcile_card_ownership(connection))?;
     with_connection(board_snapshot)
 }
 

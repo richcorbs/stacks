@@ -8,8 +8,6 @@ type MainWorkspaceProps = {
   terminalFontFamily: string;
   terminalScrollback: number;
   copyOnSelect: boolean;
-  superthreadSpaces: string;
-  superthreadWorkspaceSlug: string;
   superthreadEnabled: boolean;
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
@@ -26,8 +24,6 @@ export function MainWorkspace({
   terminalFontFamily,
   terminalScrollback,
   copyOnSelect,
-  superthreadSpaces,
-  superthreadWorkspaceSlug,
   superthreadEnabled,
   selectedProjectId,
   onSelectProject,
@@ -41,8 +37,6 @@ export function MainWorkspace({
     <main className="main">
       <section className="workspace kanbanWorkspace">
         <KanbanBoard
-          spaces={superthreadSpaces}
-          workspaceSlug={superthreadWorkspaceSlug}
           superthreadEnabled={superthreadEnabled}
           projects={projects}
           selectedProjectId={selectedProjectId}

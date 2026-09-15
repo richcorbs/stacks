@@ -1,65 +1,100 @@
-import type { CardProviderAdapter, KanbanSyncCard } from '../kanban/types';
+import type { KanbanSyncCard, SuperthreadIntegration, SuperthreadSnapshot } from '../kanban/types';
 import { isManagedSuperthreadList } from '../kanban/workflow';
 import { createSuperthreadCard, fetchSuperthreadBoards, fetchSuperthreadCard, fetchSuperthreadCards, fetchSuperthreadLists } from './api';
 
-export function superthreadCardProvider(spaces: string, workspaceSlug: string): CardProviderAdapter {
+export type SuperthreadConfiguration = {
+  ownerProjectId: string;
+  spaces: string;
+  workspaceSlug?: string;
+};
+
+export function superthreadIntegration(configuration: SuperthreadConfiguration): SuperthreadIntegration {
+  const { ownerProjectId, spaces, workspaceSlug = '' } = configuration;
   return {
     kind: 'superthread',
+    ownerProjectId,
     async create(title, content) {
       const card = await createSuperthreadCard({ spaces, workspaceSlug, title, content });
-      return {
-        id: card.id,
-        title: card.title,
-        content: card.content,
-        board_id: card.board_id,
-        board_title: card.board_title,
-        list_id: card.list_id,
-        list_title: card.list_title,
-        card_url: card.card_url,
-        assignee_names: card.assignee_names,
-        task_parent_id: card.task_parent?.id ?? null,
-        task_parent_title: card.task_parent?.title ?? null,
-        total_task_children: card.total_task_children ?? 0,
-        in_scope: true,
-      };
+      return mapCard(card, {
+        id: card.board_id,
+        title: card.board_title,
+      }, card.list_title, true);
     },
     async load(card) {
       const detail = await fetchSuperthreadCard(card.external_id, workspaceSlug);
+      return mapCard(detail, { id: card.board_id, title: card.board_title }, card.list_title, true);
+    },
+    async sync(refresh = false): Promise<SuperthreadSnapshot> {
+      let discovery;
+      try {
+        discovery = await fetchSuperthreadBoards(spaces, refresh);
+      } catch (error) {
+        const message = errorMessage(error);
+        return { cards: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [{ scope: 'spaces', message }], warnings: [message], complete: false };
+      }
+      const failedScopes = [...discovery.warnings];
+      const successfulBoardIds: string[] = [];
+      const cards: KanbanSyncCard[] = [];
+      await Promise.all(discovery.boards.map(async (board) => {
+        const [listsResult, cardsResult] = await Promise.allSettled([
+          fetchSuperthreadLists(board.id),
+          fetchSuperthreadCards(board.id, workspaceSlug),
+        ]);
+        if (listsResult.status === 'rejected') failedScopes.push({ scope: `board:${board.id}:lists`, message: errorMessage(listsResult.reason) });
+        if (cardsResult.status === 'rejected') failedScopes.push({ scope: `board:${board.id}:cards`, message: errorMessage(cardsResult.reason) });
+        if (listsResult.status === 'fulfilled' && cardsResult.status === 'fulfilled') successfulBoardIds.push(board.id);
+        if (cardsResult.status !== 'fulfilled') return;
+        const listById = new Map((listsResult.status === 'fulfilled' ? listsResult.value : []).map((list) => [list.id, list]));
+        for (const card of cardsResult.value) {
+          if (!card.id.trim() || !card.title.trim()) {
+            failedScopes.push({ scope: `board:${board.id}:card`, message: 'Superthread returned a card without an ID or title' });
+            continue;
+          }
+          if (!card.list_id.trim()) failedScopes.push({ scope: `board:${board.id}:card:${card.id}`, message: `Superthread card ${card.id} did not include its current list` });
+          const discoveredTitle = listById.get(card.list_id)?.title;
+          const listTitle = discoveredTitle ?? card.list_title;
+          const scope = card.list_id.trim() && (discoveredTitle || card.list_title.trim())
+            ? isManagedSuperthreadList(board.title, listTitle)
+            : null;
+          cards.push(mapCard(card, board, listTitle, scope));
+        }
+      }));
+      const warnings = failedScopes.map((failure) => failure.message);
       return {
-        id: detail.id, title: detail.title, content: detail.content,
-        board_id: card.board_id, board_title: card.board_title,
-        list_id: card.list_id, list_title: card.list_title,
-        card_url: detail.card_url, assignee_names: detail.assignee_names,
-        task_parent_id: detail.task_parent?.id ?? null, task_parent_title: detail.task_parent?.title ?? null,
-        total_task_children: detail.total_task_children ?? 0, in_scope: true,
+        cards,
+        successful_scope_ids: discovery.successful_space_ids,
+        successful_board_ids: successfulBoardIds,
+        failed_scopes: failedScopes,
+        warnings,
+        complete: discovery.complete && failedScopes.length === 0 && successfulBoardIds.length === discovery.boards.length,
       };
     },
-    async sync(refresh = false) {
-      const response = await fetchSuperthreadBoards(spaces, refresh);
-      const cards = (await Promise.all(response.boards.map(async (board) => {
-        const lists = await fetchSuperthreadLists(board.id);
-        const listById = new Map(lists.map((list) => [list.id, list]));
-        const boardCards = await fetchSuperthreadCards(board.id, workspaceSlug);
-        return boardCards.map((card): KanbanSyncCard => {
-          const listTitle = listById.get(card.list_id)?.title ?? card.list_title;
-          return {
-            id: card.id,
-            title: card.title,
-            content: card.content,
-            board_id: board.id,
-            board_title: board.title,
-            list_id: card.list_id,
-            list_title: listTitle,
-            card_url: card.card_url,
-            assignee_names: card.assignee_names,
-            task_parent_id: card.task_parent?.id ?? null,
-            task_parent_title: card.task_parent?.title ?? null,
-            total_task_children: card.total_task_children ?? 0,
-            in_scope: isManagedSuperthreadList(board.title, listTitle),
-          };
-        });
-      }))).flat();
-      return { cards, warnings: response.warnings.map((warning) => warning.message) };
-    },
   };
+}
+
+function mapCard(
+  card: Awaited<ReturnType<typeof fetchSuperthreadCard>>,
+  board: { id: string; title: string },
+  listTitle: string,
+  inScope: boolean | null,
+): KanbanSyncCard {
+  return {
+    id: card.id,
+    title: card.title,
+    content: card.content,
+    board_id: board.id,
+    board_title: board.title,
+    list_id: card.list_id,
+    list_title: listTitle,
+    card_url: card.card_url,
+    assignee_names: card.assignee_names,
+    task_parent_id: card.task_parent?.id ?? null,
+    task_parent_title: card.task_parent?.title ?? null,
+    total_task_children: card.total_task_children ?? 0,
+    in_scope: inScope,
+  };
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
