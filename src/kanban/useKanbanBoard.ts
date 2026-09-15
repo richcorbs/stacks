@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
-import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCard, fetchKanbanCards, isKanbanReorderConflict, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
-import type { BoardChange, BoardSnapshot, CardProviderAdapter, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import { applyKanbanPiLifecycleIntent, applyKanbanWorkflowAction, createLocalKanbanCard, deleteKanbanCard, fetchKanbanCard, fetchKanbanCards, isKanbanReorderConflict, openKanbanCard, reorderKanbanCards, setKanbanProject, syncKanbanCards, updateLocalKanbanCard } from './api';
+import type { BoardChange, BoardSnapshot, CardProviderAdapter, KanbanCard, KanbanStatus, KanbanSyncCard, PiLifecycleIntent } from './types';
 import type { Project } from '../types';
 import { KanbanSyncRequestGate } from './syncRequestGate';
 import { setPiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
@@ -109,14 +109,13 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     };
   }, [publish, store]);
 
-  function enqueueStatusProjection(cardId: string, expectedStatuses: KanbanStatus[], nextStatus: KanbanStatus, failurePrefix?: string, expectedRevision?: number): Promise<KanbanCard | null> {
+  function enqueueLifecycleIntent(cardId: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failurePrefix?: string, expectedRevision?: number): Promise<KanbanCard | null> {
     const previous = lifecycleTransitionsRef.current.get(cardId) ?? Promise.resolve();
     const result = previous.catch(() => {}).then(async () => {
       const current = store.card(cardId);
-      if (!current || !expectedStatuses.includes(current.status) || (expectedRevision !== undefined && current.workflow_revision !== expectedRevision)) return null;
-      await setKanbanStatus(cardId, nextStatus, current.workflow_revision, 'agent');
-      applySnapshot(await fetchKanbanCards());
-      return store.card(cardId) ?? null;
+      if (!current || (expectedRevision !== undefined && current.workflow_revision !== expectedRevision)) return null;
+      const snapshot = await applyKanbanPiLifecycleIntent(cardId, thread, intent, generation, eventId, eventOrder);
+      return applyCardSnapshot(snapshot.card, snapshot.board_revision);
     });
     const gate = result.then(() => undefined, (statusError) => {
       const message = `${failurePrefix ?? 'Card status could not be updated'}: ${errorMessage(statusError)}`;
@@ -125,9 +124,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       load().catch(console.error);
     });
     lifecycleTransitionsRef.current.set(cardId, gate);
-    gate.finally(() => {
-      if (lifecycleTransitionsRef.current.get(cardId) === gate) lifecycleTransitionsRef.current.delete(cardId);
-    });
+    gate.finally(() => { if (lifecycleTransitionsRef.current.get(cardId) === gate) lifecycleTransitionsRef.current.delete(cardId); });
     return result.catch(() => null);
   }
 
@@ -137,9 +134,10 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       if (!session || (session.thread === 'work' && viewOpen)) return;
       const key = `${paneId}:${requestId}`;
       if (uiRequestBlocksRef.current.has(key)) return;
-      const transition = session.thread === 'planning'
-        ? enqueueStatusProjection(session.cardId, ['refining'], 'needs_refinement_input', 'Pi needs refinement input, but the card status could not be updated')
-        : enqueueStatusProjection(session.cardId, ['agent_working'], 'needs_human', 'Pi needs input, but the card status could not be updated');
+      const generation = getRetainedPiSessionController(paneId)?.lifecycleGeneration();
+      if (!generation) return;
+      const transition = enqueueLifecycleIntent(session.cardId, session.thread, 'ui_input_requested', generation, `ui:${requestId}:requested`, undefined,
+        session.thread === 'planning' ? 'Pi needs refinement input, but the card status could not be updated' : 'Pi needs input, but the card status could not be updated');
       uiRequestBlocksRef.current.set(key, transition);
     },
     beforeResponse: async (paneId, requestId) => { await reconcileUiRequestBlock(paneId, requestId, true); },
@@ -160,8 +158,9 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     const current = store.card(blocked.id);
     if (!shouldRestoreUiRequestCard(current, blocked)) return;
     const session = cardAgentSession(paneId);
-    const workingStatus = session?.thread === 'planning' ? 'refining' : 'agent_working';
-    await enqueueStatusProjection(current.id, [current.status], workingStatus, undefined, blocked.workflow_revision);
+    const generation = getRetainedPiSessionController(paneId)?.lifecycleGeneration();
+    if (!session || !generation) return;
+    await enqueueLifecycleIntent(current.id, session.thread, 'ui_input_resolved', generation, `ui:${requestId}:resolved`, undefined, undefined, blocked.workflow_revision);
   }
 
   useEffect(() => {
@@ -174,9 +173,9 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled' && !planningError)) return;
       const card = store.card(session.cardId);
       if (!card) return;
-      const projection = lifecycleProjectionRule(session.thread, eventType);
-      const transition = projection
-        ? enqueueStatusProjection(session.cardId, projection.expectedStatuses, projection.nextStatus)
+      const intent = piLifecycleIntent(eventType);
+      const transition = intent
+        ? enqueueLifecycleIntent(session.cardId, session.thread, intent, envelope.generation, envelope.event_id, envelope.event_order)
         : Promise.resolve(null);
       if (eventType === 'agent_settled' || planningError) {
         transition.finally(() => loadDetails(store.card(session.cardId) ?? card).catch(console.error));
@@ -234,27 +233,21 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     for (const key of uiRequestBlocksRef.current.keys()) if (key.startsWith(`${paneId}:`)) uiRequestBlocksRef.current.delete(key);
     const current = store.card(id);
     if (!current || !['refining', 'needs_refinement_input'].includes(current.status)) throw new Error('Card is no longer being refined; reload the board');
-    await setKanbanStatus(id, 'needs_refinement', current.workflow_revision, 'user');
-    applySnapshot(await fetchKanbanCards());
+    const snapshot = await applyKanbanWorkflowAction(id, 'stop_refinement', current.workflow_revision);
+    const updated = applyCardSnapshot(snapshot.card, snapshot.board_revision);
     await getRetainedPiSessionController(paneId)?.stopRefinement();
-    return store.card(id) ?? current;
+    return updated;
   }
 
-  async function move(id: string, status: KanbanStatus) {
+  async function act(id: string, action: 'return_to_refinement' | 'request_changes') {
     const current = store.card(id);
     if (!current) throw new Error('Card was not found; reload the board');
-    const generation = store.beginOptimistic(new Map([[id, { status }]]));
-    publish();
     try {
-      await setKanbanStatus(id, status, current.workflow_revision);
-      applySnapshot(await fetchKanbanCards());
-      return store.card(id) ?? current;
-    } catch (moveError) {
-      setError(errorMessage(moveError));
-      throw moveError;
-    } finally {
-      store.finishOptimistic(generation);
-      publish();
+      const snapshot = await applyKanbanWorkflowAction(id, action, current.workflow_revision);
+      return applyCardSnapshot(snapshot.card, snapshot.board_revision);
+    } catch (actionError) {
+      setError(errorMessage(actionError));
+      throw actionError;
     }
   }
 
@@ -288,7 +281,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     } catch { return store.card(card.id) ?? card; }
   }
 
-  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, move, stopRefinement, assignProject, loadDetails, applyCardSnapshot, patchCard };
+  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, act, stopRefinement, assignProject, loadDetails, applyCardSnapshot, patchCard };
 }
 
 export function matchesRefreshSnapshot(current: KanbanCard, expected: KanbanCard) {
@@ -380,14 +373,11 @@ export function shouldRestoreUiRequestCard(current: KanbanCard | undefined, bloc
   return Boolean(current && current.status === waitingStatus && current.workflow_revision === blocked.workflow_revision);
 }
 
-export function lifecycleProjectionRule(thread: 'planning' | 'work', eventType: string): { expectedStatuses: KanbanStatus[]; nextStatus: KanbanStatus } | null {
-  if (thread === 'planning') {
-    if (eventType === 'agent_start') return { expectedStatuses: ['needs_refinement', 'needs_refinement_input'], nextStatus: 'refining' };
-    if (['agent_settled', 'pi_protocol_error', 'pi_process_exit'].includes(eventType)) return { expectedStatuses: ['refining'], nextStatus: 'needs_refinement_input' };
-    return null;
-  }
-  if (eventType === 'agent_start') return { expectedStatuses: ['needs_human'], nextStatus: 'agent_working' };
-  if (eventType === 'agent_settled') return { expectedStatuses: ['agent_working'], nextStatus: 'needs_human' };
+export function piLifecycleIntent(eventType: string): PiLifecycleIntent | null {
+  if (eventType === 'agent_start') return 'agent_started';
+  if (eventType === 'agent_settled') return 'agent_settled';
+  if (eventType === 'pi_protocol_error') return 'protocol_failed';
+  if (eventType === 'pi_process_exit') return 'process_exited';
   return null;
 }
 

@@ -6,6 +6,7 @@ import type { CardEnvironmentHealth, KanbanCard } from '../../kanban/types';
 import { candidateParents, childCountLabel, statusLabel as childStatusLabel } from '../../kanban/hierarchy';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardCleanupStatus, cleanupPhaseLabel } from '../CardCleanupStatus';
+import { shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
 
 export function CardOverview({
   active,
@@ -57,7 +58,7 @@ export function CardOverview({
       </label>
     )}
     {!project && <aside className="cardEnvironmentWarningPanel" role="alert"><div><strong>Card ownership is invalid</strong><span>This card references a project that no longer exists. Project-dependent actions are blocked.</span></div></aside>}
-    {environmentHealth && environmentHealth.issues.length > 0 && (
+    {shouldShowEnvironmentWarning(card, environmentHealth) && environmentHealth && (
       <aside className="cardEnvironmentWarningPanel" aria-labelledby="card-environment-warning-title">
         <div>
           <strong id="card-environment-warning-title">Environment needs attention</strong>
@@ -104,6 +105,9 @@ export function CardOverview({
     </aside>}
     {!editing && card.cleanup_operation && <CardCleanupStatus operation={card.cleanup_operation} />}
     {!editing && card.delivery_error && <div className="kanbanActionError" role="alert">{card.delivery_error}</div>}
+    {!editing && ['pending', 'failed'].includes(card.runtime_cleanup_status ?? '') && <aside className="cardEnvironmentWarningPanel" role="alert">
+      <div><strong>Process cleanup needs attention</strong><span>{card.runtime_cleanup_error ?? 'Runtime cleanup is pending. Retry to stop card-owned processes and remove persisted conversations.'}</span></div>
+    </aside>}
     {!editing && card.events.length > 0 && <details className="cardHistory">
       <summary>History ({card.events.length})</summary>
       <ol>{card.events.map((event) => <li key={event.id}>

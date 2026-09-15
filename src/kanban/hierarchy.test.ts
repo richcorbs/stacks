@@ -3,7 +3,7 @@ import { candidateParents, childCountLabel, hierarchyStatusLabel } from './hiera
 import type { KanbanCard, KanbanStatus } from './types';
 
 function card(id: string, projectId = 'p', status: KanbanStatus = 'needs_refinement'): KanbanCard {
-  return { id, provider: 'local', external_id: id, title: `Card ${id}`, content: '', board_id: projectId, board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, record_revision: 1, project_id: projectId, parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment: null, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
+  return { id, provider: 'local', external_id: id, title: `Card ${id}`, content: '', board_id: projectId, board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, record_revision: 1, project_id: projectId, parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment: null, created_at: 1, updated_at: 1, sort_order: 0, events: [], capabilities: [] };
 }
 
 describe('card hierarchy presentation', () => {

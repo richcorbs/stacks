@@ -6,7 +6,7 @@ import type { CardView } from '../../kanban/cardView';
 import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import { KANBAN_LANES } from '../../kanban/workflow';
 import { owningProject } from '../../kanban/projectScope';
-import { environmentHealthTooltip, hasGitChanges } from '../../kanban/useCardRepositoryStatus';
+import { environmentHealthTooltip, hasGitChanges, shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { GithubStatusIcon } from '../GithubStatusIcon';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
@@ -88,7 +88,8 @@ export function KanbanLanes({
                 const repositoryStatus = repositoryStatuses[card.id];
                 const environmentHealth = repositoryStatus?.environmentHealth;
                 const healthTooltip = environmentHealthTooltip(environmentHealth);
-                return <div className={`kanbanCardWrapper${environmentHealth?.issues.length ? ' hasEnvironmentWarning' : ''}`} key={card.id}>
+                const showEnvironmentWarning = shouldShowEnvironmentWarning(card, environmentHealth);
+                return <div className={`kanbanCardWrapper${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}`} key={card.id}>
                   <button
                     className={`kanbanCard${pointer.draggingId === card.id ? ' dragging' : ''}${pointer.dropBeforeId === card.id ? ' dropBefore' : ''}${keyboardFocusedCardId === card.id ? ' keyboardFocused' : ''}`}
                     type="button"
@@ -128,7 +129,7 @@ export function KanbanLanes({
                       </span>
                     </span>
                   </button>
-                  {environmentHealth && environmentHealth.issues.length > 0 && (
+                  {showEnvironmentWarning && environmentHealth && (
                     <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>
                       <span aria-hidden="true">!</span>
                     </button>

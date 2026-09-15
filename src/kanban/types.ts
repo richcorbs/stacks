@@ -1,15 +1,10 @@
-export const KANBAN_STATUSES = [
-  'needs_refinement',
-  'refining',
-  'needs_refinement_input',
-  'ready',
-  'agent_working',
-  'needs_human',
-  'approved',
-  'done',
-] as const;
+import { KANBAN_STATUS_METADATA, KANBAN_WORKFLOW_ACTIONS } from './workflowContract.generated';
 
-export type KanbanStatus = typeof KANBAN_STATUSES[number];
+export const KANBAN_STATUSES = KANBAN_STATUS_METADATA.map(({ status }) => status);
+export type KanbanStatus = typeof KANBAN_STATUS_METADATA[number]['status'];
+export type KanbanWorkflowAction = typeof KANBAN_WORKFLOW_ACTIONS[number];
+export type KanbanCapability = { action: KanbanWorkflowAction; available: boolean; disabled_reason?: string };
+export type PiLifecycleIntent = 'agent_started' | 'agent_settled' | 'protocol_failed' | 'process_exited' | 'ui_input_requested' | 'ui_input_resolved';
 
 export type CardEnvironmentPane = {
   id: string;
@@ -75,6 +70,17 @@ export type CardEnvironmentHealth = {
   issues: EnvironmentHealthIssue[];
 };
 
+export type EnvironmentCreationOperation = {
+  id: string;
+  phase: 'prepared' | 'setup_running' | 'setup_complete' | 'attaching' | 'compensation_pending' | 'recovery_required';
+  error: string | null;
+  source_path: string | null;
+  source_branch: string | null;
+  cleanup_available: boolean;
+  custom_command: boolean;
+  revision: number;
+};
+
 export type CardEvent = {
   id: number;
   created_at: number;
@@ -113,6 +119,8 @@ export type KanbanCard = {
   pull_request?: CardPullRequest | null;
   delivery_operation_stage?: string | null;
   delivery_error?: string | null;
+  runtime_cleanup_status?: 'pending' | 'complete' | 'failed' | null;
+  runtime_cleanup_error?: string | null;
   workflow_revision: number;
   record_revision: number;
   project_id: string | null;
@@ -121,11 +129,13 @@ export type KanbanCard = {
   children: CardRelationshipSummary[];
   hierarchy_finalized: boolean;
   environment: CardEnvironment | null;
+  creation_operation?: EnvironmentCreationOperation | null;
   cleanup_operation?: CardCleanupOperation | null;
   created_at: number;
   updated_at: number;
   sort_order: number;
   events: CardEvent[];
+  capabilities: KanbanCapability[];
 };
 
 

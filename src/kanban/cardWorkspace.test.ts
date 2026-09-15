@@ -7,7 +7,7 @@ function card(overrides: Partial<KanbanCard> = {}): KanbanCard {
     id: 'local:74', provider: 'local', external_id: '74', title: 'Split the monolith', content: 'Keep behavior stable.',
     board_id: 'p', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status: 'agent_working',
     workflow_revision: 1, record_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false,
-    environment: null, created_at: 1, updated_at: 1, sort_order: 0, events: [], ...overrides,
+    environment: null, created_at: 1, updated_at: 1, sort_order: 0, events: [], ...overrides, capabilities: overrides.capabilities ?? [],
   };
 }
 

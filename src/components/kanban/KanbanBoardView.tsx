@@ -259,7 +259,7 @@ export function KanbanBoardView({ spaces, workspaceSlug, superthreadEnabled, pro
             setSelectedCard(updated);
             return updated;
           })}
-          onMove={(status) => board.move(selectedCard.id, status).then(setSelectedCard)}
+          onAction={(action) => board.act(selectedCard.id, action).then(setSelectedCard)}
           onStopRefinement={() => board.stopRefinement(selectedCard.id).then(setSelectedCard)}
           onOpenChat={async (projectId) => {
             if (selectedCard.project_id === projectId) return;
@@ -267,9 +267,9 @@ export function KanbanBoardView({ spaces, workspaceSlug, superthreadEnabled, pro
             setSelectedCard(updated);
           }}
           onStartWork={async () => {
-            if (!await onStartWork(selectedCard.id)) return false;
+            const started = await onStartWork(selectedCard.id);
             await board.load();
-            return true;
+            return started;
           }}
           onCleanup={async (environmentRevision) => {
             const current = selectedCard.environment

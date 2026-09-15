@@ -1,18 +1,20 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project } from '../../types';
-import type { CardEnvironmentHealth, KanbanCard, KanbanStatus } from '../../kanban/types';
-import { approveAndCommitKanbanCard, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest } from '../../kanban/api';
+import type { CardEnvironmentHealth, KanbanCard } from '../../kanban/types';
+import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cleanupKanbanEnvironmentCreation, closeKanbanCard, createKanbanPullRequest, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, retryKanbanRuntimeCleanup } from '../../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../../kanban/workflowActions';
 import { DiffTab } from '../DiffTab';
 import { DiffOverlay } from '../DiffOverlay';
 import { useDiffReview } from '../../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../../diffReview/prompt';
 import { sendTextToPiEditor } from '../../pi/editorTextEvent';
-import { deletePersistentPiSession } from '../../pi/sessionController';
+import { deletePiSessionController } from '../../pi/sessionController';
+import { disposeAcceptedRuntimeOutcomes } from '../../kanban/runtimeCleanup';
 import { REFRESH_CARD_REPOSITORY_STATUS_EVENT } from '../../kanban/refreshCoordinator';
 import { cardLocalComparisonTarget } from '../../git/comparisonTarget';
 import { runApproveAndCommit } from '../../kanban/approveAndCommit';
+import { runMergeTargetAndResolve } from '../../kanban/mergeTargetAndResolve';
 import { runWritePlanAndFinishRefinement } from '../../kanban/writePlanAndFinishRefinement';
 import { sendPromptToPiAndWait } from '../../pi/promptEvent';
 import { canEditKanbanCard, hasDirtyCardDraft } from '../../kanban/cardEditing';
@@ -35,7 +37,7 @@ import { CardDetailHeader, CardDetailTabs } from './CardDetailChrome';
 const PiGuiView = lazy(() => import('../PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
 
-export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
+export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
   card: KanbanCard;
   cards: KanbanCard[];
   projects: Project[];
@@ -49,7 +51,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
   onClose: () => void;
   onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
-  onMove: (status: KanbanStatus) => Promise<unknown>;
+  onAction: (action: 'return_to_refinement' | 'request_changes') => Promise<unknown>;
   onStopRefinement: () => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
   onStartWork: () => Promise<boolean>;
@@ -87,8 +89,8 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const statusLabel = hierarchyStatusLabel(card);
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
-  const workflowCard = workflowOperation === 'ship' || workflowOperation === 'ship_with_fe' ? { ...card, status: 'needs_human' as const } : card;
-  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, projectAvailable: Boolean(project), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
+  const workflowCard = workflowOperation === 'ship' || workflowOperation === 'ship_with_fe' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
+  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
     ...(project && !card.hierarchy_finalized ? ['chat' as const] : []),
@@ -290,7 +292,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           if (!projectId) return;
           await onOpenChat(projectId);
           setActiveView('chat'); return;
-        case 'write_plan_and_finish_refinement':
+        case 'finish_refinement':
           await runWritePlanAndFinishRefinement({
             showAgent: () => setActiveView('chat'),
             sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'planning'), prompt),
@@ -302,10 +304,10 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           });
           return;
         case 'stop_refinement': await onStopRefinement(); return;
-        case 'return_to_refinement': await onMove('needs_refinement'); setActiveView('chat'); return;
+        case 'return_to_refinement': await onAction('return_to_refinement'); setActiveView('chat'); return;
         case 'start_work': if (await onStartWork()) setActiveView('chat'); return;
         case 'request_changes':
-          if (card.status === 'approved') await onMove('needs_human');
+          if (card.status === 'approved') await onAction('request_changes');
           setActiveView('chat'); return;
         case 'ship':
         case 'ship_with_fe': {
@@ -316,6 +318,26 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
             showAgent: () => setActiveView('chat'),
             sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'work'), prompt),
             finalize: () => approveAndCommitKanbanCard(card.id, expectedWorkflowRevision, expectedEnvironmentRevision, action.kind === 'ship_with_fe'),
+            refresh: async () => {
+              const updated = preserveRevisionValues(await onReload());
+              onCardUpdatedRef.current(updated);
+              setDiffRefreshNonce((nonce) => nonce + 1);
+              window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+            },
+          });
+          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          return;
+        }
+        case 'merge_target': {
+          if (!card.environment) throw new Error('Card environment is missing');
+          const expectedWorkflowRevision = card.workflow_revision;
+          const expectedEnvironmentRevision = environmentRevisionRef.current;
+          const result = await runMergeTargetAndResolve({
+            prepare: () => prepareKanbanTargetMerge(card.id, expectedWorkflowRevision, expectedEnvironmentRevision),
+            showAgent: () => setActiveView('chat'),
+            sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'work'), prompt),
+            finalize: (operationId) => finalizeKanbanTargetMerge(card.id, operationId),
+            abort: (operationId) => abortKanbanTargetMerge(card.id, operationId),
             refresh: async () => {
               const updated = preserveRevisionValues(await onReload());
               onCardUpdatedRef.current(updated);
@@ -343,19 +365,21 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
         case 'open_pr': if (card.pull_request?.url) await invoke('open_url', { url: card.pull_request.url }); return;
         case 'merge_pr': onCardUpdated(preserveRevisionValues(await mergeKanbanPullRequest(card.id, card.workflow_revision))); return;
         case 'cleanup': await onCleanup(environmentRevisionRef.current); return;
+        case 'cleanup_creation': onCardUpdated(await cleanupKanbanEnvironmentCreation(card.id)); return;
+        case 'retry_runtime_cleanup': {
+          const result = await retryKanbanRuntimeCleanup(card.id);
+          disposeAcceptedRuntimeOutcomes(result.outcomes, deletePiSessionController, disposeTerminalSession);
+          onCardUpdated(preserveRevisionValues(result.card)); return;
+        }
         case 'close': {
-          const piPaneIds = new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [cardPaneId(card.id, 'planning'), cardPaneId(card.id, 'work')]);
-          await Promise.all([
-            ...Array.from(piPaneIds).map(deletePersistentPiSession),
-            ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => { disposeTerminalSession(pane.id); return invoke('kill_pty', { terminalId: pane.id, expectedCwd: card.environment?.worktree_path }); }) ?? []),
-            ...(['server', 'console'].map((service) => invoke('kill_pty', { terminalId: `kanban-card:${card.id}:terminal:${service}`, expectedCwd: card.environment?.worktree_path }))),
-          ]);
-          onCardUpdated(preserveRevisionValues(await closeKanbanCard(card.id, card.workflow_revision))); return;
+          const result = await closeKanbanCard(card.id, card.workflow_revision);
+          disposeAcceptedRuntimeOutcomes(result.outcomes, deletePiSessionController, disposeTerminalSession);
+          onCardUpdated(preserveRevisionValues(result.card)); return;
         }
         case 'delete': await onDelete(); return;
       }
     }).then((started) => {
-      if (started && ['start_work', 'ship', 'ship_with_fe', 'merge_local', 'cleanup', 'close'].includes(action.kind)) {
+      if (started && ['start_work', 'ship', 'ship_with_fe', 'merge_target', 'merge_local', 'cleanup', 'cleanup_creation', 'retry_runtime_cleanup', 'close'].includes(action.kind)) {
         window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
       }
     }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
@@ -522,6 +546,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
             working={working}
             actionError={actionError}
             mergedWithoutEnvironment={card.status === 'done' && !card.environment}
+            recoveryMessage={card.creation_operation?.error}
             onAction={performWorkflowAction}
           />}
         </footer>

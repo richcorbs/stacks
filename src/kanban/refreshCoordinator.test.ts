@@ -14,7 +14,7 @@ function card(id: string, status: KanbanCard['status'] = 'agent_working', enviro
       target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready', revision: 1,
       layout_revision: 1, split_layout: { kind: 'empty' }, focused_pane_id: null, panes: [],
     } : null,
-    created_at: 1, updated_at: 1, sort_order: 0, events: [],
+    created_at: 1, updated_at: 1, sort_order: 0, events: [], capabilities: [],
   };
 }
 
@@ -36,11 +36,36 @@ async function flush() {
 afterEach(() => vi.useRealTimers());
 
 describe('Kanban refresh targets', () => {
-  it('includes environment-backed and environment-dependent cards but excludes ordinary and Done cards', () => {
+  it('includes environment-backed and environment-dependent cards but excludes ordinary, Done, and finalized cards', () => {
     expect(isPeriodicRefreshEligible(card('environment', 'ready', true))).toBe(true);
     expect(isPeriodicRefreshEligible(card('missing', 'needs_human', false))).toBe(true);
     expect(isPeriodicRefreshEligible(card('backlog', 'ready', false))).toBe(false);
     expect(isPeriodicRefreshEligible(card('done', 'done', true))).toBe(false);
+    expect(isPeriodicRefreshEligible({ ...card('parent'), hierarchy_finalized: true, child_count: 1 })).toBe(false);
+  });
+
+  it('excludes finalized aggregate parents from every repository and health refresh request type', () => {
+    const parent = { ...card('parent', 'needs_human'), hierarchy_finalized: true, child_count: 1 };
+    const parentSnapshot = snapshot([parent], ['parent'], 'parent');
+    const requests = [
+      { ...emptyRefreshRequest(), full: true },
+      { ...emptyRefreshRequest(), visible: true },
+      { ...emptyRefreshRequest(), active: true },
+      { ...emptyRefreshRequest(), cardIds: new Set(['parent']) },
+      { ...emptyRefreshRequest(), healthOnlyCardIds: new Set(['parent']) },
+    ];
+    for (const request of requests) {
+      const plan = buildRefreshCyclePlan(parentSnapshot, request);
+      expect(plan.targets, JSON.stringify(request)).toEqual([]);
+      expect(plan.healthTargets, JSON.stringify(request)).toEqual([]);
+    }
+  });
+
+  it('keeps ordinary child and environment-dependent cards eligible', () => {
+    const child: KanbanCard = { ...card('child', 'needs_human', false), parent: { id: 'parent', external_id: '1', title: 'Parent', status: 'needs_human' } };
+    const plan = buildRefreshCyclePlan(snapshot([child]), { ...emptyRefreshRequest(), full: true });
+    expect(plan.targets.map(({ card }) => card.id)).toEqual(['child']);
+    expect(plan.healthTargets.map(({ card }) => card.id)).toEqual(['child']);
   });
 
   it('keeps Done out of visible/full refreshes unless it is active for cleanup health', () => {
@@ -58,6 +83,7 @@ describe('Kanban refresh targets', () => {
     expect(shouldRefreshPullRequest(targetFor(card('local'), [{ ...project, delivery_workflow: 'local_merge' }]))).toBe(false);
     expect(shouldRefreshPullRequest(targetFor(card('early', 'ready'), [project]))).toBe(false);
     expect(shouldRefreshPullRequest(targetFor(card('missing', 'approved', false), [project]))).toBe(false);
+    expect(shouldRefreshPullRequest(targetFor({ ...card('parent'), hierarchy_finalized: true, child_count: 1 }, [project]))).toBe(false);
   });
 
   it('uses owning-project delivery settings in target identity and rejects obsolete result contexts', () => {
