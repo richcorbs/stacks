@@ -5,7 +5,7 @@ import type { KanbanCard } from '../../kanban/types';
 import type { CardView } from '../../kanban/cardView';
 import type { useCardServices } from '../../kanban/useCardServices';
 import { CardProjectAssignment } from '../CardProjectAssignment';
-import { CardGitSummary } from '../CardGitSummary';
+import { CardGitSummary, hasGitChangeSummary } from '../CardGitSummary';
 import { CardPullRequestLink } from '../CardPullRequestLink';
 import { CardEnvironmentBranch } from '../CardEnvironmentBranch';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
@@ -28,6 +28,10 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
   onAssignProject: (projectId: string) => Promise<void>;
   onActionError: (message: string) => void;
 }) {
+  const hasRepositoryMetadata = Boolean(card.environment?.branch?.trim())
+    || hasGitChangeSummary(gitChangeSummary)
+    || Boolean(card.pull_request);
+
   return <header>
     <div className="kanbanDetailHeading">
       <div className="kanbanDetailHeaderMeta">
@@ -35,16 +39,18 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
         <CardProjectAssignment card={card} project={project ?? null} projects={projects} onChange={(nextProjectId) => {
           onAssignProject(nextProjectId).catch((error) => onActionError(error instanceof Error ? error.message : String(error)));
         }} />
-        <CardHierarchyBadges card={card} />
         <span className="kanbanCardStatus">{statusLabel}</span>
-        <CardGitSummary summary={gitChangeSummary} />
-        <CardPullRequestLink pullRequest={card.pull_request} onOpen={openExternalLink} />
+        <CardHierarchyBadges card={card} />
         {editable && !editing && <button className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={onBeginEditing}><span aria-hidden="true" /></button>}
       </div>
       {editing
         ? <input ref={titleInputRef} className="kanbanCardTitleInput" aria-label="Card title" required value={draftTitle} onChange={(event) => onDraftTitleChange(event.target.value)} />
         : <h2>{card.title}</h2>}
-      <CardEnvironmentBranch branch={card.environment?.branch} />
+      {hasRepositoryMetadata && <div className="kanbanDetailRepositoryMeta">
+        <CardEnvironmentBranch branch={card.environment?.branch} />
+        <CardGitSummary summary={gitChangeSummary} />
+        <CardPullRequestLink pullRequest={card.pull_request} onOpen={openExternalLink} />
+      </div>}
     </div>
     <button type="button" aria-label="Close card details" onClick={onRequestClose}>×</button>
   </header>;
