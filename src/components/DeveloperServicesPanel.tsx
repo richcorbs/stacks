@@ -15,6 +15,7 @@ import type { DiffReviewModel } from '../diffReview/types';
 import type { DeveloperServicesTab } from '../developerServices';
 import type { SuperthreadCard } from '../superthread/types';
 import { clearPendingPrCleanup, loadPendingPrCleanup, savePendingPrCleanup } from '../github/prCleanupPersistence';
+import { projectRemoteComparisonTargetById } from '../git/comparisonTarget';
 import type { KanbanWorkspace } from '../kanban/types';
 
 export function DeveloperServicesPanel({
@@ -25,6 +26,7 @@ export function DeveloperServicesPanel({
   spaces,
   workspaceSlug,
   activePath,
+  activeProjectId,
   diffPath,
   githubPollSeconds,
   githubMergeStrategy,
@@ -41,6 +43,7 @@ export function DeveloperServicesPanel({
   spaces: string;
   workspaceSlug: string;
   activePath: string | null;
+  activeProjectId: string | null;
   diffPath: string | null;
   githubPollSeconds: number;
   githubMergeStrategy: GithubMergeStrategy;
@@ -59,6 +62,7 @@ export function DeveloperServicesPanel({
   const [cleanupError, setCleanupError] = useState<string | null>(null);
   const [recoveryOperation, setRecoveryOperation] = useState<PendingPrCleanup | null>(null);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
+  const diffComparisonTarget = projectRemoteComparisonTargetById(projects, activeProjectId);
   const selectedCardStatus = superthread.selectedCard
     ? superthread.boards
       .find((board) => board.id === superthread.selectedCard?.board_id)
@@ -113,7 +117,7 @@ export function DeveloperServicesPanel({
 
       <div className="superthreadTree integrationContent">
         {tab === 'superthread' && <SuperthreadTab superthread={superthread} />}
-        {tab === 'diff' && <DiffTab activePath={diffPath} refreshNonce={diffRefreshNonce} review={diffReview} />}
+        {tab === 'diff' && <DiffTab activePath={diffPath} comparisonTarget={diffComparisonTarget} refreshNonce={diffRefreshNonce} review={diffReview} />}
         {tab === 'pull-requests' && (
           <GithubPullRequestsTab
             activePath={activePath}

@@ -85,6 +85,7 @@ export type DeveloperServicesLayoutProps = {
   spaces: string;
   workspaceSlug: string;
   activePath: string | null;
+  activeProjectId: string | null;
   githubPollSeconds: number;
   githubMergeStrategy: 'merge' | 'squash' | 'rebase';
   superthreadEnabled: boolean;
