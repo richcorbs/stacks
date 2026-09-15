@@ -57,7 +57,7 @@ export type PendingPrCleanup = {
   stage: PrCleanupStage;
 };
 export type GitDiffFile = { path: string; status: 'A' | 'M' | 'D' | 'R' | 'U' };
-export type GitDiffFilesResponse = { files: GitDiffFile[]; source: 'working-tree' | 'pull-request'; pullRequestNumber: number | null };
+export type GitDiffFilesResponse = { files: GitDiffFile[] };
 export type GitFileDiff = { path: string; patch: string };
 export type AppStats = {
   cpu: number;

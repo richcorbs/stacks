@@ -7,6 +7,7 @@ import { directWorkInitialLayout, directWorkTabs, workAgentId, workOwnerId, work
 import { loadOrCreateDirectWork, saveDirectWorkLayout } from '../directWorkApi';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
+import { projectRemoteComparisonTarget } from '../git/comparisonTarget';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
@@ -219,7 +220,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
           </Suspense></div>
         </section>
         <section className={`cardDiffView cardView${activeView === 'diff' ? ' active' : ''}`}>
-          <aside className="cardDiffExplorer"><DiffTab activePath={gitState?.kind === 'git' ? project.path : null} refreshNonce={diffRefreshNonce} review={diffReview} /></aside>
+          <aside className="cardDiffExplorer"><DiffTab activePath={gitState?.kind === 'git' ? project.path : null} comparisonTarget={projectRemoteComparisonTarget(project)} refreshNonce={diffRefreshNonce} review={diffReview} /></aside>
           <div className="cardDiffContent">{diffReview.openDiff ? <DiffOverlay review={diffReview} fontSize={13} canSubmit onSubmit={submitDiffReview} onClose={() => diffReview.setOpenDiff(null)} /> : <div className="kanbanEmpty">Select a changed file to view its diff.</div>}</div>
         </section>
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>

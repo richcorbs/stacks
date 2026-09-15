@@ -1,4 +1,3 @@
-use crate::github::current_pull_request_for_path;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
@@ -36,8 +35,6 @@ pub struct GitDiffFile {
 #[serde(rename_all = "camelCase")]
 pub struct GitDiffFilesResponse {
     files: Vec<GitDiffFile>,
-    source: String,
-    pull_request_number: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -164,7 +161,7 @@ fn parse_snapshot_diff(output: &[u8]) -> Result<HashMap<Vec<u8>, char>, String> 
         let Some(path) = entries.get(path_index) else {
             return Err("Git returned an incomplete file status record".to_string());
         };
-        files.insert(path.to_vec(), if renamed_or_copied { 'M' } else { kind });
+        files.insert(path.to_vec(), kind);
         index += if renamed_or_copied { 3 } else { 2 };
     }
     Ok(files)
@@ -425,14 +422,63 @@ fn safe_relative_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn ensure_diff_sources_bounded(root: &str, file: &str) -> Result<(), String> {
+fn ensure_diff_sources_bounded(root: &str, base: &str, file: &str) -> Result<(), String> {
     if let Ok(metadata) = std::fs::symlink_metadata(Path::new(root).join(file)) {
         if metadata.len() > MAX_DIFF_SOURCE_BYTES {
             return Err("The selected file is too large to display".to_string());
         }
     }
+    ensure_git_blob_bounded(root, base, file)?;
+
+    // A renamed file's base blob is stored under its old path, so checking only the
+    // final path would allow a large source blob through before patch generation.
+    let names = Command::new("git")
+        .args([
+            "-C",
+            root,
+            "diff",
+            "--name-status",
+            "-z",
+            "--find-renames",
+            "--find-copies-harder",
+            base,
+            "--",
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !names.status.success() {
+        return Err(command_error(
+            &names,
+            "Could not inspect the selected diff sources",
+        ));
+    }
+    let entries = names
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .collect::<Vec<_>>();
+    let mut index = 0;
+    while index < entries.len() {
+        let renamed_or_copied = entries[index]
+            .first()
+            .is_some_and(|status| matches!(*status, b'R' | b'C'));
+        if renamed_or_copied
+            && entries
+                .get(index + 2)
+                .is_some_and(|path| *path == file.as_bytes())
+        {
+            if let Some(old_path) = entries.get(index + 1) {
+                ensure_git_blob_bounded(root, base, &String::from_utf8_lossy(old_path))?;
+            }
+        }
+        index += if renamed_or_copied { 3 } else { 2 };
+    }
+    Ok(())
+}
+
+fn ensure_git_blob_bounded(root: &str, tree: &str, file: &str) -> Result<(), String> {
     if let Ok(output) = Command::new("git")
-        .args(["-C", root, "cat-file", "-s", &format!("HEAD:{file}")])
+        .args(["-C", root, "cat-file", "-s", &format!("{tree}:{file}")])
         .output()
     {
         if output.status.success()
@@ -470,164 +516,192 @@ fn display_status(status: &str) -> String {
     .to_string()
 }
 
-fn working_tree_files(root: &str) -> Result<Vec<GitDiffFile>, String> {
+fn resolve_comparison_base(root: &str, comparison_target: &str) -> Result<String, String> {
+    let comparison_target = comparison_target.trim();
+    if !comparison_target.starts_with("refs/") {
+        return Err(
+            "The comparison target must be a full Git ref, such as refs/heads/main".to_string(),
+        );
+    }
+    let valid = Command::new("git")
+        .args(["check-ref-format", comparison_target])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !valid.status.success() {
+        return Err(format!(
+            "The comparison target ref is invalid: {comparison_target}"
+        ));
+    }
+    let available = Command::new("git")
+        .args([
+            "-C",
+            root,
+            "show-ref",
+            "--verify",
+            "--quiet",
+            comparison_target,
+        ])
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !available.success() {
+        return Err(format!("The comparison target ref is unavailable locally: {comparison_target}. Create or fetch it outside Stacks, then refresh Diff."));
+    }
+    let commit_target = format!("{comparison_target}^{{commit}}");
+    let resolves_to_commit = Command::new("git")
+        .args([
+            "-C",
+            root,
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &commit_target,
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !resolves_to_commit.status.success() {
+        return Err(format!(
+            "The comparison target does not resolve to a commit: {comparison_target}"
+        ));
+    }
+    let merge_base = Command::new("git")
+        .args(["-C", root, "merge-base", "HEAD", comparison_target])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !merge_base.status.success() {
+        return Err(command_error(
+            &merge_base,
+            &format!("Could not find a merge base between HEAD and {comparison_target}"),
+        ));
+    }
+    let merge_base = String::from_utf8_lossy(&merge_base.stdout)
+        .trim()
+        .to_string();
+    if merge_base.is_empty() {
+        return Err(format!(
+            "Could not find a merge base between HEAD and {comparison_target}"
+        ));
+    }
+    Ok(merge_base)
+}
+
+fn snapshot_diff_files(root: &str, base: &str) -> Result<Vec<GitDiffFile>, String> {
     let output = Command::new("git")
         .args([
             "-C",
             root,
-            "status",
-            "--porcelain=v1",
+            "diff",
+            "--name-status",
             "-z",
-            "--untracked-files=all",
+            "--find-renames",
+            "--find-copies-harder",
+            base,
+            "--",
         ])
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        return Err(command_error(
+            &output,
+            "Could not compare the repository working tree",
+        ));
     }
-    let entries = output
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|entry| !entry.is_empty())
-        .collect::<Vec<_>>();
-    let mut files = Vec::new();
-    let mut index = 0;
-    while index < entries.len() {
-        let entry = entries[index];
-        if entry.len() >= 4 {
-            let status = String::from_utf8_lossy(&entry[..2]);
-            files.push(GitDiffFile {
-                path: String::from_utf8_lossy(&entry[3..]).to_string(),
-                status: display_status(&status),
-            });
-            if status.contains('R') || status.contains('C') {
-                index += 1;
-            }
-        }
-        index += 1;
-    }
-    files.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(files)
-}
+    let mut snapshot = parse_snapshot_diff(&output.stdout)?;
 
-fn pull_request_diff_base(root: &str) -> Option<(String, u64)> {
-    let pull_request = current_pull_request_for_path(root).ok()??;
-    if pull_request.base_ref_name.is_empty() {
-        return None;
-    }
-    let remote_base = format!("origin/{}", pull_request.base_ref_name);
-    let output = Command::new("git")
-        .args(["-C", root, "merge-base", "HEAD", &remote_base])
-        .output()
-        .ok()?;
-    output.status.success().then(|| {
-        (
-            String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            pull_request.number,
-        )
-    })
-}
-
-fn committed_diff_files(root: &str, base: &str) -> Result<Vec<GitDiffFile>, String> {
-    let output = Command::new("git")
-        .args(["-C", root, "diff", "--name-status", "-z", base, "HEAD"])
+    let untracked = Command::new("git")
+        .args([
+            "-C",
+            root,
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ])
         .output()
         .map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    if !untracked.status.success() {
+        return Err(command_error(&untracked, "Could not list untracked files"));
     }
-    let entries = output
+    for path in untracked
         .stdout
         .split(|byte| *byte == 0)
-        .filter(|entry| !entry.is_empty())
-        .collect::<Vec<_>>();
-    let mut files = Vec::new();
-    let mut index = 0;
-    while index + 1 < entries.len() {
-        let status = String::from_utf8_lossy(entries[index]);
-        let renamed = status.starts_with('R') || status.starts_with('C');
-        let path_index = if renamed { index + 2 } else { index + 1 };
-        if path_index >= entries.len() {
-            break;
-        }
-        files.push(GitDiffFile {
-            path: String::from_utf8_lossy(entries[path_index]).to_string(),
-            status: display_status(&status),
-        });
-        index += if renamed { 3 } else { 2 };
+        .filter(|path| !path.is_empty())
+    {
+        snapshot.entry(path.to_vec()).or_insert('A');
     }
+
+    let mut files = snapshot
+        .into_iter()
+        .map(|(path, status)| GitDiffFile {
+            path: String::from_utf8_lossy(&path).to_string(),
+            status: display_status(&status.to_string()),
+        })
+        .collect::<Vec<_>>();
     files.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(files)
 }
 
 #[tauri::command]
-pub async fn git_diff_files(path: String) -> Result<GitDiffFilesResponse, String> {
-    tauri::async_runtime::spawn_blocking(move || load_git_diff_files(&path))
+pub async fn git_diff_files(
+    path: String,
+    comparison_target: String,
+) -> Result<GitDiffFilesResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || load_git_diff_files(&path, &comparison_target))
         .await
         .map_err(|error| format!("Git diff worker failed: {error}"))?
 }
 
-fn load_git_diff_files(path: &str) -> Result<GitDiffFilesResponse, String> {
+fn load_git_diff_files(
+    path: &str,
+    comparison_target: &str,
+) -> Result<GitDiffFilesResponse, String> {
     let root = repository_root(path)?;
-    let files = working_tree_files(&root)?;
-    if !files.is_empty() {
-        return Ok(GitDiffFilesResponse {
-            files,
-            source: "working-tree".to_string(),
-            pull_request_number: None,
-        });
-    }
-    if let Some((base, number)) = pull_request_diff_base(&root) {
-        return Ok(GitDiffFilesResponse {
-            files: committed_diff_files(&root, &base)?,
-            source: "pull-request".to_string(),
-            pull_request_number: Some(number),
-        });
-    }
+    let base = resolve_comparison_base(&root, comparison_target)?;
     Ok(GitDiffFilesResponse {
-        files,
-        source: "working-tree".to_string(),
-        pull_request_number: None,
+        files: snapshot_diff_files(&root, &base)?,
     })
 }
 
 #[tauri::command]
-pub async fn git_file_diff(path: String, file: String) -> Result<GitFileDiff, String> {
-    tauri::async_runtime::spawn_blocking(move || load_git_file_diff(&path, &file))
-        .await
-        .map_err(|error| format!("Git diff worker failed: {error}"))?
+pub async fn git_file_diff(
+    path: String,
+    file: String,
+    comparison_target: String,
+) -> Result<GitFileDiff, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        load_git_file_diff(&path, &file, &comparison_target)
+    })
+    .await
+    .map_err(|error| format!("Git diff worker failed: {error}"))?
 }
 
-fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
+fn load_git_file_diff(
+    path: &str,
+    file: &str,
+    comparison_target: &str,
+) -> Result<GitFileDiff, String> {
     safe_relative_path(file)?;
     let root = repository_root(path)?;
-    ensure_diff_sources_bounded(&root, file)?;
-    let working_files = working_tree_files(&root)?;
-    let committed_base = working_files
-        .is_empty()
-        .then(|| pull_request_diff_base(&root))
-        .flatten()
-        .map(|(base, _)| base);
-    let mut command = Command::new("git");
-    command.args([
-        "-C",
-        &root,
-        "diff",
-        "--no-ext-diff",
-        "--no-color",
-        "--unified=10",
-    ]);
-    if let Some(base) = &committed_base {
-        command.args([base, "HEAD"]);
-    } else {
-        command.arg("HEAD");
-    }
-    let output = command
-        .args(["--", file])
+    let base = resolve_comparison_base(&root, comparison_target)?;
+    ensure_diff_sources_bounded(&root, &base, file)?;
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &root,
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--unified=10",
+            &base,
+            "--",
+            file,
+        ])
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        return Err(command_error(
+            &output,
+            "Could not generate the selected file diff",
+        ));
     }
     let mut patch = String::from_utf8_lossy(&output.stdout).to_string();
     if patch.is_empty() {
@@ -641,10 +715,10 @@ fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
             return Err("This file no longer has changes; refresh the diff file tree".to_string());
         }
         let file_path = Path::new(&root).join(file);
-        let text = if std::fs::symlink_metadata(&file_path)
+        let is_symlink = std::fs::symlink_metadata(&file_path)
             .map(|metadata| metadata.file_type().is_symlink())
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        let text = if is_symlink {
             std::fs::read_link(&file_path)
                 .map_err(|error| format!("Could not read {file}: {error}"))?
                 .to_string_lossy()
@@ -656,7 +730,8 @@ fn load_git_file_diff(path: &str, file: &str) -> Result<GitFileDiff, String> {
             )
             .map_err(|_| "Binary files cannot be displayed".to_string())?
         };
-        patch = format!("diff --git a/{file} b/{file}\nnew file mode 100644\n--- /dev/null\n+++ b/{file}\n@@ -0,0 +1,{} @@\n{}", text.lines().count(), text.lines().map(|line| format!("+{line}\n")).collect::<String>());
+        let mode = if is_symlink { "120000" } else { "100644" };
+        patch = format!("diff --git a/{file} b/{file}\nnew file mode {mode}\n--- /dev/null\n+++ b/{file}\n@@ -0,0 +1,{} @@\n{}", text.lines().count(), text.lines().map(|line| format!("+{line}\n")).collect::<String>());
     }
     ensure_patch_bounded(&patch)?;
     Ok(GitFileDiff {
@@ -756,6 +831,12 @@ mod tests {
 
     fn summary(worktree: &Path) -> GitChangeSummary {
         load_git_change_summary(worktree.to_str().unwrap(), "main").unwrap()
+    }
+
+    fn diff_files(worktree: &Path) -> Vec<GitDiffFile> {
+        load_git_diff_files(worktree.to_str().unwrap(), "refs/heads/main")
+            .unwrap()
+            .files
     }
 
     fn clean_up(repository: &Path) {
@@ -898,6 +979,158 @@ mod tests {
             }
         );
         assert!(load_git_change_summary(worktree.to_str().unwrap(), "missing").is_err());
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn lists_committed_staged_unstaged_untracked_and_deleted_final_changes() {
+        let (repository, worktree) = test_repository("diff-combined");
+        fs::write(worktree.join("README.md"), "committed\n").unwrap();
+        commit_all(&worktree, "committed branch change");
+        fs::write(worktree.join("README.md"), "final working state\n").unwrap();
+        fs::write(worktree.join("staged.txt"), "staged\n").unwrap();
+        git(&worktree, &["add", "staged.txt"]);
+        fs::write(worktree.join("untracked name.txt"), "untracked\n").unwrap();
+        fs::remove_file(worktree.join("base-delete.txt")).unwrap();
+
+        let files = diff_files(&worktree);
+        assert_eq!(
+            files
+                .iter()
+                .map(|file| (file.path.as_str(), file.status.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("README.md", "M"),
+                ("base-delete.txt", "D"),
+                ("staged.txt", "A"),
+                ("untracked name.txt", "A"),
+            ]
+        );
+        let patch = load_git_file_diff(worktree.to_str().unwrap(), "README.md", "refs/heads/main")
+            .unwrap()
+            .patch;
+        assert!(patch.contains("-test"));
+        assert!(patch.contains("+final working state"));
+        let untracked_patch = load_git_file_diff(
+            worktree.to_str().unwrap(),
+            "untracked name.txt",
+            "refs/heads/main",
+        )
+        .unwrap()
+        .patch;
+        assert!(untracked_patch.contains("+untracked"));
+        for file in &files {
+            let selected =
+                load_git_file_diff(worktree.to_str().unwrap(), &file.path, "refs/heads/main")
+                    .unwrap();
+            assert_eq!(selected.path, file.path);
+            assert!(!selected.patch.is_empty());
+        }
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn omits_committed_changes_reverted_in_the_worktree() {
+        let (repository, worktree) = test_repository("diff-reverted");
+        fs::write(worktree.join("README.md"), "committed\n").unwrap();
+        commit_all(&worktree, "temporary change");
+        fs::write(worktree.join("README.md"), "test\n").unwrap();
+        assert!(diff_files(&worktree).is_empty());
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn compares_direct_target_work_to_the_local_remote_tracking_ref() {
+        let (repository, _worktree) = test_repository("diff-remote-target");
+        git(
+            &repository,
+            &["update-ref", "refs/remotes/origin/main", "HEAD"],
+        );
+        fs::write(repository.join("README.md"), "unpushed target commit\n").unwrap();
+        commit_all(&repository, "unpushed main work");
+        let files = load_git_diff_files(repository.to_str().unwrap(), "refs/remotes/origin/main")
+            .unwrap()
+            .files;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "README.md");
+        assert_eq!(files[0].status, "M");
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn uses_merge_base_and_handles_renames_unusual_names_binary_and_symlinks() {
+        let (repository, worktree) = test_repository("diff-edge-cases");
+        fs::write(repository.join("target-only.txt"), "target\n").unwrap();
+        commit_all(&repository, "advance target only");
+        git(&worktree, &["mv", "README.md", "renamed\nfile.md"]);
+        fs::write(worktree.join("binary.dat"), [0, 159, 146, 150]).unwrap();
+        git(&worktree, &["add", "binary.dat"]);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("renamed\nfile.md", worktree.join("link")).unwrap();
+
+        let files = diff_files(&worktree);
+        assert!(files
+            .iter()
+            .any(|file| file.path == "renamed\nfile.md" && file.status == "R"));
+        assert!(files
+            .iter()
+            .any(|file| file.path == "binary.dat" && file.status == "A"));
+        assert!(!files.iter().any(|file| file.path == "target-only.txt"));
+        #[cfg(unix)]
+        {
+            assert!(files
+                .iter()
+                .any(|file| file.path == "link" && file.status == "A"));
+            let patch = load_git_file_diff(worktree.to_str().unwrap(), "link", "refs/heads/main")
+                .unwrap()
+                .patch;
+            assert!(patch.contains("new file mode 120000"));
+        }
+        let binary_patch =
+            load_git_file_diff(worktree.to_str().unwrap(), "binary.dat", "refs/heads/main")
+                .unwrap()
+                .patch;
+        assert!(binary_patch.contains("Binary files"));
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn rejects_missing_invalid_and_non_full_comparison_refs() {
+        let (repository, worktree) = test_repository("diff-invalid-ref");
+        let missing =
+            load_git_diff_files(worktree.to_str().unwrap(), "refs/heads/missing").unwrap_err();
+        assert!(missing.contains("unavailable locally"));
+        let invalid =
+            load_git_diff_files(worktree.to_str().unwrap(), "refs/heads/bad..ref").unwrap_err();
+        assert!(invalid.contains("invalid"));
+        let short = load_git_diff_files(worktree.to_str().unwrap(), "main").unwrap_err();
+        assert!(short.contains("full Git ref"));
+        clean_up(&repository);
+    }
+
+    #[test]
+    fn bounds_the_comparison_base_blob_before_generating_a_deletion_patch() {
+        let (repository, _worktree) = test_repository("diff-large-base");
+        fs::write(
+            repository.join("large.txt"),
+            vec![b'x'; MAX_DIFF_SOURCE_BYTES as usize + 1],
+        )
+        .unwrap();
+        commit_all(&repository, "large base file");
+        fs::remove_file(repository.join("large.txt")).unwrap();
+        let error =
+            load_git_file_diff(repository.to_str().unwrap(), "large.txt", "refs/heads/main")
+                .unwrap_err();
+        assert!(error.contains("too large"));
+        git(&repository, &["restore", "large.txt"]);
+        git(&repository, &["mv", "large.txt", "renamed-large.txt"]);
+        let rename_error = load_git_file_diff(
+            repository.to_str().unwrap(),
+            "renamed-large.txt",
+            "refs/heads/main",
+        )
+        .unwrap_err();
+        assert!(rename_error.contains("too large"));
         clean_up(&repository);
     }
 

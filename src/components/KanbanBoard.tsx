@@ -16,6 +16,7 @@ import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { deletePersistentPiSession } from '../pi/sessionController';
 import { environmentHealthTooltip, hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
+import { cardLocalComparisonTarget } from '../git/comparisonTarget';
 import { runApproveAndCommit } from '../kanban/approveAndCommit';
 import { runWritePlanAndFinishRefinement } from '../kanban/writePlanAndFinishRefinement';
 import { sendPromptToPiAndWait } from '../pi/promptEvent';
@@ -1182,7 +1183,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
         )}
         <section className={`cardDiffView cardView${activeView === 'diff' ? ' active' : ''}`}>
           <aside className="cardDiffExplorer">
-            <DiffTab activePath={cardPath} refreshNonce={diffRefreshNonce} review={diffReview} />
+            <DiffTab activePath={cardPath} comparisonTarget={cardLocalComparisonTarget(card.environment?.target_branch)} refreshNonce={diffRefreshNonce} review={diffReview} />
           </aside>
           <div className="cardDiffContent">
             {diffReview.openDiff ? (
