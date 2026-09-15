@@ -405,6 +405,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .directWorkGitStatus .diffGitStats { display: flex; gap: 7px; }
 .kanbanDetailHeaderMeta a { color: #9bbbd6; font: 700 calc(12px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
 .kanbanDetailHeaderMeta a:hover { color: #c0d7ea; text-decoration: underline; }
+.kanbanDetailHeaderMeta a.kanbanCardPrLink.openReady { color: #72c58b; }
+.kanbanDetailHeaderMeta a.kanbanCardPrLink.openBlocked { color: #e27f86; }
+.kanbanDetailHeaderMeta a.kanbanCardPrLink.merged { color: #b78ae0; }
+.kanbanDetailHeaderMeta a.kanbanCardPrLink.closed { color: #7f91a3; }
 .kanbanDetailHeaderMeta .kanbanCardStatus { padding: 3px 8px; border: 1px solid #34495d; border-radius: 999px; background: #172431; color: #a8bdcf; font-size: calc(12px + var(--ui-font-delta, 0px)) !important; font-weight: 650; }
 .kanbanDetail > header .kanbanCardEditButton { width: 26px; height: 26px; margin-left: -3px; padding: 0; display: grid; place-items: center; border: 1px solid transparent; border-radius: 5px; cursor: pointer; }
 .kanbanCardEditButton > span { position: relative; width: 12px; height: 4px; border-radius: 1px; background: currentColor; transform: rotate(-45deg) translateX(-1.5px); }

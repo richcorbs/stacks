@@ -36,6 +36,7 @@ import { DirectProjectWork } from './DirectProjectWork';
 import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from '../directWork';
 import { useCardGitSummary } from '../kanban/useCardGitSummary';
 import { CardGitSummary } from './CardGitSummary';
+import { CardPullRequestLink } from './CardPullRequestLink';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 import { initialCardView, type CardView } from '../kanban/cardView';
 
@@ -1057,6 +1058,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               <a href={card.card_url} onClick={(event) => openExternalLink(event, card.card_url)}>#{card.external_id}</a>
               <span className="kanbanCardStatus">{statusLabel}</span>
               <CardGitSummary summary={gitChangeSummary} />
+              <CardPullRequestLink pullRequest={card.pull_request} onOpen={openExternalLink} />
               {editable && !editing && (
                 <button className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={beginEditing}>
                   <span aria-hidden="true" />
