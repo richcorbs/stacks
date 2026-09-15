@@ -132,6 +132,25 @@ describe('PiSessionController', () => {
     expect(h.controller.getSnapshot().isStreaming).toBe(true);
   });
 
+  it('stops active refinement without deleting its transcript or controller', async () => {
+    const h = harness();
+    await begin(h);
+    h.emit(envelope({ type: 'message_end', message: { role: 'assistant', content: 'Retained plan', timestamp: 1 } }));
+    h.emit(envelope({ type: 'agent_start' }));
+    h.emit(envelope({ type: 'extension_ui_request', id: 'question', method: 'confirm' }));
+
+    const stopping = h.controller.stopRefinement();
+    await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'abort')).toBe(true));
+    const abortIndex = h.commands.findIndex((command) => command.type === 'abort');
+    respond(h, abortIndex, 'abort', {});
+    await stopping;
+
+    expect(h.controller.getSnapshot().messages[0].content).toBe('Retained plan');
+    expect(h.controller.getSnapshot().uiRequest).toBeNull();
+    expect(h.stop).not.toHaveBeenCalled();
+    h.controller.delete();
+  });
+
   it('emits a completion notification exactly once for an eligible run', async () => {
     const h = harness();
     await begin(h);

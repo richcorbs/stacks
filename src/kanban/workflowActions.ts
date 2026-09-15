@@ -1,7 +1,7 @@
 import type { Project } from '../types';
 import type { KanbanCard } from './types';
 
-export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'start_work' | 'return_to_refinement' |
+export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'stop_refinement' | 'start_work' | 'return_to_refinement' |
   'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'close' | 'delete';
 
 export type CardWorkflowActionAppearance = 'regular' | 'neutral-ghost' | 'danger-ghost';
@@ -50,6 +50,13 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
         { kind: 'open_refinement', label: 'Open refinement', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         { kind: 'write_plan_and_finish_refinement', label: 'Write plan & finish refinement', disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         ...(!environment && card.provider === 'local' ? [{ kind: 'delete' as const, label: 'Delete card', destructive: true, appearance: 'danger-ghost' as const, confirmation: { title: 'Delete card?', detail: 'This permanently deletes this local draft.' } }] : []),
+      ];
+      case 'refining': return [
+        { kind: 'stop_refinement', label: 'Stop refinement', destructive: true, appearance: 'neutral-ghost' },
+      ];
+      case 'needs_refinement_input': return [
+        { kind: 'open_refinement', label: 'Open refinement', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
+        { kind: 'stop_refinement', label: 'Stop refinement', destructive: true, appearance: 'neutral-ghost' },
       ];
       case 'ready': return [
         { kind: 'return_to_refinement', label: 'Return to refinement' },

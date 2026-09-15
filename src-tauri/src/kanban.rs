@@ -12,8 +12,10 @@ use std::{
 
 static REPOSITORY_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-const STATUSES: [&str; 6] = [
+const STATUSES: [&str; 8] = [
     "needs_refinement",
+    "refining",
+    "needs_refinement_input",
     "ready",
     "agent_working",
     "needs_human",
@@ -308,18 +310,35 @@ pub(crate) fn finish_local_refinement(
     if content.is_empty() {
         return Err("A final card description is required before finishing refinement".to_string());
     }
-    let transaction = connection.transaction().map_err(db_error)?;
-    update_local_card(&transaction, id, title, Some(content))?;
-    let changed = transaction.execute(
-        "UPDATE kanban_cards SET status = 'ready', workflow_revision = workflow_revision + 1, updated_at = ?1,
-            sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'ready')
-         WHERE id = ?2 AND status IN ('needs_refinement', 'ready')",
-        params![unix_timestamp(), id],
-    ).map_err(db_error)?;
-    if changed == 0 {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let source_status: String = transaction
+        .query_row(
+            "SELECT status FROM kanban_cards WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Local Kanban card was not found".to_string())?;
+    if !matches!(
+        source_status.as_str(),
+        "needs_refinement" | "refining" | "needs_refinement_input" | "ready"
+    ) {
         return Err("Only a card being refined can finish refinement".to_string());
     }
-    transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, 'agent', 'status_transition', 'success', 'needs_refinement', 'ready')", params![id, unix_timestamp()]).map_err(db_error)?;
+    update_local_card(&transaction, id, title, Some(content))?;
+    if source_status != "ready" {
+        let now = unix_timestamp();
+        transaction.execute(
+            "UPDATE kanban_cards SET status = 'ready', workflow_revision = workflow_revision + 1, updated_at = ?1,
+                sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'ready')
+             WHERE id = ?2 AND status = ?3",
+            params![now, id, source_status],
+        ).map_err(db_error)?;
+        transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, 'agent', 'status_transition', 'success', ?3, 'ready')", params![id, now, source_status]).map_err(db_error)?;
+    }
     transaction.commit().map_err(db_error)?;
     get_card(connection, id)?.ok_or_else(|| "Local Kanban card was not found".to_string())
 }
@@ -351,22 +370,25 @@ pub(crate) fn finish_external_refinement(
         transaction.commit().map_err(db_error)?;
         return get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string());
     }
-    if status != "needs_refinement" {
+    if !matches!(
+        status.as_str(),
+        "needs_refinement" | "refining" | "needs_refinement_input"
+    ) {
         return Err("Only a card being refined can finish refinement".to_string());
     }
     let now = unix_timestamp();
     let changed = transaction.execute(
         "UPDATE kanban_cards SET status = 'ready', workflow_revision = workflow_revision + 1, updated_at = ?1,
             sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = 'ready')
-         WHERE id = ?2 AND status = 'needs_refinement' AND workflow_revision = ?3",
-        params![now, id, revision],
+         WHERE id = ?2 AND status = ?3 AND workflow_revision = ?4",
+        params![now, id, status, revision],
     ).map_err(db_error)?;
     if changed == 0 {
         return Err("Card changed; reload before finishing refinement".to_string());
     }
     transaction.execute(
-        "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, 'agent', 'status_transition', 'success', 'needs_refinement', 'ready')",
-        params![id, now],
+        "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, 'agent', 'status_transition', 'success', ?3, 'ready')",
+        params![id, now, status],
     ).map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
@@ -814,17 +836,7 @@ pub fn kanban_set_status(
         if revision != expected_revision {
             return Err("Card changed; reload before trying again".to_string());
         }
-        let legal = matches!(
-            (current.as_str(), status.as_str()),
-            ("needs_refinement", "ready")
-                | ("ready", "needs_refinement")
-                | ("ready", "agent_working")
-                | ("agent_working", "needs_human")
-                | ("needs_human", "agent_working")
-                | ("needs_human", "approved")
-                | ("approved", "needs_human")
-        );
-        if current != status && !legal {
+        if current != status && !is_legal_status_transition(&current, &status) {
             return Err(format!(
                 "Illegal Kanban transition from {current} to {status}"
             ));
@@ -842,6 +854,24 @@ pub fn kanban_set_status(
             params![id, unix_timestamp(), if actor == "agent" { "agent" } else { "user" }, current, status]).map_err(db_error)?;
         get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
+}
+
+fn is_legal_status_transition(current: &str, next: &str) -> bool {
+    matches!(
+        (current, next),
+        ("needs_refinement", "refining")
+            | ("needs_refinement", "ready")
+            | ("refining", "needs_refinement")
+            | ("refining", "needs_refinement_input")
+            | ("needs_refinement_input", "refining")
+            | ("needs_refinement_input", "needs_refinement")
+            | ("ready", "needs_refinement")
+            | ("ready", "agent_working")
+            | ("agent_working", "needs_human")
+            | ("needs_human", "agent_working")
+            | ("needs_human", "approved")
+            | ("approved", "needs_human")
+    )
 }
 
 #[tauri::command]
@@ -1991,7 +2021,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             card_url TEXT NOT NULL DEFAULT '',
             assignee_names TEXT NOT NULL DEFAULT '[]',
             status TEXT NOT NULL DEFAULT 'needs_refinement'
-                CHECK(status IN ('needs_refinement', 'ready', 'agent_working', 'needs_human', 'approved', 'done')),
+                CHECK(status IN ('needs_refinement', 'refining', 'needs_refinement_input', 'ready', 'agent_working', 'needs_human', 'approved', 'done')),
             completion_outcome TEXT CHECK(completion_outcome IN ('merged', 'closed')),
             feature_environment INTEGER NOT NULL DEFAULT 0,
             delivery_operation_stage TEXT,
@@ -2130,6 +2160,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(db_error)?;
     }
+    migrate_refinement_statuses(connection)?;
     let environment_columns = connection
         .prepare("PRAGMA table_info(card_environments)")
         .map_err(db_error)?
@@ -2187,7 +2218,7 @@ fn migrate_done_status(connection: &Connection) -> Result<(), String> {
             title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', board_id TEXT NOT NULL DEFAULT '',
             board_title TEXT NOT NULL DEFAULT '', list_id TEXT NOT NULL DEFAULT '', list_title TEXT NOT NULL DEFAULT '',
             card_url TEXT NOT NULL DEFAULT '', assignee_names TEXT NOT NULL DEFAULT '[]',
-            status TEXT NOT NULL DEFAULT 'needs_refinement' CHECK(status IN ('needs_refinement','ready','agent_working','needs_human','approved','done')),
+            status TEXT NOT NULL DEFAULT 'needs_refinement' CHECK(status IN ('needs_refinement','refining','needs_refinement_input','ready','agent_working','needs_human','approved','done')),
             completion_outcome TEXT CHECK(completion_outcome IN ('merged','closed')),
             feature_environment INTEGER NOT NULL DEFAULT 0, delivery_operation_stage TEXT, delivery_error TEXT,
             workflow_revision INTEGER NOT NULL DEFAULT 1, project_id TEXT, workspace_id TEXT,
@@ -2206,6 +2237,63 @@ fn migrate_done_status(connection: &Connection) -> Result<(), String> {
          PRAGMA legacy_alter_table=OFF;
          PRAGMA foreign_keys=ON;"
     ).map_err(db_error)
+}
+
+fn migrate_refinement_statuses(connection: &Connection) -> Result<(), String> {
+    let sql: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='kanban_cards'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if sql.contains("'needs_refinement_input'") {
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (2, unixepoch())",
+            [],
+        ).map_err(db_error)?;
+        return Ok(());
+    }
+    connection.execute_batch(
+        "PRAGMA foreign_keys=OFF;
+         PRAGMA legacy_alter_table=ON;
+         BEGIN IMMEDIATE;
+         ALTER TABLE kanban_cards RENAME TO kanban_cards_legacy_refinement;
+         CREATE TABLE kanban_cards (
+            id TEXT PRIMARY KEY, external_provider TEXT NOT NULL, external_id TEXT NOT NULL,
+            title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', board_id TEXT NOT NULL DEFAULT '',
+            board_title TEXT NOT NULL DEFAULT '', list_id TEXT NOT NULL DEFAULT '', list_title TEXT NOT NULL DEFAULT '',
+            card_url TEXT NOT NULL DEFAULT '', assignee_names TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'needs_refinement' CHECK(status IN ('needs_refinement','refining','needs_refinement_input','ready','agent_working','needs_human','approved','done')),
+            completion_outcome TEXT CHECK(completion_outcome IN ('merged','closed')),
+            feature_environment INTEGER NOT NULL DEFAULT 0, delivery_operation_stage TEXT, delivery_error TEXT,
+            workflow_revision INTEGER NOT NULL DEFAULT 1, project_id TEXT, workspace_id TEXT,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0,
+            in_scope INTEGER NOT NULL DEFAULT 1, UNIQUE(external_provider, external_id)
+         );
+         INSERT INTO kanban_cards (id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
+            card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
+            workflow_revision, project_id, workspace_id, created_at, updated_at, sort_order, in_scope)
+         SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
+            card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
+            workflow_revision, project_id, workspace_id, created_at, updated_at, sort_order, in_scope
+         FROM kanban_cards_legacy_refinement;
+         DROP TABLE kanban_cards_legacy_refinement;
+         CREATE INDEX IF NOT EXISTS kanban_cards_status_idx ON kanban_cards(status, updated_at);
+         INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (2, unixepoch());
+         COMMIT;
+         PRAGMA legacy_alter_table=OFF;
+         PRAGMA foreign_keys=ON;"
+    ).map_err(db_error)?;
+    let foreign_key_errors: i64 = connection
+        .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .map_err(db_error)?;
+    if foreign_key_errors > 0 {
+        return Err("Kanban database migration left invalid foreign-key relationships".to_string());
+    }
+    Ok(())
 }
 
 fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
@@ -3091,6 +3179,28 @@ mod tests {
     }
 
     #[test]
+    fn external_refinement_finishes_from_active_and_waiting_states() {
+        for source in ["refining", "needs_refinement_input"] {
+            let mut connection = Connection::open_in_memory().unwrap();
+            migrate(&connection).unwrap();
+            connection.execute(
+                "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,workflow_revision,created_at,updated_at) VALUES ('superthread:42','superthread','42','External',?1,3,1,1)",
+                [source],
+            ).unwrap();
+            let updated = finish_external_refinement(&mut connection, "superthread:42").unwrap();
+            assert_eq!(updated.status, "ready");
+            let recorded: String = connection
+                .query_row(
+                    "SELECT from_status FROM card_events WHERE card_id='superthread:42'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(recorded, source);
+        }
+    }
+
+    #[test]
     fn external_refinement_action_rejects_local_cards() {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
@@ -3142,8 +3252,52 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_statuses() {
+    fn rejects_unknown_statuses_and_accepts_the_refinement_cycle() {
         assert!(!STATUSES.contains(&"waiting_for_magic"));
+        for transition in [
+            ("needs_refinement", "refining"),
+            ("refining", "needs_refinement_input"),
+            ("needs_refinement_input", "refining"),
+            ("refining", "needs_refinement"),
+            ("needs_refinement_input", "needs_refinement"),
+            ("ready", "needs_refinement"),
+        ] {
+            assert!(
+                is_legal_status_transition(transition.0, transition.1),
+                "{transition:?}"
+            );
+        }
+        assert!(!is_legal_status_transition(
+            "needs_refinement_input",
+            "agent_working"
+        ));
+        assert!(!is_legal_status_transition("refining", "approved"));
+    }
+
+    #[test]
+    fn finishing_refinement_records_each_actual_in_progress_source() {
+        for source in ["needs_refinement", "refining", "needs_refinement_input"] {
+            let mut connection = Connection::open_in_memory().unwrap();
+            migrate(&connection).unwrap();
+            local_card(&mut connection);
+            connection
+                .execute(
+                    "UPDATE kanban_cards SET status=?1 WHERE id='local:test'",
+                    [source],
+                )
+                .unwrap();
+
+            let updated =
+                finish_local_refinement(&mut connection, "local:test", None, "Approved brief")
+                    .unwrap();
+            assert_eq!(updated.status, "ready");
+            let recorded: String = connection.query_row(
+                "SELECT from_status FROM card_events WHERE card_id='local:test' ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            ).unwrap();
+            assert_eq!(recorded, source);
+        }
     }
 
     #[test]
@@ -3365,6 +3519,90 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result, ("done".to_string(), Some("merged".to_string())));
+    }
+
+    #[test]
+    fn migrates_current_status_constraint_without_losing_rows_or_relationships() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection.execute("INSERT INTO kanban_cards (id,external_provider,external_id,title,status,feature_environment,delivery_operation_stage,delivery_error,workflow_revision,project_id,workspace_id,created_at,updated_at,sort_order,in_scope) VALUES ('kept','local:p','9','Kept','needs_refinement',1,'stage','detail',7,'p','w',1,2,3,1)", []).unwrap();
+        connection.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome) VALUES ('kept',1,'user','test','success')", []).unwrap();
+        connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,created_at,updated_at) VALUES ('env','kept','p','/tmp/work',1,1)", []).unwrap();
+        connection.execute("INSERT INTO card_pull_requests (card_id,repository,number,title,url,state,updated_at) VALUES ('kept','o/r',9,'PR','url','open',1)", []).unwrap();
+        connection.execute_batch(
+            "PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON; BEGIN;
+             ALTER TABLE kanban_cards RENAME TO cards_expanded;
+             CREATE TABLE kanban_cards (
+                id TEXT PRIMARY KEY, external_provider TEXT NOT NULL, external_id TEXT NOT NULL, title TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '', board_id TEXT NOT NULL DEFAULT '', board_title TEXT NOT NULL DEFAULT '',
+                list_id TEXT NOT NULL DEFAULT '', list_title TEXT NOT NULL DEFAULT '', card_url TEXT NOT NULL DEFAULT '', assignee_names TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'needs_refinement' CHECK(status IN ('needs_refinement','ready','agent_working','needs_human','approved','done')),
+                completion_outcome TEXT CHECK(completion_outcome IN ('merged','closed')), feature_environment INTEGER NOT NULL DEFAULT 0,
+                delivery_operation_stage TEXT, delivery_error TEXT, workflow_revision INTEGER NOT NULL DEFAULT 1, project_id TEXT, workspace_id TEXT,
+                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, in_scope INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(external_provider,external_id));
+             INSERT INTO kanban_cards SELECT * FROM cards_expanded; DROP TABLE cards_expanded; COMMIT;
+             PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;"
+        ).unwrap();
+
+        migrate(&connection).unwrap();
+        let kept: (String, i64, Option<String>, Option<String>, i64) = connection.query_row(
+            "SELECT status,feature_environment,delivery_operation_stage,delivery_error,workflow_revision FROM kanban_cards WHERE id='kept'",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)),
+        ).unwrap();
+        assert_eq!(
+            kept,
+            (
+                "needs_refinement".into(),
+                1,
+                Some("stage".into()),
+                Some("detail".into()),
+                7
+            )
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM card_events WHERE card_id='kept'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM card_environments WHERE card_id='kept'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM card_pull_requests WHERE card_id='kept'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        connection
+            .execute(
+                "UPDATE kanban_cards SET status='refining' WHERE id='kept'",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE kanban_cards SET status='needs_refinement_input' WHERE id='kept'",
+                [],
+            )
+            .unwrap();
     }
 
     #[test]
@@ -3661,7 +3899,13 @@ mod tests {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
         local_card(&mut connection);
-        for status in ["needs_refinement", "ready", "done"] {
+        for status in [
+            "needs_refinement",
+            "refining",
+            "needs_refinement_input",
+            "ready",
+            "done",
+        ] {
             connection
                 .execute(
                     "UPDATE kanban_cards SET status=?1 WHERE id='local:test'",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, mergeChangedKanbanCard, performKanbanLoad, shouldRestoreUiRequestCard } from './useKanbanBoard';
+import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, lifecycleProjectionRule, mergeChangedKanbanCard, performKanbanLoad, shouldRestoreUiRequestCard } from './useKanbanBoard';
 import type { CardProviderAdapter, KanbanCard, KanbanSyncCard } from './types';
 import type { Project } from '../types';
 
@@ -61,11 +61,24 @@ describe('card Pi workflow requests', () => {
     expect(cardAgentSession('workspace:pi')).toBeNull();
   });
 
+  it('projects planning lifecycle independently from work lifecycle', () => {
+    expect(lifecycleProjectionRule('planning', 'agent_start')).toEqual({ expectedStatuses: ['needs_refinement', 'needs_refinement_input'], nextStatus: 'refining' });
+    expect(lifecycleProjectionRule('planning', 'agent_settled')).toEqual({ expectedStatuses: ['refining'], nextStatus: 'needs_refinement_input' });
+    expect(lifecycleProjectionRule('planning', 'pi_protocol_error')).toEqual({ expectedStatuses: ['refining'], nextStatus: 'needs_refinement_input' });
+    expect(lifecycleProjectionRule('work', 'agent_start')).toEqual({ expectedStatuses: ['needs_human'], nextStatus: 'agent_working' });
+    expect(lifecycleProjectionRule('work', 'agent_settled')).toEqual({ expectedStatuses: ['agent_working'], nextStatus: 'needs_human' });
+    expect(lifecycleProjectionRule('work', 'pi_protocol_error')).toBeNull();
+  });
+
   it('restores only the exact automatic Needs you revision', () => {
     const blocked = { ...card('1', 'Blocked'), status: 'needs_human' as const, workflow_revision: 3 };
     expect(shouldRestoreUiRequestCard(blocked, blocked)).toBe(true);
     expect(shouldRestoreUiRequestCard({ ...blocked, status: 'approved' }, blocked)).toBe(false);
     expect(shouldRestoreUiRequestCard({ ...blocked, workflow_revision: 4 }, blocked)).toBe(false);
+
+    const refinementBlocked = { ...card('2', 'Planning'), status: 'needs_refinement_input' as const, workflow_revision: 5 };
+    expect(shouldRestoreUiRequestCard(refinementBlocked, refinementBlocked)).toBe(true);
+    expect(shouldRestoreUiRequestCard({ ...refinementBlocked, status: 'needs_refinement' }, refinementBlocked)).toBe(false);
   });
 });
 

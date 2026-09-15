@@ -4,6 +4,8 @@ import { canEditKanbanCard, hasDirtyCardDraft } from './cardEditing';
 describe('canEditKanbanCard', () => {
   it('allows local cards awaiting refinement or agent work', () => {
     expect(canEditKanbanCard({ provider: 'local', status: 'needs_refinement' })).toBe(true);
+    expect(canEditKanbanCard({ provider: 'local', status: 'refining' })).toBe(true);
+    expect(canEditKanbanCard({ provider: 'local', status: 'needs_refinement_input' })).toBe(true);
     expect(canEditKanbanCard({ provider: 'local', status: 'ready' })).toBe(true);
   });
 

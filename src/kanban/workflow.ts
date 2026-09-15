@@ -2,6 +2,8 @@ import { KANBAN_STATUSES, type KanbanStatus } from './types';
 
 export const KANBAN_LANES: Array<{ status: KanbanStatus; label: string }> = [
   { status: 'needs_refinement', label: 'Needs refinement' },
+  { status: 'refining', label: 'Refining' },
+  { status: 'needs_refinement_input', label: 'Needs you for refinement' },
   { status: 'ready', label: 'Ready for agent' },
   { status: 'agent_working', label: 'Agent working' },
   { status: 'needs_human', label: 'Needs you' },

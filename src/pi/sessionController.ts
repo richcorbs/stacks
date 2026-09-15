@@ -128,6 +128,12 @@ export class PiSessionController {
     return this.sendRequest({ type: 'abort' });
   };
 
+  /** Stops an active card refinement turn without deleting its durable session. */
+  stopRefinement = async () => {
+    this.clearUiRequest(true, false);
+    if (this.snapshot.isStreaming) await this.abort();
+  };
+
   runBuiltinCommand = async (input: string) => {
     const trimmed = input.trim();
     const command = trimmed.slice(1).split(/\s/, 1)[0].toLowerCase();
@@ -451,6 +457,10 @@ export function getPiSessionController(config: PiSessionConfig) {
     controllers.set(config.paneId, controller);
   } else controller.configure(config);
   return controller;
+}
+
+export function getRetainedPiSessionController(paneId: string) {
+  return controllers.get(paneId) ?? null;
 }
 
 export function deletePiSessionController(paneId: string) {
