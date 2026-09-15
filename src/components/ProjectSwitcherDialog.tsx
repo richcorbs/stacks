@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Project } from '../types';
-import { wrappedProjectIndex } from '../projectSwitcher';
+import { handleProjectSwitcherKey } from '../projectSwitcher';
 
 export function ProjectSwitcherDialog({ open, projects, currentProjectId, onSelect, onCancel, onAddProject }: {
   open: boolean;
@@ -43,18 +43,13 @@ export function ProjectSwitcherDialog({ open, projects, currentProjectId, onSele
         aria-labelledby="project-switcher-title"
         tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            onCancel();
-          } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            event.preventDefault();
-            setHighlightedIndex((index) => wrappedProjectIndex(index, event.key === 'ArrowDown' ? 1 : -1, projects.length));
-          } else if (event.key === 'Enter' && !(event.target as Element).closest('.projectSwitcherAdd')) {
-            event.preventDefault();
-            chooseHighlightedProject();
-          }
-        }}
+        onKeyDown={(event) => handleProjectSwitcherKey(event, {
+          projectCount: projects.length,
+          addProjectFocused: Boolean((event.target as Element).closest('.projectSwitcherAdd')),
+          setHighlightedIndex,
+          chooseHighlightedProject,
+          onCancel,
+        })}
       >
         <h2 id="project-switcher-title">Switch Project</h2>
         <div className="projectSwitcherList" role="listbox" aria-label="Projects">
