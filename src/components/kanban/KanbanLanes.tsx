@@ -13,6 +13,44 @@ import { CardHierarchyBadges } from './CardHierarchyBadges';
 
 type PointerOrdering = ReturnType<typeof usePointerCardOrdering>;
 
+type DoneLaneMenuProps = {
+  cardsCount: number;
+  collapsed: boolean;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  open: boolean;
+  cleaningMerged: boolean;
+  setOpen: Dispatch<SetStateAction<KanbanStatus | null>>;
+  onToggle: () => void;
+  onCleanupMerged: () => void;
+};
+
+export function DoneLaneMenu({ cardsCount, collapsed, triggerRef, open, cleaningMerged, setOpen, onToggle, onCleanupMerged }: DoneLaneMenuProps) {
+  return (
+    <span className="kanbanLaneMenu">
+      <button
+        ref={triggerRef}
+        className="kanbanLaneMenuTrigger"
+        type="button"
+        aria-label="Done column actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={cleaningMerged}
+        onClick={() => setOpen((current) => current === 'done' ? null : 'done')}
+      >
+        <span className="kanbanVerticalDots" aria-hidden="true"><i /><i /><i /></span>
+      </button>
+      {open && (
+        <span className="kanbanLaneMenuPopover" role="menu">
+          <button type="button" role="menuitem" onClick={onToggle}>{collapsed ? 'Expand column' : 'Collapse column'}</button>
+          <button className="danger" type="button" role="menuitem" disabled={cardsCount === 0 || cleaningMerged} onClick={onCleanupMerged}>
+            <AsyncButtonLabel idle="Clean up all" busy="Cleaning up…" isBusy={cleaningMerged} />
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function KanbanLanes({
   cards: visibleCards,
   projects,
@@ -55,9 +93,16 @@ export function KanbanLanes({
         >
           {lane.status === 'done' && doneCollapsed ? (
             <header className="kanbanLaneCollapsedHeader">
-              <button ref={doneToggleRef} className="kanbanDoneToggle" type="button" aria-label="Expand Done column" aria-expanded={false} onClick={onToggleDone}>
-                <span className="kanbanDoneToggleIcon expand" aria-hidden="true" />
-              </button>
+              <DoneLaneMenu
+                cardsCount={cards.length}
+                collapsed
+                triggerRef={doneToggleRef}
+                open={openLaneMenu === 'done'}
+                cleaningMerged={cleaningMerged}
+                setOpen={setOpenLaneMenu}
+                onToggle={onToggleDone}
+                onCleanupMerged={onCleanupMerged}
+              />
             </header>
           ) : (<>
             <header>
@@ -65,21 +110,18 @@ export function KanbanLanes({
                 <strong>{lane.label}</strong>
                 <span className="kanbanLaneHeaderActions">
                   <span>{cards.length}</span>
-                  {lane.status === 'done' && (<>
-                    <span className="kanbanLaneMenu">
-                      <button type="button" aria-label="Done card actions" disabled={cleaningMerged} onClick={() => setOpenLaneMenu((current) => current === 'done' ? null : 'done')}>•••</button>
-                      {openLaneMenu === 'done' && (
-                        <span className="kanbanLaneMenuPopover">
-                          <button type="button" disabled={cards.length === 0 || cleaningMerged} onClick={onCleanupMerged}>
-                            <AsyncButtonLabel idle="Clean up all" busy="Cleaning up…" isBusy={cleaningMerged} />
-                          </button>
-                        </span>
-                      )}
-                    </span>
-                    <button ref={doneToggleRef} className="kanbanDoneToggle" type="button" aria-label="Collapse Done column" aria-expanded={true} onClick={onToggleDone}>
-                      <span className="kanbanDoneToggleIcon collapse" aria-hidden="true" />
-                    </button>
-                  </>)}
+                  {lane.status === 'done' && (
+                    <DoneLaneMenu
+                      cardsCount={cards.length}
+                      collapsed={false}
+                      triggerRef={doneToggleRef}
+                      open={openLaneMenu === 'done'}
+                      cleaningMerged={cleaningMerged}
+                      setOpen={setOpenLaneMenu}
+                      onToggle={onToggleDone}
+                      onCleanupMerged={onCleanupMerged}
+                    />
+                  )}
                 </span>
               </div>
             </header>

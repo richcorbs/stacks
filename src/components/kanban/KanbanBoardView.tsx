@@ -104,11 +104,6 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
   }, [pointerOrdering.draggingId, newCard.open, openLaneMenu, projectSwitcherOpen, selectedCard]);
 
   useEffect(() => {
-    if (!doneCollapsed) return;
-    setOpenLaneMenu((current) => current === 'done' ? null : current);
-  }, [doneCollapsed]);
-
-  useEffect(() => {
     if (!selectedCard) return;
     const current = canonicalCardById(board.cards, selectedCard.id);
     if (current) {
@@ -128,8 +123,8 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
 
   function toggleDoneCollapsed() {
     const collapsed = !doneCollapsed;
+    setOpenLaneMenu(null);
     if (collapsed) {
-      setOpenLaneMenu(null);
       setKeyboardFocusedCardId((currentId) => (
         visibleCards.some((card) => card.id === currentId && card.status === 'done') ? null : currentId
       ));
