@@ -13,8 +13,8 @@ const actions: CardWorkflowAction[] = [
 
 const approvedActions: CardWorkflowAction[] = [
   { kind: 'request_changes', label: 'Request changes' },
-  { kind: 'ship', label: 'Ship It again' },
   { kind: 'merge_target', label: 'Merge in target & resolve' },
+  { kind: 'ship', label: 'Ship It again' },
   { kind: 'merge_local', label: 'Merge locally', primary: true },
 ];
 
@@ -152,7 +152,7 @@ describe('CardWorkflowControls', () => {
     await act(async () => { refreshing.resolve(); await Promise.resolve(); });
 
     const settledButtons = renderer.root.findAllByType('button');
-    expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Ship It again', 'Merge in target & resolve', 'Merge locally']);
+    expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Merge in target & resolve', 'Ship It again', 'Merge locally']);
     expect(settledButtons.every((button) => !button.props.disabled)).toBe(true);
   });
 
