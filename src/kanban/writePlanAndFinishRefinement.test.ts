@@ -25,10 +25,21 @@ describe('write plan and finish refinement workflow', () => {
 
     expect(result).toBe(updated);
     expect(calls).toEqual(['agent', 'prompt', 'refresh']);
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('complete, self-contained implementation plan');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('self-contained, independently deployable child cards');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('do not split work unnecessarily');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('only after explicit approval');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain("user's click on Write plan & finish refinement is explicit approval");
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('finalize refinement now, in this turn');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('Do not ask for confirmation or merely present the plan for approval');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('complete, self-contained final implementation brief');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('prepare and persist the final brief and call finish_refinement in this same turn');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('when finish_refinement persists the brief atomically');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('first save the complete brief through the source provider');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).not.toContain('update_card_description');
+  });
+
+  it('finalizes only a previously approved breakdown and otherwise adds no children', () => {
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('only if the user previously explicitly approved it');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('Do not introduce, propose, create, or include unapproved new child cards');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('finish the card without adding children');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('preserve every existing linked draft child');
   });
 
   it('refreshes and reports prompt delivery or execution failure without another transition', async () => {
