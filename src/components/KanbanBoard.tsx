@@ -8,7 +8,7 @@ import { canonicalCardById } from '../kanban/boardStore';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
-import { approveAndCommitKanbanCard, cleanupKanbanEnvironmentCreation, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
+import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cleanupKanbanEnvironmentCreation, closeKanbanCard, createKanbanPullRequest, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, saveKanbanEnvironmentLayout } from '../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
@@ -21,6 +21,7 @@ import { REFRESH_CARD_REPOSITORY_STATUS_EVENT } from '../kanban/refreshCoordinat
 import { useKanbanRefreshCoordinator } from '../kanban/useKanbanRefreshCoordinator';
 import { cardLocalComparisonTarget } from '../git/comparisonTarget';
 import { runApproveAndCommit } from '../kanban/approveAndCommit';
+import { runMergeTargetAndResolve } from '../kanban/mergeTargetAndResolve';
 import { runWritePlanAndFinishRefinement } from '../kanban/writePlanAndFinishRefinement';
 import { sendPromptToPiAndWait } from '../pi/promptEvent';
 import { canEditKanbanCard, hasDirtyCardDraft } from '../kanban/cardEditing';
@@ -752,7 +753,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   const statusLabel = hierarchyStatusLabel(card);
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
-  const workflowCard = workflowOperation === 'ship' || workflowOperation === 'ship_with_fe' ? { ...card, status: 'needs_human' as const } : card;
+  const workflowCard = workflowOperation === 'ship' || workflowOperation === 'ship_with_fe' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, projectAvailable: Boolean(project), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
@@ -1179,6 +1180,26 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
           window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
           return;
         }
+        case 'merge_target': {
+          if (!card.environment) throw new Error('Card environment is missing');
+          const expectedWorkflowRevision = card.workflow_revision;
+          const expectedEnvironmentRevision = environmentRevisionRef.current;
+          const result = await runMergeTargetAndResolve({
+            prepare: () => prepareKanbanTargetMerge(card.id, expectedWorkflowRevision, expectedEnvironmentRevision),
+            showAgent: () => setActiveView('chat'),
+            sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'work'), prompt),
+            finalize: (operationId) => finalizeKanbanTargetMerge(card.id, operationId),
+            abort: (operationId) => abortKanbanTargetMerge(card.id, operationId),
+            refresh: async () => {
+              const updated = preserveRevisionValues(await onReload());
+              onCardUpdatedRef.current(updated);
+              setDiffRefreshNonce((nonce) => nonce + 1);
+              window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+            },
+          });
+          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          return;
+        }
         case 'merge_local': {
           if (!card.environment) throw new Error('Card environment is missing');
           const result = await mergeKanbanCard(card.id, card.workflow_revision, environmentRevisionRef.current);
@@ -1209,7 +1230,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
         case 'delete': await onDelete(); return;
       }
     }).then((started) => {
-      if (started && ['start_work', 'ship', 'ship_with_fe', 'merge_local', 'cleanup', 'cleanup_creation', 'close'].includes(action.kind)) {
+      if (started && ['start_work', 'ship', 'ship_with_fe', 'merge_target', 'merge_local', 'cleanup', 'cleanup_creation', 'close'].includes(action.kind)) {
         window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
       }
     }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));

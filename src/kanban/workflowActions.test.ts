@@ -85,20 +85,23 @@ describe('delivery workflow actions', () => {
   });
 
   it('uses Ship It and conditionally offers feature environment delivery', () => {
-    expect(kinds('needs_human')).toEqual(['request_changes', 'ship', 'close']);
-    expect(kinds('needs_human', prProject)).toEqual(['request_changes', 'ship', 'ship_with_fe', 'close']);
-    expect(deriveCardWorkflowActions({ card: card('needs_human'), project: prProject, projectAvailable: true })[1].label).toBe('Ship It');
+    expect(kinds('needs_human')).toEqual(['request_changes', 'ship', 'merge_target', 'close']);
+    expect(kinds('needs_human', prProject)).toEqual(['request_changes', 'ship', 'merge_target', 'ship_with_fe', 'close']);
+    const actions = deriveCardWorkflowActions({ card: card('needs_human'), project: prProject, projectAvailable: true });
+    expect(actions[1].label).toBe('Ship It');
+    expect(actions[2]).toMatchObject({ kind: 'merge_target', label: 'Merge in target & resolve' });
+    expect(actions[2].confirmation).toBeUndefined();
   });
 
   it('allows an approved source to be shipped again before local merge', () => {
-    expect(kinds('approved')).toEqual(['request_changes', 'ship', 'merge_local', 'close']);
+    expect(kinds('approved')).toEqual(['request_changes', 'ship', 'merge_target', 'merge_local', 'close']);
     expect(deriveCardWorkflowActions({ card: card('approved'), project: localProject, projectAvailable: true })[1].label).toBe('Ship It again');
   });
 
   it('creates or merges a pull request based on persisted PR state', () => {
-    expect(kinds('approved', prProject)).toEqual(['request_changes', 'ship', 'create_pr', 'close']);
+    expect(kinds('approved', prProject)).toEqual(['request_changes', 'ship', 'merge_target', 'create_pr', 'close']);
     const ready = { ...card('approved'), pull_request: { repository: 'o/r', number: 1, title: 'PR', url: 'https://example.test', state: 'open' as const, draft: false, ci_status: 'success' as const, review_state: 'approved' as const, has_conflicts: false, mergeable: true, blockers: [] } };
-    expect(deriveCardWorkflowActions({ card: ready, project: prProject, projectAvailable: true }).map((action) => action.kind)).toEqual(['request_changes', 'open_pr', 'merge_pr', 'close']);
+    expect(deriveCardWorkflowActions({ card: ready, project: prProject, projectAvailable: true }).map((action) => action.kind)).toEqual(['request_changes', 'ship', 'merge_target', 'open_pr', 'merge_pr', 'close']);
   });
 
   it('blocks GitHub merge with every readiness reason', () => {

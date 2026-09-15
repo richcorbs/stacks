@@ -2854,6 +2854,499 @@ fn merge_card(
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TargetMergePrepareResult {
+    operation_id: Option<String>,
+    state: String,
+    card: KanbanCard,
+    message: String,
+    idempotent: bool,
+}
+
+#[derive(Debug, Clone)]
+struct TargetMergeOperation {
+    id: String,
+    card_id: String,
+    environment_id: String,
+    workflow_revision: i64,
+    environment_revision: i64,
+    initial_status: String,
+    source_path: String,
+    source_revision: String,
+    target_revision: String,
+    phase: String,
+    conflict_paths: Vec<String>,
+}
+
+fn load_target_merge_operation(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<Option<TargetMergeOperation>, String> {
+    connection.query_row(
+        "SELECT id,card_id,environment_id,workflow_revision,environment_revision,initial_status,source_path,source_revision,target_revision,phase,conflict_paths FROM card_target_merge_operations WHERE card_id=?1",
+        [card_id],
+        |row| Ok(TargetMergeOperation {
+            id: row.get(0)?, card_id: row.get(1)?, environment_id: row.get(2)?, workflow_revision: row.get(3)?,
+            environment_revision: row.get(4)?, initial_status: row.get(5)?, source_path: row.get(6)?,
+            source_revision: row.get(7)?, target_revision: row.get(8)?, phase: row.get(9)?,
+            conflict_paths: serde_json::from_str::<Vec<String>>(&row.get::<_, String>(10)?).unwrap_or_default(),
+        }),
+    ).optional().map_err(db_error)
+}
+
+fn current_target_merge_result(
+    connection: &Connection,
+    operation: &TargetMergeOperation,
+) -> Result<TargetMergePrepareResult, String> {
+    let card = get_card(connection, &operation.card_id)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    Ok(TargetMergePrepareResult {
+        operation_id: Some(operation.id.clone()),
+        state: operation.phase.clone(),
+        card,
+        message: if operation.phase == "conflicted" {
+            "The target merge has conflicts that need the work agent"
+        } else {
+            "The target was merged and is ready for verification"
+        }
+        .to_string(),
+        idempotent: false,
+    })
+}
+
+#[tauri::command]
+pub async fn kanban_prepare_target_merge(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_environment_revision: i64,
+) -> Result<TargetMergePrepareResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = REPOSITORY_OPERATION_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "Repository operation lock failed".to_string())?;
+        with_connection(|connection| {
+            prepare_target_merge(
+                connection,
+                &id,
+                expected_workflow_revision,
+                expected_environment_revision,
+            )
+        })
+    })
+    .await
+    .map_err(|error| format!("Target merge worker failed: {error}"))?
+}
+
+fn prepare_target_merge(
+    connection: &mut Connection,
+    id: &str,
+    expected_card: i64,
+    expected_environment: i64,
+) -> Result<TargetMergePrepareResult, String> {
+    validate_card_environment_project(connection, id)?;
+    if let Some(operation) = load_target_merge_operation(connection, id)? {
+        if operation.workflow_revision != expected_card
+            || operation.environment_revision != expected_environment
+        {
+            return Err("A target merge is already pending for an older card state. Retry recovery before starting again".to_string());
+        }
+        return current_target_merge_result(connection, &operation);
+    }
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let (status, workflow_revision): (String, i64) = transaction
+        .query_row(
+            "SELECT status,workflow_revision FROM kanban_cards WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    if !matches!(status.as_str(), "needs_human" | "approved") {
+        return Err("Only a Needs you or Ready to merge card can merge in its target".to_string());
+    }
+    if workflow_revision != expected_card {
+        return Err("Card changed; reload before merging in the target".to_string());
+    }
+    let (environment_id, source_path, source_branch, repository_id, target_path, target_branch, environment_revision, lifecycle): (String,String,String,Option<String>,Option<String>,Option<String>,i64,String) = transaction.query_row(
+        "SELECT id,worktree_path,branch,repository_id,target_checkout_path,target_branch,revision,lifecycle_state FROM card_environments WHERE card_id=?1", [id],
+        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)),
+    ).optional().map_err(db_error)?.ok_or_else(|| "This card has no work environment".to_string())?;
+    if environment_revision != expected_environment {
+        return Err("Card environment changed; reload before merging in the target".to_string());
+    }
+    if lifecycle != "ready" {
+        return Err("Card work environment is not ready for a target merge".to_string());
+    }
+    let repository_id = repository_id
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            "The card environment has no recorded repository; revalidate its merge target"
+                .to_string()
+        })?;
+    let target_path = target_path
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            "The card environment has no recorded target checkout; set its merge target again"
+                .to_string()
+        })?;
+    let target_branch = target_branch
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            "The card environment has no recorded target branch; set its merge target again"
+                .to_string()
+        })?;
+    let settings = project_delivery_settings(&transaction, id)?;
+    if target_branch != settings.target_branch {
+        return Err(format!(
+            "Project target branch changed to {}; revalidate the card environment",
+            settings.target_branch
+        ));
+    }
+    let configured_path = Path::new(&settings.path)
+        .canonicalize()
+        .map_err(|error| format!("Project checkout does not exist: {error}"))?;
+    let recorded_path = Path::new(&target_path)
+        .canonicalize()
+        .map_err(|error| format!("Recorded target checkout does not exist: {error}"))?;
+    if configured_path != recorded_path {
+        return Err(
+            "The recorded target is not the project's current primary checkout".to_string(),
+        );
+    }
+    let source = validate_checkout(&source_path, Some(&repository_id))?;
+    if source.target_branch != source_branch {
+        return Err(format!(
+            "Source checkout is on {}, expected {source_branch}",
+            source.target_branch
+        ));
+    }
+    let target = validate_target_checkout(&target_path, Some(&repository_id))?;
+    if target.target_branch != target_branch {
+        return Err(format!(
+            "Target checkout is on {}, expected {target_branch}",
+            target.target_branch
+        ));
+    }
+    ensure_registered_distinct_worktree(&target_path, &source_path)?;
+
+    let remote_key = format!("branch.{target_branch}.remote");
+    let merge_key = format!("branch.{target_branch}.merge");
+    let remote = git_output(&source_path, &["config", "--get", &remote_key]).map_err(|_| format!("Target branch {target_branch} has no upstream remote. Configure it with: git branch --set-upstream-to <remote>/<branch> {target_branch}"))?;
+    let merge_ref = git_output(&source_path, &["config", "--get", &merge_key]).map_err(|_| format!("Target branch {target_branch} has no upstream tracking ref. Configure it with: git branch --set-upstream-to <remote>/<branch> {target_branch}"))?;
+    if remote.trim().is_empty() || remote == "." || !merge_ref.starts_with("refs/heads/") {
+        return Err(format!("Target branch {target_branch} has an invalid fetchable upstream ({remote}, {merge_ref}). Configure a remote-tracking upstream before retrying"));
+    }
+    let fetch = Command::new("git")
+        .args([
+            "-C",
+            &source_path,
+            "fetch",
+            "--no-tags",
+            &remote,
+            &merge_ref,
+        ])
+        .output()
+        .map_err(|error| format!("Could not fetch target upstream {remote}: {error}"))?;
+    if !fetch.status.success() {
+        let detail = String::from_utf8_lossy(&fetch.stderr).trim().to_string();
+        return Err(format!("Could not fetch {remote} for target branch {target_branch}. Check network access and authentication, then retry. {detail}"));
+    }
+    let source_revision = git_output(&source_path, &["rev-parse", "HEAD"])?;
+    let target_revision = git_output(&source_path, &["rev-parse", "FETCH_HEAD"])?;
+    if git_status_success(
+        &source_path,
+        &["merge-base", "--is-ancestor", &target_revision, "HEAD"],
+    )? {
+        let now = unix_timestamp();
+        transaction.execute("UPDATE card_environments SET source_revision=?1,target_revision=?2,revision=revision+1,updated_at=?3 WHERE id=?4 AND revision=?5", params![source_revision,target_revision,now,environment_id,expected_environment]).map_err(db_error)?;
+        transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','merge_target','success',?3,?3,'Fetched target revision was already contained in the source branch')", params![id,now,status]).map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
+        return Ok(TargetMergePrepareResult {
+            operation_id: None,
+            state: "noop".into(),
+            card: get_card(connection, id)?
+                .ok_or_else(|| "Kanban card was not found".to_string())?,
+            message: format!("{target_branch} is already contained in {source_branch}"),
+            idempotent: true,
+        });
+    }
+    let operation_id = uuid::Uuid::new_v4().to_string();
+    let now = unix_timestamp();
+    transaction.execute("INSERT INTO card_target_merge_operations (id,card_id,environment_id,workflow_revision,environment_revision,initial_status,repository_id,source_path,source_branch,target_branch,upstream_remote,upstream_merge_ref,source_revision,target_revision,phase,conflict_paths,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,'merged','[]',?15,?15)", params![operation_id,id,environment_id,expected_card,expected_environment,status,repository_id,source_path,source_branch,target_branch,remote,merge_ref,source_revision,target_revision,now]).map_err(db_error)?;
+    // Commit the recovery evidence before mutating Git. An app interruption can
+    // then resume or conservatively abort every post-fetch source state.
+    transaction.commit().map_err(db_error)?;
+    let merge = Command::new("git")
+        .args([
+            "-C",
+            &source_path,
+            "merge",
+            "--no-ff",
+            "--no-edit",
+            &target_revision,
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !merge.status.success() {
+        if !has_git_operation(&source_path)? {
+            let unchanged = git_output(&source_path, &["rev-parse", "HEAD"])? == source_revision
+                && git_output(
+                    &source_path,
+                    &["status", "--porcelain=v1", "--untracked-files=all"],
+                )?
+                .is_empty();
+            if unchanged {
+                connection
+                    .execute(
+                        "DELETE FROM card_target_merge_operations WHERE card_id=?1",
+                        [id],
+                    )
+                    .map_err(db_error)?;
+            }
+            return Err(format!("Target merge failed before conflicts could be recorded; the source was not finalized. {}{}", String::from_utf8_lossy(&merge.stderr).trim(), if unchanged { "" } else { " A durable recovery record remains; retry Merge in target & resolve." }));
+        }
+        // Snapshot every path touched by Git's conflicted merge, including
+        // cleanly auto-merged paths. Recovery may discard only this proven set.
+        let merge_paths = changed_paths(&source_path)?;
+        connection.execute("UPDATE card_target_merge_operations SET phase='conflicted',conflict_paths=?1,updated_at=?2 WHERE id=?3", params![serde_json::to_string(&merge_paths).map_err(|error| error.to_string())?,unix_timestamp(),operation_id]).map_err(db_error)?;
+    }
+    let operation = load_target_merge_operation(connection, id)?
+        .ok_or_else(|| "Could not reload target merge operation".to_string())?;
+    current_target_merge_result(connection, &operation)
+}
+
+#[tauri::command]
+pub async fn kanban_finalize_target_merge(
+    id: String,
+    operation_id: String,
+) -> Result<WorkflowOperationResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = REPOSITORY_OPERATION_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "Repository operation lock failed".to_string())?;
+        with_connection(|connection| finalize_target_merge(connection, &id, &operation_id))
+    })
+    .await
+    .map_err(|error| format!("Target merge finalization worker failed: {error}"))?
+}
+
+fn finalize_target_merge(
+    connection: &mut Connection,
+    card_id: &str,
+    operation_id: &str,
+) -> Result<WorkflowOperationResult, String> {
+    let operation = load_target_merge_operation(connection, card_id)?
+        .ok_or_else(|| "No target merge is pending for this card".to_string())?;
+    if operation.id != operation_id {
+        return Err("The target merge operation changed; reload before finalizing".to_string());
+    }
+    if has_git_operation(&operation.source_path)? {
+        return Err("The target merge still has unresolved conflicts. Resolve and commit the existing merge before retrying".to_string());
+    }
+    if !git_output(
+        &operation.source_path,
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+    )?
+    .is_empty()
+    {
+        return Err("The worktree is not clean after conflict resolution. Stage and commit only the merge resolutions before retrying".to_string());
+    }
+    if !git_status_success(
+        &operation.source_path,
+        &[
+            "merge-base",
+            "--is-ancestor",
+            &operation.target_revision,
+            "HEAD",
+        ],
+    )? {
+        return Err(
+            "The exact fetched target revision is not contained in the source branch".to_string(),
+        );
+    }
+    let head = git_output(&operation.source_path, &["rev-parse", "HEAD"])?;
+    let parents = git_output(
+        &operation.source_path,
+        &["rev-list", "--parents", "-n", "1", "HEAD"],
+    )?;
+    let expected = format!(
+        "{head} {} {}",
+        operation.source_revision, operation.target_revision
+    );
+    if parents != expected {
+        return Err("The completed commit does not have the expected explicit merge topology. Do not rebase, squash, or replace the existing merge".to_string());
+    }
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let (status, current_revision): (String, i64) = transaction
+        .query_row(
+            "SELECT status,workflow_revision FROM kanban_cards WHERE id=?1",
+            [card_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(db_error)?;
+    let revision_valid = if operation.initial_status == "needs_human" {
+        (status == "needs_human"
+            && (current_revision == operation.workflow_revision
+                || current_revision == operation.workflow_revision + 2))
+            || (status == "agent_working" && current_revision == operation.workflow_revision + 1)
+    } else {
+        status == "approved" && current_revision == operation.workflow_revision
+    };
+    if !revision_valid {
+        return Err(
+            "Card changed while the target merge was running; recover the merge before retrying"
+                .to_string(),
+        );
+    }
+    let environment_revision: i64 = transaction
+        .query_row(
+            "SELECT revision FROM card_environments WHERE id=?1",
+            [&operation.environment_id],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if environment_revision != operation.environment_revision {
+        return Err("Card environment changed while the target merge was running".to_string());
+    }
+    let now = unix_timestamp();
+    transaction.execute("UPDATE card_environments SET source_revision=?1,target_revision=?2,revision=revision+1,updated_at=?3 WHERE id=?4 AND revision=?5", params![head,operation.target_revision,now,operation.environment_id,operation.environment_revision]).map_err(db_error)?;
+    transaction.execute("UPDATE kanban_cards SET status='needs_human',delivery_error=NULL,workflow_revision=workflow_revision+1,updated_at=?1,sort_order=CASE WHEN status='needs_human' THEN sort_order ELSE (SELECT COALESCE(MAX(sort_order),-1)+1 FROM kanban_cards d WHERE d.status='needs_human') END WHERE id=?2 AND workflow_revision=?3", params![now,card_id,current_revision]).map_err(db_error)?;
+    transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','merge_target','success',?3,'needs_human','Fetched target revision merged with an explicit merge commit')", params![card_id,now,operation.initial_status]).map_err(db_error)?;
+    transaction
+        .execute(
+            "DELETE FROM card_target_merge_operations WHERE id=?1",
+            [operation_id],
+        )
+        .map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    Ok(WorkflowOperationResult {
+        card: get_card(connection, card_id)?
+            .ok_or_else(|| "Kanban card was not found".to_string())?,
+        message: "Merged the latest target into the card branch; review it before Ship It"
+            .to_string(),
+        idempotent: false,
+    })
+}
+
+#[tauri::command]
+pub async fn kanban_abort_target_merge(
+    id: String,
+    operation_id: String,
+) -> Result<KanbanCard, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = REPOSITORY_OPERATION_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "Repository operation lock failed".to_string())?;
+        with_connection(|connection| abort_target_merge(connection, &id, &operation_id))
+    })
+    .await
+    .map_err(|error| format!("Target merge recovery worker failed: {error}"))?
+}
+
+fn changed_paths(path: &str) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    for args in [
+        ["diff", "--name-only"].as_slice(),
+        ["diff", "--cached", "--name-only"].as_slice(),
+        ["ls-files", "--others", "--exclude-standard"].as_slice(),
+    ] {
+        paths.extend(
+            git_output(path, args)?
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(str::to_string),
+        );
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+fn abort_target_merge(
+    connection: &mut Connection,
+    card_id: &str,
+    operation_id: &str,
+) -> Result<KanbanCard, String> {
+    let operation = load_target_merge_operation(connection, card_id)?
+        .ok_or_else(|| "No target merge is pending for this card".to_string())?;
+    if operation.id != operation_id {
+        return Err("The target merge operation changed; manual recovery is required".to_string());
+    }
+    let head = git_output(&operation.source_path, &["rev-parse", "HEAD"])?;
+    if has_git_operation(&operation.source_path)? {
+        if head != operation.source_revision {
+            return Err("The source revision changed during the conflicted merge. Stacks cannot prove an abort is safe; recover it manually".to_string());
+        }
+        let changed = changed_paths(&operation.source_path)?;
+        if changed
+            .iter()
+            .any(|path| !operation.conflict_paths.contains(path))
+        {
+            return Err("The worktree contains changes outside the recorded conflicts. Stacks will not discard them; recover the merge manually".to_string());
+        }
+        git_output(&operation.source_path, &["merge", "--abort"])?;
+    } else if head != operation.source_revision {
+        let parents = git_output(
+            &operation.source_path,
+            &["rev-list", "--parents", "-n", "1", "HEAD"],
+        )?;
+        let expected = format!(
+            "{head} {} {}",
+            operation.source_revision, operation.target_revision
+        );
+        if parents != expected
+            || !git_output(
+                &operation.source_path,
+                &["status", "--porcelain=v1", "--untracked-files=all"],
+            )?
+            .is_empty()
+        {
+            return Err("The completed source state is not the exact clean merge created by this operation. Stacks will not reset it; recover manually".to_string());
+        }
+        git_output(
+            &operation.source_path,
+            &["reset", "--hard", &operation.source_revision],
+        )?;
+    } else if !git_output(
+        &operation.source_path,
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+    )?
+    .is_empty()
+    {
+        return Err(
+            "The source has unrelated changes. Stacks will not discard them; recover manually"
+                .to_string(),
+        );
+    }
+    if git_output(&operation.source_path, &["rev-parse", "HEAD"])? != operation.source_revision
+        || !git_output(
+            &operation.source_path,
+            &["status", "--porcelain=v1", "--untracked-files=all"],
+        )?
+        .is_empty()
+    {
+        return Err(
+            "Automatic recovery could not restore the clean starting revision; recover manually"
+                .to_string(),
+        );
+    }
+    connection
+        .execute(
+            "DELETE FROM card_target_merge_operations WHERE id=?1",
+            [operation_id],
+        )
+        .map_err(db_error)?;
+    get_card(connection, card_id)?.ok_or_else(|| "Kanban card was not found".to_string())
+}
+
 const CLEANUP_PHASES: [&str; 7] = [
     "runtime_sessions",
     "validate_repository",
@@ -4066,6 +4559,26 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS card_target_merge_operations (
+            id TEXT PRIMARY KEY,
+            card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            environment_id TEXT NOT NULL,
+            workflow_revision INTEGER NOT NULL,
+            environment_revision INTEGER NOT NULL,
+            initial_status TEXT NOT NULL CHECK(initial_status IN ('needs_human','approved')),
+            repository_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            source_branch TEXT NOT NULL,
+            target_branch TEXT NOT NULL,
+            upstream_remote TEXT NOT NULL,
+            upstream_merge_ref TEXT NOT NULL,
+            source_revision TEXT NOT NULL,
+            target_revision TEXT NOT NULL,
+            phase TEXT NOT NULL CHECK(phase IN ('conflicted','merged')),
+            conflict_paths TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+         );
          CREATE TABLE IF NOT EXISTS card_cleanup_operations (
             card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
             environment_id TEXT NOT NULL,
@@ -4312,6 +4825,18 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(db_error)?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS card_target_merge_operations (
+            id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            environment_id TEXT NOT NULL, workflow_revision INTEGER NOT NULL, environment_revision INTEGER NOT NULL,
+            initial_status TEXT NOT NULL CHECK(initial_status IN ('needs_human','approved')),
+            repository_id TEXT NOT NULL, source_path TEXT NOT NULL, source_branch TEXT NOT NULL, target_branch TEXT NOT NULL,
+            upstream_remote TEXT NOT NULL, upstream_merge_ref TEXT NOT NULL, source_revision TEXT NOT NULL, target_revision TEXT NOT NULL,
+            phase TEXT NOT NULL CHECK(phase IN ('conflicted','merged')), conflict_paths TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+         );
+         INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (71, unixepoch());"
+    ).map_err(db_error)?;
     Ok(())
 }
 
@@ -5187,6 +5712,25 @@ fn environment_health(
     let card = get_card(connection, card_id)?
         .ok_or_else(|| format!("Kanban card {card_id} was not found"))?;
     let mut issues = Vec::new();
+    let pending_target_merge: Option<String> = connection
+        .query_row(
+            "SELECT phase FROM card_target_merge_operations WHERE card_id=?1",
+            [card_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_error)?;
+    if let Some(phase) = pending_target_merge {
+        issues.push(health_issue(
+            "target_merge_pending",
+            if phase == "conflicted" {
+                "A target merge is awaiting conflict resolution. Use Merge in target & resolve to resume or recover it."
+            } else {
+                "A completed target merge is awaiting final verification. Use Merge in target & resolve to resume or recover it."
+            },
+            if card.status == "approved" { "merge" } else { "approval" },
+        ));
+    }
     let required_step = match card.status.as_str() {
         "agent_working" => Some("work"),
         "needs_human" => Some("approval"),
@@ -7350,6 +7894,60 @@ mod tests {
         (root, target, source)
     }
 
+    fn upstream_merge_repository() -> (PathBuf, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "stacks-target-merge-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let remote = root.join("remote.git");
+        let target = root.join("target");
+        let source = root.join("source");
+        fs::create_dir_all(&root).unwrap();
+        git_ok(&root, &["init", "--bare", remote.to_str().unwrap()]);
+        git_ok(
+            &root,
+            &["clone", remote.to_str().unwrap(), target.to_str().unwrap()],
+        );
+        git_ok(&target, &["config", "user.email", "stacks@example.com"]);
+        git_ok(&target, &["config", "user.name", "Stacks Tests"]);
+        git_ok(&target, &["checkout", "-b", "main"]);
+        fs::write(target.join("base.txt"), "base\n").unwrap();
+        git_ok(&target, &["add", "."]);
+        git_ok(&target, &["commit", "-m", "base"]);
+        git_ok(&target, &["push", "-u", "origin", "main"]);
+        git_ok(
+            &target,
+            &["worktree", "add", "-b", "feature", source.to_str().unwrap()],
+        );
+        git_ok(&source, &["config", "user.email", "stacks@example.com"]);
+        git_ok(&source, &["config", "user.name", "Stacks Tests"]);
+        fs::write(source.join("feature.txt"), "feature\n").unwrap();
+        git_ok(&source, &["add", "."]);
+        git_ok(&source, &["commit", "-m", "feature"]);
+        (root, target, source)
+    }
+
+    fn target_merge_connection(source: &Path, target: &Path, status: &str) -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        test_project(&connection, "p", "local", target.to_str().unwrap());
+        let now = unix_timestamp();
+        connection.execute("INSERT INTO kanban_cards (id,external_provider,external_id,title,status,workflow_revision,project_id,created_at,updated_at) VALUES ('local:target-merge','local:p','1','Target merge',?1,4,'p',?2,?2)", params![status,now]).unwrap();
+        let repository = repository_identity(target.to_str().unwrap()).unwrap();
+        let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,repository_id,target_checkout_path,target_branch,source_revision,target_revision,lifecycle_state,revision,created_at,updated_at) VALUES ('target-merge-e','local:target-merge','p',?1,'feature',?2,?3,'main',?4,?5,'ready',2,?6,?6)", params![source.to_str().unwrap(),repository,target.to_str().unwrap(),source_tip,target_tip,now]).unwrap();
+        connection
+    }
+
+    fn advance_target(target: &Path, contents: &str) {
+        fs::write(target.join("target.txt"), contents).unwrap();
+        git_ok(target, &["add", "."]);
+        git_ok(target, &["commit", "-m", "advance target"]);
+        git_ok(target, &["push", "origin", "main"]);
+    }
+
     fn approval_connection(source: &Path, target: &Path) -> Connection {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
@@ -7547,6 +8145,205 @@ mod tests {
             .count(),
             3
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_merge_fetches_upstream_and_creates_verified_explicit_commit() {
+        for initial_status in ["needs_human", "approved"] {
+            let (root, target, source) = upstream_merge_repository();
+            let mut connection = target_merge_connection(&source, &target, initial_status);
+            advance_target(&target, "target change\n");
+            let prepared =
+                prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+            assert_eq!(prepared.state, "merged");
+            let operation_id = prepared.operation_id.unwrap();
+            let result =
+                finalize_target_merge(&mut connection, "local:target-merge", &operation_id)
+                    .unwrap();
+            assert_eq!(result.card.status, "needs_human");
+            assert_eq!(result.card.workflow_revision, 5);
+            assert_eq!(result.card.environment.unwrap().revision, 3);
+            assert_eq!(
+                git_output(
+                    source.to_str().unwrap(),
+                    &["rev-list", "--parents", "-n", "1", "HEAD"]
+                )
+                .unwrap()
+                .split_whitespace()
+                .count(),
+                3
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn target_merge_noop_preserves_status_and_creates_no_commit() {
+        let (root, target, source) = upstream_merge_repository();
+        let mut connection = target_merge_connection(&source, &target, "approved");
+        let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+        assert_eq!(result.state, "noop");
+        assert!(result.idempotent);
+        assert_eq!(result.card.status, "approved");
+        assert_eq!(
+            git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+            before
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_merge_rejects_dirty_source_and_missing_upstream_before_mutation() {
+        let (root, target, source) = upstream_merge_repository();
+        let mut connection = target_merge_connection(&source, &target, "needs_human");
+        let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        fs::write(source.join("dirty.txt"), "dirty\n").unwrap();
+        assert!(
+            prepare_target_merge(&mut connection, "local:target-merge", 4, 2)
+                .unwrap_err()
+                .contains("modified or untracked")
+        );
+        fs::remove_file(source.join("dirty.txt")).unwrap();
+        git_ok(&source, &["config", "--unset", "branch.main.remote"]);
+        let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
+        assert!(error.contains("set-upstream-to"), "{error}");
+        assert_eq!(
+            git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+            before
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_merge_fetch_failure_and_revision_conflicts_leave_source_unchanged() {
+        let (root, target, source) = upstream_merge_repository();
+        let mut connection = target_merge_connection(&source, &target, "needs_human");
+        let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        assert!(
+            prepare_target_merge(&mut connection, "local:target-merge", 3, 2)
+                .unwrap_err()
+                .contains("Card changed")
+        );
+        assert!(
+            prepare_target_merge(&mut connection, "local:target-merge", 4, 1)
+                .unwrap_err()
+                .contains("environment changed")
+        );
+        git_ok(
+            &source,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "/definitely/missing/stacks-target.git",
+            ],
+        );
+        let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
+        assert!(
+            error.contains("network access and authentication"),
+            "{error}"
+        );
+        assert_eq!(
+            git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+            before
+        );
+        assert!(
+            load_target_merge_operation(&connection, "local:target-merge")
+                .unwrap()
+                .is_none()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_merge_rejects_an_active_git_operation() {
+        let (root, target, source) = upstream_merge_repository();
+        let mut connection = target_merge_connection(&source, &target, "needs_human");
+        let marker = git_output(
+            source.to_str().unwrap(),
+            &["rev-parse", "--git-path", "CHERRY_PICK_HEAD"],
+        )
+        .unwrap();
+        fs::write(
+            marker,
+            git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+        )
+        .unwrap();
+        let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
+        assert!(error.contains("in-progress Git operation"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_merge_conflicts_can_be_finalized_or_safely_aborted() {
+        let (root, target, source) = upstream_merge_repository();
+        fs::write(source.join("base.txt"), "source version\n").unwrap();
+        git_ok(&source, &["add", "."]);
+        git_ok(&source, &["commit", "-m", "source conflict"]);
+        fs::write(target.join("base.txt"), "target version\n").unwrap();
+        git_ok(&target, &["add", "."]);
+        git_ok(&target, &["commit", "-m", "target conflict"]);
+        git_ok(&target, &["push", "origin", "main"]);
+        let mut connection = target_merge_connection(&source, &target, "needs_human");
+        let starting_revision =
+            git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+        assert_eq!(prepared.state, "conflicted");
+        assert!(health_codes(&connection, "local:target-merge")
+            .contains(&"target_merge_pending".to_string()));
+        let operation_id = prepared.operation_id.unwrap();
+        fs::write(source.join("base.txt"), "resolved\n").unwrap();
+        git_ok(&source, &["add", "."]);
+        git_ok(&source, &["commit", "-m", "Merge target with resolution"]);
+        assert_eq!(
+            finalize_target_merge(&mut connection, "local:target-merge", &operation_id)
+                .unwrap()
+                .card
+                .status,
+            "needs_human"
+        );
+
+        // A second conflicted operation can be conservatively restored when no
+        // paths outside Git's recorded merge result were touched.
+        fs::write(target.join("base.txt"), "another target version\n").unwrap();
+        git_ok(&target, &["add", "."]);
+        git_ok(&target, &["commit", "-m", "second target conflict"]);
+        git_ok(&target, &["push", "origin", "main"]);
+        fs::write(source.join("base.txt"), "another source version\n").unwrap();
+        git_ok(&source, &["add", "."]);
+        git_ok(&source, &["commit", "-m", "second source conflict"]);
+        let current = get_card(&connection, "local:target-merge")
+            .unwrap()
+            .unwrap();
+        let environment_revision = current.environment.unwrap().revision;
+        let prepared = prepare_target_merge(
+            &mut connection,
+            "local:target-merge",
+            current.workflow_revision,
+            environment_revision,
+        )
+        .unwrap();
+        assert_eq!(prepared.state, "conflicted");
+        let operation_id = prepared.operation_id.unwrap();
+        let abort_start = load_target_merge_operation(&connection, "local:target-merge")
+            .unwrap()
+            .unwrap()
+            .source_revision;
+        abort_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
+        assert_eq!(
+            git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+            abort_start
+        );
+        assert!(!has_git_operation(source.to_str().unwrap()).unwrap());
+        assert!(git_output(
+            source.to_str().unwrap(),
+            &["status", "--porcelain=v1", "--untracked-files=all"]
+        )
+        .unwrap()
+        .is_empty());
+        assert_ne!(starting_revision, abort_start);
         fs::remove_dir_all(root).unwrap();
     }
 
