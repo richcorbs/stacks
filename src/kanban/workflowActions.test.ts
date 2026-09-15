@@ -81,6 +81,16 @@ describe('delivery workflow actions', () => {
     expect(action?.disabledReason).toBe('Draft; CI pending; Changes requested');
   });
 
+  it('retries a durable cleanup without repeating destructive confirmation', () => {
+    const retryCard = {
+      ...card('done'), completion_outcome: 'merged' as const,
+      cleanup_operation: { status: 'failed' as const, phase: 'remove_worktree' as const, error_code: 'cleanup_remove_worktree_failed', error_detail: 'Recover registration', started_at: 1, updated_at: 2, completed_at: null },
+    };
+    const cleanup = deriveCardWorkflowActions({ card: retryCard, project: localProject, projectAvailable: true })[0];
+    expect(cleanup).toMatchObject({ kind: 'cleanup', label: 'Retry cleanup' });
+    expect(cleanup.confirmation).toBeUndefined();
+  });
+
   it('only offers outcome-aware cleanup for Done cards with environments', () => {
     const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, layout_revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
     expect(deriveCardWorkflowActions({ card: { ...card('done', environment), completion_outcome: 'closed' }, project: localProject, projectAvailable: true })[0].confirmation?.detail).toContain('branch is retained');
