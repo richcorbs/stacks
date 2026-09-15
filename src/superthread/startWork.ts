@@ -1,5 +1,6 @@
 import type { Store } from '../types';
-import type { CreateWorkspaceInput } from '../workspace/createWorkspace';
+
+type CreateWorkspaceInput = { projectId: string; name: string; setupCommand?: string; firstPaneKind: 'terminal' | 'pi' };
 
 export function buildLocalWorkspaceInput(store: Store, projectId: string, cardNumber: string, cardTitle: string): CreateWorkspaceInput {
   if (!/^\d+$/.test(cardNumber)) throw new Error('Invalid card number');
@@ -23,23 +24,18 @@ export function buildSuperthreadWorkspaceInput(
   projectId: string,
   cardNumber: string,
   cardTitle: string,
-  templates: { command: string; workspaceName: string },
+  commandTemplate: string,
 ): CreateWorkspaceInput {
   if (!/^\d+$/.test(cardNumber)) throw new Error('Invalid card number');
   const project = store.projects.find((candidate) => candidate.id === projectId);
   if (!project) throw new Error('Selected project not found');
   const normalizedTitle = cardTitle.replace(/\s+/g, ' ').trim();
   if (!normalizedTitle) throw new Error('Card title cannot be empty');
-  const name = renderTemplate(templates.workspaceName, cardNumber, normalizedTitle)
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 160);
-  const command = renderTemplate(templates.command, cardNumber, shellEscape(normalizedTitle)).trim();
-  if (!name) throw new Error('Workspace naming template produced an empty name');
+  const command = renderTemplate(commandTemplate, cardNumber, shellEscape(normalizedTitle)).trim();
   if (!command) throw new Error('Start-work command cannot be empty');
   return {
     projectId: project.id,
-    name,
+    name: `${cardNumber} ${normalizedTitle}`.slice(0, 160),
     setupCommand: command,
     firstPaneKind: 'pi',
   };

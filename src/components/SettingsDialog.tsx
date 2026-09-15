@@ -1,25 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { ResolvedAppSettings } from '../settingsModel';
-import { clampGithubPollInterval, DEFAULT_APP_SETTINGS } from '../settingsModel';
+import { DEFAULT_APP_SETTINGS } from '../settingsModel';
 import {
   clampUiFontSize,
   clampTerminalFontSize,
   clampTerminalScrollback,
-  DEFAULT_ACTIVE_DOT_COLOR,
-  DEFAULT_ALIVE_DOT_COLOR,
   DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR,
   DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR,
-  DEFAULT_UNSEEN_DOT_COLOR,
   normalizeColor,
 } from '../settings';
 import {
   ConfirmationSettingsSection,
   EditorSettingsSection,
   InterfaceSettingsSection,
-  NotificationSettingsSection,
   TerminalSettingsSection,
-  WorkspaceStatusDotSettingsSection,
 } from './SettingsSections';
 
 export function SettingsDialog({ settings, onChange, onClose }: {
@@ -52,14 +47,9 @@ export function SettingsDialog({ settings, onChange, onClose }: {
       editor_app: draft.editor_app.trim() || DEFAULT_APP_SETTINGS.editor_app,
       focused_terminal_border_color: normalizeColor(draft.focused_terminal_border_color, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR),
       maximized_terminal_border_color: normalizeColor(draft.maximized_terminal_border_color, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR),
-      alive_dot_color: normalizeColor(draft.alive_dot_color, DEFAULT_ALIVE_DOT_COLOR),
-      active_dot_color: normalizeColor(draft.active_dot_color, DEFAULT_ACTIVE_DOT_COLOR),
-      unseen_dot_color: normalizeColor(draft.unseen_dot_color, DEFAULT_UNSEEN_DOT_COLOR),
       superthread_workspace_slug: draft.superthread_workspace_slug.trim(),
       superthread_spaces: draft.superthread_spaces.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
       superthread_start_work_command: draft.superthread_start_work_command.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
-      superthread_workspace_name_template: draft.superthread_workspace_name_template.trim() || DEFAULT_APP_SETTINGS.superthread_workspace_name_template,
-      github_poll_interval_seconds: clampGithubPollInterval(draft.github_poll_interval_seconds),
     });
     onClose();
   }
@@ -92,9 +82,7 @@ export function SettingsDialog({ settings, onChange, onClose }: {
         <h2>Settings</h2>
         <InterfaceSettingsSection draft={draft} firstInputRef={firstInputRef} update={update} />
         <TerminalSettingsSection draft={draft} update={update} />
-        <WorkspaceStatusDotSettingsSection draft={draft} update={update} />
         <ConfirmationSettingsSection draft={draft} update={update} />
-        <NotificationSettingsSection draft={draft} update={update} />
         <EditorSettingsSection draft={draft} update={update} chooseEditorApp={chooseEditorApp} />
         <section className="settingsSection">
           <h3>Superthread</h3>
@@ -126,19 +114,9 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               onChange={(event) => update({ superthread_start_work_command: event.target.value })}
             />
           </label>
-          <label>
-            New workspace naming template
-            <input
-              value={draft.superthread_workspace_name_template}
-              placeholder="{card_number} {card_title}"
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => update({ superthread_workspace_name_template: event.target.value })}
-            />
-          </label>
           <div className="settingsHint">Available placeholders: {'{card_number}'}, {'{card_title}'}</div>
           <label>
-            Workspace URL slug <span>optional</span>
+            Superthread URL slug <span>optional</span>
             <input
               value={draft.superthread_workspace_slug}
               placeholder="arcasa"
@@ -147,20 +125,6 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               onChange={(event) => update({ superthread_workspace_slug: event.target.value })}
             />
           </label>
-        </section>
-        <section className="settingsSection">
-          <h3>GitHub</h3>
-          <label>
-            Refresh interval <span>seconds</span>
-            <input
-              type="number"
-              min={10}
-              max={3600}
-              value={draft.github_poll_interval_seconds}
-              onChange={(event) => update({ github_poll_interval_seconds: Number(event.target.value) })}
-            />
-          </label>
-          <div className="settingsHint">GitHub pull requests and actions refresh every 60 seconds by default. Merge policy is configured per project.</div>
         </section>
         <div className="modalActions">
           <button type="button" onClick={onClose}>Cancel</button>

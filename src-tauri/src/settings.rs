@@ -1,12 +1,11 @@
 use std::{
-    collections::HashMap,
     fs,
     sync::{Mutex, OnceLock},
 };
 use tauri::Window;
 
 use crate::fs_paths::app_data_file;
-pub use crate::settings_model::{AppSettings, PendingPrCleanup, WindowState};
+pub use crate::settings_model::{AppSettings, WindowState};
 
 static SETTINGS_FILE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -79,80 +78,6 @@ pub fn save_current_window_state(window: Window) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn save_sidebar_width(width: u32) -> Result<(), String> {
-    update_settings_on_disk(|settings| {
-        settings.sidebar_width = Some(width.clamp(180, 420));
-    })
-}
-
-#[tauri::command]
-pub fn save_developer_services_state(visible: bool, active_tab: String) -> Result<(), String> {
-    if !matches!(
-        active_tab.as_str(),
-        "superthread" | "diff" | "pull-requests" | "actions"
-    ) {
-        return Err("Invalid developer services tab".to_string());
-    }
-    update_settings_on_disk(|settings| {
-        settings.developer_services_visible = Some(visible);
-        settings.developer_services_tab = Some(active_tab);
-    })
-}
-
-#[tauri::command]
-pub fn load_pending_pr_cleanup() -> Option<PendingPrCleanup> {
-    load_settings_from_disk().pending_pr_cleanup
-}
-
-#[tauri::command]
-pub fn save_pending_pr_cleanup(operation: PendingPrCleanup) -> Result<(), String> {
-    if operation.repository.trim().is_empty()
-        || operation.project_id.trim().is_empty()
-        || operation.workspace_id.trim().is_empty()
-        || operation.pane_id.trim().is_empty()
-        || !matches!(
-            operation.stage.as_str(),
-            "ready-to-merge" | "merged" | "cleanup-running" | "cleanup-completed"
-        )
-    {
-        return Err("Invalid pending PR cleanup operation".to_string());
-    }
-    update_settings_on_disk(|settings| settings.pending_pr_cleanup = Some(operation))
-}
-
-#[tauri::command]
-pub fn clear_pending_pr_cleanup() -> Result<(), String> {
-    update_settings_on_disk(|settings| settings.pending_pr_cleanup = None)
-}
-
-#[tauri::command]
-pub fn save_terminal_font_size(font_size: u32) -> Result<(), String> {
-    update_settings_on_disk(|settings| {
-        settings.terminal_font_size = Some(font_size.clamp(8, 32));
-    })
-}
-
-#[tauri::command]
-pub fn save_workspace_focus(
-    active_project_id: Option<String>,
-    active_workspace_id: Option<String>,
-    focused_terminal_by_workspace_id: HashMap<String, String>,
-    maximized_workspace_ids: HashMap<String, bool>,
-) -> Result<(), String> {
-    update_settings_on_disk(|settings| {
-        settings.active_project_id = active_project_id.filter(|id| !id.trim().is_empty());
-        settings.active_workspace_id = active_workspace_id.filter(|id| !id.trim().is_empty());
-        settings.focused_terminal_by_workspace_id = Some(focused_terminal_by_workspace_id);
-        settings.maximized_workspace_ids = Some(
-            maximized_workspace_ids
-                .into_iter()
-                .filter(|(_, maximized)| *maximized)
-                .collect(),
-        );
-    })
-}
-
-#[tauri::command]
 pub fn save_app_settings(next: AppSettings) -> Result<(), String> {
     update_settings_on_disk(|settings| settings.apply_user_settings(next))
 }
@@ -160,7 +85,6 @@ pub fn save_app_settings(next: AppSettings) -> Result<(), String> {
 pub fn reset_settings_file() -> Result<(), String> {
     update_settings_on_disk(|settings| {
         settings.window = None;
-        settings.sidebar_width = None;
     })
 }
 

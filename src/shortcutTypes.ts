@@ -1,8 +1,5 @@
-import type { Project } from './types';
-
 export type ShortcutAction =
   | 'add-project'
-  | 'new-workspace'
   | 'split-terminal-right'
   | 'split-terminal-down'
   | 'close-terminal'
@@ -11,19 +8,7 @@ export type ShortcutAction =
   | 'command-palette'
   | 'switch-project'
   | 'settings'
-  | 'toggle-sidebar'
-  | 'toggle-superthread'
-  | 'toggle-github-pull-requests'
-  | 'toggle-diff'
-  | 'toggle-project-notes'
-  | 'maximize-workspace'
-  | 'focus-next-terminal'
-  | 'focus-previous-terminal'
-  | 'focus-next-workspace'
-  | 'focus-previous-workspace'
-  | 'focus-next-unseen-workspace'
-  | 'activate-sidebar'
-  | 'select-workspace'
+  | 'maximize-pane'
   | 'increase-terminal-font-size'
   | 'decrease-terminal-font-size'
   | 'increase-ui-font-size'
@@ -31,29 +16,13 @@ export type ShortcutAction =
   | 'quit';
 
 export type ShortcutHandlers = {
-  activeProject: Project | null;
-  activeTerminalId: string | null;
   setMetaKeyDown: (down: boolean) => void;
-  activateWorkspaceByIndex: (index: number) => void;
-  openWorkspaceDialog: (project: Project) => void;
   openProjectDialog: () => void;
-  toggleMaximizedTerminal: () => void;
-  activateSidebarFocusedWorkspace: () => void;
-  splitTerminal: (direction: 'row' | 'column') => void;
-  requestCloseTerminal: (terminalId: string) => void;
   requestQuit: () => void;
-  cycleSidebarWorkspace: (delta: number) => void;
-  cycleTerminal: (delta: number) => void;
-  focusNextWorkspaceWithUnseenOutput: () => void;
   adjustTerminalFontSize: (delta: number) => void;
   adjustUiFontSize: (delta: number) => void;
   openCommandPalette: () => void;
   openProjectSwitcher: () => void;
-  openTerminalSearch: () => void;
   openSettings: () => void;
-  toggleSidebar: () => void;
-  toggleSuperthread: () => void;
-  toggleGithubPullRequests: () => void;
-  toggleDiff: () => void;
-  toggleProjectNotes: () => void;
+  runCardTerminalAction: (action: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize') => void;
 };

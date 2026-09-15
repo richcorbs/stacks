@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
 import type { DialogState } from '../types';
 import { DialogFields, dialogSubmitLabel } from './DialogFields';
-import { AsyncButtonLabel } from './AsyncButtonLabel';
 
 export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   dialog: DialogState;
@@ -14,76 +11,15 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   const firstInputRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      firstInputRef.current?.focus();
-      if (dialog.kind === 'workspace' || dialog.kind === 'editTerminal') firstInputRef.current?.select();
-    });
-  }, [dialog.kind]);
-
-  const hasWorkspaceSetup = dialog.kind === 'workspace' && Boolean(dialog.setupCommand.trim());
-  const setupRunning = submitting && hasWorkspaceSetup;
-
-  function cancel() {
-    if (setupRunning) invoke('cancel_workspace_setup').catch(console.error);
-    onCancel();
-  }
-
-  async function chooseEditWorkspaceDirectory() {
-    if (dialog.kind !== 'editWorkspace') return;
-    const selected = await open({ directory: true, multiple: false, title: 'Choose Workspace Directory', defaultPath: dialog.cwd || undefined }).catch((err) => {
-      console.error(err);
-      return null;
-    });
-    if (typeof selected === 'string') setDialog({ ...dialog, cwd: selected });
-  }
-
-  return (
-    <div className="modalBackdrop" onMouseDown={() => { if (!submitting || setupRunning) cancel(); }}>
-      <form
-        className={`modal ${dialog.kind === 'workspace' || dialog.kind === 'editWorkspace' || dialog.kind === 'split' || dialog.kind === 'editTerminal' ? 'terminalDialog' : ''}`}
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key !== 'Escape' || (submitting && !setupRunning)) return;
-          e.preventDefault();
-          cancel();
-        }}
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (submitting) return;
-          setSubmitting(true);
-          setSubmitError(null);
-          try {
-            await onSubmit();
-          } catch (error) {
-            setSubmitError(error instanceof Error ? error.message : String(error));
-          } finally {
-            setSubmitting(false);
-          }
-        }}
-      >
-        <fieldset className="dialogFields" disabled={setupRunning}>
-          <DialogFields
-            dialog={dialog}
-            setDialog={setDialog}
-            firstInputRef={firstInputRef}
-            chooseEditWorkspaceDirectory={chooseEditWorkspaceDirectory}
-          />
-        </fieldset>
-        {submitError && <div className="dialogSubmitError">{submitError}</div>}
-        <div className="modalActions">
-          <button type="button" disabled={submitting && !setupRunning} onClick={cancel}>
-            {hasWorkspaceSetup
-              ? <AsyncButtonLabel idle="Cancel" busy="Cancel setup" isBusy={setupRunning} />
-              : 'Cancel'}
-          </button>
-          <button className="primaryAction" disabled={submitting} type="submit">
-            {hasWorkspaceSetup
-              ? <AsyncButtonLabel idle={dialogSubmitLabel(dialog.kind)} busy="Running setup…" isBusy={setupRunning} />
-              : dialogSubmitLabel(dialog.kind)}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+  useEffect(() => { requestAnimationFrame(() => firstInputRef.current?.focus()); }, [dialog.kind]);
+  return <div className="modalBackdrop" onMouseDown={() => { if (!submitting) onCancel(); }}>
+    <form className="modal" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === 'Escape' && !submitting) { event.preventDefault(); onCancel(); } }} onSubmit={async (event) => {
+      event.preventDefault(); if (submitting) return; setSubmitting(true); setSubmitError(null);
+      try { await onSubmit(); } catch (error) { setSubmitError(error instanceof Error ? error.message : String(error)); } finally { setSubmitting(false); }
+    }}>
+      <fieldset className="dialogFields" disabled={submitting}><DialogFields dialog={dialog} setDialog={setDialog} firstInputRef={firstInputRef} /></fieldset>
+      {submitError && <div className="dialogSubmitError">{submitError}</div>}
+      <div className="modalActions"><button type="button" disabled={submitting} onClick={onCancel}>Cancel</button><button className="primaryAction" disabled={submitting} type="submit">{dialogSubmitLabel(dialog.kind)}</button></div>
+    </form>
+  </div>;
 }

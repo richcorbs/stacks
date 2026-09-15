@@ -14,11 +14,11 @@ struct Project {
     id: String,
     name: String,
     path: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     notes: String,
-    #[serde(default, alias = "terminals")]
+    #[serde(default, alias = "terminals", skip_serializing)]
     workspaces: Vec<WorkspaceEntry>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     collapsed: bool,
     #[serde(default)]
     kanban_source: Option<String>,

@@ -1,343 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildCommandPaletteItems } from './commandPaletteItems';
-import type { TerminalEntry, Project, Store, WorkspaceEntry } from './types';
+import { buildCommandPaletteItems, type CommandPaletteItemOptions } from './commandPaletteItems';
 
-const project: Project = { id: 'p1', name: 'Stacks', path: '/repo/stacks', workspaces: [], collapsed: false };
-const workspace: WorkspaceEntry = { id: 't1', name: 'Dev', command: 'npm run dev', cwd: '/repo/stacks' };
-const terminal: TerminalEntry = { id: 't1:0', workspaceId: 't1', command: 'npm run dev' };
-
-function palette(overrides: Partial<Parameters<typeof buildCommandPaletteItems>[0]> = {}) {
-  const store: Store = { projects: [{ ...project, workspaces: [workspace] }] };
-  return buildCommandPaletteItems({
-    store,
-    sidebarWorkspaces: [{ project, workspace }],
-    terminalsByWorkspaceId: { t1: [terminal] },
-    activeProject: project,
-    selectedKanbanProject: project,
-    superthreadEnabled: false,
-    activeWorkspace: workspace,
-    activeWorkspaceId: 't1',
-    activeTerminalId: 't1:0',
-    activePath: '/repo/stacks/src',
-    onSelectWorkspace: vi.fn(),
-    onNewProject: vi.fn(),
-    onNewWorkspace: vi.fn(),
-    onEditProject: vi.fn(),
-    onDeleteProject: vi.fn(),
-    onEditWorkspace: vi.fn(),
-    onEditTerminal: vi.fn(),
-    onDeleteWorkspace: vi.fn(),
-    onSplitTerminal: vi.fn(),
-    onSplitTerminalWithCommand: vi.fn(),
-    onCycleWorkspace: vi.fn(),
-    onCycleTerminal: vi.fn(),
-    onFocusNextWorkspaceWithUnseenOutput: vi.fn(),
-    onStopTerminal: vi.fn(),
-    onRestartTerminal: vi.fn(),
-    onCloseTerminal: vi.fn(),
-    onClearTerminal: vi.fn(),
-    onToggleMaximizedTerminal: vi.fn(),
-    onOpenSearch: vi.fn(),
-    onOpenSettings: vi.fn(),
-    onToggleDiff: vi.fn(),
-    onToggleGithubPullRequests: vi.fn(),
-    onToggleProjectNotes: vi.fn(),
-    onRestartApp: vi.fn(),
-    onOpenDirectoryInEditor: vi.fn(),
-    onRunOneTimeCommand: vi.fn(),
-    onNewCard: vi.fn(),
-    onDirectProjectWork: vi.fn(),
-    customCmdPCommands: [],
-    onAddCmdPCommand: vi.fn(),
-    onEditCmdPCommand: vi.fn(),
-    onDeleteCmdPCommand: vi.fn(),
-    workspaceTemplates: [],
-    onAddWorkspaceTemplate: vi.fn(),
-    onUseWorkspaceTemplate: vi.fn(),
-    onEditWorkspaceTemplate: vi.fn(),
-    onDeleteWorkspaceTemplate: vi.fn(),
-    onDeleteMultipleWorkspaces: vi.fn(),
-    broadcastEnabled: false,
-    onToggleBroadcast: vi.fn(),
-    ...overrides,
-  });
+const project = { id: 'p1', name: 'Stacks', path: '/repo', workspaces: [], kanban_source: 'local' as const };
+function options(overrides: Partial<CommandPaletteItemOptions> = {}): CommandPaletteItemOptions {
+  return {
+    store: { projects: [project] }, selectedKanbanProject: project, superthreadEnabled: true, cardTerminal: null,
+    onNewProject: vi.fn(), onEditProject: vi.fn(), onDeleteProject: vi.fn(), onOpenSettings: vi.fn(), onRestartApp: vi.fn(),
+    onOpenDirectoryInEditor: vi.fn(), onRunOneTimeCommand: vi.fn(), onNewCard: vi.fn(), onDirectProjectWork: vi.fn(),
+    onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), ...overrides,
+  };
 }
 
-describe('buildCommandPaletteItems', () => {
-  it('includes core workspace and terminal commands', () => {
-    const items = palette();
+describe('command palette items', () => {
+  it('contains only board/project commands without a card terminal', () => {
+    expect(buildCommandPaletteItems(options()).map((item) => item.id)).toEqual([
+      'new-card', 'direct-project-work', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks',
+    ]);
+  });
+
+  it('adds focused card terminal commands only in an active Terminal tab', () => {
+    const onCardTerminalCommand = vi.fn();
+    const items = buildCommandPaletteItems(options({ onCardTerminalCommand, cardTerminal: { cardId: 'c1', active: true, focusedPaneId: 'pane-2', paneIds: ['pane-1', 'pane-2'], cwd: '/worktree', maximized: false } }));
     expect(items.map((item) => item.id)).toEqual(expect.arrayContaining([
-      'new-project',
-      'new-workspace',
-      'next-unseen-workspace',
-      'split-terminal-right',
-      'split-terminal-down',
-      'add-cmd-p-command',
-      'restart-stacks',
-      'toggle-diff',
-      'toggle-pull-requests',
-      'find-terminal',
-      'run-one-time-command',
-      'edit-terminal',
-      'restart-terminal',
-      'workspace-t1',
-      'project-workspace-p1',
-      'terminal-t1:0',
+      'run-one-time-command', 'split-terminal-right', 'split-terminal-down', 'find-terminal', 'clear-terminal',
+      'restart-terminal', 'stop-terminal', 'close-terminal', 'maximize-terminal', 'terminal-pane-1', 'terminal-pane-2',
     ]));
+    items.find((item) => item.id === 'restart-terminal')?.action();
+    expect(onCardTerminalCommand).toHaveBeenCalledWith('restart');
   });
 
-  it('opens Direct project work directly for a filter or prompts from All projects', () => {
-    const onDirectProjectWork = vi.fn();
-    const item = palette({ onDirectProjectWork }).find((candidate) => candidate.id === 'direct-project-work');
-    item?.action();
-    expect(item?.subtitle).toBe('Work in Stacks');
-    expect(onDirectProjectWork).toHaveBeenCalledWith(project);
-
-    const allProjects = palette({ selectedKanbanProject: null, onDirectProjectWork }).find((candidate) => candidate.id === 'direct-project-work');
-    allProjects?.action();
-    expect(allProjects?.subtitle).toBe('Choose a project');
-    expect(onDirectProjectWork).toHaveBeenCalledWith(null);
-  });
-
-  it('preselects eligible filtered projects and otherwise prompts for New Card ownership', () => {
-    const onNewCard = vi.fn();
-    const item = palette({ onNewCard }).find((candidate) => candidate.id === 'new-card');
-    item?.action();
-    expect(item?.subtitle).toBe('Add to Stacks');
-    expect(onNewCard).toHaveBeenCalledWith(project);
-
-    const superthread = { ...project, kanban_source: 'superthread' as const };
-    const prompted = palette({ store: { projects: [superthread] }, selectedKanbanProject: superthread, onNewCard }).find((candidate) => candidate.id === 'new-card');
-    prompted?.action();
-    expect(prompted?.subtitle).toBe('Choose a project');
-    expect(onNewCard).toHaveBeenCalledWith(null);
-
-    const enabled = palette({ store: { projects: [superthread] }, selectedKanbanProject: superthread, superthreadEnabled: true, onNewCard }).find((candidate) => candidate.id === 'new-card');
-    enabled?.action();
-    expect(enabled?.subtitle).toBe('Add to Stacks');
-    expect(onNewCard).toHaveBeenLastCalledWith(superthread);
-    expect(palette({ selectedKanbanProject: null }).some((candidate) => candidate.id === 'new-card')).toBe(true);
-  });
-
-  it('focuses the next workspace with unseen output from the command palette', () => {
-    const onFocusNextWorkspaceWithUnseenOutput = vi.fn();
-    const item = palette({ onFocusNextWorkspaceWithUnseenOutput }).find((candidate) => candidate.id === 'next-unseen-workspace');
-    item?.action();
-    expect(item?.subtitle).toBe('⇧⌘N');
-    expect(onFocusNextWorkspaceWithUnseenOutput).toHaveBeenCalledOnce();
-  });
-
-  it('toggles the diff panel from the command palette', () => {
-    const onToggleDiff = vi.fn();
-    const item = palette({ onToggleDiff }).find((candidate) => candidate.id === 'toggle-diff');
-    item?.action();
-    expect(item?.subtitle).toBe('⌘G');
-    expect(onToggleDiff).toHaveBeenCalledOnce();
-  });
-
-  it('does not include the removed project notes feature', () => {
-    expect(palette().some((candidate) => candidate.id === 'toggle-project-notes')).toBe(false);
-  });
-
-  it('restarts Stacks from the command palette', () => {
-    const onRestartApp = vi.fn();
-    const item = palette({ onRestartApp }).find((candidate) => candidate.id === 'restart-stacks');
-    item?.action();
-    expect(item?.title).toBe('Restart Stacks');
-    expect(onRestartApp).toHaveBeenCalledOnce();
-  });
-
-  it('uses Pi-aware lifecycle commands and hides terminal-only actions for a Pi pane', () => {
-    const piPane: TerminalEntry = { id: 't1:pi', workspaceId: 't1', kind: 'pi' };
-    const items = palette({ terminalsByWorkspaceId: { t1: [piPane] }, activeTerminalId: piPane.id });
-
-    expect(items.find((item) => item.id === 'edit-terminal')?.title).toBe('Edit Current Pane');
-    expect(items.some((item) => item.id === 'find-terminal')).toBe(false);
-    expect(items.some((item) => item.id === 'clear-terminal')).toBe(false);
-    expect(items.find((item) => item.id === 'restart-terminal')?.title).toBe('Restart Current Pi GUI');
-    expect(items.find((item) => item.id === 'close-terminal')?.title).toBe('Close Current Pane');
-  });
-
-  it('runs saved commands using their configured behavior', () => {
-    const onSplitTerminalWithCommand = vi.fn();
-    const items = palette({
-      customCmdPCommands: [
-        { id: 'down', label: 'Start server', command: 'npm run dev', direction: 'column', execute: true },
-        { id: 'right', label: 'Open console', command: 'npm run console', direction: 'row', execute: true },
-        { id: 'insert', label: 'Prepare deploy', command: 'git push', direction: 'column', execute: false },
-      ],
-      onSplitTerminalWithCommand,
-    });
-
-    items.find((item) => item.id === 'custom-cmd-p-down')?.action();
-    items.find((item) => item.id === 'custom-cmd-p-right')?.action();
-    items.find((item) => item.id === 'custom-cmd-p-insert')?.action();
-
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(1, 'column', 'npm run dev', true);
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(2, 'row', 'npm run console', true);
-    expect(onSplitTerminalWithCommand).toHaveBeenNthCalledWith(3, 'column', 'git push', false);
-  });
-
-  it('opens add, edit, and delete Cmd-P command dialogs from the palette', () => {
-    const onAddCmdPCommand = vi.fn();
-    const onEditCmdPCommand = vi.fn();
-    const onDeleteCmdPCommand = vi.fn();
-    const command = { id: 'dev', label: 'Start server', command: 'npm run dev', direction: 'column' as const, execute: true };
-    const items = palette({ customCmdPCommands: [command], onAddCmdPCommand, onEditCmdPCommand, onDeleteCmdPCommand });
-
-    items.find((item) => item.id === 'add-cmd-p-command')?.action();
-    items.find((item) => item.id === 'edit-custom-cmd-p-dev')?.action();
-    const deleteItem = items.find((item) => item.id === 'delete-custom-cmd-p-dev');
-    deleteItem?.action();
-
-    expect(onAddCmdPCommand).toHaveBeenCalledOnce();
-    expect(onEditCmdPCommand).toHaveBeenCalledWith(command);
-    expect(deleteItem?.danger).toBe(true);
-    expect(onDeleteCmdPCommand).toHaveBeenCalledWith(command);
-  });
-
-  it('opens, edits, and deletes workspace templates from the palette', () => {
-    const onAddWorkspaceTemplate = vi.fn();
-    const onUseWorkspaceTemplate = vi.fn();
-    const onEditWorkspaceTemplate = vi.fn();
-    const onDeleteWorkspaceTemplate = vi.fn();
-    const template = { id: 'start', label: 'Start Work', name: '', command: '', setupCommand: 'stwork_setup', rows: 1, columns: 2, firstPaneKind: 'pi' as const };
-    const items = palette({ workspaceTemplates: [template], onAddWorkspaceTemplate, onUseWorkspaceTemplate, onEditWorkspaceTemplate, onDeleteWorkspaceTemplate });
-
-    items.find((item) => item.id === 'add-workspace-template')?.action();
-    items.find((item) => item.id === 'workspace-template-start')?.action();
-    items.find((item) => item.id === 'edit-workspace-template-start')?.action();
-    const deleteItem = items.find((item) => item.id === 'delete-workspace-template-start');
-    deleteItem?.action();
-
-    expect(onAddWorkspaceTemplate).toHaveBeenCalledOnce();
-    expect(onUseWorkspaceTemplate).toHaveBeenCalledWith(project, template);
-    expect(onEditWorkspaceTemplate).toHaveBeenCalledWith(template);
-    expect(deleteItem?.danger).toBe(true);
-    expect(onDeleteWorkspaceTemplate).toHaveBeenCalledWith(template);
-  });
-
-  it('shows broadcast command only when active workspace has multiple terminals', () => {
-    expect(palette().some((item) => item.id === 'broadcast-workspace')).toBe(false);
-
-    const onToggleBroadcast = vi.fn();
-    const items = palette({
-      terminalsByWorkspaceId: { t1: [terminal, { id: 't1:1', workspaceId: 't1' }] },
-      onToggleBroadcast,
-    });
-
-    const broadcast = items.find((item) => item.id === 'broadcast-workspace');
-    expect(broadcast?.title).toBe('Toggle Broadcast Mode Within the Workspace');
-    broadcast?.action();
-    expect(onToggleBroadcast).toHaveBeenCalled();
-  });
-
-  it('runs dynamic terminal/project/terminal actions', () => {
-    const onSelectWorkspace = vi.fn();
-    const onNewWorkspace = vi.fn();
-    const onCycleTerminal = vi.fn();
-    const items = palette({ onSelectWorkspace, onNewWorkspace, onCycleTerminal });
-
-    items.find((item) => item.id === 'workspace-t1')?.action();
-    expect(onSelectWorkspace).toHaveBeenCalledWith('p1', 't1');
-
-    items.find((item) => item.id === 'project-workspace-p1')?.action();
-    expect(onNewWorkspace).toHaveBeenCalledWith({ ...project, workspaces: [workspace] });
-
-    items.find((item) => item.id === 'terminal-t1:0')?.action();
-    expect(onCycleTerminal).toHaveBeenCalledWith(0);
-  });
-
-  it('uses the Kanban-selected project for project commands and the active project for workspace commands', () => {
-    const kanbanProject: Project = { id: 'p2', name: 'Board Project', path: '/repo/board', workspaces: [] };
-    const onNewWorkspace = vi.fn();
-    const onEditProject = vi.fn();
-    const onDeleteProject = vi.fn();
-    const onEditWorkspace = vi.fn();
-    const onDeleteWorkspace = vi.fn();
-    const items = palette({
-      selectedKanbanProject: kanbanProject,
-      onNewWorkspace,
-      onEditProject,
-      onDeleteProject,
-      onEditWorkspace,
-      onDeleteWorkspace,
-    });
-
-    const editProject = items.find((item) => item.id === 'edit-project');
-    const deleteProject = items.find((item) => item.id === 'delete-project');
-    expect(editProject?.subtitle).toBe('Board Project');
-    expect(deleteProject?.subtitle).toBe('Board Project');
-    expect(deleteProject?.danger).toBe(true);
-
-    editProject?.action();
-    deleteProject?.action();
-    items.find((item) => item.id === 'new-workspace')?.action();
-    items.find((item) => item.id === 'edit-workspace')?.action();
-    items.find((item) => item.id === 'delete-workspace')?.action();
-
-    expect(onEditProject).toHaveBeenCalledWith(kanbanProject);
-    expect(onDeleteProject).toHaveBeenCalledWith('p2');
-    expect(onNewWorkspace).toHaveBeenCalledWith(project);
-    expect(onEditWorkspace).toHaveBeenCalledWith(project, workspace);
-    expect(onDeleteWorkspace).toHaveBeenCalledWith('p1', 't1');
-  });
-
-  it('safely disables project commands when no Kanban project is selected', () => {
-    const onEditProject = vi.fn();
-    const onDeleteProject = vi.fn();
-    const items = palette({
-      store: { projects: [] },
-      activeProject: null,
-      selectedKanbanProject: null,
-      activeWorkspace: null,
-      activeWorkspaceId: null,
-      activeTerminalId: null,
-      sidebarWorkspaces: [],
-      terminalsByWorkspaceId: {},
-      onEditProject,
-      onDeleteProject,
-    });
-
-    const editProject = items.find((item) => item.id === 'edit-project');
-    const deleteProject = items.find((item) => item.id === 'delete-project');
-    expect(editProject?.subtitle).toBe('Select a project first');
-    expect(deleteProject?.subtitle).toBe('Select a project first');
-
-    editProject?.action();
-    deleteProject?.action();
-    expect(onEditProject).not.toHaveBeenCalled();
-    expect(onDeleteProject).not.toHaveBeenCalled();
-  });
-
-  it('opens bulk workspace deletion from the palette', () => {
-    const onDeleteMultipleWorkspaces = vi.fn();
-    const items = palette({ onDeleteMultipleWorkspaces });
-
-    const bulkDelete = items.find((item) => item.id === 'delete-multiple-workspaces');
-    expect(bulkDelete?.danger).toBe(true);
-    bulkDelete?.action();
-
-    expect(onDeleteMultipleWorkspaces).toHaveBeenCalledOnce();
-  });
-
-  it('opens the one-time command prompt from the palette', () => {
-    const onRunOneTimeCommand = vi.fn();
-    const items = palette({ onRunOneTimeCommand });
-
-    items.find((item) => item.id === 'run-one-time-command')?.action();
-
-    expect(onRunOneTimeCommand).toHaveBeenCalledOnce();
-  });
-
-  it('falls back to project creation for new workspace when no project is active', () => {
-    const onNewProject = vi.fn();
-    const onNewWorkspace = vi.fn();
-    const items = palette({ activeProject: null, onNewProject, onNewWorkspace });
-
-    items.find((item) => item.id === 'new-workspace')?.action();
-
-    expect(onNewProject).toHaveBeenCalled();
-    expect(onNewWorkspace).not.toHaveBeenCalled();
+  it('omits all legacy workspace, template, custom-command, sidebar, and Developer Services entries', () => {
+    const ids = buildCommandPaletteItems(options()).map((item) => item.id).join(' ');
+    expect(ids).not.toMatch(/workspace|template|custom|sidebar|diff-panel|pull-requests/);
   });
 });

@@ -430,11 +430,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       <TerminalControls
         maximized={maximized}
         canToggleMaximize={canToggleMaximize}
-        broadcast={false}
-        canBroadcast={false}
         onSplitTerminal={onSplitTerminal}
         onEditTerminal={onEditTerminal}
-        onToggleBroadcast={() => {}}
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
       />

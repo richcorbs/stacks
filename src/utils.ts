@@ -4,12 +4,6 @@ export function basename(path: string) {
   return path.replace(/\/$/, '').split('/').pop() || path;
 }
 
-export function loadSidebarWidth() {
-  const raw = window.localStorage.getItem('stacks.sidebarWidth');
-  const parsed = raw ? Number(raw) : NaN;
-  return Number.isFinite(parsed) ? Math.min(420, Math.max(180, parsed)) : 260;
-}
-
 function leafTerminalId(node: Extract<SplitNode, { kind: 'leaf' }>) {
   return node.terminalId ?? (node as unknown as { paneId?: string }).paneId ?? null;
 }

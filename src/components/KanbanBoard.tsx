@@ -25,7 +25,10 @@ import { GithubStatusIcon } from './GithubStatusIcon';
 import { TerminalView } from './TerminalView';
 import { SplitView } from './WorkspaceTerminalTree';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
-import { disposeTerminalSession, getTerminalSession } from '../terminalSessionManager';
+import { clearOneTimeStartupCommand, disposeTerminalSession, getTerminalSession, registerOneTimeStartupCommand, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
+import { buildOneTimeCommandScript } from '../oneTimeCommand';
+import { CARD_TERMINAL_COMMAND_EVENT, publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
+import { insertTemporaryPane, temporaryPaneCwd, type TemporaryPaneRun } from '../cardTerminalState';
 import { superthreadCardProvider } from '../superthread/cardProvider';
 import { canManuallySyncSuperthread, cardCreationAvailability, filterKanbanCards, localKanbanProjects, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
@@ -669,6 +672,11 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const initialShellId = cardTerminalId(card.id, 'shell');
   const [shellTree, setShellTree] = useState<SplitNode>(() => card.environment?.split_layout ?? { kind: 'leaf', terminalId: initialShellId });
   const [focusedShellPane, setFocusedShellPane] = useState(() => card.environment?.focused_pane_id ?? initialShellId);
+  const [maximizedShellPane, setMaximizedShellPane] = useState<string | null>(null);
+  const [searchShellRequest, setSearchShellRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
+  const [restartShellRequest, setRestartShellRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
+  const temporaryRunRef = useRef<TemporaryPaneRun | null>(null);
+  const temporaryCwdRef = useRef<string | null>(null);
   const environmentRevisionRef = useRef(card.environment?.revision ?? 0);
   const savedLayoutSignatureRef = useRef(layoutSignature(
     card.environment?.split_layout ?? { kind: 'leaf', terminalId: initialShellId },
@@ -701,8 +709,8 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   const shellTerminals = useMemo(() => Object.fromEntries(shellTerminalIds.map((terminalId): [string, TerminalEntry] => [terminalId, {
     id: terminalId,
     workspaceId: cardWorkspaceId(card.id),
-    cwd: cardPath,
-    temporary: true,
+    cwd: temporaryRunRef.current?.terminalId === terminalId ? temporaryCwdRef.current : cardPath,
+    temporary: temporaryRunRef.current?.terminalId === terminalId,
   }])), [card.id, cardPath, shellTerminalIds]);
 
   function beginEditing() {
@@ -786,6 +794,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   useEffect(() => {
     const environmentId = card.environment?.id;
     if (!environmentId) return;
+    if (temporaryRunRef.current) return;
     const signature = layoutSignature(shellTree, focusedShellPane);
     if (signature === savedLayoutSignatureRef.current) return;
     const timer = window.setTimeout(() => {
@@ -868,6 +877,55 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
     return () => window.removeEventListener('stacks:card-tab-shortcut', handleTabShortcut);
   }, [activeView, card.content, card.title, cardTabs, consoleCommand, draftContent, draftTitle, editDirty, editing, serverCommand]);
 
+  function focusShellPane(paneId: string) {
+    if (!shellTerminalIds.includes(paneId)) return;
+    setFocusedShellPane(paneId);
+    setMaximizedShellPane((current) => current ? paneId : null);
+  }
+
+  function finishTemporaryRun(terminalId: string, restore = true) {
+    const run = temporaryRunRef.current;
+    if (!run || run.terminalId !== terminalId) return false;
+    temporaryRunRef.current = null;
+    temporaryCwdRef.current = null;
+    clearOneTimeStartupCommand(terminalId);
+    disposeTerminalSession(terminalId);
+    invoke('kill_pty', { terminalId }).catch(() => {});
+    if (restore) {
+      setShellTree(run.previousTree);
+      setFocusedShellPane(run.previousFocus);
+      setMaximizedShellPane(null);
+      requestTerminalSessionsScrollToBottomAfterFit([run.previousFocus]);
+    }
+    return true;
+  }
+
+  async function runOneTimeCommand(command: string) {
+    const trimmed = command.trim();
+    if (!trimmed || temporaryRunRef.current || !focusedShellPane) return;
+    const cwd = temporaryPaneCwd(await invoke<string | null>('pty_cwd', { terminalId: focusedShellPane }).catch(() => null), cardPath);
+    if (!cwd) return;
+    const terminalId = cardTerminalId(card.id, `temporary:${crypto.randomUUID()}`);
+    const inserted = insertTemporaryPane(shellTree, focusedShellPane, terminalId);
+    temporaryRunRef.current = inserted.run;
+    temporaryCwdRef.current = cwd;
+    registerOneTimeStartupCommand(terminalId, buildOneTimeCommandScript(trimmed));
+    setShellTree(inserted.tree);
+    setFocusedShellPane(inserted.focusedPaneId);
+    setMaximizedShellPane(inserted.maximizedPaneId);
+    requestTerminalSessionsScrollToBottomAfterFit([terminalId]);
+  }
+
+  useEffect(() => {
+    publishCardTerminalContext({ cardId: card.id, active: activeView === 'terminal', focusedPaneId: activeView === 'terminal' ? focusedShellPane || null : null, paneIds: shellTerminalIds, cwd: cardPath, maximized: Boolean(maximizedShellPane) });
+    return () => publishCardTerminalContext(null);
+  }, [activeView, card.id, cardPath, focusedShellPane, maximizedShellPane, shellTerminalIds]);
+
+  useEffect(() => () => {
+    const run = temporaryRunRef.current;
+    if (run) finishTemporaryRun(run.terminalId, false);
+  }, []);
+
   useEffect(() => {
     const splitTerminal = (direction: 'row' | 'column', requestedPane?: string) => {
       const targetPane = requestedPane && shellTerminalIds.includes(requestedPane)
@@ -877,7 +935,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
       const newPane = cardTerminalId(card.id, `shell:${crypto.randomUUID()}`);
       const applySplit = () => {
         setShellTree((current) => splitLeaf(current, targetPane, newPane, direction));
-        setFocusedShellPane(newPane);
+        focusShellPane(newPane);
       };
       const session = getTerminalSession(targetPane);
       if (session?.running) {
@@ -900,20 +958,39 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
       const detail = (event as CustomEvent<{ direction?: 'row' | 'column'; pane?: string }>).detail;
       if (detail?.direction) splitTerminal(detail.direction, detail.pane);
     };
+    const handleCommand = (event: Event) => {
+      if (activeView !== 'terminal') return;
+      const command = (event as CustomEvent<CardTerminalCommand>).detail;
+      const pane = focusedShellPane;
+      if (!command || !pane) return;
+      if (command.type === 'split') splitTerminal(command.direction);
+      else if (command.type === 'focus') focusShellPane(command.paneId);
+      else if (command.type === 'search') setSearchShellRequest({ terminalId: pane, nonce: Date.now() });
+      else if (command.type === 'clear') { const session = getTerminalSession(pane); session?.term.clearSelection(); session?.term.clear(); session?.term.scrollToBottom(); }
+      else if (command.type === 'restart') { disposeTerminalSession(pane); invoke('kill_pty', { terminalId: pane }).catch(() => {}); setRestartShellRequest({ terminalId: pane, nonce: Date.now() }); }
+      else if (command.type === 'stop') { disposeTerminalSession(pane); invoke('kill_pty', { terminalId: pane }).catch(console.error); }
+      else if (command.type === 'close') { if (!finishTemporaryRun(pane)) closeTerminal(event); }
+      else if (command.type === 'toggle-maximize' && shellTerminalIds.length > 1) { setMaximizedShellPane((current) => current ? null : pane); requestTerminalSessionsScrollToBottomAfterFit([pane]); }
+      else if (command.type === 'run-one-time') void runOneTimeCommand(command.command);
+    };
     window.addEventListener('stacks:card-terminal-split', handleSplit);
     window.addEventListener('stacks:card-terminal-close', closeTerminal);
+    window.addEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
     return () => {
       window.removeEventListener('stacks:card-terminal-split', handleSplit);
       window.removeEventListener('stacks:card-terminal-close', closeTerminal);
+      window.removeEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
     };
-  }, [card.id, focusedShellPane, shellTerminalIds]);
+  }, [activeView, card.id, cardPath, focusedShellPane, maximizedShellPane, shellTerminalIds, shellTree]);
 
   function closeShellPane(terminalId: string) {
+    if (finishTemporaryRun(terminalId)) { setPendingCloseShellPane(null); return; }
     disposeTerminalSession(terminalId);
     invoke('kill_pty', { terminalId }).catch(console.error);
     setShellTree((current) => removeLeaf(current, terminalId) ?? { kind: 'empty' });
     const remaining = shellTerminalIds.filter((pane) => pane !== terminalId);
     setFocusedShellPane(remaining.at(-1) ?? '');
+    setMaximizedShellPane(null);
     setPendingCloseShellPane(null);
   }
 
@@ -922,6 +999,9 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
     const consoleId = cardTerminalId(card.id, 'console');
     const handleRunningChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ terminalId?: string; running?: boolean }>).detail;
+      if (detail?.terminalId && !detail.running && temporaryRunRef.current?.terminalId === detail.terminalId) {
+        window.setTimeout(() => finishTemporaryRun(detail.terminalId!), 0);
+      }
       if (detail?.terminalId === serverId) {
         setServerRunning(Boolean(detail.running));
         if (!detail.running) setServerEnabled(false);
@@ -1211,27 +1291,32 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
                   workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: cardPath }}
                   project={project}
                   visible={activeView === 'terminal'}
-                  broadcast={false}
+
+                  canEditTerminal={false}
                   terminalFontSize={terminalFontSize}
                   terminalFontFamily={terminalFontFamily}
                   terminalScrollback={terminalScrollback}
                   copyOnSelect={copyOnSelect}
                   activeTerminalId={focusedShellPane}
-                  displayedMaximizedTerminalId={null}
-                  searchTerminalRequest={null}
-                  restartTerminalRequest={null}
+                  displayedMaximizedTerminalId={maximizedShellPane}
+                  searchTerminalRequest={searchShellRequest}
+                  restartTerminalRequest={restartShellRequest}
                   path=""
                   onResizeSplit={(path, ratio) => setShellTree((current) => setSplitRatio(current, path, ratio))}
-                  onFocus={setFocusedShellPane}
+                  onFocus={focusShellPane}
                   onClose={(terminalId) => setPendingCloseShellPane(terminalId)}
                   onSplitTerminal={(direction, targetTerminalId) => {
                     window.dispatchEvent(new CustomEvent('stacks:card-terminal-split', { detail: { direction, pane: targetTerminalId } }));
                   }}
                   onEditTerminal={() => {}}
-                  onToggleBroadcast={() => {}}
+
                   onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)}
-                  canToggleMaximize={false}
-                  onToggleMaximize={() => {}}
+                  canToggleMaximize={shellTerminalIds.length > 1}
+                  onToggleMaximize={(terminalId) => {
+                    focusShellPane(terminalId);
+                    setMaximizedShellPane((current) => current ? null : terminalId);
+                    requestTerminalSessionsScrollToBottomAfterFit([terminalId]);
+                  }}
                 />
               )}
             </div>
@@ -1288,8 +1373,8 @@ function CardServiceTerminal({ mode, command, enabled, active, card, project, ca
         active={active}
         visible={active}
         maximized={false}
-        broadcast={false}
-        canBroadcast={false}
+
+
         terminalFontSize={terminalFontSize}
         terminalFontFamily={terminalFontFamily}
         terminalScrollback={terminalScrollback}
@@ -1300,7 +1385,7 @@ function CardServiceTerminal({ mode, command, enabled, active, card, project, ca
         onClose={() => {}}
         onSplitTerminal={() => {}}
         onEditTerminal={() => {}}
-        onToggleBroadcast={() => {}}
+
         onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)}
         canToggleMaximize={false}
         onToggleMaximize={() => {}}

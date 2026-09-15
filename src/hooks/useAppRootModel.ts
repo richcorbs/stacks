@@ -1,718 +1,176 @@
-import { useCallback, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useAppStats } from './useAppStats';
-import { useWorkspaceCommands } from './useWorkspaceCommands';
-import { useAppShortcutHandlers } from './useAppShortcutHandlers';
-import { useAppWorkspaceModels } from './useAppWorkspaceModels';
-import { useAppFocusRestore } from './useAppFocusRestore';
-import { useAppUiActions } from './useAppUiActions';
-import { useAppOverlayModels } from './useAppOverlayModels';
-import { useAppLifecycleEffects } from './useAppLifecycleEffects';
-import { useAppInteractionEffects } from './useAppInteractionEffects';
-import { useAppStateBundle } from './useAppStateBundle';
-import { useAppLayoutProps } from './useAppLayoutProps';
-import { useAutomationRequests } from './useAutomationRequests';
-import { useWorkspaceCreation } from './useWorkspaceCreation';
-import { useOneTimeCommand } from './useOneTimeCommand';
-import { useWorkspacePullRequests } from './useWorkspacePullRequests';
-import { useActivityNotifications } from './useActivityNotifications';
-import { matchingWorkspaceDeleteTargets } from '../workspaceBulkDelete';
-import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
-import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
-import { disposeTerminalSessions } from '../terminalSessionManager';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { open } from '@tauri-apps/plugin-dialog';
+import type { AppSettings, DialogState, Project, Store } from '../types';
+import { DEFAULT_APP_SETTINGS, resolveAppSettings, toPersistedAppSettings, type ResolvedAppSettings } from '../settingsModel';
+import { useDebouncedStoreSave } from './useDebouncedSave';
+import { useWindowStatePersistence } from './useWindowStatePersistence';
+import { useAppCloseRequest, useAppToastEvents } from './useAppWindowEvents';
+import { useAppWindowFocusClass } from './useAppWindowFocusClass';
+import { useToast } from './useToast';
+import { useKeyboardShortcuts } from './useKeyboardShortcuts';
+import { useAppStyle } from './useAppStyle';
+import { useImageDropToTerminal } from './useImageDropToTerminal';
+import { clampTerminalFontSize, clampUiFontSize } from '../settings';
+import { buildCommandPaletteItems } from '../commandPaletteItems';
+import { selectedKanbanProject } from '../kanban/providerSelection';
+import { canOpenProjectSwitcher, OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
+import { OPEN_DIRECT_WORK_EVENT } from '../directWork';
+import { CARD_TERMINAL_CONTEXT_EVENT, dispatchCardTerminalCommand, type CardTerminalContext } from '../cardTerminalCommands';
 import { createKanbanEnvironment, fetchKanbanCards, fetchKanbanEnvironmentHealth, preflightKanbanEnvironment } from '../kanban/api';
 import { startKanbanEnvironment } from '../kanban/startEnvironment';
+import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
-import type { GitInfo } from '../types';
-import { developerServicesShortcutState, type DeveloperServicesTab } from '../developerServices';
-import { updateProjectNotes } from '../projectNotes';
-import { OPEN_DIRECT_WORK_EVENT } from '../directWork';
+import { disposeTerminalSessions } from '../terminalSessionManager';
 import { deletePersistentPiSession } from '../pi/sessionController';
-
-const encoder = new TextEncoder();
+import { runShortcutAction } from '../shortcutActions';
+import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
 
 export function useAppRootModel() {
-  const startingKanbanCardIdsRef = useRef(new Set<string>());
-  const {
-    loaded,
-    setLoaded,
-    store,
-    setStore,
-    sidebarWidth,
-    setSidebarWidth,
-    sidebarVisible,
-    setSidebarVisible,
-    appSettings,
-    setAppSettings,
-    metaKeyDown,
-    setMetaKeyDown,
-    workspace,
-    workspaceActions,
-    overlayState,
-    toastState,
-    terminalActivity,
-  } = useAppStateBundle();
-  const {
-    activeProjectId,
-    activeWorkspaceId,
-    terminalsByWorkspaceId,
-    splitRootsByWorkspaceId,
-    visitedWorkspaceIds,
-    activeTerminalId,
-    focusedTerminalByWorkspaceId,
-    maximizedWorkspaceIds,
-    sidebarFocusedWorkspaceId,
-    terminalCwds,
-  } = workspace;
-  const {
-    setActiveProjectId,
-    setTerminalsByWorkspaceId,
-    setSplitRootsByWorkspaceId,
-    setActiveTerminalId,
-    setFocusedTerminalByWorkspaceId,
-    setMaximizedWorkspaceIds,
-    setSidebarFocusedWorkspaceId,
-    selectWorkspace,
-    initializeWorkspace,
-    focusTerminal: focusTerminalState,
-    removeTerminalState,
-    removeProjectState,
-    rememberTerminalCwd,
-  } = workspaceActions;
-  const { runningTerminalIds, setRunningTerminalIds, activityWorkspaceIds, setActivityWorkspaceIds, activityTerminalLastOutputAtById, activityNow } = terminalActivity;
-  const {
-    dialog,
-    setDialog,
-    contextMenu,
-    setContextMenu,
-    pointerDragRef,
-    resizingSidebarRef,
-    justPointerDraggedRef,
-    confirmCloseTerminalId,
-    setConfirmCloseTerminalId,
-    confirmDeleteProjectId,
-    setConfirmDeleteProjectId,
-    confirmDeleteWorkspace,
-    setConfirmDeleteWorkspace,
-    confirmQuitOpen,
-    setConfirmQuitOpen,
-    commandPaletteOpen,
-    setCommandPaletteOpen,
-    settingsOpen,
-    setSettingsOpen,
-    searchTerminalRequest,
-    setSearchTerminalRequest,
-    restartTerminalRequest,
-    setRestartTerminalRequest,
-    oneTimeCommandOpen,
-    setOneTimeCommandOpen,
-    addCmdPCommandOpen,
-    setAddCmdPCommandOpen,
-    editingCmdPCommand,
-    setEditingCmdPCommand,
-    deletingCmdPCommand,
-    setDeletingCmdPCommand,
-    addWorkspaceTemplateOpen,
-    setAddWorkspaceTemplateOpen,
-    editingWorkspaceTemplate,
-    setEditingWorkspaceTemplate,
-    deletingWorkspaceTemplate,
-    setDeletingWorkspaceTemplate,
-    deleteMultipleWorkspacesOpen,
-    setDeleteMultipleWorkspacesOpen,
-  } = overlayState;
-  const { toast, showToast } = toastState;
-  const [broadcastWorkspaceIds, setBroadcastWorkspaceIds] = useState<Record<string, boolean>>({});
-  const [notesVisible, setNotesVisible] = useState(false);
-  const [developerServicesVisible, setDeveloperServicesVisible] = useState(true);
-  const [developerServicesTab, setDeveloperServicesTab] = useState<DeveloperServicesTab>('superthread');
+  const [loaded, setLoaded] = useState(false);
+  const [store, setStore] = useState<Store>({ projects: [] });
+  const [appSettings, setAppSettings] = useState<ResolvedAppSettings>(DEFAULT_APP_SETTINGS);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [oneTimeCommandOpen, setOneTimeCommandOpen] = useState(false);
+  const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
+  const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
+  const [cardTerminal, setCardTerminal] = useState<CardTerminalContext | null>(null);
+  const [, setMetaKeyDown] = useState(false);
+  const startingCardIds = useRef(new Set<string>());
+  const { toast, showToast } = useToast();
 
-  const { activeProject, activeWorkspace, sidebarWorkspaces, activePath, visitedWorkspaceTerminalTrees } = useAppWorkspaceModels({
-    store,
-    activeProjectId,
-    activeWorkspaceId,
-    activeTerminalId,
-    terminalCwds,
-    visitedWorkspaceIds,
-    terminalsByWorkspaceId,
-    splitRootsByWorkspaceId,
-  });
-  function changeProjectNotes(notes: string) {
-    if (!activeProject) return;
-    setStore((current) => updateProjectNotes(current, activeProject.id, notes));
+  useEffect(() => {
+    Promise.all([invoke<Store>('load_store'), invoke<AppSettings>('load_settings').catch(() => null)])
+      .then(([nextStore, settings]) => { setStore(nextStore); setAppSettings(resolveAppSettings(settings)); })
+      .catch(console.error).finally(() => setLoaded(true));
+  }, []);
+  useDebouncedStoreSave(loaded, store);
+  useEffect(() => {
+    if (!loaded) return;
+    const timer = window.setTimeout(() => invoke('save_app_settings', { next: toPersistedAppSettings(appSettings) }).catch(console.error), 250);
+    return () => window.clearTimeout(timer);
+  }, [appSettings, loaded]);
+  useEffect(() => {
+    const update = (event: Event) => setCardTerminal((event as CustomEvent<CardTerminalContext | null>).detail);
+    window.addEventListener(CARD_TERMINAL_CONTEXT_EVENT, update);
+    return () => window.removeEventListener(CARD_TERMINAL_CONTEXT_EVENT, update);
+  }, []);
+  useWindowStatePersistence();
+  useAppWindowFocusClass();
+  useAppToastEvents(showToast);
+  useAppCloseRequest(appSettings.confirm_close, setConfirmQuitOpen);
+  useImageDropToTerminal(cardTerminal?.active ? cardTerminal.focusedPaneId : null, 'terminal');
+
+  async function openProjectDialog() {
+    const selected = await open({ directory: true, multiple: false, title: 'Choose Project Directory' }).catch(() => null);
+    if (typeof selected !== 'string') return;
+    setDialog({ kind: 'project', name: selected.split('/').filter(Boolean).at(-1) ?? 'Project', path: selected, kanbanSource: 'local', deliveryWorkflow: 'local_merge', targetBranch: 'main', supportsFeatureEnvironments: false, githubMergeStrategy: 'merge', requirePassingCi: true, requireApproval: false });
   }
-
-  useActivityNotifications({
-    enabled: appSettings.activity_notifications,
-    store,
-    activeWorkspaceId,
-  });
-  const appStats = useAppStats();
-  const workspacePullRequests = useWorkspacePullRequests(sidebarWorkspaces);
-  const { restoreActiveTerminalFocus } = useAppFocusRestore(activeTerminalId);
-
-  function toggleProjectNotes() {
-    if (!activeProject) return;
-    const closing = notesVisible;
-    setNotesVisible((visible) => !visible);
-    if (closing) restoreActiveTerminalFocus('close-project-notes');
+  function editProject(project: Project) {
+    setDialog({ kind: 'editProject', projectId: project.id, name: project.name, path: project.path, kanbanSource: project.kanban_source, startWorkCommand: project.start_work_command, serverCommand: project.server_command, consoleCommand: project.console_command, deliveryWorkflow: project.delivery_workflow, targetBranch: project.target_branch, supportsFeatureEnvironments: project.supports_feature_environments, githubMergeStrategy: project.github_merge_strategy, requirePassingCi: project.require_passing_ci, requireApproval: project.require_approval });
   }
-
-  function toggleDeveloperServices(reason: string) {
-    const closing = developerServicesVisible;
-    setDeveloperServicesVisible((visible) => !visible);
-    if (closing) restoreActiveTerminalFocus(reason);
+  async function submitDialog() {
+    if (!dialog) return;
+    const name = dialog.name.trim(); const path = dialog.path.trim();
+    if (!name || !path) throw new Error('Name and directory are required');
+    const duplicate = store.projects.find((project) => project.path === path && (dialog.kind === 'project' || project.id !== dialog.projectId));
+    if (duplicate) throw new Error('That project directory is already added');
+    const id = dialog.kind === 'project' ? crypto.randomUUID() : dialog.projectId;
+    const existing = store.projects.find((project) => project.id === id);
+    const project: Project = {
+      id, name, path, workspaces: [], kanban_source: dialog.kanbanSource ?? 'local',
+      start_work_command: dialog.startWorkCommand?.trim() || undefined, server_command: dialog.serverCommand?.trim() || undefined,
+      console_command: dialog.consoleCommand?.trim() || undefined, delivery_workflow: dialog.deliveryWorkflow ?? 'local_merge',
+      target_branch: dialog.targetBranch?.trim() || 'main', supports_feature_environments: dialog.supportsFeatureEnvironments ?? false,
+      github_merge_strategy: dialog.githubMergeStrategy ?? 'merge', require_passing_ci: dialog.requirePassingCi ?? true,
+      require_approval: dialog.requireApproval ?? false,
+    };
+    const next = { projects: dialog.kind === 'project' ? [...store.projects, project] : store.projects.map((item) => item.id === id ? project : item) };
+    await invoke('save_store', { store: next }); setStore(next); setDialog(null);
+    setAppSettings((current) => ({ ...current, kanban_project_id: id }));
   }
-
-  function focusDeveloperServicesTab(requestedTab: DeveloperServicesTab, closeReason: string) {
-    const next = developerServicesShortcutState(developerServicesVisible, developerServicesTab, requestedTab);
-    setDeveloperServicesTab(next.activeTab);
-    setDeveloperServicesVisible(next.visible);
-    if (!next.visible) restoreActiveTerminalFocus(closeReason);
-  }
-
-  const { saveStoreNow } = useAppLifecycleEffects({
-    loaded,
-    store,
-    sidebarWidth,
-    appSettings,
-    setLoaded,
-    setStore,
-    setSidebarWidth,
-    setAppSettings,
-    developerServicesVisible,
-    setDeveloperServicesVisible,
-    developerServicesTab,
-    setDeveloperServicesTab,
-    selectWorkspace,
-    setActiveProjectId,
-    setFocusedTerminalByWorkspaceId,
-    setMaximizedWorkspaceIds,
-    activeProjectId,
-    activeWorkspaceId,
-    activeTerminalId,
-    focusedTerminalByWorkspaceId,
-    activePaneKind: activeWorkspaceId
-      ? (terminalsByWorkspaceId[activeWorkspaceId] ?? []).find((pane) => pane.id === activeTerminalId)?.kind ?? 'terminal'
-      : 'terminal',
-    maximizedWorkspaceIds,
-    sidebarFocusedWorkspaceId,
-    setConfirmQuitOpen,
-    setContextMenu,
-    rememberTerminalCwd,
-    showToast,
-  });
-
-  const { createWorkspace, rollbackWorkspace } = useWorkspaceCreation({
-    store,
-    setStore,
-    saveStoreNow,
-    selectWorkspace,
-    focusTerminal: focusTerminalState,
-    removeTerminalState,
-    setTerminalsByWorkspaceId,
-    setSplitRootsByWorkspaceId,
-    setSidebarFocusedWorkspaceId,
-  });
-
-  const commands = useWorkspaceCommands({
-    store,
-    setStore,
-    dialog,
-    setDialog,
-    activeWorkspace,
-    activeTerminalId,
-    focusedTerminalByWorkspaceId,
-    maximizedWorkspaceIds,
-    sidebarFocusedWorkspaceId,
-    activeWorkspaceId,
-    terminalsByWorkspaceId,
-    splitRootsByWorkspaceId,
-    sidebarWorkspaces,
-    selectWorkspace,
-    focusTerminalState,
-    removeTerminalState,
-    removeProjectState,
-    setTerminalsByWorkspaceId,
-    setSplitRootsByWorkspaceId,
-    setActiveTerminalId,
-    setFocusedTerminalByWorkspaceId,
-    setMaximizedWorkspaceIds,
-    setSidebarFocusedWorkspaceId,
-    setRunningTerminalIds,
-    setActivityWorkspaceIds,
-    requestTerminalRestart: (terminalId) => setRestartTerminalRequest({ terminalId, nonce: Date.now() }),
-    createWorkspace,
-  });
-  const {
-    openProjectDialog,
-    openWorkspaceDialog,
-    openWorkspaceTemplateDialog,
-    openEditTerminalDialog,
-    submitDialog,
-    toggleProject,
-    openEditProjectDialog,
-    openEditWorkspaceDialog,
-    focusTerminal,
-    deleteWorkspace,
-    moveProject,
-    moveTerminal,
-    deleteProject,
-    splitTerminal,
-    splitTerminalWithCommand,
-    cycleTerminal,
-    cycleSidebarWorkspace,
-    activateSidebarFocusedWorkspace,
-    activateWorkspaceByIndex,
-    toggleMaximizedTerminal,
-    resizeSplit,
-    stopTerminal,
-    restartTerminal,
-    closeTerminal,
-  } = commands;
-
-  function focusNextWorkspaceWithUnseenOutput() {
-    const workspaceId = nextWorkspaceWithUnseenOutput(
-      sidebarWorkspaces.map(({ workspace }) => workspace.id),
-      activityWorkspaceIds,
-      activeWorkspaceId,
-    );
-    if (!workspaceId) return;
-    const index = sidebarWorkspaces.findIndex(({ workspace }) => workspace.id === workspaceId);
-    if (index >= 0) activateWorkspaceByIndex(index);
-  }
-
-  async function createKanbanWorkspace(projectId: string, cardNumber: string, cardTitle: string) {
-    const project = store.projects.find((candidate) => candidate.id === projectId);
-    if (!project) throw new Error('Selected project not found');
-    const usesSuperthread = project.kanban_source === 'superthread';
-    const input = usesSuperthread
-      ? buildSuperthreadWorkspaceInput(store, projectId, cardNumber, cardTitle, {
-          command: project.start_work_command || appSettings.superthread_start_work_command,
-          workspaceName: appSettings.superthread_workspace_name_template,
-        })
-      : buildLocalWorkspaceInput(store, projectId, cardNumber, cardTitle);
-    return createWorkspace(input);
-  }
-
-  async function startKanbanWork(projectId: string, cardNumber: string, cardTitle: string) {
+  async function deleteConfirmedProject() {
+    if (!confirmDeleteProjectId) return;
+    const next = { projects: store.projects.filter((project) => project.id !== confirmDeleteProjectId) };
     try {
-      const creation = await createKanbanWorkspace(projectId, cardNumber, cardTitle);
-      showToast(`Started work on #${cardNumber}`);
-      return { projectId: creation.projectId, workspaceId: creation.workspace.id };
-    } catch (error) {
-      showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
+      await invoke('save_store', { store: next }); setStore(next);
+      if (appSettings.kanban_project_id === confirmDeleteProjectId) setAppSettings((current) => ({ ...current, kanban_project_id: null }));
+      setConfirmDeleteProjectId(null);
+    } catch (error) { showToast(error instanceof Error ? error.message : String(error)); }
   }
 
   async function startCardWork(cardId: string) {
-    const starting = startingKanbanCardIdsRef.current;
-    if (starting.has(cardId)) throw new Error('Work is already being started for this card');
-    starting.add(cardId);
+    if (startingCardIds.current.has(cardId)) return false;
+    startingCardIds.current.add(cardId);
     try {
       const card = (await fetchKanbanCards()).find((candidate) => candidate.id === cardId);
-      if (!card) throw new Error('The scoped local card was not found');
-      if (!card.project_id) throw new Error('The card is not assigned to a project');
+      if (!card?.project_id) throw new Error('The card is not assigned to a project');
       const project = store.projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('The card project was not found');
       if (card.environment) {
         const health = (await fetchKanbanEnvironmentHealth([card.id]))[0];
         if (health?.issues.length) throw new Error(health.issues[0].message);
-        return {
-          ok: true,
-          message: `Work is already started on #${card.external_id} in ${card.environment.worktree_path}`,
-          workspaceId: card.environment.id,
-        };
+        return true;
       }
       if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
-
-      const input = card.provider === 'local'
-        ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title)
-        : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, {
-            command: project.start_work_command || appSettings.superthread_start_work_command,
-            workspaceName: appSettings.superthread_workspace_name_template,
-          });
-      const setupCommand = input.setupCommand?.trim();
-      const { created: updated, setup } = await startKanbanEnvironment({
-        cardId: card.id,
-        expectedWorkflowRevision: card.workflow_revision,
-        runSetup: () => setupCommand
-          ? invoke<{ cwd: string; output: string }>('run_workspace_setup', { command: setupCommand, cwd: project.path })
-          : Promise.resolve({ cwd: project.path, output: '' }),
-        preflight: preflightKanbanEnvironment,
-        createEnvironment: createKanbanEnvironment,
-      });
-      const worktree = setup.cwd;
-      const git = await invoke<GitInfo | null>('git_info', { path: worktree }).catch(() => null);
-      showToast(`Started work on #${card.external_id}`);
-      return {
-        ok: true,
-        message: `Started work on #${card.external_id}\nWorktree: ${worktree}${git?.branch ? `\nBranch: ${git.branch}` : ''}`,
-        workspaceId: updated.environment?.id ?? null,
-      };
-    } finally {
-      starting.delete(cardId);
-    }
+      const input = card.provider === 'local' ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title) : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, project.start_work_command || appSettings.superthread_start_work_command);
+      const setup = input.setupCommand?.trim();
+      await startKanbanEnvironment({ cardId, expectedWorkflowRevision: card.workflow_revision, runSetup: () => setup ? invoke('run_workspace_setup', { command: setup, cwd: project.path }) : Promise.resolve({ cwd: project.path, output: '' }), preflight: preflightKanbanEnvironment, createEnvironment: createKanbanEnvironment });
+      showToast(`Started work on #${card.external_id}`); return true;
+    } catch (error) { showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`); return false; }
+    finally { startingCardIds.current.delete(cardId); }
   }
-
-  async function startCardWorkFromUi(cardId: string) {
-    try {
-      await startCardWork(cardId);
-      return true;
-    } catch (error) {
-      showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
-    }
-  }
-
-  useAutomationRequests({
-    loaded,
-    activeProjectId,
-    createWorkspace,
-    rollbackWorkspace,
-    startCardWork,
-  });
-
-  useAppInteractionEffects({
-    resizingSidebarRef,
-    pointerDragRef,
-    justPointerDraggedRef,
-    setSidebarWidth,
-    moveProject,
-    moveTerminal,
-    activeWorkspace,
-    initializeWorkspace,
-    setActiveTerminalId,
-  });
-
-  const {
-    adjustTerminalFontSize,
-    adjustUiFontSize,
-    openDirectoryInEditor,
-    openTerminalSearch,
-    closeCommandPalette,
-    closeContextMenu,
-    closeSettings,
-    closeDialog,
-    submitActiveDialog,
-  } = useAppUiActions({
-    activeTerminalId,
-    activePath,
-    activeProjectPath: activeProject?.path,
-    editorApp: appSettings.editor_app,
-    setAppSettings,
-    setSearchTerminalRequest,
-    setCommandPaletteOpen,
-    setContextMenu,
-    setSettingsOpen,
-    setDialog,
-    submitDialog,
-    restoreActiveTerminalFocus,
-    showToast,
-  });
-
-  const { runOneTimeCommand } = useOneTimeCommand({
-    activeProjectId,
-    activeWorkspaceId,
-    activeTerminalId,
-    activePath,
-    fallbackPath: activeWorkspace?.cwd || activeProject?.path || null,
-    maximizedWorkspaceIds,
-    terminalsByWorkspaceId,
-    splitRootsByWorkspaceId,
-    selectWorkspace,
-    focusTerminal: focusTerminalState,
-    setTerminalsByWorkspaceId,
-    setSplitRootsByWorkspaceId,
-    setMaximizedWorkspaceIds,
-  });
-
-  const toggleBroadcast = useCallback((workspaceId: string) => {
-    setBroadcastWorkspaceIds((current) => ({ ...current, [workspaceId]: !current[workspaceId] }));
-    restoreActiveTerminalFocus('toggle-broadcast');
-  }, [restoreActiveTerminalFocus]);
-
-  const toggleActiveWorkspaceBroadcast = useCallback(() => {
-    if (!activeWorkspaceId) return;
-    setBroadcastWorkspaceIds((current) => {
-      const enabled = !current[activeWorkspaceId];
-      showToast(enabled ? 'Broadcast enabled' : 'Broadcast disabled');
-      return { ...current, [activeWorkspaceId]: enabled };
-    });
-    restoreActiveTerminalFocus('toggle-broadcast');
-  }, [activeWorkspaceId, restoreActiveTerminalFocus, showToast]);
-
-  const handleTerminalInput = useCallback((terminalId: string, data: string) => {
-    const sourceTerminal = Object.values(terminalsByWorkspaceId).flat().find((terminal) => terminal.id === terminalId);
-    const workspaceId = sourceTerminal?.workspaceId;
-    if (!workspaceId) return;
-    const targetIds = broadcastWorkspaceIds[workspaceId] && !sourceTerminal?.temporary
-      ? (terminalsByWorkspaceId[workspaceId] ?? []).filter((terminal) => !terminal.temporary && terminal.kind !== 'pi').map((terminal) => terminal.id)
-      : [terminalId];
-    for (const targetId of targetIds) {
-      invoke('write_pty', { terminalId: targetId, data: Array.from(encoder.encode(data)) }).catch(console.error);
-    }
-  }, [broadcastWorkspaceIds, terminalsByWorkspaceId]);
-
-  async function cleanupKanbanCard(card: KanbanCard) {
+  async function cleanupCard(card: KanbanCard) {
     await Promise.all([
-      ...Array.from(new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [
-        `kanban-card:${card.id}:planning`, `kanban-card:${card.id}:work`,
-      ])).map((paneId) => deletePersistentPiSession(paneId)),
-      ...Array.from(new Set([
-        ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []),
-        `kanban-card:${card.id}:terminal:server`,
-        `kanban-card:${card.id}:terminal:console`,
-      ])).map((terminalId) => {
-        disposeTerminalSessions([terminalId]);
-        return invoke('kill_pty', { terminalId, expectedCwd: card.environment?.worktree_path });
-      }),
+      ...Array.from(new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [`kanban-card:${card.id}:planning`, `kanban-card:${card.id}:work`])).map(deletePersistentPiSession),
+      ...Array.from(new Set([...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []), `kanban-card:${card.id}:terminal:server`, `kanban-card:${card.id}:terminal:console`])).map((terminalId) => { disposeTerminalSessions([terminalId]); return invoke('kill_pty', { terminalId, expectedCwd: card.environment?.worktree_path }); }),
     ]);
-    if (!card.project_id || !card.environment) return true;
-    const project = store.projects.find((candidate) => candidate.id === card.project_id);
-    if (!project) throw new Error('The card project was not found');
-    await invoke('kanban_cleanup_environment', {
-      id: card.id,
-      expectedWorkflowRevision: card.workflow_revision,
-      expectedEnvironmentRevision: card.environment.revision,
-    });
+    if (card.environment) await invoke('kanban_cleanup_environment', { id: card.id, expectedWorkflowRevision: card.workflow_revision, expectedEnvironmentRevision: card.environment.revision });
     return true;
   }
 
-  const { commandPaletteItems } = useAppShortcutHandlers({
-    store,
-    sidebarWorkspaces,
-    terminalsByWorkspaceId,
-    activeProject,
-    activeWorkspace,
-    activeWorkspaceId,
-    activeTerminalId,
-    focusedTerminalByWorkspaceId,
-    maximizedWorkspaceIds,
-    activePath,
-    appSettings,
-    setMetaKeyDown,
-    toggleSidebar: () => setSidebarVisible((visible) => !visible),
-    toggleSuperthread: () => toggleDeveloperServices('close-developer-services-shortcut'),
-    toggleGithubPullRequests: () => focusDeveloperServicesTab('pull-requests', 'close-pull-requests-panel'),
-    toggleDiff: () => focusDeveloperServicesTab('diff', 'close-diff-panel'),
-    toggleProjectNotes,
-    setConfirmCloseTerminalId,
-    setConfirmDeleteProjectId,
-    setConfirmDeleteWorkspace,
-    setConfirmQuitOpen,
-    setCommandPaletteOpen,
-    setSettingsOpen,
-    selectWorkspace,
-    openProjectDialog,
-    openWorkspaceDialog,
-    openEditProjectDialog,
-    openEditWorkspaceDialog,
-    openEditTerminalDialog,
-    deleteProject,
-    deleteWorkspace,
-    splitTerminal,
-    splitTerminalWithCommand,
-    cycleSidebarWorkspace,
-    cycleTerminal,
-    focusNextWorkspaceWithUnseenOutput,
-    stopTerminal,
-    restartTerminal,
-    closeTerminal,
-    toggleMaximizedTerminal,
-    activateWorkspaceByIndex,
-    activateSidebarFocusedWorkspace,
-    adjustTerminalFontSize,
-    adjustUiFontSize,
-    openTerminalSearch,
-    openDirectoryInEditor,
-    openOneTimeCommand: () => setOneTimeCommandOpen(true),
-    openNewCard: (project) => window.dispatchEvent(new CustomEvent('stacks:new-card', { detail: { projectId: project?.id } })),
-    openDirectProjectWork: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project?.id } })),
-    openAddCmdPCommand: () => setAddCmdPCommandOpen(true),
-    openEditCmdPCommand: setEditingCmdPCommand,
-    openDeleteCmdPCommand: setDeletingCmdPCommand,
-    openAddWorkspaceTemplate: () => setAddWorkspaceTemplateOpen(true),
-    openWorkspaceTemplate: openWorkspaceTemplateDialog,
-    openEditWorkspaceTemplate: setEditingWorkspaceTemplate,
-    openDeleteWorkspaceTemplate: setDeletingWorkspaceTemplate,
-    openDeleteMultipleWorkspaces: () => setDeleteMultipleWorkspacesOpen(true),
-    broadcastEnabled: activeWorkspaceId ? Boolean(broadcastWorkspaceIds[activeWorkspaceId]) : false,
-    onToggleBroadcast: toggleActiveWorkspaceBroadcast,
-  });
+  const selectedProject = selectedKanbanProject(store.projects, appSettings.kanban_project_id);
+  const paletteItems = useMemo(() => buildCommandPaletteItems({
+    store, selectedKanbanProject: selectedProject, superthreadEnabled: appSettings.superthread_enabled, cardTerminal,
+    onNewProject: () => { void openProjectDialog(); }, onEditProject: editProject,
+    onDeleteProject: setConfirmDeleteProjectId, onOpenSettings: () => setSettingsOpen(true),
+    onRestartApp: () => { void invoke('restart_app'); },
+    onOpenDirectoryInEditor: (path) => { void invoke('open_path_in_editor', { path, editor: appSettings.editor_app }); },
+    onRunOneTimeCommand: () => setOneTimeCommandOpen(true),
+    onNewCard: (project) => window.dispatchEvent(new CustomEvent('stacks:new-card', { detail: { projectId: project?.id } })),
+    onDirectProjectWork: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project?.id } })),
+    onCardTerminalCommand: (action) => dispatchCardTerminalCommand(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
+    onFocusCardTerminalPane: (paneId) => dispatchCardTerminalCommand({ type: 'focus', paneId }),
+  }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, selectedProject, store]);
 
-  const { confirmDeleteProject, confirmDeleteWorkspaceEntry } = useAppOverlayModels({ store, confirmDeleteProjectId, confirmDeleteWorkspace });
-  const layoutProps = useAppLayoutProps({
-    sidebarVisible,
-    sidebarWidth,
-    store,
-    activeProjectId,
-    activeWorkspaceId,
-    sidebarFocusedWorkspaceId,
-    sidebarWorkspaces,
-    workspacePullRequests,
-    runningTerminalIds,
-    activityWorkspaceIds,
-    activityTerminalLastOutputAtById,
-    activityNow,
-    metaKeyDown,
-    appStats,
-    justPointerDraggedRef,
-    pointerDragRef,
-    resizingSidebarRef,
-    toggleProject,
-    selectWorkspace,
-    openWorkspaceDiff: (projectId, workspaceId) => {
-      selectWorkspace(projectId, workspaceId);
-      setDeveloperServicesTab('diff');
-      setDeveloperServicesVisible(true);
-    },
-    setContextMenu,
-    openProjectDialog,
-    openWorkspaceDialog,
-    activePath,
-    activeProjectName: activeProject?.name ?? null,
-    activeWorkspaceName: activeWorkspace?.name ?? null,
-    activeProjectNotes: activeProject?.notes ?? '',
-    notesVisible,
-    visitedWorkspaceTerminalTrees,
-    activeTerminalId,
-    maximizedWorkspaceIds,
-    broadcastWorkspaceIds,
-    appSettings,
-    searchTerminalRequest,
-    restartTerminalRequest,
-    resizeSplit,
-    focusTerminal,
-    closeTerminal,
-    setConfirmCloseTerminalId,
-    toggleBroadcast,
-    openEditTerminalDialog,
-    handleTerminalInput,
-    toggleMaximizedTerminal,
-    splitTerminal,
-    toggleSidebar: () => setSidebarVisible((visible) => !visible),
-    toggleProjectNotes,
-    changeProjectNotes,
-    toggleDeveloperServices: () => toggleDeveloperServices('close-developer-services-button'),
-    developerServicesVisible,
-    developerServicesTab,
-    setDeveloperServicesTab,
-    cleanupKanbanCard,
-    startCardWork: startCardWorkFromUi,
-    startSuperthreadWork: startKanbanWork,
-    setAppSettings,
-    contextMenu,
-    commandPaletteOpen,
-    commandPaletteItems,
-    settingsOpen,
-    oneTimeCommandOpen,
-    setOneTimeCommandOpen,
-    addCmdPCommandOpen,
-    setAddCmdPCommandOpen,
-    editingCmdPCommand,
-    setEditingCmdPCommand,
-    deletingCmdPCommand,
-    setDeletingCmdPCommand,
-    addCmdPCommand: (item) => {
-      setAppSettings((current) => ({
-        ...current,
-        custom_cmd_p_commands: [...current.custom_cmd_p_commands, { ...item, id: crypto.randomUUID() }],
-      }));
-      setAddCmdPCommandOpen(false);
-      showToast('Cmd-P command saved');
-    },
-    editCmdPCommand: (item) => {
-      if (!editingCmdPCommand) return;
-      setAppSettings((current) => ({
-        ...current,
-        custom_cmd_p_commands: current.custom_cmd_p_commands.map((command) =>
-          command.id === editingCmdPCommand.id ? { ...item, id: command.id } : command),
-      }));
-      setEditingCmdPCommand(null);
-      showToast('Cmd-P command updated');
-    },
-    deleteCmdPCommand: () => {
-      if (!deletingCmdPCommand) return;
-      setAppSettings((current) => ({
-        ...current,
-        custom_cmd_p_commands: current.custom_cmd_p_commands.filter((command) => command.id !== deletingCmdPCommand.id),
-      }));
-      setDeletingCmdPCommand(null);
-      showToast('Cmd-P command deleted');
-    },
-    addWorkspaceTemplateOpen,
-    setAddWorkspaceTemplateOpen,
-    editingWorkspaceTemplate,
-    setEditingWorkspaceTemplate,
-    deletingWorkspaceTemplate,
-    setDeletingWorkspaceTemplate,
-    addWorkspaceTemplate: (item) => {
-      setAppSettings((current) => ({
-        ...current,
-        workspace_templates: [...current.workspace_templates, { ...item, id: crypto.randomUUID() }],
-      }));
-      setAddWorkspaceTemplateOpen(false);
-      showToast('Workspace template saved');
-    },
-    editWorkspaceTemplate: (item) => {
-      if (!editingWorkspaceTemplate) return;
-      setAppSettings((current) => ({
-        ...current,
-        workspace_templates: current.workspace_templates.map((template) =>
-          template.id === editingWorkspaceTemplate.id ? { ...item, id: template.id } : template),
-      }));
-      setEditingWorkspaceTemplate(null);
-      showToast('Workspace template updated');
-    },
-    deleteWorkspaceTemplate: () => {
-      if (!deletingWorkspaceTemplate) return;
-      setAppSettings((current) => ({
-        ...current,
-        workspace_templates: current.workspace_templates.filter((template) => template.id !== deletingWorkspaceTemplate.id),
-      }));
-      setDeletingWorkspaceTemplate(null);
-      showToast('Workspace template deleted');
-    },
-    deleteMultipleWorkspacesOpen,
-    setDeleteMultipleWorkspacesOpen,
-    deleteMultipleWorkspaces: (query) => {
-      const targets = matchingWorkspaceDeleteTargets(store, query);
-      targets.forEach(({ projectId, workspaceId }) => deleteWorkspace(projectId, workspaceId));
-      setDeleteMultipleWorkspacesOpen(false);
-      showToast(targets.length === 1 ? 'Deleted 1 workspace' : `Deleted ${targets.length} workspaces`);
-    },
-    runOneTimeCommand: async (command) => {
-      try {
-        return await runOneTimeCommand(command);
-      } catch (error) {
-        showToast(`One-time command failed: ${error instanceof Error ? error.message : String(error)}`);
-        return false;
-      }
-    },
-    dialog,
-    confirmCloseTerminalId,
-    confirmDeleteProject,
-    confirmDeleteWorkspace,
-    confirmDeleteWorkspaceEntry,
-    confirmQuitOpen,
-    toast,
-    setDialog,
-    setConfirmDeleteProjectId,
-    setConfirmDeleteWorkspace,
-    setConfirmQuitOpen,
-    closeContextMenu,
-    closeCommandPalette,
-    closeSettings,
-    closeDialog,
-    submitActiveDialog,
-    openEditProjectDialog,
-    openEditWorkspaceDialog,
-    deleteProject,
-    deleteWorkspace,
-    restoreActiveTerminalFocus,
-  });
+  const shortcutHandlers: ShortcutHandlers = {
+    setMetaKeyDown, openProjectDialog: () => { void openProjectDialog(); }, requestQuit: () => appSettings.confirm_close ? setConfirmQuitOpen(true) : void invoke('quit_app'),
+    adjustTerminalFontSize: (delta) => setAppSettings((current) => ({ ...current, terminal_font_size: clampTerminalFontSize(current.terminal_font_size + delta) })),
+    adjustUiFontSize: (delta) => setAppSettings((current) => ({ ...current, ui_font_size: clampUiFontSize(current.ui_font_size + delta) })),
+    openCommandPalette: () => setCommandPaletteOpen(true), openProjectSwitcher: () => { if (canOpenProjectSwitcher(document)) window.dispatchEvent(new CustomEvent(OPEN_PROJECT_SWITCHER_EVENT)); },
+    openSettings: () => setSettingsOpen(true),
+    runCardTerminalAction: (action) => dispatchCardTerminalCommand(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
+  };
+  useKeyboardShortcuts(shortcutHandlers);
+  const shortcutRef = useRef(shortcutHandlers); shortcutRef.current = shortcutHandlers;
+  useEffect(() => {
+    const listener = getCurrentWindow().listen<string>('menu-shortcut', (event) => runShortcutAction(event.payload as ShortcutAction, shortcutRef.current));
+    return () => { listener.then((unlisten) => unlisten()).catch(console.error); };
+  }, []);
 
-  return layoutProps;
+  return {
+    appStyle: useAppStyle(appSettings),
+    main: { projects: store.projects, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork },
+    overlays: {
+      appSettings, setAppSettings, commandPaletteOpen, commandPaletteItems: paletteItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
+      dialog, confirmDeleteProject: store.projects.find((project) => project.id === confirmDeleteProjectId) ?? null, confirmQuitOpen, toast, setDialog,
+      closeCommandPalette: () => setCommandPaletteOpen(false), closeSettings: () => setSettingsOpen(false), closeDialog: () => setDialog(null), submitDialog,
+      closeOneTimeCommand: () => setOneTimeCommandOpen(false), runOneTimeCommand: (command: string) => { setOneTimeCommandOpen(false); dispatchCardTerminalCommand({ type: 'run-one-time', command }); },
+      cancelDeleteProject: () => setConfirmDeleteProjectId(null), deleteProject: () => { void deleteConfirmedProject(); }, cancelQuit: () => setConfirmQuitOpen(false),
+      quit: () => { setConfirmQuitOpen(false); void invoke('save_current_window_state').finally(() => invoke('quit_app')); },
+    },
+  };
 }

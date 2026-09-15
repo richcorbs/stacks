@@ -1,282 +1,49 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleMetaShortcutKeyDown } from './keyboardShortcutRouter';
 import type { ShortcutHandlers } from './shortcutTypes';
 
-vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ readText: vi.fn().mockResolvedValue('') }));
+let cardOpen = false;
+let cardTerminal = false;
+const testWindow = new EventTarget();
+class TestCustomEvent<T> extends Event { detail: T; constructor(type: string, options: { detail: T }) { super(type); this.detail = options.detail; } }
+Object.assign(globalThis, {
+  window: testWindow,
+  CustomEvent: TestCustomEvent,
+  document: {
+    activeElement: null,
+    querySelector(selector: string) {
+      if (selector === '.kanbanDetail .cardTerminalView.active') return cardTerminal ? {} : null;
+      if (selector === '.kanbanDetail') return cardOpen ? {} : null;
+      return null;
+    },
+  },
+});
 
-function handlers(): ShortcutHandlers {
-  return {
-    activeProject: null,
-    activeTerminalId: null,
-    setMetaKeyDown: vi.fn(),
-    activateWorkspaceByIndex: vi.fn(),
-    openWorkspaceDialog: vi.fn(),
-    openProjectDialog: vi.fn(),
-    toggleMaximizedTerminal: vi.fn(),
-    activateSidebarFocusedWorkspace: vi.fn(),
-    splitTerminal: vi.fn(),
-    requestCloseTerminal: vi.fn(),
-    requestQuit: vi.fn(),
-    cycleSidebarWorkspace: vi.fn(),
-    cycleTerminal: vi.fn(),
-    focusNextWorkspaceWithUnseenOutput: vi.fn(),
-    adjustTerminalFontSize: vi.fn(),
-    adjustUiFontSize: vi.fn(),
-    openCommandPalette: vi.fn(),
-    openProjectSwitcher: vi.fn(),
-    openTerminalSearch: vi.fn(),
-    openSettings: vi.fn(),
-    toggleSidebar: vi.fn(),
-    toggleSuperthread: vi.fn(),
-    toggleGithubPullRequests: vi.fn(),
-    toggleDiff: vi.fn(),
-    toggleProjectNotes: vi.fn(),
+function handlers(): ShortcutHandlers { return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), runCardTerminalAction: vi.fn() }; }
+function key(value: string, init: { code?: string; shiftKey?: boolean; altKey?: boolean } = {}) {
+  const event = {
+    key: value, code: init.code ?? '', metaKey: true, ctrlKey: false, shiftKey: init.shiftKey ?? false, altKey: init.altKey ?? false,
+    target: null, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation: vi.fn(),
   };
+  return event as unknown as KeyboardEvent;
 }
 
-describe('keyboardShortcutRouter', () => {
-  it('selects all text with Cmd-A in GUI text fields', () => {
-    const h = handlers();
-    const select = vi.fn();
-    let input: HTMLInputElement;
-    input = {
-      select,
-      closest: vi.fn((selector: string) => selector === 'input, textarea' ? input : null),
-    } as unknown as HTMLInputElement;
-    const event = {
-      key: 'a',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-      target: input,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(select).toHaveBeenCalledOnce();
-    expect(event.preventDefault).toHaveBeenCalled();
-    expect(event.stopPropagation).toHaveBeenCalled();
+describe('keyboard shortcut router', () => {
+  beforeEach(() => { cardOpen = false; cardTerminal = false; });
+  it('keeps card tab number and bracket navigation', () => {
+    cardOpen = true;
+    const seen = vi.fn(); testWindow.addEventListener('stacks:card-tab-shortcut', seen, { once: true });
+    handleMetaShortcutKeyDown(key('3'), handlers());
+    expect((seen.mock.calls[0][0] as CustomEvent).detail).toEqual({ number: 3 });
   });
-
-  it('adjusts interface text with Option-Cmd-Plus and Option-Cmd-Minus', () => {
-    const h = handlers();
-    const event = (key: string, code: string, shiftKey = false) => ({
-      key, code, metaKey: true, ctrlKey: false, altKey: true, shiftKey,
-      target: {}, preventDefault: vi.fn(), stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent);
-
-    handleMetaShortcutKeyDown(event('±', 'Equal', true), h);
-    handleMetaShortcutKeyDown(event('–', 'Minus'), h);
-
-    expect(h.adjustUiFontSize).toHaveBeenNthCalledWith(1, 1);
-    expect(h.adjustUiFontSize).toHaveBeenNthCalledWith(2, -1);
-    expect(h.adjustTerminalFontSize).not.toHaveBeenCalled();
+  it('routes terminal shortcuts only in an active card Terminal tab', () => {
+    const h = handlers(); handleMetaShortcutKeyDown(key('d'), h); expect(h.runCardTerminalAction).not.toHaveBeenCalled();
+    cardOpen = true; cardTerminal = true;
+    handleMetaShortcutKeyDown(key('d'), h); handleMetaShortcutKeyDown(key('Enter', { shiftKey: true }), h);
+    expect(h.runCardTerminalAction).toHaveBeenCalledWith('split-right'); expect(h.runCardTerminalAction).toHaveBeenCalledWith('toggle-maximize');
   });
-
-  it('routes card terminal split shortcuts with distinct orientations', () => {
-    const dispatchEvent = vi.fn();
-    vi.stubGlobal('document', { querySelector: vi.fn(() => ({})) });
-    vi.stubGlobal('window', { dispatchEvent });
-    const event = (shiftKey: boolean) => ({
-      key: shiftKey ? 'D' : 'd', code: 'KeyD', metaKey: true, ctrlKey: false, altKey: false, shiftKey,
-      getModifierState: (modifier: string) => modifier === 'Shift' && shiftKey,
-      target: {}, preventDefault: vi.fn(), stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent);
-
-    handleMetaShortcutKeyDown(event(false), handlers());
-    handleMetaShortcutKeyDown(event(true), handlers());
-
-    expect(dispatchEvent.mock.calls[0][0].detail.direction).toBe('row');
-    expect(dispatchEvent.mock.calls[1][0].detail.direction).toBe('column');
-    vi.unstubAllGlobals();
-  });
-
-  it('does not reserve the removed project notes shortcut', () => {
-    const h = handlers();
-    const event = {
-      key: 'o', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true,
-      target: {}, preventDefault: vi.fn(), stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(h.toggleProjectNotes).not.toHaveBeenCalled();
-    expect(event.preventDefault).not.toHaveBeenCalled();
-  });
-
-  it('leaves Cmd-V to editable fields', () => {
-    const h = handlers();
-    const event = {
-      key: 'v',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-      target: { closest: vi.fn((selector: string) => selector.includes('input') ? {} : null) },
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(event.preventDefault).not.toHaveBeenCalled();
-    expect(event.stopPropagation).not.toHaveBeenCalled();
-  });
-
-  it('uses the app clipboard path for Cmd-V in xterm\'s helper textarea', () => {
-    const h = handlers();
-    h.activeTerminalId = 't1:0';
-    const event = {
-      key: 'v',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-      target: { closest: vi.fn((selector: string) => selector === '.xterm' || selector.includes('textarea') ? {} : null) },
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(event.preventDefault).toHaveBeenCalled();
-    expect(event.stopPropagation).toHaveBeenCalled();
-  });
-
-  it('handles terminal navigation while an input is focused', () => {
-    const h = handlers();
-    const event = {
-      key: '[',
-      code: 'BracketLeft',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-      target: { closest: vi.fn(() => ({})) },
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(h.cycleTerminal).toHaveBeenCalledWith(-1);
-    expect(event.preventDefault).toHaveBeenCalled();
-  });
-
-  it('handles shifted workspace navigation when the shifted bracket is reported as a brace', () => {
-    const h = handlers();
-    const event = {
-      key: '{',
-      code: 'BracketLeft',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: true,
-      target: { closest: vi.fn(() => ({})) },
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(h.cycleSidebarWorkspace).toHaveBeenCalledWith(-1);
-    expect(event.preventDefault).toHaveBeenCalled();
-  });
-
-  it('uses Cmd-G to toggle the diff panel', () => {
-    const h = handlers();
-    const event = {
-      key: 'g',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(event.preventDefault).toHaveBeenCalled();
-    expect(event.stopPropagation).toHaveBeenCalled();
-    expect(h.toggleDiff).toHaveBeenCalled();
-  });
-
-  it('uses Cmd-Shift-G to toggle developer services on the pull requests tab', () => {
-    const h = handlers();
-    const event = {
-      key: 'g',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: true,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(h.toggleGithubPullRequests).toHaveBeenCalled();
-    expect(h.toggleDiff).not.toHaveBeenCalled();
-    expect(event.preventDefault).toHaveBeenCalled();
-  });
-
-  it('uses Cmd-Shift-N to focus the next workspace with unseen output', () => {
-    const h = handlers();
-    const event = {
-      key: 'n',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: true,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(h.focusNextWorkspaceWithUnseenOutput).toHaveBeenCalled();
-    expect(h.openWorkspaceDialog).not.toHaveBeenCalled();
-  });
-
-  it('uses Cmd-Shift-P to open the project switcher instead of the command palette', () => {
-    const h = handlers();
-    const event = {
-      key: 'P',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: true,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(h.openProjectSwitcher).toHaveBeenCalledOnce();
-    expect(h.openCommandPalette).not.toHaveBeenCalled();
-    expect(event.preventDefault).toHaveBeenCalled();
-  });
-
-  it('uses Cmd-R to toggle Superthread instead of reloading', () => {
-    const h = handlers();
-    const event = {
-      key: 'r',
-      metaKey: true,
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-
-    handleMetaShortcutKeyDown(event, h);
-
-    expect(event.preventDefault).toHaveBeenCalled();
-    expect(event.stopPropagation).toHaveBeenCalled();
-    expect(h.toggleSuperthread).toHaveBeenCalled();
+  it('does not claim removed Cmd-R, Cmd-G, or Shift-Cmd-G shortcuts', () => {
+    const h = handlers(); const events = [key('r'), key('g'), key('G', { shiftKey: true })]; events.forEach((event) => handleMetaShortcutKeyDown(event, h));
+    expect(events.every((event) => !event.defaultPrevented)).toBe(true);
   });
 });
