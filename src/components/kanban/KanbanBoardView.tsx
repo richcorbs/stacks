@@ -19,8 +19,9 @@ import { KanbanCardDetail } from './KanbanCardDetail';
 import { NewCardDialog } from './NewCardDialog';
 import { KanbanLanes } from './KanbanLanes';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
+import { startLaunchCardRecovery } from '../../kanban/launchRecovery';
 
-export function KanbanBoardView({ spaces, workspaceSlug, superthreadEnabled, projects, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: KanbanBoardProps) {
+export function KanbanBoardView({ spaces, workspaceSlug, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: KanbanBoardProps) {
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
   const superthreadOwner = uniqueSuperthreadProject(projects);
@@ -65,6 +66,10 @@ export function KanbanBoardView({ spaces, workspaceSlug, superthreadEnabled, pro
     openCard,
   });
   const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder });
+
+  useEffect(() => {
+    if (projectsHydrated && board.cardsHydrated) startLaunchCardRecovery(board.cards, projects).catch(console.error);
+  }, [board.cards, board.cardsHydrated, projects, projectsHydrated]);
 
   useEffect(() => {
     if (selectedProjectId && !filterProjectId) onSelectProject(null);

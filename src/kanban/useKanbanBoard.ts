@@ -17,6 +17,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
   const [cards, setCards] = useState<KanbanCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [cardsHydrated, setCardsHydrated] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     if (initial) setLoading(true);
     try {
       applySnapshot(await fetchKanbanCards());
+      setCardsHydrated(true);
       setError(null);
     } catch (loadError) {
       setError(errorMessage(loadError));
@@ -281,7 +283,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     } catch { return store.card(card.id) ?? card; }
   }
 
-  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, act, stopRefinement, assignProject, loadDetails, applyCardSnapshot, patchCard };
+  return { cards, cardsHydrated, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, act, stopRefinement, assignProject, loadDetails, applyCardSnapshot, patchCard };
 }
 
 export function matchesRefreshSnapshot(current: KanbanCard, expected: KanbanCard) {

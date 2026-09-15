@@ -4,6 +4,7 @@ import type { KanbanCard } from '../kanban/types';
 
 type MainWorkspaceProps = {
   projects: Project[];
+  projectsHydrated: boolean;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -22,6 +23,7 @@ type MainWorkspaceProps = {
 
 export function MainWorkspace({
   projects,
+  projectsHydrated,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
@@ -45,6 +47,7 @@ export function MainWorkspace({
           workspaceSlug={superthreadWorkspaceSlug}
           superthreadEnabled={superthreadEnabled}
           projects={projects}
+          projectsHydrated={projectsHydrated}
           selectedProjectId={selectedProjectId}
           onSelectProject={onSelectProject}
           doneCollapsed={doneCollapsed}

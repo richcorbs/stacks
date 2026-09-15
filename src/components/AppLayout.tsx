@@ -12,6 +12,7 @@ export function AppLayout({ appStyle, main, overlays }: {
     <div className="app" style={appStyle}>
       <MainWorkspace
         projects={main.projects}
+        projectsHydrated={main.projectsHydrated}
         terminalFontSize={main.appSettings.terminal_font_size}
         terminalFontFamily={main.appSettings.terminal_font_family}
         terminalScrollback={main.appSettings.terminal_scrollback}

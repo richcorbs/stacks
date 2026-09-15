@@ -7,6 +7,7 @@ export type KanbanBoardProps = {
   workspaceSlug: string;
   superthreadEnabled: boolean;
   projects: Project[];
+  projectsHydrated: boolean;
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
   doneCollapsed: boolean;

@@ -281,6 +281,23 @@ describe('PiSessionController', () => {
     h.controller.delete();
   });
 
+  it('shares awaitable initialization and accepts only one launch continue prompt', async () => {
+    const h = harness();
+    const first = h.controller.submitLaunchContinue();
+    const duplicate = h.controller.submitLaunchContinue();
+    expect(duplicate).toBe(first);
+    await vi.waitFor(() => expect(h.commands.length).toBeGreaterThanOrEqual(2));
+    respond(h, 0, 'get_state', { isStreaming: false });
+    respond(h, 1, 'get_messages', { messages: [{ role: 'assistant', content: 'Earlier work', timestamp: 1 }] });
+    await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'prompt')).toBe(true));
+    const prompts = h.commands.filter((command) => command.type === 'prompt');
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].message).toBe('continue');
+    h.controller.project(envelope({ type: 'response', id: prompts[0].id as string, command: 'prompt', success: true, data: {} }));
+    await first;
+    h.controller.delete();
+  });
+
   it('stops projection and releases the backend listener on explicit deletion', async () => {
     const h = harness();
     await begin(h);

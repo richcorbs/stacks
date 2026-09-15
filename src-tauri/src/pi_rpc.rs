@@ -497,6 +497,20 @@ fn session_dir(pane_id: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
+pub fn pi_session_exists(pane_id: String) -> Result<bool, String> {
+    let directory = session_dir(&pane_id)?;
+    if !directory.is_dir() {
+        return Ok(false);
+    }
+    Ok(std::fs::read_dir(directory)
+        .map_err(|error| format!("Could not inspect persisted Pi conversation: {error}"))?
+        .next()
+        .transpose()
+        .map_err(|error| format!("Could not inspect persisted Pi conversation: {error}"))?
+        .is_some())
+}
+
+#[tauri::command]
 pub fn pi_project_trusted(cwd: String, project_path: Option<String>) -> Result<bool, String> {
     let cwd = canonical_project_path(&cwd)?;
     let project_path = project_path
