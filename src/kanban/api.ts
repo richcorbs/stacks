@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, KanbanSyncCard, KanbanWorkflowAction, PiLifecycleIntent } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
@@ -36,8 +36,16 @@ export function syncKanbanCards(cards: KanbanSyncCard[]) {
   return invoke<BoardSnapshot>('kanban_sync_superthread_cards', { cards });
 }
 
-export function setKanbanStatus(id: string, status: KanbanStatus, expectedRevision: number, actor: 'user' | 'agent' = 'user') {
-  return invoke<CardSnapshot>('kanban_set_status', { id, status, expectedRevision, actor }).then(({ card }) => card);
+export function applyKanbanWorkflowAction(id: string, action: Extract<KanbanWorkflowAction, 'return_to_refinement' | 'request_changes' | 'stop_refinement'>, expectedRevision: number) {
+  return invoke<CardSnapshot>('kanban_apply_workflow_action', { id, action, expectedRevision });
+}
+
+export function applyKanbanPiLifecycleIntent(id: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number) {
+  return invoke<CardSnapshot>('kanban_apply_pi_lifecycle_intent', { id, thread, intent, generation, eventId, eventOrder });
+}
+
+export function fetchKanbanStatusMetadata() {
+  return invoke<Array<{ status: KanbanStatus; label: string }>>('kanban_status_metadata');
 }
 
 export const KANBAN_REORDER_CONFLICT = 'KANBAN_REORDER_CONFLICT';

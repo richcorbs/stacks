@@ -615,7 +615,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             setSelectedCard(updated);
             return updated;
           })}
-          onMove={(status) => board.move(selectedCard.id, status).then(setSelectedCard)}
+          onAction={(action) => board.act(selectedCard.id, action).then(setSelectedCard)}
           onStopRefinement={() => board.stopRefinement(selectedCard.id).then(setSelectedCard)}
           onOpenChat={async (projectId) => {
             if (selectedCard.project_id === projectId) return;
@@ -682,7 +682,7 @@ type CardLayoutSnapshot = LayoutSaveSnapshot<{
   panes: CardEnvironmentPane[];
 }>;
 
-function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
+function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
   card: KanbanCard;
   cards: KanbanCard[];
   projects: Project[];
@@ -696,7 +696,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
   onClose: () => void;
   onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
-  onMove: (status: KanbanStatus) => Promise<unknown>;
+  onAction: (action: 'return_to_refinement' | 'request_changes') => Promise<unknown>;
   onStopRefinement: () => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
   onStartWork: () => Promise<boolean>;
@@ -756,7 +756,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
   const workflowCard = workflowOperation === 'ship' || workflowOperation === 'ship_with_fe' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
-  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, projectAvailable: Boolean(project), activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
+  const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
     ...(project && !card.hierarchy_finalized ? ['chat' as const] : []),
@@ -1146,7 +1146,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
           if (!projectId) return;
           await onOpenChat(projectId);
           setActiveView('chat'); return;
-        case 'write_plan_and_finish_refinement':
+        case 'finish_refinement':
           await runWritePlanAndFinishRefinement({
             showAgent: () => setActiveView('chat'),
             sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'planning'), prompt),
@@ -1158,10 +1158,10 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
           });
           return;
         case 'stop_refinement': await onStopRefinement(); return;
-        case 'return_to_refinement': await onMove('needs_refinement'); setActiveView('chat'); return;
+        case 'return_to_refinement': await onAction('return_to_refinement'); setActiveView('chat'); return;
         case 'start_work': if (await onStartWork()) setActiveView('chat'); return;
         case 'request_changes':
-          if (card.status === 'approved') await onMove('needs_human');
+          if (card.status === 'approved') await onAction('request_changes');
           setActiveView('chat'); return;
         case 'ship':
         case 'ship_with_fe': {
