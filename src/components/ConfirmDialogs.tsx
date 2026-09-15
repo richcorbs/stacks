@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import type { PendingPrCleanup } from '../types';
+import { useEffect, useRef } from 'react';
 
 function ConfirmDialog({ title, children, cancelLabel = 'No', confirmLabel = 'Yes', onCancel, onConfirm }: {
   title: string;
@@ -57,49 +56,7 @@ export function ConfirmQuitDialog({ onCancel, onConfirm }: { onCancel: () => voi
 export function ConfirmDeleteProjectDialog({ projectName, onCancel, onConfirm }: { projectName: string; onCancel: () => void; onConfirm: () => void }) {
   return (
     <ConfirmDialog title="Delete project?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will remove “{projectName}”, terminate all workspaces, and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p>
-    </ConfirmDialog>
-  );
-}
-
-export function ConfirmMergePullRequestDialog({ number, pullRequestTitle, cleanupError, onCancel, onConfirm }: {
-  number: number;
-  pullRequestTitle: string;
-  cleanupError?: string | null;
-  onCancel: () => void;
-  onConfirm: (cleanupAfter: boolean) => void;
-}) {
-  const [cleanupAfter, setCleanupAfter] = useState(true);
-  return (
-    <ConfirmDialog title="Merge pull request?" confirmLabel="Merge" onCancel={onCancel} onConfirm={() => onConfirm(cleanupAfter)}>
-      <p>Merge PR #{number}: “{pullRequestTitle}”?</p>
-      <label className="checkboxLabel mergeCleanupOption">
-        <input type="checkbox" checked={cleanupAfter} onChange={(event) => setCleanupAfter(event.target.checked)} />
-        Cleanup after?
-      </label>
-      <p className="confirmHint">Runs /cleanup in the related workspace, stops its processes, then deletes it.</p>
-      {cleanupError && <p className="dialogSubmitError">{cleanupError}</p>}
-    </ConfirmDialog>
-  );
-}
-
-export function ResumePrCleanupDialog({ operation, onCancel, onResume }: {
-  operation: PendingPrCleanup;
-  onCancel: () => void;
-  onResume: () => void;
-}) {
-  return (
-    <ConfirmDialog title="Resume PR cleanup?" cancelLabel="Cancel cleanup" confirmLabel="Resume" onCancel={onCancel} onConfirm={onResume}>
-      <p>PR #{operation.pullRequestNumber} has an unfinished cleanup for “{operation.workspaceName}”.</p>
-      <p className="confirmHint">Resume from {operation.stage.replaceAll('-', ' ')} or cancel and retain the workspace.</p>
-    </ConfirmDialog>
-  );
-}
-
-export function ConfirmDeleteWorkspaceDialog({ terminalName, onCancel, onConfirm }: { terminalName: string; onCancel: () => void; onConfirm: () => void }) {
-  return (
-    <ConfirmDialog title="Delete workspace?" confirmLabel="Delete" onCancel={onCancel} onConfirm={onConfirm}>
-      <p>This will remove “{terminalName}” and terminate its running terminals.</p>
+      <p>This will remove “{projectName}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p>
     </ConfirmDialog>
   );
 }

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowState {
@@ -11,61 +10,10 @@ pub struct WindowState {
     y: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceTemplate {
-    pub id: String,
-    pub label: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub command: String,
-    #[serde(default)]
-    pub setup_command: String,
-    #[serde(default)]
-    pub rows: u32,
-    #[serde(default)]
-    pub columns: u32,
-    #[serde(default)]
-    pub first_pane_kind: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PendingPrCleanup {
-    pub repository: String,
-    pub pull_request_number: u64,
-    pub pull_request_title: String,
-    pub project_id: String,
-    pub workspace_id: String,
-    pub workspace_name: String,
-    pub workspace_path: String,
-    pub pane_id: String,
-    pub stage: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CustomCmdPCommand {
-    pub id: String,
-    pub label: String,
-    pub command: String,
-    pub direction: String,
-    #[serde(default = "default_true")]
-    pub execute: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppSettings {
     #[serde(default)]
     pub window: Option<WindowState>,
-    #[serde(default)]
-    pub sidebar_width: Option<u32>,
-    #[serde(default)]
-    pub developer_services_visible: Option<bool>,
-    #[serde(default)]
-    pub developer_services_tab: Option<String>,
-    #[serde(default)]
-    pub pending_pr_cleanup: Option<PendingPrCleanup>,
     #[serde(default)]
     pub ui_font_size: Option<u32>,
     #[serde(default)]
@@ -81,23 +29,11 @@ pub struct AppSettings {
     #[serde(default)]
     pub confirm_delete: Option<bool>,
     #[serde(default)]
-    pub activity_notifications: Option<bool>,
-    #[serde(default)]
     pub editor_app: Option<String>,
     #[serde(default)]
     pub focused_terminal_border_color: Option<String>,
     #[serde(default)]
     pub maximized_terminal_border_color: Option<String>,
-    #[serde(default)]
-    pub alive_dot_color: Option<String>,
-    #[serde(default)]
-    pub active_dot_color: Option<String>,
-    #[serde(default)]
-    pub unseen_dot_color: Option<String>,
-    #[serde(default)]
-    pub custom_cmd_p_commands: Option<Vec<CustomCmdPCommand>>,
-    #[serde(default)]
-    pub workspace_templates: Option<Vec<WorkspaceTemplate>>,
     #[serde(default)]
     pub superthread_workspace_slug: Option<String>,
     #[serde(default)]
@@ -105,23 +41,11 @@ pub struct AppSettings {
     #[serde(default)]
     pub superthread_start_work_command: Option<String>,
     #[serde(default)]
-    pub superthread_workspace_name_template: Option<String>,
-    #[serde(default)]
     pub superthread_enabled: Option<bool>,
-    #[serde(default)]
-    pub github_poll_interval_seconds: Option<u32>,
     #[serde(default)]
     pub kanban_project_id: Option<String>,
     #[serde(default)]
     pub kanban_done_collapsed: Option<bool>,
-    #[serde(default)]
-    pub active_project_id: Option<String>,
-    #[serde(default)]
-    pub active_workspace_id: Option<String>,
-    #[serde(default)]
-    pub focused_terminal_by_workspace_id: Option<HashMap<String, String>>,
-    #[serde(default)]
-    pub maximized_workspace_ids: Option<HashMap<String, bool>>,
 }
 
 impl AppSettings {
@@ -135,53 +59,15 @@ impl AppSettings {
         self.copy_on_select = next.copy_on_select;
         self.confirm_close = next.confirm_close;
         self.confirm_delete = next.confirm_delete;
-        self.activity_notifications = next.activity_notifications;
         self.editor_app = non_empty(next.editor_app);
         self.focused_terminal_border_color = non_empty(next.focused_terminal_border_color);
         self.maximized_terminal_border_color = non_empty(next.maximized_terminal_border_color);
-        self.alive_dot_color = non_empty(next.alive_dot_color);
-        self.active_dot_color = non_empty(next.active_dot_color);
-        self.unseen_dot_color = non_empty(next.unseen_dot_color);
         self.superthread_workspace_slug = non_empty(next.superthread_workspace_slug);
         self.superthread_spaces = non_empty(next.superthread_spaces);
         self.superthread_start_work_command = non_empty(next.superthread_start_work_command);
-        self.superthread_workspace_name_template =
-            non_empty(next.superthread_workspace_name_template);
         self.superthread_enabled = next.superthread_enabled;
-        self.github_poll_interval_seconds = next
-            .github_poll_interval_seconds
-            .map(|value| value.clamp(10, 3600));
         self.kanban_project_id = non_empty(next.kanban_project_id);
         self.kanban_done_collapsed = next.kanban_done_collapsed;
-        self.custom_cmd_p_commands = next.custom_cmd_p_commands.map(|commands| {
-            commands
-                .into_iter()
-                .filter(|item| {
-                    !item.id.trim().is_empty()
-                        && !item.label.trim().is_empty()
-                        && !item.command.trim().is_empty()
-                        && matches!(item.direction.as_str(), "row" | "column")
-                })
-                .collect()
-        });
-        self.workspace_templates = next.workspace_templates.map(|templates| {
-            templates
-                .into_iter()
-                .filter_map(|mut item| {
-                    item.id = item.id.trim().to_string();
-                    item.label = item.label.trim().to_string();
-                    item.rows = item.rows.clamp(1, 5);
-                    item.columns = item.columns.clamp(1, 5);
-                    if item.id.is_empty()
-                        || item.label.is_empty()
-                        || !matches!(item.first_pane_kind.as_str(), "terminal" | "pi")
-                    {
-                        return None;
-                    }
-                    Some(item)
-                })
-                .collect()
-        });
     }
 }
 
@@ -218,39 +104,6 @@ impl WindowState {
     }
 }
 
-fn default_true() -> bool {
-    true
-}
-
 fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::AppSettings;
-
-    #[test]
-    fn deserializes_pending_pr_cleanup_with_frontend_field_names() {
-        let settings: AppSettings = serde_json::from_value(serde_json::json!({
-            "pending_pr_cleanup": {
-                "repository": "rich/app",
-                "pullRequestNumber": 42,
-                "pullRequestTitle": "Feature",
-                "projectId": "project",
-                "workspaceId": "workspace",
-                "workspaceName": "Feature workspace",
-                "workspacePath": "/tmp/worktree",
-                "paneId": "workspace:pi",
-                "stage": "merged"
-            }
-        }))
-        .expect("settings should deserialize");
-
-        let operation = settings.pending_pr_cleanup.expect("cleanup operation");
-        assert_eq!(operation.pull_request_number, 42);
-        assert_eq!(operation.workspace_id, "workspace");
-        assert_eq!(operation.pane_id, "workspace:pi");
-        assert_eq!(operation.stage, "merged");
-    }
 }

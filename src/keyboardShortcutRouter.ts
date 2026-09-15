@@ -1,136 +1,41 @@
-import { invoke } from '@tauri-apps/api/core';
-import { readText } from '@tauri-apps/plugin-clipboard-manager';
-import { encoder, runShortcutAction } from './shortcutActions';
+import { runShortcutAction } from './shortcutActions';
 import type { ShortcutHandlers } from './shortcutTypes';
 import { registeredShortcutAction } from './shortcutRegistry';
 
 export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: ShortcutHandlers) {
-  const { setMetaKeyDown, activateWorkspaceByIndex } = handlers;
-
-  setMetaKeyDown(event.metaKey);
+  handlers.setMetaKeyDown(event.metaKey);
   if (!event.metaKey || event.ctrlKey) return;
   const key = event.key.toLowerCase();
   if (event.altKey) {
-    // Option changes the printable key on macOS (Option-Shift-= is “±” and
-    // Option-- is “–”), so match the physical key instead of event.key.
-    if (event.code === 'Equal' || event.key === '+' || event.key === '=') {
-      runHandledShortcut(event, () => runShortcutAction('increase-ui-font-size', handlers));
-    } else if (event.code === 'Minus' || event.key === '-' || event.key === '_') {
-      runHandledShortcut(event, () => runShortcutAction('decrease-ui-font-size', handlers));
-    }
+    if (event.code === 'Equal' || event.key === '+' || event.key === '=') handled(event, () => runShortcutAction('increase-ui-font-size', handlers));
+    else if (event.code === 'Minus' || event.key === '-' || event.key === '_') handled(event, () => runShortcutAction('decrease-ui-font-size', handlers));
     return;
   }
-  const bracketKey = event.code === 'BracketLeft' || event.key === '[' || event.key === '{'
-    ? 'left'
-    : event.code === 'BracketRight' || event.key === ']' || event.key === '}'
-      ? 'right'
-      : null;
-  if (event.key === '+' || event.key === '=') {
-    runHandledShortcut(event, () => runShortcutAction('increase-terminal-font-size', handlers));
-    return;
-  }
-  if (event.key === '-' || event.key === '_') {
-    runHandledShortcut(event, () => runShortcutAction('decrease-terminal-font-size', handlers));
-    return;
-  }
-  if (event.key === ',') {
-    runHandledShortcut(event, () => runShortcutAction('settings', handlers));
-    return;
-  }
+  const bracket = event.code === 'BracketLeft' || event.key === '[' || event.key === '{' ? -1
+    : event.code === 'BracketRight' || event.key === ']' || event.key === '}' ? 1 : 0;
+  if (event.key === '+' || event.key === '=') return handled(event, () => runShortcutAction('increase-terminal-font-size', handlers));
+  if (event.key === '-' || event.key === '_') return handled(event, () => runShortcutAction('decrease-terminal-font-size', handlers));
+  if (event.key === ',') return handled(event, () => runShortcutAction('settings', handlers));
   if (key === 'a' && !event.shiftKey) {
-    const editable = selectableTextControl(event.target) ?? selectableTextControl(
-      typeof document === 'undefined' ? null : document.activeElement,
-    );
-    if (editable && !isXtermTarget(editable)) {
-      runHandledShortcut(event, () => editable.select());
-      return;
-    }
+    const control = selectableTextControl(event.target) ?? selectableTextControl(typeof document === 'undefined' ? null : document.activeElement);
+    if (control && !isXtermTarget(control)) return handled(event, () => control.select());
   }
-  const registeredAction = registeredShortcutAction(key, event.shiftKey);
-  if (registeredAction) {
-    runHandledShortcut(event, () => runShortcutAction(registeredAction, handlers));
-    return;
-  }
-  if (key === 'p') {
-    runHandledShortcut(event, () => runShortcutAction('command-palette', handlers));
-    return;
-  }
-  if (key === 'f') {
-    runHandledShortcut(event, () => runShortcutAction('search-terminal', handlers));
-    return;
-  }
-  if (key === 'b') {
-    runHandledShortcut(event, () => runShortcutAction('toggle-sidebar', handlers));
-    return;
-  }
-  if (key === 'r') {
-    runHandledShortcut(event, () => runShortcutAction('toggle-superthread', handlers));
-    return;
-  }
-  if (key === 'k') {
-    runHandledShortcut(event, () => runShortcutAction('clear-terminal', handlers));
-    return;
-  }
-  if (key === 'v') {
-    const activeElement = typeof document === 'undefined' ? null : document.activeElement;
-    const terminalTarget = isXtermTarget(event.target) || isXtermTarget(activeElement);
-    if (!terminalTarget && (isEditableTarget(event.target) || isEditableTarget(activeElement))) return;
-    pasteIntoActiveTerminal(event, handlers.activeTerminalId);
-    return;
-  }
-  const cardOpen = typeof document !== 'undefined' && document.querySelector('.kanbanDetail');
-  if (cardOpen && /^[1-6]$/.test(event.key)) {
-    runHandledShortcut(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', {
-      detail: { number: Number(event.key) },
-    })));
-    return;
-  }
-  if (cardOpen && bracketKey && !event.shiftKey) {
-    runHandledShortcut(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', {
-      detail: { direction: bracketKey === 'right' ? 1 : -1 },
-    })));
-    return;
-  }
-  if (/^[1-9]$/.test(event.key)) {
-    runHandledShortcut(event, () => activateWorkspaceByIndex(Number(event.key) - 1));
-    return;
-  }
-  if (key === 'n') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-next-unseen-workspace' : 'new-workspace', handlers));
-  } else if (event.key === 'Enter') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'maximize-workspace' : 'activate-sidebar', handlers));
-  } else if (key === 'd') {
-    if (typeof document !== 'undefined' && document.querySelector('.kanbanDetail')) {
-      const cardTerminalActive = document.querySelector('.kanbanDetail .cardTerminalView.active');
-      const splitDown = event.shiftKey || event.key === 'D' || event.getModifierState?.('Shift');
-      runHandledShortcut(event, () => {
-        if (cardTerminalActive) window.dispatchEvent(new CustomEvent('stacks:card-terminal-split', {
-          detail: { direction: splitDown ? 'column' : 'row' },
-        }));
-      });
-    } else {
-      runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'split-terminal-down' : 'split-terminal-right', handlers));
-    }
-  } else if (key === 'w') {
-    if (typeof document !== 'undefined' && document.querySelector('.kanbanDetail .cardTerminalView.active')) {
-      runHandledShortcut(event, () => window.dispatchEvent(new CustomEvent('stacks:card-terminal-close')));
-    } else {
-      runHandledShortcut(event, () => runShortcutAction('close-terminal', handlers));
-    }
-  } else if (key === 'q') {
-    runHandledShortcut(event, () => runShortcutAction('quit', handlers));
-  } else if (bracketKey === 'right') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-next-workspace' : 'focus-next-terminal', handlers));
-  } else if (bracketKey === 'left') {
-    runHandledShortcut(event, () => runShortcutAction(event.shiftKey ? 'focus-previous-workspace' : 'focus-previous-terminal', handlers));
-  } else if (key === 'o' && !event.shiftKey) {
-    runHandledShortcut(event, () => runShortcutAction('add-project', handlers));
-  }
-}
+  const registered = registeredShortcutAction(key, event.shiftKey);
+  if (registered) return handled(event, () => runShortcutAction(registered, handlers));
+  if (key === 'p') return handled(event, () => runShortcutAction('command-palette', handlers));
 
-function isEditableTarget(target: EventTarget | null) {
-  const element = target as Element | null;
-  return Boolean(element && typeof element.closest === 'function' && element.closest('input, textarea, [contenteditable="true"]'));
+  const cardOpen = Boolean(typeof document !== 'undefined' && document.querySelector('.kanbanDetail'));
+  const cardTerminal = Boolean(typeof document !== 'undefined' && document.querySelector('.kanbanDetail .cardTerminalView.active'));
+  if (cardOpen && /^[1-5]$/.test(event.key)) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', { detail: { number: Number(event.key) } })));
+  if (cardOpen && bracket && !event.shiftKey) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', { detail: { direction: bracket } })));
+  if (key === 'o' && !event.shiftKey) return handled(event, () => runShortcutAction('add-project', handlers));
+  if (key === 'q') return handled(event, () => runShortcutAction('quit', handlers));
+  if (!cardTerminal) return;
+  if (key === 'd') return handled(event, () => runShortcutAction(event.shiftKey ? 'split-terminal-down' : 'split-terminal-right', handlers));
+  if (key === 'w') return handled(event, () => runShortcutAction('close-terminal', handlers));
+  if (key === 'f') return handled(event, () => runShortcutAction('search-terminal', handlers));
+  if (key === 'k') return handled(event, () => runShortcutAction('clear-terminal', handlers));
+  if (event.key === 'Enter' && event.shiftKey) return handled(event, () => runShortcutAction('maximize-pane', handlers));
 }
 
 function selectableTextControl(target: EventTarget | null) {
@@ -139,26 +44,5 @@ function selectableTextControl(target: EventTarget | null) {
   const control = element.closest('input, textarea') as HTMLInputElement | HTMLTextAreaElement | null;
   return control && typeof control.select === 'function' ? control : null;
 }
-
-function isXtermTarget(target: EventTarget | null) {
-  const element = target as Element | null;
-  return Boolean(element && typeof element.closest === 'function' && element.closest('.xterm'));
-}
-
-function runHandledShortcut(event: KeyboardEvent, action: () => void) {
-  event.preventDefault();
-  event.stopPropagation();
-  action();
-}
-
-function pasteIntoActiveTerminal(event: KeyboardEvent, activeTerminalId: string | null) {
-  if (!activeTerminalId || event.shiftKey) return;
-  event.preventDefault();
-  event.stopPropagation();
-  readText()
-    .then((text) => {
-      if (!text) return;
-      return invoke('write_pty', { terminalId: activeTerminalId, data: Array.from(encoder.encode(text)) });
-    })
-    .catch(console.error);
-}
+function isXtermTarget(target: EventTarget | null) { const element = target as Element | null; return Boolean(element?.closest?.('.xterm')); }
+function handled(event: KeyboardEvent, action: () => void) { event.preventDefault(); event.stopPropagation(); action(); }
