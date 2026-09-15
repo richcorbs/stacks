@@ -12,6 +12,7 @@ import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
 import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiMessage, PiToolCard } from './PiTranscript';
+import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
 
 export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, initialPrompt, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
@@ -33,6 +34,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const cwd = terminal.cwd || workspace.cwd || project.path;
   const [projectTrusted, setProjectTrusted] = useState(false);
   const pi = usePiSession(terminal.id, cwd, workspace.id, project.id, project.path);
+  const modalUiRequest = pi.uiRequest && !isStructuredPiUiRequest(pi.uiRequest) ? pi.uiRequest : null;
   const [prompt, setPrompt] = useState('');
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [attachments, setAttachments] = useState<Array<PiPromptImage & { name: string; byteSize: number }>>([]);
@@ -118,7 +120,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [fontSize, prompt]);
 
   useEffect(() => {
-    if (!active || !visible || pi.starting || pi.uiRequest) return;
+    if (!active || !visible || pi.starting || modalUiRequest) return;
     inputRef.current?.focus();
     const focusComposer = () => requestAnimationFrame(() => inputRef.current?.focus());
     const focusRequestedPane = (event: Event) => {
@@ -131,7 +133,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       window.removeEventListener('focus', focusComposer);
       window.removeEventListener('pane-focus-request', focusRequestedPane);
     };
-  }, [active, pi.starting, pi.uiRequest, terminal.id, visible]);
+  }, [active, modalUiRequest, pi.starting, terminal.id, visible]);
 
   useEffect(() => {
     setExtensionInput(pi.uiRequest?.prefill || '');
@@ -208,7 +210,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const element = scrollRef.current;
     if (!element || !visible || !shouldStickToBottomRef.current) return;
     element.scrollTop = element.scrollHeight;
-  }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, visible]);
+  }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, pi.uiRequest, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
   const hasStreamingText = hasVisiblePiStreamingText(pi.streamingText);
@@ -275,6 +277,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       setAttachmentError(`/${slashName} does not accept image attachments`);
       return;
     }
+    // Claim inline controls synchronously so a click cannot race this submit.
+    // Pi receives cancellation; the text remains an ordinary prompt/steer/follow-up.
+    const structuredRequestDismissal = pi.dismissStructuredUiRequest();
     const submittedAttachments = attachments;
     historyIndexRef.current = null;
     historyDraftRef.current = '';
@@ -283,6 +288,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setAttachmentError(null);
     shouldStickToBottomRef.current = true;
     const images = submittedAttachments.map(({ name: _name, byteSize: _byteSize, ...image }) => image);
+    await structuredRequestDismissal.catch(() => {});
     const send = builtinCommand
       ? pi.runBuiltinCommand(message)
       : pi.isStreaming && extensionCommand
@@ -468,6 +474,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             live
           />
         ))}
+        {isStructuredPiUiRequest(pi.uiRequest) && <PiStructuredRequest
+          request={pi.uiRequest}
+          onRespond={(requestId, response) => { pi.respondToUiRequest(requestId, response).catch(() => {}); }}
+        />}
         {pi.queuedSteering.map((message, index) => (
           <div className="piMessage piMessageUser piQueuedMessage piQueuedSteering" key={`steer:${message}:${index}`} aria-label="Queued steering message">
             <div className="piMessageText"><small>Steering</small><span>{message}</span></div>
@@ -665,25 +675,17 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         </div>
       )}
 
-      {pi.uiRequest && (
-        <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={pi.uiRequest.title}>
+      {modalUiRequest && (
+        <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={modalUiRequest.title}>
           <div className="piExtensionDialog">
-            <strong>{pi.uiRequest.title}</strong>
-            {pi.uiRequest.message && <p>{pi.uiRequest.message}</p>}
-            {pi.uiRequest.method === 'select' && (
-              <div className="piExtensionOptions">
-                {pi.uiRequest.options.map((option) => <button type="button" key={option} onClick={() => pi.respondToUiRequest({ value: option }).catch(() => {})}>{option}</button>)}
-              </div>
-            )}
-            {(pi.uiRequest.method === 'input' || pi.uiRequest.method === 'editor') && (
-              pi.uiRequest.method === 'editor'
-                ? <textarea autoFocus rows={7} value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />
-                : <input autoFocus value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />
-            )}
+            <strong>{modalUiRequest.title}</strong>
+            {modalUiRequest.message && <p>{modalUiRequest.message}</p>}
+            {modalUiRequest.method === 'editor'
+              ? <textarea autoFocus rows={7} value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />
+              : <input autoFocus value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />}
             <div className="piExtensionActions">
-              <button type="button" onClick={() => pi.respondToUiRequest(pi.uiRequest?.method === 'confirm' ? { confirmed: false } : { cancelled: true }).catch(() => {})}>Cancel</button>
-              {pi.uiRequest.method === 'confirm' && <button className="primary" autoFocus type="button" onClick={() => pi.respondToUiRequest({ confirmed: true }).catch(() => {})}>Confirm</button>}
-              {(pi.uiRequest.method === 'input' || pi.uiRequest.method === 'editor') && <button className="primary" type="button" onClick={() => pi.respondToUiRequest({ value: extensionInput }).catch(() => {})}>Submit</button>}
+              <button type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { cancelled: true }).catch(() => {})}>Cancel</button>
+              <button className="primary" type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { value: extensionInput }).catch(() => {})}>Submit</button>
             </div>
           </div>
         </div>
