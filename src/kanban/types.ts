@@ -124,5 +124,6 @@ export type CardProviderKind = 'local' | 'superthread';
 export interface CardProviderAdapter {
   readonly kind: CardProviderKind;
   sync(refresh?: boolean): Promise<{ cards: KanbanSyncCard[]; warnings: string[] }>;
+  create?(title: string, content: string): Promise<KanbanSyncCard>;
   load?(card: KanbanCard): Promise<KanbanSyncCard | null>;
 }

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { SuperthreadBoard, SuperthreadBoardsResponse, SuperthreadCard, SuperthreadList } from './types';
+import type { CreateSuperthreadCardRequest, SuperthreadBoard, SuperthreadBoardsResponse, SuperthreadCard, SuperthreadList } from './types';
 
 export function fetchSuperthreadBoards(spaces: string, refresh = false) {
   return invoke<SuperthreadBoardsResponse>('superthread_boards', { spaces: parseSuperthreadSpaces(spaces), refresh });
@@ -15,6 +15,15 @@ export function fetchSuperthreadCards(boardId: string, workspaceSlug: string) {
 
 export function fetchSuperthreadCard(cardId: string, workspaceSlug: string) {
   return invoke<SuperthreadCard>('superthread_card', { cardId, workspaceSlug: workspaceSlug || null });
+}
+
+export function createSuperthreadCard(request: CreateSuperthreadCardRequest) {
+  return invoke<SuperthreadCard>('superthread_create_card', {
+    spaces: parseSuperthreadSpaces(request.spaces),
+    workspaceSlug: request.workspaceSlug || null,
+    title: request.title,
+    content: request.content,
+  });
 }
 
 export function parseSuperthreadSpaces(value: string) {

@@ -76,6 +76,7 @@ export function useAppShortcutHandlers({
     terminalsByWorkspaceId,
     activeProject,
     selectedKanbanProject: selectedKanbanProject(store.projects, appSettings.kanban_project_id),
+    superthreadEnabled: appSettings.superthread_enabled,
     activeWorkspace,
     activeWorkspaceId,
     activeTerminalId,

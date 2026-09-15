@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
 import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
-import type { CardProviderAdapter, KanbanCard, KanbanStatus } from './types';
+import type { CardProviderAdapter, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { Project } from '../types';
 import { KanbanSyncRequestGate } from './syncRequestGate';
 import { setPiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
 import { deletePersistentPiSession } from '../pi/sessionController';
@@ -169,10 +170,11 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     };
   }, [load]);
 
-  async function createLocal(projectId: string, title: string, content: string) {
-    const created = await createLocalKanbanCard(projectId, title, content);
-    setCards((current) => [...current, created]);
-    return created;
+  async function create(project: Project, title: string, content: string) {
+    const result = await createKanbanCardForProject(project, title, content, provider);
+    if (result.persistedCards) setCards(result.persistedCards);
+    else setCards((current) => [...current, result.card]);
+    return result.card;
   }
 
   async function update(id: string, title: string, content: string) {
@@ -255,7 +257,45 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     }
   }
 
-  return { cards, loading, syncing, error, providerError, load, sync, createLocal, update, interact, remove, reorder, move, assignProject, loadDetails };
+  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, move, assignProject, loadDetails };
+}
+
+type CreateKanbanCardDependencies = {
+  createLocal: (projectId: string, title: string, content: string) => Promise<KanbanCard>;
+  persistSuperthread: (cards: KanbanSyncCard[]) => Promise<KanbanCard[]>;
+};
+
+export async function createKanbanCardForProject(
+  project: Project,
+  title: string,
+  content: string,
+  provider: CardProviderAdapter | null,
+  dependencies: CreateKanbanCardDependencies = {
+    createLocal: createLocalKanbanCard,
+    persistSuperthread: syncKanbanCards,
+  },
+): Promise<{ card: KanbanCard; persistedCards?: KanbanCard[] }> {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) throw new Error('Card title is required');
+  if ((project.kanban_source ?? 'local') === 'local') {
+    return { card: await dependencies.createLocal(project.id, trimmedTitle, content) };
+  }
+  if (provider?.kind !== 'superthread' || !provider.create) {
+    throw new Error('Superthread card creation is unavailable because the integration is disabled');
+  }
+
+  const remote = await provider.create(trimmedTitle, content);
+  let persistedCards: KanbanCard[];
+  try {
+    persistedCards = await dependencies.persistSuperthread([remote]);
+  } catch (error) {
+    throw new Error(`The card was created in Superthread, but Stacks could not import it: ${errorMessage(error)}. Run Sync Superthread to recover it.`);
+  }
+  const card = persistedCards.find((candidate) => candidate.provider === 'superthread' && candidate.external_id === remote.id);
+  if (!card) {
+    throw new Error('The card was created in Superthread, but Stacks could not find it after import. Run Sync Superthread to recover it.');
+  }
+  return { card, persistedCards };
 }
 
 type KanbanLoadOptions = {

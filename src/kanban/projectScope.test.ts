@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../types';
 import type { KanbanCard } from './types';
-import { canManuallySyncSuperthread, filterKanbanCards, mergeFilteredLaneOrder, owningProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from './projectScope';
+import { canManuallySyncSuperthread, cardCreationAvailability, cardCreationProjects, filterKanbanCards, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from './projectScope';
 
 const projects: Project[] = [project('one'), project('two')];
 
@@ -30,6 +30,29 @@ describe('cross-project Kanban scope', () => {
     const remote = { ...project('remote'), kanban_source: 'superthread' as const };
     expect(uniqueSuperthreadProject([...projects, remote]).project).toBe(remote);
     expect(uniqueSuperthreadProject([...projects, remote, { ...remote, id: 'other' }]).error).toMatch(/multiple/);
+  });
+
+  it('offers local destinations plus one enabled Superthread destination', () => {
+    const remote = { ...project('remote'), kanban_source: 'superthread' as const };
+    expect(cardCreationProjects([...projects, remote], false)).toEqual(projects);
+    expect(cardCreationProjects([...projects, remote], true)).toEqual([...projects, remote]);
+    expect(cardCreationProjects([...projects, remote, { ...remote, id: 'other' }], true)).toEqual(projects);
+  });
+
+  it('preselects only an eligible filtered project', () => {
+    expect(preselectedCardProject(projects, projects[1])).toBe(projects[1]);
+    expect(preselectedCardProject(projects, { ...project('remote'), kanban_source: 'superthread' })).toBeNull();
+    expect(preselectedCardProject(projects, null)).toBeNull();
+  });
+
+  it('disables Add card with an explanation only for a disabled filtered Superthread project', () => {
+    const remote = { ...project('remote'), kanban_source: 'superthread' as const };
+    const filtered = cardCreationAvailability([...projects, remote], remote, false);
+    expect(filtered.disabled).toBe(true);
+    expect(filtered.title).toMatch(/Enable the Superthread integration/);
+    const allProjects = cardCreationAvailability([...projects, remote], null, false);
+    expect(allProjects.disabled).toBe(false);
+    expect(allProjects.destinations).toEqual(projects);
   });
 });
 

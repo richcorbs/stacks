@@ -27,7 +27,7 @@ import { SplitView } from './WorkspaceTerminalTree';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { disposeTerminalSession, getTerminalSession } from '../terminalSessionManager';
 import { superthreadCardProvider } from '../superthread/cardProvider';
-import { canManuallySyncSuperthread, filterKanbanCards, localKanbanProjects, mergeFilteredLaneOrder, owningProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
+import { canManuallySyncSuperthread, cardCreationAvailability, filterKanbanCards, localKanbanProjects, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
@@ -81,7 +81,11 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const newCardTitleRef = useRef<HTMLInputElement | null>(null);
   const clipboardOperationRef = useRef(new WeakMap<HTMLInputElement | HTMLTextAreaElement, number>());
   const visibleCards = useMemo(() => filterKanbanCards(board.cards, filterProjectId), [board.cards, filterProjectId]);
-  const localProjects = useMemo(() => localKanbanProjects(projects), [projects]);
+  const creationAvailability = useMemo(
+    () => cardCreationAvailability(projects, selectedProject, superthreadEnabled),
+    [projects, selectedProject, superthreadEnabled],
+  );
+  const creationProjects = creationAvailability.destinations;
   const { statuses: repositoryStatuses, recheckEnvironment } = useCardRepositoryStatus(visibleCards);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
@@ -121,14 +125,14 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   useEffect(() => {
     const openNewCard = (event: Event) => {
       const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
-      const requested = localProjects.find((project) => project.id === projectId);
-      setNewCardProjectId(requested?.id ?? (selectedProject?.kanban_source !== 'superthread' ? selectedProject?.id ?? '' : ''));
+      const requested = creationProjects.find((project) => project.id === projectId);
+      setNewCardProjectId(requested?.id ?? preselectedCardProject(creationProjects, selectedProject)?.id ?? '');
       setNewCardError(null);
       setNewCardOpen(true);
     };
     window.addEventListener('stacks:new-card', openNewCard);
     return () => window.removeEventListener('stacks:new-card', openNewCard);
-  }, [localProjects, selectedProject]);
+  }, [creationProjects, selectedProject]);
 
   useEffect(() => {
     const openDirectWork = (event: Event) => {
@@ -218,12 +222,12 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   }
 
   async function createCard(outcome: 'close' | 'continue' | 'open') {
-    const destination = localProjects.find((project) => project.id === newCardProjectId);
+    const destination = creationProjects.find((project) => project.id === newCardProjectId);
     if (newCardCreating || !destination || !newCardTitle.trim()) return;
     setNewCardCreating(true);
     setNewCardError(null);
     try {
-      const card = await board.createLocal(destination.id, newCardTitle, newCardDescription);
+      const card = await board.create(destination, newCardTitle, newCardDescription);
       setNewCardTitle('');
       setNewCardDescription('');
       const filteredOut = Boolean(filterProjectId && filterProjectId !== destination.id);
@@ -377,8 +381,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           </label>
         </div>
         <div className="kanbanHeaderActions">
-          <button className="primaryAction" type="button" disabled={localProjects.length === 0} onClick={() => {
-            setNewCardProjectId(selectedProject && (selectedProject.kanban_source ?? 'local') === 'local' ? selectedProject.id : '');
+          <button className="primaryAction" type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
+            setNewCardProjectId(preselectedCardProject(creationProjects, selectedProject)?.id ?? '');
             setNewCardError(null);
             setNewCardOpen(true);
           }}>+ Add card</button>
@@ -545,8 +549,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           }}>
             <h2>Add card</h2>
             <label>Project<select autoFocus value={newCardProjectId} disabled={newCardCreating} required onChange={(event) => setNewCardProjectId(event.target.value)}>
-              <option value="" disabled>Select a local project…</option>
-              {localProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
+              <option value="" disabled>Select a project…</option>
+              {creationProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select></label>
             <label>Title<input ref={newCardTitleRef} autoFocus disabled={newCardCreating} value={newCardTitle} onChange={(event) => { invalidateClipboardOperation(event.currentTarget); setNewCardTitle(event.target.value); }} onKeyDown={(event) => handleNewCardClipboard(event, setNewCardTitle)} /></label>
             <label>Description<textarea rows={8} disabled={newCardCreating} value={newCardDescription} onChange={(event) => { invalidateClipboardOperation(event.currentTarget); setNewCardDescription(event.target.value); }} onKeyDown={(event) => handleNewCardClipboard(event, setNewCardDescription)} /></label>

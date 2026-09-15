@@ -66,7 +66,7 @@ use settings::{
 use store::{load_store, save_store};
 use superthread::{
     superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
-    SuperthreadService,
+    superthread_create_card, SuperthreadService,
 };
 use workspace_setup::{cancel_workspace_setup, run_workspace_setup, WorkspaceSetupState};
 
@@ -185,6 +185,7 @@ pub fn run() {
             superthread_board_lists,
             superthread_board_cards,
             superthread_card,
+            superthread_create_card,
             run_workspace_setup,
             cancel_workspace_setup,
         ])
