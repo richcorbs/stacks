@@ -406,6 +406,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanDetailHeaderMeta a { color: #9bbbd6; font: 700 calc(12px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
 .kanbanDetailHeaderMeta a:hover { color: #c0d7ea; text-decoration: underline; }
 .kanbanDetailHeaderMeta a.kanbanCardPrLink.openReady { color: #72c58b; }
+.kanbanDetailHeaderMeta a.kanbanCardPrLink.openPending { color: #c9a360; }
 .kanbanDetailHeaderMeta a.kanbanCardPrLink.openBlocked { color: #e27f86; }
 .kanbanDetailHeaderMeta a.kanbanCardPrLink.merged { color: #b78ae0; }
 .kanbanDetailHeaderMeta a.kanbanCardPrLink.closed { color: #7f91a3; }
