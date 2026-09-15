@@ -1,0 +1,17 @@
+// Generated contract mirror of src-tauri/src/kanban/workflow.rs. Validated by scripts/check-kanban-contract.mjs.
+export const KANBAN_STATUS_METADATA = [
+  { status: 'needs_refinement', label: 'Needs refinement' },
+  { status: 'refining', label: 'Refining' },
+  { status: 'needs_refinement_input', label: 'Needs you for refinement' },
+  { status: 'ready', label: 'Ready for agent' },
+  { status: 'agent_working', label: 'Agent working' },
+  { status: 'needs_human', label: 'Needs you' },
+  { status: 'approved', label: 'Ready to merge' },
+  { status: 'done', label: 'Done' },
+] as const;
+
+export const KANBAN_WORKFLOW_ACTIONS = [
+  'open_refinement', 'finish_refinement', 'stop_refinement', 'start_work', 'return_to_refinement',
+  'request_changes', 'ship', 'ship_with_fe', 'merge_local', 'create_pr', 'open_pr', 'merge_pr',
+  'cleanup', 'close', 'delete',
+] as const;

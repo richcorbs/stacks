@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "test": "vitest run",
+    "build": "node scripts/check-kanban-contract.mjs && tsc && vite build",
+    "test": "node scripts/check-kanban-contract.mjs && vitest run",
     "check:version": "node scripts/check-version.mjs",
     "version:set": "node scripts/version.mjs",
     "release:build": "TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/stacks-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"$(cat $HOME/.tauri/stacks-updater.password)\" tauri build --bundles app",

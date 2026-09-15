@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus, KanbanSyncCard, KanbanWorkflowAction, PiLifecycleIntent } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
@@ -32,8 +32,16 @@ export function syncKanbanCards(cards: KanbanSyncCard[]) {
   return invoke<KanbanCard[]>('kanban_sync_superthread_cards', { cards });
 }
 
-export function setKanbanStatus(id: string, status: KanbanStatus, expectedRevision: number, actor: 'user' | 'agent' = 'user') {
-  return invoke<KanbanCard>('kanban_set_status', { id, status, expectedRevision, actor });
+export function applyKanbanWorkflowAction(id: string, action: Extract<KanbanWorkflowAction, 'return_to_refinement' | 'request_changes' | 'stop_refinement'>, expectedRevision: number) {
+  return invoke<KanbanCard>('kanban_apply_workflow_action', { id, action, expectedRevision });
+}
+
+export function applyKanbanPiLifecycleIntent(id: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number) {
+  return invoke<KanbanCard>('kanban_apply_pi_lifecycle_intent', { id, thread, intent, generation, eventId, eventOrder });
+}
+
+export function fetchKanbanStatusMetadata() {
+  return invoke<Array<{ status: KanbanStatus; label: string }>>('kanban_status_metadata');
 }
 
 export function reorderKanbanCards(status: KanbanStatus, cardIds: string[]) {

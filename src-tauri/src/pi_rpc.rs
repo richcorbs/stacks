@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -57,6 +57,8 @@ impl Drop for PiRpcRegistry {
 struct PiRpcEvent {
     pane_id: String,
     generation: String,
+    event_id: String,
+    event_order: u64,
     event: Value,
 }
 
@@ -149,6 +151,13 @@ pub fn start_pi_session(
                 return Err("Pi session start was cancelled".to_string());
             }
             let generation = handle.generation.clone();
+            if let Err(error) =
+                crate::kanban::register_pi_lifecycle_generation(&pane_id, &generation)
+            {
+                drop(guard);
+                handle.stop();
+                return Err(error);
+            }
             guard.sessions.insert(pane_id, handle);
             Ok(generation)
         }
@@ -226,11 +235,13 @@ fn spawn_pi_session(
     };
 
     let alive = Arc::new(AtomicBool::new(true));
+    let event_order = Arc::new(AtomicU64::new(0));
     let (stop_tx, stop_rx) = mpsc::channel::<mpsc::Sender<()>>();
 
     let output_window = window.clone();
     let output_pane_id = pane_id.to_string();
     let output_generation = generation.clone();
+    let output_event_order = event_order.clone();
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
         let mut bytes = Vec::new();
@@ -251,13 +262,20 @@ fn spawn_pi_session(
                     let event = serde_json::from_slice(&bytes).unwrap_or_else(
                         |error| json!({"type":"pi_protocol_error","message":error.to_string()}),
                     );
-                    emit_event(&output_window, &output_pane_id, &output_generation, event);
+                    emit_event(
+                        &output_window,
+                        &output_pane_id,
+                        &output_generation,
+                        &output_event_order,
+                        event,
+                    );
                 }
                 Err(error) => {
                     emit_event(
                         &output_window,
                         &output_pane_id,
                         &output_generation,
+                        &output_event_order,
                         json!({"type":"pi_protocol_error","message":error.to_string()}),
                     );
                     break;
@@ -269,12 +287,14 @@ fn spawn_pi_session(
     let error_window = window.clone();
     let error_pane_id = pane_id.to_string();
     let error_generation = generation.clone();
+    let error_event_order = event_order.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             emit_event(
                 &error_window,
                 &error_pane_id,
                 &error_generation,
+                &error_event_order,
                 json!({"type":"pi_stderr","message":line}),
             );
         }
@@ -284,6 +304,7 @@ fn spawn_pi_session(
     let process_pane_id = pane_id.to_string();
     let process_generation = generation.clone();
     let process_alive = alive.clone();
+    let process_event_order = event_order;
     std::thread::spawn(move || {
         loop {
             if let Ok(finished_tx) = stop_rx.try_recv() {
@@ -309,6 +330,7 @@ fn spawn_pi_session(
             &process_window,
             &process_pane_id,
             &process_generation,
+            &process_event_order,
             json!({"type":"pi_process_exit"}),
         );
     });
@@ -414,12 +436,21 @@ fn send_json(stdin: &mut ChildStdin, value: &Value) -> Result<(), String> {
     stdin.flush().map_err(|error| error.to_string())
 }
 
-fn emit_event(window: &Window, pane_id: &str, generation: &str, event: Value) {
+fn emit_event(
+    window: &Window,
+    pane_id: &str,
+    generation: &str,
+    sequence: &AtomicU64,
+    event: Value,
+) {
+    let event_order = sequence.fetch_add(1, Ordering::SeqCst);
     let _ = window.emit(
         "pi-rpc-event",
         PiRpcEvent {
             pane_id: pane_id.to_string(),
             generation: generation.to_string(),
+            event_id: format!("{generation}:{event_order}"),
+            event_order,
             event,
         },
     );

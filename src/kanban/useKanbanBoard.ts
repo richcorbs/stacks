@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
-import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
-import type { CardProviderAdapter, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import { applyKanbanPiLifecycleIntent, applyKanbanWorkflowAction, createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, syncKanbanCards, updateLocalKanbanCard } from './api';
+import type { CardProviderAdapter, KanbanCard, KanbanStatus, KanbanSyncCard, PiLifecycleIntent } from './types';
 import type { Project } from '../types';
 import { KanbanSyncRequestGate } from './syncRequestGate';
 import { setPiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
@@ -84,16 +84,16 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     };
   }, []);
 
-  function enqueueStatusProjection(cardId: string, expectedStatuses: KanbanStatus[], nextStatus: KanbanStatus, failurePrefix?: string, expectedRevision?: number): Promise<KanbanCard | null> {
+  function enqueueLifecycleIntent(cardId: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failurePrefix?: string, expectedRevision?: number): Promise<KanbanCard | null> {
     const previous = lifecycleTransitionsRef.current.get(cardId) ?? Promise.resolve();
     const result = previous.catch(() => {}).then(async () => {
       const current = cardsRef.current.find((candidate) => candidate.id === cardId);
-      if (!current || !expectedStatuses.includes(current.status) || (expectedRevision !== undefined && current.workflow_revision !== expectedRevision)) return null;
-      await setKanbanStatus(cardId, nextStatus, current.workflow_revision, 'agent');
-      const refreshed = await fetchKanbanCards();
-      cardsRef.current = refreshed;
-      setCards(refreshed);
-      return refreshed.find((candidate) => candidate.id === cardId) ?? null;
+      if (!current || (expectedRevision !== undefined && current.workflow_revision !== expectedRevision)) return null;
+      const updated = await applyKanbanPiLifecycleIntent(cardId, thread, intent, generation, eventId, eventOrder);
+      const merged = mergeChangedKanbanCard(cardsRef.current, updated);
+      cardsRef.current = merged;
+      setCards(merged);
+      return updated;
     });
     const gate = result.then(() => undefined, (statusError) => {
       const message = `${failurePrefix ?? 'Card status could not be updated'}: ${errorMessage(statusError)}`;
@@ -102,9 +102,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       load().catch(console.error);
     });
     lifecycleTransitionsRef.current.set(cardId, gate);
-    gate.finally(() => {
-      if (lifecycleTransitionsRef.current.get(cardId) === gate) lifecycleTransitionsRef.current.delete(cardId);
-    });
+    gate.finally(() => { if (lifecycleTransitionsRef.current.get(cardId) === gate) lifecycleTransitionsRef.current.delete(cardId); });
     return result.catch(() => null);
   }
 
@@ -114,9 +112,10 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       if (!session || (session.thread === 'work' && viewOpen)) return;
       const key = `${paneId}:${requestId}`;
       if (uiRequestBlocksRef.current.has(key)) return;
-      const transition = session.thread === 'planning'
-        ? enqueueStatusProjection(session.cardId, ['refining'], 'needs_refinement_input', 'Pi needs refinement input, but the card status could not be updated')
-        : enqueueStatusProjection(session.cardId, ['agent_working'], 'needs_human', 'Pi needs input, but the card status could not be updated');
+      const generation = getRetainedPiSessionController(paneId)?.lifecycleGeneration();
+      if (!generation) return;
+      const transition = enqueueLifecycleIntent(session.cardId, session.thread, 'ui_input_requested', generation, `ui:${requestId}:requested`, undefined,
+        session.thread === 'planning' ? 'Pi needs refinement input, but the card status could not be updated' : 'Pi needs input, but the card status could not be updated');
       uiRequestBlocksRef.current.set(key, transition);
     },
     beforeResponse: async (paneId, requestId) => {
@@ -143,8 +142,9 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     // automation update wins and must never be overwritten.
     if (!shouldRestoreUiRequestCard(current, blocked)) return;
     const session = cardAgentSession(paneId);
-    const workingStatus = session?.thread === 'planning' ? 'refining' : 'agent_working';
-    await enqueueStatusProjection(current.id, [current.status], workingStatus, undefined, blocked.workflow_revision);
+    const generation = getRetainedPiSessionController(paneId)?.lifecycleGeneration();
+    if (!session || !generation) return;
+    await enqueueLifecycleIntent(current.id, session.thread, 'ui_input_resolved', generation, `ui:${requestId}:resolved`, undefined, undefined, blocked.workflow_revision);
   }
 
   useEffect(() => {
@@ -157,9 +157,9 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
       if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled' && !planningError)) return;
       const card = cardsRef.current.find((candidate) => candidate.id === session.cardId);
       if (!card) return;
-      const projection = lifecycleProjectionRule(session.thread, eventType);
-      const transition = projection
-        ? enqueueStatusProjection(session.cardId, projection.expectedStatuses, projection.nextStatus)
+      const intent = piLifecycleIntent(eventType);
+      const transition = intent
+        ? enqueueLifecycleIntent(session.cardId, session.thread, intent, envelope.generation, envelope.event_id, envelope.event_order)
         : Promise.resolve(null);
       if (eventType === 'agent_settled' || planningError) {
         transition.finally(() => {
@@ -236,29 +236,26 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     }
     const current = cardsRef.current.find((card) => card.id === id);
     if (!current || !['refining', 'needs_refinement_input'].includes(current.status)) throw new Error('Card is no longer being refined; reload the board');
-    await setKanbanStatus(id, 'needs_refinement', current.workflow_revision, 'user');
-    const refreshed = await fetchKanbanCards();
-    cardsRef.current = refreshed;
-    setCards(refreshed);
+    const updated = await applyKanbanWorkflowAction(id, 'stop_refinement', current.workflow_revision);
+    const merged = mergeChangedKanbanCard(cardsRef.current, updated);
+    cardsRef.current = merged;
+    setCards(merged);
     await getRetainedPiSessionController(paneId)?.stopRefinement();
-    return refreshed.find((card) => card.id === id) ?? current;
+    return updated;
   }
 
-  async function move(id: string, status: KanbanStatus) {
-    const previous = cards;
-    setCards((current) => current.map((card) => card.id === id ? { ...card, status } : card));
+  async function act(id: string, action: 'return_to_refinement' | 'request_changes') {
+    const current = cardsRef.current.find((card) => card.id === id);
+    if (!current) throw new Error('Card was not found; reload the board');
     try {
-      const expectedRevision = cardsRef.current.find((card) => card.id === id)?.workflow_revision;
-      if (expectedRevision === undefined) throw new Error('Card was not found; reload the board');
-      await setKanbanStatus(id, status, expectedRevision);
-      const refreshed = await fetchKanbanCards();
-      cardsRef.current = refreshed;
-      setCards(refreshed);
-      return refreshed.find((card) => card.id === id) ?? previous.find((card) => card.id === id)!;
-    } catch (moveError) {
-      setCards(previous);
-      setError(errorMessage(moveError));
-      throw moveError;
+      const updated = await applyKanbanWorkflowAction(id, action, current.workflow_revision);
+      const merged = mergeChangedKanbanCard(cardsRef.current, updated);
+      cardsRef.current = merged;
+      setCards(merged);
+      return updated;
+    } catch (actionError) {
+      setError(errorMessage(actionError));
+      throw actionError;
     }
   }
 
@@ -292,7 +289,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     }
   }
 
-  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, move, stopRefinement, assignProject, loadDetails };
+  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, act, stopRefinement, assignProject, loadDetails };
 }
 
 type CreateKanbanCardDependencies = {
@@ -375,14 +372,11 @@ export function shouldRestoreUiRequestCard(current: KanbanCard | undefined, bloc
   return Boolean(current && current.status === waitingStatus && current.workflow_revision === blocked.workflow_revision);
 }
 
-export function lifecycleProjectionRule(thread: 'planning' | 'work', eventType: string): { expectedStatuses: KanbanStatus[]; nextStatus: KanbanStatus } | null {
-  if (thread === 'planning') {
-    if (eventType === 'agent_start') return { expectedStatuses: ['needs_refinement', 'needs_refinement_input'], nextStatus: 'refining' };
-    if (['agent_settled', 'pi_protocol_error', 'pi_process_exit'].includes(eventType)) return { expectedStatuses: ['refining'], nextStatus: 'needs_refinement_input' };
-    return null;
-  }
-  if (eventType === 'agent_start') return { expectedStatuses: ['needs_human'], nextStatus: 'agent_working' };
-  if (eventType === 'agent_settled') return { expectedStatuses: ['agent_working'], nextStatus: 'needs_human' };
+export function piLifecycleIntent(eventType: string): PiLifecycleIntent | null {
+  if (eventType === 'agent_start') return 'agent_started';
+  if (eventType === 'agent_settled') return 'agent_settled';
+  if (eventType === 'pi_protocol_error') return 'protocol_failed';
+  if (eventType === 'pi_process_exit') return 'process_exited';
   return null;
 }
 

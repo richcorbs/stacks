@@ -223,6 +223,10 @@ export class PiSessionController {
     this.listeners.clear();
   }
 
+  lifecycleGeneration() {
+    return this.generation && this.generation !== 'restarting' ? this.generation : null;
+  }
+
   /** Test seam for projection ordering and stale generation behavior. */
   project(envelope: PiRpcEnvelope) {
     this.handleEnvelope(envelope);

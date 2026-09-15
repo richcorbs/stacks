@@ -15,7 +15,7 @@ function card(status: KanbanStatus): KanbanCard {
     board_id: 'one', board_title: 'Project One', list_id: '', list_title: '', card_url: '',
     assignee_names: [], status, workflow_revision: 1, project_id: 'one', parent: null,
     child_count: 0, children: [], hierarchy_finalized: false, environment: null,
-    created_at: 1, updated_at: 1, sort_order: 0, events: [],
+    created_at: 1, updated_at: 1, sort_order: 0, events: [], capabilities: [],
   };
 }
 

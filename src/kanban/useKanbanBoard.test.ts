@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, lifecycleProjectionRule, mergeChangedKanbanCard, performKanbanLoad, shouldRestoreUiRequestCard } from './useKanbanBoard';
+import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, mergeChangedKanbanCard, performKanbanLoad, piLifecycleIntent, shouldRestoreUiRequestCard } from './useKanbanBoard';
 import type { CardProviderAdapter, KanbanCard, KanbanSyncCard } from './types';
 import type { Project } from '../types';
 
@@ -28,6 +28,7 @@ function card(id: string, title: string): KanbanCard {
     updated_at: 1,
     sort_order: 0,
     events: [],
+    capabilities: [],
   };
 }
 
@@ -65,13 +66,12 @@ describe('card Pi workflow requests', () => {
     expect(cardAgentSession('workspace:pi')).toBeNull();
   });
 
-  it('projects planning lifecycle independently from work lifecycle', () => {
-    expect(lifecycleProjectionRule('planning', 'agent_start')).toEqual({ expectedStatuses: ['needs_refinement', 'needs_refinement_input'], nextStatus: 'refining' });
-    expect(lifecycleProjectionRule('planning', 'agent_settled')).toEqual({ expectedStatuses: ['refining'], nextStatus: 'needs_refinement_input' });
-    expect(lifecycleProjectionRule('planning', 'pi_protocol_error')).toEqual({ expectedStatuses: ['refining'], nextStatus: 'needs_refinement_input' });
-    expect(lifecycleProjectionRule('work', 'agent_start')).toEqual({ expectedStatuses: ['needs_human'], nextStatus: 'agent_working' });
-    expect(lifecycleProjectionRule('work', 'agent_settled')).toEqual({ expectedStatuses: ['agent_working'], nextStatus: 'needs_human' });
-    expect(lifecycleProjectionRule('work', 'pi_protocol_error')).toBeNull();
+  it('maps Pi events to typed intents without deciding workflow legality', () => {
+    expect(piLifecycleIntent('agent_start')).toBe('agent_started');
+    expect(piLifecycleIntent('agent_settled')).toBe('agent_settled');
+    expect(piLifecycleIntent('pi_protocol_error')).toBe('protocol_failed');
+    expect(piLifecycleIntent('pi_process_exit')).toBe('process_exited');
+    expect(piLifecycleIntent('message_update')).toBeNull();
   });
 
   it('restores only the exact automatic Needs you revision', () => {
