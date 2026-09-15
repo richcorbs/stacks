@@ -2,7 +2,7 @@ import { createRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { KanbanStatus } from '../../kanban/types';
-import { DoneLaneMenu } from './KanbanLanes';
+import { DoneLaneMenu, shouldDismissDoneLaneMenu } from './KanbanLanes';
 
 function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boolean; open?: boolean; cardsCount?: number }) {
   return renderToStaticMarkup(
@@ -20,6 +20,24 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
 }
 
 describe('DoneLaneMenu', () => {
+  it('dismisses only pointer events outside the menu wrapper', () => {
+    const trigger = {} as Node;
+    const menuItem = {} as Node;
+    const outsideControl = {} as Node;
+    const wrapper = {
+      contains: (target: Node | null) => target === trigger || target === menuItem,
+    };
+
+    expect(shouldDismissDoneLaneMenu(wrapper, { type: 'pointerdown', target: outsideControl })).toBe(true);
+    expect(shouldDismissDoneLaneMenu(wrapper, { type: 'pointerdown', target: trigger })).toBe(false);
+    expect(shouldDismissDoneLaneMenu(wrapper, { type: 'pointerdown', target: menuItem })).toBe(false);
+  });
+
+  it('dismisses on Escape but not other keys', () => {
+    expect(shouldDismissDoneLaneMenu(null, { type: 'keydown', key: 'Escape', target: null })).toBe(true);
+    expect(shouldDismissDoneLaneMenu(null, { type: 'keydown', key: 'Enter', target: null })).toBe(false);
+  });
+
   it.each([
     [false, 'Collapse column'],
     [true, 'Expand column'],

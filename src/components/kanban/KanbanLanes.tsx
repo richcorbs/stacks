@@ -1,4 +1,4 @@
-import type { Dispatch, RefObject, SetStateAction } from 'react';
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { Project } from '../../types';
 import type { KanbanCard, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
@@ -24,9 +24,33 @@ type DoneLaneMenuProps = {
   onCleanupMerged: () => void;
 };
 
+type DoneLaneMenuDismissEvent = Pick<Event, 'type' | 'target'> & { key?: string };
+type DoneLaneMenuWrapper = Pick<HTMLElement, 'contains'>;
+
+export function shouldDismissDoneLaneMenu(wrapper: DoneLaneMenuWrapper | null, event: DoneLaneMenuDismissEvent) {
+  if (event.type === 'keydown') return event.key === 'Escape';
+  return event.type === 'pointerdown' && wrapper !== null && event.target !== null && !wrapper.contains(event.target as Node);
+}
+
 export function DoneLaneMenu({ cardsCount, collapsed, triggerRef, open, cleaningMerged, setOpen, onToggle, onCleanupMerged }: DoneLaneMenuProps) {
+  const wrapperRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const dismissIfNeeded = (event: PointerEvent | KeyboardEvent) => {
+      if (shouldDismissDoneLaneMenu(wrapperRef.current, event)) setOpen(null);
+    };
+    document.addEventListener('pointerdown', dismissIfNeeded);
+    document.addEventListener('keydown', dismissIfNeeded);
+    return () => {
+      document.removeEventListener('pointerdown', dismissIfNeeded);
+      document.removeEventListener('keydown', dismissIfNeeded);
+    };
+  }, [open, setOpen]);
+
   return (
-    <span className="kanbanLaneMenu">
+    <span ref={wrapperRef} className="kanbanLaneMenu">
       <button
         ref={triggerRef}
         className="kanbanLaneMenuTrigger"
