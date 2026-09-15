@@ -4,7 +4,7 @@ import type { KanbanCard, KanbanStatus } from './types';
 import type { Project } from '../types';
 
 function card(status: KanbanStatus, environment: KanbanCard['environment'] = null): KanbanCard {
-  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
+  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 1, record_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
 }
 const localProject = { id: 'p', name: 'P', path: '/repo', workspaces: [], delivery_workflow: 'local_merge', target_branch: 'main' } as Project;
 const prProject = { ...localProject, delivery_workflow: 'github_pull_request', supports_feature_environments: true, require_passing_ci: true, require_approval: true } as Project;
@@ -58,21 +58,50 @@ describe('delivery workflow actions', () => {
     expect(cleanup).toMatchObject({ destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?' } });
   });
 
+  it('shows durable environment recovery actions for an incomplete start', () => {
+    const pending = {
+      ...card('ready'),
+      creation_operation: {
+        id: 'operation-1', phase: 'recovery_required' as const, error: 'Setup completion is ambiguous',
+        source_path: '/source', source_branch: 'feature', cleanup_available: true, custom_command: true, revision: 2,
+      },
+    };
+
+    expect(deriveCardWorkflowActions({ card: pending, project: localProject, projectAvailable: true })).toMatchObject([
+      { kind: 'start_work', label: 'Resume start', primary: true },
+      { kind: 'cleanup_creation', label: 'Clean up', destructive: true },
+    ]);
+  });
+
+  it('hides setup cleanup when resource ownership is not proven', () => {
+    const pending = {
+      ...card('ready'),
+      creation_operation: {
+        id: 'operation-1', phase: 'recovery_required' as const, error: 'Ambiguous resources',
+        source_path: null, source_branch: null, cleanup_available: false, custom_command: true, revision: 1,
+      },
+    };
+    expect(deriveCardWorkflowActions({ card: pending, project: localProject, projectAvailable: true }).map(({ kind }) => kind)).toEqual(['start_work']);
+  });
+
   it('uses Ship It and conditionally offers feature environment delivery', () => {
-    expect(kinds('needs_human')).toEqual(['request_changes', 'ship', 'close']);
-    expect(kinds('needs_human', prProject)).toEqual(['request_changes', 'ship', 'ship_with_fe', 'close']);
-    expect(deriveCardWorkflowActions({ card: card('needs_human'), project: prProject, projectAvailable: true })[1].label).toBe('Ship It');
+    expect(kinds('needs_human')).toEqual(['request_changes', 'ship', 'merge_target', 'close']);
+    expect(kinds('needs_human', prProject)).toEqual(['request_changes', 'ship', 'merge_target', 'ship_with_fe', 'close']);
+    const actions = deriveCardWorkflowActions({ card: card('needs_human'), project: prProject, projectAvailable: true });
+    expect(actions[1].label).toBe('Ship It');
+    expect(actions[2]).toMatchObject({ kind: 'merge_target', label: 'Merge in target & resolve' });
+    expect(actions[2].confirmation).toBeUndefined();
   });
 
   it('allows an approved source to be shipped again before local merge', () => {
-    expect(kinds('approved')).toEqual(['request_changes', 'ship', 'merge_local', 'close']);
+    expect(kinds('approved')).toEqual(['request_changes', 'ship', 'merge_target', 'merge_local', 'close']);
     expect(deriveCardWorkflowActions({ card: card('approved'), project: localProject, projectAvailable: true })[1].label).toBe('Ship It again');
   });
 
   it('creates or merges a pull request based on persisted PR state', () => {
-    expect(kinds('approved', prProject)).toEqual(['request_changes', 'ship', 'create_pr', 'close']);
+    expect(kinds('approved', prProject)).toEqual(['request_changes', 'ship', 'merge_target', 'create_pr', 'close']);
     const ready = { ...card('approved'), pull_request: { repository: 'o/r', number: 1, title: 'PR', url: 'https://example.test', state: 'open' as const, draft: false, ci_status: 'success' as const, review_state: 'approved' as const, has_conflicts: false, mergeable: true, blockers: [] } };
-    expect(deriveCardWorkflowActions({ card: ready, project: prProject, projectAvailable: true }).map((action) => action.kind)).toEqual(['request_changes', 'open_pr', 'merge_pr', 'close']);
+    expect(deriveCardWorkflowActions({ card: ready, project: prProject, projectAvailable: true }).map((action) => action.kind)).toEqual(['request_changes', 'ship', 'merge_target', 'open_pr', 'merge_pr', 'close']);
   });
 
   it('blocks GitHub merge with every readiness reason', () => {
@@ -81,9 +110,24 @@ describe('delivery workflow actions', () => {
     expect(action?.disabledReason).toBe('Draft; CI pending; Changes requested');
   });
 
-  it('only offers outcome-aware cleanup for Done cards with environments', () => {
+  it('retries a durable cleanup without repeating destructive confirmation', () => {
+    const retryCard = {
+      ...card('done'), completion_outcome: 'merged' as const,
+      cleanup_operation: { status: 'failed' as const, phase: 'remove_worktree' as const, error_code: 'cleanup_remove_worktree_failed', error_detail: 'Recover registration', started_at: 1, updated_at: 2, completed_at: null },
+    };
+    const cleanup = deriveCardWorkflowActions({ card: retryCard, project: localProject, projectAvailable: true })[0];
+    expect(cleanup).toMatchObject({ kind: 'cleanup', label: 'Retry cleanup' });
+    expect(cleanup.confirmation).toBeUndefined();
+  });
+
+  it('offers runtime retry separately from outcome-aware environment cleanup', () => {
     const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, layout_revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
-    expect(deriveCardWorkflowActions({ card: { ...card('done', environment), completion_outcome: 'closed' }, project: localProject, projectAvailable: true })[0].confirmation?.detail).toContain('branch is retained');
+    const failed = { ...card('done', environment), completion_outcome: 'closed' as const, runtime_cleanup_status: 'failed' as const, runtime_cleanup_error: 'PTY still running' };
+    const actions = deriveCardWorkflowActions({ card: failed, project: localProject, projectAvailable: true });
+    expect(actions.map((action) => action.kind)).toEqual(['retry_runtime_cleanup', 'cleanup']);
+    expect(actions[0].label).toBe('Retry process cleanup');
+    expect(actions[1].confirmation?.detail).toContain('branch is retained');
+    expect(deriveCardWorkflowActions({ card: { ...card('done'), runtime_cleanup_status: 'pending' }, project: localProject, projectAvailable: true }).map((action) => action.kind)).toEqual(['retry_runtime_cleanup']);
     expect(kinds('done')).toEqual([]);
   });
 });

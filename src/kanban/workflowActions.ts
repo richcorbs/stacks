@@ -2,7 +2,7 @@ import type { Project } from '../types';
 import type { KanbanCard } from './types';
 
 export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'stop_refinement' | 'start_work' | 'return_to_refinement' |
-  'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'close' | 'delete';
+  'ship' | 'ship_with_fe' | 'merge_target' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'cleanup_creation' | 'retry_runtime_cleanup' | 'close' | 'delete';
 
 export type CardWorkflowActionAppearance = 'regular' | 'neutral-ghost' | 'danger-ghost';
 
@@ -60,7 +60,10 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
         { kind: 'write_plan_and_finish_refinement', label: 'Write plan & finish refinement', disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         { kind: 'stop_refinement', label: 'Stop refinement', destructive: true, appearance: 'neutral-ghost' },
       ];
-      case 'ready': return [
+      case 'ready': return card.creation_operation ? [
+        { kind: 'start_work', label: 'Resume start', primary: true, disabledReason: projectAvailable ? undefined : 'Owning project is unavailable' },
+        ...(card.creation_operation.cleanup_available ? [{ kind: 'cleanup_creation' as const, label: 'Clean up', destructive: true, appearance: 'regular' as const, confirmation: { title: 'Clean up setup resources?', detail: 'Removes only the clean worktree and unchanged branch proven to have been created by this start operation.' } }] : []),
+      ] : [
         { kind: 'return_to_refinement', label: 'Return to refinement' },
         { kind: 'start_work', label: 'Start work', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
       ];
@@ -68,6 +71,7 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
       case 'needs_human': return [
         { kind: 'request_changes', label: 'Request changes' },
         { kind: 'ship', label: 'Ship It', primary: true },
+        { kind: 'merge_target', label: 'Merge in target & resolve' },
         ...(project?.delivery_workflow === 'github_pull_request' && project.supports_feature_environments
           ? [{ kind: 'ship_with_fe' as const, label: 'Ship it w/FE' }]
           : []),
@@ -77,11 +81,14 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
           if (!card.pull_request || card.pull_request.state === 'closed') return [
             { kind: 'request_changes', label: 'Request changes' },
             { kind: 'ship', label: 'Ship It again' },
+            { kind: 'merge_target', label: 'Merge in target & resolve' },
             { kind: 'create_pr', label: 'Create PR', primary: true },
           ];
           if (card.pull_request.state === 'merged') return [];
           return [
             { kind: 'request_changes', label: 'Request changes' },
+            { kind: 'ship', label: 'Ship It again' },
+            { kind: 'merge_target', label: 'Merge in target & resolve' },
             { kind: 'open_pr', label: 'Open PR' },
             { kind: 'merge_pr', label: 'Merge PR', primary: true, disabledReason: card.pull_request.blockers.join('; ') || undefined },
           ];
@@ -89,13 +96,20 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
         return [
           { kind: 'request_changes', label: 'Request changes' },
           { kind: 'ship', label: 'Ship It again' },
+          { kind: 'merge_target', label: 'Merge in target & resolve' },
           { kind: 'merge_local', label: 'Merge locally', primary: true, confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } },
         ];
       }
-      case 'done': return environment ? [
-        { kind: 'cleanup', label: 'Clean up', destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
-      ] : [];
+      case 'done': {
+        const retryingEnvironment = Boolean(card.cleanup_operation && card.cleanup_operation.status !== 'completed');
+        return [
+          ...(['pending', 'failed'].includes(card.runtime_cleanup_status ?? '') ? [{ kind: 'retry_runtime_cleanup' as const, label: 'Retry process cleanup', appearance: 'regular' as const }] : []),
+          ...(environment || retryingEnvironment ? [
+            { kind: 'cleanup' as const, label: retryingEnvironment ? 'Retry cleanup' : 'Clean up', destructive: true, appearance: 'regular' as const, confirmation: retryingEnvironment ? undefined : { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
+          ] : []),
+        ];
+      }
     }
   })();
-  return card.status === 'done' ? actions : [...actions, close];
+  return card.status === 'done' || card.creation_operation ? actions : [...actions, close];
 }
