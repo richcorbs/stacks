@@ -47,6 +47,7 @@ import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNaviga
 import { initialCardView, type CardView } from '../kanban/cardView';
 import { candidateParents, childCountLabel, hierarchyStatusLabel, statusLabel as childStatusLabel } from '../kanban/hierarchy';
 import { useWorkflowOperation } from '../kanban/useWorkflowOperation';
+import { LayoutSaveCoordinator, type LayoutSaveSnapshot } from '../kanban/layoutSaveCoordinator';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -658,6 +659,11 @@ function HierarchyBadges({ card }: { card: KanbanCard }) {
 
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
+type CardLayoutSnapshot = LayoutSaveSnapshot<{
+  splitLayout: SplitNode;
+  focusedPaneId: string | null;
+  panes: CardEnvironmentPane[];
+}>;
 
 function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
   card: KanbanCard;
@@ -708,11 +714,16 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   const [restartShellRequest, setRestartShellRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
   const temporaryRunRef = useRef<TemporaryPaneRun | null>(null);
   const temporaryCwdRef = useRef<string | null>(null);
+  const workflowRevisionRef = useRef(card.workflow_revision);
   const environmentRevisionRef = useRef(card.environment?.revision ?? 0);
+  const layoutRevisionRef = useRef(card.environment?.layout_revision ?? 0);
   const savedLayoutSignatureRef = useRef(layoutSignature(
     card.environment?.split_layout ?? { kind: 'leaf', terminalId: initialShellId },
     card.environment?.focused_pane_id ?? initialShellId,
   ));
+  const layoutSaveCoordinatorRef = useRef<LayoutSaveCoordinator<CardLayoutSnapshot, KanbanCard> | null>(null);
+  const onCardUpdatedRef = useRef(onCardUpdated);
+  onCardUpdatedRef.current = onCardUpdated;
   const [pendingCloseShellPane, setPendingCloseShellPane] = useState<string | null>(null);
   const diffReview = useDiffReview(card.id);
   const sanitizedContent = useMemo(() => DOMPurify.sanitize(card.content, {
@@ -803,14 +814,32 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
     }
   }
 
+  function preserveRevisionValues(updated: KanbanCard) {
+    workflowRevisionRef.current = Math.max(workflowRevisionRef.current, updated.workflow_revision);
+    if (!updated.environment) return { ...updated, workflow_revision: workflowRevisionRef.current };
+    environmentRevisionRef.current = Math.max(environmentRevisionRef.current, updated.environment.revision);
+    layoutRevisionRef.current = Math.max(layoutRevisionRef.current, updated.environment.layout_revision);
+    return {
+      ...updated,
+      workflow_revision: workflowRevisionRef.current,
+      environment: {
+        ...updated.environment,
+        revision: environmentRevisionRef.current,
+        layout_revision: layoutRevisionRef.current,
+      },
+    };
+  }
+
   async function reloadCard() {
     setReloadingCard(true);
     try {
-      const updated = await onReload();
-      environmentRevisionRef.current = updated.environment?.revision ?? 0;
+      const updated = preserveRevisionValues(await onReload());
+      onCardUpdatedRef.current(updated);
       if (updated.environment) {
         const focusedPane = updated.environment.focused_pane_id ?? collectLeafTerminalIds(updated.environment.split_layout)[0] ?? initialShellId;
-        savedLayoutSignatureRef.current = layoutSignature(updated.environment.split_layout, focusedPane);
+        const signature = layoutSignature(updated.environment.split_layout, focusedPane);
+        savedLayoutSignatureRef.current = signature;
+        layoutSaveCoordinatorRef.current?.reset(updated.environment.layout_revision, signature);
         setShellTree(updated.environment.split_layout);
         setFocusedShellPane(focusedPane);
       }
@@ -823,29 +852,60 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   }
 
   useEffect(() => {
-    const environmentId = card.environment?.id;
-    if (!environmentId) return;
-    if (temporaryRunRef.current) return;
-    const signature = layoutSignature(shellTree, focusedShellPane);
-    if (signature === savedLayoutSignatureRef.current) return;
-    const timer = window.setTimeout(() => {
-      const panes: CardEnvironmentPane[] = shellTerminalIds.map((id, index) => ({
-        id, role: 'shell', kind: 'terminal', command: null, sort_order: index,
-      }));
-      saveKanbanEnvironmentLayout(card.id, shellTree, focusedShellPane || null, panes, environmentRevisionRef.current)
-        .then((updated) => {
-          environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current;
-          savedLayoutSignatureRef.current = signature;
-          onCardUpdated(updated);
-        })
-        .catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
-    }, 250);
-    return () => window.clearTimeout(timer);
+    const environment = card.environment;
+    if (!environment) return;
+    const focusedPane = environment.focused_pane_id ?? collectLeafTerminalIds(environment.split_layout)[0] ?? initialShellId;
+    const savedSignature = layoutSignature(environment.split_layout, focusedPane);
+    workflowRevisionRef.current = card.workflow_revision;
+    environmentRevisionRef.current = environment.revision;
+    layoutRevisionRef.current = environment.layout_revision;
+    savedLayoutSignatureRef.current = savedSignature;
+    setShellTree(environment.split_layout);
+    setFocusedShellPane(focusedPane);
+    const coordinator = new LayoutSaveCoordinator<CardLayoutSnapshot, KanbanCard>({
+      initialLayoutRevision: environment.layout_revision,
+      initialSavedSignature: savedSignature,
+      save: async (snapshot, expectedLayoutRevision) => {
+        const updated = await saveKanbanEnvironmentLayout(
+          card.id,
+          snapshot.value.splitLayout,
+          snapshot.value.focusedPaneId,
+          snapshot.value.panes,
+          expectedLayoutRevision,
+        );
+        if (!updated.environment) throw new Error('Layout save response is missing the card environment; reload the card.');
+        return { layoutRevision: updated.environment.layout_revision, value: updated };
+      },
+      onSaved: (snapshot, updated) => {
+        savedLayoutSignatureRef.current = snapshot.signature;
+        const preserved = preserveRevisionValues(updated);
+        onCardUpdatedRef.current(preserved);
+      },
+      onError: (error) => setActionError(error instanceof Error ? error.message : String(error)),
+    });
+    layoutSaveCoordinatorRef.current = coordinator;
+    return () => {
+      coordinator.dispose();
+      if (layoutSaveCoordinatorRef.current === coordinator) layoutSaveCoordinatorRef.current = null;
+    };
+  }, [card.id, card.environment?.id]);
+
+  useEffect(() => {
+    if (!card.environment?.id || temporaryRunRef.current) return;
+    const panes: CardEnvironmentPane[] = shellTerminalIds.map((id, index) => ({
+      id, role: 'shell', kind: 'terminal', command: null, sort_order: index,
+    }));
+    layoutSaveCoordinatorRef.current?.submit({
+      signature: layoutSignature(shellTree, focusedShellPane),
+      value: { splitLayout: shellTree, focusedPaneId: focusedShellPane || null, panes },
+    });
   }, [card.id, card.environment?.id, focusedShellPane, shellTerminalIds, shellTree]);
 
   useEffect(() => {
+    workflowRevisionRef.current = Math.max(workflowRevisionRef.current, card.workflow_revision);
     environmentRevisionRef.current = Math.max(environmentRevisionRef.current, card.environment?.revision ?? 0);
-  }, [card.environment?.revision]);
+    layoutRevisionRef.current = Math.max(layoutRevisionRef.current, card.environment?.layout_revision ?? 0);
+  }, [card.environment?.layout_revision, card.environment?.revision, card.workflow_revision]);
 
   useEffect(() => {
     const handleDetailKeyboard = (event: KeyboardEvent) => {
@@ -1073,7 +1133,11 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
           await runWritePlanAndFinishRefinement({
             showAgent: () => setActiveView('chat'),
             sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'planning'), prompt),
-            refresh: onReload,
+            refresh: async () => {
+              const updated = preserveRevisionValues(await onReload());
+              onCardUpdatedRef.current(updated);
+              return updated;
+            },
           });
           return;
         case 'stop_refinement': await onStopRefinement(); return;
@@ -1092,8 +1156,8 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
             sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'work'), prompt),
             finalize: () => approveAndCommitKanbanCard(card.id, expectedWorkflowRevision, expectedEnvironmentRevision, action.kind === 'ship_with_fe'),
             refresh: async () => {
-              const updated = await onReload();
-              environmentRevisionRef.current = updated.environment?.revision ?? environmentRevisionRef.current;
+              const updated = preserveRevisionValues(await onReload());
+              onCardUpdatedRef.current(updated);
               setDiffRefreshNonce((nonce) => nonce + 1);
               window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
             },
@@ -1104,7 +1168,8 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
         case 'merge_local': {
           if (!card.environment) throw new Error('Card environment is missing');
           const result = await mergeKanbanCard(card.id, card.workflow_revision, environmentRevisionRef.current);
-          await onReload();
+          const updated = preserveRevisionValues(await onReload());
+          onCardUpdatedRef.current(updated);
           window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
           return;
         }
@@ -1112,10 +1177,10 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
           setActiveView('chat');
           await sendPromptToPiAndWait(cardPaneId(card.id, 'work'), `Generate succinct pull request metadata from the completed diff and commits. Write exactly one JSON object with string fields "title" and "body" to $(git rev-parse --git-dir)/stacks-pr-metadata.json. Do not alter the worktree or commits.`);
           const updated = await createKanbanPullRequest(card.id, card.workflow_revision);
-          onCardUpdated(updated); return;
+          onCardUpdated(preserveRevisionValues(updated)); return;
         }
         case 'open_pr': if (card.pull_request?.url) await invoke('open_url', { url: card.pull_request.url }); return;
-        case 'merge_pr': onCardUpdated(await mergeKanbanPullRequest(card.id, card.workflow_revision)); return;
+        case 'merge_pr': onCardUpdated(preserveRevisionValues(await mergeKanbanPullRequest(card.id, card.workflow_revision))); return;
         case 'cleanup': await onCleanup(environmentRevisionRef.current); return;
         case 'close': {
           const piPaneIds = new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [cardPaneId(card.id, 'planning'), cardPaneId(card.id, 'work')]);
@@ -1124,7 +1189,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
             ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => { disposeTerminalSession(pane.id); return invoke('kill_pty', { terminalId: pane.id, expectedCwd: card.environment?.worktree_path }); }) ?? []),
             ...(['server', 'console'].map((service) => invoke('kill_pty', { terminalId: `kanban-card:${card.id}:terminal:${service}`, expectedCwd: card.environment?.worktree_path }))),
           ]);
-          onCardUpdated(await closeKanbanCard(card.id, card.workflow_revision)); return;
+          onCardUpdated(preserveRevisionValues(await closeKanbanCard(card.id, card.workflow_revision))); return;
         }
         case 'delete': await onDelete(); return;
       }
@@ -1205,7 +1270,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
             )}
           </>}
         </nav>
-        {actionError?.includes('environment changed') && <div className="kanbanActionError" role="alert">
+        {(actionError?.includes('environment changed') || actionError?.includes('layout changed')) && <div className="kanbanActionError" role="alert">
           <span>{actionError}</span>
           <button type="button" disabled={reloadingCard} onClick={reloadCard}>
             <AsyncButtonLabel idle="Reload card" busy="Reloading…" isBusy={reloadingCard} />

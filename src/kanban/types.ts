@@ -32,6 +32,7 @@ export type CardEnvironment = {
   target_revision: string | null;
   lifecycle_state: 'creating' | 'ready' | 'cleanup_pending' | 'cleanup_failed';
   revision: number;
+  layout_revision: number;
   split_layout: import('../types').SplitNode;
   focused_pane_id: string | null;
   panes: CardEnvironmentPane[];

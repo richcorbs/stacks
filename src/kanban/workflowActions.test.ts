@@ -42,7 +42,7 @@ describe('delivery workflow actions', () => {
     const draftActions = deriveCardWorkflowActions({ card: card('needs_refinement'), project: localProject, projectAvailable: true });
     const close = draftActions.find((action) => action.kind === 'close');
     const deleteAction = draftActions.find((action) => action.kind === 'delete');
-    const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
+    const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, layout_revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
     const cleanup = deriveCardWorkflowActions({ card: card('done', environment), project: localProject, projectAvailable: true })[0];
 
     expect(close).toMatchObject({
@@ -82,7 +82,7 @@ describe('delivery workflow actions', () => {
   });
 
   it('only offers outcome-aware cleanup for Done cards with environments', () => {
-    const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
+    const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, layout_revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
     expect(deriveCardWorkflowActions({ card: { ...card('done', environment), completion_outcome: 'closed' }, project: localProject, projectAvailable: true })[0].confirmation?.detail).toContain('branch is retained');
     expect(kinds('done')).toEqual([]);
   });
