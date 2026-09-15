@@ -21,6 +21,7 @@ import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../sup
 import { nextWorkspaceWithUnseenOutput } from '../workspace/statusDots';
 import { disposeTerminalSessions } from '../terminalSessionManager';
 import { createKanbanEnvironment, fetchKanbanCards, fetchKanbanEnvironmentHealth, preflightKanbanEnvironment } from '../kanban/api';
+import { startKanbanEnvironment } from '../kanban/startEnvironment';
 import type { KanbanCard } from '../kanban/types';
 import type { GitInfo } from '../types';
 import { developerServicesShortcutState, type DeveloperServicesTab } from '../developerServices';
@@ -326,7 +327,6 @@ export function useAppRootModel() {
       }
       if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
 
-      const preflight = await preflightKanbanEnvironment(card.id, card.workflow_revision);
       const input = card.provider === 'local'
         ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title)
         : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, {
@@ -334,18 +334,17 @@ export function useAppRootModel() {
             workspaceName: appSettings.superthread_workspace_name_template,
           });
       const setupCommand = input.setupCommand?.trim();
-      const setup = setupCommand
-        ? await invoke<{ cwd: string; output: string }>('run_workspace_setup', { command: setupCommand, cwd: project.path })
-        : { cwd: project.path, output: '' };
+      const { created: updated, setup } = await startKanbanEnvironment({
+        cardId: card.id,
+        expectedWorkflowRevision: card.workflow_revision,
+        runSetup: () => setupCommand
+          ? invoke<{ cwd: string; output: string }>('run_workspace_setup', { command: setupCommand, cwd: project.path })
+          : Promise.resolve({ cwd: project.path, output: '' }),
+        preflight: preflightKanbanEnvironment,
+        createEnvironment: createKanbanEnvironment,
+      });
       const worktree = setup.cwd;
       const git = await invoke<GitInfo | null>('git_info', { path: worktree }).catch(() => null);
-      let updated: KanbanCard;
-      try {
-        updated = await createKanbanEnvironment(card.id, worktree, preflight, card.workflow_revision);
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        throw new Error(`${detail}\nSetup result: ${worktree}\nSetup output:\n${setup.output.trim() || '(no output)'}`);
-      }
       showToast(`Started work on #${card.external_id}`);
       return {
         ok: true,
