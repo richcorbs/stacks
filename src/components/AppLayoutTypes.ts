@@ -5,6 +5,7 @@ import type { PaletteItem } from './CommandPalette';
 
 export type MainLayoutProps = {
   projects: Project[];
+  projectsHydrated: boolean;
   appSettings: ResolvedAppSettings;
   setKanbanProjectId: (projectId: string | null) => void;
   setKanbanDoneCollapsed: (collapsed: boolean) => void;

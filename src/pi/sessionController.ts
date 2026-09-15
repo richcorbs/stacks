@@ -68,7 +68,8 @@ export class PiSessionController {
   private completionNotificationEligible = false;
   private activityRevision = 0;
   private uiResponseEpoch = 0;
-  private initialized = false;
+  private initializationPromise: Promise<void> | null = null;
+  private launchContinuePromise: Promise<boolean> | null = null;
   private deleted = false;
   private stopListening?: () => void;
   private uiRequestTimer?: ReturnType<typeof setTimeout>;
@@ -86,17 +87,39 @@ export class PiSessionController {
   }
 
   initialize() {
-    if (this.initialized || this.deleted) return;
-    this.initialized = true;
-    this.dependencies.subscribe(this.config.paneId, this.handleEnvelope).then((stop) => {
-      if (this.deleted) stop();
-      else {
-        this.stopListening = stop;
-        this.generation = null;
-        this.start().catch(() => {});
-      }
-    }).catch((error) => this.failStart(error));
+    this.initializeAndHydrate().catch(() => {});
   }
+
+  /** Starts the retained process and resolves only after state and transcript hydration. */
+  initializeAndHydrate = () => {
+    if (this.initializationPromise) return this.initializationPromise;
+    if (this.deleted) return Promise.reject(new Error('Pi session deleted'));
+    this.initializationPromise = this.dependencies.subscribe(this.config.paneId, this.handleEnvelope).then(async (stop) => {
+      if (this.deleted) {
+        stop();
+        throw new Error('Pi session deleted');
+      }
+      this.stopListening = stop;
+      this.generation = null;
+      await this.start();
+    }).catch((error) => {
+      if (!this.snapshot.stopped) this.failStart(error);
+      throw asError(error);
+    });
+    return this.initializationPromise;
+  };
+
+  /** At most one launch-recovery prompt can be submitted through this pane controller. */
+  submitLaunchContinue = (stillEligible: () => Promise<boolean> = async () => true) => {
+    if (!this.launchContinuePromise) {
+      this.launchContinuePromise = this.initializeAndHydrate().then(async () => {
+        if (!await stillEligible()) return false;
+        await this.prompt('continue');
+        return true;
+      });
+    }
+    return this.launchContinuePromise;
+  };
 
   setViewOpen = (open: boolean) => {
     viewPresence.set(this.config.paneId, open);
@@ -246,6 +269,7 @@ export class PiSessionController {
       this.patch({ stopped: false, starting: false });
     } catch (error) {
       this.failStart(error);
+      throw asError(error);
     }
   }
 

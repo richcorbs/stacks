@@ -49,8 +49,8 @@ use menu::app_menu;
 use open::{open_path_in_editor, open_url};
 use pi_image::read_pi_image;
 use pi_rpc::{
-    delete_pi_session, pi_project_trusted, send_pi_rpc, set_pi_project_trusted, start_pi_session,
-    stop_pi_session, PiRpcRegistry,
+    delete_pi_session, pi_project_trusted, pi_session_exists, send_pi_rpc,
+    set_pi_project_trusted, start_pi_session, stop_pi_session, PiRpcRegistry,
 };
 use project_direct::{
     project_direct_delete, project_direct_load_or_create, project_direct_save_layout,
@@ -124,6 +124,7 @@ pub fn run() {
             kill_pty,
             pty_cwd,
             start_pi_session,
+            pi_session_exists,
             pi_project_trusted,
             set_pi_project_trusted,
             send_pi_rpc,

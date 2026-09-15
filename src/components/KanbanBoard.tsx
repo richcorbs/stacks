@@ -5,6 +5,7 @@ import { KanbanBoardView } from './kanban/KanbanBoardView';
 export type KanbanBoardProps = {
   superthreadEnabled: boolean;
   projects: Project[];
+  projectsHydrated: boolean;
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
   doneCollapsed: boolean;
