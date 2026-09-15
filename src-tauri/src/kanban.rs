@@ -22,6 +22,7 @@ const STATUSES: [&str; 8] = [
     "approved",
     "done",
 ];
+const REFINEMENT_STATUSES: [&str; 3] = ["needs_refinement", "refining", "needs_refinement_input"];
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct KanbanCardSnapshot {
@@ -1174,36 +1175,54 @@ pub fn kanban_set_project(id: String, project_id: String) -> Result<KanbanCard, 
     }
     with_connection(|connection| {
         ensure_card_directory(&id)?;
-        let (provider, current_project_id, current_number, has_environment, parent_id, has_children):
-            (String, Option<String>, String, bool, Option<String>, bool) = connection.query_row(
-            "SELECT external_provider, project_id, external_id, EXISTS(SELECT 1 FROM card_environments WHERE card_id=kanban_cards.id), parent_id, EXISTS(SELECT 1 FROM kanban_cards child WHERE child.parent_id=kanban_cards.id) FROM kanban_cards WHERE id=?1",
-            [&id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)? != 0, row.get(4)?, row.get::<_, i64>(5)? != 0)),
-        ).optional().map_err(db_error)?.ok_or_else(|| "Kanban card was not found".to_string())?;
-        if !provider.starts_with("local:") {
-            return Err("Superthread cards cannot be reassigned".to_string());
-        }
-        if has_environment {
-            return Err(
-                "A card cannot be reassigned after its environment has been created".to_string(),
-            );
-        }
-        if parent_id.is_some() || has_children {
-            return Err(
-                "A card with hierarchy relationships cannot be moved to another project"
-                    .to_string(),
-            );
-        }
-        let destination_number = if current_project_id.as_deref() == Some(destination.id.as_str()) {
-            current_number
-        } else {
-            next_local_card_number(connection, &destination.id)?.to_string()
-        };
-        connection.execute(
-            "UPDATE kanban_cards SET project_id=?1, external_provider='local:' || ?1, external_id=?2, board_id=?1, board_title=?3, updated_at=?4 WHERE id=?5",
-            params![destination.id, destination_number, destination.name, unix_timestamp(), id],
-        ).map_err(db_error)?;
-        get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
+        set_card_project(connection, &id, &destination.id, &destination.name)
     })
+}
+
+fn set_card_project(
+    connection: &mut Connection,
+    id: &str,
+    destination_id: &str,
+    destination_name: &str,
+) -> Result<KanbanCard, String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let (provider, status, current_project_id, current_number, has_environment, parent_id, has_children, hierarchy_finalized):
+        (String, String, Option<String>, String, bool, Option<String>, bool, bool) = transaction.query_row(
+        "SELECT external_provider, status, project_id, external_id, EXISTS(SELECT 1 FROM card_environments WHERE card_id=kanban_cards.id), parent_id, EXISTS(SELECT 1 FROM kanban_cards child WHERE child.parent_id=kanban_cards.id), hierarchy_finalized FROM kanban_cards WHERE id=?1",
+        [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get::<_, i64>(4)? != 0, row.get(5)?, row.get::<_, i64>(6)? != 0, row.get::<_, i64>(7)? != 0)),
+    ).optional().map_err(db_error)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+    if !provider.starts_with("local:") {
+        return Err("Superthread cards cannot be reassigned".to_string());
+    }
+    if !REFINEMENT_STATUSES.contains(&status.as_str()) {
+        return Err("A card can only be reassigned during refinement".to_string());
+    }
+    if has_environment {
+        return Err(
+            "A card cannot be reassigned after its environment has been created".to_string(),
+        );
+    }
+    if hierarchy_finalized || parent_id.is_some() || has_children {
+        return Err(
+            "A card with hierarchy relationships cannot be moved to another project".to_string(),
+        );
+    }
+    let destination_number = if current_project_id.as_deref() == Some(destination_id) {
+        current_number
+    } else {
+        next_local_card_number(&transaction, destination_id)?.to_string()
+    };
+    let changed = transaction.execute(
+        "UPDATE kanban_cards SET project_id=?1, external_provider='local:' || ?1, external_id=?2, board_id=?1, board_title=?3, updated_at=?4 WHERE id=?5 AND status IN ('needs_refinement', 'refining', 'needs_refinement_input')",
+        params![destination_id, destination_number, destination_name, unix_timestamp(), id],
+    ).map_err(db_error)?;
+    if changed == 0 {
+        return Err("Card changed; reload before reassigning its project".to_string());
+    }
+    transaction.commit().map_err(db_error)?;
+    get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3437,6 +3456,53 @@ mod tests {
         ).unwrap();
         transaction.commit().unwrap();
         get_card(connection, "local:test").unwrap().unwrap()
+    }
+
+    #[test]
+    fn project_reassignment_allows_only_refinement_statuses_and_renumbers_cards() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+
+        for (index, status) in REFINEMENT_STATUSES.iter().enumerate() {
+            let id = format!("local:source:{}", index + 1);
+            connection.execute(
+                "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,project_id,created_at,updated_at) VALUES (?1,'local:source',?2,?1,?3,'source',1,1)",
+                params![id, (index + 10).to_string(), status],
+            ).unwrap();
+
+            let updated =
+                set_card_project(&mut connection, &id, "destination", "Destination").unwrap();
+            assert_eq!(updated.status, *status);
+            assert_eq!(updated.project_id.as_deref(), Some("destination"));
+            assert_eq!(updated.external_id, (index + 1).to_string());
+            assert_eq!(updated.board_title, "Destination");
+        }
+    }
+
+    #[test]
+    fn project_reassignment_rejects_ready_and_later_statuses_without_changes() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+
+        for (index, status) in ["ready", "agent_working", "needs_human", "approved", "done"]
+            .iter()
+            .enumerate()
+        {
+            let id = format!("local:source:{status}");
+            let original_number = (index + 10).to_string();
+            connection.execute(
+                "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,project_id,created_at,updated_at) VALUES (?1,'local:source',?2,?1,?3,'source',1,1)",
+                params![id, original_number, status],
+            ).unwrap();
+
+            let error =
+                set_card_project(&mut connection, &id, "destination", "Destination").unwrap_err();
+            assert!(error.contains("only be reassigned during refinement"));
+            let unchanged = get_card(&connection, &id).unwrap().unwrap();
+            assert_eq!(unchanged.status, *status);
+            assert_eq!(unchanged.project_id.as_deref(), Some("source"));
+            assert_eq!(unchanged.external_id, original_number);
+        }
     }
 
     #[test]

@@ -42,6 +42,7 @@ import { useCardGitSummary } from '../kanban/useCardGitSummary';
 import { CardGitSummary } from './CardGitSummary';
 import { CardPullRequestLink } from './CardPullRequestLink';
 import { CardEnvironmentBranch } from './CardEnvironmentBranch';
+import { CardProjectAssignment } from './CardProjectAssignment';
 import { adjacentBoardCard, keyboardNavigableCards } from '../kanban/boardNavigation';
 import { initialCardView, type CardView } from '../kanban/cardView';
 import { candidateParents, childCountLabel, hierarchyStatusLabel, statusLabel as childStatusLabel } from '../kanban/hierarchy';
@@ -1164,14 +1165,14 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
           <div className="kanbanDetailHeading">
             <div className="kanbanDetailHeaderMeta">
               <a href={card.card_url || undefined} onClick={(event) => card.card_url && openExternalLink(event, card.card_url)}>#{card.external_id}</a>
-              {card.provider === 'local' && !card.environment && !card.hierarchy_finalized ? (
-                <select className="kanbanProjectAssignment" aria-label="Owning project" value={projectId} onChange={(event) => {
-                  onOpenChat(event.target.value).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
-                }}>
-                  {!project && <option value="">Unknown project</option>}
-                  {localKanbanProjects(projects).map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}
-                </select>
-              ) : <span className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>}
+              <CardProjectAssignment
+                card={card}
+                project={project ?? null}
+                projects={projects}
+                onChange={(nextProjectId) => {
+                  onOpenChat(nextProjectId).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
+                }}
+              />
               <HierarchyBadges card={card} />
               <span className="kanbanCardStatus">{statusLabel}</span>
               <CardGitSummary summary={gitChangeSummary} />
