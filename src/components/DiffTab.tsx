@@ -72,7 +72,7 @@ export function DiffTab({ activePath, comparisonTarget, refreshNonce, review }: 
     }
   }
 
-  if (!activePath) return <div className="superthreadState">Select a workspace in a Git repository.</div>;
+  if (!activePath) return <div className="superthreadState">Open a card environment in a Git repository.</div>;
   return <>
     <div className="diffStatusHeader" title={activePath}>
       {gitInfo && <span className="diffBranch"> {gitInfo.branch}</span>}

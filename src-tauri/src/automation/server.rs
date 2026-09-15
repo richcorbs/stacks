@@ -1,22 +1,19 @@
-use std::{
-    io::{BufRead, BufReader, Read, Write},
-    sync::mpsc,
-    time::Duration,
-};
-use tauri::{AppHandle, Emitter, Manager};
-use uuid::Uuid;
-
 #[cfg(unix)]
 use std::os::unix::{
     fs::PermissionsExt,
     net::{UnixListener, UnixStream},
 };
+use std::{
+    io::{BufRead, BufReader, Read, Write},
+    time::Duration,
+};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::{
-    protocol::{AutomationRequest, AutomationResponse, ClientRequest},
+    protocol::{AutomationResponse, ClientRequest},
     socket_path,
     state::AutomationState,
-    AUTOMATION_EVENT, MAX_REQUEST_BYTES, RESPONSE_TIMEOUT,
+    MAX_REQUEST_BYTES,
 };
 
 #[cfg(unix)]
@@ -66,7 +63,7 @@ pub fn start_server(_app: AppHandle, _state: AutomationState) -> Result<(), Stri
 }
 
 #[cfg(unix)]
-fn handle_connection(mut stream: UnixStream, app: AppHandle, state: AutomationState) {
+fn handle_connection(mut stream: UnixStream, app: AppHandle, _state: AutomationState) {
     let result = read_client_request(&stream).and_then(|client_request| {
         if client_request.action == "activate" {
             focus_main_window(&app)?;
@@ -136,40 +133,10 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, state: AutomationSt
             ));
         }
 
-        let request = AutomationRequest {
-            request_id: Uuid::new_v4().to_string(),
-            action: client_request.action,
-            name: client_request.name,
-            startup_command: client_request.startup_command,
-            run_once: client_request.run_once,
-            card_id: client_request.card_id,
-        };
-        let (response_tx, response_rx) = mpsc::channel();
-        state.insert(request.clone(), response_tx);
-        if let Err(err) = focus_main_window(&app) {
-            state.remove(&request.request_id);
-            return Err(err);
-        }
-
-        let window = app
-            .get_webview_window("main")
-            .ok_or_else(|| "Stacks main window is unavailable".to_string())?;
-        if let Err(err) = window.emit(AUTOMATION_EVENT, &request) {
-            state.remove(&request.request_id);
-            return Err(format!("failed to notify Stacks frontend: {err}"));
-        }
-
-        match response_rx.recv_timeout(RESPONSE_TIMEOUT) {
-            Ok(response) => Ok(response),
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                state.remove(&request.request_id);
-                Err("Stacks did not process the request within 11 minutes".into())
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                state.remove(&request.request_id);
-                Err("Stacks dropped the automation request".into())
-            }
-        }
+        Err(format!(
+            "Unsupported Stacks automation action: {}",
+            client_request.action
+        ))
     });
 
     let response = result.unwrap_or_else(AutomationResponse::error);

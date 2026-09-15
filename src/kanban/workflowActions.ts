@@ -57,6 +57,7 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
       ];
       case 'needs_refinement_input': return [
         { kind: 'open_refinement', label: 'Open refinement', primary: true, disabledReason: projectAvailable ? undefined : 'Assign a project first' },
+        { kind: 'write_plan_and_finish_refinement', label: 'Write plan & finish refinement', disabledReason: projectAvailable ? undefined : 'Assign a project first' },
         { kind: 'stop_refinement', label: 'Stop refinement', destructive: true, appearance: 'neutral-ghost' },
       ];
       case 'ready': return [

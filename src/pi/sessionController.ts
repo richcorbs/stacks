@@ -67,6 +67,7 @@ export class PiSessionController {
   private generation: string | null = null;
   private completionNotificationEligible = false;
   private activityRevision = 0;
+  private uiResponseEpoch = 0;
   private initialized = false;
   private deleted = false;
   private stopListening?: () => void;
@@ -130,6 +131,7 @@ export class PiSessionController {
 
   /** Stops an active card refinement turn without deleting its durable session. */
   stopRefinement = async () => {
+    this.uiResponseEpoch += 1;
     this.clearUiRequest(true, false);
     if (this.snapshot.isStreaming) await this.abort();
   };
@@ -165,20 +167,27 @@ export class PiSessionController {
     await this.refreshState();
   };
 
-  respondToUiRequest = async (response: Record<string, unknown>) => {
-    const request = this.snapshot.uiRequest;
-    if (!request) return;
-    this.clearUiRequest(false);
-    try {
-      await preparePiUiRequestResponse(this.config.paneId, request.id);
-    } catch (error) {
-      this.patch({ error: `Card status could not be restored: ${asError(error).message}` });
-    }
-    await this.writeCommand({ type: 'extension_ui_response', id: request.id, ...response });
+  respondToUiRequest = async (requestId: string, response: Record<string, unknown>) => {
+    const claim = this.claimUiRequest(requestId);
+    if (!claim) return false;
+    await this.completeUiRequest(claim.request, claim.epoch, response);
+    return true;
+  };
+
+  /** Cancels an inline structured request before normal composer submission. */
+  dismissStructuredUiRequest = async () => {
+    const current = this.snapshot.uiRequest;
+    if (!current || (current.method !== 'confirm' && current.method !== 'select')) return false;
+    const claim = this.claimUiRequest(current.id);
+    if (!claim) return false;
+    await this.completeUiRequest(claim.request, claim.epoch, { cancelled: true });
+    return true;
   };
 
   restart = async () => {
     this.completionNotificationEligible = false;
+    this.uiResponseEpoch += 1;
+    this.clearUiRequest(true, false);
     this.patch({ starting: true, stopped: false, isStreamingText: false, streamingText: '', error: null, queuedSteering: [], queuedFollowUps: [] });
     this.generation = 'restarting';
     try {
@@ -200,10 +209,11 @@ export class PiSessionController {
   /** Permanently removes frontend ownership. Backend deletion remains explicit at the caller. */
   delete() {
     if (this.deleted) return;
+    this.uiResponseEpoch += 1;
+    this.clearUiRequest(true, false);
     this.deleted = true;
     this.stopListening?.();
     this.stopListening = undefined;
-    this.clearUiRequest(true, false);
     viewPresence.delete(this.config.paneId);
     for (const pending of this.pendingRequests.values()) {
       this.dependencies.clearTimeout(pending.timer);
@@ -388,6 +398,7 @@ export class PiSessionController {
         break;
       case 'agent_settled':
         this.activityRevision += 1;
+        this.uiResponseEpoch += 1;
         // A settled run supersedes any unanswered overlay. Keep the card in
         // Needs you for normal review rather than restoring Agent working.
         this.clearUiRequest(true, false);
@@ -409,6 +420,7 @@ export class PiSessionController {
         break;
       case 'pi_process_exit':
         this.activityRevision += 1;
+        this.uiResponseEpoch += 1;
         this.clearUiRequest(true, false);
         notifyPiPromptFailed(this.config.paneId);
         this.completionNotificationEligible = false;
@@ -421,23 +433,43 @@ export class PiSessionController {
         if (event.method === 'set_editor_text' && typeof event.text === 'string') { this.patch({ editorTextRequest: { text: event.text } }); break; }
         const request = extensionUiRequest(event);
         if (!request) break;
+        this.uiResponseEpoch += 1;
         this.clearUiRequest(true);
         this.patch({ uiRequest: request });
         const open = viewPresence.get(this.config.paneId) === true;
         notifyPiUiRequestReceived(this.config.paneId, request.id, open);
         if (!open) this.dependencies.dispatch(new CustomEvent('app-attention', { detail: { kind: 'pi-request', workspaceId: this.config.workspaceId, terminalId: this.config.paneId } }));
-        if (request.timeout) this.uiRequestTimer = this.dependencies.setTimeout(() => this.clearUiRequest(true), request.timeout);
+        if (request.timeout) this.uiRequestTimer = this.dependencies.setTimeout(() => this.clearUiRequest(true, true, request.id), request.timeout);
         break;
       }
     }
   };
 
-  private clearUiRequest(reconcile: boolean, restoreWorking = true) {
+  private claimUiRequest(requestId: string) {
+    const request = this.snapshot.uiRequest;
+    if (!request || request.id !== requestId) return null;
+    this.clearUiRequest(false, true, requestId);
+    return { request, epoch: this.uiResponseEpoch };
+  }
+
+  private async completeUiRequest(request: PiUiRequest, epoch: number, response: Record<string, unknown>) {
+    try {
+      await preparePiUiRequestResponse(this.config.paneId, request.id);
+    } catch (error) {
+      this.patch({ error: `Card status could not be restored: ${asError(error).message}` });
+    }
+    if (this.deleted || this.snapshot.stopped || epoch !== this.uiResponseEpoch) return;
+    await this.writeCommand({ type: 'extension_ui_response', id: request.id, ...response });
+  }
+
+  private clearUiRequest(reconcile: boolean, restoreWorking = true, requestId?: string) {
+    const request = this.snapshot.uiRequest;
+    if (!request || (requestId !== undefined && request.id !== requestId)) return;
     if (this.uiRequestTimer) this.dependencies.clearTimeout(this.uiRequestTimer);
     this.uiRequestTimer = undefined;
-    const request = this.snapshot.uiRequest;
-    if (request && reconcile) notifyPiUiRequestDismissed(this.config.paneId, request.id, restoreWorking);
-    if (request) this.patch({ uiRequest: null });
+    // Hide synchronously before any asynchronous workflow reconciliation.
+    this.patch({ uiRequest: null });
+    if (reconcile) notifyPiUiRequestDismissed(this.config.paneId, request.id, restoreWorking);
   }
 
   private patch(next: Partial<PiSessionSnapshot>) {

@@ -1,199 +1,65 @@
-import type { CustomCmdPCommand, TerminalEntry, Project, Store, WorkspaceEntry, WorkspaceTemplate } from './types';
+import type { Project, Store } from './types';
 import type { PaletteItem } from './components/CommandPalette';
-import { commandPaletteCoreItems } from './commandPaletteCoreItems';
+import type { CardTerminalContext } from './cardTerminalCommands';
 import { cardCreationProjects } from './kanban/projectScope';
-
-type SidebarWorkspace = { project: Project; workspace: WorkspaceEntry };
 
 export type CommandPaletteItemOptions = {
   store: Store;
-  sidebarWorkspaces: SidebarWorkspace[];
-  terminalsByWorkspaceId: Record<string, TerminalEntry[]>;
-  activeProject: Project | null;
   selectedKanbanProject: Project | null;
   superthreadEnabled: boolean;
-  activeWorkspace: WorkspaceEntry | null;
-  activeWorkspaceId: string | null;
-  activeTerminalId: string | null;
-  activePath: string | null;
-  onSelectWorkspace: (projectId: string, workspaceId: string) => void;
+  cardTerminal: CardTerminalContext | null;
   onNewProject: () => void;
-  onNewWorkspace: (project: Project) => void;
   onEditProject: (project: Project) => void;
   onDeleteProject: (projectId: string) => void;
-  onEditWorkspace: (project: Project, workspace: WorkspaceEntry) => void;
-  onEditTerminal: (workspaceId: string, terminalId: string) => void;
-  onDeleteWorkspace: (projectId: string, workspaceId: string) => void;
-  onSplitTerminal: (direction: 'row' | 'column') => void;
-  onSplitTerminalWithCommand: (direction: 'row' | 'column', command: string, execute?: boolean) => void;
-  onCycleWorkspace: (delta: number) => void;
-  onCycleTerminal: (delta: number) => void;
-  onFocusNextWorkspaceWithUnseenOutput: () => void;
-  onStopTerminal: (terminalId: string) => void;
-  onRestartTerminal: (terminalId: string) => void;
-  onCloseTerminal: (terminalId: string) => void;
-  onClearTerminal: () => void;
-  onToggleMaximizedTerminal: () => void;
-  onOpenSearch: () => void;
   onOpenSettings: () => void;
-  onToggleDiff: () => void;
-  onToggleGithubPullRequests: () => void;
-  onToggleProjectNotes: () => void;
   onRestartApp: () => void;
-  onOpenDirectoryInEditor: () => void;
+  onOpenDirectoryInEditor: (path: string) => void;
   onRunOneTimeCommand: () => void;
   onNewCard: (project: Project | null) => void;
   onDirectProjectWork: (project: Project | null) => void;
-  customCmdPCommands: CustomCmdPCommand[];
-  onAddCmdPCommand: () => void;
-  onEditCmdPCommand: (command: CustomCmdPCommand) => void;
-  onDeleteCmdPCommand: (command: CustomCmdPCommand) => void;
-  workspaceTemplates: WorkspaceTemplate[];
-  onAddWorkspaceTemplate: () => void;
-  onUseWorkspaceTemplate: (project: Project, template: WorkspaceTemplate) => void;
-  onEditWorkspaceTemplate: (template: WorkspaceTemplate) => void;
-  onDeleteWorkspaceTemplate: (template: WorkspaceTemplate) => void;
-  onDeleteMultipleWorkspaces: () => void;
-  broadcastEnabled: boolean;
-  onToggleBroadcast: () => void;
+  onCardTerminalCommand: (command: 'split-right' | 'split-down' | 'search' | 'clear' | 'restart' | 'stop' | 'close' | 'toggle-maximize') => void;
+  onFocusCardTerminalPane: (paneId: string) => void;
 };
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
-  const { store, sidebarWorkspaces, terminalsByWorkspaceId, activeProject, selectedKanbanProject, activeWorkspaceId, activeTerminalId, customCmdPCommands, onSplitTerminalWithCommand, onEditCmdPCommand, onDeleteCmdPCommand, workspaceTemplates, onUseWorkspaceTemplate, onEditWorkspaceTemplate, onDeleteWorkspaceTemplate, onSelectWorkspace, onNewWorkspace, onCycleTerminal } = options;
-  const activePanes = activeWorkspaceId ? terminalsByWorkspaceId[activeWorkspaceId] ?? [] : [];
-  const activeWorkspaceTerminalCount = activePanes.filter((pane) => !pane.temporary && pane.kind !== 'pi').length;
-  const activePaneKind = activePanes.find((pane) => pane.id === activeTerminalId)?.kind ?? 'terminal';
-  return [
-    ...commandPaletteCoreItems({ ...options, activeWorkspaceTerminalCount, activePaneKind }),
-    ...directWorkItems(selectedKanbanProject, options.onDirectProjectWork),
-    ...newCardItems(selectedKanbanProject, store.projects, options.superthreadEnabled, options.onNewCard),
-    ...customCommandItems(customCmdPCommands, onSplitTerminalWithCommand),
-    ...customCommandEditItems(customCmdPCommands, onEditCmdPCommand),
-    ...customCommandDeleteItems(customCmdPCommands, onDeleteCmdPCommand),
-    ...workspaceTemplateItems(workspaceTemplates, activeProject, onUseWorkspaceTemplate),
-    ...workspaceTemplateEditItems(workspaceTemplates, onEditWorkspaceTemplate),
-    ...workspaceTemplateDeleteItems(workspaceTemplates, onDeleteWorkspaceTemplate),
-    ...workspaceItems(sidebarWorkspaces, activeWorkspaceId, onSelectWorkspace),
-    ...projectItems(store.projects, onNewWorkspace),
-    ...terminalItems(activeWorkspaceId, activeTerminalId, terminalsByWorkspaceId, onCycleTerminal),
+  const { selectedKanbanProject: project, cardTerminal } = options;
+  const eligibleProjects = cardCreationProjects(options.store.projects, options.superthreadEnabled);
+  const cardProject = project && eligibleProjects.some((candidate) => candidate.id === project.id) ? project : null;
+  const items: PaletteItem[] = [
+    { id: 'new-card', title: 'New Card', subtitle: cardProject ? `Add to ${cardProject.name}` : 'Choose a project', keywords: 'new add create local superthread kanban card', action: () => options.onNewCard(cardProject) },
+    { id: 'direct-project-work', title: 'Direct project work', subtitle: project ? `Work in ${project.name}` : 'Choose a project', keywords: 'direct project primary checkout agent terminal diff', action: () => options.onDirectProjectWork(project) },
+    { id: 'new-project', title: 'New Project', subtitle: 'Add a project directory', keywords: 'add open folder project', action: options.onNewProject },
+    { id: 'edit-project', title: 'Edit Project', subtitle: project?.name ?? 'Select a project first', keywords: 'rename path directory project', action: () => { if (project) options.onEditProject(project); } },
+    { id: 'delete-project', title: 'Delete Project', subtitle: project?.name ?? 'Select a project first', keywords: 'remove delete project directory', danger: true, action: () => { if (project) options.onDeleteProject(project.id); } },
+    { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color terminal', action: options.onOpenSettings },
+    { id: 'restart-stacks', title: 'Restart Stacks', subtitle: 'Relaunch the app and load the installed build', keywords: 'restart reload relaunch app update build', action: options.onRestartApp },
   ];
-}
 
-function directWorkItems(project: Project | null, onOpen: (project: Project | null) => void): PaletteItem[] {
-  return [{
-    id: 'direct-project-work',
-    title: 'Direct project work',
-    subtitle: project ? `Work in ${project.name}` : 'Choose a project',
-    keywords: 'direct project primary checkout agent terminal diff',
-    action: () => onOpen(project),
-  }];
-}
-
-function newCardItems(project: Project | null, projects: Project[], superthreadEnabled: boolean, onNewCard: (project: Project | null) => void): PaletteItem[] {
-  const eligibleProjects = cardCreationProjects(projects, superthreadEnabled);
-  const compatibleProject = project && eligibleProjects.some((candidate) => candidate.id === project.id) ? project : null;
-  return [{
-    id: 'new-card',
-    title: 'New Card',
-    subtitle: compatibleProject ? `Add to ${compatibleProject.name}` : 'Choose a project',
-    keywords: 'new add create local superthread kanban card',
-    action: () => onNewCard(compatibleProject),
-  }];
-}
-
-function customCommandItems(
-  commands: CustomCmdPCommand[],
-  onSplitTerminalWithCommand: (direction: 'row' | 'column', command: string, execute?: boolean) => void,
-): PaletteItem[] {
-  return commands.map((item) => ({
-    id: `custom-cmd-p-${item.id}`,
-    title: item.label,
-    subtitle: `${item.direction === 'row' ? 'Split right' : 'Split down'} • ${item.execute ? 'Execute' : 'Insert without executing'} • ${item.command}`,
-    keywords: `custom saved command split ${item.execute ? 'execute run' : 'insert without enter'} ${item.command}`,
-    action: () => onSplitTerminalWithCommand(item.direction, item.command, item.execute),
+  if (!cardTerminal?.active || !cardTerminal.focusedPaneId) return items;
+  items.push(
+    { id: 'open-directory-editor', title: 'Open Directory in Editor', subtitle: cardTerminal.cwd ?? 'Card worktree', keywords: 'editor project folder cwd directory', action: () => { if (cardTerminal.cwd) options.onOpenDirectoryInEditor(cardTerminal.cwd); } },
+    { id: 'run-one-time-command', title: 'Run One-Time Command', subtitle: `From ${cardTerminal.cwd ?? 'the focused pane directory'}`, keywords: 'execute temporary command task current directory cwd', action: options.onRunOneTimeCommand },
+    { id: 'split-terminal-right', title: 'Split Pane Right', subtitle: '⌘D', keywords: 'split terminal pane vertical', action: () => options.onCardTerminalCommand('split-right') },
+    { id: 'split-terminal-down', title: 'Split Pane Down', subtitle: '⇧⌘D', keywords: 'split terminal pane horizontal', action: () => options.onCardTerminalCommand('split-down') },
+    { id: 'find-terminal', title: 'Search Focused Pane', subtitle: '⌘F', keywords: 'find search terminal output', action: () => options.onCardTerminalCommand('search') },
+    { id: 'clear-terminal', title: 'Clear Focused Pane', subtitle: '⌘K', keywords: 'clear terminal pane', action: () => options.onCardTerminalCommand('clear') },
+    { id: 'restart-terminal', title: 'Restart Focused Pane', subtitle: 'Restart the terminal process', keywords: 'restart rerun process terminal pane', action: () => options.onCardTerminalCommand('restart') },
+    { id: 'stop-terminal', title: 'Stop Focused Pane', subtitle: 'Terminate the terminal process', keywords: 'kill terminate process terminal pane', danger: true, action: () => options.onCardTerminalCommand('stop') },
+    { id: 'close-terminal', title: 'Close Focused Pane', subtitle: 'Close and remove the terminal pane', keywords: 'remove kill terminal pane', danger: true, action: () => options.onCardTerminalCommand('close') },
+  );
+  if (cardTerminal.paneIds.length > 1) items.push({
+    id: 'maximize-terminal',
+    title: cardTerminal.maximized ? 'Restore Focused Pane' : 'Maximize Focused Pane',
+    subtitle: '⇧⌘↩',
+    keywords: 'zoom terminal pane maximize restore',
+    action: () => options.onCardTerminalCommand('toggle-maximize'),
+  });
+  cardTerminal.paneIds.forEach((paneId, index) => items.push({
+    id: `terminal-${paneId}`,
+    title: `Focus Terminal Pane ${index + 1}`,
+    subtitle: paneId === cardTerminal.focusedPaneId ? 'Current pane' : undefined,
+    keywords: 'focus switch terminal pane',
+    action: () => options.onFocusCardTerminalPane(paneId),
   }));
-}
-
-function customCommandEditItems(commands: CustomCmdPCommand[], onEditCmdPCommand: (command: CustomCmdPCommand) => void): PaletteItem[] {
-  return commands.map((item) => ({
-    id: `edit-custom-cmd-p-${item.id}`,
-    title: `Edit Cmd-P Command: ${item.label}`,
-    subtitle: item.command,
-    keywords: 'edit modify custom saved command',
-    action: () => onEditCmdPCommand(item),
-  }));
-}
-
-function customCommandDeleteItems(commands: CustomCmdPCommand[], onDeleteCmdPCommand: (command: CustomCmdPCommand) => void): PaletteItem[] {
-  return commands.map((item) => ({
-    id: `delete-custom-cmd-p-${item.id}`,
-    title: `Delete Cmd-P Command: ${item.label}`,
-    subtitle: item.command,
-    keywords: 'delete remove custom saved command',
-    danger: true,
-    action: () => onDeleteCmdPCommand(item),
-  }));
-}
-
-function workspaceTemplateItems(templates: WorkspaceTemplate[], activeProject: Project | null, onUse: (project: Project, template: WorkspaceTemplate) => void): PaletteItem[] {
-  return templates.map((template) => ({
-    id: `workspace-template-${template.id}`,
-    title: template.label,
-    subtitle: activeProject ? `Create workspace in ${activeProject.name}` : 'Select a project first',
-    keywords: `workspace template preset create ${template.name} ${template.setupCommand} ${template.command}`,
-    action: () => { if (activeProject) onUse(activeProject, template); },
-  }));
-}
-
-function workspaceTemplateEditItems(templates: WorkspaceTemplate[], onEdit: (template: WorkspaceTemplate) => void): PaletteItem[] {
-  return templates.map((template) => ({
-    id: `edit-workspace-template-${template.id}`,
-    title: `Edit Workspace Template: ${template.label}`,
-    subtitle: template.name || template.setupCommand || 'Workspace defaults',
-    keywords: 'edit modify workspace template preset',
-    action: () => onEdit(template),
-  }));
-}
-
-function workspaceTemplateDeleteItems(templates: WorkspaceTemplate[], onDelete: (template: WorkspaceTemplate) => void): PaletteItem[] {
-  return templates.map((template) => ({
-    id: `delete-workspace-template-${template.id}`,
-    title: `Delete Workspace Template: ${template.label}`,
-    subtitle: template.name || template.setupCommand || 'Workspace defaults',
-    keywords: 'delete remove workspace template preset',
-    danger: true,
-    action: () => onDelete(template),
-  }));
-}
-
-function workspaceItems(sidebarWorkspaces: SidebarWorkspace[], activeWorkspaceId: string | null, onSelectWorkspace: (projectId: string, workspaceId: string) => void): PaletteItem[] {
-  return sidebarWorkspaces.map(({ project, workspace }, index) => ({
-    id: `workspace-${workspace.id}`,
-    title: workspace.name,
-    subtitle: `${project.name}${workspace.id === activeWorkspaceId ? ' • current' : ''}`,
-    keywords: `workspace project ${project.path} ${index < 9 ? `cmd ${index + 1}` : ''}`,
-    action: () => onSelectWorkspace(project.id, workspace.id),
-  }));
-}
-
-function projectItems(projects: Project[], onNewWorkspace: (project: Project) => void): PaletteItem[] {
-  return projects.map((project) => ({
-    id: `project-workspace-${project.id}`,
-    title: `New Workspace in ${project.name}`,
-    subtitle: project.path,
-    keywords: 'new workspace project shell',
-    action: () => onNewWorkspace(project),
-  }));
-}
-
-function terminalItems(activeWorkspaceId: string | null, activeTerminalId: string | null, terminalsByWorkspaceId: Record<string, TerminalEntry[]>, onCycleTerminal: (delta: number) => void): PaletteItem[] {
-  if (!activeWorkspaceId) return [];
-  const panes = (terminalsByWorkspaceId[activeWorkspaceId] ?? []).filter((pane) => !pane.temporary);
-  return panes.map((pane, index) => ({
-    id: `terminal-${pane.id}`,
-    title: `Focus ${pane.kind === 'pi' ? 'Pi GUI' : 'Terminal'} ${index + 1}`,
-    subtitle: pane.command || (pane.id === activeTerminalId ? 'Current pane' : undefined),
-    keywords: 'focus switch terminal pi pane',
-    action: () => onCycleTerminal(index - Math.max(0, panes.findIndex((item) => item.id === activeTerminalId))),
-  }));
+  return items;
 }

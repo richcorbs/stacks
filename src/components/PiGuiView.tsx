@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
-import type { GitInfo, Project, TerminalEntry, WorkspaceEntry } from '../types';
+import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiImageDrops } from '../pi/imageDropBroker';
 import type { PiCommand, PiModel, PiPromptImage, PiSessionContext } from '../pi/types';
@@ -12,6 +12,7 @@ import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
 import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiMessage, PiToolCard } from './PiTranscript';
+import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
 
 export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, initialPrompt, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
@@ -31,14 +32,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   onToggleMaximize: () => void;
 }) {
   const cwd = terminal.cwd || workspace.cwd || project.path;
-  const [projectTrusted, setProjectTrusted] = useState(false);
   const pi = usePiSession(terminal.id, cwd, workspace.id, project.id, project.path);
+  const modalUiRequest = pi.uiRequest && !isStructuredPiUiRequest(pi.uiRequest) ? pi.uiRequest : null;
   const [prompt, setPrompt] = useState('');
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [attachments, setAttachments] = useState<Array<PiPromptImage & { name: string; byteSize: number }>>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [extensionInput, setExtensionInput] = useState('');
-  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
   const [contextPicker, setContextPicker] = useState<'model' | 'thinking' | null>(null);
   const [contextPickerBusy, setContextPickerBusy] = useState(false);
@@ -57,18 +57,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     pi.setViewOpen(active && visible);
     return () => pi.setViewOpen(false);
   }, [active, pi.setViewOpen, visible]);
-
-  useEffect(() => {
-    invoke<boolean>('pi_project_trusted', { cwd, projectPath: project.path }).then(setProjectTrusted).catch(() => setProjectTrusted(false));
-  }, [cwd, project.path]);
-
-  useEffect(() => {
-    if (!visible) return;
-    const refresh = () => invoke<GitInfo | null>('git_info', { path: cwd }).then(setGitInfo).catch(() => setGitInfo(null));
-    refresh();
-    const timer = window.setInterval(refresh, 10_000);
-    return () => window.clearInterval(timer);
-  }, [cwd, visible]);
 
   useEffect(() => {
     const becameVisible = visible && !previousVisibleRef.current;
@@ -118,7 +106,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [fontSize, prompt]);
 
   useEffect(() => {
-    if (!active || !visible || pi.starting || pi.uiRequest) return;
+    if (!active || !visible || pi.starting || modalUiRequest) return;
     inputRef.current?.focus();
     const focusComposer = () => requestAnimationFrame(() => inputRef.current?.focus());
     const focusRequestedPane = (event: Event) => {
@@ -131,7 +119,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       window.removeEventListener('focus', focusComposer);
       window.removeEventListener('pane-focus-request', focusRequestedPane);
     };
-  }, [active, pi.starting, pi.uiRequest, terminal.id, visible]);
+  }, [active, modalUiRequest, pi.starting, terminal.id, visible]);
 
   useEffect(() => {
     setExtensionInput(pi.uiRequest?.prefill || '');
@@ -208,7 +196,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const element = scrollRef.current;
     if (!element || !visible || !shouldStickToBottomRef.current) return;
     element.scrollTop = element.scrollHeight;
-  }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, visible]);
+  }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, pi.uiRequest, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
   const hasStreamingText = hasVisiblePiStreamingText(pi.streamingText);
@@ -275,6 +263,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       setAttachmentError(`/${slashName} does not accept image attachments`);
       return;
     }
+    // Claim inline controls synchronously so a click cannot race this submit.
+    // Pi receives cancellation; the text remains an ordinary prompt/steer/follow-up.
+    const structuredRequestDismissal = pi.dismissStructuredUiRequest();
     const submittedAttachments = attachments;
     historyIndexRef.current = null;
     historyDraftRef.current = '';
@@ -283,6 +274,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setAttachmentError(null);
     shouldStickToBottomRef.current = true;
     const images = submittedAttachments.map(({ name: _name, byteSize: _byteSize, ...image }) => image);
+    await structuredRequestDismissal.catch(() => {});
     const send = builtinCommand
       ? pi.runBuiltinCommand(message)
       : pi.isStreaming && extensionCommand
@@ -393,17 +385,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     }
   }
 
-  async function toggleProjectTrust() {
-    const nextTrusted = !projectTrusted;
-    const approved = window.confirm(nextTrusted
-      ? `Trust project-local Pi settings and extensions for:\n\n${project.path}\n\nThis applies to its workspace directories and Git worktrees. Project extensions execute with your user permissions.`
-      : `Revoke project-local Pi settings and extensions for:\n\n${project.path}?`);
-    if (!approved) return;
-    await invoke('set_pi_project_trusted', { cwd, projectPath: project.path, trusted: nextTrusted });
-    setProjectTrusted(nextTrusted);
-    await pi.restart();
-  }
-
   const { hiddenCount: hiddenMessageCount, messages: visibleMessages } = visiblePiMessages(pi.messages);
   const historicalToolArgs = useMemo(() => collectToolArgs(pi.messages), [pi.messages]);
 
@@ -430,11 +411,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       <TerminalControls
         maximized={maximized}
         canToggleMaximize={canToggleMaximize}
-        broadcast={false}
-        canBroadcast={false}
         onSplitTerminal={onSplitTerminal}
         onEditTerminal={onEditTerminal}
-        onToggleBroadcast={() => {}}
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
       />
@@ -468,6 +446,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             live
           />
         ))}
+        {isStructuredPiUiRequest(pi.uiRequest) && <PiStructuredRequest
+          request={pi.uiRequest}
+          onRespond={(requestId, response) => { pi.respondToUiRequest(requestId, response).catch(() => {}); }}
+        />}
         {pi.queuedSteering.map((message, index) => (
           <div className="piMessage piMessageUser piQueuedMessage piQueuedSteering" key={`steer:${message}:${index}`} aria-label="Queued steering message">
             <div className="piMessageText"><small>Steering</small><span>{message}</span></div>
@@ -592,10 +574,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         </div>
       </div>
       <div className="piGuiContext piGuiContextBar" aria-label="Pi session context">
-        <ContextItem value={compactPath(cwd)} title={`Working directory: ${cwd}`} />
-        <ContextSeparator />
-        <ContextItem value={gitInfo?.branch || '—'} title={`Git branch: ${gitInfo?.branch || 'unknown'}`} />
-        <ContextSeparator />
         <ContextPicker
           kind="model"
           open={contextPicker === 'model'}
@@ -649,8 +627,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               </button>;
             })}
         </ContextPicker>
-        <ContextSeparator />
-        <button className="piTrustButton" type="button" title="Change project trust" onClick={() => toggleProjectTrust().catch(() => {})}>{projectTrusted ? 'trusted' : 'not trusted'}</button>
         {pi.context.contextPercent !== null && <><ContextSeparator /><ContextUsage context={pi.context} /></>}
       </div>
 
@@ -665,35 +641,23 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         </div>
       )}
 
-      {pi.uiRequest && (
-        <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={pi.uiRequest.title}>
+      {modalUiRequest && (
+        <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={modalUiRequest.title}>
           <div className="piExtensionDialog">
-            <strong>{pi.uiRequest.title}</strong>
-            {pi.uiRequest.message && <p>{pi.uiRequest.message}</p>}
-            {pi.uiRequest.method === 'select' && (
-              <div className="piExtensionOptions">
-                {pi.uiRequest.options.map((option) => <button type="button" key={option} onClick={() => pi.respondToUiRequest({ value: option }).catch(() => {})}>{option}</button>)}
-              </div>
-            )}
-            {(pi.uiRequest.method === 'input' || pi.uiRequest.method === 'editor') && (
-              pi.uiRequest.method === 'editor'
-                ? <textarea autoFocus rows={7} value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />
-                : <input autoFocus value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />
-            )}
+            <strong>{modalUiRequest.title}</strong>
+            {modalUiRequest.message && <p>{modalUiRequest.message}</p>}
+            {modalUiRequest.method === 'editor'
+              ? <textarea autoFocus rows={7} value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />
+              : <input autoFocus value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />}
             <div className="piExtensionActions">
-              <button type="button" onClick={() => pi.respondToUiRequest(pi.uiRequest?.method === 'confirm' ? { confirmed: false } : { cancelled: true }).catch(() => {})}>Cancel</button>
-              {pi.uiRequest.method === 'confirm' && <button className="primary" autoFocus type="button" onClick={() => pi.respondToUiRequest({ confirmed: true }).catch(() => {})}>Confirm</button>}
-              {(pi.uiRequest.method === 'input' || pi.uiRequest.method === 'editor') && <button className="primary" type="button" onClick={() => pi.respondToUiRequest({ value: extensionInput }).catch(() => {})}>Submit</button>}
+              <button type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { cancelled: true }).catch(() => {})}>Cancel</button>
+              <button className="primary" type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { value: extensionInput }).catch(() => {})}>Submit</button>
             </div>
           </div>
         </div>
       )}
     </div>
   );
-}
-
-function ContextItem({ value, title }: { value: string; title?: string }) {
-  return <span className="piContextItem" title={title || value}>{value}</span>;
 }
 
 function ContextPicker({ kind, open, value, title, disabled, onToggle, children }: {
@@ -761,9 +725,4 @@ function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) 
   input.style.height = `${height}px`;
   input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
   if (stickToBottom && conversation) conversation.scrollTop = conversation.scrollHeight;
-}
-
-function compactPath(path: string) {
-  const home = path.match(/^\/Users\/[^/]+/i)?.[0];
-  return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 }

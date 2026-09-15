@@ -115,8 +115,6 @@ export type KanbanCard = {
   events: CardEvent[];
 };
 
-/** Compatibility result for the legacy Superthread panel; cards themselves no longer own workspaces. */
-export type KanbanWorkspace = { projectId: string; workspaceId: string };
 
 export type KanbanSyncCard = {
   id: string;

@@ -4,17 +4,13 @@ import type { SearchAddon } from '@xterm/addon-search';
 import type { WebLinksAddon } from '@xterm/addon-web-links';
 
 export type Store = { projects: Project[] };
-export type CustomCmdPCommand = { id: string; label: string; command: string; direction: 'row' | 'column'; execute: boolean };
-export type WorkspaceTemplate = { id: string; label: string; name: string; command: string; setupCommand: string; rows: number; columns: number; firstPaneKind: PaneKind };
 export type DeliveryWorkflow = 'local_merge' | 'github_pull_request';
 export type GithubMergeStrategy = 'merge' | 'squash' | 'rebase';
 export type Project = {
   id: string;
   name: string;
   path: string;
-  notes?: string;
-  workspaces: WorkspaceEntry[];
-  collapsed?: boolean;
+  workspaces?: WorkspaceEntry[];
   kanban_source?: 'superthread' | 'local';
   start_work_command?: string;
   server_command?: string;
@@ -44,36 +40,12 @@ export type PtyData = { terminal_id: string; generation: string; data: number[] 
 export type PtyExit = { terminal_id: string; generation: string };
 export type GitInfo = { branch: string; created: number; changed: number; deleted: number };
 export type GitChangeSummary = { added: number; modified: number; deleted: number };
-export type PrCleanupStage = 'ready-to-merge' | 'merged' | 'cleanup-running' | 'cleanup-completed';
-export type PendingPrCleanup = {
-  repository: string;
-  pullRequestNumber: number;
-  pullRequestTitle: string;
-  projectId: string;
-  workspaceId: string;
-  workspaceName: string;
-  workspacePath: string;
-  paneId: string;
-  stage: PrCleanupStage;
-};
 export type GitDiffFile = { path: string; status: 'A' | 'M' | 'D' | 'R' | 'U' };
 export type GitDiffFilesResponse = { files: GitDiffFile[] };
 export type GitFileDiff = { path: string; patch: string };
-export type AppStats = {
-  cpu: number;
-  mem_mb: number;
-  version: string;
-  terminal_sessions: number;
-  running_terminals: number;
-  queued_output_chars: number;
-  dropped_output_chars: number;
-};
 export type WindowState = { width: number; height: number; x?: number | null; y?: number | null };
 export type AppSettings = {
   window?: WindowState | null;
-  sidebar_width?: number | null;
-  developer_services_visible?: boolean | null;
-  developer_services_tab?: 'superthread' | 'diff' | 'pull-requests' | 'actions' | null;
   ui_font_size?: number | null;
   terminal_font_size?: number | null;
   terminal_font_family?: string | null;
@@ -81,27 +53,15 @@ export type AppSettings = {
   copy_on_select?: boolean | null;
   confirm_close?: boolean | null;
   confirm_delete?: boolean | null;
-  activity_notifications?: boolean | null;
   editor_app?: string | null;
   focused_terminal_border_color?: string | null;
   maximized_terminal_border_color?: string | null;
-  alive_dot_color?: string | null;
-  active_dot_color?: string | null;
-  unseen_dot_color?: string | null;
-  custom_cmd_p_commands?: CustomCmdPCommand[] | null;
-  workspace_templates?: WorkspaceTemplate[] | null;
   superthread_workspace_slug?: string | null;
   superthread_spaces?: string | null;
   superthread_start_work_command?: string | null;
-  superthread_workspace_name_template?: string | null;
   superthread_enabled?: boolean | null;
-  github_poll_interval_seconds?: number | null;
   kanban_project_id?: string | null;
   kanban_done_collapsed?: boolean | null;
-  active_project_id?: string | null;
-  active_workspace_id?: string | null;
-  focused_terminal_by_workspace_id?: Record<string, string> | null;
-  maximized_workspace_ids?: MaximizedWorkspaceIds | null;
 };
 export type TermSize = { cols: number; rows: number };
 export type TerminalSession = {
@@ -134,16 +94,5 @@ export type TerminalSession = {
 
 type ProjectDialogSettings = { name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean };
 export type DialogState =
-  | ({ kind: 'project'; openTerminalAfterCreate?: boolean } & ProjectDialogSettings)
-  | { kind: 'workspace'; projectId: string; name: string; command: string; setupCommand: string; rows: number; columns: number; firstPaneKind: PaneKind }
-  | { kind: 'split'; workspaceId: string; targetTerminalId: string; direction: 'row' | 'column'; command: string; paneKind: PaneKind }
-  | ({ kind: 'editProject'; projectId: string } & ProjectDialogSettings)
-  | { kind: 'editWorkspace'; projectId: string; workspaceId: string; name: string; command: string; cwd: string }
-  | { kind: 'editTerminal'; workspaceId: string; terminalId: string; command: string; paneKind: PaneKind };
-export type ContextMenuState =
-  | { kind: 'project'; projectId: string; x: number; y: number }
-  | { kind: 'workspace'; projectId: string; workspaceId: string; x: number; y: number };
-export type DragState =
-  | { kind: 'project'; projectId: string }
-  | { kind: 'workspace'; projectId: string; workspaceId: string };
-export type PointerDragState = DragState & { startX: number; startY: number; dragging: boolean };
+  | ({ kind: 'project' } & ProjectDialogSettings)
+  | ({ kind: 'editProject'; projectId: string } & ProjectDialogSettings);

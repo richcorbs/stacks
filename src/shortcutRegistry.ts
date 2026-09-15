@@ -1,46 +1,10 @@
 import type { ShortcutAction } from './shortcutTypes';
 
-export type ShortcutDefinition = {
-  action: ShortcutAction;
-  title: string;
-  hint: string;
-  keywords: string;
-  key: string;
-  shift: boolean;
-};
+export type ShortcutDefinition = { action: ShortcutAction; title: string; hint: string; keywords: string; key: string; shift: boolean };
 
 export const SHORTCUT_DEFINITIONS = {
   'switch-project': {
-    action: 'switch-project',
-    title: 'Switch Project',
-    hint: '⇧⌘P',
-    keywords: 'kanban board project select change',
-    key: 'p',
-    shift: true,
-  },
-  'toggle-diff': {
-    action: 'toggle-diff',
-    title: 'Focus / Toggle Diff Panel',
-    hint: '⌘G',
-    keywords: 'diff changes review developer services panel sidebar',
-    key: 'g',
-    shift: false,
-  },
-  'toggle-github-pull-requests': {
-    action: 'toggle-github-pull-requests',
-    title: 'Focus / Toggle Pull Requests Panel',
-    hint: '⇧⌘G',
-    keywords: 'github pull requests prs developer services panel sidebar',
-    key: 'g',
-    shift: true,
-  },
-  'focus-next-unseen-workspace': {
-    action: 'focus-next-unseen-workspace',
-    title: 'Focus Next Workspace with Unseen Output',
-    hint: '⇧⌘N',
-    keywords: 'next yellow unseen output activity notification workspace',
-    key: 'n',
-    shift: true,
+    action: 'switch-project', title: 'Switch Project', hint: '⇧⌘P', keywords: 'kanban board project select change', key: 'p', shift: true,
   },
 } as const satisfies Partial<Record<ShortcutAction, ShortcutDefinition>>;
 

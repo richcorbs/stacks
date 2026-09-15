@@ -12,7 +12,7 @@ export function ConfirmationSettingsSection({ draft, update }: { draft: Resolved
           checked={draft.confirm_close}
           onChange={(e) => update({ confirm_close: e.target.checked })}
         />
-        Confirm closing terminals and quitting
+        Confirm quitting
       </label>
       <label className="checkboxLabel">
         <input
@@ -20,7 +20,7 @@ export function ConfirmationSettingsSection({ draft, update }: { draft: Resolved
           checked={draft.confirm_delete}
           onChange={(e) => update({ confirm_delete: e.target.checked })}
         />
-        Confirm deleting projects and workspaces
+        Confirm deleting projects
       </label>
     </section>
   );

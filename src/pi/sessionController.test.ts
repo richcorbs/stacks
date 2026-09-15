@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { PiSessionController, type ControllerDependencies, type PiSessionConfig } from './sessionController';
 import type { PiRpcEnvelope } from './types';
+import { setPiUiRequestWorkflowHandler } from './uiRequestWorkflow';
 
 beforeAll(() => {
   if (!globalThis.window) Object.assign(globalThis, { window: new EventTarget() });
@@ -120,6 +121,122 @@ describe('PiSessionController', () => {
     closed.emit(envelope({ type: 'extension_ui_request', id: 'closed-request', method: 'confirm' }));
     expect(vi.mocked(closed.dependencies.dispatch).mock.calls.some(([event]) => (event as CustomEvent).detail?.kind === 'pi-request')).toBe(true);
     closed.controller.delete();
+  });
+
+  it.each([
+    [{ confirmed: true }, { confirmed: true }],
+    [{ confirmed: false }, { confirmed: false }],
+  ])('claims a confirm once and writes its boolean payload', async (response, expected) => {
+    const h = harness();
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'confirm-1', method: 'confirm' }));
+
+    const result = h.controller.respondToUiRequest('confirm-1', response);
+    expect(h.controller.getSnapshot().uiRequest).toBeNull();
+    expect(await result).toBe(true);
+    expect(h.commands).toContainEqual({ type: 'extension_ui_response', id: 'confirm-1', ...expected });
+  });
+
+  it('claims a select once before asynchronous reconciliation and ignores duplicate clicks', async () => {
+    const h = harness();
+    let release!: () => void;
+    const workflowGate = new Promise<void>((resolve) => { release = resolve; });
+    const beforeResponse = vi.fn(() => workflowGate);
+    const unsetWorkflow = setPiUiRequestWorkflowHandler({ received: vi.fn(), beforeResponse, dismissed: vi.fn() });
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'select-1', method: 'select', options: ['A', 'B'] }));
+
+    const first = h.controller.respondToUiRequest('select-1', { value: 'B' });
+    const duplicate = h.controller.respondToUiRequest('select-1', { value: 'A' });
+    expect(h.controller.getSnapshot().uiRequest).toBeNull();
+    expect(await duplicate).toBe(false);
+    expect(h.commands).toEqual([]);
+    release();
+    expect(await first).toBe(true);
+    expect(beforeResponse).toHaveBeenCalledOnce();
+    expect(h.commands).toEqual([{ type: 'extension_ui_response', id: 'select-1', value: 'B' }]);
+    unsetWorkflow();
+  });
+
+  it('allows only one claim in click-versus-submit races', async () => {
+    const h = harness();
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'click-first', method: 'confirm' }));
+    const click = h.controller.respondToUiRequest('click-first', { confirmed: true });
+    expect(await h.controller.dismissStructuredUiRequest()).toBe(false);
+    await click;
+
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'submit-first', method: 'confirm' }));
+    const submit = h.controller.dismissStructuredUiRequest();
+    expect(await h.controller.respondToUiRequest('submit-first', { confirmed: false })).toBe(false);
+    await submit;
+
+    expect(h.commands).toEqual([
+      { type: 'extension_ui_response', id: 'click-first', confirmed: true },
+      { type: 'extension_ui_response', id: 'submit-first', cancelled: true },
+    ]);
+  });
+
+  it('binds a response to its rendered request ID across replacement', async () => {
+    const h = harness();
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'old', method: 'select', options: ['Old'] }));
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'new', method: 'select', options: ['New'] }));
+
+    expect(await h.controller.respondToUiRequest('old', { value: 'Old' })).toBe(false);
+    expect(h.controller.getSnapshot().uiRequest?.id).toBe('new');
+    expect(h.commands).toEqual([]);
+  });
+
+  it('cancels a structured request before preserving normal typed prompt submission', async () => {
+    const h = harness();
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'question', method: 'confirm' }));
+
+    const dismissal = h.controller.dismissStructuredUiRequest();
+    expect(h.controller.getSnapshot().uiRequest).toBeNull();
+    expect(await dismissal).toBe(true);
+    expect(h.commands[0]).toEqual({ type: 'extension_ui_response', id: 'question', cancelled: true });
+
+    const prompt = h.controller.prompt('typed answer');
+    const promptCommand = h.commands.find((command) => command.type === 'prompt')!;
+    expect(promptCommand.message).toBe('typed answer');
+    h.controller.project(envelope({ type: 'response', id: promptCommand.id as string, command: 'prompt', success: true, data: {} }));
+    await prompt;
+  });
+
+  it('times out only the request that owns the timer', async () => {
+    const h = harness();
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'short', method: 'confirm', timeout: 5 }));
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(h.controller.getSnapshot().uiRequest).toBeNull();
+    expect(await h.controller.respondToUiRequest('short', { confirmed: true })).toBe(false);
+  });
+
+  it('prevents a claimed response from writing after replacement or session stop', async () => {
+    const h = harness();
+    let release!: () => void;
+    const workflowGate = new Promise<void>((resolve) => { release = resolve; });
+    const unsetWorkflow = setPiUiRequestWorkflowHandler({ received: vi.fn(), beforeResponse: () => workflowGate, dismissed: vi.fn() });
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'old', method: 'confirm' }));
+    const response = h.controller.respondToUiRequest('old', { confirmed: true });
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'replacement', method: 'confirm' }));
+    h.controller.project(envelope({ type: 'pi_process_exit' }));
+    release();
+    await response;
+    expect(h.commands).toEqual([]);
+    expect(h.controller.getSnapshot().uiRequest).toBeNull();
+    unsetWorkflow();
+  });
+
+  it('clears controls on deletion and prevents a claimed response from writing afterward', async () => {
+    const h = harness();
+    let release!: () => void;
+    const workflowGate = new Promise<void>((resolve) => { release = resolve; });
+    const unsetWorkflow = setPiUiRequestWorkflowHandler({ received: vi.fn(), beforeResponse: () => workflowGate, dismissed: vi.fn() });
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'delete-me', method: 'select', options: ['Go'] }));
+    const response = h.controller.respondToUiRequest('delete-me', { value: 'Go' });
+    h.controller.delete();
+    expect(h.controller.getSnapshot().uiRequest).toBeNull();
+    release();
+    await response;
+    expect(h.commands).toEqual([]);
+    unsetWorkflow();
   });
 
   it('does not let stale state hydration overwrite a newer agent-start event', async () => {

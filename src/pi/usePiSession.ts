@@ -20,6 +20,7 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     selectThinkingLevel: controller.selectThinkingLevel,
     restart: controller.restart,
     respondToUiRequest: controller.respondToUiRequest,
+    dismissStructuredUiRequest: controller.dismissStructuredUiRequest,
     setViewOpen: controller.setViewOpen,
   };
 }

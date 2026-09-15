@@ -44,25 +44,6 @@ export function consumeOneTimeInitialInput(terminalId: string) {
   return input;
 }
 
-export function terminalRuntimeStats() {
-  let runningTerminals = 0;
-  let queuedOutputChars = 0;
-  let droppedOutputChars = 0;
-
-  terminalSessions.forEach((session) => {
-    if (session.running) runningTerminals += 1;
-    queuedOutputChars += session.outputQueuedChars;
-    droppedOutputChars += session.outputDroppedChars;
-  });
-
-  return {
-    terminal_sessions: terminalSessions.size,
-    running_terminals: runningTerminals,
-    queued_output_chars: queuedOutputChars,
-    dropped_output_chars: droppedOutputChars,
-  };
-}
-
 export function jumpSessionToBottom(session: TerminalSession) {
   const bottomLine = Math.max(0, session.term.buffer.active.length - session.term.rows);
   session.term.scrollToLine(bottomLine);

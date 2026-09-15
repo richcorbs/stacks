@@ -21,9 +21,21 @@ describe('delivery workflow actions', () => {
       expect(actions.at(-1)).toMatchObject({ kind: 'close', label: 'Close without delivery' });
     }
     expect(kinds('refining')).toEqual(['stop_refinement', 'close']);
-    expect(kinds('needs_refinement_input')).toEqual(['open_refinement', 'stop_refinement', 'close']);
+    expect(kinds('needs_refinement_input')).toEqual(['open_refinement', 'write_plan_and_finish_refinement', 'stop_refinement', 'close']);
     expect(kinds('agent_working')).toEqual(['close']);
     expect(kinds('done')).not.toContain('close');
+  });
+
+  it('offers write-and-finish while waiting for refinement input with project-assignment gating', () => {
+    const available = deriveCardWorkflowActions({ card: card('needs_refinement_input'), project: localProject, projectAvailable: true });
+    const unavailable = deriveCardWorkflowActions({ card: card('needs_refinement_input'), project: null, projectAvailable: false });
+
+    expect(available.find((action) => action.kind === 'write_plan_and_finish_refinement')).toMatchObject({
+      label: 'Write plan & finish refinement',
+      disabledReason: undefined,
+    });
+    expect(unavailable.find((action) => action.kind === 'write_plan_and_finish_refinement')?.disabledReason).toBe('Assign a project first');
+    expect(kinds('refining')).not.toContain('write_plan_and_finish_refinement');
   });
 
   it('assigns appearance independently from destructive confirmation semantics', () => {

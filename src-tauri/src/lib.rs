@@ -3,14 +3,12 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 mod app_events;
-mod app_stats;
 mod automation;
 mod fs_paths;
 mod git;
 mod github;
 mod kanban;
 mod menu;
-mod notifications;
 mod open;
 mod pi_image;
 mod pi_rpc;
@@ -25,8 +23,7 @@ mod store;
 mod superthread;
 mod workspace_setup;
 use app_events::{handle_menu_event, setup_main_window};
-use app_stats::app_stats;
-use automation::{complete_automation_request, drain_automation_requests, AutomationState};
+use automation::AutomationState;
 use git::{
     cleanup_git_worktree, git_change_summary, git_diff_files, git_file_diff, git_info,
     remove_git_worktree,
@@ -45,7 +42,6 @@ use kanban::{
     kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
 };
 use menu::app_menu;
-use notifications::notify_attention;
 use open::{open_path_in_editor, open_url};
 use pi_image::read_pi_image;
 use pi_rpc::{
@@ -58,10 +54,7 @@ use project_direct::{
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
 use settings::{
-    clear_pending_pr_cleanup, load_pending_pr_cleanup, load_settings, reset_settings,
-    save_app_settings, save_current_window_state, save_developer_services_state,
-    save_pending_pr_cleanup, save_sidebar_width, save_terminal_font_size, save_window_state,
-    save_workspace_focus,
+    load_settings, reset_settings, save_app_settings, save_current_window_state, save_window_state,
 };
 use store::{load_store, save_store};
 use superthread::{
@@ -114,19 +107,11 @@ pub fn run() {
             load_settings,
             save_window_state,
             save_current_window_state,
-            save_sidebar_width,
-            save_developer_services_state,
-            save_terminal_font_size,
             save_app_settings,
-            save_workspace_focus,
-            load_pending_pr_cleanup,
-            save_pending_pr_cleanup,
-            clear_pending_pr_cleanup,
             reset_settings,
             new_id,
             quit_app,
             restart_app,
-            notify_attention,
             open_path_in_editor,
             open_url,
             spawn_pty,
@@ -141,7 +126,6 @@ pub fn run() {
             read_pi_image,
             stop_pi_session,
             delete_pi_session,
-            app_stats,
             git_info,
             git_change_summary,
             git_diff_files,
@@ -179,8 +163,6 @@ pub fn run() {
             project_direct_load_or_create,
             project_direct_save_layout,
             project_direct_delete,
-            drain_automation_requests,
-            complete_automation_request,
             superthread_boards,
             superthread_board_lists,
             superthread_board_cards,

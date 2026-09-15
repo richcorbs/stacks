@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use crate::fs_paths::app_data_file;
 
@@ -9,10 +9,8 @@ mod state;
 
 pub use cli::{activate_existing_instance, handle_cli_invocation};
 pub use server::start_server;
-pub use state::{complete_automation_request, drain_automation_requests, AutomationState};
+pub use state::AutomationState;
 
-const AUTOMATION_EVENT: &str = "automation-request";
-const RESPONSE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 
 pub(crate) fn socket_path() -> Result<PathBuf, String> {
