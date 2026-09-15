@@ -265,6 +265,13 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     return store.card(id) ?? updated;
   }
 
+  const patchCard = useCallback((updated: KanbanCard, expected: KanbanCard) => {
+    const current = store.card(updated.id);
+    if (!current || !matchesRefreshSnapshot(current, expected) || !store.applyCard(updated)) return false;
+    publish();
+    return true;
+  }, [publish, store]);
+
   async function loadDetails(card: KanbanCard) {
     if (card.provider === 'local') {
       try {
@@ -281,7 +288,20 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     } catch { return store.card(card.id) ?? card; }
   }
 
-  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, move, stopRefinement, assignProject, loadDetails, applyCardSnapshot };
+  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, move, stopRefinement, assignProject, loadDetails, applyCardSnapshot, patchCard };
+}
+
+export function matchesRefreshSnapshot(current: KanbanCard, expected: KanbanCard) {
+  return current.id === expected.id
+    && current.record_revision === expected.record_revision
+    && current.status === expected.status
+    && current.workflow_revision === expected.workflow_revision
+    && current.updated_at === expected.updated_at
+    && current.project_id === expected.project_id
+    && current.environment?.revision === expected.environment?.revision
+    && current.environment?.layout_revision === expected.environment?.layout_revision
+    && current.environment?.worktree_path === expected.environment?.worktree_path
+    && current.environment?.target_branch === expected.environment?.target_branch;
 }
 
 type CreateKanbanCardDependencies = {
