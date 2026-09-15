@@ -3287,8 +3287,10 @@ struct TargetMergeOperation {
     environment_revision: i64,
     initial_status: String,
     source_path: String,
+    target_branch: String,
     source_revision: String,
     target_revision: String,
+    target_source: String,
     phase: String,
     conflict_paths: Vec<String>,
 }
@@ -3298,13 +3300,13 @@ fn load_target_merge_operation(
     card_id: &str,
 ) -> Result<Option<TargetMergeOperation>, String> {
     connection.query_row(
-        "SELECT id,card_id,environment_id,workflow_revision,environment_revision,initial_status,source_path,source_revision,target_revision,phase,conflict_paths FROM card_target_merge_operations WHERE card_id=?1",
+        "SELECT id,card_id,environment_id,workflow_revision,environment_revision,initial_status,source_path,target_branch,source_revision,target_revision,target_source,phase,conflict_paths FROM card_target_merge_operations WHERE card_id=?1",
         [card_id],
         |row| Ok(TargetMergeOperation {
             id: row.get(0)?, card_id: row.get(1)?, environment_id: row.get(2)?, workflow_revision: row.get(3)?,
-            environment_revision: row.get(4)?, initial_status: row.get(5)?, source_path: row.get(6)?,
-            source_revision: row.get(7)?, target_revision: row.get(8)?, phase: row.get(9)?,
-            conflict_paths: serde_json::from_str::<Vec<String>>(&row.get::<_, String>(10)?).unwrap_or_default(),
+            environment_revision: row.get(4)?, initial_status: row.get(5)?, source_path: row.get(6)?, target_branch: row.get(7)?,
+            source_revision: row.get(8)?, target_revision: row.get(9)?, target_source: row.get(10)?, phase: row.get(11)?,
+            conflict_paths: serde_json::from_str::<Vec<String>>(&row.get::<_, String>(12)?).unwrap_or_default(),
         }),
     ).optional().map_err(db_error)
 }
@@ -3320,11 +3322,16 @@ fn current_target_merge_result(
         state: operation.phase.clone(),
         card,
         message: if operation.phase == "conflicted" {
-            "The target merge has conflicts that need the work agent"
+            format!(
+                "The merge with {} {} has conflicts that need the work agent",
+                operation.target_source, operation.target_branch
+            )
         } else {
-            "The target was merged and is ready for verification"
-        }
-        .to_string(),
+            format!(
+                "The merge with {} {} is ready for verification",
+                operation.target_source, operation.target_branch
+            )
+        },
         idempotent: false,
     })
 }
@@ -3446,50 +3453,59 @@ fn prepare_target_merge(
     }
     ensure_registered_distinct_worktree(&target_path, &source_path)?;
 
+    // Validation snapshots both committed tips before any fetch. The primary
+    // checkout may be dirty, so local fallback must use this revision rather
+    // than its working tree contents.
+    let source_revision = source.target_revision;
+    let mut target_revision = target.target_revision;
+    let mut target_source = "local";
     let remote_key = format!("branch.{target_branch}.remote");
     let merge_key = format!("branch.{target_branch}.merge");
-    let remote = git_output(&source_path, &["config", "--get", &remote_key]).map_err(|_| format!("Target branch {target_branch} has no upstream remote. Configure it with: git branch --set-upstream-to <remote>/<branch> {target_branch}"))?;
-    let merge_ref = git_output(&source_path, &["config", "--get", &merge_key]).map_err(|_| format!("Target branch {target_branch} has no upstream tracking ref. Configure it with: git branch --set-upstream-to <remote>/<branch> {target_branch}"))?;
-    if remote.trim().is_empty() || remote == "." || !merge_ref.starts_with("refs/heads/") {
-        return Err(format!("Target branch {target_branch} has an invalid fetchable upstream ({remote}, {merge_ref}). Configure a remote-tracking upstream before retrying"));
+    let remote = git_output(&source_path, &["config", "--get", &remote_key]).unwrap_or_default();
+    let merge_ref = git_output(&source_path, &["config", "--get", &merge_key]).unwrap_or_default();
+    let fetchable_upstream =
+        !remote.trim().is_empty() && remote != "." && merge_ref.starts_with("refs/heads/");
+    if fetchable_upstream {
+        if let Ok(fetch) = Command::new("git")
+            .args([
+                "-C",
+                &source_path,
+                "fetch",
+                "--no-tags",
+                &remote,
+                &merge_ref,
+            ])
+            .output()
+        {
+            if fetch.status.success() {
+                if let Ok(fetched_revision) = git_output(&source_path, &["rev-parse", "FETCH_HEAD"])
+                {
+                    target_revision = fetched_revision;
+                    target_source = "remote";
+                }
+            }
+        }
     }
-    let fetch = Command::new("git")
-        .args([
-            "-C",
-            &source_path,
-            "fetch",
-            "--no-tags",
-            &remote,
-            &merge_ref,
-        ])
-        .output()
-        .map_err(|error| format!("Could not fetch target upstream {remote}: {error}"))?;
-    if !fetch.status.success() {
-        let detail = String::from_utf8_lossy(&fetch.stderr).trim().to_string();
-        return Err(format!("Could not fetch {remote} for target branch {target_branch}. Check network access and authentication, then retry. {detail}"));
-    }
-    let source_revision = git_output(&source_path, &["rev-parse", "HEAD"])?;
-    let target_revision = git_output(&source_path, &["rev-parse", "FETCH_HEAD"])?;
     if git_status_success(
         &source_path,
         &["merge-base", "--is-ancestor", &target_revision, "HEAD"],
     )? {
         let now = unix_timestamp();
         transaction.execute("UPDATE card_environments SET source_revision=?1,target_revision=?2,revision=revision+1,updated_at=?3 WHERE id=?4 AND revision=?5", params![source_revision,target_revision,now,environment_id,expected_environment]).map_err(db_error)?;
-        transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','merge_target','success',?3,?3,'Fetched target revision was already contained in the source branch')", params![id,now,status]).map_err(db_error)?;
+        transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','merge_target','success',?3,?3,?4)", params![id,now,status,format!("Selected {target_source} target branch {target_branch} was already contained in the source branch")]).map_err(db_error)?;
         transaction.commit().map_err(db_error)?;
         return Ok(TargetMergePrepareResult {
             operation_id: None,
             state: "noop".into(),
             card: get_card(connection, id)?
                 .ok_or_else(|| "Kanban card was not found".to_string())?,
-            message: format!("{target_branch} is already contained in {source_branch}"),
+            message: format!("Already up to date with {target_source} {target_branch}"),
             idempotent: true,
         });
     }
     let operation_id = uuid::Uuid::new_v4().to_string();
     let now = unix_timestamp();
-    transaction.execute("INSERT INTO card_target_merge_operations (id,card_id,environment_id,workflow_revision,environment_revision,initial_status,repository_id,source_path,source_branch,target_branch,upstream_remote,upstream_merge_ref,source_revision,target_revision,phase,conflict_paths,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,'merged','[]',?15,?15)", params![operation_id,id,environment_id,expected_card,expected_environment,status,repository_id,source_path,source_branch,target_branch,remote,merge_ref,source_revision,target_revision,now]).map_err(db_error)?;
+    transaction.execute("INSERT INTO card_target_merge_operations (id,card_id,environment_id,workflow_revision,environment_revision,initial_status,repository_id,source_path,source_branch,target_branch,upstream_remote,upstream_merge_ref,source_revision,target_revision,target_source,phase,conflict_paths,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,'merged','[]',?16,?16)", params![operation_id,id,environment_id,expected_card,expected_environment,status,repository_id,source_path,source_branch,target_branch,remote,merge_ref,source_revision,target_revision,target_source,now]).map_err(db_error)?;
     // Commit the recovery evidence before mutating Git. An app interruption can
     // then resume or conservatively abort every post-fetch source state.
     transaction.commit().map_err(db_error)?;
@@ -3578,9 +3594,10 @@ fn finalize_target_merge(
             "HEAD",
         ],
     )? {
-        return Err(
-            "The exact fetched target revision is not contained in the source branch".to_string(),
-        );
+        return Err(format!(
+            "The exact selected {} target revision is not contained in the source branch",
+            operation.target_source
+        ));
     }
     let head = git_output(&operation.source_path, &["rev-parse", "HEAD"])?;
     let parents = git_output(
@@ -3644,7 +3661,7 @@ fn finalize_target_merge(
     } else {
         transaction.execute("UPDATE kanban_cards SET delivery_error=NULL,updated_at=?1 WHERE id=?2 AND workflow_revision=?3", params![now,card_id,current_revision]).map_err(db_error)?;
     }
-    transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','merge_target','success',?3,?4,'Fetched target revision merged with an explicit merge commit')", params![card_id,now,transition.from,transition.to]).map_err(db_error)?;
+    transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','merge_target','success',?3,?4,?5)", params![card_id,now,transition.from,transition.to,format!("Selected {} target branch {} was merged with an explicit merge commit", operation.target_source, operation.target_branch)]).map_err(db_error)?;
     transaction
         .execute(
             "DELETE FROM card_target_merge_operations WHERE id=?1",
@@ -3655,8 +3672,10 @@ fn finalize_target_merge(
     Ok(WorkflowOperationResult {
         card: get_card(connection, card_id)?
             .ok_or_else(|| "Kanban card was not found".to_string())?,
-        message: "Merged the latest target into the card branch; review it before Ship It"
-            .to_string(),
+        message: format!(
+            "Successfully merged with {} {}",
+            operation.target_source, operation.target_branch
+        ),
         idempotent: false,
     })
 }
@@ -5019,6 +5038,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             upstream_merge_ref TEXT NOT NULL,
             source_revision TEXT NOT NULL,
             target_revision TEXT NOT NULL,
+            target_source TEXT NOT NULL DEFAULT 'remote' CHECK(target_source IN ('local','remote')),
             phase TEXT NOT NULL CHECK(phase IN ('conflicted','merged')),
             conflict_paths TEXT NOT NULL DEFAULT '[]',
             created_at INTEGER NOT NULL,
@@ -5301,11 +5321,38 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             initial_status TEXT NOT NULL CHECK(initial_status IN ('needs_human','approved')),
             repository_id TEXT NOT NULL, source_path TEXT NOT NULL, source_branch TEXT NOT NULL, target_branch TEXT NOT NULL,
             upstream_remote TEXT NOT NULL, upstream_merge_ref TEXT NOT NULL, source_revision TEXT NOT NULL, target_revision TEXT NOT NULL,
+            target_source TEXT NOT NULL DEFAULT 'remote' CHECK(target_source IN ('local','remote')),
             phase TEXT NOT NULL CHECK(phase IN ('conflicted','merged')), conflict_paths TEXT NOT NULL DEFAULT '[]',
             created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
          );
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (71, unixepoch());"
     ).map_err(db_error)?;
+    let target_merge_columns = connection
+        .prepare("PRAGMA table_info(card_target_merge_operations)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    if !target_merge_columns
+        .iter()
+        .any(|column| column == "target_source")
+    {
+        // Operations created by the old schema only existed after a successful
+        // fetch, so their selected target provenance is unambiguously remote.
+        connection
+            .execute(
+                "ALTER TABLE card_target_merge_operations ADD COLUMN target_source TEXT NOT NULL DEFAULT 'remote' CHECK(target_source IN ('local','remote'))",
+                [],
+            )
+            .map_err(db_error)?;
+    }
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (72, unixepoch())",
+            [],
+        )
+        .map_err(db_error)?;
     Ok(())
 }
 
@@ -8747,24 +8794,97 @@ mod tests {
     }
 
     #[test]
-    fn target_merge_fetches_upstream_and_creates_verified_explicit_commit() {
+    fn target_merge_migration_marks_existing_fetch_operations_remote() {
+        let (root, target, source) = upstream_merge_repository();
+        let connection = target_merge_connection(&source, &target, "needs_human");
+        connection
+            .execute_batch(
+                "DROP TABLE card_target_merge_operations;
+                 CREATE TABLE card_target_merge_operations (
+                    id TEXT PRIMARY KEY,
+                    card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+                    environment_id TEXT NOT NULL,
+                    workflow_revision INTEGER NOT NULL,
+                    environment_revision INTEGER NOT NULL,
+                    initial_status TEXT NOT NULL,
+                    repository_id TEXT NOT NULL,
+                    source_path TEXT NOT NULL,
+                    source_branch TEXT NOT NULL,
+                    target_branch TEXT NOT NULL,
+                    upstream_remote TEXT NOT NULL,
+                    upstream_merge_ref TEXT NOT NULL,
+                    source_revision TEXT NOT NULL,
+                    target_revision TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    conflict_paths TEXT NOT NULL DEFAULT '[]',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                 );
+                 DELETE FROM schema_migrations WHERE version=72;",
+            )
+            .unwrap();
+        let repository = repository_identity(target.to_str().unwrap()).unwrap();
+        let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        connection.execute(
+            "INSERT INTO card_target_merge_operations (id,card_id,environment_id,workflow_revision,environment_revision,initial_status,repository_id,source_path,source_branch,target_branch,upstream_remote,upstream_merge_ref,source_revision,target_revision,phase,conflict_paths,created_at,updated_at) VALUES ('old-op','local:target-merge','target-merge-e',4,2,'needs_human',?1,?2,'feature','main','origin','refs/heads/main',?3,?4,'conflicted','[]',1,1)",
+            params![repository,source.to_str().unwrap(),source_tip,target_tip],
+        ).unwrap();
+
+        migrate(&connection).unwrap();
+        let operation = load_target_merge_operation(&connection, "local:target-merge")
+            .unwrap()
+            .unwrap();
+        assert_eq!(operation.target_source, "remote");
+        let migrated: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version=72",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(migrated, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_merge_prefers_upstream_over_a_newer_local_tip() {
         for initial_status in ["needs_human", "approved"] {
             let (root, target, source) = upstream_merge_repository();
             let mut connection = target_merge_connection(&source, &target, initial_status);
-            advance_target(&target, "target change\n");
+            advance_target(&target, "remote target change\n");
+            let remote_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+            git_ok(
+                &target,
+                &["remote", "rename", "origin", "configured-upstream"],
+            );
+            git_ok(&target, &["reset", "--hard", "HEAD^"]);
+            fs::write(target.join("local-only.txt"), "not pushed\n").unwrap();
+            git_ok(&target, &["add", "."]);
+            git_ok(&target, &["commit", "-m", "newer local target"]);
+            let local_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+            assert_ne!(remote_tip, local_tip);
+
             let prepared =
                 prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
             assert_eq!(prepared.state, "merged");
             let operation_id = prepared.operation_id.unwrap();
+            let operation = load_target_merge_operation(&connection, "local:target-merge")
+                .unwrap()
+                .unwrap();
+            assert_eq!(operation.target_source, "remote");
+            assert_eq!(operation.target_revision, remote_tip);
             let result =
                 finalize_target_merge(&mut connection, "local:target-merge", &operation_id)
                     .unwrap();
+            assert_eq!(result.message, "Successfully merged with remote main");
             assert_eq!(result.card.status, "needs_human");
             assert_eq!(
                 result.card.workflow_revision,
                 if initial_status == "approved" { 5 } else { 4 }
             );
             assert_eq!(result.card.environment.unwrap().revision, 3);
+            assert!(!source.join("local-only.txt").exists());
             assert_eq!(
                 git_output(
                     source.to_str().unwrap(),
@@ -8775,6 +8895,11 @@ mod tests {
                 .count(),
                 3
             );
+            let summary: String = connection.query_row(
+                "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
+                [], |row| row.get(0),
+            ).unwrap();
+            assert!(summary.contains("remote target branch main"), "{summary}");
             fs::remove_dir_all(root).unwrap();
         }
     }
@@ -8787,7 +8912,13 @@ mod tests {
         let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
         assert_eq!(result.state, "noop");
         assert!(result.idempotent);
+        assert_eq!(result.message, "Already up to date with remote main");
         assert_eq!(result.card.status, "approved");
+        let summary: String = connection.query_row(
+            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert!(summary.contains("remote target branch main"), "{summary}");
         assert_eq!(
             git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
             before
@@ -8796,7 +8927,7 @@ mod tests {
     }
 
     #[test]
-    fn target_merge_rejects_dirty_source_and_missing_upstream_before_mutation() {
+    fn target_merge_rejects_dirty_source_and_falls_back_without_upstream() {
         let (root, target, source) = upstream_merge_repository();
         let mut connection = target_merge_connection(&source, &target, "needs_human");
         let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
@@ -8808,20 +8939,25 @@ mod tests {
         );
         fs::remove_file(source.join("dirty.txt")).unwrap();
         git_ok(&source, &["config", "--unset", "branch.main.remote"]);
-        let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
-        assert!(error.contains("set-upstream-to"), "{error}");
+        let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+        assert_eq!(result.state, "noop");
+        assert_eq!(result.message, "Already up to date with local main");
         assert_eq!(
             git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
             before
         );
+        let summary: String = connection.query_row(
+            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert!(summary.contains("local target branch main"), "{summary}");
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn target_merge_fetch_failure_and_revision_conflicts_leave_source_unchanged() {
+    fn target_merge_fetch_failure_falls_back_to_clean_committed_local_tip() {
         let (root, target, source) = upstream_merge_repository();
         let mut connection = target_merge_connection(&source, &target, "needs_human");
-        let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
         assert!(
             prepare_target_merge(&mut connection, "local:target-merge", 3, 2)
                 .unwrap_err()
@@ -8832,6 +8968,10 @@ mod tests {
                 .unwrap_err()
                 .contains("environment changed")
         );
+        advance_target(&target, "committed local target\n");
+        let committed_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        fs::write(target.join("target.txt"), "uncommitted target change\n").unwrap();
+        fs::write(target.join("untracked-target.txt"), "must remain local\n").unwrap();
         git_ok(
             &source,
             &[
@@ -8841,21 +8981,61 @@ mod tests {
                 "/definitely/missing/stacks-target.git",
             ],
         );
-        let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
-        assert!(
-            error.contains("network access and authentication"),
-            "{error}"
+        let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+        assert_eq!(prepared.state, "merged");
+        let operation = load_target_merge_operation(&connection, "local:target-merge")
+            .unwrap()
+            .unwrap();
+        assert_eq!(operation.target_source, "local");
+        assert_eq!(operation.target_revision, committed_tip);
+        assert_eq!(
+            fs::read_to_string(target.join("target.txt")).unwrap(),
+            "uncommitted target change\n"
         );
         assert_eq!(
-            git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
-            before
+            fs::read_to_string(source.join("target.txt")).unwrap(),
+            "committed local target\n"
         );
-        assert!(
-            load_target_merge_operation(&connection, "local:target-merge")
-                .unwrap()
-                .is_none()
-        );
+        assert!(!source.join("untracked-target.txt").exists());
+        let result = finalize_target_merge(
+            &mut connection,
+            "local:target-merge",
+            prepared.operation_id.as_deref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result.message, "Successfully merged with local main");
+        let summary: String = connection.query_row(
+            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert!(summary.contains("local target branch main"), "{summary}");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_merge_falls_back_for_missing_remote_branch_and_invalid_upstreams() {
+        for configuration in ["missing-branch", "local-only", "invalid-ref"] {
+            let (root, target, source) = upstream_merge_repository();
+            let mut connection = target_merge_connection(&source, &target, "needs_human");
+            match configuration {
+                "missing-branch" => git_ok(
+                    &source,
+                    &["config", "branch.main.merge", "refs/heads/does-not-exist"],
+                ),
+                "local-only" => git_ok(&source, &["config", "branch.main.remote", "."]),
+                "invalid-ref" => {
+                    git_ok(&source, &["config", "branch.main.merge", "refs/tags/main"])
+                }
+                _ => unreachable!(),
+            }
+            let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+            assert_eq!(result.state, "noop", "{configuration}");
+            assert_eq!(
+                result.message, "Already up to date with local main",
+                "{configuration}"
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]
@@ -8892,19 +9072,28 @@ mod tests {
             git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
         let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
         assert_eq!(prepared.state, "conflicted");
+        assert!(
+            prepared.message.contains("remote main"),
+            "{}",
+            prepared.message
+        );
         assert!(health_codes(&connection, "local:target-merge")
             .contains(&"target_merge_pending".to_string()));
         let operation_id = prepared.operation_id.unwrap();
+        let retried = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+        assert_eq!(retried.operation_id.as_deref(), Some(operation_id.as_str()));
+        assert!(
+            retried.message.contains("remote main"),
+            "{}",
+            retried.message
+        );
         fs::write(source.join("base.txt"), "resolved\n").unwrap();
         git_ok(&source, &["add", "."]);
         git_ok(&source, &["commit", "-m", "Merge target with resolution"]);
-        assert_eq!(
-            finalize_target_merge(&mut connection, "local:target-merge", &operation_id)
-                .unwrap()
-                .card
-                .status,
-            "needs_human"
-        );
+        let finalized =
+            finalize_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
+        assert_eq!(finalized.card.status, "needs_human");
+        assert_eq!(finalized.message, "Successfully merged with remote main");
 
         // A second conflicted operation can be conservatively restored when no
         // paths outside Git's recorded merge result were touched.
@@ -8915,6 +9104,7 @@ mod tests {
         fs::write(source.join("base.txt"), "another source version\n").unwrap();
         git_ok(&source, &["add", "."]);
         git_ok(&source, &["commit", "-m", "second source conflict"]);
+        git_ok(&source, &["config", "--unset", "branch.main.remote"]);
         let current = get_card(&connection, "local:target-merge")
             .unwrap()
             .unwrap();
@@ -8927,11 +9117,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(prepared.state, "conflicted");
+        assert!(
+            prepared.message.contains("local main"),
+            "{}",
+            prepared.message
+        );
         let operation_id = prepared.operation_id.unwrap();
-        let abort_start = load_target_merge_operation(&connection, "local:target-merge")
+        let abort_operation = load_target_merge_operation(&connection, "local:target-merge")
             .unwrap()
-            .unwrap()
-            .source_revision;
+            .unwrap();
+        assert_eq!(abort_operation.target_source, "local");
+        let abort_start = abort_operation.source_revision;
         abort_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
         assert_eq!(
             git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
