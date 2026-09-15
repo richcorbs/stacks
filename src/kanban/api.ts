@@ -40,8 +40,14 @@ export function setKanbanStatus(id: string, status: KanbanStatus, expectedRevisi
   return invoke<CardSnapshot>('kanban_set_status', { id, status, expectedRevision, actor }).then(({ card }) => card);
 }
 
-export function reorderKanbanCards(status: KanbanStatus, cardIds: string[]) {
-  return invoke<BoardChange>('kanban_reorder_cards', { status, cardIds }).then(({ upserts }) => upserts);
+export const KANBAN_REORDER_CONFLICT = 'KANBAN_REORDER_CONFLICT';
+
+export function reorderKanbanCards(status: KanbanStatus, expectedCardIds: string[], cardIds: string[]) {
+  return invoke<BoardChange>('kanban_reorder_cards', { status, expectedCardIds, cardIds });
+}
+
+export function isKanbanReorderConflict(error: unknown) {
+  return String(error).includes(`${KANBAN_REORDER_CONFLICT}:`);
 }
 
 export function setKanbanProject(id: string, projectId: string) {

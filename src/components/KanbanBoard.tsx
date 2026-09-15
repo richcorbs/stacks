@@ -31,7 +31,7 @@ import { buildOneTimeCommandScript } from '../oneTimeCommand';
 import { CARD_TERMINAL_COMMAND_EVENT, publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
 import { insertTemporaryPane, temporaryPaneCwd, type TemporaryPaneRun } from '../cardTerminalState';
 import { superthreadCardProvider } from '../superthread/cardProvider';
-import { canManuallySyncSuperthread, cardCreationAvailability, filterKanbanCards, localKanbanProjects, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
+import { buildFilteredLaneReorder, canManuallySyncSuperthread, cardCreationAvailability, filterKanbanCards, localKanbanProjects, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
@@ -378,7 +378,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     if (beforeId === undefined) return;
     const currentIds = visibleCards.filter((card) => card.status === drag.status).map((card) => card.id);
     const visibleOrder = reorderKanbanCardIds(currentIds, drag.cardId, beforeId);
-    await board.reorder(drag.status, mergeFilteredLaneOrder(board.cards, drag.status, visibleOrder)).catch(console.error);
+    const reorder = buildFilteredLaneReorder(board.cards, drag.status, visibleOrder);
+    await board.reorder(drag.status, reorder.expectedCardIds, reorder.cardIds).catch(console.error);
   }
 
   return (

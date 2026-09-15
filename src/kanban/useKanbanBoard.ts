@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
-import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
+import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCard, fetchKanbanCards, isKanbanReorderConflict, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
 import type { BoardChange, BoardSnapshot, CardProviderAdapter, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
 import type { Project } from '../types';
 import { KanbanSyncRequestGate } from './syncRequestGate';
@@ -212,14 +212,15 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     ]);
   }
 
-  async function reorder(status: KanbanStatus, cardIds: string[]) {
+  async function reorder(status: KanbanStatus, expectedCardIds: string[], cardIds: string[]) {
     const fields = new Map(cardIds.map((id, index) => [id, { sort_order: index }]));
     const generation = store.beginOptimistic(fields);
     publish();
     try {
-      await reorderKanbanCards(status, cardIds);
-      applySnapshot(await fetchKanbanCards());
+      applyPartialChange(await reorderKanbanCards(status, expectedCardIds, cardIds));
     } catch (reorderError) {
+      const authoritative = await recoverKanbanReorderCards(reorderError, fetchKanbanCards);
+      if (authoritative) applySnapshot(authoritative);
       setError(errorMessage(reorderError));
       throw reorderError;
     } finally {
@@ -332,6 +333,18 @@ export async function performKanbanLoad({ initial, fetchCards, setCards, setErro
   try { setCards(await fetchCards()); setError(null); }
   catch (loadError) { setError(errorMessage(loadError)); }
   finally { if (initial) { setLoading(false); setInitialLoadComplete(true); } }
+}
+
+export async function recoverKanbanReorderCards<T>(
+  error: unknown,
+  fetchCards: () => Promise<T>,
+): Promise<T | null> {
+  if (!isKanbanReorderConflict(error)) return null;
+  try {
+    return await fetchCards();
+  } catch {
+    return null;
+  }
 }
 
 /** Legacy helper kept for callers outside the store; revision ordering is enforced. */

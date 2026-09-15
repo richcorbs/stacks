@@ -79,3 +79,15 @@ export function mergeFilteredLaneOrder(
   let nextVisible = 0;
   return laneIds.map((id) => visible.has(id) ? visibleOrderedIds[nextVisible++] ?? id : id);
 }
+
+/** Captures the authoritative lane snapshot separately from its filtered drag result. */
+export function buildFilteredLaneReorder(
+  allCards: KanbanCard[],
+  status: KanbanStatus,
+  visibleOrderedIds: string[],
+): { expectedCardIds: string[]; cardIds: string[] } {
+  return {
+    expectedCardIds: allCards.filter((card) => card.status === status).map((card) => card.id),
+    cardIds: mergeFilteredLaneOrder(allCards, status, visibleOrderedIds),
+  };
+}

@@ -2,7 +2,7 @@ use crate::fs_paths::app_data_file;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -30,6 +30,7 @@ const STATUSES: [&str; 8] = [
     "done",
 ];
 const REFINEMENT_STATUSES: [&str; 3] = ["needs_refinement", "refining", "needs_refinement_input"];
+const REORDER_CONFLICT_CODE: &str = "KANBAN_REORDER_CONFLICT";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct KanbanCardSnapshot {
@@ -1097,41 +1098,68 @@ pub fn kanban_set_status(
         return Err(format!("Unknown Kanban status: {status}"));
     }
     with_connection(|connection| {
-        ensure_card_directory(&id)?;
-        let (current, revision, finalized): (String, i64, bool) = connection
-            .query_row(
-                "SELECT status, workflow_revision, hierarchy_finalized FROM kanban_cards WHERE id = ?1",
-                [&id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
-            )
-            .optional()
-            .map_err(db_error)?
-            .ok_or_else(|| "Kanban card was not found".to_string())?;
-        if finalized {
-            return Err("A finalized aggregate parent has no workflow".to_string());
-        }
-        if revision != expected_revision {
-            return Err("Card changed; reload before trying again".to_string());
-        }
-        if current != status && !is_legal_status_transition(&current, &status) {
-            return Err(format!(
-                "Illegal Kanban transition from {current} to {status}"
-            ));
-        }
-        let changed = connection.execute(
-            "UPDATE kanban_cards SET status = ?1, workflow_revision = workflow_revision + 1, updated_at = ?2,
-                sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = ?1)
-             WHERE id = ?3 AND workflow_revision = ?4",
-            params![status, unix_timestamp(), id, expected_revision],
-        ).map_err(db_error)?;
-        if changed == 0 {
-            return Err("Card changed; reload before trying again".to_string());
-        }
-        connection.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, ?3, 'status_transition', 'success', ?4, ?5)",
-            params![id, unix_timestamp(), if actor == "agent" { "agent" } else { "user" }, current, status]).map_err(db_error)?;
-        Ok(())
+        set_card_status(connection, &id, &status, expected_revision, &actor, || {
+            ensure_card_directory(&id).map(|_| ())
+        })
+        .map(|_| ())
     })?;
     fresh_card_snapshot(&id)
+}
+
+fn set_card_status<F>(
+    connection: &mut Connection,
+    id: &str,
+    status: &str,
+    expected_revision: i64,
+    actor: &str,
+    ensure_directory: F,
+) -> Result<KanbanCard, String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let (current, revision, finalized): (String, i64, bool) = transaction
+        .query_row(
+            "SELECT status, workflow_revision, hierarchy_finalized FROM kanban_cards WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    if finalized {
+        return Err("A finalized aggregate parent has no workflow".to_string());
+    }
+    // Check status before revision so a retry of an already successful transition is a no-op.
+    if current == status {
+        transaction.commit().map_err(db_error)?;
+        return get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string());
+    }
+    if revision != expected_revision {
+        return Err("Card changed; reload before trying again".to_string());
+    }
+    if !is_legal_status_transition(&current, status) {
+        return Err(format!(
+            "Illegal Kanban transition from {current} to {status}"
+        ));
+    }
+    ensure_directory()?;
+    let now = unix_timestamp();
+    let changed = transaction.execute(
+        "UPDATE kanban_cards SET status = ?1, workflow_revision = workflow_revision + 1, updated_at = ?2,
+            sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status = ?1)
+         WHERE id = ?3 AND workflow_revision = ?4",
+        params![status, now, id, expected_revision],
+    ).map_err(db_error)?;
+    if changed == 0 {
+        return Err("Card changed; reload before trying again".to_string());
+    }
+    transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status) VALUES (?1, ?2, ?3, 'status_transition', 'success', ?4, ?5)",
+        params![id, now, if actor == "agent" { "agent" } else { "user" }, current, status]).map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
 }
 
 fn is_legal_status_transition(current: &str, next: &str) -> bool {
@@ -1194,22 +1222,16 @@ pub fn kanban_close_card(id: String, expected_revision: i64) -> Result<CardSnaps
 }
 
 #[tauri::command]
-pub fn kanban_reorder_cards(status: String, card_ids: Vec<String>) -> Result<BoardChange, String> {
+pub fn kanban_reorder_cards(
+    status: String,
+    expected_card_ids: Vec<String>,
+    card_ids: Vec<String>,
+) -> Result<BoardChange, String> {
     if !STATUSES.contains(&status.as_str()) {
         return Err(format!("Unknown Kanban status: {status}"));
     }
     with_connection(|connection| {
-        let transaction = connection.transaction().map_err(db_error)?;
-        for (index, id) in card_ids.iter().enumerate() {
-            let changed = transaction.execute(
-                "UPDATE kanban_cards SET sort_order = ?1, updated_at = ?2 WHERE id = ?3 AND (status = ?4 OR hierarchy_finalized = 1)",
-                params![index as i64, unix_timestamp(), id, status],
-            ).map_err(db_error)?;
-            if changed == 0 {
-                return Err("A reordered card was not found in the expected column".to_string());
-            }
-        }
-        transaction.commit().map_err(db_error)
+        reorder_cards(connection, &status, &expected_card_ids, &card_ids).map(|_| ())
     })?;
     with_connection(|connection| {
         let revision = board_revision(connection)?;
@@ -1225,6 +1247,115 @@ pub fn kanban_reorder_cards(status: String, card_ids: Vec<String>) -> Result<Boa
             board_revision: revision,
         })
     })
+}
+
+fn reorder_cards(
+    connection: &mut Connection,
+    status: &str,
+    expected_card_ids: &[String],
+    card_ids: &[String],
+) -> Result<Vec<KanbanCard>, String> {
+    reject_duplicate_ids("expected_card_ids", expected_card_ids)?;
+    reject_duplicate_ids("card_ids", card_ids)?;
+    let expected_set = expected_card_ids.iter().collect::<HashSet<_>>();
+    let desired_set = card_ids.iter().collect::<HashSet<_>>();
+    if expected_set != desired_set {
+        return Err(
+            "Reorder expected_card_ids and card_ids must contain exactly the same IDs".to_string(),
+        );
+    }
+
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let rows = {
+        let mut statement = transaction.prepare(
+            "SELECT id, status, hierarchy_finalized, in_scope FROM kanban_cards ORDER BY sort_order ASC, created_at ASC, id ASC",
+        ).map_err(db_error)?;
+        let mapped = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)? != 0,
+                    row.get::<_, i64>(3)? != 0,
+                ))
+            })
+            .map_err(db_error)?;
+        mapped.collect::<Result<Vec<_>, _>>().map_err(db_error)?
+    };
+    let mut effective_rows = Vec::with_capacity(rows.len());
+    for (id, stored_status, finalized, in_scope) in rows {
+        let effective_status = effective_card_status(&transaction, &id, &stored_status, finalized)?;
+        effective_rows.push((id, effective_status, in_scope));
+    }
+
+    for id in card_ids {
+        let Some((_, effective_status, in_scope)) = effective_rows
+            .iter()
+            .find(|(candidate, _, _)| candidate == id)
+        else {
+            return Err(format!("Unknown reordered card ID: {id}"));
+        };
+        if !in_scope {
+            return Err(format!("Reordered card is not in scope: {id}"));
+        }
+        if effective_status != status {
+            return Err(format!(
+                "Reordered card {id} belongs to effective lane {effective_status}, not {status}"
+            ));
+        }
+    }
+
+    let current_order = effective_rows
+        .into_iter()
+        .filter(|(_, effective_status, in_scope)| *in_scope && effective_status == status)
+        .map(|(id, _, _)| id)
+        .collect::<Vec<_>>();
+    let current_set = current_order.iter().collect::<HashSet<_>>();
+    if expected_set != current_set {
+        let missing = current_order
+            .iter()
+            .filter(|id| !expected_set.contains(id))
+            .cloned()
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "Reorder payload is incomplete for lane {status}; missing IDs: {}",
+            missing.join(", ")
+        ));
+    }
+    // Validate the full payload first, then allow an exact retry independently of its stale expectation.
+    if current_order == card_ids {
+        transaction.commit().map_err(db_error)?;
+        return list_cards(connection);
+    }
+    if current_order != expected_card_ids {
+        return Err(format!(
+            "{REORDER_CONFLICT_CODE}: Lane order changed; reload the board and retry"
+        ));
+    }
+
+    let now = unix_timestamp();
+    for (index, id) in card_ids.iter().enumerate() {
+        transaction
+            .execute(
+                "UPDATE kanban_cards SET sort_order = ?1, updated_at = ?2 WHERE id = ?3",
+                params![index as i64, now, id],
+            )
+            .map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)?;
+    list_cards(connection)
+}
+
+fn reject_duplicate_ids(field: &str, ids: &[String]) -> Result<(), String> {
+    let mut unique = HashSet::new();
+    if let Some(duplicate) = ids.iter().find(|id| !unique.insert(id.as_str())) {
+        return Err(format!(
+            "Reorder {field} contains duplicate card ID: {duplicate}"
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -2899,6 +3030,41 @@ fn relationship_summary(
         .map_err(db_error)
 }
 
+fn earliest_workflow_status<'a>(statuses: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    statuses
+        .into_iter()
+        .min_by_key(|status| {
+            STATUSES
+                .iter()
+                .position(|candidate| candidate == status)
+                .unwrap_or(STATUSES.len())
+        })
+        .map(str::to_string)
+}
+
+fn effective_card_status(
+    connection: &Connection,
+    id: &str,
+    stored_status: &str,
+    hierarchy_finalized: bool,
+) -> Result<String, String> {
+    if !hierarchy_finalized {
+        return Ok(stored_status.to_string());
+    }
+    let mut statement = connection
+        .prepare("SELECT status FROM kanban_cards WHERE parent_id=?1 AND in_scope=1")
+        .map_err(db_error)?;
+    let child_statuses = statement
+        .query_map([id], |row| row.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    Ok(
+        earliest_workflow_status(child_statuses.iter().map(String::as_str))
+            .unwrap_or_else(|| stored_status.to_string()),
+    )
+}
+
 fn enrich_relationships(connection: &Connection, cards: &mut [KanbanCard]) -> Result<(), String> {
     for card in cards {
         if let Some(parent) = &card.parent {
@@ -2922,18 +3088,10 @@ fn enrich_relationships(connection: &Connection, cards: &mut [KanbanCard]) -> Re
             .collect::<Result<Vec<_>, _>>()
             .map_err(db_error)?;
         card.child_count = card.child_count.max(card.children.len() as u64);
-        if card.hierarchy_finalized && !card.children.is_empty() {
-            card.status = card
-                .children
-                .iter()
-                .min_by_key(|child| {
-                    STATUSES
-                        .iter()
-                        .position(|status| *status == child.status)
-                        .unwrap_or(STATUSES.len())
-                })
-                .map(|child| child.status.clone())
-                .unwrap_or(card.status.clone());
+        if card.hierarchy_finalized {
+            card.status =
+                earliest_workflow_status(card.children.iter().map(|child| child.status.as_str()))
+                    .unwrap_or_else(|| card.status.clone());
         }
     }
     Ok(())
@@ -3709,6 +3867,289 @@ mod tests {
         ).unwrap();
         transaction.commit().unwrap();
         get_card(connection, "local:test").unwrap().unwrap()
+    }
+
+    fn insert_ordered_card(
+        connection: &Connection,
+        id: &str,
+        status: &str,
+        order: i64,
+        updated_at: i64,
+    ) {
+        connection.execute(
+            "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,created_at,updated_at,sort_order,in_scope)
+             VALUES (?1,'local:p',?1,?1,?2,?3,?4,?3,1)",
+            params![id, status, order, updated_at],
+        ).unwrap();
+    }
+
+    fn ids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn status_transition_retry_with_stale_revision_is_unchanged() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,workflow_revision,created_at,updated_at,sort_order)
+             VALUES ('card','local:p','1','Card','needs_refinement',7,1,11,4)",
+            [],
+        ).unwrap();
+
+        let changed =
+            set_card_status(&mut connection, "card", "ready", 7, "user", || Ok(())).unwrap();
+        assert_eq!(changed.status, "ready");
+        assert_eq!(changed.workflow_revision, 8);
+        let after_first: (i64, i64, i64, i64) = connection.query_row(
+            "SELECT workflow_revision,sort_order,updated_at,(SELECT COUNT(*) FROM card_events WHERE card_id='card') FROM kanban_cards WHERE id='card'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        let event_time: i64 = connection
+            .query_row(
+                "SELECT created_at FROM card_events WHERE card_id='card'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(after_first.2, event_time);
+
+        let retried = set_card_status(&mut connection, "card", "ready", 7, "user", || {
+            panic!("idempotent retry must not create a directory")
+        })
+        .unwrap();
+        let after_retry: (i64, i64, i64, i64) = connection.query_row(
+            "SELECT workflow_revision,sort_order,updated_at,(SELECT COUNT(*) FROM card_events WHERE card_id='card') FROM kanban_cards WHERE id='card'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(retried.workflow_revision, 8);
+        assert_eq!(after_retry, after_first);
+    }
+
+    #[test]
+    fn non_idempotent_status_transition_still_checks_revision() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        insert_ordered_card(&connection, "card", "needs_refinement", 0, 12);
+        connection
+            .execute(
+                "UPDATE kanban_cards SET workflow_revision=3 WHERE id='card'",
+                [],
+            )
+            .unwrap();
+        let error =
+            set_card_status(&mut connection, "card", "ready", 2, "user", || Ok(())).unwrap_err();
+        assert!(error.contains("Card changed"));
+        assert_eq!(
+            get_card(&connection, "card").unwrap().unwrap().status,
+            "needs_refinement"
+        );
+    }
+
+    #[test]
+    fn reorder_retry_is_idempotent_and_uses_one_timestamp() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        for (index, id) in ["a", "hidden", "b"].iter().enumerate() {
+            insert_ordered_card(&connection, id, "ready", index as i64, 10 + index as i64);
+        }
+        let expected = ids(&["a", "hidden", "b"]);
+        let desired = ids(&["b", "hidden", "a"]);
+        reorder_cards(&mut connection, "ready", &expected, &desired).unwrap();
+        let first = connection
+            .prepare("SELECT id,sort_order,updated_at FROM kanban_cards ORDER BY sort_order,id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            first.iter().map(|row| row.0.as_str()).collect::<Vec<_>>(),
+            vec!["b", "hidden", "a"]
+        );
+        assert!(first.iter().all(|row| row.2 == first[0].2));
+
+        reorder_cards(&mut connection, "ready", &expected, &desired).unwrap();
+        let retried = connection
+            .prepare("SELECT id,sort_order,updated_at FROM kanban_cards ORDER BY sort_order,id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(retried, first);
+    }
+
+    #[test]
+    fn concurrent_reorder_conflicts_without_overwriting_first_order() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        for (index, id) in ["a", "b", "c"].iter().enumerate() {
+            insert_ordered_card(&connection, id, "ready", index as i64, 1);
+        }
+        let expected = ids(&["a", "b", "c"]);
+        reorder_cards(&mut connection, "ready", &expected, &ids(&["b", "a", "c"])).unwrap();
+        let before_conflict = connection
+            .prepare("SELECT id,sort_order,updated_at FROM kanban_cards ORDER BY sort_order,id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let error =
+            reorder_cards(&mut connection, "ready", &expected, &ids(&["c", "b", "a"])).unwrap_err();
+        assert!(error.starts_with(REORDER_CONFLICT_CODE));
+        let after_conflict = connection
+            .prepare("SELECT id,sort_order,updated_at FROM kanban_cards ORDER BY sort_order,id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(after_conflict, before_conflict);
+    }
+
+    #[test]
+    fn reorder_rejects_invalid_payloads_without_mutation() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        insert_ordered_card(&connection, "a", "ready", 0, 1);
+        insert_ordered_card(&connection, "b", "ready", 1, 2);
+        insert_ordered_card(&connection, "other", "approved", 0, 3);
+        insert_ordered_card(&connection, "hidden", "ready", 2, 4);
+        connection
+            .execute("UPDATE kanban_cards SET in_scope=0 WHERE id='hidden'", [])
+            .unwrap();
+        let original = connection
+            .prepare("SELECT id,sort_order,updated_at FROM kanban_cards ORDER BY id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        let cases = [
+            (
+                ids(&["a", "a", "b"]),
+                ids(&["a", "b"]),
+                "expected_card_ids contains duplicate",
+            ),
+            (
+                ids(&["a", "b"]),
+                ids(&["a", "a", "b"]),
+                "card_ids contains duplicate",
+            ),
+            (ids(&["a", "b"]), ids(&["a"]), "exactly the same IDs"),
+            (ids(&["a"]), ids(&["a"]), "incomplete"),
+            (
+                ids(&["a", "b", "missing"]),
+                ids(&["a", "b", "missing"]),
+                "Unknown reordered card ID",
+            ),
+            (
+                ids(&["a", "b", "other"]),
+                ids(&["a", "b", "other"]),
+                "effective lane approved",
+            ),
+            (
+                ids(&["a", "b", "hidden"]),
+                ids(&["a", "b", "hidden"]),
+                "not in scope",
+            ),
+        ];
+        for (expected, desired, message) in cases {
+            assert!(reorder_cards(&mut connection, "ready", &expected, &desired)
+                .unwrap_err()
+                .contains(message));
+            let unchanged = connection
+                .prepare("SELECT id,sort_order,updated_at FROM kanban_cards ORDER BY id")
+                .unwrap()
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(unchanged, original);
+        }
+    }
+
+    #[test]
+    fn reorder_uses_aggregate_parents_effective_child_lane() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        insert_ordered_card(&connection, "parent", "ready", 0, 1);
+        insert_ordered_card(&connection, "child", "needs_human", 1, 1);
+        connection
+            .execute(
+                "UPDATE kanban_cards SET hierarchy_finalized=1 WHERE id='parent'",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE kanban_cards SET parent_id='parent' WHERE id='child'",
+                [],
+            )
+            .unwrap();
+
+        let error = reorder_cards(
+            &mut connection,
+            "ready",
+            &ids(&["parent"]),
+            &ids(&["parent"]),
+        )
+        .unwrap_err();
+        assert!(error.contains("effective lane needs_human"));
+        let cards = reorder_cards(
+            &mut connection,
+            "needs_human",
+            &ids(&["parent", "child"]),
+            &ids(&["child", "parent"]),
+        )
+        .unwrap();
+        assert_eq!(
+            cards
+                .iter()
+                .filter(|card| card.status == "needs_human")
+                .map(|card| card.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["child", "parent"]
+        );
     }
 
     #[test]

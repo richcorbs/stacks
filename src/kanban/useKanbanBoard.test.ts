@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, lifecycleProjectionRule, mergeChangedKanbanCard, performKanbanLoad, shouldRestoreUiRequestCard } from './useKanbanBoard';
+import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, lifecycleProjectionRule, mergeChangedKanbanCard, performKanbanLoad, recoverKanbanReorderCards, shouldRestoreUiRequestCard } from './useKanbanBoard';
 import type { CardProviderAdapter, KanbanCard, KanbanSyncCard } from './types';
 import type { Project } from '../types';
 
@@ -84,6 +84,21 @@ describe('card Pi workflow requests', () => {
     const refinementBlocked = { ...card('2', 'Planning'), status: 'needs_refinement_input' as const, workflow_revision: 5 };
     expect(shouldRestoreUiRequestCard(refinementBlocked, refinementBlocked)).toBe(true);
     expect(shouldRestoreUiRequestCard({ ...refinementBlocked, status: 'needs_refinement' }, refinementBlocked)).toBe(false);
+  });
+});
+
+describe('Kanban reorder recovery', () => {
+  it('replaces optimistic state with authoritative cards after a reorder conflict', async () => {
+    const authoritative = [card('1', 'Authoritative'), card('2', 'Concurrent')];
+    expect(await recoverKanbanReorderCards(
+      'KANBAN_REORDER_CONFLICT: Lane order changed',
+      async () => authoritative,
+    )).toBe(authoritative);
+  });
+
+  it('skips reloads for validation errors and tolerates failed conflict reloads', async () => {
+    expect(await recoverKanbanReorderCards('Invalid payload', async () => [])).toBeNull();
+    expect(await recoverKanbanReorderCards('KANBAN_REORDER_CONFLICT: stale', async () => { throw new Error('offline'); })).toBeNull();
   });
 });
 
