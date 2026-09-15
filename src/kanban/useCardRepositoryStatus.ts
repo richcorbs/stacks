@@ -21,6 +21,13 @@ export function healthCheckFailure(card: Pick<KanbanCard, 'id' | 'status'>, erro
   };
 }
 
+export function shouldShowEnvironmentWarning(
+  card: Pick<KanbanCard, 'hierarchy_finalized'>,
+  health: CardEnvironmentHealth | null | undefined,
+) {
+  return !card.hierarchy_finalized && Boolean(health?.issues.length);
+}
+
 export function environmentHealthTooltip(health: CardEnvironmentHealth | null | undefined) {
   if (!health?.issues.length) return '';
   return health.issues.map((issue) => `${issue.message} Affects ${issue.step}.`).join(' ');

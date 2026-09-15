@@ -1,26 +1,28 @@
 use serde::Serialize;
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     env,
     io::Read,
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
 };
 use tauri::State;
 
-use crate::{fs_paths::app_data_dir, process_group};
+#[cfg(test)]
+use crate::fs_paths::app_data_dir;
+use crate::process_group;
 
 const SETUP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const MAX_SETUP_OUTPUT_BYTES: usize = 256 * 1024;
 
 #[derive(Default)]
 pub struct WorkspaceSetupState {
-    cancelled: Arc<AtomicBool>,
+    operations: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 #[derive(Serialize)]
@@ -30,31 +32,50 @@ pub struct WorkspaceSetupResult {
 }
 
 impl WorkspaceSetupState {
-    pub(crate) fn begin(&self) -> Arc<AtomicBool> {
-        self.cancelled.store(false, Ordering::Release);
-        Arc::clone(&self.cancelled)
+    pub(crate) fn begin(&self, operation_id: &str) -> Result<Arc<AtomicBool>, String> {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut operations = self
+            .operations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if operations.contains_key(operation_id) {
+            return Err("Workspace setup is already running for this card".to_string());
+        }
+        operations.insert(operation_id.to_string(), Arc::clone(&cancelled));
+        Ok(cancelled)
+    }
+
+    pub(crate) fn finish(&self, operation_id: &str, cancelled: &Arc<AtomicBool>) {
+        let mut operations = self
+            .operations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if operations
+            .get(operation_id)
+            .is_some_and(|current| Arc::ptr_eq(current, cancelled))
+        {
+            operations.remove(operation_id);
+        }
+    }
+
+    fn cancel(&self, operation_id: &str) {
+        if let Some(cancelled) = self
+            .operations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(operation_id)
+        {
+            cancelled.store(true, Ordering::Release);
+        }
     }
 }
 
 #[tauri::command]
-pub async fn run_workspace_setup(
-    state: State<'_, WorkspaceSetupState>,
-    command: String,
-    cwd: String,
-) -> Result<WorkspaceSetupResult, String> {
-    let cancelled = state.begin();
-    tauri::async_runtime::spawn_blocking(move || {
-        run_workspace_setup_inner(command, cwd, &cancelled)
-    })
-    .await
-    .map_err(|error| format!("Workspace setup worker failed: {error}"))?
+pub fn cancel_workspace_setup(state: State<'_, WorkspaceSetupState>, card_id: String) {
+    state.cancel(&format!("environment:{card_id}"));
 }
 
-#[tauri::command]
-pub fn cancel_workspace_setup(state: State<'_, WorkspaceSetupState>) {
-    state.cancelled.store(true, Ordering::Release);
-}
-
+#[cfg(test)]
 fn run_workspace_setup_inner(
     command: String,
     cwd: String,
@@ -225,14 +246,28 @@ fn read_stream(mut stream: impl Read) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_stream, run_workspace_setup_inner, MAX_SETUP_OUTPUT_BYTES};
-    use std::sync::atomic::AtomicBool;
+    use super::{
+        read_stream, run_workspace_setup_inner, WorkspaceSetupState, MAX_SETUP_OUTPUT_BYTES,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
     fn bounds_setup_output_to_a_tail_buffer() {
         let output = read_stream(vec![b'x'; MAX_SETUP_OUTPUT_BYTES + 100].as_slice());
         assert!(output.starts_with("[earlier setup output truncated]"));
         assert!(output.len() <= MAX_SETUP_OUTPUT_BYTES + 40);
+    }
+
+    #[test]
+    fn cancellation_is_scoped_to_one_operation() {
+        let state = WorkspaceSetupState::default();
+        let first = state.begin("environment:first").unwrap();
+        let second = state.begin("environment:second").unwrap();
+        state.cancel("environment:first");
+        assert!(first.load(Ordering::Acquire));
+        assert!(!second.load(Ordering::Acquire));
+        state.finish("environment:first", &first);
+        state.finish("environment:second", &second);
     }
 
     #[test]

@@ -34,7 +34,7 @@ function harness() {
 }
 
 function envelope(event: PiRpcEnvelope['event'], generation = 'generation-1'): PiRpcEnvelope {
-  return { pane_id: config.paneId, generation, event };
+  return { pane_id: config.paneId, generation, event_id: `${generation}:0`, event_order: 0, event };
 }
 
 async function begin(h: ReturnType<typeof harness>) {

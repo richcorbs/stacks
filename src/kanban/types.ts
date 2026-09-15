@@ -1,15 +1,10 @@
-export const KANBAN_STATUSES = [
-  'needs_refinement',
-  'refining',
-  'needs_refinement_input',
-  'ready',
-  'agent_working',
-  'needs_human',
-  'approved',
-  'done',
-] as const;
+import { KANBAN_STATUS_METADATA, KANBAN_WORKFLOW_ACTIONS } from './workflowContract.generated';
 
-export type KanbanStatus = typeof KANBAN_STATUSES[number];
+export const KANBAN_STATUSES = KANBAN_STATUS_METADATA.map(({ status }) => status);
+export type KanbanStatus = typeof KANBAN_STATUS_METADATA[number]['status'];
+export type KanbanWorkflowAction = typeof KANBAN_WORKFLOW_ACTIONS[number];
+export type KanbanCapability = { action: KanbanWorkflowAction; available: boolean; disabled_reason?: string };
+export type PiLifecycleIntent = 'agent_started' | 'agent_settled' | 'protocol_failed' | 'process_exited' | 'ui_input_requested' | 'ui_input_resolved';
 
 export type CardEnvironmentPane = {
   id: string;
@@ -124,6 +119,8 @@ export type KanbanCard = {
   pull_request?: CardPullRequest | null;
   delivery_operation_stage?: string | null;
   delivery_error?: string | null;
+  runtime_cleanup_status?: 'pending' | 'complete' | 'failed' | null;
+  runtime_cleanup_error?: string | null;
   workflow_revision: number;
   record_revision: number;
   project_id: string | null;
@@ -138,6 +135,7 @@ export type KanbanCard = {
   updated_at: number;
   sort_order: number;
   events: CardEvent[];
+  capabilities: KanbanCapability[];
 };
 
 

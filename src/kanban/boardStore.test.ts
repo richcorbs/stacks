@@ -9,6 +9,7 @@ function card(id: string, revision = 1, overrides: Partial<KanbanCard> = {}): Ka
     workflow_revision: 1, record_revision: revision, project_id: 'p', parent: null, child_count: 0,
     children: [], hierarchy_finalized: false, environment: null, created_at: 1, updated_at: 1,
     sort_order: 0, events: [], ...overrides,
+    capabilities: overrides.capabilities ?? [],
   };
 }
 

@@ -1,15 +1,7 @@
 import { KANBAN_STATUSES, type KanbanStatus } from './types';
+import { KANBAN_STATUS_METADATA } from './workflowContract.generated';
 
-export const KANBAN_LANES: Array<{ status: KanbanStatus; label: string }> = [
-  { status: 'needs_refinement', label: 'Needs refinement' },
-  { status: 'refining', label: 'Refining' },
-  { status: 'needs_refinement_input', label: 'Needs you for refinement' },
-  { status: 'ready', label: 'Ready for agent' },
-  { status: 'agent_working', label: 'Agent working' },
-  { status: 'needs_human', label: 'Needs you' },
-  { status: 'approved', label: 'Ready to merge' },
-  { status: 'done', label: 'Done' },
-];
+export const KANBAN_LANES: ReadonlyArray<{ status: KanbanStatus; label: string }> = KANBAN_STATUS_METADATA;
 
 export const EXECUTION_SUPERTHREAD_LISTS = new Set(['doing', 'in review', 'qa']);
 export const DEV_ACTIVE_INTAKE_LISTS = new Set(['backlog', 'to do']);

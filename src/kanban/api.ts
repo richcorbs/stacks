@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, SuperthreadSnapshot } from './types';
+import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
@@ -36,8 +36,16 @@ export function syncKanbanCards(ownerProjectId: string, snapshot: SuperthreadSna
   return invoke<BoardSnapshot>('kanban_sync_superthread_cards', { ownerProjectId, snapshot });
 }
 
-export function setKanbanStatus(id: string, status: KanbanStatus, expectedRevision: number, actor: 'user' | 'agent' = 'user') {
-  return invoke<CardSnapshot>('kanban_set_status', { id, status, expectedRevision, actor }).then(({ card }) => card);
+export function applyKanbanWorkflowAction(id: string, action: Extract<KanbanWorkflowAction, 'return_to_refinement' | 'request_changes' | 'stop_refinement'>, expectedRevision: number) {
+  return invoke<CardSnapshot>('kanban_apply_workflow_action', { id, action, expectedRevision });
+}
+
+export function applyKanbanPiLifecycleIntent(id: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number) {
+  return invoke<CardSnapshot>('kanban_apply_pi_lifecycle_intent', { id, thread, intent, generation, eventId, eventOrder });
+}
+
+export function fetchKanbanStatusMetadata() {
+  return invoke<Array<{ status: KanbanStatus; label: string }>>('kanban_status_metadata');
 }
 
 export const KANBAN_REORDER_CONFLICT = 'KANBAN_REORDER_CONFLICT';
@@ -55,6 +63,8 @@ export function setKanbanProject(id: string, projectId: string) {
 }
 
 export type WorkflowOperationResult = { card: KanbanCard; message: string; idempotent: boolean };
+export type RuntimeResourceOutcome = { resource_type: 'pi_process' | 'pi_session' | 'pty'; id: string; success: boolean; error: string | null };
+export type CardRuntimeCleanupResult = { card: KanbanCard; outcomes: RuntimeResourceOutcome[] };
 
 export function startKanbanEnvironment(id: string, expectedWorkflowRevision: number, setupCommand: string, customCommand: boolean, explicitRetry = false) {
   return invoke<KanbanCard>('kanban_start_environment', { id, expectedWorkflowRevision, setupCommand, customCommand, explicitRetry });
@@ -73,7 +83,11 @@ export function approveAndCommitKanbanCard(id: string, expectedWorkflowRevision:
 }
 
 export function closeKanbanCard(id: string, expectedRevision: number) {
-  return invoke<CardSnapshot>('kanban_close_card', { id, expectedRevision }).then(({ card }) => card);
+  return invoke<CardRuntimeCleanupResult>('kanban_close_card', { id, expectedRevision });
+}
+
+export function retryKanbanRuntimeCleanup(id: string) {
+  return invoke<CardRuntimeCleanupResult>('kanban_retry_runtime_cleanup', { id });
 }
 
 export type KanbanPullRequestRefreshResult = { card: KanbanCard; error: string | null };
@@ -92,6 +106,23 @@ export function mergeKanbanPullRequest(id: string, expectedWorkflowRevision: num
 
 export function mergeKanbanCard(id: string, expectedWorkflowRevision: number, expectedEnvironmentRevision: number) {
   return invoke<WorkflowOperationResult>('kanban_merge_card', { id, expectedWorkflowRevision, expectedEnvironmentRevision });
+}
+
+export type TargetMergePrepareResult = WorkflowOperationResult & {
+  operation_id: string | null;
+  state: 'noop' | 'merged' | 'conflicted';
+};
+
+export function prepareKanbanTargetMerge(id: string, expectedWorkflowRevision: number, expectedEnvironmentRevision: number) {
+  return invoke<TargetMergePrepareResult>('kanban_prepare_target_merge', { id, expectedWorkflowRevision, expectedEnvironmentRevision });
+}
+
+export function finalizeKanbanTargetMerge(id: string, operationId: string) {
+  return invoke<WorkflowOperationResult>('kanban_finalize_target_merge', { id, operationId });
+}
+
+export function abortKanbanTargetMerge(id: string, operationId: string) {
+  return invoke<KanbanCard>('kanban_abort_target_merge', { id, operationId });
 }
 
 export function saveKanbanEnvironmentLayout(id: string, splitLayout: SplitNode, focusedPaneId: string | null, panes: CardEnvironmentPane[], expectedLayoutRevision: number) {
