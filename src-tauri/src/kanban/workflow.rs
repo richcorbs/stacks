@@ -292,8 +292,8 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
                 .or(environment.clone());
             let mut values = vec![
                 capability(RequestChanges, None),
-                capability(Ship, ship_reason.clone()),
                 capability(MergeTarget, environment.clone()),
+                capability(Ship, ship_reason.clone()),
             ];
             if context.delivery_workflow == DeliveryWorkflow::GithubPullRequest
                 && context.supports_feature_environments
@@ -543,6 +543,43 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn needs_human_capabilities_keep_delivery_actions_in_display_order() {
+        use WorkflowAction::*;
+
+        let standard = capabilities(&context(CardStatus::NeedsHuman))
+            .into_iter()
+            .map(|capability| capability.action)
+            .collect::<Vec<_>>();
+        assert_eq!(standard, vec![RequestChanges, MergeTarget, Ship, Close]);
+
+        let mut feature_environment = context(CardStatus::NeedsHuman);
+        feature_environment.delivery_workflow = DeliveryWorkflow::GithubPullRequest;
+        feature_environment.supports_feature_environments = true;
+        let feature_environment = capabilities(&feature_environment)
+            .into_iter()
+            .map(|capability| capability.action)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            feature_environment,
+            vec![RequestChanges, MergeTarget, Ship, ShipWithFe, Close]
+        );
+    }
+
+    #[test]
+    fn ready_to_merge_capabilities_keep_target_merge_before_ship() {
+        use WorkflowAction::*;
+
+        let actions = capabilities(&context(CardStatus::Approved))
+            .into_iter()
+            .map(|capability| capability.action)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actions,
+            vec![RequestChanges, MergeTarget, Ship, MergeLocal, Close]
+        );
     }
 
     #[test]

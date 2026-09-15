@@ -13,9 +13,9 @@ const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_pat
 
 describe('workflow action presentation', () => {
   it('preserves backend ordering and availability reasons', () => {
-    const actions = deriveCardWorkflowActions({ card: card('needs_human', [capability('request_changes'), capability('ship', false, 'Environment missing'), capability('merge_target'), capability('close')]), project });
-    expect(actions.map(({ kind }) => kind)).toEqual(['request_changes', 'ship', 'merge_target', 'close']);
-    expect(actions[1]).toMatchObject({ label: 'Ship It', disabledReason: 'Environment missing', primary: true });
+    const actions = deriveCardWorkflowActions({ card: card('needs_human', [capability('request_changes'), capability('merge_target'), capability('ship', false, 'Environment missing'), capability('ship_with_fe'), capability('close')]), project });
+    expect(actions.map(({ kind }) => kind)).toEqual(['request_changes', 'merge_target', 'ship', 'ship_with_fe', 'close']);
+    expect(actions[2]).toMatchObject({ label: 'Ship It', disabledReason: 'Environment missing', primary: true });
   });
 
   it('adds presentation-only confirmation and appearance', () => {
