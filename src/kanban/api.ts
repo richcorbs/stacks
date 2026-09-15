@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, KanbanSyncCard, KanbanWorkflowAction, PiLifecycleIntent } from './types';
+import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
@@ -32,8 +32,8 @@ export function deleteKanbanCard(id: string) {
   return invoke<BoardChange>('kanban_delete_card', { id });
 }
 
-export function syncKanbanCards(cards: KanbanSyncCard[]) {
-  return invoke<BoardSnapshot>('kanban_sync_superthread_cards', { cards });
+export function syncKanbanCards(ownerProjectId: string, snapshot: SuperthreadSnapshot) {
+  return invoke<BoardSnapshot>('kanban_sync_superthread_cards', { ownerProjectId, snapshot });
 }
 
 export function applyKanbanWorkflowAction(id: string, action: Extract<KanbanWorkflowAction, 'return_to_refinement' | 'request_changes' | 'stop_refinement'>, expectedRevision: number) {

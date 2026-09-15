@@ -3,8 +3,6 @@ import type { KanbanCard } from '../kanban/types';
 import { KanbanBoardView } from './kanban/KanbanBoardView';
 
 export type KanbanBoardProps = {
-  spaces: string;
-  workspaceSlug: string;
   superthreadEnabled: boolean;
   projects: Project[];
   projectsHydrated: boolean;

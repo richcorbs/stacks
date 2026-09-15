@@ -146,7 +146,7 @@ export type BoardChange = { upserts: KanbanCard[]; removed_ids: string[]; board_
 export type KanbanSyncCard = {
   id: string;
   title: string;
-  content: string;
+  content: string | null;
   board_id: string;
   board_title: string;
   list_id: string;
@@ -156,15 +156,24 @@ export type KanbanSyncCard = {
   task_parent_id?: string | null;
   task_parent_title?: string | null;
   total_task_children?: number;
-  in_scope: boolean;
+  /** null means scope could not be classified during a partial provider read. */
+  in_scope: boolean | null;
 };
 
-export type CardProviderKind = 'local' | 'superthread';
+export type SuperthreadSnapshot = {
+  cards: KanbanSyncCard[];
+  successful_scope_ids: string[];
+  successful_board_ids: string[];
+  failed_scopes: Array<{ scope: string; message: string }>;
+  warnings: string[];
+  complete: boolean;
+};
 
-/** Provider-owned fields are snapshots; Stacks owns workflow status and environments. */
-export interface CardProviderAdapter {
-  readonly kind: CardProviderKind;
-  sync(refresh?: boolean): Promise<{ cards: KanbanSyncCard[]; warnings: string[] }>;
-  create?(title: string, content: string): Promise<KanbanSyncCard>;
-  load?(card: KanbanCard): Promise<KanbanSyncCard | null>;
+/** Explicit singleton source. Provider fields are snapshots; Stacks owns workflow and environments. */
+export interface SuperthreadIntegration {
+  readonly kind: 'superthread';
+  readonly ownerProjectId: string;
+  sync(refresh?: boolean): Promise<SuperthreadSnapshot>;
+  create(title: string, content: string): Promise<KanbanSyncCard>;
+  load(card: KanbanCard): Promise<KanbanSyncCard | null>;
 }

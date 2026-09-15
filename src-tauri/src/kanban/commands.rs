@@ -296,7 +296,8 @@ pub async fn kanban_merge_pull_request(
 
 #[tauri::command]
 pub fn kanban_sync_superthread_cards(
-    cards: Vec<KanbanCardSnapshot>,
+    owner_project_id: String,
+    snapshot: SuperthreadSyncSnapshot,
 ) -> Result<BoardSnapshot, String> {
-    kanban_sync_superthread_cards_operation(cards)
+    kanban_sync_superthread_cards_operation(owner_project_id, snapshot)
 }

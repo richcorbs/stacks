@@ -22,7 +22,7 @@ export function cardCreationProjects(projects: Project[], superthreadEnabled: bo
   const superthread = uniqueSuperthreadProject(projects).project;
   return projects.filter((project) => (
     (project.kanban_source ?? 'local') === 'local'
-    || (superthreadEnabled && project.id === superthread?.id)
+    || (superthreadEnabled && project.id === superthread?.id && Boolean(superthread.superthread_spaces?.trim()))
   ));
 }
 
@@ -33,12 +33,15 @@ export function preselectedCardProject(projects: Project[], selectedProject: Pro
 export function cardCreationAvailability(projects: Project[], selectedProject: Project | null, superthreadEnabled: boolean) {
   const destinations = cardCreationProjects(projects, superthreadEnabled);
   const selectedSuperthreadDisabled = selectedProject?.kanban_source === 'superthread' && !superthreadEnabled;
+  const selectedSuperthreadUnconfigured = selectedProject?.kanban_source === 'superthread' && !selectedProject.superthread_spaces?.trim();
   return {
     destinations,
-    disabled: selectedSuperthreadDisabled || destinations.length === 0,
+    disabled: selectedSuperthreadDisabled || selectedSuperthreadUnconfigured || destinations.length === 0,
     title: selectedSuperthreadDisabled
       ? 'Enable the Superthread integration to add cards to this project'
-      : destinations.length === 0 ? 'Add a local-board project or enable a configured Superthread project' : undefined,
+      : selectedSuperthreadUnconfigured
+        ? `Configure Superthread spaces on ${selectedProject.name} before adding cards`
+        : destinations.length === 0 ? 'Add a local-board project or enable a configured Superthread project' : undefined,
   };
 }
 
@@ -53,17 +56,19 @@ export function uniqueSuperthreadProject(projects: Project[]): { project: Projec
   };
 }
 
-export function canManuallySyncSuperthread(
+export function superthreadSyncAvailability(
   superthreadEnabled: boolean,
-  superthreadProject: Project | null,
+  ownerResolution: ReturnType<typeof uniqueSuperthreadProject>,
   projectFilterId: string | null,
-): boolean {
-  return Boolean(
-    superthreadEnabled
-    && superthreadProject
-    && (!projectFilterId || projectFilterId === superthreadProject.id),
-  );
+): { visible: boolean; disabled: boolean; title?: string } {
+  if (!superthreadEnabled) return { visible: false, disabled: true };
+  const owner = ownerResolution.project;
+  const visible = !projectFilterId || !owner || projectFilterId === owner.id;
+  if (!owner) return { visible, disabled: true, title: ownerResolution.error ?? 'Choose a Superthread owning project.' };
+  if (!owner.superthread_spaces?.trim()) return { visible, disabled: true, title: `Configure Superthread spaces on ${owner.name} before syncing.` };
+  return { visible, disabled: false };
 }
+
 
 /**
  * Reorders visible cards by replacing only their slots in the complete global lane.

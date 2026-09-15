@@ -19,9 +19,46 @@ fn count_traced_reads(sql: &str) {
 fn test_project(connection: &Connection, id: &str, source: &str, path: &str) {
     crate::store::migrate_store_schema(connection).unwrap();
     connection.execute(
-            "INSERT OR REPLACE INTO projects (id, name, path, kanban_source, sort_order) VALUES (?1, ?1, ?2, ?3, 0)",
-            params![id, path, source],
-        ).unwrap();
+        "INSERT OR REPLACE INTO projects (id, name, path, kanban_source, superthread_spaces, sort_order) VALUES (?1, ?1, ?2, ?3, ?4, 0)",
+        params![id, path, source, (source == "superthread").then_some("Product")],
+    ).unwrap();
+}
+
+fn test_superthread_snapshot(
+    cards: Vec<KanbanCardSnapshot>,
+    complete: bool,
+) -> SuperthreadSyncSnapshot {
+    SuperthreadSyncSnapshot {
+        cards,
+        successful_scope_ids: vec!["space".into()],
+        successful_board_ids: vec!["board".into()],
+        failed_scopes: Vec::new(),
+        complete,
+    }
+}
+
+fn superthread_card(
+    id: &str,
+    content: Option<&str>,
+    board: &str,
+    list: &str,
+    in_scope: bool,
+) -> KanbanCardSnapshot {
+    KanbanCardSnapshot {
+        id: id.into(),
+        title: format!("Card {id}"),
+        content: content.map(str::to_string),
+        board_id: board.into(),
+        board_title: board.into(),
+        list_id: list.into(),
+        list_title: list.into(),
+        card_url: String::new(),
+        assignee_names: Vec::new(),
+        task_parent_id: None,
+        task_parent_title: None,
+        total_task_children: 0,
+        in_scope: Some(in_scope),
+    }
 }
 
 fn local_card(connection: &mut Connection) -> KanbanCard {
@@ -1062,7 +1099,7 @@ fn sync_preserves_local_workflow_state() {
     let snapshot = || KanbanCardSnapshot {
         id: "42".into(),
         title: "First title".into(),
-        content: String::new(),
+        content: Some(String::new()),
         board_id: "b1".into(),
         board_title: "Roadmap".into(),
         list_id: "doing".into(),
@@ -1072,9 +1109,14 @@ fn sync_preserves_local_workflow_state() {
         task_parent_id: None,
         task_parent_title: None,
         total_task_children: 0,
-        in_scope: true,
+        in_scope: Some(true),
     };
-    sync_cards(&mut connection, vec![snapshot()]).unwrap();
+    sync_cards(
+        &mut connection,
+        "superthread-project",
+        test_superthread_snapshot(vec![snapshot()], false),
+    )
+    .unwrap();
     connection
         .execute(
             "UPDATE kanban_cards SET status = 'approved' WHERE id = 'superthread:42'",
@@ -1083,10 +1125,171 @@ fn sync_preserves_local_workflow_state() {
         .unwrap();
     let mut changed = snapshot();
     changed.title = "Updated upstream".into();
-    let cards = sync_cards(&mut connection, vec![changed]).unwrap();
+    let cards = sync_cards(
+        &mut connection,
+        "superthread-project",
+        test_superthread_snapshot(vec![changed], false),
+    )
+    .unwrap();
     assert_eq!(cards[0].status, "approved");
     assert_eq!(cards[0].title, "Updated upstream");
     assert_eq!(cards[0].project_id.as_deref(), Some("superthread-project"));
+}
+
+#[test]
+fn superthread_snapshots_reconcile_only_when_complete_and_restore_retained_rows() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "owner", "superthread", "/tmp/owner");
+
+    sync_cards(
+        &mut connection,
+        "owner",
+        test_superthread_snapshot(
+            vec![
+                superthread_card("1", Some("Saved"), "old-board", "Doing", true),
+                superthread_card("2", Some("Deleted later"), "old-board", "Doing", true),
+            ],
+            true,
+        ),
+    )
+    .unwrap();
+    connection
+        .execute(
+            "UPDATE kanban_cards SET status='approved' WHERE external_id='1'",
+            [],
+        )
+        .unwrap();
+    connection.execute("INSERT INTO card_events(card_id, created_at, actor, event_type, outcome) VALUES ('superthread:1', 1, 'user', 'test', 'success')", []).unwrap();
+
+    // Partial absence preserves prior rows, while a fetched moved/unmanaged card is authoritative.
+    sync_cards(
+        &mut connection,
+        "owner",
+        test_superthread_snapshot(
+            vec![superthread_card("1", None, "new-board", "Done", false)],
+            false,
+        ),
+    )
+    .unwrap();
+    let row: (String, String, i64, String, i64) = connection.query_row(
+        "SELECT content, board_id, in_scope, status, (SELECT COUNT(*) FROM card_events WHERE card_id=c.id) FROM kanban_cards c WHERE external_id='1'",
+        [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+    ).unwrap();
+    assert_eq!(
+        row,
+        ("Saved".into(), "new-board".into(), 0, "approved".into(), 1)
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT in_scope FROM kanban_cards WHERE external_id='2'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+
+    // Empty strings clear descriptions and reappearance restores the same row without duplication.
+    sync_cards(
+        &mut connection,
+        "owner",
+        test_superthread_snapshot(
+            vec![superthread_card("1", Some(""), "new-board", "Doing", true)],
+            true,
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT content FROM kanban_cards WHERE external_id='1'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        ""
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT in_scope FROM kanban_cards WHERE external_id='2'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(connection.query_row("SELECT COUNT(*) FROM kanban_cards WHERE external_provider='superthread' AND external_id='1'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+
+    sync_cards(
+        &mut connection,
+        "owner",
+        test_superthread_snapshot(Vec::new(), false),
+    )
+    .unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT in_scope FROM kanban_cards WHERE external_id='1'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    sync_cards(
+        &mut connection,
+        "owner",
+        test_superthread_snapshot(Vec::new(), true),
+    )
+    .unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT SUM(in_scope) FROM kanban_cards WHERE external_provider='superthread'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn superthread_sync_rejects_a_mismatched_explicit_owner() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "owner", "superthread", "/tmp/owner");
+    test_project(&connection, "local", "local", "/tmp/local");
+    assert!(sync_cards(
+        &mut connection,
+        "missing",
+        test_superthread_snapshot(Vec::new(), true)
+    )
+    .unwrap_err()
+    .contains("not found"));
+    assert!(sync_cards(
+        &mut connection,
+        "local",
+        test_superthread_snapshot(Vec::new(), true)
+    )
+    .unwrap_err()
+    .contains("not the configured"));
+    connection
+        .execute(
+            "UPDATE projects SET superthread_spaces=NULL WHERE id='owner'",
+            [],
+        )
+        .unwrap();
+    assert!(sync_cards(
+        &mut connection,
+        "owner",
+        test_superthread_snapshot(Vec::new(), true)
+    )
+    .unwrap_err()
+    .contains("Configure Superthread spaces"));
 }
 
 #[test]
@@ -1103,7 +1306,7 @@ fn superthread_sync_persists_parent_references_and_provider_counts() {
         |id: &str, title: &str, parent: Option<(&str, &str)>, count| KanbanCardSnapshot {
             id: id.into(),
             title: title.into(),
-            content: String::new(),
+            content: Some(String::new()),
             board_id: "b".into(),
             board_title: "Board".into(),
             list_id: "l".into(),
@@ -1113,14 +1316,18 @@ fn superthread_sync_persists_parent_references_and_provider_counts() {
             task_parent_id: parent.map(|value| value.0.into()),
             task_parent_title: parent.map(|value| value.1.into()),
             total_task_children: count,
-            in_scope: true,
+            in_scope: Some(true),
         };
     let cards = sync_cards(
         &mut connection,
-        vec![
-            snapshot("10", "Parent", None, 1),
-            snapshot("11", "Child", Some(("10", "Parent")), 0),
-        ],
+        "superthread-project",
+        test_superthread_snapshot(
+            vec![
+                snapshot("10", "Parent", None, 1),
+                snapshot("11", "Child", Some(("10", "Parent")), 0),
+            ],
+            false,
+        ),
     )
     .unwrap();
     let parent = cards.iter().find(|card| card.external_id == "10").unwrap();
@@ -1147,117 +1354,74 @@ fn finishing_refinement_records_each_actual_in_progress_source() {
             )
             .unwrap();
 
-        let updated =
-            finish_local_refinement(&mut connection, "local:test", None, "Approved brief", None)
-                .unwrap();
+        let updated = finish_local_refinement(
+            &mut connection,
+            "local:test",
+            None,
+            "Approved brief",
+            None,
+        )
+        .unwrap();
         assert_eq!(updated.status, "ready");
         let recorded: String = connection.query_row(
-                "SELECT from_status FROM card_events WHERE card_id='local:test' ORDER BY id DESC LIMIT 1",
-                [],
-                |row| row.get(0),
-            ).unwrap();
+            "SELECT from_status FROM card_events WHERE card_id='local:test' ORDER BY id DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        ).unwrap();
         assert_eq!(recorded, source);
     }
 }
 
 #[test]
-fn reconciles_local_and_superthread_ownership_deterministically() {
+fn blocks_project_deletion_while_cards_are_active() {
     let connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
     test_project(&connection, "local-owner", "local", "/tmp/local");
-    test_project(&connection, "remote-owner", "superthread", "/tmp/remote");
     connection.execute(
-            "INSERT INTO kanban_cards (id, external_provider, external_id, title, project_id, created_at, updated_at) VALUES
-             ('local:legacy', 'local:local-owner', '1', 'Local', NULL, 1, 1),
-             ('superthread:legacy', 'superthread', '2', 'Remote', 'local-owner', 1, 1)", [],
-        ).unwrap();
-
-    reconcile_card_ownership(&connection).unwrap();
-
-    assert_eq!(
-        get_card(&connection, "local:legacy")
-            .unwrap()
-            .unwrap()
-            .project_id
-            .as_deref(),
-        Some("local-owner")
-    );
-    assert_eq!(
-        get_card(&connection, "superthread:legacy")
-            .unwrap()
-            .unwrap()
-            .project_id
-            .as_deref(),
-        Some("remote-owner")
-    );
+        "INSERT INTO kanban_cards (id, external_provider, external_id, title, status, project_id, created_at, updated_at) VALUES ('local:active', 'local:local-owner', '1', 'Active', 'ready', 'local-owner', 1, 1)", [],
+    ).unwrap();
+    assert!(validate_project_deletion(&connection, "local-owner").unwrap_err().contains("active card"));
+    connection.execute(
+        "UPDATE kanban_cards SET status='done', completion_outcome='merged' WHERE id='local:active'", [],
+    ).unwrap();
+    assert_eq!(validate_project_deletion(&connection, "local-owner").unwrap(), vec!["local:active"]);
 }
 
 #[test]
-fn rejects_ambiguous_superthread_ownership_and_blocked_project_deletion() {
-    let connection = Connection::open_in_memory().unwrap();
-    migrate(&connection).unwrap();
-    test_project(&connection, "remote-one", "superthread", "/tmp/one");
-    test_project(&connection, "remote-two", "superthread", "/tmp/two");
-    connection.execute(
-            "INSERT INTO kanban_cards (id, external_provider, external_id, title, project_id, created_at, updated_at) VALUES ('superthread:legacy', 'superthread', '1', 'Remote', NULL, 1, 1)", [],
-        ).unwrap();
-    assert!(reconcile_card_ownership(&connection)
-        .unwrap_err()
-        .contains("ambiguous"));
-
-    test_project(&connection, "local-owner", "local", "/tmp/local");
-    connection.execute(
-            "INSERT INTO kanban_cards (id, external_provider, external_id, title, status, project_id, created_at, updated_at) VALUES ('local:active', 'local:local-owner', '1', 'Active', 'ready', 'local-owner', 1, 1)", [],
-        ).unwrap();
-    assert!(validate_project_deletion(&connection, "local-owner")
-        .unwrap_err()
-        .contains("active card"));
-    connection
-            .execute(
-                "UPDATE kanban_cards SET status='done', completion_outcome='merged' WHERE id='local:active'",
-                [],
-            )
-            .unwrap();
-    assert_eq!(
-        validate_project_deletion(&connection, "local-owner").unwrap(),
-        vec!["local:active"]
-    );
-}
-
-#[test]
-fn does_not_reimport_cleaned_cards() {
+fn imports_cards_without_disconnected_cleaned_tombstones() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
+    assert_eq!(connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='kanban_cleaned_cards'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
     test_project(
         &connection,
         "superthread-project",
         "superthread",
         "/tmp/superthread",
     );
-    connection.execute(
-            "INSERT INTO kanban_cleaned_cards (external_provider, external_id, cleaned_at) VALUES ('superthread', '42', 1)",
-            [],
-        ).unwrap();
     let cards = sync_cards(
         &mut connection,
-        vec![KanbanCardSnapshot {
-            id: "42".into(),
-            title: "Already cleaned".into(),
-            content: String::new(),
-            board_id: "b1".into(),
-            board_title: "Roadmap".into(),
-            list_id: "doing".into(),
-            list_title: "Doing".into(),
-            card_url: String::new(),
-            assignee_names: Vec::new(),
-            task_parent_id: None,
-            task_parent_title: None,
-            total_task_children: 0,
-            in_scope: true,
-        }],
+        "superthread-project",
+        test_superthread_snapshot(
+            vec![KanbanCardSnapshot {
+                id: "42".into(),
+                title: "Already cleaned".into(),
+                content: Some(String::new()),
+                board_id: "b1".into(),
+                board_title: "Roadmap".into(),
+                list_id: "doing".into(),
+                list_title: "Doing".into(),
+                card_url: String::new(),
+                assignee_names: Vec::new(),
+                task_parent_id: None,
+                task_parent_title: None,
+                total_task_children: 0,
+                in_scope: Some(true),
+            }],
+            false,
+        ),
     )
     .unwrap();
-    assert!(cards.is_empty());
+    assert_eq!(cards.len(), 1);
 }
 
 #[test]

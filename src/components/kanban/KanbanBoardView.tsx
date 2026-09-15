@@ -4,8 +4,8 @@ import { useKanbanBoard } from '../../kanban/useKanbanBoard';
 import { canonicalCardById } from '../../kanban/boardStore';
 import type { KanbanCard, KanbanStatus } from '../../kanban/types';
 import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
-import { superthreadCardProvider } from '../../superthread/cardProvider';
-import { canManuallySyncSuperthread, cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../../kanban/projectScope';
+import { superthreadIntegration } from '../../superthread/cardProvider';
+import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, superthreadSyncAvailability, uniqueSuperthreadProject } from '../../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../../projectSwitcher';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
@@ -21,16 +21,20 @@ import { KanbanLanes } from './KanbanLanes';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { startLaunchCardRecovery } from '../../kanban/launchRecovery';
 
-export function KanbanBoardView({ spaces, workspaceSlug, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: KanbanBoardProps) {
+export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: KanbanBoardProps) {
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
   const superthreadOwner = uniqueSuperthreadProject(projects);
-  const provider = useMemo(
-    () => superthreadEnabled && superthreadOwner.project ? superthreadCardProvider(spaces, workspaceSlug) : null,
-    [spaces, superthreadEnabled, superthreadOwner.project?.id, workspaceSlug],
-  );
+  const provider = useMemo(() => {
+    const owner = superthreadOwner.project;
+    return superthreadEnabled && owner?.superthread_spaces?.trim() ? superthreadIntegration({
+      ownerProjectId: owner.id,
+      spaces: owner.superthread_spaces,
+      workspaceSlug: owner.superthread_workspace_slug,
+    }) : null;
+  }, [superthreadEnabled, superthreadOwner.project]);
   const board = useKanbanBoard(provider);
-  const showSuperthreadSync = canManuallySyncSuperthread(superthreadEnabled, superthreadOwner.project, filterProjectId);
+  const syncAvailability = superthreadSyncAvailability(superthreadEnabled, superthreadOwner, filterProjectId);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct'>('filter');
   const visibleCards = useMemo(() => filterKanbanCards(board.cards, filterProjectId), [board.cards, filterProjectId]);
@@ -184,7 +188,7 @@ export function KanbanBoardView({ spaces, workspaceSlug, superthreadEnabled, pro
               setProjectSwitcherOpen(true);
             }
           }}>Direct project work</button>
-          {showSuperthreadSync && <button type="button" disabled={board.syncing} onClick={() => board.sync(true)}>
+          {syncAvailability.visible && <button type="button" title={syncAvailability.title} disabled={board.syncing || syncAvailability.disabled} onClick={() => board.sync(true)}>
             <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
           </button>}
         </div>

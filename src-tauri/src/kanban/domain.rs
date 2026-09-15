@@ -12,7 +12,7 @@ pub struct KanbanCardSnapshot {
     pub id: String,
     pub title: String,
     #[serde(default)]
-    pub content: String,
+    pub content: Option<String>,
     #[serde(default)]
     pub board_id: String,
     #[serde(default)]
@@ -31,12 +31,27 @@ pub struct KanbanCardSnapshot {
     pub task_parent_title: Option<String>,
     #[serde(default)]
     pub total_task_children: u64,
-    #[serde(default = "default_true")]
-    pub in_scope: bool,
+    #[serde(default)]
+    pub in_scope: Option<bool>,
 }
 
-pub(in crate::kanban) fn default_true() -> bool {
-    true
+#[derive(Debug, Clone, Deserialize)]
+pub struct SuperthreadSyncSnapshot {
+    #[serde(default)]
+    pub cards: Vec<KanbanCardSnapshot>,
+    #[serde(default)]
+    pub successful_scope_ids: Vec<String>,
+    #[serde(default)]
+    pub successful_board_ids: Vec<String>,
+    #[serde(default)]
+    pub failed_scopes: Vec<SuperthreadSyncFailure>,
+    pub complete: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SuperthreadSyncFailure {
+    pub scope: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

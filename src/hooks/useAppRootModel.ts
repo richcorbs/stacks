@@ -68,7 +68,7 @@ export function useAppRootModel() {
     setDialog({ kind: 'project', name: selected.split('/').filter(Boolean).at(-1) ?? 'Project', path: selected, kanbanSource: 'local', deliveryWorkflow: 'local_merge', targetBranch: 'main', supportsFeatureEnvironments: false, githubMergeStrategy: 'merge', requirePassingCi: true, requireApproval: false });
   }
   function editProject(project: Project) {
-    setDialog({ kind: 'editProject', projectId: project.id, name: project.name, path: project.path, kanbanSource: project.kanban_source, startWorkCommand: project.start_work_command, serverCommand: project.server_command, consoleCommand: project.console_command, deliveryWorkflow: project.delivery_workflow, targetBranch: project.target_branch, supportsFeatureEnvironments: project.supports_feature_environments, githubMergeStrategy: project.github_merge_strategy, requirePassingCi: project.require_passing_ci, requireApproval: project.require_approval });
+    setDialog({ kind: 'editProject', projectId: project.id, name: project.name, path: project.path, kanbanSource: project.kanban_source, startWorkCommand: project.start_work_command, superthreadSpaces: project.superthread_spaces, superthreadWorkspaceSlug: project.superthread_workspace_slug, serverCommand: project.server_command, consoleCommand: project.console_command, deliveryWorkflow: project.delivery_workflow, targetBranch: project.target_branch, supportsFeatureEnvironments: project.supports_feature_environments, githubMergeStrategy: project.github_merge_strategy, requirePassingCi: project.require_passing_ci, requireApproval: project.require_approval });
   }
   async function submitDialog() {
     if (!dialog) return;
@@ -77,10 +77,15 @@ export function useAppRootModel() {
     const duplicate = store.projects.find((project) => project.path === path && (dialog.kind === 'project' || project.id !== dialog.projectId));
     if (duplicate) throw new Error('That project directory is already added');
     const id = dialog.kind === 'project' ? crypto.randomUUID() : dialog.projectId;
-    const existing = store.projects.find((project) => project.id === id);
+    const existingOwner = store.projects.find((project) => project.kanban_source === 'superthread' && project.id !== id);
+    if (dialog.kanbanSource === 'superthread' && existingOwner) throw new Error(`Superthread is already owned by ${existingOwner.name}. Change that project to a local board first.`);
+    if (dialog.kanbanSource === 'superthread' && !dialog.superthreadSpaces?.trim()) throw new Error('Superthread spaces are required');
     const project: Project = {
       id, name, path, workspaces: [], kanban_source: dialog.kanbanSource ?? 'local',
-      start_work_command: dialog.startWorkCommand?.trim() || undefined, server_command: dialog.serverCommand?.trim() || undefined,
+      start_work_command: dialog.startWorkCommand?.trim() || undefined,
+      superthread_spaces: dialog.kanbanSource === 'superthread' ? dialog.superthreadSpaces?.trim() : undefined,
+      superthread_workspace_slug: dialog.kanbanSource === 'superthread' ? dialog.superthreadWorkspaceSlug?.trim() || undefined : undefined,
+      server_command: dialog.serverCommand?.trim() || undefined,
       console_command: dialog.consoleCommand?.trim() || undefined, delivery_workflow: dialog.deliveryWorkflow ?? 'local_merge',
       target_branch: dialog.targetBranch?.trim() || 'main', supports_feature_environments: dialog.supportsFeatureEnvironments ?? false,
       github_merge_strategy: dialog.githubMergeStrategy ?? 'merge', require_passing_ci: dialog.requirePassingCi ?? true,
@@ -114,7 +119,7 @@ export function useAppRootModel() {
         return true;
       }
       if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
-      const input = card.provider === 'local' ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title) : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, project.start_work_command || appSettings.superthread_start_work_command);
+      const input = card.provider === 'local' ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title) : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, project.start_work_command || '');
       const setup = input.setupCommand?.trim();
       if (!setup) throw new Error('Start-work setup command is empty');
       const updated = await startKanbanEnvironment(

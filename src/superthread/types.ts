@@ -9,7 +9,7 @@ export type SuperthreadList = {
 export type SuperthreadCard = {
   id: string;
   title: string;
-  content: string;
+  content: string | null;
   list_id: string;
   list_title: string;
   board_id: string;
@@ -35,7 +35,9 @@ export type IntegrationWarning = {
 
 export type SuperthreadBoardsResponse = {
   boards: Array<Pick<SuperthreadBoard, 'id' | 'title'>>;
+  successful_space_ids: string[];
   warnings: IntegrationWarning[];
+  complete: boolean;
 };
 
 export type CreateSuperthreadCardRequest = {

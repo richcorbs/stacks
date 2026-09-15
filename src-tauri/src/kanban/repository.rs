@@ -56,6 +56,8 @@ pub(in crate::kanban) fn initialize_connection(
         .map_err(|error| format!("Could not initialize Direct-work schema: {error}"))?;
     crate::store::migrate_legacy_data(connection, import_legacy_json)
         .map_err(|error| format!("Could not initialize legacy project data: {error}"))?;
+    crate::settings::migrate_superthread_project_configuration(connection)
+        .map_err(|error| format!("Could not migrate Superthread project configuration: {error}"))?;
     connection
         .pragma_update(None, "foreign_keys", "ON")
         .map_err(|error| format!("Could not re-enable database foreign keys: {error}"))?;
@@ -275,12 +277,6 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             project_id TEXT PRIMARY KEY,
             next_number INTEGER NOT NULL
          );
-         CREATE TABLE IF NOT EXISTS kanban_cleaned_cards (
-            external_provider TEXT NOT NULL,
-            external_id TEXT NOT NULL,
-            cleaned_at INTEGER NOT NULL,
-            PRIMARY KEY(external_provider, external_id)
-         );
          CREATE TABLE IF NOT EXISTS card_environments (
             id TEXT PRIMARY KEY,
             card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
@@ -447,6 +443,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
          );
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, unixepoch());"
     ).map_err(db_error)?;
+    connection.execute_batch("DROP TABLE IF EXISTS kanban_cleaned_cards; INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (66, unixepoch());").map_err(db_error)?;
     migrate_done_status(connection)?;
     migrate_refinement_statuses(connection)?;
     let columns = connection

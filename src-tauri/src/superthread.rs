@@ -97,7 +97,7 @@ pub struct SuperthreadCard {
     pub id: String,
     pub title: String,
     #[serde(default)]
-    pub content: String,
+    pub content: Option<String>,
     pub list_id: String,
     #[serde(default)]
     pub list_title: String,
@@ -134,7 +134,9 @@ pub struct IntegrationWarning {
 #[derive(Debug, Serialize)]
 pub struct SuperthreadBoardsResponse {
     boards: Vec<SuperthreadBoard>,
+    successful_space_ids: Vec<String>,
     warnings: Vec<IntegrationWarning>,
+    complete: bool,
 }
 
 #[tauri::command]
@@ -221,6 +223,7 @@ impl SuperthreadService {
             })
             .collect::<Vec<_>>();
         let mut boards = Vec::new();
+        let mut successful_space_ids = Vec::new();
         let mut warnings = included_spaces
             .iter()
             .filter(|included| {
@@ -252,7 +255,8 @@ impl SuperthreadService {
 
             for handle in handles {
                 match handle.join() {
-                    Ok((_space, Ok(space_boards))) => {
+                    Ok((space, Ok(space_boards))) => {
+                        successful_space_ids.push(space.id);
                         boards.extend(space_boards.into_iter().map(|board| SuperthreadBoard {
                             id: board.id,
                             title: board.title,
@@ -270,7 +274,13 @@ impl SuperthreadService {
             }
         }
 
-        Ok(SuperthreadBoardsResponse { boards, warnings })
+        let complete = warnings.is_empty();
+        Ok(SuperthreadBoardsResponse {
+            boards,
+            successful_space_ids,
+            warnings,
+            complete,
+        })
     }
 
     fn board_lists(&self, board_id: &str) -> Result<Vec<SuperthreadList>, String> {
@@ -361,7 +371,7 @@ impl SuperthreadService {
         }
         let mut card: SuperthreadCard = run_st_json(&cli, &args)?;
         card.title = title.to_string();
-        card.content = content.to_string();
+        card.content = Some(content.to_string());
         card.board_id = board.id;
         card.board_title = board.title;
         card.list_id = list.id;
@@ -706,6 +716,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(card.id, "2067");
+        assert_eq!(card.content, None);
         assert_eq!(card.total_comments, 0);
         assert_eq!(card.assignees[0].user_id, "u1");
         assert_eq!(
@@ -795,7 +806,7 @@ esac
             .unwrap();
 
         assert_eq!(card.title, "Ship card");
-        assert_eq!(card.content, "Detailed brief");
+        assert_eq!(card.content.as_deref(), Some("Detailed brief"));
         assert_eq!(card.board_id, "b1");
         assert_eq!(card.board_title, " dev - active ");
         assert_eq!(card.list_id, "l1");
