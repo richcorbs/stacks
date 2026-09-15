@@ -132,7 +132,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanProjectBadge { display: inline-flex; padding: 3px 8px; border: 1px solid #36506a; border-radius: 999px; background: #172838; color: #9fc2df; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-transform: none; letter-spacing: normal; }
 .kanbanProjectBadge.invalid { border-color: #75424b; background: #351f25; color: #f1a8b0; }
 .kanbanHierarchyBadge { display: inline-block; max-width: 130px; padding: 3px 8px; overflow: hidden; border: 1px solid #384858; border-radius: 999px; background: #18222d; color: #91a4b6; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-transform: none; text-overflow: ellipsis; letter-spacing: normal; white-space: nowrap; }
-.kanbanHierarchyBadge.children { flex: none; color: #ad9ec7; border-color: #514267; background: #241d30; }
+.kanbanHierarchyBadge.children { display: inline-flex; align-items: center; gap: .3em; flex: none; color: #ad9ec7; border-color: #514267; background: #241d30; }
+.kanbanHierarchyBadge.children svg { width: 1.15em; height: 1.15em; flex: none; stroke: currentColor; }
 .kanbanCardNumber { color: #a9bfd3; font-size: calc(12px + var(--ui-font-delta, 0px)); font-weight: 700; }
 .kanbanCard > strong { font-size: calc(12px + var(--ui-font-delta, 0px)); line-height: 1.35; font-weight: 580; }
 .kanbanCardMeta { display: flex; align-items: center; justify-content: space-between; gap: 7px; color: #73869a; font-size: calc(9px + var(--ui-font-delta, 0px)); }
