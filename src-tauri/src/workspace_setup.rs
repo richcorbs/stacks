@@ -1,12 +1,12 @@
 use serde::Serialize;
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     env,
     io::Read,
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
@@ -20,36 +20,56 @@ const MAX_SETUP_OUTPUT_BYTES: usize = 256 * 1024;
 
 #[derive(Default)]
 pub struct WorkspaceSetupState {
-    cancelled: Arc<AtomicBool>,
+    operations: Mutex<HashMap<String, Arc<AtomicBool>>>,
+}
+
+impl WorkspaceSetupState {
+    pub(crate) fn begin(&self, operation_id: &str) -> Arc<AtomicBool> {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        self.operations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(operation_id.to_string(), Arc::clone(&cancelled));
+        cancelled
+    }
+
+    pub(crate) fn finish(&self, operation_id: &str, cancelled: &Arc<AtomicBool>) {
+        let mut operations = self
+            .operations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if operations
+            .get(operation_id)
+            .is_some_and(|current| Arc::ptr_eq(current, cancelled))
+        {
+            operations.remove(operation_id);
+        }
+    }
+
+    fn cancel(&self, operation_id: &str) {
+        if let Some(cancelled) = self
+            .operations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(operation_id)
+        {
+            cancelled.store(true, Ordering::Release);
+        }
+    }
 }
 
 #[derive(Serialize)]
 pub struct WorkspaceSetupResult {
-    cwd: String,
-    output: String,
+    pub(crate) cwd: String,
+    pub(crate) output: String,
 }
 
 #[tauri::command]
-pub async fn run_workspace_setup(
-    state: State<'_, WorkspaceSetupState>,
-    command: String,
-    cwd: String,
-) -> Result<WorkspaceSetupResult, String> {
-    state.cancelled.store(false, Ordering::Release);
-    let cancelled = Arc::clone(&state.cancelled);
-    tauri::async_runtime::spawn_blocking(move || {
-        run_workspace_setup_inner(command, cwd, &cancelled)
-    })
-    .await
-    .map_err(|error| format!("Workspace setup worker failed: {error}"))?
+pub fn cancel_workspace_setup(state: State<'_, WorkspaceSetupState>, card_id: String) {
+    state.cancel(&format!("environment:{card_id}"));
 }
 
-#[tauri::command]
-pub fn cancel_workspace_setup(state: State<'_, WorkspaceSetupState>) {
-    state.cancelled.store(true, Ordering::Release);
-}
-
-fn run_workspace_setup_inner(
+pub(crate) fn run_workspace_setup_inner(
     command: String,
     cwd: String,
     cancelled: &AtomicBool,
@@ -195,14 +215,28 @@ fn read_stream(mut stream: impl Read) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_stream, run_workspace_setup_inner, MAX_SETUP_OUTPUT_BYTES};
-    use std::sync::atomic::AtomicBool;
+    use super::{
+        read_stream, run_workspace_setup_inner, WorkspaceSetupState, MAX_SETUP_OUTPUT_BYTES,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
     fn bounds_setup_output_to_a_tail_buffer() {
         let output = read_stream(vec![b'x'; MAX_SETUP_OUTPUT_BYTES + 100].as_slice());
         assert!(output.starts_with("[earlier setup output truncated]"));
         assert!(output.len() <= MAX_SETUP_OUTPUT_BYTES + 40);
+    }
+
+    #[test]
+    fn cancellation_is_scoped_to_one_operation() {
+        let state = WorkspaceSetupState::default();
+        let first = state.begin("card:first");
+        let second = state.begin("card:second");
+        state.cancel("card:first");
+        assert!(first.load(Ordering::Acquire));
+        assert!(!second.load(Ordering::Acquire));
+        state.finish("card:first", &first);
+        state.finish("card:second", &second);
     }
 
     #[test]

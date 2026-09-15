@@ -18,8 +18,7 @@ import { selectedKanbanProject } from '../kanban/providerSelection';
 import { canOpenProjectSwitcher, OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { OPEN_DIRECT_WORK_EVENT } from '../directWork';
 import { CARD_TERMINAL_CONTEXT_EVENT, dispatchCardTerminalCommand, type CardTerminalContext } from '../cardTerminalCommands';
-import { createKanbanEnvironment, fetchKanbanCards, fetchKanbanEnvironmentHealth, preflightKanbanEnvironment } from '../kanban/api';
-import { startKanbanEnvironment } from '../kanban/startEnvironment';
+import { fetchKanbanCards, fetchKanbanEnvironmentHealth, startKanbanEnvironment } from '../kanban/api';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
@@ -118,7 +117,7 @@ export function useAppRootModel() {
       if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
       const input = card.provider === 'local' ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title) : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, project.start_work_command || appSettings.superthread_start_work_command);
       const setup = input.setupCommand?.trim();
-      await startKanbanEnvironment({ cardId, expectedWorkflowRevision: card.workflow_revision, runSetup: () => setup ? invoke('run_workspace_setup', { command: setup, cwd: project.path }) : Promise.resolve({ cwd: project.path, output: '' }), preflight: preflightKanbanEnvironment, createEnvironment: createKanbanEnvironment });
+      await startKanbanEnvironment(cardId, setup ?? '', card.workflow_revision);
       showToast(`Started work on #${card.external_id}`); return true;
     } catch (error) { showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`); return false; }
     finally { startingCardIds.current.delete(cardId); }

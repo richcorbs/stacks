@@ -17,6 +17,7 @@ mod project_direct;
 mod pty;
 mod pty_command;
 mod pty_cwd;
+mod repository_coordinator;
 mod settings;
 mod settings_model;
 mod store;
@@ -36,9 +37,9 @@ use kanban::{
     kanban_approve_and_commit, kanban_cards, kanban_cleanup_environment, kanban_close_card,
     kanban_create_environment, kanban_create_local_card, kanban_create_pull_request,
     kanban_delete_card, kanban_delete_project_records, kanban_environment_health,
-    kanban_environment_start_preflight, kanban_finish_local_refinement, kanban_merge_card,
-    kanban_merge_pull_request, kanban_open_card, kanban_refresh_pull_request, kanban_reorder_cards,
-    kanban_save_environment_layout, kanban_set_merge_target, kanban_set_project, kanban_set_status,
+    kanban_finish_local_refinement, kanban_merge_card, kanban_merge_pull_request, kanban_open_card,
+    kanban_refresh_pull_request, kanban_reorder_cards, kanban_save_environment_layout,
+    kanban_set_merge_target, kanban_set_project, kanban_set_status, kanban_start_environment,
     kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
 };
 use menu::app_menu;
@@ -61,7 +62,7 @@ use superthread::{
     superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
     superthread_create_card, SuperthreadService,
 };
-use workspace_setup::{cancel_workspace_setup, run_workspace_setup, WorkspaceSetupState};
+use workspace_setup::{cancel_workspace_setup, WorkspaceSetupState};
 
 #[tauri::command]
 fn new_id() -> String {
@@ -149,7 +150,7 @@ pub fn run() {
             kanban_reorder_cards,
             kanban_set_project,
             kanban_environment_health,
-            kanban_environment_start_preflight,
+            kanban_start_environment,
             kanban_cleanup_environment,
             kanban_close_card,
             kanban_create_environment,
@@ -168,7 +169,6 @@ pub fn run() {
             superthread_board_cards,
             superthread_card,
             superthread_create_card,
-            run_workspace_setup,
             cancel_workspace_setup,
         ])
         .setup(|app| {
