@@ -7,14 +7,15 @@ import { useKanbanBoard } from '../kanban/useKanbanBoard';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
-import { approveAndCommitKanbanCard, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, refreshKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
+import { approveAndCommitKanbanCard, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, refreshKanbanPullRequest, retryKanbanRuntimeCleanup, saveKanbanEnvironmentLayout } from '../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
-import { deletePersistentPiSession } from '../pi/sessionController';
+import { deletePiSessionController } from '../pi/sessionController';
+import { disposeAcceptedRuntimeOutcomes } from '../kanban/runtimeCleanup';
 import { environmentHealthTooltip, hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
 import { cardLocalComparisonTarget } from '../git/comparisonTarget';
 import { runApproveAndCommit } from '../kanban/approveAndCommit';
@@ -1182,14 +1183,15 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
         case 'open_pr': if (card.pull_request?.url) await invoke('open_url', { url: card.pull_request.url }); return;
         case 'merge_pr': onCardUpdated(preserveRevisionValues(await mergeKanbanPullRequest(card.id, card.workflow_revision))); return;
         case 'cleanup': await onCleanup(environmentRevisionRef.current); return;
+        case 'retry_runtime_cleanup': {
+          const result = await retryKanbanRuntimeCleanup(card.id);
+          disposeAcceptedRuntimeOutcomes(result.outcomes, deletePiSessionController, disposeTerminalSession);
+          onCardUpdated(preserveRevisionValues(result.card)); return;
+        }
         case 'close': {
-          const piPaneIds = new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [cardPaneId(card.id, 'planning'), cardPaneId(card.id, 'work')]);
-          await Promise.all([
-            ...Array.from(piPaneIds).map(deletePersistentPiSession),
-            ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => { disposeTerminalSession(pane.id); return invoke('kill_pty', { terminalId: pane.id, expectedCwd: card.environment?.worktree_path }); }) ?? []),
-            ...(['server', 'console'].map((service) => invoke('kill_pty', { terminalId: `kanban-card:${card.id}:terminal:${service}`, expectedCwd: card.environment?.worktree_path }))),
-          ]);
-          onCardUpdated(preserveRevisionValues(await closeKanbanCard(card.id, card.workflow_revision))); return;
+          const result = await closeKanbanCard(card.id, card.workflow_revision);
+          disposeAcceptedRuntimeOutcomes(result.outcomes, deletePiSessionController, disposeTerminalSession);
+          onCardUpdated(preserveRevisionValues(result.card)); return;
         }
         case 'delete': await onDelete(); return;
       }
@@ -1334,6 +1336,9 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
             </ul>
           </aside>}
           {!editing && card.delivery_error && <div className="kanbanActionError" role="alert">{card.delivery_error}</div>}
+          {!editing && ['pending', 'failed'].includes(card.runtime_cleanup_status ?? '') && <aside className="cardEnvironmentWarningPanel" role="alert">
+            <div><strong>Process cleanup needs attention</strong><span>{card.runtime_cleanup_error ?? 'Runtime cleanup is pending. Retry to stop card-owned processes and remove persisted conversations.'}</span></div>
+          </aside>}
           {!editing && card.events.length > 0 && <details className="cardHistory">
             <summary>History ({card.events.length})</summary>
             <ol>{card.events.map((event) => <li key={event.id}>

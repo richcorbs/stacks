@@ -2,7 +2,7 @@ import type { Project } from '../types';
 import type { KanbanCard } from './types';
 
 export type CardWorkflowActionKind = 'open_refinement' | 'write_plan_and_finish_refinement' | 'stop_refinement' | 'start_work' | 'return_to_refinement' |
-  'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'close' | 'delete';
+  'ship' | 'ship_with_fe' | 'request_changes' | 'merge_local' | 'create_pr' | 'open_pr' | 'merge_pr' | 'cleanup' | 'retry_runtime_cleanup' | 'close' | 'delete';
 
 export type CardWorkflowActionAppearance = 'regular' | 'neutral-ghost' | 'danger-ghost';
 
@@ -92,9 +92,12 @@ function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkfl
           { kind: 'merge_local', label: 'Merge locally', primary: true, confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } },
         ];
       }
-      case 'done': return environment ? [
-        { kind: 'cleanup', label: 'Clean up', destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
-      ] : [];
+      case 'done': return [
+        ...(['pending', 'failed'].includes(card.runtime_cleanup_status ?? '') ? [{ kind: 'retry_runtime_cleanup' as const, label: 'Retry process cleanup', appearance: 'regular' as const }] : []),
+        ...(environment ? [
+          { kind: 'cleanup' as const, label: 'Clean up', destructive: true, appearance: 'regular' as const, confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } },
+        ] : []),
+      ];
     }
   })();
   return card.status === 'done' ? actions : [...actions, close];

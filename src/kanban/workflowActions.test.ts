@@ -81,9 +81,14 @@ describe('delivery workflow actions', () => {
     expect(action?.disabledReason).toBe('Draft; CI pending; Changes requested');
   });
 
-  it('only offers outcome-aware cleanup for Done cards with environments', () => {
+  it('offers runtime retry separately from outcome-aware environment cleanup', () => {
     const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, layout_revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
-    expect(deriveCardWorkflowActions({ card: { ...card('done', environment), completion_outcome: 'closed' }, project: localProject, projectAvailable: true })[0].confirmation?.detail).toContain('branch is retained');
+    const failed = { ...card('done', environment), completion_outcome: 'closed' as const, runtime_cleanup_status: 'failed' as const, runtime_cleanup_error: 'PTY still running' };
+    const actions = deriveCardWorkflowActions({ card: failed, project: localProject, projectAvailable: true });
+    expect(actions.map((action) => action.kind)).toEqual(['retry_runtime_cleanup', 'cleanup']);
+    expect(actions[0].label).toBe('Retry process cleanup');
+    expect(actions[1].confirmation?.detail).toContain('branch is retained');
+    expect(deriveCardWorkflowActions({ card: { ...card('done'), runtime_cleanup_status: 'pending' }, project: localProject, projectAvailable: true }).map((action) => action.kind)).toEqual(['retry_runtime_cleanup']);
     expect(kinds('done')).toEqual([]);
   });
 });
