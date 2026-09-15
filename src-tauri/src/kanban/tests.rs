@@ -2199,12 +2199,9 @@ fn target_merge_prefers_upstream_over_a_newer_local_tip() {
         let result =
             finalize_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
         assert_eq!(result.message, "Successfully merged with remote main");
-        assert_eq!(result.card.status, "needs_human");
-        assert_eq!(
-            result.card.workflow_revision,
-            if initial_status == "approved" { 5 } else { 4 }
-        );
-        assert_eq!(result.card.environment.unwrap().revision, 3);
+        assert_eq!(result.card.status, initial_status);
+        assert_eq!(result.card.workflow_revision, 4);
+        assert_eq!(result.card.environment.as_ref().unwrap().revision, 3);
         assert!(!source.join("local-only.txt").exists());
         assert_eq!(
             git_output(
@@ -2221,6 +2218,14 @@ fn target_merge_prefers_upstream_over_a_newer_local_tip() {
                 [], |row| row.get(0),
             ).unwrap();
         assert!(summary.contains("remote target branch main"), "{summary}");
+        if initial_status == "approved" {
+            let delivered = merge_card(&mut connection, "local:target-merge", 4, 3).unwrap();
+            assert_eq!(delivered.card.status, "done");
+            assert_eq!(
+                delivered.card.completion_outcome,
+                Some(CompletionOutcome::Merged)
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 }

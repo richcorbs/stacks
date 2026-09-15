@@ -397,7 +397,16 @@ pub fn target_merge_completion(
         CardStatus::NeedsHuman | CardStatus::AgentWorking | CardStatus::Approved => {
             Ok(Transition {
                 from: context.status,
-                to: CardStatus::NeedsHuman,
+                // A target merge finalized from Ready to merge is itself a
+                // verified, clean, explicit merge of the exact recorded target
+                // revision. Preserve approval so local delivery can proceed
+                // without a redundant second Ship It. Pre-approval merges still
+                // settle in Needs you and require the normal approval step.
+                to: if context.status == CardStatus::Approved {
+                    CardStatus::Approved
+                } else {
+                    CardStatus::NeedsHuman
+                },
                 outcome: context.completion_outcome,
             })
         }
@@ -591,6 +600,33 @@ mod tests {
                 .as_deref(),
             Some("The completion outcome is missing")
         );
+    }
+
+    #[test]
+    fn target_merge_preserves_approval_but_does_not_grant_it() {
+        let approved = target_merge_completion(
+            &context(CardStatus::Approved),
+            WorkflowActor::User,
+        )
+        .unwrap();
+        assert_eq!(approved.from, CardStatus::Approved);
+        assert_eq!(approved.to, CardStatus::Approved);
+
+        let needs_human = target_merge_completion(
+            &context(CardStatus::NeedsHuman),
+            WorkflowActor::User,
+        )
+        .unwrap();
+        assert_eq!(needs_human.from, CardStatus::NeedsHuman);
+        assert_eq!(needs_human.to, CardStatus::NeedsHuman);
+
+        let agent_working = target_merge_completion(
+            &context(CardStatus::AgentWorking),
+            WorkflowActor::User,
+        )
+        .unwrap();
+        assert_eq!(agent_working.from, CardStatus::AgentWorking);
+        assert_eq!(agent_working.to, CardStatus::NeedsHuman);
     }
 
     #[test]
