@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canEditKanbanCard, hasDirtyCardDraft } from './cardEditing';
+import { canEditKanbanCard, canReassignKanbanCardProject, hasDirtyCardDraft, isRefinementStatus } from './cardEditing';
 
 describe('canEditKanbanCard', () => {
   it('allows local cards awaiting refinement or agent work', () => {
@@ -17,6 +17,37 @@ describe('canEditKanbanCard', () => {
     expect(canEditKanbanCard({ provider: 'local', status: 'needs_human' })).toBe(false);
     expect(canEditKanbanCard({ provider: 'local', status: 'approved' })).toBe(false);
     expect(canEditKanbanCard({ provider: 'local', status: 'done' })).toBe(false);
+  });
+});
+
+describe('project reassignment eligibility', () => {
+  it.each(['needs_refinement', 'refining', 'needs_refinement_input'] as const)('recognizes %s as a refinement status', (status) => {
+    expect(isRefinementStatus(status)).toBe(true);
+  });
+
+  it.each(['ready', 'agent_working', 'needs_human', 'approved', 'done'] as const)('does not recognize %s as a refinement status', (status) => {
+    expect(isRefinementStatus(status)).toBe(false);
+  });
+
+  const eligible = {
+    provider: 'local' as const,
+    status: 'needs_refinement' as const,
+    hierarchy_finalized: false,
+    environment: null,
+    parent: null,
+    child_count: 0,
+  };
+
+  it('allows relationship-free local refinement cards without environments', () => {
+    expect(canReassignKanbanCardProject(eligible)).toBe(true);
+  });
+
+  it('preserves provider, hierarchy, and environment restrictions', () => {
+    expect(canReassignKanbanCardProject({ ...eligible, provider: 'superthread' })).toBe(false);
+    expect(canReassignKanbanCardProject({ ...eligible, hierarchy_finalized: true })).toBe(false);
+    expect(canReassignKanbanCardProject({ ...eligible, environment: {} as never })).toBe(false);
+    expect(canReassignKanbanCardProject({ ...eligible, parent: { id: 'parent' } as never })).toBe(false);
+    expect(canReassignKanbanCardProject({ ...eligible, child_count: 1 })).toBe(false);
   });
 });
 
