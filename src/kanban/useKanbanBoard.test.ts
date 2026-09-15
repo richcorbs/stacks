@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, lifecycleProjectionRule, mergeChangedKanbanCard, performKanbanLoad, recoverKanbanReorderCards, shouldRestoreUiRequestCard } from './useKanbanBoard';
+import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, lifecycleProjectionRule, matchesRefreshSnapshot, mergeChangedKanbanCard, performKanbanLoad, recoverKanbanReorderCards, shouldRestoreUiRequestCard } from './useKanbanBoard';
 import type { CardProviderAdapter, KanbanCard, KanbanSyncCard } from './types';
 import type { Project } from '../types';
 
@@ -192,6 +192,24 @@ describe('Kanban card creation', () => {
       persistSuperthread: async () => { throw new Error('database unavailable'); },
     })).rejects.toThrow(/created in Superthread.*database unavailable.*Sync Superthread/);
     expect(creates).toBe(1);
+  });
+});
+
+describe('refresh card patch guards', () => {
+  it('rejects workflow, environment, path, branch, layout, and edit changes', () => {
+    const original = { ...card('1', 'Original'), status: 'agent_working' as const, environment: {
+      id: 'e', card_id: '1', project_id: 'p1', worktree_path: '/worktree', branch: 'card', repository_id: 'repo',
+      target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const,
+      revision: 1, layout_revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [],
+    } };
+    expect(matchesRefreshSnapshot(original, original)).toBe(true);
+    expect(matchesRefreshSnapshot({ ...original, record_revision: 2 }, original)).toBe(false);
+    expect(matchesRefreshSnapshot({ ...original, workflow_revision: 2 }, original)).toBe(false);
+    expect(matchesRefreshSnapshot({ ...original, updated_at: 2 }, original)).toBe(false);
+    expect(matchesRefreshSnapshot({ ...original, environment: { ...original.environment, revision: 2 } }, original)).toBe(false);
+    expect(matchesRefreshSnapshot({ ...original, environment: { ...original.environment, layout_revision: 2 } }, original)).toBe(false);
+    expect(matchesRefreshSnapshot({ ...original, environment: { ...original.environment, worktree_path: '/new' } }, original)).toBe(false);
+    expect(matchesRefreshSnapshot({ ...original, environment: { ...original.environment, target_branch: 'release' } }, original)).toBe(false);
   });
 });
 

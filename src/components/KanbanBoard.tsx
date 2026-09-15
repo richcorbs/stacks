@@ -8,7 +8,7 @@ import { canonicalCardById } from '../kanban/boardStore';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
-import { approveAndCommitKanbanCard, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, refreshKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
+import { approveAndCommitKanbanCard, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
@@ -16,7 +16,9 @@ import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { deletePersistentPiSession } from '../pi/sessionController';
-import { environmentHealthTooltip, hasGitChanges, REFRESH_CARD_REPOSITORY_STATUS_EVENT, useCardRepositoryStatus } from '../kanban/useCardRepositoryStatus';
+import { environmentHealthTooltip, hasGitChanges } from '../kanban/useCardRepositoryStatus';
+import { REFRESH_CARD_REPOSITORY_STATUS_EVENT } from '../kanban/refreshCoordinator';
+import { useKanbanRefreshCoordinator } from '../kanban/useKanbanRefreshCoordinator';
 import { cardLocalComparisonTarget } from '../git/comparisonTarget';
 import { runApproveAndCommit } from '../kanban/approveAndCommit';
 import { runWritePlanAndFinishRefinement } from '../kanban/writePlanAndFinishRefinement';
@@ -39,7 +41,6 @@ import { CardWorkflowControls } from './CardWorkflowControls';
 import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
 import { DirectProjectWork } from './DirectProjectWork';
 import { OPEN_DIRECT_WORK_EVENT, workAgentId, workOwnerId, workTerminalId } from '../directWork';
-import { useCardGitSummary } from '../kanban/useCardGitSummary';
 import { CardGitSummary } from './CardGitSummary';
 import { CardPullRequestLink } from './CardPullRequestLink';
 import { CardEnvironmentBranch } from './CardEnvironmentBranch';
@@ -96,8 +97,14 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     [projects, selectedProject, superthreadEnabled],
   );
   const creationProjects = creationAvailability.destinations;
-  const { statuses: repositoryStatuses, recheckEnvironment } = useCardRepositoryStatus(visibleCards);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
+  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, recheckEnvironment } = useKanbanRefreshCoordinator({
+    cards: board.cards,
+    projects,
+    visibleCards,
+    activeCardId: selectedCard?.id ?? null,
+    patchCard: board.patchCard,
+  });
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
   const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -118,19 +125,6 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   useEffect(() => () => {
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
   }, []);
-
-  useEffect(() => {
-    if (selectedProject?.delivery_workflow !== 'github_pull_request') return;
-    let cancelled = false;
-    const reconcile = async () => {
-      const targets = visibleCards.filter((card) => card.environment && !['needs_refinement', 'refining', 'needs_refinement_input', 'ready'].includes(card.status));
-      await Promise.all(targets.map((card) => refreshKanbanPullRequest(card.id).catch(() => null)));
-      if (!cancelled && targets.length) await board.load();
-    };
-    void reconcile();
-    const timer = window.setInterval(() => void reconcile(), 30_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [selectedProject?.id, selectedProject?.delivery_workflow]);
 
   useEffect(() => {
     const openNewCard = (event: Event) => {
@@ -609,6 +603,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
           copyOnSelect={copyOnSelect}
           initialView={selectedCardInitialView}
           environmentHealth={repositoryStatuses[selectedCard.id]?.environmentHealth}
+          gitChangeSummary={gitChangeSummary}
           onRecheckEnvironment={() => recheckEnvironment(selectedCard.id)}
           onClose={() => setSelectedCard(null)}
           onUpdate={(title, content, parentId) => board.update(selectedCard.id, title, content, parentId).then((updated) => {
@@ -672,7 +667,7 @@ type CardLayoutSnapshot = LayoutSaveSnapshot<{
   panes: CardEnvironmentPane[];
 }>;
 
-function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
+function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
   card: KanbanCard;
   cards: KanbanCard[];
   projects: Project[];
@@ -682,6 +677,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   copyOnSelect: boolean;
   initialView?: CardView;
   environmentHealth?: CardEnvironmentHealth;
+  gitChangeSummary: import('../types').GitChangeSummary | null;
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
   onClose: () => void;
   onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
@@ -738,7 +734,6 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
   }), [card.content]);
   const project = projects.find((candidate) => candidate.id === projectId);
   const cardPath = card.environment?.worktree_path ?? null;
-  const gitChangeSummary = useCardGitSummary(cardPath, card.environment?.target_branch ?? null);
   const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
   const serverCommand = project?.server_command?.trim() ?? '';
   const consoleCommand = project?.console_command?.trim() ?? '';

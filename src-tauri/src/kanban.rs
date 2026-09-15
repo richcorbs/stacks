@@ -204,6 +204,12 @@ pub struct BoardChange {
     pub board_revision: i64,
 }
 
+#[derive(Debug, Serialize)]
+pub struct KanbanPullRequestRefreshResult {
+    card: KanbanCard,
+    error: Option<String>,
+}
+
 impl KanbanCard {
     pub(crate) fn number(&self) -> &str {
         &self.external_id
@@ -2345,16 +2351,17 @@ fn refresh_pull_request(
 }
 
 #[tauri::command]
-pub async fn kanban_refresh_pull_request(id: String) -> Result<KanbanCard, String> {
+pub async fn kanban_refresh_pull_request(id: String) -> Result<KanbanPullRequestRefreshResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let result = with_connection(|connection| {
-            refresh_pull_request(connection, &id)?;
-            get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
-        });
-        if let Err(detail) = &result {
+        let refresh_result = with_connection(|connection| refresh_pull_request(connection, &id));
+        let error = refresh_result.err();
+        if let Some(detail) = &error {
             record_operation_failure(&id, "refresh_pr", "refresh_pr_failed", detail);
         }
-        result
+        let card = with_connection(|connection| {
+            get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
+        })?;
+        Ok(KanbanPullRequestRefreshResult { card, error })
     })
     .await
     .map_err(|error| format!("GitHub refresh worker failed: {error}"))?

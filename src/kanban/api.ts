@@ -79,8 +79,10 @@ export function closeKanbanCard(id: string, expectedRevision: number) {
   return invoke<CardSnapshot>('kanban_close_card', { id, expectedRevision }).then(({ card }) => card);
 }
 
+export type KanbanPullRequestRefreshResult = { card: KanbanCard; error: string | null };
+
 export function refreshKanbanPullRequest(id: string) {
-  return invoke<KanbanCard>('kanban_refresh_pull_request', { id });
+  return invoke<KanbanPullRequestRefreshResult>('kanban_refresh_pull_request', { id });
 }
 
 export function createKanbanPullRequest(id: string, expectedWorkflowRevision: number) {
