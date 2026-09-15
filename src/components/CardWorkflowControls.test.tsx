@@ -71,6 +71,14 @@ describe('CardWorkflowControls', () => {
     expect(buttons.every((button) => !button.includes('Working…'))).toBe(true);
   });
 
+  it('shows durable environment recovery detail', () => {
+    const markup = renderToStaticMarkup(
+      <CardWorkflowControls actions={[]} working={false} actionError={null} mergedWithoutEnvironment={false} recoveryMessage="Setup completion is ambiguous" onAction={() => {}} />,
+    );
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain('Setup completion is ambiguous');
+  });
+
   it('maps explicit action appearances to stable classes', () => {
     const markup = renderToStaticMarkup(
       <CardWorkflowControls

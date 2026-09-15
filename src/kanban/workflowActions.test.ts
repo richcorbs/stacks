@@ -58,6 +58,32 @@ describe('delivery workflow actions', () => {
     expect(cleanup).toMatchObject({ destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?' } });
   });
 
+  it('shows durable environment recovery actions for an incomplete start', () => {
+    const pending = {
+      ...card('ready'),
+      creation_operation: {
+        id: 'operation-1', phase: 'recovery_required' as const, error: 'Setup completion is ambiguous',
+        source_path: '/source', source_branch: 'feature', cleanup_available: true, custom_command: true, revision: 2,
+      },
+    };
+
+    expect(deriveCardWorkflowActions({ card: pending, project: localProject, projectAvailable: true })).toMatchObject([
+      { kind: 'start_work', label: 'Resume start', primary: true },
+      { kind: 'cleanup_creation', label: 'Clean up', destructive: true },
+    ]);
+  });
+
+  it('hides setup cleanup when resource ownership is not proven', () => {
+    const pending = {
+      ...card('ready'),
+      creation_operation: {
+        id: 'operation-1', phase: 'recovery_required' as const, error: 'Ambiguous resources',
+        source_path: null, source_branch: null, cleanup_available: false, custom_command: true, revision: 1,
+      },
+    };
+    expect(deriveCardWorkflowActions({ card: pending, project: localProject, projectAvailable: true }).map(({ kind }) => kind)).toEqual(['start_work']);
+  });
+
   it('uses Ship It and conditionally offers feature environment delivery', () => {
     expect(kinds('needs_human')).toEqual(['request_changes', 'ship', 'close']);
     expect(kinds('needs_human', prProject)).toEqual(['request_changes', 'ship', 'ship_with_fe', 'close']);

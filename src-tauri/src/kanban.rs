@@ -1,14 +1,18 @@
-use crate::fs_paths::app_data_file;
+use crate::{
+    fs_paths::{app_data_dir, app_data_file},
+    workspace_setup::{run_workspace_setup_durable, WorkspaceSetupState},
+};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::{Mutex, OnceLock},
+    sync::{atomic::AtomicBool, Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
+use tauri::State;
 
 static REPOSITORY_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -98,6 +102,18 @@ pub struct CardEnvironmentHealth {
     issues: Vec<EnvironmentHealthIssue>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct EnvironmentCreationOperation {
+    id: String,
+    phase: String,
+    error: Option<String>,
+    source_path: Option<String>,
+    source_branch: Option<String>,
+    cleanup_available: bool,
+    custom_command: bool,
+    revision: i64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CardEvent {
     id: i64,
@@ -169,6 +185,7 @@ pub struct KanbanCard {
     children: Vec<CardRelationshipSummary>,
     hierarchy_finalized: bool,
     environment: Option<CardEnvironment>,
+    creation_operation: Option<EnvironmentCreationOperation>,
     created_at: i64,
     updated_at: i64,
     sort_order: i64,
@@ -1226,6 +1243,188 @@ fn set_card_project(
     get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+struct WorktreeEvidence {
+    path: String,
+    branch: Option<String>,
+    revision: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CreationOperationRow {
+    card_id: String,
+    project_id: String,
+    repository_id: String,
+    expected_workflow_revision: i64,
+    target_checkout_path: String,
+    target_branch: String,
+    observed_target_revision: String,
+    setup_command: String,
+    custom_command: bool,
+    phase: String,
+    attempt_token: Option<String>,
+    result_path: String,
+    pre_worktrees: String,
+    pre_branches: String,
+    setup_result_cwd: Option<String>,
+    source_path: Option<String>,
+    source_branch: Option<String>,
+    source_revision: Option<String>,
+    source_worktree_new: bool,
+    source_branch_new: bool,
+    worktree_removed: bool,
+}
+
+fn worktree_inventory(target: &str) -> Result<Vec<WorktreeEvidence>, String> {
+    let output = git_output(target, &["worktree", "list", "--porcelain"])?;
+    let mut result = Vec::new();
+    let mut current: Option<WorktreeEvidence> = None;
+    for line in output.lines().chain(std::iter::once("")) {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            if let Some(item) = current.take() {
+                result.push(item);
+            }
+            current = Some(WorktreeEvidence {
+                path: Path::new(path)
+                    .canonicalize()
+                    .unwrap_or_else(|_| PathBuf::from(path))
+                    .to_string_lossy()
+                    .into_owned(),
+                branch: None,
+                revision: None,
+            });
+        } else if let Some(item) = current.as_mut() {
+            if let Some(head) = line.strip_prefix("HEAD ") {
+                item.revision = Some(head.to_string());
+            }
+            if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+                item.branch = Some(branch.to_string());
+            }
+            if line.is_empty() {
+                result.push(current.take().unwrap());
+            }
+        }
+    }
+    result.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(result)
+}
+
+fn branch_inventory(target: &str) -> Result<BTreeMap<String, String>, String> {
+    let output = git_output(
+        target,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)%00%(objectname)",
+            "refs/heads",
+        ],
+    )?;
+    Ok(output
+        .lines()
+        .filter_map(|line| line.split_once('\0'))
+        .map(|(name, tip)| (name.to_string(), tip.to_string()))
+        .collect())
+}
+
+fn load_creation_operation_row(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<Option<CreationOperationRow>, String> {
+    connection.query_row(
+        "SELECT card_id,project_id,repository_id,expected_workflow_revision,target_checkout_path,target_branch,observed_target_revision,setup_command,custom_command,phase,attempt_token,result_path,pre_worktrees,pre_branches,setup_result_cwd,source_path,source_branch,source_revision,source_worktree_new,source_branch_new,worktree_removed FROM environment_creation_operations WHERE card_id=?1",
+        [card_id], |row| Ok(CreationOperationRow {
+            card_id: row.get(0)?, project_id: row.get(1)?, repository_id: row.get(2)?, expected_workflow_revision: row.get(3)?,
+            target_checkout_path: row.get(4)?, target_branch: row.get(5)?, observed_target_revision: row.get(6)?, setup_command: row.get(7)?, custom_command: row.get::<_, i64>(8)? != 0,
+            phase: row.get(9)?, attempt_token: row.get(10)?, result_path: row.get(11)?, pre_worktrees: row.get(12)?, pre_branches: row.get(13)?, setup_result_cwd: row.get(14)?,
+            source_path: row.get(15)?, source_branch: row.get(16)?, source_revision: row.get(17)?, source_worktree_new: row.get::<_, i64>(18)? != 0,
+            source_branch_new: row.get::<_, i64>(19)? != 0, worktree_removed: row.get::<_, i64>(20)? != 0,
+        })
+    ).optional().map_err(db_error)
+}
+
+fn update_creation_phase(
+    card_id: &str,
+    phase: &str,
+    error: Option<&str>,
+    cleanup_available: bool,
+) -> Result<(), String> {
+    with_connection(|connection| {
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        let changed = tx.execute("UPDATE environment_creation_operations SET phase=?1,error=?2,cleanup_available=?3,revision=revision+1,updated_at=?4 WHERE card_id=?5", params![phase,error,cleanup_available as i64,unix_timestamp(),card_id]).map_err(db_error)?;
+        if changed != 1 {
+            return Err("Environment creation operation disappeared".to_string());
+        }
+        tx.commit().map_err(db_error)
+    })
+}
+
+fn prepare_creation_operation(
+    id: &str,
+    expected_revision: i64,
+    setup_command: &str,
+    custom_command: bool,
+) -> Result<CreationOperationRow, String> {
+    if setup_command.trim().is_empty() {
+        return Err("Setup command cannot be empty".to_string());
+    }
+    let (project_id, project_path, configured_branch) = with_connection(|connection| {
+        crate::store::migrate_store_schema(connection)?;
+        connection.query_row("SELECT c.project_id,p.path,COALESCE(p.target_branch,'main') FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1", [id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?))).optional().map_err(db_error)?.ok_or_else(|| "The card or its owning project was not found".to_string())
+    })?;
+    let target = validate_checkout(&project_path, None)?;
+    if target.target_branch != configured_branch {
+        return Err(format!("Project checkout must be clean and checked out on configured target branch {configured_branch}"));
+    }
+    let worktrees = serde_json::to_string(&worktree_inventory(&target.target_checkout_path)?)
+        .map_err(|e| e.to_string())?;
+    let branches = serde_json::to_string(&branch_inventory(&target.target_checkout_path)?)
+        .map_err(|e| e.to_string())?;
+    let operation_id = format!("environment-creation:{}", uuid::Uuid::new_v4());
+    let mut result_path = app_data_dir()?;
+    result_path.push("setup-results");
+    result_path.push(format!("{operation_id}.cwd"));
+    with_connection(|connection| {
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        let (status, revision, current_project, provider, finalized, source, current_path): (String,i64,String,String,bool,String,String) = tx.query_row(
+            "SELECT c.status,c.workflow_revision,c.project_id,c.external_provider,c.hierarchy_finalized,COALESCE(p.kanban_source,'local'),p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
+            [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get::<_,i64>(4)? != 0,row.get(5)?,row.get(6)?))
+        ).optional().map_err(db_error)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+        if finalized {
+            return Err("A finalized aggregate parent cannot start work".to_string());
+        }
+        if status != "ready" {
+            return Err("The card must be Ready for agent before work can start".to_string());
+        }
+        if revision != expected_revision {
+            return Err("Card changed; reload before starting work".to_string());
+        }
+        if current_project != project_id
+            || current_path != project_path
+            || (provider == "superthread") != (source == "superthread")
+        {
+            return Err("The card's project identity changed before setup".to_string());
+        }
+        if tx
+            .query_row(
+                "SELECT COUNT(*) FROM card_environments WHERE card_id=?1",
+                [id],
+                |r| r.get::<_, i64>(0),
+            )
+            .map_err(db_error)?
+            != 0
+        {
+            return Err("The card already has an environment".to_string());
+        }
+        tx.execute("INSERT INTO environment_creation_operations (id,card_id,project_id,repository_id,expected_workflow_revision,target_checkout_path,target_branch,observed_target_revision,setup_command,custom_command,phase,result_path,pre_worktrees,pre_branches,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'prepared',?11,?12,?13,?14,?14)", params![operation_id,id,project_id,target.repository_id,expected_revision,target.target_checkout_path,target.target_branch,target.target_revision,setup_command.trim(),custom_command as i64,result_path.to_string_lossy(),worktrees,branches,unix_timestamp()]).map_err(db_error)?;
+        tx.commit().map_err(db_error)
+    })?;
+    with_connection(|connection| load_creation_operation_row(connection, id))?
+        .ok_or_else(|| "Could not reload environment creation operation".to_string())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct EnvironmentStartPreflight {
     repository_id: String,
@@ -1239,6 +1438,541 @@ pub struct WorkflowOperationResult {
     card: KanbanCard,
     message: String,
     idempotent: bool,
+}
+
+fn persist_validated_source(
+    op: &CreationOperationRow,
+    reported: Option<&str>,
+) -> Result<CreationOperationRow, String> {
+    let post_worktrees = worktree_inventory(&op.target_checkout_path)?;
+    let post_branches = branch_inventory(&op.target_checkout_path)?;
+    let pre_worktrees: Vec<WorktreeEvidence> =
+        serde_json::from_str(&op.pre_worktrees).map_err(|e| e.to_string())?;
+    let pre_branches: BTreeMap<String, String> =
+        serde_json::from_str(&op.pre_branches).map_err(|e| e.to_string())?;
+    let pre_paths = pre_worktrees
+        .iter()
+        .map(|item| item.path.as_str())
+        .collect::<Vec<_>>();
+    let validate_candidate = |path: &str| -> Result<EnvironmentStartPreflight, String> {
+        let source = validate_checkout(path, Some(&op.repository_id))?;
+        if source.target_checkout_path == op.target_checkout_path {
+            return Err("Setup returned the target checkout itself".to_string());
+        }
+        if source.target_branch == op.target_branch {
+            return Err(format!(
+                "Setup must create a source branch different from {}",
+                op.target_branch
+            ));
+        }
+        if !post_worktrees
+            .iter()
+            .any(|item| item.path == source.target_checkout_path)
+        {
+            return Err("Setup result is not a registered worktree".to_string());
+        }
+        Ok(source)
+    };
+    let source = if let Some(path) = reported {
+        validate_candidate(path)?
+    } else {
+        let candidates = post_worktrees
+            .iter()
+            .filter(|item| {
+                !pre_paths.contains(&item.path.as_str()) && item.path != op.target_checkout_path
+            })
+            .filter_map(|item| validate_candidate(&item.path).ok())
+            .collect::<Vec<_>>();
+        if candidates.len() != 1 {
+            return Err(
+                "Setup result could not be matched to exactly one valid new source worktree"
+                    .to_string(),
+            );
+        }
+        candidates[0].clone()
+    };
+    let worktree_new = !pre_paths.contains(&source.target_checkout_path.as_str());
+    let branch_new = !pre_branches.contains_key(&source.target_branch);
+    with_connection(|connection| {
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        tx.execute("UPDATE environment_creation_operations SET phase='setup_complete',post_worktrees=?1,post_branches=?2,source_path=?3,source_branch=?4,source_revision=?5,source_worktree_new=?6,source_branch_new=?7,error=NULL,cleanup_available=?8,revision=revision+1,updated_at=?9 WHERE card_id=?10",
+            params![serde_json::to_string(&post_worktrees).map_err(|e| e.to_string())?,serde_json::to_string(&post_branches).map_err(|e| e.to_string())?,source.target_checkout_path,source.target_branch,source.target_revision,worktree_new as i64,branch_new as i64,worktree_new as i64,unix_timestamp(),op.card_id]).map_err(db_error)?;
+        tx.commit().map_err(db_error)
+    })?;
+    with_connection(|connection| load_creation_operation_row(connection, &op.card_id))?
+        .ok_or_else(|| "Could not reload validated environment operation".to_string())
+}
+
+fn creation_recovery(
+    card_id: &str,
+    detail: &str,
+    cleanup_available: bool,
+) -> Result<KanbanCard, String> {
+    update_creation_phase(
+        card_id,
+        "recovery_required",
+        Some(detail),
+        cleanup_available,
+    )?;
+    with_connection(|connection| {
+        connection.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','recovery_required',?3)", params![card_id,unix_timestamp(),detail]).map_err(db_error)?;
+        get_card(connection, card_id)?.ok_or_else(|| "Kanban card was not found".to_string())
+    })
+}
+
+fn compensate_creation(op: &CreationOperationRow) -> Result<KanbanCard, String> {
+    let unsafe_recovery = |detail: String| creation_recovery(&op.card_id, &detail, false);
+    if !op.source_worktree_new {
+        return unsafe_recovery("The source worktree cannot be proven absent before setup; Git resources were preserved".to_string());
+    }
+    let source_path = op
+        .source_path
+        .as_deref()
+        .ok_or_else(|| "Validated source path is missing".to_string())?;
+    let source_branch = op
+        .source_branch
+        .as_deref()
+        .ok_or_else(|| "Validated source branch is missing".to_string())?;
+    let source_revision = op
+        .source_revision
+        .as_deref()
+        .ok_or_else(|| "Validated source revision is missing".to_string())?;
+    if !op.worktree_removed {
+        let source = match validate_checkout(source_path, Some(&op.repository_id)) {
+            Ok(value) => value,
+            Err(error) => {
+                return unsafe_recovery(format!("Compensation preserved the worktree: {error}"))
+            }
+        };
+        if source.target_branch != source_branch || source.target_revision != source_revision {
+            return unsafe_recovery(
+                "Compensation preserved a changed source worktree or branch".to_string(),
+            );
+        }
+        if ensure_registered_distinct_worktree(&op.target_checkout_path, source_path).is_err() {
+            return unsafe_recovery(
+                "Compensation preserved an unregistered or non-distinct worktree".to_string(),
+            );
+        }
+        let removed = Command::new("git")
+            .args([
+                "-C",
+                &op.target_checkout_path,
+                "worktree",
+                "remove",
+                "--",
+                source_path,
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !removed.status.success() {
+            return creation_recovery(
+                &op.card_id,
+                &format!(
+                    "Git could not remove the proven source worktree: {}",
+                    String::from_utf8_lossy(&removed.stderr).trim()
+                ),
+                true,
+            );
+        }
+        with_connection(|connection| {
+            connection.execute("UPDATE environment_creation_operations SET worktree_removed=1,revision=revision+1,updated_at=?1 WHERE card_id=?2", params![unix_timestamp(),op.card_id]).map(|_| ()).map_err(db_error)
+        })?;
+    }
+    if op.source_branch_new {
+        let branches = branch_inventory(&op.target_checkout_path)?;
+        match branches.get(source_branch).map(String::as_str) {
+            Some(tip) if tip != source_revision => {
+                return unsafe_recovery(
+                    "Compensation preserved an advanced source branch".to_string(),
+                );
+            }
+            Some(_) => {
+                if worktree_inventory(&op.target_checkout_path)?
+                    .iter()
+                    .any(|item| item.branch.as_deref() == Some(source_branch))
+                {
+                    return unsafe_recovery(
+                        "Compensation preserved a branch that is still checked out".to_string(),
+                    );
+                }
+                let deleted = Command::new("git")
+                    .args([
+                        "-C",
+                        &op.target_checkout_path,
+                        "branch",
+                        "-D",
+                        "--",
+                        source_branch,
+                    ])
+                    .output()
+                    .map_err(|e| e.to_string())?;
+                if !deleted.status.success() {
+                    return creation_recovery(
+                        &op.card_id,
+                        &format!(
+                            "Worktree was removed, but branch cleanup failed: {}",
+                            String::from_utf8_lossy(&deleted.stderr).trim()
+                        ),
+                        true,
+                    );
+                }
+            }
+            None => {} // A prior compensation attempt already deleted it.
+        }
+    }
+    with_connection(|connection| {
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        tx.execute(
+            "DELETE FROM environment_creation_operations WHERE card_id=?1",
+            [&op.card_id],
+        )
+        .map_err(db_error)?;
+        tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,?2,'system','environment_compensation','success',?3)", params![op.card_id,unix_timestamp(),if op.source_branch_new { "Removed setup-created worktree and branch" } else { "Removed setup-created worktree and retained pre-existing branch" }]).map_err(db_error)?;
+        tx.commit().map_err(db_error)?;
+        get_card(connection, &op.card_id)?.ok_or_else(|| "Kanban card was not found".to_string())
+    })
+}
+
+fn setup_process_alive(result_path: &str) -> bool {
+    let pid_path = Path::new(result_path).with_extension("pid");
+    let Some(pid) = fs::read_to_string(&pid_path)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| value.chars().all(|ch| ch.is_ascii_digit()))
+    else {
+        return false;
+    };
+    let alive = Command::new("kill")
+        .args(["-0", &pid])
+        .status()
+        .is_ok_and(|status| status.success());
+    if !alive {
+        let _ = fs::remove_file(pid_path);
+    }
+    alive
+}
+
+fn run_environment_creation(
+    id: String,
+    expected_workflow_revision: i64,
+    setup_command: String,
+    custom_command: bool,
+    explicit_retry: bool,
+    cancelled: &AtomicBool,
+) -> Result<KanbanCard, String> {
+    if let Some(card) = with_connection(|connection| get_card(connection, &id))? {
+        if card.environment.is_some() {
+            with_connection(|connection| validate_card_environment_project(connection, &id))?;
+            return Ok(card);
+        }
+    }
+    let mut op = match with_connection(|connection| load_creation_operation_row(connection, &id))? {
+        Some(existing) => existing,
+        None => prepare_creation_operation(
+            &id,
+            expected_workflow_revision,
+            &setup_command,
+            custom_command,
+        )?,
+    };
+    // Once prepared, the durable operation owns the expected revision. A later
+    // card revision is reconciled during attachment and compensated safely.
+    let current_project = with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT project_id FROM kanban_cards WHERE id=?1",
+                [&id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(db_error)
+    })?;
+    if current_project != op.project_id {
+        if op.phase == "prepared" {
+            return creation_recovery(
+                &id,
+                "The card's owning project changed before setup; setup was not run",
+                false,
+            );
+        }
+        if op.phase == "recovery_required" {
+            return with_connection(|connection| get_card(connection, &id))?
+                .ok_or_else(|| "Kanban card was not found".to_string());
+        }
+    }
+    if op.phase == "recovery_required" {
+        if Path::new(&op.result_path).is_file() {
+            let cwd = fs::read_to_string(&op.result_path)
+                .map_err(|e| e.to_string())?
+                .trim()
+                .to_string();
+            with_connection(|connection| {
+                connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,error=NULL,revision=revision+1,updated_at=?2 WHERE card_id=?3", params![cwd,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
+            })?;
+            op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+                .unwrap();
+        } else {
+            if !explicit_retry {
+                return with_connection(|connection| get_card(connection, &id))?
+                    .ok_or_else(|| "Kanban card was not found".to_string());
+            }
+            if setup_process_alive(&op.result_path) {
+                return with_connection(|connection| get_card(connection, &id))?
+                    .ok_or_else(|| "Kanban card was not found".to_string());
+            }
+            let current_worktrees =
+                serde_json::to_string(&worktree_inventory(&op.target_checkout_path)?)
+                    .map_err(|e| e.to_string())?;
+            let current_branches =
+                serde_json::to_string(&branch_inventory(&op.target_checkout_path)?)
+                    .map_err(|e| e.to_string())?;
+            if op.attempt_token.is_some()
+                && (current_worktrees != op.pre_worktrees || current_branches != op.pre_branches)
+            {
+                return creation_recovery(&id, "Explicit retry was refused because repository resources changed after the original snapshot", false);
+            }
+            if op.attempt_token.is_none() {
+                let target = validate_checkout(&op.target_checkout_path, Some(&op.repository_id))?;
+                if target.target_branch != op.target_branch {
+                    return creation_recovery(
+                        &id,
+                        "The target checkout is no longer on the configured branch",
+                        false,
+                    );
+                }
+                with_connection(|connection| {
+                    connection.execute("UPDATE environment_creation_operations SET observed_target_revision=?1,pre_worktrees=?2,pre_branches=?3,error=NULL,revision=revision+1,updated_at=?4 WHERE card_id=?5", params![target.target_revision,current_worktrees,current_branches,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
+                })?;
+                op.observed_target_revision = target.target_revision;
+                op.pre_worktrees = current_worktrees;
+                op.pre_branches = current_branches;
+            }
+            update_creation_phase(&id, "prepared", None, false)?;
+            op.phase = "prepared".to_string();
+        }
+    }
+    if op.phase == "compensation_pending" {
+        if op.source_path.is_none() {
+            match persist_validated_source(&op, None) {
+                Ok(validated) => {
+                    update_creation_phase(
+                        &id,
+                        "compensation_pending",
+                        Some("Resuming interrupted compensation"),
+                        true,
+                    )?;
+                    op = validated;
+                }
+                Err(error) => return creation_recovery(&id, &error, false),
+            }
+        }
+        return compensate_creation(&op);
+    }
+    if op.phase == "prepared" {
+        let target = validate_checkout(&op.target_checkout_path, Some(&op.repository_id))?;
+        let current_worktrees =
+            serde_json::to_string(&worktree_inventory(&op.target_checkout_path)?)
+                .map_err(|error| error.to_string())?;
+        let current_branches = serde_json::to_string(&branch_inventory(&op.target_checkout_path)?)
+            .map_err(|error| error.to_string())?;
+        if target.target_branch != op.target_branch
+            || target.target_revision != op.observed_target_revision
+            || current_worktrees != op.pre_worktrees
+            || current_branches != op.pre_branches
+        {
+            return creation_recovery(
+                &id,
+                "The target repository changed after environment creation was prepared; setup was not run",
+                false,
+            );
+        }
+        let token = uuid::Uuid::new_v4().to_string();
+        with_connection(|connection| {
+            connection.execute("UPDATE environment_creation_operations SET phase='setup_running',attempt_token=?1,error=NULL,revision=revision+1,updated_at=?2 WHERE card_id=?3 AND phase='prepared'", params![token,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
+        })?;
+        match run_workspace_setup_durable(
+            op.setup_command.clone(),
+            op.target_checkout_path.clone(),
+            cancelled,
+            Path::new(&op.result_path),
+        ) {
+            Ok(result) => {
+                with_connection(|connection| {
+                    connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,setup_output=?2,revision=revision+1,updated_at=?3 WHERE card_id=?4", params![result.cwd,result.output,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
+                })?;
+            }
+            Err(error) => {
+                update_creation_phase(&id, "compensation_pending", Some(&error), false)?;
+                op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+                    .unwrap();
+                match persist_validated_source(&op, None) {
+                    Ok(validated) => {
+                        update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
+                        return compensate_creation(&validated);
+                    }
+                    Err(_) => {
+                        return creation_recovery(
+                            &id,
+                            &format!(
+                                "Setup failed and its Git resource changes are ambiguous: {error}"
+                            ),
+                            false,
+                        )
+                    }
+                }
+            }
+        }
+        op = with_connection(|connection| load_creation_operation_row(connection, &id))?.unwrap();
+    } else if op.phase == "setup_running" {
+        if Path::new(&op.result_path).is_file() {
+            let cwd = fs::read_to_string(&op.result_path)
+                .map_err(|e| e.to_string())?
+                .trim()
+                .to_string();
+            with_connection(|connection| {
+                connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,revision=revision+1,updated_at=?2 WHERE card_id=?3", params![cwd,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
+            })?;
+            op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+                .unwrap();
+        } else if setup_process_alive(&op.result_path) {
+            update_creation_phase(
+                &id,
+                "setup_running",
+                Some("Setup is still running in the background. Resume after it finishes."),
+                false,
+            )?;
+            return with_connection(|connection| get_card(connection, &id))?
+                .ok_or_else(|| "Kanban card was not found".to_string());
+        } else {
+            return creation_recovery(
+                &id,
+                if op.custom_command {
+                    "Custom setup was interrupted with no durable completion result. Review the repository, then explicitly retry."
+                } else {
+                    "Setup was interrupted with no durable completion result. Review the repository before retrying."
+                },
+                false,
+            );
+        }
+    }
+    if op.phase == "setup_complete" && op.source_path.is_none() {
+        match persist_validated_source(&op, op.setup_result_cwd.as_deref()) {
+            Ok(value) => op = value,
+            Err(error) => {
+                update_creation_phase(&id, "compensation_pending", Some(&error), false)?;
+                match persist_validated_source(&op, None) {
+                    Ok(validated) => {
+                        update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
+                        return compensate_creation(&validated);
+                    }
+                    Err(_) => return creation_recovery(&id, &error, false),
+                }
+            }
+        }
+    }
+    let target = match validate_checkout(&op.target_checkout_path, Some(&op.repository_id)) {
+        Ok(target)
+            if target.target_checkout_path == op.target_checkout_path
+                && target.target_branch == op.target_branch =>
+        {
+            target
+        }
+        Ok(_) => {
+            update_creation_phase(
+                &id,
+                "compensation_pending",
+                Some("Target checkout identity or branch changed during setup"),
+                true,
+            )?;
+            return compensate_creation(&op);
+        }
+        Err(error) => {
+            update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
+            return compensate_creation(&op);
+        }
+    };
+    update_creation_phase(&id, "attaching", None, false)?;
+    match kanban_create_environment(
+        id.clone(),
+        op.source_path.clone().unwrap(),
+        op.repository_id.clone(),
+        op.target_checkout_path.clone(),
+        op.target_branch.clone(),
+        target.target_revision,
+        op.expected_workflow_revision,
+    ) {
+        Ok(card) => {
+            let _ = fs::remove_file(&op.result_path);
+            Ok(card)
+        }
+        Err(error) => {
+            update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
+            op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+                .unwrap();
+            compensate_creation(&op)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn kanban_start_environment(
+    state: State<'_, WorkspaceSetupState>,
+    id: String,
+    expected_workflow_revision: i64,
+    setup_command: String,
+    custom_command: bool,
+    explicit_retry: Option<bool>,
+) -> Result<KanbanCard, String> {
+    let cancelled = state.begin();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = REPOSITORY_OPERATION_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "Repository operation lock failed".to_string())?;
+        run_environment_creation(
+            id,
+            expected_workflow_revision,
+            setup_command,
+            custom_command,
+            explicit_retry.unwrap_or(false),
+            &cancelled,
+        )
+    })
+    .await
+    .map_err(|error| format!("Environment creation worker failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn kanban_cleanup_environment_creation(id: String) -> Result<KanbanCard, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = REPOSITORY_OPERATION_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| "Repository operation lock failed".to_string())?;
+        let op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+            .ok_or_else(|| "No environment creation recovery is pending".to_string())?;
+        if !op.source_worktree_new {
+            return Err(
+                "Cleanup is unavailable because ownership of the source worktree is not proven"
+                    .to_string(),
+            );
+        }
+        update_creation_phase(
+            &id,
+            "compensation_pending",
+            op.source_path
+                .as_ref()
+                .map(|_| "User requested recovery cleanup"),
+            true,
+        )?;
+        compensate_creation(&op)
+    })
+    .await
+    .map_err(|error| format!("Environment cleanup worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -1292,9 +2026,8 @@ pub fn kanban_environment_start_preflight(
     })
 }
 
-#[tauri::command]
-#[allow(clippy::too_many_arguments)] // Tauri command fields stay explicit for frontend serialization.
-pub fn kanban_create_environment(
+#[allow(clippy::too_many_arguments)]
+fn kanban_create_environment(
     id: String,
     worktree_path: String,
     repository_id: String,
@@ -1306,16 +2039,31 @@ pub fn kanban_create_environment(
     if worktree_path.trim().is_empty() {
         return Err("Worktree path is required".to_string());
     }
+    let project_path_snapshot = with_connection(|connection| {
+        crate::store::migrate_store_schema(connection)?;
+        connection.query_row(
+            "SELECT p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
+            [&id],
+            |row| row.get::<_, String>(0),
+        ).optional().map_err(db_error)?.ok_or_else(|| "The card's owning project no longer exists".to_string())
+    })?;
+    let project_repository = repository_identity(&project_path_snapshot)?;
     let target = validate_target_checkout(&target_checkout_path, Some(&repository_id))?;
     if target.target_branch != target_branch || target.target_revision != target_revision {
-        return Err(format!("Target checkout changed during setup: {target_checkout_path}. Recover the setup result manually."));
+        return Err(format!(
+            "Target checkout changed during setup: {target_checkout_path}"
+        ));
     }
     let source = validate_checkout(&worktree_path, Some(&repository_id))?;
     if source.target_checkout_path == target_checkout_path {
-        return Err(format!("Setup returned the target checkout itself: {worktree_path}. Recover any setup output manually."));
+        return Err(format!(
+            "Setup returned the target checkout itself: {worktree_path}"
+        ));
     }
     if source.target_branch == target_branch {
-        return Err(format!("Setup must create a source branch different from {target_branch}: {worktree_path}. Recover it manually."));
+        return Err(format!(
+            "Setup must create a source branch different from {target_branch}: {worktree_path}"
+        ));
     }
     ensure_registered_distinct_worktree(&target_checkout_path, &worktree_path)?;
     with_connection(|connection| {
@@ -1356,8 +2104,11 @@ pub fn kanban_create_environment(
                 "The card's owning project is not compatible with its provider".to_string(),
             );
         }
-        if repository_identity(&current_project_path)? != repository_id {
-            return Err("The card project's configured checkout belongs to a different repository; recover the setup result manually".to_string());
+        if current_project_path != project_path_snapshot || project_repository != repository_id {
+            return Err(
+                "The card project's configured checkout belongs to a different repository"
+                    .to_string(),
+            );
         }
         let environment_id = format!("environment:{}", uuid::Uuid::new_v4());
         let now = unix_timestamp();
@@ -1403,6 +2154,12 @@ pub fn kanban_create_environment(
         ).map_err(db_error)?;
         transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status, summary) VALUES (?1, ?2, 'user', 'environment_start', 'success', 'ready', 'agent_working', ?3)",
             params![id, now, format!("Created source worktree {} on {}", worktree_path, source.target_branch)]).map_err(db_error)?;
+        transaction
+            .execute(
+                "DELETE FROM environment_creation_operations WHERE card_id=?1",
+                [&id],
+            )
+            .map_err(db_error)?;
         transaction.commit().map_err(db_error)?;
         get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
@@ -2367,6 +3124,38 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS environment_creation_operations (
+            id TEXT PRIMARY KEY,
+            card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL,
+            repository_id TEXT NOT NULL,
+            expected_workflow_revision INTEGER NOT NULL,
+            target_checkout_path TEXT NOT NULL,
+            target_branch TEXT NOT NULL,
+            observed_target_revision TEXT NOT NULL,
+            setup_command TEXT NOT NULL,
+            custom_command INTEGER NOT NULL DEFAULT 0,
+            phase TEXT NOT NULL CHECK(phase IN ('prepared','setup_running','setup_complete','attaching','compensation_pending','recovery_required')),
+            attempt_token TEXT,
+            result_path TEXT NOT NULL,
+            pre_worktrees TEXT NOT NULL,
+            pre_branches TEXT NOT NULL,
+            post_worktrees TEXT,
+            post_branches TEXT,
+            setup_result_cwd TEXT,
+            setup_output TEXT,
+            source_path TEXT,
+            source_branch TEXT,
+            source_revision TEXT,
+            source_worktree_new INTEGER NOT NULL DEFAULT 0,
+            source_branch_new INTEGER NOT NULL DEFAULT 0,
+            worktree_removed INTEGER NOT NULL DEFAULT 0,
+            error TEXT,
+            cleanup_available INTEGER NOT NULL DEFAULT 0,
+            revision INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+         );
          CREATE TABLE IF NOT EXISTS card_panes (
             id TEXT PRIMARY KEY,
             environment_id TEXT NOT NULL REFERENCES card_environments(id) ON DELETE CASCADE,
@@ -2536,6 +3325,12 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             connection.execute(sql, []).map_err(db_error)?;
         }
     }
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (70, unixepoch())",
+            [],
+        )
+        .map_err(db_error)?;
     Ok(())
 }
 
@@ -2652,6 +3447,7 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
     };
     for card in &mut cards {
         card.environment = load_environment(connection, &card.id)?;
+        card.creation_operation = load_creation_operation(connection, &card.id)?;
         card.pull_request = load_pull_request(connection, card)?;
         card.events = load_events(connection, &card.id)?;
     }
@@ -2671,6 +3467,7 @@ fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, Str
     ).optional().map_err(db_error)?;
     if let Some(card) = &mut card {
         card.environment = load_environment(connection, id)?;
+        card.creation_operation = load_creation_operation(connection, id)?;
         card.pull_request = load_pull_request(connection, card)?;
         card.events = load_events(connection, id)?;
         let mut cards = vec![card.clone()];
@@ -2840,6 +3637,27 @@ fn load_events(connection: &Connection, card_id: &str) -> Result<Vec<CardEvent>,
     Ok(events)
 }
 
+fn load_creation_operation(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<Option<EnvironmentCreationOperation>, String> {
+    connection.query_row(
+        "SELECT id, phase, error, source_path, source_branch, cleanup_available, custom_command, revision
+         FROM environment_creation_operations WHERE card_id=?1",
+        [card_id],
+        |row| Ok(EnvironmentCreationOperation {
+            id: row.get(0)?,
+            phase: row.get(1)?,
+            error: row.get(2)?,
+            source_path: row.get(3)?,
+            source_branch: row.get(4)?,
+            cleanup_available: row.get::<_, i64>(5)? != 0,
+            custom_command: row.get::<_, i64>(6)? != 0,
+            revision: row.get(7)?,
+        }),
+    ).optional().map_err(db_error)
+}
+
 fn load_environment(
     connection: &Connection,
     card_id: &str,
@@ -2930,6 +3748,7 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
         workflow_revision: row.get(16)?,
         project_id: row.get(17)?,
         environment: None,
+        creation_operation: None,
         created_at: row.get(18)?,
         updated_at: row.get(19)?,
         sort_order: row.get(20)?,
@@ -3469,7 +4288,7 @@ fn ensure_registered_distinct_worktree(target: &str, source: &str) -> Result<(),
             .any(|path| Path::new(path).canonicalize().ok().as_ref() == Some(&source))
     {
         return Err(format!(
-            "Setup result {} is not a distinct registered worktree; recover it manually",
+            "Setup result {} is not a distinct registered worktree",
             source.display()
         ));
     }
@@ -4443,6 +5262,26 @@ mod tests {
         assert_eq!(feature_environment_title("Title"), "[FE] Title");
         assert_eq!(feature_environment_title("[FE] Title"), "[FE] Title");
         assert_eq!(feature_environment_title("[FE] [FE] Title"), "[FE] Title");
+    }
+
+    #[test]
+    fn environment_creation_migration_persists_one_active_operation_per_card() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let card = local_card(&mut connection);
+        let insert = |connection: &Connection, id: &str| {
+            connection.execute(
+            "INSERT INTO environment_creation_operations (id,card_id,project_id,repository_id,expected_workflow_revision,target_checkout_path,target_branch,observed_target_revision,setup_command,phase,result_path,pre_worktrees,pre_branches,created_at,updated_at) VALUES (?1,?2,'project','repo',1,'/target','main','tip','setup','prepared','/result','[]','{}',1,1)",
+            params![id,card.id],
+        )
+        };
+        assert_eq!(insert(&connection, "operation:1").unwrap(), 1);
+        assert!(insert(&connection, "operation:2").is_err());
+        let operation = load_creation_operation(&connection, &card.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(operation.phase, "prepared");
+        assert_eq!(operation.revision, 1);
     }
 
     fn git_ok(path: &Path, args: &[&str]) {

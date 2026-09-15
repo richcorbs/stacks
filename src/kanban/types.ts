@@ -65,6 +65,17 @@ export type CardEnvironmentHealth = {
   issues: EnvironmentHealthIssue[];
 };
 
+export type EnvironmentCreationOperation = {
+  id: string;
+  phase: 'prepared' | 'setup_running' | 'setup_complete' | 'attaching' | 'compensation_pending' | 'recovery_required';
+  error: string | null;
+  source_path: string | null;
+  source_branch: string | null;
+  cleanup_available: boolean;
+  custom_command: boolean;
+  revision: number;
+};
+
 export type CardEvent = {
   id: number;
   created_at: number;
@@ -110,6 +121,7 @@ export type KanbanCard = {
   children: CardRelationshipSummary[];
   hierarchy_finalized: boolean;
   environment: CardEnvironment | null;
+  creation_operation?: EnvironmentCreationOperation | null;
   created_at: number;
   updated_at: number;
   sort_order: number;

@@ -7,7 +7,7 @@ import { useKanbanBoard } from '../kanban/useKanbanBoard';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
-import { approveAndCommitKanbanCard, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, refreshKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
+import { approveAndCommitKanbanCard, cleanupKanbanEnvironmentCreation, closeKanbanCard, createKanbanPullRequest, mergeKanbanCard, mergeKanbanPullRequest, refreshKanbanPullRequest, saveKanbanEnvironmentLayout } from '../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../kanban/workflowActions';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
@@ -616,9 +616,9 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             setSelectedCard(updated);
           }}
           onStartWork={async () => {
-            if (!await onStartWork(selectedCard.id)) return false;
+            const started = await onStartWork(selectedCard.id);
             await board.load();
-            return true;
+            return started;
           }}
           onCleanup={async (environmentRevision) => {
             const current = selectedCard.environment
@@ -1182,6 +1182,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
         case 'open_pr': if (card.pull_request?.url) await invoke('open_url', { url: card.pull_request.url }); return;
         case 'merge_pr': onCardUpdated(preserveRevisionValues(await mergeKanbanPullRequest(card.id, card.workflow_revision))); return;
         case 'cleanup': await onCleanup(environmentRevisionRef.current); return;
+        case 'cleanup_creation': onCardUpdated(await cleanupKanbanEnvironmentCreation(card.id)); return;
         case 'close': {
           const piPaneIds = new Set(card.environment?.panes.filter((pane) => pane.kind === 'pi').map((pane) => pane.id) ?? [cardPaneId(card.id, 'planning'), cardPaneId(card.id, 'work')]);
           await Promise.all([
@@ -1194,7 +1195,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
         case 'delete': await onDelete(); return;
       }
     }).then((started) => {
-      if (started && ['start_work', 'ship', 'ship_with_fe', 'merge_local', 'cleanup', 'close'].includes(action.kind)) {
+      if (started && ['start_work', 'ship', 'ship_with_fe', 'merge_local', 'cleanup', 'cleanup_creation', 'close'].includes(action.kind)) {
         window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
       }
     }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
@@ -1444,6 +1445,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
             working={working}
             actionError={actionError}
             mergedWithoutEnvironment={card.status === 'done' && !card.environment}
+            recoveryMessage={card.creation_operation?.error}
             onAction={performWorkflowAction}
           />}
         </footer>
