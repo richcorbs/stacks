@@ -79,6 +79,7 @@ pub struct CardEnvironment {
     target_revision: Option<String>,
     lifecycle_state: String,
     revision: i64,
+    layout_revision: i64,
     split_layout: serde_json::Value,
     focused_pane_id: Option<String>,
     panes: Vec<CardPane>,
@@ -1413,46 +1414,72 @@ pub fn kanban_save_environment_layout(
     split_layout: serde_json::Value,
     focused_pane_id: Option<String>,
     panes: Vec<CardPane>,
-    expected_revision: i64,
+    expected_layout_revision: i64,
 ) -> Result<KanbanCard, String> {
     with_connection(|connection| {
         validate_card_environment_project(connection, &id)?;
-        let transaction = connection.transaction().map_err(db_error)?;
-        let environment_id: String = transaction
-            .query_row(
-                "SELECT id FROM card_environments WHERE card_id = ?1 AND revision = ?2",
-                params![id, expected_revision],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db_error)?
-            .ok_or_else(|| {
-                "Card environment changed; reload before saving the layout".to_string()
-            })?;
-        transaction
-            .execute(
-                "DELETE FROM card_panes WHERE environment_id = ?1 AND role = 'shell'",
-                [&environment_id],
-            )
-            .map_err(db_error)?;
-        for (index, pane) in panes.into_iter().enumerate() {
-            transaction.execute(
-                "INSERT INTO card_panes (id, environment_id, role, kind, command, sort_order) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![pane.id, environment_id, pane.role, pane.kind, pane.command, index as i64],
-            ).map_err(db_error)?;
-        }
-        transaction.execute(
-            "UPDATE card_environments SET revision = revision + 1, updated_at = ?1 WHERE id = ?2",
-            params![unix_timestamp(), environment_id],
-        ).map_err(db_error)?;
-        transaction.execute(
-            "INSERT INTO card_layouts (environment_id, split_layout, focused_pane_id, updated_at) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(environment_id) DO UPDATE SET split_layout = excluded.split_layout, focused_pane_id = excluded.focused_pane_id, updated_at = excluded.updated_at",
-            params![environment_id, split_layout.to_string(), focused_pane_id, unix_timestamp()],
-        ).map_err(db_error)?;
-        transaction.commit().map_err(db_error)?;
+        save_environment_layout(
+            connection,
+            &id,
+            split_layout,
+            focused_pane_id,
+            panes,
+            expected_layout_revision,
+        )?;
         get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
+}
+
+fn save_environment_layout(
+    connection: &mut Connection,
+    card_id: &str,
+    split_layout: serde_json::Value,
+    focused_pane_id: Option<String>,
+    panes: Vec<CardPane>,
+    expected_layout_revision: i64,
+) -> Result<(), String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let environment_id: String = transaction
+        .query_row(
+            "SELECT id FROM card_environments WHERE card_id = ?1",
+            [card_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Card environment was not found".to_string())?;
+    let updated = transaction
+        .execute(
+            "UPDATE card_layouts
+             SET split_layout = ?1, focused_pane_id = ?2, layout_revision = layout_revision + 1, updated_at = ?3
+             WHERE environment_id = ?4 AND layout_revision = ?5",
+            params![
+                split_layout.to_string(),
+                focused_pane_id,
+                unix_timestamp(),
+                environment_id,
+                expected_layout_revision
+            ],
+        )
+        .map_err(db_error)?;
+    if updated != 1 {
+        return Err("Card layout changed; reload before saving the layout".to_string());
+    }
+    transaction
+        .execute(
+            "DELETE FROM card_panes WHERE environment_id = ?1 AND role = 'shell'",
+            [&environment_id],
+        )
+        .map_err(db_error)?;
+    for (index, pane) in panes.into_iter().enumerate() {
+        transaction.execute(
+            "INSERT INTO card_panes (id, environment_id, role, kind, command, sort_order) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![pane.id, environment_id, pane.role, pane.kind, pane.command, index as i64],
+        ).map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)
 }
 
 #[tauri::command]
@@ -2352,6 +2379,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             environment_id TEXT PRIMARY KEY REFERENCES card_environments(id) ON DELETE CASCADE,
             split_layout TEXT NOT NULL,
             focused_pane_id TEXT,
+            layout_revision INTEGER NOT NULL DEFAULT 1,
             updated_at INTEGER NOT NULL
          );
          CREATE TABLE IF NOT EXISTS card_events (
@@ -2457,6 +2485,30 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
         .query_map([], |row| row.get::<_, String>(1))
         .map_err(db_error)?
         .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    let layout_columns = connection
+        .prepare("PRAGMA table_info(card_layouts)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    if !layout_columns
+        .iter()
+        .any(|column| column == "layout_revision")
+    {
+        connection
+            .execute(
+                "ALTER TABLE card_layouts ADD COLUMN layout_revision INTEGER NOT NULL DEFAULT 1",
+                [],
+            )
+            .map_err(db_error)?;
+    }
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (52, unixepoch())",
+            [],
+        )
         .map_err(db_error)?;
     for (name, sql) in [
         (
@@ -2797,21 +2849,22 @@ fn load_environment(
         [card_id],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, Option<String>>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, String>(9)?, row.get::<_, i64>(10)?)),
     ).optional().map_err(db_error)? else { return Ok(None); };
-    let (split_layout, focused_pane_id) = connection
+    let (split_layout, focused_pane_id, layout_revision) = connection
         .query_row(
-            "SELECT split_layout, focused_pane_id FROM card_layouts WHERE environment_id = ?1",
+            "SELECT split_layout, focused_pane_id, layout_revision FROM card_layouts WHERE environment_id = ?1",
             [&id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)?)),
         )
         .optional()
         .map_err(db_error)?
-        .map(|(layout, focused)| {
+        .map(|(layout, focused, layout_revision)| {
             (
                 serde_json::from_str(&layout).unwrap_or(serde_json::json!({"kind":"empty"})),
                 focused,
+                layout_revision,
             )
         })
-        .unwrap_or((serde_json::json!({"kind":"empty"}), None));
+        .unwrap_or((serde_json::json!({"kind":"empty"}), None, 1));
     let mut pane_statement = connection.prepare("SELECT id, role, kind, command, sort_order FROM card_panes WHERE environment_id = ?1 ORDER BY sort_order").map_err(db_error)?;
     let panes = pane_statement
         .query_map([&id], |row| {
@@ -2839,6 +2892,7 @@ fn load_environment(
         target_revision,
         lifecycle_state,
         revision,
+        layout_revision,
         split_layout,
         focused_pane_id,
         panes,
@@ -4075,6 +4129,164 @@ mod tests {
         assert!(!is_local_kanban_source("superthread"));
     }
 
+    fn environment_with_layout(connection: &mut Connection, layout_revision: i64) {
+        local_card(connection);
+        connection.execute(
+            "INSERT INTO card_environments (id, card_id, project_id, worktree_path, branch, lifecycle_state, revision, created_at, updated_at)
+             VALUES ('environment:test', 'local:test', 'project', '/repo-card-1', 'stacks/card-1', 'ready', 4, 1, 11)", [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO card_panes (id, environment_id, role, kind, sort_order) VALUES ('pane:old', 'environment:test', 'shell', 'terminal', 0)", [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO card_layouts (environment_id, split_layout, focused_pane_id, layout_revision, updated_at)
+             VALUES ('environment:test', '{\"kind\":\"leaf\",\"terminalId\":\"pane:old\"}', 'pane:old', ?1, 1)",
+            [layout_revision],
+        ).unwrap();
+    }
+
+    #[test]
+    fn layout_revision_migration_preserves_existing_layout_and_panes() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        environment_with_layout(&mut connection, 7);
+        connection
+            .execute("ALTER TABLE card_layouts DROP COLUMN layout_revision", [])
+            .unwrap();
+
+        migrate(&connection).unwrap();
+
+        let layout: (String, Option<String>, i64) = connection.query_row(
+            "SELECT split_layout, focused_pane_id, layout_revision FROM card_layouts WHERE environment_id='environment:test'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert!(layout.0.contains("pane:old"));
+        assert_eq!(layout.1.as_deref(), Some("pane:old"));
+        assert_eq!(layout.2, 1);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM card_panes WHERE id='pane:old'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn layout_saves_are_atomic_and_independent_from_environment_revisions() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        environment_with_layout(&mut connection, 2);
+
+        save_environment_layout(
+            &mut connection,
+            "local:test",
+            serde_json::json!({"kind":"split","direction":"row","children":[{"kind":"leaf","terminalId":"pane:a"},{"kind":"leaf","terminalId":"pane:b"}]}),
+            Some("pane:b".into()),
+            vec![
+                CardPane { id: "pane:a".into(), role: "shell".into(), kind: "terminal".into(), command: None, sort_order: 0 },
+                CardPane { id: "pane:b".into(), role: "shell".into(), kind: "terminal".into(), command: None, sort_order: 1 },
+            ],
+            2,
+        ).unwrap();
+
+        let environment_state: (i64, i64) = connection
+            .query_row(
+                "SELECT revision, updated_at FROM card_environments WHERE id='environment:test'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(environment_state, (4, 11));
+        let loaded = get_card(&connection, "local:test")
+            .unwrap()
+            .unwrap()
+            .environment
+            .unwrap();
+        assert_eq!(loaded.revision, 4);
+        assert_eq!(loaded.layout_revision, 3);
+        assert_eq!(loaded.focused_pane_id.as_deref(), Some("pane:b"));
+        assert_eq!(
+            loaded
+                .panes
+                .iter()
+                .filter(|pane| pane.role == "shell")
+                .count(),
+            2
+        );
+
+        // A repository writer advances only the environment revision. The current
+        // layout revision remains valid, and a focus-only save leaves it untouched.
+        assert_eq!(connection.execute(
+            "UPDATE card_environments SET revision=revision+1 WHERE id='environment:test' AND revision=4",
+            [],
+        ).unwrap(), 1);
+        save_environment_layout(
+            &mut connection,
+            "local:test",
+            loaded.split_layout.clone(),
+            Some("pane:a".into()),
+            loaded.panes.clone(),
+            3,
+        )
+        .unwrap();
+        let revisions: (i64, i64) = connection.query_row(
+            "SELECT e.revision, l.layout_revision FROM card_environments e JOIN card_layouts l ON l.environment_id=e.id WHERE e.id='environment:test'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(revisions, (5, 4));
+
+        let before_stale: (String, Option<String>, i64) = connection.query_row(
+            "SELECT split_layout, focused_pane_id, layout_revision FROM card_layouts WHERE environment_id='environment:test'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        let stale_error = save_environment_layout(
+            &mut connection,
+            "local:test",
+            serde_json::json!({"kind":"leaf","terminalId":"pane:stale"}),
+            Some("pane:stale".into()),
+            vec![CardPane {
+                id: "pane:stale".into(),
+                role: "shell".into(),
+                kind: "terminal".into(),
+                command: None,
+                sort_order: 0,
+            }],
+            3,
+        )
+        .unwrap_err();
+        assert!(stale_error.contains("Card layout changed; reload"));
+        let after_stale: (String, Option<String>, i64) = connection.query_row(
+            "SELECT split_layout, focused_pane_id, layout_revision FROM card_layouts WHERE environment_id='environment:test'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(after_stale, before_stale);
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM card_panes WHERE environment_id='environment:test' AND role='shell'", [], |row| row.get::<_, i64>(0)).unwrap(), 2);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM card_panes WHERE id='pane:stale'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+
+        // Layout writes do not make a current repository revision stale.
+        assert_eq!(connection.execute(
+            "UPDATE card_environments SET lifecycle_state='cleanup_pending', revision=revision+1 WHERE id='environment:test' AND revision=5",
+            [],
+        ).unwrap(), 1);
+    }
+
     #[test]
     fn environment_aggregate_restores_layout_and_panes() {
         let mut connection = Connection::open_in_memory().unwrap();
@@ -4098,6 +4310,7 @@ mod tests {
             .unwrap();
         assert_eq!(environment.worktree_path, "/repo-card-1");
         assert_eq!(environment.revision, 4);
+        assert_eq!(environment.layout_revision, 1);
         assert_eq!(environment.panes[0].id, "pane:shell");
         assert_eq!(environment.split_layout["terminalId"], "pane:shell");
     }
