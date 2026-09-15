@@ -34,12 +34,13 @@ pub struct AppSettings {
     pub focused_terminal_border_color: Option<String>,
     #[serde(default)]
     pub maximized_terminal_border_color: Option<String>,
-    #[serde(default)]
-    pub superthread_workspace_slug: Option<String>,
-    #[serde(default)]
-    pub superthread_spaces: Option<String>,
-    #[serde(default)]
-    pub superthread_start_work_command: Option<String>,
+    // Read only for the one-time migration to project-owned configuration.
+    #[serde(default, skip_serializing)]
+    pub(crate) superthread_workspace_slug: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub(crate) superthread_spaces: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub(crate) superthread_start_work_command: Option<String>,
     #[serde(default)]
     pub superthread_enabled: Option<bool>,
     #[serde(default)]
@@ -62,9 +63,6 @@ impl AppSettings {
         self.editor_app = non_empty(next.editor_app);
         self.focused_terminal_border_color = non_empty(next.focused_terminal_border_color);
         self.maximized_terminal_border_color = non_empty(next.maximized_terminal_border_color);
-        self.superthread_workspace_slug = non_empty(next.superthread_workspace_slug);
-        self.superthread_spaces = non_empty(next.superthread_spaces);
-        self.superthread_start_work_command = non_empty(next.superthread_start_work_command);
         self.superthread_enabled = next.superthread_enabled;
         self.kanban_project_id = non_empty(next.kanban_project_id);
         self.kanban_done_collapsed = next.kanban_done_collapsed;

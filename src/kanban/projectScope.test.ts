@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../types';
 import type { KanbanCard } from './types';
-import { buildFilteredLaneReorder, canManuallySyncSuperthread, cardCreationAvailability, cardCreationProjects, filterKanbanCards, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from './projectScope';
+import { buildFilteredLaneReorder, cardCreationAvailability, cardCreationProjects, filterKanbanCards, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, superthreadSyncAvailability, uniqueSuperthreadProject } from './projectScope';
 
 const projects: Project[] = [project('one'), project('two')];
 
@@ -37,7 +37,7 @@ describe('cross-project Kanban scope', () => {
   });
 
   it('offers local destinations plus one enabled Superthread destination', () => {
-    const remote = { ...project('remote'), kanban_source: 'superthread' as const };
+    const remote = { ...project('remote'), kanban_source: 'superthread' as const, superthread_spaces: 'Product' };
     expect(cardCreationProjects([...projects, remote], false)).toEqual(projects);
     expect(cardCreationProjects([...projects, remote], true)).toEqual([...projects, remote]);
     expect(cardCreationProjects([...projects, remote, { ...remote, id: 'other' }], true)).toEqual(projects);
@@ -54,6 +54,9 @@ describe('cross-project Kanban scope', () => {
     const filtered = cardCreationAvailability([...projects, remote], remote, false);
     expect(filtered.disabled).toBe(true);
     expect(filtered.title).toMatch(/Enable the Superthread integration/);
+    const missingSpaces = cardCreationAvailability([...projects, remote], remote, true);
+    expect(missingSpaces.disabled).toBe(true);
+    expect(missingSpaces.title).toMatch(/Configure Superthread spaces/);
     const allProjects = cardCreationAvailability([...projects, remote], null, false);
     expect(allProjects.disabled).toBe(false);
     expect(allProjects.destinations).toEqual(projects);
@@ -61,33 +64,30 @@ describe('cross-project Kanban scope', () => {
 });
 
 describe('manual Superthread sync visibility', () => {
-  const remote = { ...project('remote'), kanban_source: 'superthread' as const };
+  const remote = { ...project('remote'), kanban_source: 'superthread' as const, superthread_spaces: 'Product' };
 
-  it('is available for all projects with one Superthread owner', () => {
-    const owner = uniqueSuperthreadProject([...projects, remote]).project;
-    expect(canManuallySyncSuperthread(true, owner, null)).toBe(true);
-  });
-
-  it('is available when the Superthread owner is selected', () => {
-    expect(canManuallySyncSuperthread(true, remote, remote.id)).toBe(true);
-  });
-
-  it('is hidden when a local project is selected', () => {
-    expect(canManuallySyncSuperthread(true, remote, projects[0].id)).toBe(false);
-  });
-
-  it('is hidden with no Superthread owner', () => {
-    expect(canManuallySyncSuperthread(true, uniqueSuperthreadProject(projects).project, null)).toBe(false);
-  });
-
-  it('is hidden with multiple Superthread owners', () => {
-    const otherRemote = { ...remote, id: 'other-remote' };
-    const owner = uniqueSuperthreadProject([...projects, remote, otherRemote]).project;
-    expect(canManuallySyncSuperthread(true, owner, null)).toBe(false);
+  it('is enabled globally or for the selected owner and hidden for a selected local project', () => {
+    const resolution = uniqueSuperthreadProject([...projects, remote]);
+    expect(superthreadSyncAvailability(true, resolution, null)).toEqual({ visible: true, disabled: false });
+    expect(superthreadSyncAvailability(true, resolution, remote.id)).toEqual({ visible: true, disabled: false });
+    expect(superthreadSyncAvailability(true, resolution, projects[0].id).visible).toBe(false);
   });
 
   it('is hidden when the integration is disabled', () => {
-    expect(canManuallySyncSuperthread(false, remote, null)).toBe(false);
+    expect(superthreadSyncAvailability(false, uniqueSuperthreadProject([...projects, remote]), null).visible).toBe(false);
+  });
+
+  it('stays visible but disabled with actionable missing configuration reasons', () => {
+    const noOwner = superthreadSyncAvailability(true, uniqueSuperthreadProject(projects), null);
+    expect(noOwner.visible).toBe(true);
+    expect(noOwner.disabled).toBe(true);
+    expect(noOwner.title).toMatch(/exactly one project/);
+    const missingSpaces = { ...remote, superthread_spaces: '  ' };
+    const unconfigured = superthreadSyncAvailability(true, uniqueSuperthreadProject([...projects, missingSpaces]), null);
+    expect(unconfigured.visible).toBe(true);
+    expect(unconfigured.disabled).toBe(true);
+    expect(unconfigured.title).toMatch(/Configure Superthread spaces on Project remote/);
+    expect(superthreadSyncAvailability(true, uniqueSuperthreadProject([...projects, remote]), null)).toEqual({ visible: true, disabled: false });
   });
 });
 

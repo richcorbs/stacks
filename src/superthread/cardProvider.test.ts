@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { superthreadCardProvider } from './cardProvider';
-import { createSuperthreadCard } from './api';
+import { superthreadIntegration } from './cardProvider';
+import { createSuperthreadCard, fetchSuperthreadBoards, fetchSuperthreadCards, fetchSuperthreadLists } from './api';
 
 vi.mock('./api', () => ({
   createSuperthreadCard: vi.fn(),
@@ -11,9 +11,14 @@ vi.mock('./api', () => ({
 }));
 
 const createMock = vi.mocked(createSuperthreadCard);
+const boardsMock = vi.mocked(fetchSuperthreadBoards);
+const cardsMock = vi.mocked(fetchSuperthreadCards);
+const listsMock = vi.mocked(fetchSuperthreadLists);
 
 describe('Superthread card provider creation', () => {
-  beforeEach(() => createMock.mockReset());
+  beforeEach(() => {
+    createMock.mockReset(); boardsMock.mockReset(); cardsMock.mockReset(); listsMock.mockReset();
+  });
 
   it('creates in configured scope and maps a complete managed sync snapshot', async () => {
     createMock.mockResolvedValue({
@@ -29,7 +34,7 @@ describe('Superthread card provider creation', () => {
       card_url: 'https://app.superthread.com/example/card-48',
     });
 
-    await expect(superthreadCardProvider('Product, Engineering', 'example').create?.('New card', 'Detailed brief')).resolves.toEqual({
+    await expect(superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product, Engineering', workspaceSlug: 'example' }).create('New card', 'Detailed brief')).resolves.toEqual({
       id: '48',
       title: 'New card',
       content: 'Detailed brief',
@@ -49,6 +54,43 @@ describe('Superthread card provider creation', () => {
       workspaceSlug: 'example',
       title: 'New card',
       content: 'Detailed brief',
+    });
+  });
+
+  it('returns successful board data and conservative coverage for a partial snapshot', async () => {
+    boardsMock.mockResolvedValue({
+      boards: [{ id: 'good', title: 'Dev - Active' }, { id: 'bad', title: 'Roadmap' }],
+      successful_space_ids: ['space-1'], warnings: [], complete: true,
+    });
+    listsMock.mockImplementation(async (boardId) => {
+      if (boardId === 'bad') throw new Error('list access denied');
+      return [{ id: 'doing', title: 'Doing', behavior: 'started' }];
+    });
+    cardsMock.mockImplementation(async (boardId) => boardId === 'good' ? [{
+      id: '1', title: 'Fetched', content: null, board_id: 'good', board_title: 'Dev - Active',
+      list_id: 'doing', list_title: '', total_comments: 0, assignee_names: [], card_url: '',
+    }] : [{
+      id: '2', title: 'Still fetched', content: '', board_id: 'bad', board_title: 'Roadmap',
+      list_id: 'done', list_title: 'Done', total_comments: 0, assignee_names: [], card_url: '',
+    }, {
+      id: '3', title: 'Unknown list', content: null, board_id: 'bad', board_title: 'Roadmap',
+      list_id: 'unknown', list_title: '', total_comments: 0, assignee_names: [], card_url: '',
+    }]);
+
+    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync();
+    expect(snapshot.cards).toHaveLength(3);
+    expect(snapshot.cards[0]).toMatchObject({ id: '1', content: null, in_scope: true });
+    expect(snapshot.cards[1]).toMatchObject({ id: '2', content: '', in_scope: false });
+    expect(snapshot.cards[2]).toMatchObject({ id: '3', in_scope: null });
+    expect(snapshot.successful_board_ids).toEqual(['good']);
+    expect(snapshot.failed_scopes).toEqual([{ scope: 'board:bad:lists', message: 'list access denied' }]);
+    expect(snapshot.complete).toBe(false);
+  });
+
+  it('classifies a fully discovered empty snapshot as complete', async () => {
+    boardsMock.mockResolvedValue({ boards: [], successful_space_ids: ['space-1'], warnings: [], complete: true });
+    await expect(superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync()).resolves.toMatchObject({
+      cards: [], successful_scope_ids: ['space-1'], successful_board_ids: [], failed_scopes: [], complete: true,
     });
   });
 });

@@ -47,9 +47,6 @@ export function SettingsDialog({ settings, onChange, onClose }: {
       editor_app: draft.editor_app.trim() || DEFAULT_APP_SETTINGS.editor_app,
       focused_terminal_border_color: normalizeColor(draft.focused_terminal_border_color, DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR),
       maximized_terminal_border_color: normalizeColor(draft.maximized_terminal_border_color, DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR),
-      superthread_workspace_slug: draft.superthread_workspace_slug.trim(),
-      superthread_spaces: draft.superthread_spaces.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
-      superthread_start_work_command: draft.superthread_start_work_command.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
     });
     onClose();
   }
@@ -92,39 +89,9 @@ export function SettingsDialog({ settings, onChange, onClose }: {
               checked={draft.superthread_enabled}
               onChange={(event) => update({ superthread_enabled: event.target.checked })}
             />
-            Show Superthread tab
+            Enable Superthread integration
           </label>
-          <label>
-            Spaces to include <span>comma-separated</span>
-            <input
-              value={draft.superthread_spaces}
-              placeholder="Product & Engineering"
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => update({ superthread_spaces: event.target.value })}
-            />
-          </label>
-          <label>
-            Start-work command
-            <input
-              value={draft.superthread_start_work_command}
-              placeholder="stwork {card_number}"
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => update({ superthread_start_work_command: event.target.value })}
-            />
-          </label>
-          <div className="settingsHint">Available placeholders: {'{card_number}'}, {'{card_title}'}</div>
-          <label>
-            Superthread URL slug <span>optional</span>
-            <input
-              value={draft.superthread_workspace_slug}
-              placeholder="arcasa"
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => update({ superthread_workspace_slug: event.target.value })}
-            />
-          </label>
+          <div className="settingsHint">Spaces, URL slug, and start-work command are configured on the owning project.</div>
         </section>
         <div className="modalActions">
           <button type="button" onClick={onClose}>Cancel</button>

@@ -16,8 +16,6 @@ export function AppLayout({ appStyle, main, overlays }: {
         terminalFontFamily={main.appSettings.terminal_font_family}
         terminalScrollback={main.appSettings.terminal_scrollback}
         copyOnSelect={main.appSettings.copy_on_select}
-        superthreadSpaces={main.appSettings.superthread_spaces}
-        superthreadWorkspaceSlug={main.appSettings.superthread_workspace_slug}
         superthreadEnabled={main.appSettings.superthread_enabled}
         selectedProjectId={main.appSettings.kanban_project_id}
         onSelectProject={main.setKanbanProjectId}

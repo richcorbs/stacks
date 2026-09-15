@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, lifecycleProjectionRule, matchesRefreshSnapshot, mergeChangedKanbanCard, performKanbanLoad, recoverKanbanReorderCards, shouldRestoreUiRequestCard } from './useKanbanBoard';
-import type { CardProviderAdapter, KanbanCard, KanbanSyncCard } from './types';
+import type { KanbanCard, KanbanSyncCard, SuperthreadIntegration } from './types';
 import type { Project } from '../types';
 
 function card(id: string, title: string): KanbanCard {
@@ -154,7 +154,7 @@ describe('Kanban card loading', () => {
 
 describe('Kanban card creation', () => {
   const localProject: Project = { id: 'p1', name: 'Local', path: '/local', workspaces: [] };
-  const remoteProject: Project = { id: 'remote', name: 'Remote', path: '/remote', workspaces: [], kanban_source: 'superthread' };
+  const remoteProject: Project = { id: 'remote', name: 'Remote', path: '/remote', workspaces: [], kanban_source: 'superthread', superthread_spaces: 'Product' };
   const snapshot: KanbanSyncCard = {
     id: '48', title: 'Remote card', content: 'Brief', board_id: 'board', board_title: 'Dev - Active',
     list_id: 'backlog', list_title: 'Backlog', card_url: 'https://example/card-48', assignee_names: [], in_scope: true,
@@ -173,19 +173,20 @@ describe('Kanban card creation', () => {
 
   it('dispatches remote creation and returns the imported card', async () => {
     const created = { ...card('superthread:48', 'Remote card'), provider: 'superthread' as const, external_id: '48', project_id: 'remote' };
-    const provider: CardProviderAdapter = { kind: 'superthread', sync: async () => ({ cards: [], warnings: [] }), create: async () => snapshot };
+    const provider: SuperthreadIntegration = { kind: 'superthread', ownerProjectId: 'remote', sync: async () => ({ cards: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }), create: async () => snapshot, load: async () => null };
     const result = await createKanbanCardForProject(remoteProject, ' Remote card ', 'Brief', provider, {
       createLocal: async () => { throw new Error('unexpected local create'); },
-      persistSuperthread: async (cards) => { expect(cards).toEqual([snapshot]); return [created]; },
+      persistSuperthread: async (ownerProjectId, received) => { expect(ownerProjectId).toBe('remote'); expect(received.cards).toEqual([snapshot]); expect(received.complete).toBe(false); return [created]; },
     });
     expect(result).toEqual({ card: created, persistedCards: [created] });
   });
 
   it('reports remote partial success without retrying creation', async () => {
     let creates = 0;
-    const provider: CardProviderAdapter = {
-      kind: 'superthread', sync: async () => ({ cards: [], warnings: [] }),
-      create: async () => { creates += 1; return snapshot; },
+    const provider: SuperthreadIntegration = {
+      kind: 'superthread', ownerProjectId: 'remote',
+      sync: async () => ({ cards: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }),
+      create: async () => { creates += 1; return snapshot; }, load: async () => null,
     };
     await expect(createKanbanCardForProject(remoteProject, 'Remote', '', provider, {
       createLocal: async () => { throw new Error('unexpected'); },

@@ -16,5 +16,8 @@ describe('settings model', () => {
     expect(persisted).not.toHaveProperty('sidebar_width');
     expect(persisted).not.toHaveProperty('developer_services_visible');
     expect(persisted).not.toHaveProperty('active_workspace_id');
+    expect(persisted).not.toHaveProperty('superthread_spaces');
+    expect(persisted).not.toHaveProperty('superthread_workspace_slug');
+    expect(persisted).not.toHaveProperty('superthread_start_work_command');
   });
 });

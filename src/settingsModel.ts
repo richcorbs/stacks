@@ -27,9 +27,6 @@ export type ResolvedAppSettings = {
   editor_app: string;
   focused_terminal_border_color: string;
   maximized_terminal_border_color: string;
-  superthread_workspace_slug: string;
-  superthread_spaces: string;
-  superthread_start_work_command: string;
   superthread_enabled: boolean;
   kanban_project_id: string | null;
   kanban_done_collapsed: boolean;
@@ -46,9 +43,6 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   editor_app: DEFAULT_EDITOR_APP,
   focused_terminal_border_color: DEFAULT_FOCUSED_TERMINAL_BORDER_COLOR,
   maximized_terminal_border_color: DEFAULT_MAXIMIZED_TERMINAL_BORDER_COLOR,
-  superthread_workspace_slug: '',
-  superthread_spaces: 'Product & Engineering',
-  superthread_start_work_command: 'stwork {card_number}',
   superthread_enabled: true,
   kanban_project_id: null,
   kanban_done_collapsed: true,
@@ -66,9 +60,6 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     editor_app: settings?.editor_app?.trim() || DEFAULT_APP_SETTINGS.editor_app,
     focused_terminal_border_color: normalizeColor(settings?.focused_terminal_border_color, DEFAULT_APP_SETTINGS.focused_terminal_border_color),
     maximized_terminal_border_color: normalizeColor(settings?.maximized_terminal_border_color, DEFAULT_APP_SETTINGS.maximized_terminal_border_color),
-    superthread_workspace_slug: settings?.superthread_workspace_slug?.trim() || '',
-    superthread_spaces: settings?.superthread_spaces?.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
-    superthread_start_work_command: settings?.superthread_start_work_command?.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
     superthread_enabled: settings?.superthread_enabled ?? DEFAULT_APP_SETTINGS.superthread_enabled,
     kanban_project_id: settings?.kanban_project_id?.trim() || null,
     kanban_done_collapsed: settings?.kanban_done_collapsed ?? DEFAULT_APP_SETTINGS.kanban_done_collapsed,
@@ -87,9 +78,6 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     editor_app: settings.editor_app.trim() || DEFAULT_APP_SETTINGS.editor_app,
     focused_terminal_border_color: normalizeColor(settings.focused_terminal_border_color, DEFAULT_APP_SETTINGS.focused_terminal_border_color),
     maximized_terminal_border_color: normalizeColor(settings.maximized_terminal_border_color, DEFAULT_APP_SETTINGS.maximized_terminal_border_color),
-    superthread_workspace_slug: settings.superthread_workspace_slug.trim() || null,
-    superthread_spaces: settings.superthread_spaces.trim() || DEFAULT_APP_SETTINGS.superthread_spaces,
-    superthread_start_work_command: settings.superthread_start_work_command.trim() || DEFAULT_APP_SETTINGS.superthread_start_work_command,
     superthread_enabled: settings.superthread_enabled,
     kanban_project_id: settings.kanban_project_id?.trim() || null,
     kanban_done_collapsed: settings.kanban_done_collapsed,

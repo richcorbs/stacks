@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, SuperthreadSnapshot } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
@@ -32,8 +32,8 @@ export function deleteKanbanCard(id: string) {
   return invoke<BoardChange>('kanban_delete_card', { id });
 }
 
-export function syncKanbanCards(cards: KanbanSyncCard[]) {
-  return invoke<BoardSnapshot>('kanban_sync_superthread_cards', { cards });
+export function syncKanbanCards(ownerProjectId: string, snapshot: SuperthreadSnapshot) {
+  return invoke<BoardSnapshot>('kanban_sync_superthread_cards', { ownerProjectId, snapshot });
 }
 
 export function setKanbanStatus(id: string, status: KanbanStatus, expectedRevision: number, actor: 'user' | 'agent' = 'user') {

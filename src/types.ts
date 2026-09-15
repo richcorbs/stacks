@@ -13,6 +13,8 @@ export type Project = {
   workspaces?: WorkspaceEntry[];
   kanban_source?: 'superthread' | 'local';
   start_work_command?: string;
+  superthread_spaces?: string;
+  superthread_workspace_slug?: string;
   server_command?: string;
   console_command?: string;
   delivery_workflow?: DeliveryWorkflow;
@@ -56,9 +58,6 @@ export type AppSettings = {
   editor_app?: string | null;
   focused_terminal_border_color?: string | null;
   maximized_terminal_border_color?: string | null;
-  superthread_workspace_slug?: string | null;
-  superthread_spaces?: string | null;
-  superthread_start_work_command?: string | null;
   superthread_enabled?: boolean | null;
   kanban_project_id?: string | null;
   kanban_done_collapsed?: boolean | null;
@@ -92,7 +91,7 @@ export type TerminalSession = {
   pendingInitialInputCleanup?: () => void;
 };
 
-type ProjectDialogSettings = { name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean };
+type ProjectDialogSettings = { name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; superthreadSpaces?: string; superthreadWorkspaceSlug?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean };
 export type DialogState =
   | ({ kind: 'project' } & ProjectDialogSettings)
   | ({ kind: 'editProject'; projectId: string } & ProjectDialogSettings);

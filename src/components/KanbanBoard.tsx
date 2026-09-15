@@ -32,8 +32,8 @@ import { clearOneTimeStartupCommand, disposeTerminalSession, getTerminalSession,
 import { buildOneTimeCommandScript } from '../oneTimeCommand';
 import { CARD_TERMINAL_COMMAND_EVENT, publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
 import { insertTemporaryPane, temporaryPaneCwd, type TemporaryPaneRun } from '../cardTerminalState';
-import { superthreadCardProvider } from '../superthread/cardProvider';
-import { buildFilteredLaneReorder, canManuallySyncSuperthread, cardCreationAvailability, filterKanbanCards, localKanbanProjects, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from '../kanban/projectScope';
+import { superthreadIntegration } from '../superthread/cardProvider';
+import { buildFilteredLaneReorder, cardCreationAvailability, filterKanbanCards, localKanbanProjects, owningProject, preselectedCardProject, resolveKanbanProjectFilter, superthreadSyncAvailability, uniqueSuperthreadProject } from '../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
 import { ProjectSwitcherDialog } from './ProjectSwitcherDialog';
 import { AsyncButtonLabel } from './AsyncButtonLabel';
@@ -55,9 +55,7 @@ import { LayoutSaveCoordinator, type LayoutSaveSnapshot } from '../kanban/layout
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
 
-export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, projects, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: {
-  spaces: string;
-  workspaceSlug: string;
+export function KanbanBoard({ superthreadEnabled, projects, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: {
   superthreadEnabled: boolean;
   projects: Project[];
   selectedProjectId: string | null;
@@ -75,12 +73,16 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
   const superthreadOwner = uniqueSuperthreadProject(projects);
-  const provider = useMemo(
-    () => superthreadEnabled && superthreadOwner.project ? superthreadCardProvider(spaces, workspaceSlug) : null,
-    [spaces, superthreadEnabled, superthreadOwner.project?.id, workspaceSlug],
-  );
+  const provider = useMemo(() => {
+    const owner = superthreadOwner.project;
+    return superthreadEnabled && owner?.superthread_spaces?.trim() ? superthreadIntegration({
+      ownerProjectId: owner.id,
+      spaces: owner.superthread_spaces,
+      workspaceSlug: owner.superthread_workspace_slug,
+    }) : null;
+  }, [superthreadEnabled, superthreadOwner.project]);
   const board = useKanbanBoard(provider);
-  const showSuperthreadSync = canManuallySyncSuperthread(superthreadEnabled, superthreadOwner.project, filterProjectId);
+  const syncAvailability = superthreadSyncAvailability(superthreadEnabled, superthreadOwner, filterProjectId);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct'>('filter');
   const [newCardOpen, setNewCardOpen] = useState(false);
@@ -406,7 +408,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
               setProjectSwitcherOpen(true);
             }
           }}>Direct project work</button>
-          {showSuperthreadSync && <button type="button" disabled={board.syncing} onClick={() => board.sync(true)}>
+          {syncAvailability.visible && <button type="button" title={syncAvailability.title} disabled={board.syncing || syncAvailability.disabled} onClick={() => board.sync(true)}>
             <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
           </button>}
         </div>
