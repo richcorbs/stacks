@@ -39,6 +39,9 @@ describe('CardPullRequestLink', () => {
 
   it.each([
     ['open ready', pullRequest(), 'openReady', 'Open and ready to merge', 'open and ready to merge'],
+    ['open with pending CI as its only blocker', pullRequest({ ci_status: 'pending', blockers: ['CI is pending'] }), 'openPending', 'Open, CI running', 'open, CI running'],
+    ['open with pending CI and no blockers', pullRequest({ ci_status: 'pending' }), 'openPending', 'Open, CI running', 'open, CI running'],
+    ['open with pending CI and another blocker', pullRequest({ ci_status: 'pending', blockers: ['CI is pending', 'Pull request is a draft'] }), 'openBlocked', 'Open with blockers: CI is pending; Pull request is a draft', 'open with blockers: CI is pending; Pull request is a draft'],
     ['open blocked', pullRequest({ blockers: ['CI is failing', 'Changes requested'] }), 'openBlocked', 'Open with blockers: CI is failing; Changes requested', 'open with blockers: CI is failing; Changes requested'],
     ['merged', pullRequest({ state: 'merged' }), 'merged', 'Merged', 'merged'],
     ['closed', pullRequest({ state: 'closed' }), 'closed', 'Closed without merging', 'closed without merging'],
