@@ -66,7 +66,7 @@ export type PiRpcEvent = PiResponseEvent | {
   [key: string]: unknown;
 };
 
-export type PiRpcEnvelope = { pane_id: string; generation: string; event: PiRpcEvent };
+export type PiRpcEnvelope = { pane_id: string; generation: string; event_id: string; event_order: number; event: PiRpcEvent };
 
 export type PiSessionContext = {
   modelName: string;

@@ -14,7 +14,7 @@ function card(id: string, status: KanbanCard['status'] = 'agent_working', enviro
       target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready', revision: 1,
       layout_revision: 1, split_layout: { kind: 'empty' }, focused_pane_id: null, panes: [],
     } : null,
-    created_at: 1, updated_at: 1, sort_order: 0, events: [],
+    created_at: 1, updated_at: 1, sort_order: 0, events: [], capabilities: [],
   };
 }
 
