@@ -1079,7 +1079,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .diffTreeRow:hover { background: #1a2735; color: #d3dce7; }
 .diffTreeRow:disabled { cursor: wait; opacity: .65; }
 .diffFolderRow { color: #a0afbf; }
-.diffTreeName { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--ui-font-delta, 0px)); }
+.diffTreeName { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--ui-font-delta, 0px)); text-transform: none; }
 .diffFileStatus { flex: 0 0 18px; font: calc(10px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 .diffCommentCount { min-width: 17px; padding: 1px 4px; border-radius: 8px; background: #26394c; color: #91abc4; font: calc(9px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 .diffReviewedMark { color: #55b478; font-size: calc(9px + var(--ui-font-delta, 0px)); }
