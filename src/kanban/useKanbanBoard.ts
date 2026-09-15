@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
-import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
+import { createLocalKanbanCard, deleteKanbanCard, fetchKanbanCards, isKanbanReorderConflict, openKanbanCard, reorderKanbanCards, setKanbanProject, setKanbanStatus, syncKanbanCards, updateLocalKanbanCard } from './api';
 import type { CardProviderAdapter, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
 import type { Project } from '../types';
 import { KanbanSyncRequestGate } from './syncRequestGate';
@@ -214,16 +214,22 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     setCards((current) => current.filter((card) => card.id !== id));
   }
 
-  async function reorder(status: KanbanStatus, cardIds: string[]) {
-    const previous = cards;
+  async function reorder(status: KanbanStatus, expectedCardIds: string[], cardIds: string[]) {
+    const previous = cardsRef.current;
     const positions = new Map(cardIds.map((id, index) => [id, index]));
-    setCards((current) => current.map((card) => card.status === status && positions.has(card.id)
+    const optimistic = previous.map((card) => card.status === status && positions.has(card.id)
       ? { ...card, sort_order: positions.get(card.id)! }
-      : card));
+      : card);
+    cardsRef.current = optimistic;
+    setCards(optimistic);
     try {
-      setCards(await reorderKanbanCards(status, cardIds));
+      const reordered = await reorderKanbanCards(status, expectedCardIds, cardIds);
+      cardsRef.current = reordered;
+      setCards(reordered);
     } catch (reorderError) {
-      setCards(previous);
+      const recovered = await recoverKanbanReorderCards(reorderError, previous, fetchKanbanCards);
+      cardsRef.current = recovered;
+      setCards(recovered);
       setError(errorMessage(reorderError));
       throw reorderError;
     }
@@ -361,6 +367,19 @@ export async function performKanbanLoad({ initial, fetchCards, setCards, setErro
       setLoading(false);
       setInitialLoadComplete(true);
     }
+  }
+}
+
+export async function recoverKanbanReorderCards(
+  error: unknown,
+  previous: KanbanCard[],
+  fetchCards: () => Promise<KanbanCard[]>,
+) {
+  if (!isKanbanReorderConflict(error)) return previous;
+  try {
+    return await fetchCards();
+  } catch {
+    return previous;
   }
 }
 

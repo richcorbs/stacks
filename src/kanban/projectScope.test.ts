@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../types';
 import type { KanbanCard } from './types';
-import { canManuallySyncSuperthread, cardCreationAvailability, cardCreationProjects, filterKanbanCards, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from './projectScope';
+import { buildFilteredLaneReorder, canManuallySyncSuperthread, cardCreationAvailability, cardCreationProjects, filterKanbanCards, mergeFilteredLaneOrder, owningProject, preselectedCardProject, resolveKanbanProjectFilter, uniqueSuperthreadProject } from './projectScope';
 
 const projects: Project[] = [project('one'), project('two')];
 
@@ -20,9 +20,13 @@ describe('cross-project Kanban scope', () => {
     expect(owningProject(card('orphan', 'missing'), projects)).toBeNull();
   });
 
-  it('preserves hidden slots and relative order during filtered reordering', () => {
+  it('preserves hidden slots and separately captures the complete expected and desired orders', () => {
     const cards = [card('a', 'one'), card('hidden-1', 'two'), card('b', 'one'), card('hidden-2', 'two')];
     expect(mergeFilteredLaneOrder(cards, 'ready', ['b', 'a'])).toEqual(['b', 'hidden-1', 'a', 'hidden-2']);
+    expect(buildFilteredLaneReorder(cards, 'ready', ['b', 'a'])).toEqual({
+      expectedCardIds: ['a', 'hidden-1', 'b', 'hidden-2'],
+      cardIds: ['b', 'hidden-1', 'a', 'hidden-2'],
+    });
   });
 
   it('requires exactly one Superthread owner', () => {
