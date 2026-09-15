@@ -3,6 +3,7 @@ use crate::{
     pi_rpc::{delete_pi_session_impl, PiRpcRegistry},
     pty::kill_ptys,
     pty_cwd::PtyRegistry,
+    repository_coordinator,
     workspace_setup::{run_workspace_setup_durable, WorkspaceSetupState},
 };
 mod workflow;
@@ -23,7 +24,6 @@ use workflow::{
     WorkflowEventOutcome,
 };
 
-static REPOSITORY_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static BOARD_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static DATABASE_INITIALIZATION: OnceLock<Result<(), String>> = OnceLock::new();
@@ -2027,6 +2027,90 @@ pub struct WorkflowOperationResult {
     idempotent: bool,
 }
 
+fn card_repository_identity(card_id: &str, require_environment: bool) -> Result<PathBuf, String> {
+    with_connection(|connection| {
+        let snapshot: (String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) = connection
+            .query_row(
+                "SELECT c.project_id,p.path,e.project_id,e.worktree_path,e.repository_id,e.target_checkout_path,o.repository_id,o.target_checkout_path,o.source_path
+                 FROM kanban_cards c JOIN projects p ON p.id=c.project_id
+                 LEFT JOIN card_environments e ON e.card_id=c.id
+                 LEFT JOIN environment_creation_operations o ON o.card_id=c.id WHERE c.id=?1",
+                [card_id],
+                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?)),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| "The card's owning project no longer exists".to_string())?;
+        let (
+            card_project,
+            project_path,
+            environment_project,
+            source_path,
+            recorded_repository,
+            target_path,
+            creation_repository,
+            creation_target,
+            creation_source,
+        ) = snapshot;
+        if require_environment && source_path.is_none() {
+            return Err("This card has no repository environment".to_string());
+        }
+        if environment_project
+            .as_deref()
+            .is_some_and(|project| project != card_project)
+        {
+            return Err("The card/environment project mismatch blocks this operation".to_string());
+        }
+        let identity = repository_coordinator::repository_identity(&project_path)?;
+        let expected = identity.to_string_lossy();
+        for recorded in [
+            recorded_repository.as_deref(),
+            creation_repository.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if recorded != expected {
+                return Err(
+                    "Recorded repository metadata does not match the project repository"
+                        .to_string(),
+                );
+            }
+        }
+        for (label, path) in [
+            ("source", source_path.as_deref()),
+            ("target", target_path.as_deref()),
+            ("creation target", creation_target.as_deref()),
+            ("creation source", creation_source.as_deref()),
+        ] {
+            if let Some(path) = path.filter(|path| !path.trim().is_empty()) {
+                if repository_coordinator::repository_identity(path)? != identity {
+                    return Err(format!(
+                        "The {label} checkout belongs to a different repository"
+                    ));
+                }
+            }
+        }
+        Ok(identity)
+    })
+}
+
+fn coordinate_card_repository<T>(
+    card_id: &str,
+    require_environment: bool,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let identity = card_repository_identity(card_id, require_environment)?;
+    repository_coordinator::global().coordinate(&identity, || {
+        if card_repository_identity(card_id, require_environment)? != identity {
+            return Err(
+                "The card repository changed while the operation was waiting; retry".to_string(),
+            );
+        }
+        operation()
+    })
+}
+
 fn persist_validated_source(
     op: &CreationOperationRow,
     reported: Option<&str>,
@@ -2514,52 +2598,53 @@ pub async fn kanban_start_environment(
     custom_command: bool,
     explicit_retry: Option<bool>,
 ) -> Result<KanbanCard, String> {
-    let cancelled = state.begin();
-    tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .map_err(|_| "Repository operation lock failed".to_string())?;
-        run_environment_creation(
-            id,
-            expected_workflow_revision,
-            setup_command,
-            custom_command,
-            explicit_retry.unwrap_or(false),
-            &cancelled,
-        )
+    let operation_id = format!("environment:{id}");
+    let cancelled = state.begin(&operation_id)?;
+    let worker_cancelled = std::sync::Arc::clone(&cancelled);
+    let worker_id = id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        coordinate_card_repository(&worker_id, false, || {
+            run_environment_creation(
+                worker_id.clone(),
+                expected_workflow_revision,
+                setup_command,
+                custom_command,
+                explicit_retry.unwrap_or(false),
+                &worker_cancelled,
+            )
+        })
     })
     .await
-    .map_err(|error| format!("Environment creation worker failed: {error}"))?
+    .map_err(|error| format!("Environment creation worker failed: {error}"))?;
+    state.finish(&operation_id, &cancelled);
+    result
 }
 
 #[tauri::command]
 pub async fn kanban_cleanup_environment_creation(id: String) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .map_err(|_| "Repository operation lock failed".to_string())?;
-        let op = with_connection(|connection| {
-            require_structural_capability(connection, &id, WorkflowAction::CleanupCreation)?;
-            load_creation_operation_row(connection, &id)
-        })?
-        .ok_or_else(|| "No environment creation recovery is pending".to_string())?;
-        if !op.source_worktree_new {
-            return Err(
-                "Cleanup is unavailable because ownership of the source worktree is not proven"
-                    .to_string(),
-            );
-        }
-        update_creation_phase(
-            &id,
-            "compensation_pending",
-            op.source_path
-                .as_ref()
-                .map(|_| "User requested recovery cleanup"),
-            true,
-        )?;
-        compensate_creation(&op)
+        coordinate_card_repository(&id, false, || {
+            let op = with_connection(|connection| {
+                require_structural_capability(connection, &id, WorkflowAction::CleanupCreation)?;
+                load_creation_operation_row(connection, &id)
+            })?
+            .ok_or_else(|| "No environment creation recovery is pending".to_string())?;
+            if !op.source_worktree_new {
+                return Err(
+                    "Cleanup is unavailable because ownership of the source worktree is not proven"
+                        .to_string(),
+                );
+            }
+            update_creation_phase(
+                &id,
+                "compensation_pending",
+                op.source_path
+                    .as_ref()
+                    .map(|_| "User requested recovery cleanup"),
+                true,
+            )?;
+            compensate_creation(&op)
+        })
     })
     .await
     .map_err(|error| format!("Environment cleanup worker failed: {error}"))?
@@ -2839,8 +2924,15 @@ pub fn kanban_set_merge_target(
     target_checkout_path: String,
     expected_environment_revision: i64,
 ) -> Result<KanbanCard, String> {
-    with_connection(|connection| {
+    let identity = card_repository_identity(&id, true)?;
+    if repository_coordinator::repository_identity(&target_checkout_path)? != identity {
+        return Err("The merge target belongs to a different repository".to_string());
+    }
+    repository_coordinator::global().coordinate(&identity, || with_connection(|connection| {
         validate_card_environment_project(connection, &id)?;
+        if card_repository_identity(&id, true)? != identity {
+            return Err("The card repository changed while the operation was waiting; retry".to_string());
+        }
         let (source_path, expected_repository): (String, Option<String>) = connection.query_row("SELECT worktree_path, repository_id FROM card_environments WHERE card_id=?1 AND revision=?2", params![id, expected_environment_revision], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(db_error)?.ok_or_else(|| "Card environment changed; reload before setting its merge target".to_string())?;
         let source_repository = repository_identity(&source_path)?;
         if expected_repository.is_some_and(|expected| expected != source_repository) {
@@ -2858,7 +2950,7 @@ pub fn kanban_set_merge_target(
         connection.execute("UPDATE card_environments SET repository_id=?1, target_checkout_path=?2, target_branch=?3, target_revision=?4, source_revision=?5, revision=revision+1, updated_at=?6 WHERE card_id=?7 AND revision=?8",
             params![source_repository, target.target_checkout_path, target.target_branch, target.target_revision, git_output(&source_path, &["rev-parse", "HEAD"])?, unix_timestamp(), id, expected_environment_revision]).map_err(db_error)?;
         get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
-    })
+    }))
 }
 
 #[tauri::command]
@@ -2869,18 +2961,16 @@ pub async fn kanban_approve_and_commit(
     feature_environment: Option<bool>,
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .map_err(|_| "Repository operation lock failed".to_string())?;
-        with_connection(|connection| {
-            approve_and_commit_with_failure_record(
-                connection,
-                &id,
-                expected_workflow_revision,
-                expected_environment_revision,
-                feature_environment.unwrap_or(false),
-            )
+        coordinate_card_repository(&id, true, || {
+            with_connection(|connection| {
+                approve_and_commit_with_failure_record(
+                    connection,
+                    &id,
+                    expected_workflow_revision,
+                    expected_environment_revision,
+                    feature_environment.unwrap_or(false),
+                )
+            })
         })
     })
     .await
@@ -2918,10 +3008,7 @@ fn approve_and_commit(
     feature_environment: bool,
 ) -> Result<WorkflowOperationResult, String> {
     validate_card_environment_project(connection, id)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(db_error)?;
-    let (status, card_revision): (CardStatus, i64) = transaction
+    let (status, card_revision): (CardStatus, i64) = connection
         .query_row(
             "SELECT status, workflow_revision FROM kanban_cards WHERE id=?1",
             [id],
@@ -2951,9 +3038,9 @@ fn approve_and_commit(
         WorkflowAction::Ship
     };
     if status != CardStatus::AgentWorking {
-        require_structural_capability(&transaction, id, action)?;
+        require_structural_capability(connection, id, action)?;
     }
-    let (source_path, source_branch, repository_id, environment_revision, lifecycle_state): (String, String, Option<String>, i64, String) = transaction
+    let (source_path, source_branch, repository_id, environment_revision, lifecycle_state): (String, String, Option<String>, i64, String) = connection
         .query_row(
             "SELECT worktree_path, branch, repository_id, revision, lifecycle_state FROM card_environments WHERE card_id=?1",
             [id],
@@ -3004,6 +3091,9 @@ fn approve_and_commit(
     }
     let source_tip = git_output(canonical_path, &["rev-parse", "HEAD"])?;
     let now = unix_timestamp();
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
     let workflow_changed = apply_workflow_transition(
         &transaction,
         id,
@@ -3017,10 +3107,13 @@ fn approve_and_commit(
         "UPDATE kanban_cards SET feature_environment=CASE WHEN ?1 THEN 1 ELSE feature_environment END,delivery_error=NULL WHERE id=?2",
         params![feature_environment as i64, id],
     ).map_err(db_error)?;
-    transaction.execute(
-        "UPDATE card_environments SET source_revision=?1, revision=revision+1, updated_at=?2 WHERE card_id=?3 AND revision=?4",
-        params![source_tip, now, id, expected_environment],
+    let environment_rows = transaction.execute(
+        "UPDATE card_environments SET source_revision=?1, revision=revision+1, updated_at=?2 WHERE card_id=?3 AND revision=?4 AND worktree_path=?5 AND branch=?6 AND repository_id=?7 AND lifecycle_state='ready'",
+        params![source_tip, now, id, expected_environment, source_path, source_branch, repository_id],
     ).map_err(db_error)?;
+    if environment_rows != 1 {
+        return Err("Card environment changed; reload before approving".to_string());
+    }
     if !workflow_changed {
         transaction.execute(
             "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','approve_and_commit','success','approved','approved','Re-verified clean source worktree')",
@@ -3069,17 +3162,15 @@ pub async fn kanban_merge_card(
     expected_environment_revision: i64,
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .map_err(|_| "Repository operation lock failed".to_string())?;
-        let result = with_connection(|connection| {
-            merge_card(
-                connection,
-                &id,
-                expected_workflow_revision,
-                expected_environment_revision,
-            )
+        let result = coordinate_card_repository(&id, true, || {
+            with_connection(|connection| {
+                merge_card(
+                    connection,
+                    &id,
+                    expected_workflow_revision,
+                    expected_environment_revision,
+                )
+            })
         });
         if let Err(detail) = &result {
             if !detail.starts_with("Git merge failed") {
@@ -3099,10 +3190,7 @@ fn merge_card(
     expected_environment: i64,
 ) -> Result<WorkflowOperationResult, String> {
     validate_card_environment_project(connection, id)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(db_error)?;
-    let (status, card_revision): (CardStatus, i64) = transaction
+    let (status, card_revision): (CardStatus, i64) = connection
         .query_row(
             "SELECT status, workflow_revision FROM kanban_cards WHERE id=?1",
             [id],
@@ -3115,15 +3203,15 @@ fn merge_card(
         return Err("Card changed; reload before merging".to_string());
     }
     let _ = status;
-    require_structural_capability(&transaction, id, WorkflowAction::MergeLocal)?;
-    let (source_path, source_branch, repository_id, target_path, target_branch, recorded_source_revision, environment_revision): (String, String, Option<String>, Option<String>, Option<String>, Option<String>, i64) = transaction.query_row(
+    require_structural_capability(connection, id, WorkflowAction::MergeLocal)?;
+    let (source_path, source_branch, repository_id, target_path, target_branch, recorded_source_revision, environment_revision): (String, String, Option<String>, Option<String>, Option<String>, Option<String>, i64) = connection.query_row(
         "SELECT worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, revision FROM card_environments WHERE card_id=?1", [id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
     ).optional().map_err(db_error)?.ok_or_else(|| "This card has no environment to merge".to_string())?;
     if environment_revision != expected_environment {
         return Err("Card environment changed; reload before merging".to_string());
     }
-    let settings = project_delivery_settings(&transaction, id)?;
+    let settings = project_delivery_settings(connection, id)?;
     if settings.workflow != DeliveryWorkflow::LocalMerge {
         return Err("This project uses GitHub pull request delivery".to_string());
     }
@@ -3211,8 +3299,7 @@ fn merge_card(
                     .args(["-C", &target_path, "merge", "--abort"])
                     .status();
             }
-            transaction.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, error_code, error_detail) VALUES (?1, ?2, 'user', 'merge', 'failure', 'git_merge_failed', ?3)", params![id, unix_timestamp(), detail]).map_err(db_error)?;
-            transaction.commit().map_err(db_error)?;
+            connection.execute("INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, error_code, error_detail) VALUES (?1, ?2, 'user', 'merge', 'failure', 'git_merge_failed', ?3)", params![id, unix_timestamp(), detail]).map_err(db_error)?;
             return Err(format!(
                 "Git merge failed; the Stacks merge was aborted. {detail}"
             ));
@@ -3236,7 +3323,14 @@ fn merge_card(
                 .to_string(),
         );
     }
-    transaction.execute("UPDATE card_environments SET source_revision=?1, target_revision=?2, revision=revision+1, updated_at=?3 WHERE card_id=?4 AND revision=?5", params![source_tip, git_output(&target_path, &["rev-parse", "HEAD"])?, unix_timestamp(), id, expected_environment]).map_err(db_error)?;
+    let target_tip = git_output(&target_path, &["rev-parse", "HEAD"])?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let environment_rows = transaction.execute("UPDATE card_environments SET source_revision=?1, target_revision=?2, revision=revision+1, updated_at=?3 WHERE card_id=?4 AND revision=?5 AND worktree_path=?6 AND branch=?7 AND repository_id=?8 AND target_checkout_path=?9 AND target_branch=?10 AND source_revision=?11", params![source_tip, target_tip, unix_timestamp(), id, expected_environment, source_path, source_branch, repository_id, target_path, target_branch, recorded_source_revision]).map_err(db_error)?;
+    if environment_rows != 1 {
+        return Err("Card environment changed; reload before recording the merge".to_string());
+    }
     transaction
         .execute(
             "UPDATE kanban_cards SET delivery_error=NULL WHERE id=?1",
@@ -3343,17 +3437,15 @@ pub async fn kanban_prepare_target_merge(
     expected_environment_revision: i64,
 ) -> Result<TargetMergePrepareResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .map_err(|_| "Repository operation lock failed".to_string())?;
-        with_connection(|connection| {
-            prepare_target_merge(
-                connection,
-                &id,
-                expected_workflow_revision,
-                expected_environment_revision,
-            )
+        coordinate_card_repository(&id, true, || {
+            with_connection(|connection| {
+                prepare_target_merge(
+                    connection,
+                    &id,
+                    expected_workflow_revision,
+                    expected_environment_revision,
+                )
+            })
         })
     })
     .await
@@ -3554,11 +3646,9 @@ pub async fn kanban_finalize_target_merge(
     operation_id: String,
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .map_err(|_| "Repository operation lock failed".to_string())?;
-        with_connection(|connection| finalize_target_merge(connection, &id, &operation_id))
+        coordinate_card_repository(&id, true, || {
+            with_connection(|connection| finalize_target_merge(connection, &id, &operation_id))
+        })
     })
     .await
     .map_err(|error| format!("Target merge finalization worker failed: {error}"))?
@@ -3686,11 +3776,9 @@ pub async fn kanban_abort_target_merge(
     operation_id: String,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .map_err(|_| "Repository operation lock failed".to_string())?;
-        with_connection(|connection| abort_target_merge(connection, &id, &operation_id))
+        coordinate_card_repository(&id, true, || {
+            with_connection(|connection| abort_target_merge(connection, &id, &operation_id))
+        })
     })
     .await
     .map_err(|error| format!("Target merge recovery worker failed: {error}"))?
@@ -3853,34 +3941,32 @@ fn run_cleanup(
     pty_registry: &Mutex<PtyRegistry>,
     pi_registry: &Mutex<PiRpcRegistry>,
 ) -> Result<KanbanCard, String> {
-    let _guard = REPOSITORY_OPERATION_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .map_err(|_| "Repository operation lock failed".to_string())?;
-    initialize_cleanup(
-        id,
-        expected_workflow_revision,
-        expected_environment_revision,
-    )?;
-    loop {
-        let operation = with_connection(|connection| load_cleanup_snapshot(connection, id))?;
-        if operation.status == "completed" {
-            return with_connection(|connection| {
-                get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
-            });
+    coordinate_card_repository(id, true, || {
+        initialize_cleanup(
+            id,
+            expected_workflow_revision,
+            expected_environment_revision,
+        )?;
+        loop {
+            let operation = with_connection(|connection| load_cleanup_snapshot(connection, id))?;
+            if operation.status == "completed" {
+                return with_connection(|connection| {
+                    get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
+                });
+            }
+            let phase = operation.phase.clone();
+            if let Err(detail) = execute_cleanup_phase(&operation, pty_registry, pi_registry) {
+                let code = cleanup_error_code(&phase, &detail);
+                record_cleanup_failure(id, &phase, &code, &detail);
+                return Err(detail);
+            }
+            if let Err(detail) = advance_cleanup_phase(&operation) {
+                let code = cleanup_error_code(&phase, &detail);
+                record_cleanup_failure(id, &phase, &code, &detail);
+                return Err(detail);
+            }
         }
-        let phase = operation.phase.clone();
-        if let Err(detail) = execute_cleanup_phase(&operation, pty_registry, pi_registry) {
-            let code = cleanup_error_code(&phase, &detail);
-            record_cleanup_failure(id, &phase, &code, &detail);
-            return Err(detail);
-        }
-        if let Err(detail) = advance_cleanup_phase(&operation) {
-            let code = cleanup_error_code(&phase, &detail);
-            record_cleanup_failure(id, &phase, &code, &detail);
-            return Err(detail);
-        }
-    }
+    })
 }
 
 fn initialize_cleanup(
@@ -4590,7 +4676,9 @@ pub async fn kanban_refresh_pull_request(
     id: String,
 ) -> Result<KanbanPullRequestRefreshResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let refresh_result = with_connection(|connection| refresh_pull_request(connection, &id));
+        let refresh_result = coordinate_card_repository(&id, true, || {
+            with_connection(|connection| refresh_pull_request(connection, &id))
+        });
         let error = refresh_result.err();
         if let Some(detail) = &error {
             record_operation_failure(&id, "refresh_pr", "refresh_pr_failed", detail);
@@ -4610,8 +4698,7 @@ pub async fn kanban_create_pull_request(
     expected_workflow_revision: i64,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK.get_or_init(|| Mutex::new(())).lock().map_err(|_| "Repository operation lock failed".to_string())?;
-        with_connection(|connection| {
+        coordinate_card_repository(&id, true, || with_connection(|connection| {
             let settings = project_delivery_settings(connection, &id)?;
             if settings.workflow != DeliveryWorkflow::GithubPullRequest { return Err("This project uses Local merge delivery".to_string()); }
             let (status, revision, title, content, feature_environment, source_path, branch, source_revision): (CardStatus, i64, String, String, bool, String, String, Option<String>) = connection.query_row(
@@ -4643,7 +4730,7 @@ pub async fn kanban_create_pull_request(
             refresh_pull_request(connection, &id)?;
             connection.execute("UPDATE kanban_cards SET delivery_operation_stage=NULL WHERE id=?1", [&id]).map_err(db_error)?;
             get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
-        }).map_err(|error| { record_operation_failure(&id, "create_pr", "create_pr_failed", &error); error })
+        })).map_err(|error| { record_operation_failure(&id, "create_pr", "create_pr_failed", &error); error })
     }).await.map_err(|error| format!("Create PR worker failed: {error}"))?
 }
 
@@ -4653,8 +4740,7 @@ pub async fn kanban_merge_pull_request(
     expected_workflow_revision: i64,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK.get_or_init(|| Mutex::new(())).lock().map_err(|_| "Repository operation lock failed".to_string())?;
-        with_connection(|connection| {
+        coordinate_card_repository(&id, true, || with_connection(|connection| {
             let settings = project_delivery_settings(connection, &id)?;
             if settings.workflow != DeliveryWorkflow::GithubPullRequest { return Err("This project uses Local merge delivery".to_string()); }
             let (status, revision): (CardStatus, i64) = connection.query_row("SELECT status,workflow_revision FROM kanban_cards WHERE id=?1", [&id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(db_error)?;
@@ -4680,7 +4766,7 @@ pub async fn kanban_merge_pull_request(
                 Err(error) => { connection.execute("UPDATE kanban_cards SET delivery_error=?1 WHERE id=?2", params![format!("PR merged, but remote branch deletion needs retry: {error}"), id]).map_err(db_error)?; }
             }
             get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
-        }).map_err(|error| { record_operation_failure(&id, "merge_pr", "merge_pr_failed", &error); error })
+        })).map_err(|error| { record_operation_failure(&id, "merge_pr", "merge_pr_failed", &error); error })
     }).await.map_err(|error| format!("Merge PR worker failed: {error}"))?
 }
 
@@ -6701,15 +6787,7 @@ fn git_output(path: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn repository_identity(path: &str) -> Result<String, String> {
-    let common = git_output(path, &["rev-parse", "--git-common-dir"])?;
-    let common = if Path::new(&common).is_absolute() {
-        PathBuf::from(common)
-    } else {
-        Path::new(path).join(common)
-    };
-    common
-        .canonicalize()
-        .map_err(|error| format!("Could not identify repository for {path}: {error}"))?
+    repository_coordinator::repository_identity(path)?
         .to_str()
         .map(str::to_string)
         .ok_or_else(|| "Repository path is not valid UTF-8".to_string())

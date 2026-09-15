@@ -17,6 +17,7 @@ mod project_direct;
 mod pty;
 mod pty_command;
 mod pty_cwd;
+mod repository_coordinator;
 mod settings;
 mod settings_model;
 mod store;
@@ -64,7 +65,7 @@ use superthread::{
     superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
     superthread_create_card, SuperthreadService,
 };
-use workspace_setup::{cancel_workspace_setup, run_workspace_setup, WorkspaceSetupState};
+use workspace_setup::{cancel_workspace_setup, WorkspaceSetupState};
 
 #[tauri::command]
 fn new_id() -> String {
@@ -179,7 +180,6 @@ pub fn run() {
             superthread_board_cards,
             superthread_card,
             superthread_create_card,
-            run_workspace_setup,
             cancel_workspace_setup,
         ])
         .setup(|app| {
