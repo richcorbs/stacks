@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -30,12 +30,34 @@ pub struct PiRpcHandle {
 }
 
 impl PiRpcHandle {
-    fn stop(&self) {
-        let (finished_tx, finished_rx) = mpsc::channel();
-        if self.stop_tx.send(finished_tx).is_ok() {
-            let _ = finished_rx.recv_timeout(Duration::from_secs(2));
+    fn stop(&self) -> Result<(), String> {
+        if !self.alive.load(Ordering::Acquire) {
+            return Ok(());
         }
+        let (finished_tx, finished_rx) = mpsc::channel();
+        self.stop_tx
+            .send(finished_tx)
+            .map_err(|_| "Pi process shutdown channel is unavailable".to_string())?;
+        finished_rx
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|_| "Timed out waiting for the Pi process to stop".to_string())
     }
+}
+
+pub(crate) fn card_pi_runtime_ids(
+    registry: &Mutex<PiRpcRegistry>,
+    card_id: &str,
+) -> Result<Vec<String>, String> {
+    let guard = registry
+        .lock()
+        .map_err(|_| "Pi session registry lock poisoned".to_string())?;
+    Ok(guard
+        .sessions
+        .keys()
+        .chain(guard.starting.iter())
+        .filter(|id| crate::kanban::card_pi_owner(id).as_deref() == Some(card_id))
+        .cloned()
+        .collect())
 }
 
 #[derive(Default)]
@@ -48,7 +70,7 @@ pub struct PiRpcRegistry {
 impl Drop for PiRpcRegistry {
     fn drop(&mut self) {
         for handle in self.sessions.values() {
-            handle.stop();
+            let _ = handle.stop();
         }
     }
 }
@@ -57,6 +79,8 @@ impl Drop for PiRpcRegistry {
 struct PiRpcEvent {
     pane_id: String,
     generation: String,
+    event_id: String,
+    event_order: u64,
     event: Value,
 }
 
@@ -132,7 +156,7 @@ pub fn start_pi_session(
         break replaced_handle;
     };
     if let Some(handle) = replaced_handle {
-        handle.stop();
+        handle.stop()?;
     }
 
     let result = spawn_pi_session(&window, &pane_id, &cwd, &project, approve_project);
@@ -145,10 +169,17 @@ pub fn start_pi_session(
         Ok(handle) => {
             if guard.cancelled.remove(&pane_id) {
                 drop(guard);
-                handle.stop();
+                handle.stop()?;
                 return Err("Pi session start was cancelled".to_string());
             }
             let generation = handle.generation.clone();
+            if let Err(error) =
+                crate::kanban::register_pi_lifecycle_generation(&pane_id, &generation)
+            {
+                drop(guard);
+                let _ = handle.stop();
+                return Err(error);
+            }
             guard.sessions.insert(pane_id, handle);
             Ok(generation)
         }
@@ -226,11 +257,13 @@ fn spawn_pi_session(
     };
 
     let alive = Arc::new(AtomicBool::new(true));
+    let event_order = Arc::new(AtomicU64::new(0));
     let (stop_tx, stop_rx) = mpsc::channel::<mpsc::Sender<()>>();
 
     let output_window = window.clone();
     let output_pane_id = pane_id.to_string();
     let output_generation = generation.clone();
+    let output_event_order = event_order.clone();
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
         let mut bytes = Vec::new();
@@ -251,13 +284,20 @@ fn spawn_pi_session(
                     let event = serde_json::from_slice(&bytes).unwrap_or_else(
                         |error| json!({"type":"pi_protocol_error","message":error.to_string()}),
                     );
-                    emit_event(&output_window, &output_pane_id, &output_generation, event);
+                    emit_event(
+                        &output_window,
+                        &output_pane_id,
+                        &output_generation,
+                        &output_event_order,
+                        event,
+                    );
                 }
                 Err(error) => {
                     emit_event(
                         &output_window,
                         &output_pane_id,
                         &output_generation,
+                        &output_event_order,
                         json!({"type":"pi_protocol_error","message":error.to_string()}),
                     );
                     break;
@@ -269,12 +309,14 @@ fn spawn_pi_session(
     let error_window = window.clone();
     let error_pane_id = pane_id.to_string();
     let error_generation = generation.clone();
+    let error_event_order = event_order.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             emit_event(
                 &error_window,
                 &error_pane_id,
                 &error_generation,
+                &error_event_order,
                 json!({"type":"pi_stderr","message":line}),
             );
         }
@@ -284,6 +326,7 @@ fn spawn_pi_session(
     let process_pane_id = pane_id.to_string();
     let process_generation = generation.clone();
     let process_alive = alive.clone();
+    let process_event_order = event_order;
     std::thread::spawn(move || {
         loop {
             if let Ok(finished_tx) = stop_rx.try_recv() {
@@ -309,6 +352,7 @@ fn spawn_pi_session(
             &process_window,
             &process_pane_id,
             &process_generation,
+            &process_event_order,
             json!({"type":"pi_process_exit"}),
         );
     });
@@ -348,19 +392,7 @@ pub fn stop_pi_session(
     registry: State<'_, Mutex<PiRpcRegistry>>,
     pane_id: String,
 ) -> Result<(), String> {
-    let handle = {
-        let mut guard = registry
-            .lock()
-            .map_err(|_| "Pi session registry lock poisoned".to_string())?;
-        if guard.starting.contains(&pane_id) {
-            guard.cancelled.insert(pane_id.clone());
-        }
-        guard.sessions.remove(&pane_id)
-    };
-    if let Some(handle) = handle {
-        handle.stop();
-    }
-    Ok(())
+    stop_pi_session_impl(registry.inner(), &pane_id)
 }
 
 #[tauri::command]
@@ -371,7 +403,7 @@ pub fn delete_pi_session(
     delete_pi_session_impl(registry.inner(), &pane_id)
 }
 
-pub(crate) fn delete_pi_session_impl(
+pub(crate) fn stop_pi_session_impl(
     registry: &Mutex<PiRpcRegistry>,
     pane_id: &str,
 ) -> Result<(), String> {
@@ -385,8 +417,32 @@ pub(crate) fn delete_pi_session_impl(
         guard.sessions.remove(pane_id)
     };
     if let Some(handle) = handle {
-        handle.stop();
+        if let Err(error) = handle.stop() {
+            registry
+                .lock()
+                .map_err(|_| "Pi session registry lock poisoned".to_string())?
+                .sessions
+                .insert(pane_id.to_string(), handle);
+            return Err(error);
+        }
     }
+    Ok(())
+}
+
+pub(crate) fn delete_pi_session_directory(pane_id: &str) -> Result<(), String> {
+    let directory = session_dir(pane_id)?;
+    if directory.exists() {
+        std::fs::remove_dir_all(directory)
+            .map_err(|error| format!("Could not delete persisted Pi conversation: {error}"))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn delete_pi_session_impl(
+    registry: &Mutex<PiRpcRegistry>,
+    pane_id: &str,
+) -> Result<(), String> {
+    stop_pi_session_impl(registry, pane_id)?;
 
     // A delete can race an in-flight start. Wait for that start to observe the
     // cancellation before removing the directory it may still be creating.
@@ -397,11 +453,7 @@ pub(crate) fn delete_pi_session_impl(
             .starting
             .contains(pane_id);
         if !starting {
-            let directory = session_dir(pane_id)?;
-            if directory.exists() {
-                std::fs::remove_dir_all(directory).map_err(|error| error.to_string())?;
-            }
-            return Ok(());
+            return delete_pi_session_directory(pane_id);
         }
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -414,12 +466,21 @@ fn send_json(stdin: &mut ChildStdin, value: &Value) -> Result<(), String> {
     stdin.flush().map_err(|error| error.to_string())
 }
 
-fn emit_event(window: &Window, pane_id: &str, generation: &str, event: Value) {
+fn emit_event(
+    window: &Window,
+    pane_id: &str,
+    generation: &str,
+    sequence: &AtomicU64,
+    event: Value,
+) {
+    let event_order = sequence.fetch_add(1, Ordering::SeqCst);
     let _ = window.emit(
         "pi-rpc-event",
         PiRpcEvent {
             pane_id: pane_id.to_string(),
             generation: generation.to_string(),
+            event_id: format!("{generation}:{event_order}"),
+            event_order,
             event,
         },
     );

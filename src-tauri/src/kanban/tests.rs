@@ -1,8 +1,10 @@
 use super::*;
+#[allow(unused_imports)]
 use super::{
-    cards::*, cleanup::*, environment::*, git_effects::*, health::*, local_delivery::*,
-    repository::*, sync::*,
+    cards::*, cleanup::*, domain::*, environment::*, git_effects::*, github_delivery::*, health::*,
+    local_delivery::*, repository::*, sync::*,
 };
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static TRACED_READS: AtomicUsize = AtomicUsize::new(0);
@@ -51,64 +53,6 @@ fn insert_ordered_card(
 
 fn ids(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| value.to_string()).collect()
-}
-
-#[test]
-fn status_transition_retry_with_stale_revision_is_unchanged() {
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrate(&connection).unwrap();
-    connection.execute(
-            "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,workflow_revision,created_at,updated_at,sort_order)
-             VALUES ('card','local:p','1','Card','needs_refinement',7,1,11,4)",
-            [],
-        ).unwrap();
-
-    let changed = set_card_status(&mut connection, "card", "ready", 7, "user", || Ok(())).unwrap();
-    assert_eq!(changed.status, "ready");
-    assert_eq!(changed.workflow_revision, 8);
-    let after_first: (i64, i64, i64, i64) = connection.query_row(
-            "SELECT workflow_revision,sort_order,updated_at,(SELECT COUNT(*) FROM card_events WHERE card_id='card') FROM kanban_cards WHERE id='card'",
-            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        ).unwrap();
-    let event_time: i64 = connection
-        .query_row(
-            "SELECT created_at FROM card_events WHERE card_id='card'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(after_first.2, event_time);
-
-    let retried = set_card_status(&mut connection, "card", "ready", 7, "user", || {
-        panic!("idempotent retry must not create a directory")
-    })
-    .unwrap();
-    let after_retry: (i64, i64, i64, i64) = connection.query_row(
-            "SELECT workflow_revision,sort_order,updated_at,(SELECT COUNT(*) FROM card_events WHERE card_id='card') FROM kanban_cards WHERE id='card'",
-            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        ).unwrap();
-    assert_eq!(retried.workflow_revision, 8);
-    assert_eq!(after_retry, after_first);
-}
-
-#[test]
-fn non_idempotent_status_transition_still_checks_revision() {
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrate(&connection).unwrap();
-    insert_ordered_card(&connection, "card", "needs_refinement", 0, 12);
-    connection
-        .execute(
-            "UPDATE kanban_cards SET workflow_revision=3 WHERE id='card'",
-            [],
-        )
-        .unwrap();
-    let error =
-        set_card_status(&mut connection, "card", "ready", 2, "user", || Ok(())).unwrap_err();
-    assert!(error.contains("Card changed"));
-    assert_eq!(
-        get_card(&connection, "card").unwrap().unwrap().status,
-        "needs_refinement"
-    );
 }
 
 #[test]
@@ -581,9 +525,9 @@ fn list_read_count_is_constant_and_get_card_remains_targeted() {
     TRACED_READS.store(0, Ordering::Relaxed);
     list_cards(&mut connection).unwrap();
     let initial_reads = TRACED_READS.load(Ordering::Relaxed);
-    // Cards, environments/panes, cleanup operations, PRs, events, and
-    // relationships are each loaded in constant-size batches.
-    assert_eq!(initial_reads, 8);
+    // Cards, environments/panes, creation and cleanup operations, PRs,
+    // events, relationships, and workflow capability project context are each loaded in constant-size batches.
+    assert_eq!(initial_reads, 10);
     for index in 0..25 {
         connection.execute(
                 "INSERT INTO kanban_cards (id,external_provider,external_id,title,project_id,created_at,updated_at,sort_order)
@@ -678,11 +622,127 @@ fn initialization_builds_all_schemas_and_connection_pragmas_and_is_guarded() {
 }
 
 #[test]
+fn pi_lifecycle_is_idempotent_ordered_and_generation_scoped() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    local_card(&mut connection);
+    connection.execute(
+            "INSERT INTO card_pi_lifecycle(card_id,thread,generation,latest_event_order,latest_event_id) VALUES ('local:test','planning','generation-2',-1,'')",
+            [],
+        ).unwrap();
+
+    let started = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Planning,
+        PiLifecycleIntent::AgentStarted,
+        "generation-2",
+        "start-1",
+        Some(0),
+    )
+    .unwrap();
+    assert_eq!(started.status, CardStatus::Refining);
+    assert_eq!(started.workflow_revision, 2);
+    let replay = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Planning,
+        PiLifecycleIntent::AgentStarted,
+        "generation-2",
+        "start-1",
+        Some(0),
+    )
+    .unwrap();
+    assert_eq!(replay.workflow_revision, 2);
+
+    let settled = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Planning,
+        PiLifecycleIntent::AgentSettled,
+        "generation-2",
+        "settled-1",
+        Some(2),
+    )
+    .unwrap();
+    assert_eq!(settled.status, CardStatus::NeedsRefinementInput);
+    assert_eq!(settled.workflow_revision, 3);
+    let reordered = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Planning,
+        PiLifecycleIntent::AgentStarted,
+        "generation-2",
+        "late-start",
+        Some(1),
+    )
+    .unwrap();
+    assert_eq!(reordered.status, CardStatus::NeedsRefinementInput);
+    assert_eq!(reordered.workflow_revision, 3);
+    let stale = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Planning,
+        PiLifecycleIntent::AgentStarted,
+        "generation-1",
+        "stale",
+        Some(99),
+    )
+    .unwrap();
+    assert_eq!(stale.workflow_revision, 3);
+
+    let second_turn = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Planning,
+        PiLifecycleIntent::AgentStarted,
+        "generation-2",
+        "start-2",
+        Some(3),
+    )
+    .unwrap();
+    assert_eq!(second_turn.status, CardStatus::Refining);
+    let requested = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Planning,
+        PiLifecycleIntent::UiInputRequested,
+        "generation-2",
+        "ui:1",
+        None,
+    )
+    .unwrap();
+    let duplicate = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Planning,
+        PiLifecycleIntent::UiInputRequested,
+        "generation-2",
+        "ui:1",
+        None,
+    )
+    .unwrap();
+    assert_eq!(requested.workflow_revision, duplicate.workflow_revision);
+    assert_eq!(duplicate.status, CardStatus::NeedsRefinementInput);
+    let history_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM card_events WHERE card_id='local:test'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(history_count, 4);
+}
+
+#[test]
 fn project_reassignment_allows_only_refinement_statuses_and_renumbers_cards() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
 
-    for (index, status) in REFINEMENT_STATUSES.iter().enumerate() {
+    for (index, status) in ["needs_refinement", "refining", "needs_refinement_input"]
+        .iter()
+        .enumerate()
+    {
         let id = format!("local:source:{}", index + 1);
         connection.execute(
                 "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,project_id,created_at,updated_at) VALUES (?1,'local:source',?2,?1,?3,'source',1,1)",
@@ -1075,29 +1135,6 @@ fn superthread_sync_persists_parent_references_and_provider_counts() {
 }
 
 #[test]
-fn rejects_unknown_statuses_and_accepts_the_refinement_cycle() {
-    assert!(!STATUSES.contains(&"waiting_for_magic"));
-    for transition in [
-        ("needs_refinement", "refining"),
-        ("refining", "needs_refinement_input"),
-        ("needs_refinement_input", "refining"),
-        ("refining", "needs_refinement"),
-        ("needs_refinement_input", "needs_refinement"),
-        ("ready", "needs_refinement"),
-    ] {
-        assert!(
-            is_legal_status_transition(transition.0, transition.1),
-            "{transition:?}"
-        );
-    }
-    assert!(!is_legal_status_transition(
-        "needs_refinement_input",
-        "agent_working"
-    ));
-    assert!(!is_legal_status_transition("refining", "approved"));
-}
-
-#[test]
 fn finishing_refinement_records_each_actual_in_progress_source() {
     for source in ["needs_refinement", "refining", "needs_refinement_input"] {
         let mut connection = Connection::open_in_memory().unwrap();
@@ -1185,24 +1222,6 @@ fn rejects_ambiguous_superthread_ownership_and_blocked_project_deletion() {
         validate_project_deletion(&connection, "local-owner").unwrap(),
         vec!["local:active"]
     );
-}
-
-#[test]
-fn workflow_transitions_must_be_adjacent() {
-    let current = STATUSES
-        .iter()
-        .position(|status| *status == "ready")
-        .unwrap();
-    let adjacent = STATUSES
-        .iter()
-        .position(|status| *status == "agent_working")
-        .unwrap();
-    let skipped = STATUSES
-        .iter()
-        .position(|status| *status == "approved")
-        .unwrap();
-    assert_eq!(current.abs_diff(adjacent), 1);
-    assert!(current.abs_diff(skipped) > 1);
 }
 
 #[test]
@@ -1493,8 +1512,15 @@ fn migrates_legacy_merged_cards_to_done_with_merged_outcome() {
             workflow_revision INTEGER NOT NULL DEFAULT 1, project_id TEXT, workspace_id TEXT, created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, in_scope INTEGER NOT NULL DEFAULT 1,
             UNIQUE(external_provider, external_id));
+            CREATE TABLE card_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+                actor TEXT NOT NULL, event_type TEXT NOT NULL, outcome TEXT NOT NULL,
+                from_status TEXT, to_status TEXT, summary TEXT, error_code TEXT, error_detail TEXT
+            );
             INSERT INTO kanban_cards (id,external_provider,external_id,title,status,created_at,updated_at)
-            VALUES ('legacy','local:p','1','Legacy','merged',1,1);").unwrap();
+            VALUES ('legacy','local:p','1','Legacy','merged',1,1);
+            INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status)
+            VALUES ('legacy',1,'user','merge','success','approved','merged');").unwrap();
     migrate(&connection).unwrap();
     let result: (String, Option<String>) = connection
         .query_row(
@@ -1504,6 +1530,17 @@ fn migrates_legacy_merged_cards_to_done_with_merged_outcome() {
         )
         .unwrap();
     assert_eq!(result, ("done".to_string(), Some("merged".to_string())));
+    let event_statuses: (Option<CardStatus>, Option<CardStatus>) = connection
+        .query_row(
+            "SELECT from_status,to_status FROM card_events WHERE card_id='legacy'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        event_statuses,
+        (Some(CardStatus::Approved), Some(CardStatus::Done))
+    );
 }
 
 #[test]
@@ -1599,6 +1636,26 @@ fn feature_environment_prefix_is_applied_exactly_once() {
     assert_eq!(feature_environment_title("[FE] [FE] Title"), "[FE] Title");
 }
 
+#[test]
+fn environment_creation_migration_persists_one_active_operation_per_card() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    let card = local_card(&mut connection);
+    let insert = |connection: &Connection, id: &str| {
+        connection.execute(
+            "INSERT INTO environment_creation_operations (id,card_id,project_id,repository_id,expected_workflow_revision,target_checkout_path,target_branch,observed_target_revision,setup_command,phase,result_path,pre_worktrees,pre_branches,created_at,updated_at) VALUES (?1,?2,'project','repo',1,'/target','main','tip','setup','prepared','/result','[]','{}',1,1)",
+            params![id,card.id],
+        )
+    };
+    assert_eq!(insert(&connection, "operation:1").unwrap(), 1);
+    assert!(insert(&connection, "operation:2").is_err());
+    let operation = load_creation_operation(&connection, &card.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(operation.phase, "prepared");
+    assert_eq!(operation.revision, 1);
+}
+
 fn git_ok(path: &Path, args: &[&str]) {
     let output = Command::new("git")
         .arg("-C")
@@ -1636,6 +1693,60 @@ fn merge_repository() -> (PathBuf, PathBuf, PathBuf) {
     git_ok(&source, &["add", "."]);
     git_ok(&source, &["commit", "-m", "feature"]);
     (root, target, source)
+}
+
+fn upstream_merge_repository() -> (PathBuf, PathBuf, PathBuf) {
+    let root = std::env::temp_dir().join(format!(
+        "stacks-target-merge-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let remote = root.join("remote.git");
+    let target = root.join("target");
+    let source = root.join("source");
+    fs::create_dir_all(&root).unwrap();
+    git_ok(&root, &["init", "--bare", remote.to_str().unwrap()]);
+    git_ok(
+        &root,
+        &["clone", remote.to_str().unwrap(), target.to_str().unwrap()],
+    );
+    git_ok(&target, &["config", "user.email", "stacks@example.com"]);
+    git_ok(&target, &["config", "user.name", "Stacks Tests"]);
+    git_ok(&target, &["checkout", "-b", "main"]);
+    fs::write(target.join("base.txt"), "base\n").unwrap();
+    git_ok(&target, &["add", "."]);
+    git_ok(&target, &["commit", "-m", "base"]);
+    git_ok(&target, &["push", "-u", "origin", "main"]);
+    git_ok(
+        &target,
+        &["worktree", "add", "-b", "feature", source.to_str().unwrap()],
+    );
+    git_ok(&source, &["config", "user.email", "stacks@example.com"]);
+    git_ok(&source, &["config", "user.name", "Stacks Tests"]);
+    fs::write(source.join("feature.txt"), "feature\n").unwrap();
+    git_ok(&source, &["add", "."]);
+    git_ok(&source, &["commit", "-m", "feature"]);
+    (root, target, source)
+}
+
+fn target_merge_connection(source: &Path, target: &Path, status: &str) -> Connection {
+    let connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "p", "local", target.to_str().unwrap());
+    let now = unix_timestamp();
+    connection.execute("INSERT INTO kanban_cards (id,external_provider,external_id,title,status,workflow_revision,project_id,created_at,updated_at) VALUES ('local:target-merge','local:p','1','Target merge',?1,4,'p',?2,?2)", params![status,now]).unwrap();
+    let repository = repository_identity(target.to_str().unwrap()).unwrap();
+    let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,repository_id,target_checkout_path,target_branch,source_revision,target_revision,lifecycle_state,revision,created_at,updated_at) VALUES ('target-merge-e','local:target-merge','p',?1,'feature',?2,?3,'main',?4,?5,'ready',2,?6,?6)", params![source.to_str().unwrap(),repository,target.to_str().unwrap(),source_tip,target_tip,now]).unwrap();
+    connection
+}
+
+fn advance_target(target: &Path, contents: &str) {
+    fs::write(target.join("target.txt"), contents).unwrap();
+    git_ok(target, &["add", "."]);
+    git_ok(target, &["commit", "-m", "advance target"]);
+    git_ok(target, &["push", "origin", "main"]);
 }
 
 fn approval_connection(source: &Path, target: &Path) -> Connection {
@@ -1688,7 +1799,7 @@ fn approved_card_can_be_shipped_again_after_its_source_revision_changes() {
 
     let refreshed = approve_and_commit(&mut connection, "local:approve", 6, 3, false).unwrap();
     assert_eq!(refreshed.card.status, "approved");
-    assert_eq!(refreshed.card.workflow_revision, 7);
+    assert_eq!(refreshed.card.workflow_revision, 6);
     assert_eq!(
         refreshed
             .card
@@ -1701,7 +1812,7 @@ fn approved_card_can_be_shipped_again_after_its_source_revision_changes() {
     );
     assert!(refreshed.message.contains("re-verified"));
     assert_eq!(
-        merge_card(&mut connection, "local:approve", 7, 4)
+        merge_card(&mut connection, "local:approve", 6, 4)
             .unwrap()
             .card
             .status,
@@ -1824,7 +1935,10 @@ fn merge_creates_explicit_commit_and_transitions_only_after_verification() {
     connection.execute("INSERT INTO card_environments (id, card_id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, revision, created_at, updated_at) VALUES ('e', 'local:merge', 'p', ?1, 'feature', ?2, ?3, 'main', ?4, ?5, 2, ?6, ?6)", params![source.to_str().unwrap(), repository, target.to_str().unwrap(), source_tip, target_tip, now]).unwrap();
     let result = merge_card(&mut connection, "local:merge", 3, 2).unwrap();
     assert_eq!(result.card.status, "done");
-    assert_eq!(result.card.completion_outcome.as_deref(), Some("merged"));
+    assert_eq!(
+        result.card.completion_outcome,
+        Some(CompletionOutcome::Merged)
+    );
     assert_eq!(
         git_output(
             target.to_str().unwrap(),
@@ -1835,6 +1949,352 @@ fn merge_creates_explicit_commit_and_transitions_only_after_verification() {
         .count(),
         3
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn target_merge_migration_marks_existing_fetch_operations_remote() {
+    let (root, target, source) = upstream_merge_repository();
+    let connection = target_merge_connection(&source, &target, "needs_human");
+    connection
+        .execute_batch(
+            "DROP TABLE card_target_merge_operations;
+                 CREATE TABLE card_target_merge_operations (
+                    id TEXT PRIMARY KEY,
+                    card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+                    environment_id TEXT NOT NULL,
+                    workflow_revision INTEGER NOT NULL,
+                    environment_revision INTEGER NOT NULL,
+                    initial_status TEXT NOT NULL,
+                    repository_id TEXT NOT NULL,
+                    source_path TEXT NOT NULL,
+                    source_branch TEXT NOT NULL,
+                    target_branch TEXT NOT NULL,
+                    upstream_remote TEXT NOT NULL,
+                    upstream_merge_ref TEXT NOT NULL,
+                    source_revision TEXT NOT NULL,
+                    target_revision TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    conflict_paths TEXT NOT NULL DEFAULT '[]',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                 );
+                 DELETE FROM schema_migrations WHERE version=72;",
+        )
+        .unwrap();
+    let repository = repository_identity(target.to_str().unwrap()).unwrap();
+    let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    connection.execute(
+            "INSERT INTO card_target_merge_operations (id,card_id,environment_id,workflow_revision,environment_revision,initial_status,repository_id,source_path,source_branch,target_branch,upstream_remote,upstream_merge_ref,source_revision,target_revision,phase,conflict_paths,created_at,updated_at) VALUES ('old-op','local:target-merge','target-merge-e',4,2,'needs_human',?1,?2,'feature','main','origin','refs/heads/main',?3,?4,'conflicted','[]',1,1)",
+            params![repository,source.to_str().unwrap(),source_tip,target_tip],
+        ).unwrap();
+
+    migrate(&connection).unwrap();
+    let operation = load_target_merge_operation(&connection, "local:target-merge")
+        .unwrap()
+        .unwrap();
+    assert_eq!(operation.target_source, "remote");
+    let migrated: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version=72",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(migrated, 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn target_merge_prefers_upstream_over_a_newer_local_tip() {
+    for initial_status in ["needs_human", "approved"] {
+        let (root, target, source) = upstream_merge_repository();
+        let mut connection = target_merge_connection(&source, &target, initial_status);
+        advance_target(&target, "remote target change\n");
+        let remote_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        git_ok(
+            &target,
+            &["remote", "rename", "origin", "configured-upstream"],
+        );
+        git_ok(&target, &["reset", "--hard", "HEAD^"]);
+        fs::write(target.join("local-only.txt"), "not pushed\n").unwrap();
+        git_ok(&target, &["add", "."]);
+        git_ok(&target, &["commit", "-m", "newer local target"]);
+        let local_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        assert_ne!(remote_tip, local_tip);
+
+        let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+        assert_eq!(prepared.state, "merged");
+        let operation_id = prepared.operation_id.unwrap();
+        let operation = load_target_merge_operation(&connection, "local:target-merge")
+            .unwrap()
+            .unwrap();
+        assert_eq!(operation.target_source, "remote");
+        assert_eq!(operation.target_revision, remote_tip);
+        let result =
+            finalize_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
+        assert_eq!(result.message, "Successfully merged with remote main");
+        assert_eq!(result.card.status, "needs_human");
+        assert_eq!(
+            result.card.workflow_revision,
+            if initial_status == "approved" { 5 } else { 4 }
+        );
+        assert_eq!(result.card.environment.unwrap().revision, 3);
+        assert!(!source.join("local-only.txt").exists());
+        assert_eq!(
+            git_output(
+                source.to_str().unwrap(),
+                &["rev-list", "--parents", "-n", "1", "HEAD"]
+            )
+            .unwrap()
+            .split_whitespace()
+            .count(),
+            3
+        );
+        let summary: String = connection.query_row(
+                "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
+                [], |row| row.get(0),
+            ).unwrap();
+        assert!(summary.contains("remote target branch main"), "{summary}");
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn target_merge_noop_preserves_status_and_creates_no_commit() {
+    let (root, target, source) = upstream_merge_repository();
+    let mut connection = target_merge_connection(&source, &target, "approved");
+    let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+    assert_eq!(result.state, "noop");
+    assert!(result.idempotent);
+    assert_eq!(result.message, "Already up to date with remote main");
+    assert_eq!(result.card.status, "approved");
+    let summary: String = connection.query_row(
+            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
+            [], |row| row.get(0),
+        ).unwrap();
+    assert!(summary.contains("remote target branch main"), "{summary}");
+    assert_eq!(
+        git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+        before
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn target_merge_rejects_dirty_source_and_falls_back_without_upstream() {
+    let (root, target, source) = upstream_merge_repository();
+    let mut connection = target_merge_connection(&source, &target, "needs_human");
+    let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    fs::write(source.join("dirty.txt"), "dirty\n").unwrap();
+    assert!(
+        prepare_target_merge(&mut connection, "local:target-merge", 4, 2)
+            .unwrap_err()
+            .contains("modified or untracked")
+    );
+    fs::remove_file(source.join("dirty.txt")).unwrap();
+    git_ok(&source, &["config", "--unset", "branch.main.remote"]);
+    let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+    assert_eq!(result.state, "noop");
+    assert_eq!(result.message, "Already up to date with local main");
+    assert_eq!(
+        git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+        before
+    );
+    let summary: String = connection.query_row(
+            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
+            [], |row| row.get(0),
+        ).unwrap();
+    assert!(summary.contains("local target branch main"), "{summary}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn target_merge_fetch_failure_falls_back_to_clean_committed_local_tip() {
+    let (root, target, source) = upstream_merge_repository();
+    let mut connection = target_merge_connection(&source, &target, "needs_human");
+    assert!(
+        prepare_target_merge(&mut connection, "local:target-merge", 3, 2)
+            .unwrap_err()
+            .contains("Card changed")
+    );
+    assert!(
+        prepare_target_merge(&mut connection, "local:target-merge", 4, 1)
+            .unwrap_err()
+            .contains("environment changed")
+    );
+    advance_target(&target, "committed local target\n");
+    let committed_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    fs::write(target.join("target.txt"), "uncommitted target change\n").unwrap();
+    fs::write(target.join("untracked-target.txt"), "must remain local\n").unwrap();
+    git_ok(
+        &source,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "/definitely/missing/stacks-target.git",
+        ],
+    );
+    let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+    assert_eq!(prepared.state, "merged");
+    let operation = load_target_merge_operation(&connection, "local:target-merge")
+        .unwrap()
+        .unwrap();
+    assert_eq!(operation.target_source, "local");
+    assert_eq!(operation.target_revision, committed_tip);
+    assert_eq!(
+        fs::read_to_string(target.join("target.txt")).unwrap(),
+        "uncommitted target change\n"
+    );
+    assert_eq!(
+        fs::read_to_string(source.join("target.txt")).unwrap(),
+        "committed local target\n"
+    );
+    assert!(!source.join("untracked-target.txt").exists());
+    let result = finalize_target_merge(
+        &mut connection,
+        "local:target-merge",
+        prepared.operation_id.as_deref().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result.message, "Successfully merged with local main");
+    let summary: String = connection.query_row(
+            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
+            [], |row| row.get(0),
+        ).unwrap();
+    assert!(summary.contains("local target branch main"), "{summary}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn target_merge_falls_back_for_missing_remote_branch_and_invalid_upstreams() {
+    for configuration in ["missing-branch", "local-only", "invalid-ref"] {
+        let (root, target, source) = upstream_merge_repository();
+        let mut connection = target_merge_connection(&source, &target, "needs_human");
+        match configuration {
+            "missing-branch" => git_ok(
+                &source,
+                &["config", "branch.main.merge", "refs/heads/does-not-exist"],
+            ),
+            "local-only" => git_ok(&source, &["config", "branch.main.remote", "."]),
+            "invalid-ref" => git_ok(&source, &["config", "branch.main.merge", "refs/tags/main"]),
+            _ => unreachable!(),
+        }
+        let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+        assert_eq!(result.state, "noop", "{configuration}");
+        assert_eq!(
+            result.message, "Already up to date with local main",
+            "{configuration}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn target_merge_rejects_an_active_git_operation() {
+    let (root, target, source) = upstream_merge_repository();
+    let mut connection = target_merge_connection(&source, &target, "needs_human");
+    let marker = git_output(
+        source.to_str().unwrap(),
+        &["rev-parse", "--git-path", "CHERRY_PICK_HEAD"],
+    )
+    .unwrap();
+    fs::write(
+        marker,
+        git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+    )
+    .unwrap();
+    let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
+    assert!(error.contains("in-progress Git operation"), "{error}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn target_merge_conflicts_can_be_finalized_or_safely_aborted() {
+    let (root, target, source) = upstream_merge_repository();
+    fs::write(source.join("base.txt"), "source version\n").unwrap();
+    git_ok(&source, &["add", "."]);
+    git_ok(&source, &["commit", "-m", "source conflict"]);
+    fs::write(target.join("base.txt"), "target version\n").unwrap();
+    git_ok(&target, &["add", "."]);
+    git_ok(&target, &["commit", "-m", "target conflict"]);
+    git_ok(&target, &["push", "origin", "main"]);
+    let mut connection = target_merge_connection(&source, &target, "needs_human");
+    let starting_revision = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+    assert_eq!(prepared.state, "conflicted");
+    assert!(
+        prepared.message.contains("remote main"),
+        "{}",
+        prepared.message
+    );
+    assert!(health_codes(&connection, "local:target-merge")
+        .contains(&"target_merge_pending".to_string()));
+    let operation_id = prepared.operation_id.unwrap();
+    let retried = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+    assert_eq!(retried.operation_id.as_deref(), Some(operation_id.as_str()));
+    assert!(
+        retried.message.contains("remote main"),
+        "{}",
+        retried.message
+    );
+    fs::write(source.join("base.txt"), "resolved\n").unwrap();
+    git_ok(&source, &["add", "."]);
+    git_ok(&source, &["commit", "-m", "Merge target with resolution"]);
+    let finalized =
+        finalize_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
+    assert_eq!(finalized.card.status, "needs_human");
+    assert_eq!(finalized.message, "Successfully merged with remote main");
+
+    // A second conflicted operation can be conservatively restored when no
+    // paths outside Git's recorded merge result were touched.
+    fs::write(target.join("base.txt"), "another target version\n").unwrap();
+    git_ok(&target, &["add", "."]);
+    git_ok(&target, &["commit", "-m", "second target conflict"]);
+    git_ok(&target, &["push", "origin", "main"]);
+    fs::write(source.join("base.txt"), "another source version\n").unwrap();
+    git_ok(&source, &["add", "."]);
+    git_ok(&source, &["commit", "-m", "second source conflict"]);
+    git_ok(&source, &["config", "--unset", "branch.main.remote"]);
+    let current = get_card(&connection, "local:target-merge")
+        .unwrap()
+        .unwrap();
+    let environment_revision = current.environment.unwrap().revision;
+    let prepared = prepare_target_merge(
+        &mut connection,
+        "local:target-merge",
+        current.workflow_revision,
+        environment_revision,
+    )
+    .unwrap();
+    assert_eq!(prepared.state, "conflicted");
+    assert!(
+        prepared.message.contains("local main"),
+        "{}",
+        prepared.message
+    );
+    let operation_id = prepared.operation_id.unwrap();
+    let abort_operation = load_target_merge_operation(&connection, "local:target-merge")
+        .unwrap()
+        .unwrap();
+    assert_eq!(abort_operation.target_source, "local");
+    let abort_start = abort_operation.source_revision;
+    abort_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
+    assert_eq!(
+        git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+        abort_start
+    );
+    assert!(!has_git_operation(source.to_str().unwrap()).unwrap());
+    assert!(git_output(
+        source.to_str().unwrap(),
+        &["status", "--porcelain=v1", "--untracked-files=all"]
+    )
+    .unwrap()
+    .is_empty());
+    assert_ne!(starting_revision, abort_start);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -1919,6 +2379,31 @@ fn environment_health_is_status_aware_when_environment_is_absent() {
         assert_eq!(health.issues[0].code, "environment_missing");
         assert_eq!(health.issues[0].step, step);
     }
+}
+
+#[test]
+fn environment_health_ignores_finalized_parent_with_active_child() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    local_card(&mut connection);
+    connection
+        .execute(
+            "UPDATE kanban_cards SET status='ready', hierarchy_finalized=1 WHERE id='local:test'",
+            [],
+        )
+        .unwrap();
+    connection
+            .execute(
+                "INSERT INTO kanban_cards
+                 (id, external_provider, external_id, title, status, project_id, parent_id, created_at, updated_at)
+                 VALUES ('local:child', 'local:project', '2', 'Child', 'agent_working', 'project', 'local:test', 1, 1)",
+                [],
+            )
+            .unwrap();
+
+    let parent = get_card(&connection, "local:test").unwrap().unwrap();
+    assert_eq!(parent.status, "agent_working");
+    assert!(health_codes(&connection, "local:test").is_empty());
 }
 
 #[test]
@@ -2168,6 +2653,152 @@ fn cleanup_rejects_absent_unvalidated_and_changed_source_evidence() {
         .unwrap_err()
         .contains("tip changed"));
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn runtime_ownership_parsing_is_exact_for_delimited_and_prefixed_card_ids() {
+    assert_eq!(
+        card_pi_owner("kanban-card:local:7:planning").as_deref(),
+        Some("local:7")
+    );
+    assert_eq!(
+        card_terminal_owner("kanban-card:local:7:terminal:shell").as_deref(),
+        Some("local:7")
+    );
+    assert_ne!(
+        card_pi_owner("kanban-card:local:72:planning").as_deref(),
+        Some("local:7")
+    );
+    assert_ne!(
+        card_terminal_owner("kanban-card:local:72:terminal:shell").as_deref(),
+        Some("local:7")
+    );
+    assert!(card_pi_owner("kanban-card:local:7:terminal:shell").is_none());
+}
+
+#[test]
+fn close_validates_and_commits_pending_cleanup_before_teardown() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    let card = local_card(&mut connection);
+    connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,created_at,updated_at) VALUES ('env','local:test','project','/tmp/card',1,1)", []).unwrap();
+    connection.execute("INSERT INTO card_panes (id,environment_id,role,kind,sort_order) VALUES ('kanban-card:local:test:terminal:custom','env','custom','terminal',0), ('kanban-card:local:test-more:terminal:foreign','env','foreign','terminal',1)", []).unwrap();
+
+    assert!(commit_card_close(&mut connection, &card.id, card.workflow_revision + 1).is_err());
+    let unchanged = get_card(&connection, &card.id).unwrap().unwrap();
+    assert_eq!(unchanged.status, "needs_refinement");
+    assert_eq!(unchanged.workflow_revision, card.workflow_revision);
+    assert!(unchanged.runtime_cleanup_status.is_none());
+    assert_eq!(unchanged.events.len(), 0);
+
+    let targets = commit_card_close(&mut connection, &card.id, card.workflow_revision).unwrap();
+    let committed = get_card(&connection, &card.id).unwrap().unwrap();
+    assert_eq!(committed.status, "done");
+    assert_eq!(
+        committed.completion_outcome,
+        Some(CompletionOutcome::Closed)
+    );
+    assert_eq!(committed.workflow_revision, card.workflow_revision + 1);
+    assert_eq!(committed.runtime_cleanup_status.as_deref(), Some("pending"));
+    assert_eq!(
+        committed
+            .events
+            .iter()
+            .filter(|event| event.event_type == "close" && event.outcome == "success")
+            .count(),
+        1
+    );
+    assert!(targets
+        .pty
+        .contains("kanban-card:local:test:terminal:custom"));
+    assert!(!targets
+        .pty
+        .contains("kanban-card:local:test-more:terminal:foreign"));
+    assert!(commit_card_close(&mut connection, &card.id, committed.workflow_revision).is_err());
+}
+
+#[test]
+fn runtime_cleanup_attempts_every_target_and_recovers_without_workflow_change() {
+    use std::cell::RefCell;
+    let mut targets = CardRuntimeTargets::default();
+    targets.pi.extend([
+        "kanban-card:local:test:planning".into(),
+        "kanban-card:local:test:work".into(),
+    ]);
+    targets.pty.extend([
+        "kanban-card:local:test:terminal:shell".into(),
+        "kanban-card:local:test:terminal:server".into(),
+    ]);
+    let attempted = RefCell::new(Vec::new());
+    let outcomes = execute_runtime_cleanup(
+        targets,
+        |id| {
+            attempted.borrow_mut().push(format!("stop:{id}"));
+            if id.ends_with(":planning") {
+                Err("stuck".into())
+            } else {
+                Ok(())
+            }
+        },
+        |id| {
+            attempted.borrow_mut().push(format!("delete:{id}"));
+            Ok(())
+        },
+        |id| {
+            attempted.borrow_mut().push(format!("pty:{id}"));
+            Ok(())
+        },
+    );
+    assert_eq!(
+        outcomes.iter().filter(|outcome| !outcome.success).count(),
+        2
+    );
+    assert!(attempted
+        .borrow()
+        .iter()
+        .any(|value| value.ends_with(":work")));
+    assert!(attempted
+        .borrow()
+        .iter()
+        .any(|value| value.ends_with(":terminal:server")));
+    assert!(!attempted
+        .borrow()
+        .iter()
+        .any(|value| value == "delete:kanban-card:local:test:planning"));
+
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    let card = local_card(&mut connection);
+    commit_card_close(&mut connection, &card.id, card.workflow_revision).unwrap();
+    let revision = card.workflow_revision + 1;
+    persist_runtime_cleanup_result(
+        &connection,
+        &card.id,
+        &[RuntimeResourceOutcome {
+            resource_type: "pty".into(),
+            id: "shell".into(),
+            success: false,
+            error: Some("permission denied".into()),
+        }],
+    )
+    .unwrap();
+    let failed = get_card(&connection, &card.id).unwrap().unwrap();
+    assert_eq!(failed.status, "done");
+    assert_eq!(failed.workflow_revision, revision);
+    assert_eq!(failed.runtime_cleanup_status.as_deref(), Some("failed"));
+    assert!(failed
+        .runtime_cleanup_error
+        .as_deref()
+        .unwrap()
+        .contains("permission denied"));
+    persist_runtime_cleanup_result(&connection, &card.id, &[]).unwrap();
+    let recovered = get_card(&connection, &card.id).unwrap().unwrap();
+    assert_eq!(recovered.workflow_revision, revision);
+    assert_eq!(
+        recovered.runtime_cleanup_status.as_deref(),
+        Some("complete")
+    );
+    assert!(recovered.runtime_cleanup_error.is_none());
 }
 
 #[test]

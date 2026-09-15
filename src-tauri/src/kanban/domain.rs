@@ -1,18 +1,10 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use super::*;
+#[allow(unused_imports)]
+use super::{
+    cards::*, cleanup::*, environment::*, git_effects::*, github_delivery::*, health::*,
+    local_delivery::*, repository::*, sync::*,
+};
 
-pub(in crate::kanban) const STATUSES: [&str; 8] = [
-    "needs_refinement",
-    "refining",
-    "needs_refinement_input",
-    "ready",
-    "agent_working",
-    "needs_human",
-    "approved",
-    "done",
-];
-pub(in crate::kanban) const REFINEMENT_STATUSES: [&str; 3] =
-    ["needs_refinement", "refining", "needs_refinement_input"];
 pub(in crate::kanban) const REORDER_CONFLICT_CODE: &str = "KANBAN_REORDER_CONFLICT";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -68,7 +60,7 @@ pub struct CardEnvironment {
     pub(in crate::kanban) target_branch: Option<String>,
     pub(in crate::kanban) source_revision: Option<String>,
     pub(in crate::kanban) target_revision: Option<String>,
-    pub(in crate::kanban) lifecycle_state: String,
+    pub(in crate::kanban) lifecycle_state: EnvironmentLifecycle,
     pub(in crate::kanban) revision: i64,
     pub(in crate::kanban) layout_revision: i64,
     pub(in crate::kanban) split_layout: serde_json::Value,
@@ -90,6 +82,18 @@ pub struct CardEnvironmentHealth {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct EnvironmentCreationOperation {
+    pub(in crate::kanban) id: String,
+    pub(in crate::kanban) phase: String,
+    pub(in crate::kanban) error: Option<String>,
+    pub(in crate::kanban) source_path: Option<String>,
+    pub(in crate::kanban) source_branch: Option<String>,
+    pub(in crate::kanban) cleanup_available: bool,
+    pub(in crate::kanban) custom_command: bool,
+    pub(in crate::kanban) revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CardCleanupOperation {
     pub(in crate::kanban) status: String,
     pub(in crate::kanban) phase: String,
@@ -104,11 +108,11 @@ pub struct CardCleanupOperation {
 pub struct CardEvent {
     pub(in crate::kanban) id: i64,
     pub(in crate::kanban) created_at: i64,
-    pub(in crate::kanban) actor: String,
+    pub(in crate::kanban) actor: WorkflowActor,
     pub(in crate::kanban) event_type: String,
-    pub(in crate::kanban) outcome: String,
-    pub(in crate::kanban) from_status: Option<String>,
-    pub(in crate::kanban) to_status: Option<String>,
+    pub(in crate::kanban) outcome: WorkflowEventOutcome,
+    pub(in crate::kanban) from_status: Option<CardStatus>,
+    pub(in crate::kanban) to_status: Option<CardStatus>,
     pub(in crate::kanban) summary: Option<String>,
     pub(in crate::kanban) error_code: Option<String>,
     pub(in crate::kanban) error_detail: Option<String>,
@@ -120,7 +124,7 @@ pub struct CardPullRequest {
     pub(in crate::kanban) number: u64,
     pub(in crate::kanban) title: String,
     pub(in crate::kanban) url: String,
-    pub(in crate::kanban) state: String,
+    pub(in crate::kanban) state: PullRequestState,
     pub(in crate::kanban) draft: bool,
     pub(in crate::kanban) ci_status: String,
     pub(in crate::kanban) review_state: String,
@@ -134,7 +138,7 @@ pub struct CardRelationshipSummary {
     pub(in crate::kanban) id: String,
     pub(in crate::kanban) external_id: String,
     pub(in crate::kanban) title: String,
-    pub(in crate::kanban) status: String,
+    pub(in crate::kanban) status: CardStatus,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -158,12 +162,14 @@ pub struct KanbanCard {
     pub(in crate::kanban) list_title: String,
     pub(in crate::kanban) card_url: String,
     pub(in crate::kanban) assignee_names: Vec<String>,
-    pub(in crate::kanban) status: String,
-    pub(in crate::kanban) completion_outcome: Option<String>,
+    pub(in crate::kanban) status: CardStatus,
+    pub(in crate::kanban) completion_outcome: Option<CompletionOutcome>,
     pub(in crate::kanban) feature_environment: bool,
     pub(in crate::kanban) pull_request: Option<CardPullRequest>,
     pub(in crate::kanban) delivery_operation_stage: Option<String>,
     pub(in crate::kanban) delivery_error: Option<String>,
+    pub(in crate::kanban) runtime_cleanup_status: Option<String>,
+    pub(in crate::kanban) runtime_cleanup_error: Option<String>,
     pub(in crate::kanban) workflow_revision: i64,
     pub(in crate::kanban) record_revision: i64,
     pub(in crate::kanban) project_id: Option<String>,
@@ -172,12 +178,28 @@ pub struct KanbanCard {
     pub(in crate::kanban) children: Vec<CardRelationshipSummary>,
     pub(in crate::kanban) hierarchy_finalized: bool,
     pub(in crate::kanban) environment: Option<CardEnvironment>,
+    pub(in crate::kanban) creation_operation: Option<EnvironmentCreationOperation>,
     pub(in crate::kanban) cleanup_operation: Option<CardCleanupOperation>,
     pub(in crate::kanban) created_at: i64,
     pub(in crate::kanban) updated_at: i64,
     pub(in crate::kanban) sort_order: i64,
     pub(in crate::kanban) in_scope: bool,
     pub(in crate::kanban) events: Vec<CardEvent>,
+    pub(in crate::kanban) capabilities: Vec<WorkflowCapability>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct RuntimeResourceOutcome {
+    pub(in crate::kanban) resource_type: String,
+    pub(in crate::kanban) id: String,
+    pub(in crate::kanban) success: bool,
+    pub(in crate::kanban) error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CardRuntimeCleanupResult {
+    pub(in crate::kanban) card: KanbanCard,
+    pub(in crate::kanban) outcomes: Vec<RuntimeResourceOutcome>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -217,24 +239,6 @@ impl KanbanCard {
 
 pub(in crate::kanban) fn is_local_kanban_source(source: &str) -> bool {
     source == "local"
-}
-
-pub(in crate::kanban) fn is_legal_status_transition(current: &str, next: &str) -> bool {
-    matches!(
-        (current, next),
-        ("needs_refinement", "refining")
-            | ("needs_refinement", "ready")
-            | ("refining", "needs_refinement")
-            | ("refining", "needs_refinement_input")
-            | ("needs_refinement_input", "refining")
-            | ("needs_refinement_input", "needs_refinement")
-            | ("ready", "needs_refinement")
-            | ("ready", "agent_working")
-            | ("agent_working", "needs_human")
-            | ("needs_human", "agent_working")
-            | ("needs_human", "approved")
-            | ("approved", "needs_human")
-    )
 }
 
 pub(in crate::kanban) fn reject_duplicate_ids(field: &str, ids: &[String]) -> Result<(), String> {

@@ -1,5 +1,9 @@
-use super::environment::*;
 use super::*;
+#[allow(unused_imports)]
+use super::{
+    cards::*, cleanup::*, domain::*, environment::*, github_delivery::*, health::*,
+    local_delivery::*, repository::*, sync::*,
+};
 
 pub(in crate::kanban) fn git_status_success(path: &str, args: &[&str]) -> Result<bool, String> {
     Command::new("git")
@@ -30,15 +34,7 @@ pub(in crate::kanban) fn git_output(path: &str, args: &[&str]) -> Result<String,
 }
 
 pub(in crate::kanban) fn repository_identity(path: &str) -> Result<String, String> {
-    let common = git_output(path, &["rev-parse", "--git-common-dir"])?;
-    let common = if Path::new(&common).is_absolute() {
-        PathBuf::from(common)
-    } else {
-        Path::new(path).join(common)
-    };
-    common
-        .canonicalize()
-        .map_err(|error| format!("Could not identify repository for {path}: {error}"))?
+    repository_coordinator::repository_identity(path)?
         .to_str()
         .map(str::to_string)
         .ok_or_else(|| "Repository path is not valid UTF-8".to_string())
@@ -145,7 +141,7 @@ pub(in crate::kanban) fn ensure_registered_distinct_worktree(
             .any(|path| Path::new(path).canonicalize().ok().as_ref() == Some(&source))
     {
         return Err(format!(
-            "Setup result {} is not a distinct registered worktree; recover it manually",
+            "Setup result {} is not a distinct registered worktree",
             source.display()
         ));
     }

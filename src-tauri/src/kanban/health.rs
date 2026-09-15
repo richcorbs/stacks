@@ -1,5 +1,9 @@
 use super::*;
-use super::{git_effects::*, repository::*};
+#[allow(unused_imports)]
+use super::{
+    cards::*, cleanup::*, domain::*, environment::*, git_effects::*, github_delivery::*,
+    local_delivery::*, repository::*, sync::*,
+};
 
 pub(in crate::kanban) fn validate_card_environment_project(
     connection: &Connection,
@@ -53,7 +57,32 @@ pub(in crate::kanban) fn environment_health(
 ) -> Result<CardEnvironmentHealth, String> {
     let card = get_card(connection, card_id)?
         .ok_or_else(|| format!("Kanban card {card_id} was not found"))?;
+    if card.hierarchy_finalized {
+        return Ok(CardEnvironmentHealth {
+            card_id: card.id,
+            issues: Vec::new(),
+        });
+    }
     let mut issues = Vec::new();
+    let pending_target_merge: Option<String> = connection
+        .query_row(
+            "SELECT phase FROM card_target_merge_operations WHERE card_id=?1",
+            [card_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_error)?;
+    if let Some(phase) = pending_target_merge {
+        issues.push(health_issue(
+            "target_merge_pending",
+            if phase == "conflicted" {
+                "A target merge is awaiting conflict resolution. Use Merge in target & resolve to resume or recover it."
+            } else {
+                "A completed target merge is awaiting final verification. Use Merge in target & resolve to resume or recover it."
+            },
+            if card.status == "approved" { "merge" } else { "approval" },
+        ));
+    }
     let required_step = match card.status.as_str() {
         "agent_working" => Some("work"),
         "needs_human" => Some("approval"),
@@ -80,12 +109,12 @@ pub(in crate::kanban) fn environment_health(
         "done" => "cleanup",
         _ => "work",
     };
-    let target_step = if card.status == "done" {
+    let target_step = if card.status == CardStatus::Done {
         "cleanup"
     } else {
         "merge"
     };
-    if environment.lifecycle_state != "ready" {
+    if environment.lifecycle_state != EnvironmentLifecycle::Ready {
         issues.push(health_issue(
             "environment_not_ready",
             "The recorded environment is not ready for workflow operations.",
@@ -136,7 +165,7 @@ pub(in crate::kanban) fn environment_health(
         issues.push(health_issue(
             "repository_metadata_missing",
             "The environment has no recorded repository. Set the merge target again.",
-            if card.status == "agent_working" || card.status == "needs_human" {
+            if card.status == CardStatus::AgentWorking || card.status == CardStatus::NeedsHuman {
                 "approval"
             } else {
                 target_step
@@ -171,8 +200,8 @@ pub(in crate::kanban) fn environment_health(
             target_step,
         ));
     }
-    if card.status == "done"
-        && card.completion_outcome.as_deref() == Some("merged")
+    if card.status == CardStatus::Done
+        && card.completion_outcome == Some(CompletionOutcome::Merged)
         && environment
             .source_revision
             .as_deref()
@@ -348,8 +377,8 @@ pub(in crate::kanban) fn environment_health(
                 target_step,
             ));
         }
-        if card.status == "done"
-            && card.completion_outcome.as_deref() == Some("merged")
+        if card.status == CardStatus::Done
+            && card.completion_outcome == Some(CompletionOutcome::Merged)
             && registered
         {
             if let (Some(recorded), Some(current)) = (

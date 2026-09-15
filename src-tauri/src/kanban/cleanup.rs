@@ -1,5 +1,9 @@
 use super::*;
-use super::{git_effects::*, health::*, repository::*};
+#[allow(unused_imports)]
+use super::{
+    cards::*, domain::*, environment::*, git_effects::*, github_delivery::*, health::*,
+    local_delivery::*, repository::*, sync::*,
+};
 
 pub(in crate::kanban) const CLEANUP_PHASES: [&str; 7] = [
     "runtime_sessions",
@@ -61,34 +65,32 @@ pub(in crate::kanban) fn run_cleanup(
     pty_registry: &Mutex<PtyRegistry>,
     pi_registry: &Mutex<PiRpcRegistry>,
 ) -> Result<KanbanCard, String> {
-    let _guard = REPOSITORY_OPERATION_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .map_err(|_| "Repository operation lock failed".to_string())?;
-    initialize_cleanup(
-        id,
-        expected_workflow_revision,
-        expected_environment_revision,
-    )?;
-    loop {
-        let operation = with_connection(|connection| load_cleanup_snapshot(connection, id))?;
-        if operation.status == "completed" {
-            return with_connection(|connection| {
-                get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
-            });
+    coordinate_card_repository(id, true, || {
+        initialize_cleanup(
+            id,
+            expected_workflow_revision,
+            expected_environment_revision,
+        )?;
+        loop {
+            let operation = with_connection(|connection| load_cleanup_snapshot(connection, id))?;
+            if operation.status == "completed" {
+                return with_connection(|connection| {
+                    get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
+                });
+            }
+            let phase = operation.phase.clone();
+            if let Err(detail) = execute_cleanup_phase(&operation, pty_registry, pi_registry) {
+                let code = cleanup_error_code(&phase, &detail);
+                record_cleanup_failure(id, &phase, &code, &detail);
+                return Err(detail);
+            }
+            if let Err(detail) = advance_cleanup_phase(&operation) {
+                let code = cleanup_error_code(&phase, &detail);
+                record_cleanup_failure(id, &phase, &code, &detail);
+                return Err(detail);
+            }
         }
-        let phase = operation.phase.clone();
-        if let Err(detail) = execute_cleanup_phase(&operation, pty_registry, pi_registry) {
-            let code = cleanup_error_code(&phase, &detail);
-            record_cleanup_failure(id, &phase, &code, &detail);
-            return Err(detail);
-        }
-        if let Err(detail) = advance_cleanup_phase(&operation) {
-            let code = cleanup_error_code(&phase, &detail);
-            record_cleanup_failure(id, &phase, &code, &detail);
-            return Err(detail);
-        }
-    }
+    })
 }
 
 pub(in crate::kanban) fn initialize_cleanup(
@@ -111,13 +113,11 @@ pub(in crate::kanban) fn initialize_cleanup(
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
-        let (status, outcome, workflow_revision, delivery_stage): (String, Option<String>, i64, Option<String>) = transaction.query_row(
+        require_structural_capability(&transaction, card_id, WorkflowAction::Cleanup)?;
+        let (_status, outcome, workflow_revision, delivery_stage): (String, Option<String>, i64, Option<String>) = transaction.query_row(
             "SELECT status, completion_outcome, workflow_revision, delivery_operation_stage FROM kanban_cards WHERE id=?1", [card_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         ).map_err(db_error)?;
-        if status != "done" {
-            return Err("Only a Done card environment can be cleaned up".to_string());
-        }
         if workflow_revision != expected_workflow_revision {
             return Err("Card changed; reload before cleanup".to_string());
         }

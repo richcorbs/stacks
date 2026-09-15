@@ -1,5 +1,9 @@
 use super::*;
-use super::{cleanup::*, git_effects::*, health::*, repository::*};
+#[allow(unused_imports)]
+use super::{
+    cards::*, cleanup::*, domain::*, environment::*, git_effects::*, health::*, local_delivery::*,
+    repository::*, sync::*,
+};
 
 #[derive(Deserialize)]
 pub(in crate::kanban) struct PrMetadata {
@@ -10,7 +14,7 @@ pub(in crate::kanban) struct PrMetadata {
 #[derive(Debug)]
 pub(in crate::kanban) struct ProjectDeliverySettings {
     pub(in crate::kanban) path: String,
-    pub(in crate::kanban) workflow: String,
+    pub(in crate::kanban) workflow: DeliveryWorkflow,
     pub(in crate::kanban) target_branch: String,
     pub(in crate::kanban) merge_strategy: String,
 }
@@ -32,7 +36,7 @@ pub(in crate::kanban) fn refresh_pull_request(
     id: &str,
 ) -> Result<Option<CardPullRequest>, String> {
     let settings = project_delivery_settings(connection, id)?;
-    if settings.workflow != "github_pull_request" {
+    if settings.workflow != DeliveryWorkflow::GithubPullRequest {
         return Ok(None);
     }
     let (branch, feature_environment, source_revision): (String, bool, Option<String>) = connection.query_row(
@@ -186,8 +190,22 @@ pub(in crate::kanban) fn refresh_pull_request(
     if state == "open" {
         connection.execute("UPDATE kanban_cards SET delivery_error=NULL WHERE id=?1 AND delivery_operation_stage IS NULL", [id]).map_err(db_error)?;
     } else if state == "merged" {
-        connection.execute("UPDATE kanban_cards SET status='done', completion_outcome='merged', delivery_operation_stage=NULL, delivery_error=NULL,
-            workflow_revision=workflow_revision+CASE WHEN status='done' THEN 0 ELSE 1 END, updated_at=?1 WHERE id=?2 AND completion_outcome IS NOT 'closed'", params![unix_timestamp(), id]).map_err(db_error)?;
+        let current =
+            get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+        if current.completion_outcome != Some(CompletionOutcome::Closed)
+            && current.status != CardStatus::Done
+        {
+            apply_workflow_transition(
+                connection,
+                id,
+                WorkflowActor::System,
+                WorkflowAction::MergePr,
+                None,
+                "merge_pr",
+                Some("Observed merged pull request"),
+            )?;
+        }
+        connection.execute("UPDATE kanban_cards SET delivery_operation_stage=NULL,delivery_error=NULL WHERE id=?1", [id]).map_err(db_error)?;
     } else if state == "closed" {
         connection.execute("UPDATE kanban_cards SET delivery_error='The associated pull request was closed without merging. Create or associate a replacement PR.', delivery_operation_stage=NULL WHERE id=?1", [id]).map_err(db_error)?;
     }
@@ -199,7 +217,9 @@ pub(in crate::kanban) async fn kanban_refresh_pull_request_operation(
     id: String,
 ) -> Result<KanbanPullRequestRefreshResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let refresh_result = with_connection(|connection| refresh_pull_request(connection, &id));
+        let refresh_result = coordinate_card_repository(&id, true, || {
+            with_connection(|connection| refresh_pull_request(connection, &id))
+        });
         let error = refresh_result.err();
         if let Some(detail) = &error {
             record_operation_failure(&id, "refresh_pr", "refresh_pr_failed", detail);
@@ -218,19 +238,20 @@ pub(in crate::kanban) async fn kanban_create_pull_request_operation(
     expected_workflow_revision: i64,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK.get_or_init(|| Mutex::new(())).lock().map_err(|_| "Repository operation lock failed".to_string())?;
-        with_connection(|connection| {
+        coordinate_card_repository(&id, true, || with_connection(|connection| {
             let settings = project_delivery_settings(connection, &id)?;
-            if settings.workflow != "github_pull_request" { return Err("This project uses Local merge delivery".to_string()); }
-            let (status, revision, title, content, feature_environment, source_path, branch, source_revision): (String, i64, String, String, bool, String, String, Option<String>) = connection.query_row(
+            if settings.workflow != DeliveryWorkflow::GithubPullRequest { return Err("This project uses Local merge delivery".to_string()); }
+            let (status, revision, title, content, feature_environment, source_path, branch, source_revision): (CardStatus, i64, String, String, bool, String, String, Option<String>) = connection.query_row(
                 "SELECT c.status,c.workflow_revision,c.title,c.content,c.feature_environment,e.worktree_path,e.branch,e.source_revision FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
                 [&id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get::<_,i64>(4)? != 0,row.get(5)?,row.get(6)?,row.get(7)?)),
             ).map_err(db_error)?;
-            if status != "approved" || revision != expected_workflow_revision { return Err("Card changed or is not Ready to merge".to_string()); }
+            if revision != expected_workflow_revision { return Err("Card changed; reload before creating a pull request".to_string()); }
+            let _ = status;
+            require_structural_capability(connection, &id, WorkflowAction::CreatePr)?;
             let source = validate_checkout(&source_path, None)?;
             if source.target_branch != branch || source_revision.as_deref() != Some(source.target_revision.as_str()) { return Err("The source branch changed after Ship It; ship it again before creating a PR".to_string()); }
             connection.execute("UPDATE kanban_cards SET delivery_operation_stage='creating_pr', delivery_error=NULL WHERE id=?1", [&id]).map_err(db_error)?;
-            if refresh_pull_request(connection, &id)?.is_some_and(|pr| pr.state == "open") {
+            if refresh_pull_request(connection, &id)?.is_some_and(|pr| pr.state == PullRequestState::Open) {
                 return get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string());
             }
             let repository = crate::github::repository_name(&settings.path)?;
@@ -249,7 +270,7 @@ pub(in crate::kanban) async fn kanban_create_pull_request_operation(
             refresh_pull_request(connection, &id)?;
             connection.execute("UPDATE kanban_cards SET delivery_operation_stage=NULL WHERE id=?1", [&id]).map_err(db_error)?;
             get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
-        }).map_err(|error| { record_operation_failure(&id, "create_pr", "create_pr_failed", &error); error })
+        })).map_err(|error| { record_operation_failure(&id, "create_pr", "create_pr_failed", &error); error })
     }).await.map_err(|error| format!("Create PR worker failed: {error}"))?
 }
 
@@ -258,13 +279,14 @@ pub(in crate::kanban) async fn kanban_merge_pull_request_operation(
     expected_workflow_revision: i64,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = REPOSITORY_OPERATION_LOCK.get_or_init(|| Mutex::new(())).lock().map_err(|_| "Repository operation lock failed".to_string())?;
-        with_connection(|connection| {
+        coordinate_card_repository(&id, true, || with_connection(|connection| {
             let settings = project_delivery_settings(connection, &id)?;
-            if settings.workflow != "github_pull_request" { return Err("This project uses Local merge delivery".to_string()); }
-            let (status, revision): (String, i64) = connection.query_row("SELECT status,workflow_revision FROM kanban_cards WHERE id=?1", [&id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(db_error)?;
-            if status != "approved" || revision != expected_workflow_revision { return Err("Card changed or is not Ready to merge".to_string()); }
+            if settings.workflow != DeliveryWorkflow::GithubPullRequest { return Err("This project uses Local merge delivery".to_string()); }
+            let (status, revision): (CardStatus, i64) = connection.query_row("SELECT status,workflow_revision FROM kanban_cards WHERE id=?1", [&id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(db_error)?;
+            if revision != expected_workflow_revision { return Err("Card changed; reload before merging the pull request".to_string()); }
+            let _ = status;
             refresh_pull_request(connection, &id)?;
+            require_structural_capability(connection, &id, WorkflowAction::MergePr)?;
             let card = get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
             let pr = card.pull_request.ok_or("No open pull request is associated with this card")?;
             if !pr.blockers.is_empty() { return Err(format!("Pull request is not ready: {}", pr.blockers.join("; "))); }
@@ -272,8 +294,9 @@ pub(in crate::kanban) async fn kanban_merge_pull_request_operation(
             let number = pr.number.to_string();
             let flag = match settings.merge_strategy.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
             crate::github::run_gh(Some(Path::new(&settings.path)), &["pr", "merge", &number, "--repo", &pr.repository, flag])?;
+            apply_workflow_transition(connection, &id, WorkflowActor::User, WorkflowAction::MergePr, Some(expected_workflow_revision), "merge_pr", Some("Merged pull request"))?;
             connection.execute("UPDATE card_pull_requests SET state='merged', updated_at=?1 WHERE card_id=?2", params![unix_timestamp(), id]).map_err(db_error)?;
-            connection.execute("UPDATE kanban_cards SET status='done',completion_outcome='merged',delivery_operation_stage='deleting_remote_branch',workflow_revision=workflow_revision+1,updated_at=?1 WHERE id=?2", params![unix_timestamp(), id]).map_err(db_error)?;
+            connection.execute("UPDATE kanban_cards SET delivery_operation_stage='deleting_remote_branch' WHERE id=?1", [&id]).map_err(db_error)?;
             let branch: String = connection.query_row("SELECT branch FROM card_environments WHERE card_id=?1", [&id], |row| row.get(0)).map_err(db_error)?;
             let deletion = Command::new("git").args(["-C", &settings.path, "push", "origin", "--delete", &branch]).output();
             match deletion {
@@ -282,7 +305,7 @@ pub(in crate::kanban) async fn kanban_merge_pull_request_operation(
                 Err(error) => { connection.execute("UPDATE kanban_cards SET delivery_error=?1 WHERE id=?2", params![format!("PR merged, but remote branch deletion needs retry: {error}"), id]).map_err(db_error)?; }
             }
             get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
-        }).map_err(|error| { record_operation_failure(&id, "merge_pr", "merge_pr_failed", &error); error })
+        })).map_err(|error| { record_operation_failure(&id, "merge_pr", "merge_pr_failed", &error); error })
     }).await.map_err(|error| format!("Merge PR worker failed: {error}"))?
 }
 

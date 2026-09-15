@@ -1,5 +1,9 @@
-use super::health::*;
 use super::*;
+#[allow(unused_imports)]
+use super::{
+    cards::*, cleanup::*, domain::*, environment::*, git_effects::*, github_delivery::*, health::*,
+    local_delivery::*, sync::*,
+};
 
 pub(in crate::kanban) fn next_local_card_number(
     connection: &Connection,
@@ -229,6 +233,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             feature_environment INTEGER NOT NULL DEFAULT 0,
             delivery_operation_stage TEXT,
             delivery_error TEXT,
+            runtime_cleanup_status TEXT CHECK(runtime_cleanup_status IN ('pending', 'complete', 'failed')),
+            runtime_cleanup_error TEXT,
             workflow_revision INTEGER NOT NULL DEFAULT 1,
             record_revision INTEGER NOT NULL DEFAULT 1,
             project_id TEXT,
@@ -288,6 +294,59 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             target_revision TEXT,
             lifecycle_state TEXT NOT NULL DEFAULT 'ready' CHECK(lifecycle_state IN ('creating', 'ready', 'cleanup_pending', 'cleanup_failed')),
             revision INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS environment_creation_operations (
+            id TEXT PRIMARY KEY,
+            card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL,
+            repository_id TEXT NOT NULL,
+            expected_workflow_revision INTEGER NOT NULL,
+            target_checkout_path TEXT NOT NULL,
+            target_branch TEXT NOT NULL,
+            observed_target_revision TEXT NOT NULL,
+            setup_command TEXT NOT NULL,
+            custom_command INTEGER NOT NULL DEFAULT 0,
+            phase TEXT NOT NULL CHECK(phase IN ('prepared','setup_running','setup_complete','attaching','compensation_pending','recovery_required')),
+            attempt_token TEXT,
+            result_path TEXT NOT NULL,
+            pre_worktrees TEXT NOT NULL,
+            pre_branches TEXT NOT NULL,
+            post_worktrees TEXT,
+            post_branches TEXT,
+            setup_result_cwd TEXT,
+            setup_output TEXT,
+            source_path TEXT,
+            source_branch TEXT,
+            source_revision TEXT,
+            source_worktree_new INTEGER NOT NULL DEFAULT 0,
+            source_branch_new INTEGER NOT NULL DEFAULT 0,
+            worktree_removed INTEGER NOT NULL DEFAULT 0,
+            error TEXT,
+            cleanup_available INTEGER NOT NULL DEFAULT 0,
+            revision INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS card_target_merge_operations (
+            id TEXT PRIMARY KEY,
+            card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            environment_id TEXT NOT NULL,
+            workflow_revision INTEGER NOT NULL,
+            environment_revision INTEGER NOT NULL,
+            initial_status TEXT NOT NULL CHECK(initial_status IN ('needs_human','approved')),
+            repository_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            source_branch TEXT NOT NULL,
+            target_branch TEXT NOT NULL,
+            upstream_remote TEXT NOT NULL,
+            upstream_merge_ref TEXT NOT NULL,
+            source_revision TEXT NOT NULL,
+            target_revision TEXT NOT NULL,
+            target_source TEXT NOT NULL DEFAULT 'remote' CHECK(target_source IN ('local','remote')),
+            phase TEXT NOT NULL CHECK(phase IN ('conflicted','merged')),
+            conflict_paths TEXT NOT NULL DEFAULT '[]',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
          );
@@ -358,6 +417,22 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             error_detail TEXT
          );
          CREATE INDEX IF NOT EXISTS card_events_card_idx ON card_events(card_id, created_at DESC);
+         CREATE TABLE IF NOT EXISTS card_pi_lifecycle (
+            card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            thread TEXT NOT NULL CHECK(thread IN ('planning','work')),
+            generation TEXT NOT NULL,
+            latest_event_order INTEGER NOT NULL DEFAULT -1,
+            latest_event_id TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(card_id, thread)
+         );
+         CREATE TABLE IF NOT EXISTS card_pi_lifecycle_events (
+            card_id TEXT NOT NULL,
+            thread TEXT NOT NULL,
+            generation TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            PRIMARY KEY(card_id, thread, generation, event_id),
+            FOREIGN KEY(card_id, thread) REFERENCES card_pi_lifecycle(card_id, thread) ON DELETE CASCADE
+         );
          CREATE TRIGGER IF NOT EXISTS card_events_bound AFTER INSERT ON card_events BEGIN
             DELETE FROM card_events WHERE card_id = NEW.card_id AND id NOT IN (
               SELECT id FROM card_events WHERE card_id = NEW.card_id ORDER BY created_at DESC, id DESC LIMIT 200
@@ -422,6 +497,14 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             .map_err(db_error)?;
     }
     for (name, sql) in [
+        (
+            "runtime_cleanup_status",
+            "ALTER TABLE kanban_cards ADD COLUMN runtime_cleanup_status TEXT CHECK(runtime_cleanup_status IN ('pending', 'complete', 'failed'))",
+        ),
+        (
+            "runtime_cleanup_error",
+            "ALTER TABLE kanban_cards ADD COLUMN runtime_cleanup_error TEXT",
+        ),
         (
             "parent_id",
             "ALTER TABLE kanban_cards ADD COLUMN parent_id TEXT",
@@ -531,6 +614,51 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             connection.execute(sql, []).map_err(db_error)?;
         }
     }
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (70, unixepoch())",
+            [],
+        )
+        .map_err(db_error)?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS card_target_merge_operations (
+            id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            environment_id TEXT NOT NULL, workflow_revision INTEGER NOT NULL, environment_revision INTEGER NOT NULL,
+            initial_status TEXT NOT NULL CHECK(initial_status IN ('needs_human','approved')),
+            repository_id TEXT NOT NULL, source_path TEXT NOT NULL, source_branch TEXT NOT NULL, target_branch TEXT NOT NULL,
+            upstream_remote TEXT NOT NULL, upstream_merge_ref TEXT NOT NULL, source_revision TEXT NOT NULL, target_revision TEXT NOT NULL,
+            target_source TEXT NOT NULL DEFAULT 'remote' CHECK(target_source IN ('local','remote')),
+            phase TEXT NOT NULL CHECK(phase IN ('conflicted','merged')), conflict_paths TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+         );
+         INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (71, unixepoch());"
+    ).map_err(db_error)?;
+    let target_merge_columns = connection
+        .prepare("PRAGMA table_info(card_target_merge_operations)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    if !target_merge_columns
+        .iter()
+        .any(|column| column == "target_source")
+    {
+        // Operations created by the old schema only existed after a successful
+        // fetch, so their selected target provenance is unambiguously remote.
+        connection
+            .execute(
+                "ALTER TABLE card_target_merge_operations ADD COLUMN target_source TEXT NOT NULL DEFAULT 'remote' CHECK(target_source IN ('local','remote'))",
+                [],
+            )
+            .map_err(db_error)?;
+    }
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (72, unixepoch())",
+            [],
+        )
+        .map_err(db_error)?;
     Ok(())
 }
 
@@ -542,10 +670,8 @@ pub(in crate::kanban) fn migrate_done_status(connection: &Connection) -> Result<
             |row| row.get(0),
         )
         .map_err(db_error)?;
-    if sql.contains("'done'") {
-        return Ok(());
-    }
-    connection.execute_batch(
+    if !sql.contains("'done'") {
+        connection.execute_batch(
         "PRAGMA foreign_keys=OFF;
          PRAGMA legacy_alter_table=ON;
          BEGIN IMMEDIATE;
@@ -573,7 +699,27 @@ pub(in crate::kanban) fn migrate_done_status(connection: &Connection) -> Result<
          COMMIT;
          PRAGMA legacy_alter_table=OFF;
          PRAGMA foreign_keys=ON;"
-    ).map_err(db_error)
+        ).map_err(db_error)?;
+    }
+    connection
+        .execute(
+            "UPDATE card_events SET from_status='done' WHERE from_status='merged'",
+            [],
+        )
+        .map_err(db_error)?;
+    connection
+        .execute(
+            "UPDATE card_events SET to_status='done' WHERE to_status='merged'",
+            [],
+        )
+        .map_err(db_error)?;
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (72, unixepoch())",
+            [],
+        )
+        .map_err(db_error)?;
+    Ok(())
 }
 
 pub(in crate::kanban) fn migrate_refinement_statuses(
@@ -642,7 +788,7 @@ pub(in crate::kanban) fn list_cards(
         let mut statement = connection.prepare(
             "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                     card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
-                    workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                    runtime_cleanup_status, runtime_cleanup_error, workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
                     parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
              FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC, id ASC"
         ).map_err(db_error)?;
@@ -650,10 +796,12 @@ pub(in crate::kanban) fn list_cards(
         mapped.collect::<Result<Vec<_>, _>>().map_err(db_error)?
     };
     load_environments_batched(connection, &mut cards)?;
+    load_creation_operations_batched(connection, &mut cards)?;
     load_cleanup_operations_batched(connection, &mut cards)?;
     load_pull_requests_batched(connection, &mut cards)?;
     load_events_batched(connection, &mut cards)?;
     enrich_relationships_batched(connection, &mut cards)?;
+    enrich_capabilities(connection, &mut cards)?;
     Ok(cards)
 }
 
@@ -664,7 +812,7 @@ pub(in crate::kanban) fn get_card(
     let mut card = connection.query_row(
         "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                 card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
-                workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                runtime_cleanup_status, runtime_cleanup_error, workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
                 parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
          FROM kanban_cards WHERE id = ?1",
         [id],
@@ -672,11 +820,13 @@ pub(in crate::kanban) fn get_card(
     ).optional().map_err(db_error)?;
     if let Some(card) = &mut card {
         card.environment = load_environment(connection, id)?;
+        card.creation_operation = load_creation_operation(connection, id)?;
         card.cleanup_operation = load_cleanup_operation(connection, id)?;
         card.pull_request = load_pull_request(connection, card)?;
         card.events = load_events(connection, id)?;
         let mut cards = vec![card.clone()];
         enrich_relationships(connection, &mut cards)?;
+        enrich_capabilities(connection, &mut cards)?;
         *card = cards.remove(0);
     }
     Ok(card)
@@ -753,15 +903,78 @@ pub(in crate::kanban) fn enrich_relationships_batched(
             card.status = card
                 .children
                 .iter()
-                .min_by_key(|child| {
-                    STATUSES
-                        .iter()
-                        .position(|status| *status == child.status)
-                        .unwrap_or(STATUSES.len())
-                })
+                .min_by_key(|child| workflow::status_index(child.status))
                 .map(|child| child.status.clone())
                 .unwrap_or(card.status.clone());
         }
+    }
+    Ok(())
+}
+
+pub(in crate::kanban) fn enrich_capabilities(
+    connection: &Connection,
+    cards: &mut [KanbanCard],
+) -> Result<(), String> {
+    crate::store::migrate_store_schema(connection)?;
+    let projects = {
+        let mut statement = connection.prepare(
+            "SELECT id, COALESCE(kanban_source, 'local'), delivery_workflow, supports_feature_environments FROM projects",
+        ).map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    (
+                        row.get::<_, String>(1)?,
+                        row.get::<_, DeliveryWorkflow>(2)?,
+                        row.get::<_, i64>(3)? != 0,
+                    ),
+                ))
+            })
+            .map_err(db_error)?;
+        rows.collect::<Result<HashMap<_, _>, _>>()
+            .map_err(db_error)?
+    };
+    for card in cards {
+        let project = card.project_id.as_ref().and_then(|id| projects.get(id));
+        let project_present = project.is_some();
+        let (source, delivery_workflow, supports_feature_environments) = project
+            .cloned()
+            .unwrap_or_else(|| ("local".to_string(), DeliveryWorkflow::LocalMerge, false));
+        card.capabilities = workflow::capabilities(&WorkflowContext {
+            status: card.status,
+            hierarchy_finalized: card.hierarchy_finalized,
+            provider_compatible: project_present
+                && ((card.provider == "superthread") == (source == "superthread")),
+            project_present,
+            delivery_workflow,
+            supports_feature_environments,
+            environment: card.environment.as_ref().map(|value| value.lifecycle_state),
+            completion_outcome: card.completion_outcome,
+            pull_request: card.pull_request.as_ref().map(|value| value.state),
+            pull_request_blockers: card
+                .pull_request
+                .as_ref()
+                .map(|value| value.blockers.clone())
+                .unwrap_or_default(),
+            resumable_operation: card.delivery_operation_stage.is_some(),
+            creation_operation: card.creation_operation.is_some(),
+            creation_cleanup_available: card
+                .creation_operation
+                .as_ref()
+                .is_some_and(|value| value.cleanup_available),
+            cleanup_operation_active: card
+                .cleanup_operation
+                .as_ref()
+                .is_some_and(|value| value.status != "completed"),
+            runtime_cleanup_retryable: matches!(
+                card.runtime_cleanup_status.as_deref(),
+                Some("pending" | "failed")
+            ),
+            local_provider: card.provider == "local",
+            has_parent: card.parent.is_some(),
+            has_children: card.child_count > 0,
+        });
     }
     Ok(())
 }
@@ -793,10 +1006,10 @@ pub(in crate::kanban) fn earliest_workflow_status<'a>(
     statuses
         .into_iter()
         .min_by_key(|status| {
-            STATUSES
-                .iter()
-                .position(|candidate| candidate == status)
-                .unwrap_or(STATUSES.len())
+            status
+                .parse::<CardStatus>()
+                .map(workflow::status_index)
+                .unwrap_or(workflow::STATUS_METADATA.len())
         })
         .map(str::to_string)
 }
@@ -850,10 +1063,13 @@ pub(in crate::kanban) fn enrich_relationships(
             .collect::<Result<Vec<_>, _>>()
             .map_err(db_error)?;
         card.child_count = card.child_count.max(card.children.len() as u64);
-        if card.hierarchy_finalized {
-            card.status =
-                earliest_workflow_status(card.children.iter().map(|child| child.status.as_str()))
-                    .unwrap_or_else(|| card.status.clone());
+        if card.hierarchy_finalized && !card.children.is_empty() {
+            card.status = card
+                .children
+                .iter()
+                .min_by_key(|child| workflow::status_index(child.status))
+                .map(|child| child.status)
+                .unwrap_or(card.status);
         }
     }
     Ok(())
@@ -943,6 +1159,45 @@ pub(in crate::kanban) fn load_environments_batched(
             if let Some(environment) = &mut cards[*index].environment {
                 environment.panes.push(pane);
             }
+        }
+    }
+    Ok(())
+}
+
+pub(in crate::kanban) fn load_creation_operations_batched(
+    connection: &Connection,
+    cards: &mut [KanbanCard],
+) -> Result<(), String> {
+    let indexes = cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| (card.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let mut statement = connection.prepare(
+        "SELECT o.card_id, o.id, o.phase, o.error, o.source_path, o.source_branch, o.cleanup_available, o.custom_command, o.revision
+         FROM environment_creation_operations o JOIN kanban_cards c ON c.id=o.card_id WHERE c.in_scope=1",
+    ).map_err(db_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                EnvironmentCreationOperation {
+                    id: row.get(1)?,
+                    phase: row.get(2)?,
+                    error: row.get(3)?,
+                    source_path: row.get(4)?,
+                    source_branch: row.get(5)?,
+                    cleanup_available: row.get::<_, i64>(6)? != 0,
+                    custom_command: row.get::<_, i64>(7)? != 0,
+                    revision: row.get(8)?,
+                },
+            ))
+        })
+        .map_err(db_error)?;
+    for row in rows {
+        let (card_id, operation) = row.map_err(db_error)?;
+        if let Some(index) = indexes.get(&card_id) {
+            cards[*index].creation_operation = Some(operation);
         }
     }
     Ok(())
@@ -1123,7 +1378,7 @@ pub(in crate::kanban) fn apply_pull_request_policy(
 ) {
     if pull_request.state != "open" {
         pull_request.blockers.push(
-            if pull_request.state == "merged" {
+            if pull_request.state == PullRequestState::Merged {
                 "Pull request is already merged"
             } else {
                 "Pull request was closed without merging"
@@ -1195,6 +1450,27 @@ pub(in crate::kanban) fn load_events(
     Ok(events)
 }
 
+pub(in crate::kanban) fn load_creation_operation(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<Option<EnvironmentCreationOperation>, String> {
+    connection.query_row(
+        "SELECT id, phase, error, source_path, source_branch, cleanup_available, custom_command, revision
+         FROM environment_creation_operations WHERE card_id=?1",
+        [card_id],
+        |row| Ok(EnvironmentCreationOperation {
+            id: row.get(0)?,
+            phase: row.get(1)?,
+            error: row.get(2)?,
+            source_path: row.get(3)?,
+            source_branch: row.get(4)?,
+            cleanup_available: row.get::<_, i64>(5)? != 0,
+            custom_command: row.get::<_, i64>(6)? != 0,
+            revision: row.get(7)?,
+        }),
+    ).optional().map_err(db_error)
+}
+
 pub(in crate::kanban) fn load_cleanup_operation(
     connection: &Connection,
     card_id: &str,
@@ -1216,7 +1492,7 @@ pub(in crate::kanban) fn load_environment(
     let Some((id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, lifecycle_state, revision)) = connection.query_row(
         "SELECT id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, lifecycle_state, revision FROM card_environments WHERE card_id = ?1",
         [card_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, Option<String>>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, String>(9)?, row.get::<_, i64>(10)?)),
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, Option<String>>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, EnvironmentLifecycle>(9)?, row.get::<_, i64>(10)?)),
     ).optional().map_err(db_error)? else { return Ok(None); };
     let (split_layout, focused_pane_id, layout_revision) = connection
         .query_row(
@@ -1269,8 +1545,8 @@ pub(in crate::kanban) fn load_environment(
 }
 
 pub(in crate::kanban) fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
-    let parent_id = row.get::<_, Option<String>>(23)?;
-    let provider_parent_title = row.get::<_, Option<String>>(26)?;
+    let parent_id = row.get::<_, Option<String>>(25)?;
+    let provider_parent_title = row.get::<_, Option<String>>(28)?;
     Ok(KanbanCard {
         id: row.get(0)?,
         provider: {
@@ -1296,24 +1572,28 @@ pub(in crate::kanban) fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<K
         pull_request: None,
         delivery_operation_stage: row.get(14)?,
         delivery_error: row.get(15)?,
-        workflow_revision: row.get(16)?,
-        record_revision: row.get(17)?,
-        project_id: row.get(18)?,
+        runtime_cleanup_status: row.get(16)?,
+        runtime_cleanup_error: row.get(17)?,
+        workflow_revision: row.get(18)?,
+        record_revision: row.get(19)?,
+        project_id: row.get(20)?,
         environment: None,
+        creation_operation: None,
         cleanup_operation: None,
-        created_at: row.get(19)?,
-        updated_at: row.get(20)?,
-        sort_order: row.get(21)?,
-        in_scope: row.get(22)?,
+        created_at: row.get(21)?,
+        updated_at: row.get(22)?,
+        sort_order: row.get(23)?,
+        in_scope: row.get(24)?,
         parent: parent_id.map(|id| CardRelationshipSummary {
             external_id: id.strip_prefix("superthread:").unwrap_or(&id).to_string(),
             id,
             title: provider_parent_title.unwrap_or_default(),
-            status: String::new(),
+            status: CardStatus::NeedsRefinement,
         }),
-        hierarchy_finalized: row.get::<_, i64>(24)? != 0,
-        child_count: row.get::<_, i64>(25)? as u64,
+        hierarchy_finalized: row.get::<_, i64>(26)? != 0,
+        child_count: row.get::<_, i64>(27)? as u64,
         children: Vec::new(),
         events: Vec::new(),
+        capabilities: Vec::new(),
     })
 }

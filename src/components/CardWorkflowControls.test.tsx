@@ -14,6 +14,7 @@ const actions: CardWorkflowAction[] = [
 const approvedActions: CardWorkflowAction[] = [
   { kind: 'request_changes', label: 'Request changes' },
   { kind: 'ship', label: 'Ship It again' },
+  { kind: 'merge_target', label: 'Merge in target & resolve' },
   { kind: 'merge_local', label: 'Merge locally', primary: true },
 ];
 
@@ -69,6 +70,14 @@ describe('CardWorkflowControls', () => {
     expect(buttons[1]).toContain('aria-label="Ship It"');
     expect(buttons[1]).toContain('>Ship It</button>');
     expect(buttons.every((button) => !button.includes('Working…'))).toBe(true);
+  });
+
+  it('shows durable environment recovery detail', () => {
+    const markup = renderToStaticMarkup(
+      <CardWorkflowControls actions={[]} working={false} actionError={null} mergedWithoutEnvironment={false} recoveryMessage="Setup completion is ambiguous" onAction={() => {}} />,
+    );
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain('Setup completion is ambiguous');
   });
 
   it('maps explicit action appearances to stable classes', () => {
@@ -143,7 +152,7 @@ describe('CardWorkflowControls', () => {
     await act(async () => { refreshing.resolve(); await Promise.resolve(); });
 
     const settledButtons = renderer.root.findAllByType('button');
-    expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Ship It again', 'Merge locally']);
+    expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Ship It again', 'Merge in target & resolve', 'Merge locally']);
     expect(settledButtons.every((button) => !button.props.disabled)).toBe(true);
   });
 

@@ -1,22 +1,28 @@
 use crate::{
-    fs_paths::app_data_file,
+    fs_paths::{app_data_dir, app_data_file},
     pi_rpc::{delete_pi_session_impl, PiRpcRegistry},
     pty::kill_ptys,
     pty_cwd::PtyRegistry,
+    repository_coordinator,
+    workspace_setup::{run_workspace_setup_durable, WorkspaceSetupState},
 };
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::{Mutex, OnceLock},
+    sync::{atomic::AtomicBool, Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
+use workflow::{
+    CardStatus, CompletionOutcome, DeliveryWorkflow, EnvironmentLifecycle, PiLifecycleIntent,
+    PiThread, PullRequestState, WorkflowAction, WorkflowActor, WorkflowCapability, WorkflowContext,
+    WorkflowEventOutcome,
+};
 
-static REPOSITORY_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static BOARD_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static DATABASE_INITIALIZATION: OnceLock<Result<(), String>> = OnceLock::new();
@@ -36,15 +42,19 @@ mod health;
 mod local_delivery;
 mod repository;
 mod sync;
+pub(crate) mod workflow;
 
 pub(crate) use cards::{
-    card_directory, card_pi_session, card_project_id, create_local_card_for_project,
-    kanban_finish_external_refinement, validate_card_pi_start, validate_card_terminal_start,
+    card_directory, card_pi_owner, card_pi_session, card_project_id, card_terminal_owner,
+    create_local_card_for_project, kanban_finish_external_refinement,
+    register_pi_lifecycle_generation, validate_card_pi_start, validate_card_terminal_start,
 };
 pub use commands::*;
 pub use domain::*;
 #[allow(unused_imports)]
 pub use environment::{EnvironmentStartPreflight, WorkflowOperationResult};
+#[allow(unused_imports)]
+pub use local_delivery::TargetMergePrepareResult;
 #[cfg(test)]
 pub(crate) use repository::migrate;
 pub(crate) use repository::{initialize_database, with_connection};
