@@ -423,6 +423,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanDetailMeta { padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1d2a38; }
 .kanbanDetailMeta a { color: #7fa9cf; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanDetail select { background-color: #151f2a; color: #bdc9d5; }
+.kanbanProjectAssignment {
+  padding: 7px 28px 7px 9px;
+  border-radius: 6px;
+  background-position: right 8px center;
+  font-size: calc(12px + var(--ui-font-delta, 0px));
+  line-height: 1.2;
+}
 .kanbanDetailContent { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; color: #aebdcb; font-size: calc(13px + var(--ui-font-delta, 0px)); line-height: 1.55; }
 .kanbanDetailContent a { color: #7fa9cf; }
 .kanbanDetailContent.editing { overflow: hidden; }
