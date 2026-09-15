@@ -63,7 +63,10 @@ string_enum!(WorkflowAction {
     CreatePr => "create_pr",
     OpenPr => "open_pr",
     MergePr => "merge_pr",
+    MergeTarget => "merge_target",
     Cleanup => "cleanup",
+    CleanupCreation => "cleanup_creation",
+    RetryRuntimeCleanup => "retry_runtime_cleanup",
     Close => "close",
     Delete => "delete",
 });
@@ -142,6 +145,10 @@ pub struct WorkflowContext {
     pub pull_request: Option<PullRequestState>,
     pub pull_request_blockers: Vec<String>,
     pub resumable_operation: bool,
+    pub creation_operation: bool,
+    pub creation_cleanup_available: bool,
+    pub cleanup_operation_active: bool,
+    pub runtime_cleanup_retryable: bool,
     pub local_provider: bool,
     pub has_parent: bool,
     pub has_children: bool,
@@ -259,6 +266,13 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
             capability(FinishRefinement, project.clone()),
             capability(StopRefinement, None),
         ],
+        Ready if context.creation_operation => {
+            let mut values = vec![capability(StartWork, project.clone())];
+            if context.creation_cleanup_available {
+                values.push(capability(CleanupCreation, None));
+            }
+            values
+        }
         Ready => vec![
             capability(ReturnToRefinement, None),
             capability(
@@ -279,6 +293,7 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
             let mut values = vec![
                 capability(RequestChanges, None),
                 capability(Ship, ship_reason.clone()),
+                capability(MergeTarget, environment.clone()),
             ];
             if context.delivery_workflow == DeliveryWorkflow::GithubPullRequest
                 && context.supports_feature_environments
@@ -288,7 +303,10 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
             values
         }
         Approved if context.delivery_workflow == DeliveryWorkflow::GithubPullRequest => {
-            let mut values = vec![capability(RequestChanges, None)];
+            let mut values = vec![
+                capability(RequestChanges, None),
+                capability(MergeTarget, environment.clone()),
+            ];
             match context.pull_request {
                 None | Some(PullRequestState::Closed) => {
                     values.push(capability(
@@ -314,6 +332,7 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
         }
         Approved => vec![
             capability(RequestChanges, None),
+            capability(MergeTarget, environment.clone()),
             capability(
                 Ship,
                 context
@@ -330,12 +349,15 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
                     .or(project),
             ),
         ],
-        Done => context
-            .environment
-            .map(|state| {
-                capability(
+        Done => {
+            let mut values = Vec::new();
+            if context.runtime_cleanup_retryable {
+                values.push(capability(RetryRuntimeCleanup, None));
+            }
+            if let Some(state) = context.environment {
+                values.push(capability(
                     Cleanup,
-                    (state != EnvironmentLifecycle::Ready)
+                    (!context.cleanup_operation_active && state != EnvironmentLifecycle::Ready)
                         .then(|| "The card environment is not ready for cleanup".to_string())
                         .or_else(|| {
                             context
@@ -343,10 +365,12 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
                                 .is_none()
                                 .then(|| "The completion outcome is missing".to_string())
                         }),
-                )
-            })
-            .into_iter()
-            .collect(),
+                ));
+            } else if context.cleanup_operation_active {
+                values.push(capability(Cleanup, None));
+            }
+            values
+        }
     };
     if context.status == NeedsRefinement
         && context.local_provider
@@ -360,6 +384,28 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
         actions.push(capability(Close, None));
     }
     actions
+}
+
+pub fn target_merge_completion(
+    context: &WorkflowContext,
+    actor: WorkflowActor,
+) -> Result<Transition, String> {
+    if actor != WorkflowActor::User {
+        return Err("Only the user can finalize a target merge".to_string());
+    }
+    match context.status {
+        CardStatus::NeedsHuman | CardStatus::AgentWorking | CardStatus::Approved => {
+            Ok(Transition {
+                from: context.status,
+                to: CardStatus::NeedsHuman,
+                outcome: context.completion_outcome,
+            })
+        }
+        _ => Err(format!(
+            "A target merge cannot be finalized while card is {}",
+            context.status
+        )),
+    }
 }
 
 /// Lifecycle projection is intentionally tolerant: irrelevant or duplicate intents are no-ops.
@@ -426,6 +472,10 @@ mod tests {
             pull_request: None,
             pull_request_blockers: vec![],
             resumable_operation: false,
+            creation_operation: false,
+            creation_cleanup_available: false,
+            cleanup_operation_active: false,
+            runtime_cleanup_retryable: false,
             local_provider: true,
             has_parent: false,
             has_children: false,
@@ -459,7 +509,10 @@ mod tests {
             CreatePr,
             OpenPr,
             MergePr,
+            MergeTarget,
             Cleanup,
+            CleanupCreation,
+            RetryRuntimeCleanup,
             Close,
             Delete,
         ];

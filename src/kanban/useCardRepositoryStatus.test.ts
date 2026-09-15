@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { environmentHealthTooltip, hasGitChanges, healthCheckFailure } from './useCardRepositoryStatus';
+import { environmentHealthTooltip, hasGitChanges, healthCheckFailure, shouldShowEnvironmentWarning } from './useCardRepositoryStatus';
 import type { KanbanCard } from './types';
 
 describe('card repository status', () => {
@@ -15,6 +15,13 @@ describe('card repository status', () => {
       { code: 'target_wrong', message: 'The target branch changed.', step: 'merge' },
     ] })).toBe('The source checkout is missing. Affects work. The target branch changed. Affects merge.');
     expect(environmentHealthTooltip({ card_id: '1', issues: [] })).toBe('');
+  });
+
+  it('suppresses stale environment warnings for finalized aggregate parents', () => {
+    const staleHealth = { card_id: 'parent', issues: [{ code: 'environment_missing', message: 'Missing.', step: 'work' as const }] };
+    expect(shouldShowEnvironmentWarning({ hierarchy_finalized: true }, staleHealth)).toBe(false);
+    expect(shouldShowEnvironmentWarning({ hierarchy_finalized: false }, staleHealth)).toBe(true);
+    expect(shouldShowEnvironmentWarning({ hierarchy_finalized: false }, { card_id: 'child', issues: [] })).toBe(false);
   });
 
   it('turns unexpected checks into status-aware diagnostic issues', () => {

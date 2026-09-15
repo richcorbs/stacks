@@ -13,5 +13,5 @@ export const KANBAN_STATUS_METADATA = [
 export const KANBAN_WORKFLOW_ACTIONS = [
   'open_refinement', 'finish_refinement', 'stop_refinement', 'start_work', 'return_to_refinement',
   'request_changes', 'ship', 'ship_with_fe', 'merge_local', 'create_pr', 'open_pr', 'merge_pr',
-  'cleanup', 'close', 'delete',
+  'merge_target', 'cleanup', 'cleanup_creation', 'retry_runtime_cleanup', 'close', 'delete',
 ] as const;

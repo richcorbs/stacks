@@ -30,12 +30,34 @@ pub struct PiRpcHandle {
 }
 
 impl PiRpcHandle {
-    fn stop(&self) {
-        let (finished_tx, finished_rx) = mpsc::channel();
-        if self.stop_tx.send(finished_tx).is_ok() {
-            let _ = finished_rx.recv_timeout(Duration::from_secs(2));
+    fn stop(&self) -> Result<(), String> {
+        if !self.alive.load(Ordering::Acquire) {
+            return Ok(());
         }
+        let (finished_tx, finished_rx) = mpsc::channel();
+        self.stop_tx
+            .send(finished_tx)
+            .map_err(|_| "Pi process shutdown channel is unavailable".to_string())?;
+        finished_rx
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|_| "Timed out waiting for the Pi process to stop".to_string())
     }
+}
+
+pub(crate) fn card_pi_runtime_ids(
+    registry: &Mutex<PiRpcRegistry>,
+    card_id: &str,
+) -> Result<Vec<String>, String> {
+    let guard = registry
+        .lock()
+        .map_err(|_| "Pi session registry lock poisoned".to_string())?;
+    Ok(guard
+        .sessions
+        .keys()
+        .chain(guard.starting.iter())
+        .filter(|id| crate::kanban::card_pi_owner(id).as_deref() == Some(card_id))
+        .cloned()
+        .collect())
 }
 
 #[derive(Default)]
@@ -48,7 +70,7 @@ pub struct PiRpcRegistry {
 impl Drop for PiRpcRegistry {
     fn drop(&mut self) {
         for handle in self.sessions.values() {
-            handle.stop();
+            let _ = handle.stop();
         }
     }
 }
@@ -134,7 +156,7 @@ pub fn start_pi_session(
         break replaced_handle;
     };
     if let Some(handle) = replaced_handle {
-        handle.stop();
+        handle.stop()?;
     }
 
     let result = spawn_pi_session(&window, &pane_id, &cwd, &project, approve_project);
@@ -147,7 +169,7 @@ pub fn start_pi_session(
         Ok(handle) => {
             if guard.cancelled.remove(&pane_id) {
                 drop(guard);
-                handle.stop();
+                handle.stop()?;
                 return Err("Pi session start was cancelled".to_string());
             }
             let generation = handle.generation.clone();
@@ -155,7 +177,7 @@ pub fn start_pi_session(
                 crate::kanban::register_pi_lifecycle_generation(&pane_id, &generation)
             {
                 drop(guard);
-                handle.stop();
+                let _ = handle.stop();
                 return Err(error);
             }
             guard.sessions.insert(pane_id, handle);
@@ -370,19 +392,7 @@ pub fn stop_pi_session(
     registry: State<'_, Mutex<PiRpcRegistry>>,
     pane_id: String,
 ) -> Result<(), String> {
-    let handle = {
-        let mut guard = registry
-            .lock()
-            .map_err(|_| "Pi session registry lock poisoned".to_string())?;
-        if guard.starting.contains(&pane_id) {
-            guard.cancelled.insert(pane_id.clone());
-        }
-        guard.sessions.remove(&pane_id)
-    };
-    if let Some(handle) = handle {
-        handle.stop();
-    }
-    Ok(())
+    stop_pi_session_impl(registry.inner(), &pane_id)
 }
 
 #[tauri::command]
@@ -393,7 +403,7 @@ pub fn delete_pi_session(
     delete_pi_session_impl(registry.inner(), &pane_id)
 }
 
-pub(crate) fn delete_pi_session_impl(
+pub(crate) fn stop_pi_session_impl(
     registry: &Mutex<PiRpcRegistry>,
     pane_id: &str,
 ) -> Result<(), String> {
@@ -407,8 +417,32 @@ pub(crate) fn delete_pi_session_impl(
         guard.sessions.remove(pane_id)
     };
     if let Some(handle) = handle {
-        handle.stop();
+        if let Err(error) = handle.stop() {
+            registry
+                .lock()
+                .map_err(|_| "Pi session registry lock poisoned".to_string())?
+                .sessions
+                .insert(pane_id.to_string(), handle);
+            return Err(error);
+        }
     }
+    Ok(())
+}
+
+pub(crate) fn delete_pi_session_directory(pane_id: &str) -> Result<(), String> {
+    let directory = session_dir(pane_id)?;
+    if directory.exists() {
+        std::fs::remove_dir_all(directory)
+            .map_err(|error| format!("Could not delete persisted Pi conversation: {error}"))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn delete_pi_session_impl(
+    registry: &Mutex<PiRpcRegistry>,
+    pane_id: &str,
+) -> Result<(), String> {
+    stop_pi_session_impl(registry, pane_id)?;
 
     // A delete can race an in-flight start. Wait for that start to observe the
     // cancellation before removing the directory it may still be creating.
@@ -419,11 +453,7 @@ pub(crate) fn delete_pi_session_impl(
             .starting
             .contains(pane_id);
         if !starting {
-            let directory = session_dir(pane_id)?;
-            if directory.exists() {
-                std::fs::remove_dir_all(directory).map_err(|error| error.to_string())?;
-            }
-            return Ok(());
+            return delete_pi_session_directory(pane_id);
         }
         std::thread::sleep(Duration::from_millis(20));
     }

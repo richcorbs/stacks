@@ -7,7 +7,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use super::{
     protocol::{AutomationResponse, ClientRequest},
@@ -83,9 +83,9 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, _state: AutomationS
                 title,
                 client_request.description.as_deref().unwrap_or(""),
             )?;
-            app.emit("kanban-card-changed", &card).map_err(|error| {
-                format!("Created card, but could not refresh the board: {error}")
-            })?;
+            // The revisioned board event is emitted best-effort by the committed
+            // mutation. Delivery failure must not turn a successful create into
+            // an automation error that invites an unsafe retry.
             return Ok(AutomationResponse::success(format!(
                 "Created local card #{} in Needs refinement for {}",
                 card.number(),

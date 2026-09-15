@@ -27,7 +27,8 @@ const labels: Record<CardWorkflowActionKind, string> = {
   stop_refinement: 'Stop refinement', start_work: 'Start work', return_to_refinement: 'Return to refinement',
   request_changes: 'Request changes', ship: 'Ship It', ship_with_fe: 'Ship it w/FE',
   merge_local: 'Merge locally', create_pr: 'Create PR', open_pr: 'Open PR', merge_pr: 'Merge PR',
-  cleanup: 'Clean up', close: 'Close without delivery', delete: 'Delete card',
+  merge_target: 'Merge in target & resolve', cleanup: 'Clean up', cleanup_creation: 'Clean up',
+  retry_runtime_cleanup: 'Retry process cleanup', close: 'Close without delivery', delete: 'Delete card',
 };
 const primary = new Set<CardWorkflowActionKind>(['open_refinement', 'start_work', 'ship', 'merge_local', 'create_pr', 'merge_pr']);
 
@@ -40,7 +41,10 @@ export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWor
       const operation = context.operation?.kind === action;
       return {
         kind: action,
-        label: action === 'ship' && context.card.status === 'approved' ? 'Ship It again' : labels[action],
+        label: action === 'ship' && context.card.status === 'approved' ? 'Ship It again'
+          : action === 'start_work' && context.card.creation_operation ? 'Resume start'
+          : action === 'cleanup' && context.card.cleanup_operation && context.card.cleanup_operation.status !== 'completed' ? 'Retry cleanup'
+          : labels[action],
         primary: primary.has(action) || undefined,
         ...presentation,
         loading: operation && !context.operation?.error,
@@ -58,7 +62,10 @@ function presentationFor(action: CardWorkflowActionKind, { card, project }: Card
     case 'delete': return { destructive: true, appearance: 'danger-ghost', confirmation: { title: 'Delete card?', detail: 'This permanently deletes this local draft.' } };
     case 'stop_refinement': return { destructive: true, appearance: 'neutral-ghost' };
     case 'merge_local': return { confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } };
-    case 'cleanup': return { destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } };
+    case 'cleanup_creation': return { destructive: true, appearance: 'regular', confirmation: { title: 'Clean up setup resources?', detail: 'Removes only the clean worktree and unchanged branch proven to have been created by this start operation.' } };
+    case 'cleanup': return card.cleanup_operation && card.cleanup_operation.status !== 'completed'
+      ? { destructive: true, appearance: 'regular' }
+      : { destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } };
     default: return {};
   }
 }
