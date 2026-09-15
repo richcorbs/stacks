@@ -18,6 +18,7 @@ function card(id: string, title: string): KanbanCard {
     assignee_names: [],
     status: 'needs_refinement',
     workflow_revision: 1,
+    record_revision: 1,
     project_id: 'p1',
     parent: null,
     child_count: 0,
@@ -187,7 +188,7 @@ describe('mergeChangedKanbanCard', () => {
   });
 
   it('replaces a matching card instead of duplicating it', () => {
-    const changed = card('1', 'Updated');
+    const changed = { ...card('1', 'Updated'), record_revision: 2 };
     expect(mergeChangedKanbanCard([card('1', 'Old')], changed)).toEqual([changed]);
   });
 });

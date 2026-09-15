@@ -103,6 +103,7 @@ export type KanbanCard = {
   delivery_operation_stage?: string | null;
   delivery_error?: string | null;
   workflow_revision: number;
+  record_revision: number;
   project_id: string | null;
   parent: CardRelationshipSummary | null;
   child_count: number;
@@ -115,6 +116,10 @@ export type KanbanCard = {
   events: CardEvent[];
 };
 
+
+export type CardSnapshot = { card: KanbanCard; board_revision: number };
+export type BoardSnapshot = { cards: KanbanCard[]; board_revision: number };
+export type BoardChange = { upserts: KanbanCard[]; removed_ids: string[]; board_revision: number };
 
 export type KanbanSyncCard = {
   id: string;

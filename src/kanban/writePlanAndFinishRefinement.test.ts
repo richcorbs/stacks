@@ -6,7 +6,7 @@ import {
 } from './writePlanAndFinishRefinement';
 
 function card(status: KanbanStatus): KanbanCard {
-  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: 'Plan', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 2, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment: null, created_at: 1, updated_at: 2, sort_order: 0, events: [] };
+  return { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: 'Plan', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: 2, record_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment: null, created_at: 1, updated_at: 2, sort_order: 0, events: [] };
 }
 
 describe('write plan and finish refinement workflow', () => {
