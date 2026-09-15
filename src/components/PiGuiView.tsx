@@ -8,6 +8,7 @@ import type { PiCommand, PiModel, PiPromptImage, PiSessionContext } from '../pi/
 import { hasVisiblePiStreamingText, visiblePiMessages } from '../pi/transcript';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { listenForPiPrompt } from '../pi/promptEvent';
+import { canSendPiQuickResponse, sendPiQuickResponse, type PiQuickResponse } from '../pi/quickResponse';
 import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
 import { PiMarkdown } from './PiMarkdown';
@@ -42,6 +43,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
   const [contextPicker, setContextPicker] = useState<'model' | 'thinking' | null>(null);
   const [contextPickerBusy, setContextPickerBusy] = useState(false);
+  const [quickResponseSubmitting, setQuickResponseSubmitting] = useState(false);
   const paneRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -52,6 +54,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const historyIndexRef = useRef<number | null>(null);
   const historyDraftRef = useRef('');
   const initialPromptSentRef = useRef(false);
+  const quickResponseInFlightRef = useRef(false);
+  const quickResponseSessionEligible = canSendPiQuickResponse(pi);
+  const quickResponseSessionEligibleRef = useRef(quickResponseSessionEligible);
+  quickResponseSessionEligibleRef.current = quickResponseSessionEligible;
 
   useEffect(() => {
     pi.setViewOpen(active && visible);
@@ -251,6 +257,23 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setSelectedCommandIndex(-1);
     requestAnimationFrame(() => inputRef.current?.setSelectionRange(draft.length, draft.length));
     return true;
+  }
+
+  async function submitQuickResponse(message: PiQuickResponse) {
+    if (!quickResponseSessionEligibleRef.current || quickResponseInFlightRef.current) return;
+    quickResponseInFlightRef.current = true;
+    setQuickResponseSubmitting(true);
+    try {
+      await sendPiQuickResponse(message, {
+        isEligible: () => quickResponseSessionEligibleRef.current,
+        dismissStructuredUiRequest: pi.dismissStructuredUiRequest,
+        prompt: pi.prompt,
+      });
+    } finally {
+      quickResponseInFlightRef.current = false;
+      setQuickResponseSubmitting(false);
+      if (active && visible && !modalUiRequest) requestAnimationFrame(() => inputRef.current?.focus());
+    }
   }
 
   async function submit(behavior: 'prompt' | 'followUp' = 'prompt') {
@@ -573,8 +596,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           )}
         </div>
       </div>
-      <div className="piGuiContext piGuiContextBar" aria-label="Pi session context">
-        <ContextPicker
+      <div className="piGuiFooter">
+        <div className="piQuickResponses" aria-label="Quick responses">
+          <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('yes').catch(console.error)}>YES</button>
+          <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('no').catch(console.error)}>NO</button>
+        </div>
+        <div className="piGuiContext piGuiContextBar" aria-label="Pi session context">
+          <ContextPicker
           kind="model"
           open={contextPicker === 'model'}
           value={pi.context.modelName || pi.context.modelId || 'starting…'}
@@ -627,7 +655,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               </button>;
             })}
         </ContextPicker>
-        {pi.context.contextPercent !== null && <><ContextSeparator /><ContextUsage context={pi.context} /></>}
+          {pi.context.contextPercent !== null && <><ContextSeparator /><ContextUsage context={pi.context} /></>}
+        </div>
+        <div className="piGuiFooterBalance" aria-hidden="true" />
       </div>
 
       {selectionPopup && (
