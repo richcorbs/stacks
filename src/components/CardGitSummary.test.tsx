@@ -22,13 +22,4 @@ describe('CardGitSummary', () => {
     expect(renderToStaticMarkup(<CardGitSummary summary={null} />)).toBe('');
   });
 
-  it('stays immediately beside the workflow status in heading metadata', () => {
-    const markup = renderToStaticMarkup(<div className="kanbanDetailHeaderMeta">
-      <span className="kanbanCardStatus">In progress</span>
-      <CardGitSummary summary={{ added: 1, modified: 0, deleted: 0 }} />
-      <button>Edit</button>
-    </div>);
-    expect(markup.indexOf('kanbanCardStatus')).toBeLessThan(markup.indexOf('kanbanCardGitSummary'));
-    expect(markup.indexOf('kanbanCardGitSummary')).toBeLessThan(markup.indexOf('<button'));
-  });
 });

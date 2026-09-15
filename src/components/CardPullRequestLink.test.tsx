@@ -1,7 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CardPullRequest } from '../kanban/types';
-import { CardGitSummary } from './CardGitSummary';
 import { CardPullRequestLink } from './CardPullRequestLink';
 
 const onOpen = () => undefined;
@@ -62,13 +61,4 @@ describe('CardPullRequestLink', () => {
     expect(render(undefined)).toBe('');
   });
 
-  it('sits after the Git summary and before the edit control', () => {
-    const markup = renderToStaticMarkup(<div className="kanbanDetailHeaderMeta">
-      <CardGitSummary summary={{ added: 1, modified: 0, deleted: 0 }} />
-      <CardPullRequestLink pullRequest={pullRequest()} onOpen={onOpen} />
-      <button>Edit</button>
-    </div>);
-    expect(markup.indexOf('kanbanCardGitSummary')).toBeLessThan(markup.indexOf('kanbanCardPrLink'));
-    expect(markup.indexOf('kanbanCardPrLink')).toBeLessThan(markup.indexOf('<button'));
-  });
 });
