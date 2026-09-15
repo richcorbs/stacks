@@ -39,9 +39,10 @@ use kanban::{
     kanban_delete_project_records, kanban_environment_health, kanban_environment_start_preflight,
     kanban_finalize_target_merge, kanban_finish_local_refinement, kanban_merge_card,
     kanban_merge_pull_request, kanban_open_card, kanban_prepare_target_merge,
-    kanban_refresh_pull_request, kanban_reorder_cards, kanban_save_environment_layout,
-    kanban_set_merge_target, kanban_set_project, kanban_set_status, kanban_start_environment,
-    kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
+    kanban_refresh_pull_request, kanban_reorder_cards, kanban_retry_runtime_cleanup,
+    kanban_save_environment_layout, kanban_set_merge_target, kanban_set_project, kanban_set_status,
+    kanban_start_environment, kanban_sync_superthread_cards, kanban_update_local_card,
+    kanban_validate_project_deletion,
 };
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
@@ -157,6 +158,7 @@ pub fn run() {
             kanban_cleanup_environment_creation,
             kanban_cleanup_environment,
             kanban_close_card,
+            kanban_retry_runtime_cleanup,
             kanban_create_pull_request,
             kanban_refresh_pull_request,
             kanban_merge_pull_request,

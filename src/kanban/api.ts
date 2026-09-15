@@ -55,6 +55,8 @@ export function setKanbanProject(id: string, projectId: string) {
 }
 
 export type WorkflowOperationResult = { card: KanbanCard; message: string; idempotent: boolean };
+export type RuntimeResourceOutcome = { resource_type: 'pi_process' | 'pi_session' | 'pty'; id: string; success: boolean; error: string | null };
+export type CardRuntimeCleanupResult = { card: KanbanCard; outcomes: RuntimeResourceOutcome[] };
 
 export function startKanbanEnvironment(id: string, expectedWorkflowRevision: number, setupCommand: string, customCommand: boolean, explicitRetry = false) {
   return invoke<KanbanCard>('kanban_start_environment', { id, expectedWorkflowRevision, setupCommand, customCommand, explicitRetry });
@@ -73,7 +75,11 @@ export function approveAndCommitKanbanCard(id: string, expectedWorkflowRevision:
 }
 
 export function closeKanbanCard(id: string, expectedRevision: number) {
-  return invoke<CardSnapshot>('kanban_close_card', { id, expectedRevision }).then(({ card }) => card);
+  return invoke<CardRuntimeCleanupResult>('kanban_close_card', { id, expectedRevision });
+}
+
+export function retryKanbanRuntimeCleanup(id: string) {
+  return invoke<CardRuntimeCleanupResult>('kanban_retry_runtime_cleanup', { id });
 }
 
 export type KanbanPullRequestRefreshResult = { card: KanbanCard; error: string | null };

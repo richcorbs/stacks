@@ -63,7 +63,7 @@ pub fn spawn_pty(
             .lock()
             .map_err(|_| "PTY registry lock poisoned".to_string())?;
         if let Some(mut old) = guard.terminals.remove(&terminal_id) {
-            terminate_pty_child(old.child.as_mut());
+            let _ = terminate_pty_child(old.child.as_mut());
         }
         guard.terminals.insert(
             terminal_id.clone(),
@@ -176,26 +176,51 @@ pub(crate) fn kill_ptys_with_prefix(
     Ok(terminal_ids)
 }
 
+pub(crate) fn card_pty_runtime_ids(
+    registry: &Mutex<PtyRegistry>,
+    card_id: &str,
+) -> Result<Vec<String>, String> {
+    let guard = registry
+        .lock()
+        .map_err(|_| "PTY registry lock poisoned".to_string())?;
+    Ok(guard
+        .terminals
+        .keys()
+        .filter(|id| crate::kanban::card_terminal_owner(id).as_deref() == Some(card_id))
+        .cloned()
+        .collect())
+}
+
 pub(crate) fn kill_ptys(
     registry: &Mutex<PtyRegistry>,
     terminal_ids: &[String],
 ) -> Result<(), String> {
-    let handles = {
-        let mut guard = registry
+    let mut failures = Vec::new();
+    for terminal_id in terminal_ids {
+        let handle = registry
             .lock()
-            .map_err(|_| "PTY registry lock poisoned".to_string())?;
-        terminal_ids
-            .iter()
-            .filter_map(|id| guard.terminals.remove(id))
-            .collect::<Vec<_>>()
-    };
-    for mut handle in handles {
-        terminate_pty_child(handle.child.as_mut());
+            .map_err(|_| "PTY registry lock poisoned".to_string())?
+            .terminals
+            .remove(terminal_id);
+        let Some(mut handle) = handle else { continue };
+        if let Err(error) = terminate_pty_child(handle.child.as_mut()) {
+            registry
+                .lock()
+                .map_err(|_| "PTY registry lock poisoned".to_string())?
+                .terminals
+                .insert(terminal_id.clone(), handle);
+            failures.push(format!("{terminal_id}: {error}"));
+        }
     }
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
 }
 
-fn terminate_pty_child(child: &mut dyn portable_pty::Child) {
+fn terminate_pty_child(child: &mut dyn portable_pty::Child) -> Result<(), String> {
+    let mut failures = Vec::new();
     #[cfg(unix)]
     if let Some(pid) = child.process_id() {
         // Procfile runners may put Rails and Solid Queue into child process
@@ -211,20 +236,53 @@ fn terminate_pty_child(child: &mut dyn portable_pty::Child) {
             }
         }
         for group_id in &groups {
-            unsafe { libc::kill(-*group_id, libc::SIGTERM) };
+            let result = unsafe { libc::kill(-*group_id, libc::SIGTERM) };
+            if result != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                failures.push(format!(
+                    "could not terminate process group {group_id}: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
         }
         for process_id in &process_ids {
-            unsafe { libc::kill(*process_id as i32, libc::SIGTERM) };
+            let result = unsafe { libc::kill(*process_id as i32, libc::SIGTERM) };
+            if result != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                failures.push(format!(
+                    "could not terminate process {process_id}: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(300));
         for group_id in &groups {
-            unsafe { libc::kill(-*group_id, libc::SIGKILL) };
+            let result = unsafe { libc::kill(-*group_id, libc::SIGKILL) };
+            if result != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                failures.push(format!(
+                    "could not kill process group {group_id}: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
         }
         for process_id in &process_ids {
-            unsafe { libc::kill(*process_id as i32, libc::SIGKILL) };
+            let result = unsafe { libc::kill(*process_id as i32, libc::SIGKILL) };
+            if result != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                failures.push(format!(
+                    "could not kill process {process_id}: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
         }
     }
-    let _ = child.kill();
+    if let Err(error) = child.kill() {
+        if child.try_wait().ok().flatten().is_none() {
+            failures.push(format!("child kill failed: {error}"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
 }
 
 #[cfg(unix)]

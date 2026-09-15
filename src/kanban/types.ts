@@ -124,6 +124,8 @@ export type KanbanCard = {
   pull_request?: CardPullRequest | null;
   delivery_operation_stage?: string | null;
   delivery_error?: string | null;
+  runtime_cleanup_status?: 'pending' | 'complete' | 'failed' | null;
+  runtime_cleanup_error?: string | null;
   workflow_revision: number;
   record_revision: number;
   project_id: string | null;

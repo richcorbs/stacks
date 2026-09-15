@@ -200,6 +200,8 @@ pub struct KanbanCard {
     pull_request: Option<CardPullRequest>,
     delivery_operation_stage: Option<String>,
     delivery_error: Option<String>,
+    runtime_cleanup_status: Option<String>,
+    runtime_cleanup_error: Option<String>,
     workflow_revision: i64,
     record_revision: i64,
     project_id: Option<String>,
@@ -215,6 +217,20 @@ pub struct KanbanCard {
     sort_order: i64,
     in_scope: bool,
     events: Vec<CardEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct RuntimeResourceOutcome {
+    resource_type: String,
+    id: String,
+    success: bool,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CardRuntimeCleanupResult {
+    card: KanbanCard,
+    outcomes: Vec<RuntimeResourceOutcome>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -791,17 +807,27 @@ pub(crate) fn validate_card_terminal_start(
     })
 }
 
+pub(crate) fn card_pi_owner(pane_id: &str) -> Option<String> {
+    let scoped = pane_id.strip_prefix("kanban-card:")?;
+    let (card_id, thread) = scoped.rsplit_once(':')?;
+    (!card_id.is_empty() && matches!(thread, "planning" | "work")).then(|| card_id.to_string())
+}
+
+pub(crate) fn card_terminal_owner(terminal_id: &str) -> Option<String> {
+    let scoped = terminal_id.strip_prefix("kanban-card:")?;
+    let (card_id, role) = scoped.rsplit_once(":terminal:")?;
+    (!card_id.is_empty() && !role.is_empty()).then(|| card_id.to_string())
+}
+
 pub(crate) fn card_pi_session(pane_id: &str) -> Result<Option<CardPiSession>, String> {
-    let Some(scoped) = pane_id.strip_prefix("kanban-card:") else {
+    let Some(card_id) = card_pi_owner(pane_id) else {
         return Ok(None);
     };
-    let Some((card_id, thread)) = scoped.rsplit_once(':') else {
-        return Ok(None);
-    };
-    if card_id.is_empty() || thread.is_empty() {
-        return Ok(None);
-    }
-    let mut session_root = card_directory(card_id)?;
+    let thread = pane_id
+        .rsplit_once(':')
+        .map(|(_, thread)| thread)
+        .unwrap_or_default();
+    let mut session_root = card_directory(&card_id)?;
     session_root.push("pi-sessions");
     let directory = session_root.join(safe_card_key(thread));
     if thread == "planning" && !directory.exists() {
@@ -812,7 +838,7 @@ pub(crate) fn card_pi_session(pane_id: &str) -> Result<Option<CardPiSession>, St
         }
     }
     Ok(Some(CardPiSession {
-        card_id: card_id.to_string(),
+        card_id,
         thread: thread.to_string(),
         directory,
     }))
@@ -1213,45 +1239,259 @@ fn is_legal_status_transition(current: &str, next: &str) -> bool {
     )
 }
 
+#[derive(Default)]
+struct CardRuntimeTargets {
+    pi: HashSet<String>,
+    pty: HashSet<String>,
+}
+
+fn persisted_runtime_targets(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<CardRuntimeTargets, String> {
+    let mut targets = CardRuntimeTargets::default();
+    targets.pi.extend([
+        format!("kanban-card:{card_id}:planning"),
+        format!("kanban-card:{card_id}:work"),
+    ]);
+    targets.pty.extend(
+        ["shell", "server", "console"].map(|role| format!("kanban-card:{card_id}:terminal:{role}")),
+    );
+    let mut statement = connection.prepare(
+        "SELECT p.id, p.kind FROM card_panes p JOIN card_environments e ON e.id=p.environment_id WHERE e.card_id=?1"
+    ).map_err(db_error)?;
+    for row in statement
+        .query_map([card_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(db_error)?
+    {
+        let (id, kind) = row.map_err(db_error)?;
+        if kind == "pi" && card_pi_owner(&id).as_deref() == Some(card_id) {
+            targets.pi.insert(id);
+        } else if kind == "terminal" && card_terminal_owner(&id).as_deref() == Some(card_id) {
+            targets.pty.insert(id);
+        }
+    }
+    Ok(targets)
+}
+
+fn commit_card_close(
+    connection: &mut Connection,
+    id: &str,
+    expected_revision: i64,
+) -> Result<CardRuntimeTargets, String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let (status, revision, finalized): (String, i64, bool) = transaction
+        .query_row(
+            "SELECT status, workflow_revision, hierarchy_finalized FROM kanban_cards WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    if finalized {
+        return Err("A finalized aggregate parent has no workflow".to_string());
+    }
+    if revision != expected_revision {
+        return Err("Card changed; reload before closing".to_string());
+    }
+    if status == "done" {
+        return Err("The card is already Done".to_string());
+    }
+    let targets = persisted_runtime_targets(&transaction, id)?;
+    let now = unix_timestamp();
+    let changed = transaction.execute(
+        "UPDATE kanban_cards SET status='done', completion_outcome='closed', delivery_operation_stage=NULL, delivery_error=NULL,
+         runtime_cleanup_status='pending', runtime_cleanup_error=NULL, workflow_revision=workflow_revision+1, updated_at=?1,
+         sort_order=(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status='done')
+         WHERE id=?2 AND workflow_revision=?3 AND status!='done'", params![now, id, expected_revision],
+    ).map_err(db_error)?;
+    if changed != 1 {
+        return Err("Card changed; reload before closing".to_string());
+    }
+    transaction.execute(
+        "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status, summary)
+         VALUES (?1, ?2, 'user', 'close', 'success', ?3, 'done', 'Closed without delivery; runtime cleanup pending')",
+        params![id, now, status],
+    ).map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    Ok(targets)
+}
+
+fn execute_runtime_cleanup<StopPi, DeletePi, StopPty>(
+    targets: CardRuntimeTargets,
+    mut stop_pi: StopPi,
+    mut delete_pi: DeletePi,
+    mut stop_pty: StopPty,
+) -> Vec<RuntimeResourceOutcome>
+where
+    StopPi: FnMut(&str) -> Result<(), String>,
+    DeletePi: FnMut(&str) -> Result<(), String>,
+    StopPty: FnMut(&str) -> Result<(), String>,
+{
+    let mut pi_ids = targets.pi.into_iter().collect::<Vec<_>>();
+    let mut pty_ids = targets.pty.into_iter().collect::<Vec<_>>();
+    pi_ids.sort();
+    pty_ids.sort();
+    let mut outcomes = Vec::new();
+    for id in pi_ids {
+        let process_result = stop_pi(&id);
+        outcomes.push(RuntimeResourceOutcome {
+            resource_type: "pi_process".into(),
+            id: id.clone(),
+            success: process_result.is_ok(),
+            error: process_result.clone().err(),
+        });
+        let session_result = match process_result {
+            Ok(()) => delete_pi(&id),
+            Err(_) => Err(
+                "Persisted conversation retained because the Pi process did not stop".to_string(),
+            ),
+        };
+        outcomes.push(RuntimeResourceOutcome {
+            resource_type: "pi_session".into(),
+            id,
+            success: session_result.is_ok(),
+            error: session_result.err(),
+        });
+    }
+    for id in pty_ids {
+        let result = stop_pty(&id);
+        outcomes.push(RuntimeResourceOutcome {
+            resource_type: "pty".into(),
+            id,
+            success: result.is_ok(),
+            error: result.err(),
+        });
+    }
+    outcomes
+}
+
+fn run_runtime_cleanup(
+    card_id: &str,
+    mut targets: CardRuntimeTargets,
+    pi_registry: &Mutex<PiRpcRegistry>,
+    pty_registry: &Mutex<PtyRegistry>,
+) -> Vec<RuntimeResourceOutcome> {
+    let mut discovery_failures = Vec::new();
+    match crate::pi_rpc::card_pi_runtime_ids(pi_registry, card_id) {
+        Ok(ids) => targets.pi.extend(ids),
+        Err(error) => discovery_failures.push(RuntimeResourceOutcome {
+            resource_type: "pi_process".into(),
+            id: "Pi registry discovery".into(),
+            success: false,
+            error: Some(error),
+        }),
+    }
+    match crate::pty::card_pty_runtime_ids(pty_registry, card_id) {
+        Ok(ids) => targets.pty.extend(ids),
+        Err(error) => discovery_failures.push(RuntimeResourceOutcome {
+            resource_type: "pty".into(),
+            id: "PTY registry discovery".into(),
+            success: false,
+            error: Some(error),
+        }),
+    }
+    let mut outcomes = execute_runtime_cleanup(
+        targets,
+        |id| crate::pi_rpc::stop_pi_session_impl(pi_registry, id),
+        crate::pi_rpc::delete_pi_session_directory,
+        |id| crate::pty::kill_ptys(pty_registry, &[id.to_string()]),
+    );
+    outcomes.extend(discovery_failures);
+    outcomes
+}
+
+fn persist_runtime_cleanup_result(
+    connection: &Connection,
+    id: &str,
+    outcomes: &[RuntimeResourceOutcome],
+) -> Result<(), String> {
+    let failures = outcomes
+        .iter()
+        .filter_map(|outcome| {
+            outcome
+                .error
+                .as_ref()
+                .map(|error| format!("{} {}: {error}", outcome.resource_type, outcome.id))
+        })
+        .collect::<Vec<_>>();
+    let (status, error, event_outcome, summary) = if failures.is_empty() {
+        (
+            "complete",
+            None,
+            "success",
+            "Card runtime cleanup completed".to_string(),
+        )
+    } else {
+        (
+            "failed",
+            Some(failures.join("\n")),
+            "failure",
+            format!(
+                "Card runtime cleanup failed for {} resource(s)",
+                failures.len()
+            ),
+        )
+    };
+    connection.execute("UPDATE kanban_cards SET runtime_cleanup_status=?1, runtime_cleanup_error=?2, updated_at=?3 WHERE id=?4 AND status='done'", params![status, error, unix_timestamp(), id]).map_err(db_error)?;
+    connection.execute(
+        "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, summary, error_code, error_detail) VALUES (?1, ?2, 'system', 'runtime_cleanup', ?3, ?4, ?5, ?6)",
+        params![id, unix_timestamp(), event_outcome, summary, if failures.is_empty() { None } else { Some("runtime_cleanup_failed") }, error],
+    ).map_err(db_error)?;
+    Ok(())
+}
+
+fn finish_runtime_cleanup(
+    id: &str,
+    targets: CardRuntimeTargets,
+    pi_registry: &Mutex<PiRpcRegistry>,
+    pty_registry: &Mutex<PtyRegistry>,
+) -> Result<CardRuntimeCleanupResult, String> {
+    let outcomes = run_runtime_cleanup(id, targets, pi_registry, pty_registry);
+    with_connection(|connection| persist_runtime_cleanup_result(connection, id, &outcomes))?;
+    let card = fresh_card_snapshot(id)?.card;
+    Ok(CardRuntimeCleanupResult { card, outcomes })
+}
+
 #[tauri::command]
-pub fn kanban_close_card(id: String, expected_revision: i64) -> Result<CardSnapshot, String> {
-    with_connection(|connection| {
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_error)?;
-        let (status, revision, finalized): (String, i64, bool) = transaction
+pub fn kanban_close_card(
+    id: String,
+    expected_revision: i64,
+    pi_registry: State<'_, Mutex<PiRpcRegistry>>,
+    pty_registry: State<'_, Mutex<PtyRegistry>>,
+) -> Result<CardRuntimeCleanupResult, String> {
+    let targets =
+        with_connection(|connection| commit_card_close(connection, &id, expected_revision))?;
+    finish_runtime_cleanup(&id, targets, pi_registry.inner(), pty_registry.inner())
+}
+
+#[tauri::command]
+pub fn kanban_retry_runtime_cleanup(
+    id: String,
+    pi_registry: State<'_, Mutex<PiRpcRegistry>>,
+    pty_registry: State<'_, Mutex<PtyRegistry>>,
+) -> Result<CardRuntimeCleanupResult, String> {
+    let targets = with_connection(|connection| {
+        let status: Option<String> = connection
             .query_row(
-                "SELECT status, workflow_revision, hierarchy_finalized FROM kanban_cards WHERE id=?1",
+                "SELECT status FROM kanban_cards WHERE id=?1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
+                |row| row.get(0),
             )
             .optional()
-            .map_err(db_error)?
-            .ok_or_else(|| "Kanban card was not found".to_string())?;
-        if finalized {
-            return Err("A finalized aggregate parent has no workflow".to_string());
+            .map_err(db_error)?;
+        match status.as_deref() {
+            None => Err("Kanban card was not found".to_string()),
+            Some("done") => persisted_runtime_targets(connection, &id),
+            _ => Err("Runtime cleanup can only be retried for a Done card".to_string()),
         }
-        if revision != expected_revision {
-            return Err("Card changed; reload before closing".to_string());
-        }
-        if status == "done" {
-            return Err("The card is already Done".to_string());
-        }
-        let now = unix_timestamp();
-        transaction.execute(
-            "UPDATE kanban_cards SET status='done', completion_outcome='closed', delivery_operation_stage=NULL, delivery_error=NULL,
-             workflow_revision=workflow_revision+1, updated_at=?1,
-             sort_order=(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards AS destination WHERE destination.status='done')
-             WHERE id=?2 AND workflow_revision=?3", params![now, id, expected_revision],
-        ).map_err(db_error)?;
-        transaction.execute(
-            "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, from_status, to_status, summary)
-             VALUES (?1, ?2, 'user', 'close', 'success', ?3, 'done', 'Closed without delivery; work preserved')",
-            params![id, now, status],
-        ).map_err(db_error)?;
-        transaction.commit().map_err(db_error)
     })?;
-    fresh_card_snapshot(&id)
+    finish_runtime_cleanup(&id, targets, pi_registry.inner(), pty_registry.inner())
 }
 
 #[tauri::command]
@@ -4465,6 +4705,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             feature_environment INTEGER NOT NULL DEFAULT 0,
             delivery_operation_stage TEXT,
             delivery_error TEXT,
+            runtime_cleanup_status TEXT CHECK(runtime_cleanup_status IN ('pending', 'complete', 'failed')),
+            runtime_cleanup_error TEXT,
             workflow_revision INTEGER NOT NULL DEFAULT 1,
             record_revision INTEGER NOT NULL DEFAULT 1,
             project_id TEXT,
@@ -4711,6 +4953,14 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     }
     for (name, sql) in [
         (
+            "runtime_cleanup_status",
+            "ALTER TABLE kanban_cards ADD COLUMN runtime_cleanup_status TEXT CHECK(runtime_cleanup_status IN ('pending', 'complete', 'failed'))",
+        ),
+        (
+            "runtime_cleanup_error",
+            "ALTER TABLE kanban_cards ADD COLUMN runtime_cleanup_error TEXT",
+        ),
+        (
             "parent_id",
             "ALTER TABLE kanban_cards ADD COLUMN parent_id TEXT",
         ),
@@ -4944,7 +5194,7 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
         let mut statement = connection.prepare(
             "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                     card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
-                    workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                    runtime_cleanup_status, runtime_cleanup_error, workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
                     parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
              FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC, id ASC"
         ).map_err(db_error)?;
@@ -4964,7 +5214,7 @@ fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, Str
     let mut card = connection.query_row(
         "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                 card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
-                workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                runtime_cleanup_status, runtime_cleanup_error, workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
                 parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
          FROM kanban_cards WHERE id = ?1",
         [id],
@@ -5616,8 +5866,8 @@ fn load_environment(
 }
 
 fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
-    let parent_id = row.get::<_, Option<String>>(23)?;
-    let provider_parent_title = row.get::<_, Option<String>>(26)?;
+    let parent_id = row.get::<_, Option<String>>(25)?;
+    let provider_parent_title = row.get::<_, Option<String>>(28)?;
     Ok(KanbanCard {
         id: row.get(0)?,
         provider: {
@@ -5643,24 +5893,26 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
         pull_request: None,
         delivery_operation_stage: row.get(14)?,
         delivery_error: row.get(15)?,
-        workflow_revision: row.get(16)?,
-        record_revision: row.get(17)?,
-        project_id: row.get(18)?,
+        runtime_cleanup_status: row.get(16)?,
+        runtime_cleanup_error: row.get(17)?,
+        workflow_revision: row.get(18)?,
+        record_revision: row.get(19)?,
+        project_id: row.get(20)?,
         environment: None,
         creation_operation: None,
         cleanup_operation: None,
-        created_at: row.get(19)?,
-        updated_at: row.get(20)?,
-        sort_order: row.get(21)?,
-        in_scope: row.get(22)?,
+        created_at: row.get(21)?,
+        updated_at: row.get(22)?,
+        sort_order: row.get(23)?,
+        in_scope: row.get(24)?,
         parent: parent_id.map(|id| CardRelationshipSummary {
             external_id: id.strip_prefix("superthread:").unwrap_or(&id).to_string(),
             id,
             title: provider_parent_title.unwrap_or_default(),
             status: String::new(),
         }),
-        hierarchy_finalized: row.get::<_, i64>(24)? != 0,
-        child_count: row.get::<_, i64>(25)? as u64,
+        hierarchy_finalized: row.get::<_, i64>(26)? != 0,
+        child_count: row.get::<_, i64>(27)? as u64,
         children: Vec::new(),
         events: Vec::new(),
     })
@@ -8707,6 +8959,149 @@ mod tests {
             .unwrap_err()
             .contains("tip changed"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_ownership_parsing_is_exact_for_delimited_and_prefixed_card_ids() {
+        assert_eq!(
+            card_pi_owner("kanban-card:local:7:planning").as_deref(),
+            Some("local:7")
+        );
+        assert_eq!(
+            card_terminal_owner("kanban-card:local:7:terminal:shell").as_deref(),
+            Some("local:7")
+        );
+        assert_ne!(
+            card_pi_owner("kanban-card:local:72:planning").as_deref(),
+            Some("local:7")
+        );
+        assert_ne!(
+            card_terminal_owner("kanban-card:local:72:terminal:shell").as_deref(),
+            Some("local:7")
+        );
+        assert!(card_pi_owner("kanban-card:local:7:terminal:shell").is_none());
+    }
+
+    #[test]
+    fn close_validates_and_commits_pending_cleanup_before_teardown() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let card = local_card(&mut connection);
+        connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,created_at,updated_at) VALUES ('env','local:test','project','/tmp/card',1,1)", []).unwrap();
+        connection.execute("INSERT INTO card_panes (id,environment_id,role,kind,sort_order) VALUES ('kanban-card:local:test:terminal:custom','env','custom','terminal',0), ('kanban-card:local:test-more:terminal:foreign','env','foreign','terminal',1)", []).unwrap();
+
+        assert!(commit_card_close(&mut connection, &card.id, card.workflow_revision + 1).is_err());
+        let unchanged = get_card(&connection, &card.id).unwrap().unwrap();
+        assert_eq!(unchanged.status, "needs_refinement");
+        assert_eq!(unchanged.workflow_revision, card.workflow_revision);
+        assert!(unchanged.runtime_cleanup_status.is_none());
+        assert_eq!(unchanged.events.len(), 0);
+
+        let targets = commit_card_close(&mut connection, &card.id, card.workflow_revision).unwrap();
+        let committed = get_card(&connection, &card.id).unwrap().unwrap();
+        assert_eq!(committed.status, "done");
+        assert_eq!(committed.completion_outcome.as_deref(), Some("closed"));
+        assert_eq!(committed.workflow_revision, card.workflow_revision + 1);
+        assert_eq!(committed.runtime_cleanup_status.as_deref(), Some("pending"));
+        assert_eq!(
+            committed
+                .events
+                .iter()
+                .filter(|event| event.event_type == "close" && event.outcome == "success")
+                .count(),
+            1
+        );
+        assert!(targets
+            .pty
+            .contains("kanban-card:local:test:terminal:custom"));
+        assert!(!targets
+            .pty
+            .contains("kanban-card:local:test-more:terminal:foreign"));
+        assert!(commit_card_close(&mut connection, &card.id, committed.workflow_revision).is_err());
+    }
+
+    #[test]
+    fn runtime_cleanup_attempts_every_target_and_recovers_without_workflow_change() {
+        use std::cell::RefCell;
+        let mut targets = CardRuntimeTargets::default();
+        targets.pi.extend([
+            "kanban-card:local:test:planning".into(),
+            "kanban-card:local:test:work".into(),
+        ]);
+        targets.pty.extend([
+            "kanban-card:local:test:terminal:shell".into(),
+            "kanban-card:local:test:terminal:server".into(),
+        ]);
+        let attempted = RefCell::new(Vec::new());
+        let outcomes = execute_runtime_cleanup(
+            targets,
+            |id| {
+                attempted.borrow_mut().push(format!("stop:{id}"));
+                if id.ends_with(":planning") {
+                    Err("stuck".into())
+                } else {
+                    Ok(())
+                }
+            },
+            |id| {
+                attempted.borrow_mut().push(format!("delete:{id}"));
+                Ok(())
+            },
+            |id| {
+                attempted.borrow_mut().push(format!("pty:{id}"));
+                Ok(())
+            },
+        );
+        assert_eq!(
+            outcomes.iter().filter(|outcome| !outcome.success).count(),
+            2
+        );
+        assert!(attempted
+            .borrow()
+            .iter()
+            .any(|value| value.ends_with(":work")));
+        assert!(attempted
+            .borrow()
+            .iter()
+            .any(|value| value.ends_with(":terminal:server")));
+        assert!(!attempted
+            .borrow()
+            .iter()
+            .any(|value| value == "delete:kanban-card:local:test:planning"));
+
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let card = local_card(&mut connection);
+        commit_card_close(&mut connection, &card.id, card.workflow_revision).unwrap();
+        let revision = card.workflow_revision + 1;
+        persist_runtime_cleanup_result(
+            &connection,
+            &card.id,
+            &[RuntimeResourceOutcome {
+                resource_type: "pty".into(),
+                id: "shell".into(),
+                success: false,
+                error: Some("permission denied".into()),
+            }],
+        )
+        .unwrap();
+        let failed = get_card(&connection, &card.id).unwrap().unwrap();
+        assert_eq!(failed.status, "done");
+        assert_eq!(failed.workflow_revision, revision);
+        assert_eq!(failed.runtime_cleanup_status.as_deref(), Some("failed"));
+        assert!(failed
+            .runtime_cleanup_error
+            .as_deref()
+            .unwrap()
+            .contains("permission denied"));
+        persist_runtime_cleanup_result(&connection, &card.id, &[]).unwrap();
+        let recovered = get_card(&connection, &card.id).unwrap().unwrap();
+        assert_eq!(recovered.workflow_revision, revision);
+        assert_eq!(
+            recovered.runtime_cleanup_status.as_deref(),
+            Some("complete")
+        );
+        assert!(recovered.runtime_cleanup_error.is_none());
     }
 
     #[test]
