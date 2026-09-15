@@ -12,10 +12,12 @@ const kinds = (status: KanbanStatus, project: Project = localProject) => deriveC
 
 describe('delivery workflow actions', () => {
   it('offers Close without delivery last on every active status and alone while the agent is working', () => {
-    for (const status of ['needs_refinement', 'ready', 'agent_working', 'needs_human', 'approved'] as KanbanStatus[]) {
+    for (const status of ['needs_refinement', 'refining', 'needs_refinement_input', 'ready', 'agent_working', 'needs_human', 'approved'] as KanbanStatus[]) {
       const actions = deriveCardWorkflowActions({ card: card(status), project: localProject, projectAvailable: true });
       expect(actions.at(-1)).toMatchObject({ kind: 'close', label: 'Close without delivery' });
     }
+    expect(kinds('refining')).toEqual(['stop_refinement', 'close']);
+    expect(kinds('needs_refinement_input')).toEqual(['open_refinement', 'stop_refinement', 'close']);
     expect(kinds('agent_working')).toEqual(['close']);
     expect(kinds('done')).not.toContain('close');
   });

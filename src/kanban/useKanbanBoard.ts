@@ -6,7 +6,7 @@ import type { CardProviderAdapter, KanbanCard, KanbanStatus, KanbanSyncCard } fr
 import type { Project } from '../types';
 import { KanbanSyncRequestGate } from './syncRequestGate';
 import { setPiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
-import { deletePersistentPiSession } from '../pi/sessionController';
+import { deletePersistentPiSession, getRetainedPiSessionController } from '../pi/sessionController';
 
 export function useKanbanBoard(provider: CardProviderAdapter | null) {
   const [cards, setCards] = useState<KanbanCard[]>([]);
@@ -17,6 +17,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
   const [providerError, setProviderError] = useState<string | null>(null);
   const cardsRef = useRef(cards);
   const uiRequestBlocksRef = useRef(new Map<string, Promise<KanbanCard | null>>());
+  const lifecycleTransitionsRef = useRef(new Map<string, Promise<void>>());
   const initialLoadStartedRef = useRef(false);
   const syncGate = useRef(new KanbanSyncRequestGate());
 
@@ -83,25 +84,38 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     };
   }, []);
 
+  function enqueueStatusProjection(cardId: string, expectedStatuses: KanbanStatus[], nextStatus: KanbanStatus, failurePrefix?: string, expectedRevision?: number): Promise<KanbanCard | null> {
+    const previous = lifecycleTransitionsRef.current.get(cardId) ?? Promise.resolve();
+    const result = previous.catch(() => {}).then(async () => {
+      const current = cardsRef.current.find((candidate) => candidate.id === cardId);
+      if (!current || !expectedStatuses.includes(current.status) || (expectedRevision !== undefined && current.workflow_revision !== expectedRevision)) return null;
+      const updated = await setKanbanStatus(cardId, nextStatus, current.workflow_revision, 'agent');
+      cardsRef.current = cardsRef.current.map((candidate) => candidate.id === cardId ? updated : candidate);
+      setCards(cardsRef.current);
+      return updated;
+    });
+    const gate = result.then(() => undefined, (statusError) => {
+      const message = `${failurePrefix ?? 'Card status could not be updated'}: ${errorMessage(statusError)}`;
+      setError(message);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } }));
+      load().catch(console.error);
+    });
+    lifecycleTransitionsRef.current.set(cardId, gate);
+    gate.finally(() => {
+      if (lifecycleTransitionsRef.current.get(cardId) === gate) lifecycleTransitionsRef.current.delete(cardId);
+    });
+    return result.catch(() => null);
+  }
+
   useEffect(() => setPiUiRequestWorkflowHandler({
     received: (paneId, requestId, viewOpen) => {
       const session = cardAgentSession(paneId);
-      if (!session || session.thread !== 'work' || viewOpen) return;
-      const card = cardsRef.current.find((candidate) => candidate.id === session.cardId);
-      if (!card || card.status !== 'agent_working') return;
+      if (!session || (session.thread === 'work' && viewOpen)) return;
       const key = `${paneId}:${requestId}`;
       if (uiRequestBlocksRef.current.has(key)) return;
-      const transition = setKanbanStatus(card.id, 'needs_human', card.workflow_revision, 'agent').then((updated) => {
-        cardsRef.current = cardsRef.current.map((candidate) => candidate.id === card.id ? updated : candidate);
-        setCards(cardsRef.current);
-        return updated;
-      }).catch((statusError) => {
-        const message = `Pi needs input, but the card status could not be updated: ${errorMessage(statusError)}`;
-        setError(message);
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } }));
-        load().catch(console.error);
-        return null;
-      });
+      const transition = session.thread === 'planning'
+        ? enqueueStatusProjection(session.cardId, ['refining'], 'needs_refinement_input', 'Pi needs refinement input, but the card status could not be updated')
+        : enqueueStatusProjection(session.cardId, ['agent_working'], 'needs_human', 'Pi needs input, but the card status could not be updated');
       uiRequestBlocksRef.current.set(key, transition);
     },
     beforeResponse: async (paneId, requestId) => {
@@ -127,9 +141,9 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     // Only undo the exact status/revision written by this request. A manual or
     // automation update wins and must never be overwritten.
     if (!shouldRestoreUiRequestCard(current, blocked)) return;
-    const updated = await setKanbanStatus(current.id, 'agent_working', current.workflow_revision, 'agent');
-    cardsRef.current = cardsRef.current.map((candidate) => candidate.id === current.id ? updated : candidate);
-    setCards(cardsRef.current);
+    const session = cardAgentSession(paneId);
+    const workingStatus = session?.thread === 'planning' ? 'refining' : 'agent_working';
+    await enqueueStatusProjection(current.id, [current.status], workingStatus, undefined, blocked.workflow_revision);
   }
 
   useEffect(() => {
@@ -138,28 +152,20 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     subscribeAllPiEvents((envelope) => {
       const session = cardAgentSession(envelope.pane_id);
       const eventType = typeof envelope.event?.type === 'string' ? envelope.event.type : '';
-      if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled')) return;
+      const planningError = session?.thread === 'planning' && (eventType === 'pi_protocol_error' || eventType === 'pi_process_exit');
+      if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled' && !planningError)) return;
       const card = cardsRef.current.find((candidate) => candidate.id === session.cardId);
       if (!card) return;
-      if (eventType === 'agent_settled') {
-        loadDetails(card).catch(console.error);
+      const projection = lifecycleProjectionRule(session.thread, eventType);
+      const transition = projection
+        ? enqueueStatusProjection(session.cardId, projection.expectedStatuses, projection.nextStatus)
+        : Promise.resolve(null);
+      if (eventType === 'agent_settled' || planningError) {
+        transition.finally(() => {
+          const current = cardsRef.current.find((candidate) => candidate.id === session.cardId) ?? card;
+          loadDetails(current).catch(console.error);
+        });
       }
-      const nextStatus: KanbanStatus | null = session.thread === 'work' && eventType === 'agent_start' && card.status === 'needs_human'
-        ? 'agent_working'
-        : session.thread === 'work' && eventType === 'agent_settled' && card.status === 'agent_working'
-          ? 'needs_human'
-          : null;
-      if (!nextStatus) return;
-      const optimistic = { ...card, status: nextStatus };
-      cardsRef.current = cardsRef.current.map((candidate) => candidate.id === session.cardId ? optimistic : candidate);
-      setCards(cardsRef.current);
-      setKanbanStatus(session.cardId, nextStatus, card.workflow_revision, 'agent').then((updated) => {
-        cardsRef.current = cardsRef.current.map((candidate) => candidate.id === session.cardId ? updated : candidate);
-        setCards(cardsRef.current);
-      }).catch((statusError) => {
-        setError(errorMessage(statusError));
-        load().catch(console.error);
-      });
     }).then((cleanup) => {
       if (cancelled) cleanup();
       else unsubscribe = cleanup;
@@ -211,6 +217,20 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     }
   }
 
+  async function stopRefinement(id: string) {
+    const paneId = `kanban-card:${id}:planning`;
+    for (const key of uiRequestBlocksRef.current.keys()) {
+      if (key.startsWith(`${paneId}:`)) uiRequestBlocksRef.current.delete(key);
+    }
+    const current = cardsRef.current.find((card) => card.id === id);
+    if (!current || !['refining', 'needs_refinement_input'].includes(current.status)) throw new Error('Card is no longer being refined; reload the board');
+    const updated = await setKanbanStatus(id, 'needs_refinement', current.workflow_revision, 'user');
+    cardsRef.current = cardsRef.current.map((card) => card.id === id ? updated : card);
+    setCards(cardsRef.current);
+    await getRetainedPiSessionController(paneId)?.stopRefinement();
+    return updated;
+  }
+
   async function move(id: string, status: KanbanStatus) {
     const previous = cards;
     setCards((current) => current.map((card) => card.id === id ? { ...card, status } : card));
@@ -257,7 +277,7 @@ export function useKanbanBoard(provider: CardProviderAdapter | null) {
     }
   }
 
-  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, move, assignProject, loadDetails };
+  return { cards, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, move, stopRefinement, assignProject, loadDetails };
 }
 
 type CreateKanbanCardDependencies = {
@@ -335,7 +355,19 @@ export function mergeChangedKanbanCard(cards: KanbanCard[], changed: KanbanCard)
 }
 
 export function shouldRestoreUiRequestCard(current: KanbanCard | undefined, blocked: KanbanCard): current is KanbanCard {
-  return Boolean(current && current.status === 'needs_human' && current.workflow_revision === blocked.workflow_revision);
+  const waitingStatus = blocked.status === 'needs_refinement_input' ? 'needs_refinement_input' : 'needs_human';
+  return Boolean(current && current.status === waitingStatus && current.workflow_revision === blocked.workflow_revision);
+}
+
+export function lifecycleProjectionRule(thread: 'planning' | 'work', eventType: string): { expectedStatuses: KanbanStatus[]; nextStatus: KanbanStatus } | null {
+  if (thread === 'planning') {
+    if (eventType === 'agent_start') return { expectedStatuses: ['needs_refinement', 'needs_refinement_input'], nextStatus: 'refining' };
+    if (['agent_settled', 'pi_protocol_error', 'pi_process_exit'].includes(eventType)) return { expectedStatuses: ['refining'], nextStatus: 'needs_refinement_input' };
+    return null;
+  }
+  if (eventType === 'agent_start') return { expectedStatuses: ['needs_human'], nextStatus: 'agent_working' };
+  if (eventType === 'agent_settled') return { expectedStatuses: ['agent_working'], nextStatus: 'needs_human' };
+  return null;
 }
 
 export function cardAgentSession(paneId: string): { cardId: string; thread: 'planning' | 'work' } | null {

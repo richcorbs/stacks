@@ -113,7 +113,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
     if (selectedProject?.delivery_workflow !== 'github_pull_request') return;
     let cancelled = false;
     const reconcile = async () => {
-      const targets = visibleCards.filter((card) => card.environment && card.status !== 'needs_refinement' && card.status !== 'ready');
+      const targets = visibleCards.filter((card) => card.environment && !['needs_refinement', 'refining', 'needs_refinement_input', 'ready'].includes(card.status));
       await Promise.all(targets.map((card) => refreshKanbanPullRequest(card.id).catch(() => null)));
       if (!cancelled && targets.length) await board.load();
     };
@@ -591,6 +591,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             return updated;
           })}
           onMove={(status) => board.move(selectedCard.id, status).then(setSelectedCard)}
+          onStopRefinement={() => board.stopRefinement(selectedCard.id).then(setSelectedCard)}
           onOpenChat={async (projectId) => {
             if (selectedCard.project_id === projectId) return;
             const updated = await board.assignProject(selectedCard.id, projectId);
@@ -627,7 +628,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
 type CardServiceMode = 'server' | 'console';
 type CardChatThread = 'planning' | 'work';
 
-function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, onRecheckEnvironment, onClose, onUpdate, onMove, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
+function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, onRecheckEnvironment, onClose, onUpdate, onMove, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated }: {
   card: KanbanCard;
   projects: Project[];
   terminalFontSize: number;
@@ -640,6 +641,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
   onClose: () => void;
   onUpdate: (title: string, content: string) => Promise<KanbanCard>;
   onMove: (status: KanbanStatus) => Promise<unknown>;
+  onStopRefinement: () => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
   onStartWork: () => Promise<boolean>;
   onCleanup: (environmentRevision: number) => Promise<void>;
@@ -977,6 +979,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
             refresh: onReload,
           });
           return;
+        case 'stop_refinement': await onStopRefinement(); return;
         case 'return_to_refinement': await onMove('needs_refinement'); setActiveView('chat'); return;
         case 'start_work': if (await onStartWork()) setActiveView('chat'); return;
         case 'request_changes':

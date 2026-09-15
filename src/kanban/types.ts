@@ -1,5 +1,7 @@
 export const KANBAN_STATUSES = [
   'needs_refinement',
+  'refining',
+  'needs_refinement_input',
   'ready',
   'agent_working',
   'needs_human',
