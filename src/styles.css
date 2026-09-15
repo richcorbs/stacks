@@ -614,6 +614,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   background: transparent;
   color: #d6deeb;
   text-align: left;
+  text-transform: none;
   padding: 10px 12px;
   cursor: pointer;
 }

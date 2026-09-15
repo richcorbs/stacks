@@ -29,6 +29,20 @@ describe('command palette items', () => {
     expect(onCardTerminalCommand).toHaveBeenCalledWith('restart');
   });
 
+  it('uses sentence case while preserving proper names and dynamic values', () => {
+    const cwd = '/Users/Rich/Code/StacksAPI';
+    const items = buildCommandPaletteItems(options({
+      cardTerminal: { cardId: 'c1', active: true, focusedPaneId: 'Pane-A', paneIds: ['Pane-A'], cwd, maximized: false },
+    }));
+    const item = (id: string) => items.find((candidate) => candidate.id === id);
+
+    expect(item('new-card')).toMatchObject({ title: 'New card', subtitle: 'Add to Stacks' });
+    expect(item('restart-stacks')).toMatchObject({ title: 'Restart Stacks', subtitle: 'Relaunch the app and load the installed build' });
+    expect(item('open-directory-editor')).toMatchObject({ title: 'Open directory in editor', subtitle: cwd });
+    expect(item('run-one-time-command')).toMatchObject({ title: 'Run one-time command', subtitle: `From ${cwd}` });
+    expect(item('split-terminal-right')).toMatchObject({ title: 'Split pane right', subtitle: '⌘D' });
+  });
+
   it('omits all legacy workspace, template, custom-command, sidebar, and Developer Services entries', () => {
     const ids = buildCommandPaletteItems(options()).map((item) => item.id).join(' ');
     expect(ids).not.toMatch(/workspace|template|custom|sidebar|diff-panel|pull-requests/);
