@@ -64,7 +64,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const projectId = card.project_id ?? '';
   const workflow = useWorkflowOperation();
   const { operation: workflowOperation, working } = workflow;
-  const [activeView, setActiveView] = useState<CardView>(() => card.hierarchy_finalized ? 'overview' : initialCardView(initialView));
+  const [activeView, setActiveView] = useState<CardView>(() => card.hierarchy_finalized ? 'overview' : initialCardView(card.status, initialView));
   const [actionError, setActionError] = useState<string | null>(null);
   const [recheckingEnvironment, setRecheckingEnvironment] = useState(false);
   const [editing, setEditing] = useState(false);
