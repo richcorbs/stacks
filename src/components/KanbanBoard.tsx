@@ -1070,7 +1070,7 @@ function KanbanCardDetail({ card, projects, terminalFontSize, terminalFontFamily
               ? <input ref={titleInputRef} className="kanbanCardTitleInput" aria-label="Card title" required value={draftTitle} onChange={(event) => { setDraftTitle(event.target.value); setEditError(null); }} />
               : <h2>{card.title}</h2>}
           </div>
-          <button type="button" aria-label="Close card" onClick={requestClose}>×</button>
+          <button type="button" aria-label="Close card details" onClick={requestClose}>×</button>
         </header>
         <nav className="cardWorkspaceTabs" aria-label="Card views">
           <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => requestView('overview')}>Card</button>

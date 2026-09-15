@@ -11,10 +11,10 @@ const prProject = { ...localProject, delivery_workflow: 'github_pull_request', s
 const kinds = (status: KanbanStatus, project: Project = localProject) => deriveCardWorkflowActions({ card: card(status), project, projectAvailable: true }).map((action) => action.kind);
 
 describe('delivery workflow actions', () => {
-  it('offers Close card last on every active status and alone while the agent is working', () => {
+  it('offers Close without delivery last on every active status and alone while the agent is working', () => {
     for (const status of ['needs_refinement', 'ready', 'agent_working', 'needs_human', 'approved'] as KanbanStatus[]) {
-      const actionKinds = kinds(status);
-      expect(actionKinds.at(-1)).toBe('close');
+      const actions = deriveCardWorkflowActions({ card: card(status), project: localProject, projectAvailable: true });
+      expect(actions.at(-1)).toMatchObject({ kind: 'close', label: 'Close without delivery' });
     }
     expect(kinds('agent_working')).toEqual(['close']);
     expect(kinds('done')).not.toContain('close');
@@ -27,7 +27,15 @@ describe('delivery workflow actions', () => {
     const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_path: '/source', branch: 'feature', repository_id: 'r', target_checkout_path: '/repo', target_branch: 'main', source_revision: 'a', target_revision: 'b', lifecycle_state: 'ready' as const, revision: 1, split_layout: { kind: 'empty' as const }, focused_pane_id: null, panes: [], services: [] };
     const cleanup = deriveCardWorkflowActions({ card: card('done', environment), project: localProject, projectAvailable: true })[0];
 
-    expect(close).toMatchObject({ destructive: true, appearance: 'neutral-ghost', confirmation: { title: 'Close card?' } });
+    expect(close).toMatchObject({
+      label: 'Close without delivery',
+      destructive: true,
+      appearance: 'neutral-ghost',
+      confirmation: {
+        title: 'Close without delivery?',
+        detail: 'Moves this card to Done · Closed and stops its processes. The worktree, branch, and changes are preserved.',
+      },
+    });
     expect(deleteAction).toMatchObject({ destructive: true, appearance: 'danger-ghost', confirmation: { title: 'Delete card?' } });
     expect(cleanup).toMatchObject({ destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?' } });
   });
