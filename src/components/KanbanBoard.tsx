@@ -4,6 +4,7 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import DOMPurify from 'dompurify';
 import type { Project, SplitNode, TerminalEntry } from '../types';
 import { useKanbanBoard } from '../kanban/useKanbanBoard';
+import { canonicalCardById } from '../kanban/boardStore';
 import { KANBAN_LANES, reorderKanbanCardIds } from '../kanban/workflow';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus } from '../kanban/types';
@@ -204,8 +205,13 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
 
   useEffect(() => {
     if (!selectedCard) return;
-    const current = board.cards.find((card) => card.id === selectedCard.id);
-    if (current && current !== selectedCard) setSelectedCard(current);
+    const current = canonicalCardById(board.cards, selectedCard.id);
+    if (current) {
+      if (current !== selectedCard) setSelectedCard(current);
+      return;
+    }
+    setSelectedCard(null);
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'This card was removed' } }));
   }, [board.cards, selectedCard]);
 
   function invalidateClipboardOperation(control: HTMLInputElement | HTMLTextAreaElement) {
@@ -629,7 +635,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
             await board.load();
           }}
           onCardUpdated={(updated) => {
-            setSelectedCard(updated);
+            setSelectedCard(board.applyCardSnapshot(updated));
             if (updated.parent) board.load().catch(console.error);
           }}
           onNavigate={(id) => {

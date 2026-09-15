@@ -18,6 +18,7 @@ function card(id: string, title: string): KanbanCard {
     assignee_names: [],
     status: 'needs_refinement',
     workflow_revision: 1,
+    record_revision: 1,
     project_id: 'p1',
     parent: null,
     child_count: 0,
@@ -88,19 +89,16 @@ describe('card Pi workflow requests', () => {
 
 describe('Kanban reorder recovery', () => {
   it('replaces optimistic state with authoritative cards after a reorder conflict', async () => {
-    const previous = [card('1', 'Previous')];
     const authoritative = [card('1', 'Authoritative'), card('2', 'Concurrent')];
     expect(await recoverKanbanReorderCards(
       'KANBAN_REORDER_CONFLICT: Lane order changed',
-      previous,
       async () => authoritative,
     )).toBe(authoritative);
   });
 
-  it('restores the previous state for validation errors or failed conflict reloads', async () => {
-    const previous = [card('1', 'Previous')];
-    expect(await recoverKanbanReorderCards('Invalid payload', previous, async () => [])).toBe(previous);
-    expect(await recoverKanbanReorderCards('KANBAN_REORDER_CONFLICT: stale', previous, async () => { throw new Error('offline'); })).toBe(previous);
+  it('skips reloads for validation errors and tolerates failed conflict reloads', async () => {
+    expect(await recoverKanbanReorderCards('Invalid payload', async () => [])).toBeNull();
+    expect(await recoverKanbanReorderCards('KANBAN_REORDER_CONFLICT: stale', async () => { throw new Error('offline'); })).toBeNull();
   });
 });
 
@@ -205,7 +203,7 @@ describe('mergeChangedKanbanCard', () => {
   });
 
   it('replaces a matching card instead of duplicating it', () => {
-    const changed = card('1', 'Updated');
+    const changed = { ...card('1', 'Updated'), record_revision: 2 };
     expect(mergeChangedKanbanCard([card('1', 'Old')], changed)).toEqual([changed]);
   });
 });

@@ -9,8 +9,15 @@ use std::{
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
+use tauri::{AppHandle, Emitter};
 
 static REPOSITORY_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static BOARD_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+
+pub(crate) fn set_app_handle(app: AppHandle) {
+    let _ = APP_HANDLE.set(app);
+}
 
 const STATUSES: [&str; 8] = [
     "needs_refinement",
@@ -164,6 +171,7 @@ pub struct KanbanCard {
     delivery_operation_stage: Option<String>,
     delivery_error: Option<String>,
     workflow_revision: i64,
+    record_revision: i64,
     project_id: Option<String>,
     parent: Option<CardRelationshipSummary>,
     child_count: u64,
@@ -177,6 +185,25 @@ pub struct KanbanCard {
     events: Vec<CardEvent>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CardSnapshot {
+    pub card: KanbanCard,
+    pub board_revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BoardSnapshot {
+    pub cards: Vec<KanbanCard>,
+    pub board_revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BoardChange {
+    pub upserts: Vec<KanbanCard>,
+    pub removed_ids: Vec<String>,
+    pub board_revision: i64,
+}
+
 impl KanbanCard {
     pub(crate) fn number(&self) -> &str {
         &self.external_id
@@ -188,10 +215,20 @@ impl KanbanCard {
 }
 
 #[tauri::command]
-pub fn kanban_cards() -> Result<Vec<KanbanCard>, String> {
+pub fn kanban_cards() -> Result<BoardSnapshot, String> {
+    with_connection(|connection| reconcile_card_ownership(connection))?;
+    with_connection(board_snapshot)
+}
+
+#[tauri::command]
+pub fn kanban_card_snapshot(id: String) -> Result<CardSnapshot, String> {
     with_connection(|connection| {
-        reconcile_card_ownership(connection)?;
-        list_cards(connection)
+        let card =
+            get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+        Ok(CardSnapshot {
+            card,
+            board_revision: board_revision(connection)?,
+        })
     })
 }
 
@@ -217,14 +254,19 @@ pub fn kanban_create_local_card(
     title: String,
     content: String,
     parent_id: Option<String>,
-) -> Result<KanbanCard, String> {
-    let card = create_local_card_for_project(&project_id, &title, &content)?;
-    if let Some(parent_id) = parent_id {
-        return with_connection(|connection| {
-            set_card_parent(connection, &card.id, Some(&parent_id))
-        });
+) -> Result<CardSnapshot, String> {
+    let scope = crate::store::pi_project_scope(&project_id)?;
+    if !is_local_kanban_source(&scope.kanban_source) {
+        return Err("Cards can only be created for a local Kanban project".to_string());
     }
-    Ok(card)
+    let id = with_connection(|connection| {
+        let card = create_local_card(connection, &scope.id, &scope.name, &title, &content)?;
+        if let Some(parent_id) = parent_id.as_deref() {
+            set_card_parent(connection, &card.id, Some(parent_id))?;
+        }
+        Ok(card.id)
+    })?;
+    fresh_card_snapshot(&id)
 }
 
 pub(crate) fn create_local_card_for_project(
@@ -294,7 +336,7 @@ pub fn kanban_update_local_card(
     content: Option<String>,
     parent_id: Option<String>,
     parent_specified: Option<bool>,
-) -> Result<KanbanCard, String> {
+) -> Result<CardSnapshot, String> {
     with_connection(|connection| {
         if title.is_some() || content.is_some() {
             update_local_card(connection, &id, title.as_deref(), content.as_deref())?;
@@ -302,8 +344,9 @@ pub fn kanban_update_local_card(
         if parent_specified.unwrap_or(false) {
             set_card_parent(connection, &id, parent_id.as_deref())?;
         }
-        get_card(connection, &id)?.ok_or_else(|| "Local Kanban card was not found".to_string())
-    })
+        Ok(())
+    })?;
+    fresh_card_snapshot(&id)
 }
 
 pub(crate) fn update_local_card(
@@ -844,11 +887,12 @@ fn reconcile_card_ownership(connection: &Connection) -> Result<(), String> {
 #[tauri::command]
 pub fn kanban_sync_superthread_cards(
     cards: Vec<KanbanCardSnapshot>,
-) -> Result<Vec<KanbanCard>, String> {
+) -> Result<BoardSnapshot, String> {
     with_connection(|connection| {
         reconcile_card_ownership(connection)?;
-        sync_cards(connection, cards)
-    })
+        sync_cards(connection, cards).map(|_| ())
+    })?;
+    with_connection(board_snapshot)
 }
 
 fn sync_cards(
@@ -1018,7 +1062,7 @@ fn validate_card_deletion(connection: &Connection, id: &str) -> Result<bool, Str
 }
 
 #[tauri::command]
-pub fn kanban_delete_card(id: String) -> Result<(), String> {
+pub fn kanban_delete_card(id: String) -> Result<BoardChange, String> {
     with_connection(|connection| {
         if !validate_card_deletion(connection, &id)? {
             return Ok(());
@@ -1033,6 +1077,13 @@ pub fn kanban_delete_card(id: String) -> Result<(), String> {
             .execute("DELETE FROM kanban_cards WHERE id = ?1", [&id])
             .map_err(db_error)?;
         transaction.commit().map_err(db_error)
+    })?;
+    with_connection(|connection| {
+        Ok(BoardChange {
+            upserts: Vec::new(),
+            removed_ids: vec![id],
+            board_revision: board_revision(connection)?,
+        })
     })
 }
 
@@ -1042,7 +1093,7 @@ pub fn kanban_set_status(
     status: String,
     expected_revision: i64,
     actor: String,
-) -> Result<KanbanCard, String> {
+) -> Result<CardSnapshot, String> {
     if !STATUSES.contains(&status.as_str()) {
         return Err(format!("Unknown Kanban status: {status}"));
     }
@@ -1050,7 +1101,9 @@ pub fn kanban_set_status(
         set_card_status(connection, &id, &status, expected_revision, &actor, || {
             ensure_card_directory(&id).map(|_| ())
         })
-    })
+        .map(|_| ())
+    })?;
+    fresh_card_snapshot(&id)
 }
 
 fn set_card_status<F>(
@@ -1128,7 +1181,7 @@ fn is_legal_status_transition(current: &str, next: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn kanban_close_card(id: String, expected_revision: i64) -> Result<KanbanCard, String> {
+pub fn kanban_close_card(id: String, expected_revision: i64) -> Result<CardSnapshot, String> {
     with_connection(|connection| {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1163,9 +1216,9 @@ pub fn kanban_close_card(id: String, expected_revision: i64) -> Result<KanbanCar
              VALUES (?1, ?2, 'user', 'close', 'success', ?3, 'done', 'Closed without delivery; work preserved')",
             params![id, now, status],
         ).map_err(db_error)?;
-        transaction.commit().map_err(db_error)?;
-        get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
-    })
+        transaction.commit().map_err(db_error)
+    })?;
+    fresh_card_snapshot(&id)
 }
 
 #[tauri::command]
@@ -1173,11 +1226,27 @@ pub fn kanban_reorder_cards(
     status: String,
     expected_card_ids: Vec<String>,
     card_ids: Vec<String>,
-) -> Result<Vec<KanbanCard>, String> {
+) -> Result<BoardChange, String> {
     if !STATUSES.contains(&status.as_str()) {
         return Err(format!("Unknown Kanban status: {status}"));
     }
-    with_connection(|connection| reorder_cards(connection, &status, &expected_card_ids, &card_ids))
+    with_connection(|connection| {
+        reorder_cards(connection, &status, &expected_card_ids, &card_ids).map(|_| ())
+    })?;
+    with_connection(|connection| {
+        let revision = board_revision(connection)?;
+        let mut upserts = Vec::new();
+        for id in &card_ids {
+            if let Some(card) = get_card(connection, id)? {
+                upserts.push(card);
+            }
+        }
+        Ok(BoardChange {
+            upserts,
+            removed_ids: Vec::new(),
+            board_revision: revision,
+        })
+    })
 }
 
 fn reorder_cards(
@@ -1290,7 +1359,7 @@ fn reject_duplicate_ids(field: &str, ids: &[String]) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn kanban_set_project(id: String, project_id: String) -> Result<KanbanCard, String> {
+pub fn kanban_set_project(id: String, project_id: String) -> Result<CardSnapshot, String> {
     if project_id.trim().is_empty() {
         return Err("Project is required".to_string());
     }
@@ -1301,7 +1370,8 @@ pub fn kanban_set_project(id: String, project_id: String) -> Result<KanbanCard, 
     with_connection(|connection| {
         ensure_card_directory(&id)?;
         set_card_project(connection, &id, &destination.id, &destination.name)
-    })
+    })?;
+    fresh_card_snapshot(&id)
 }
 
 fn set_card_project(
@@ -2400,13 +2470,134 @@ fn next_local_card_number(connection: &Connection, project_id: &str) -> Result<i
 pub(crate) fn with_connection<T>(
     work: impl FnOnce(&mut Connection) -> Result<T, String>,
 ) -> Result<T, String> {
+    // Serialize the complete read/mutate/revision cycle. SQLite serializes writes,
+    // but without this lock a second window could commit between a mutation and
+    // its revision bookkeeping, causing one logical operation to claim another's
+    // entity changes.
+    let _guard = BOARD_OPERATION_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "Kanban board operation lock failed".to_string())?;
     let path = app_data_file("workflow.sqlite3")?;
     let mut connection = Connection::open(path).map_err(db_error)?;
     connection
         .busy_timeout(std::time::Duration::from_secs(5))
         .map_err(db_error)?;
     migrate(&connection)?;
-    work(&mut connection)
+    let before = serialized_board_entities(&mut connection)?;
+    let result = work(&mut connection);
+    let after = serialized_board_entities(&mut connection)?;
+    if let Some(change) = commit_board_revision(&mut connection, &before, &after)? {
+        if let Some(app) = APP_HANDLE.get() {
+            if let Err(error) = app.emit("kanban-board-changed", &change) {
+                eprintln!("Kanban mutation committed at board revision {}, but event delivery failed: {error}", change.board_revision);
+            }
+        }
+    }
+    result
+}
+
+fn serialized_board_entities(
+    connection: &mut Connection,
+) -> Result<HashMap<String, String>, String> {
+    let mut cards = list_cards(connection)?;
+    cards
+        .iter_mut()
+        .map(|card| {
+            // A revision is metadata about freshness, not part of the serialized
+            // entity change being detected.
+            card.record_revision = 0;
+            serde_json::to_string(card)
+                .map(|serialized| (card.id.clone(), serialized))
+                .map_err(|error| error.to_string())
+        })
+        .collect()
+}
+
+fn board_revision(connection: &Connection) -> Result<i64, String> {
+    connection
+        .query_row(
+            "SELECT board_revision FROM kanban_board_metadata WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(db_error)
+}
+
+fn board_snapshot(connection: &mut Connection) -> Result<BoardSnapshot, String> {
+    Ok(BoardSnapshot {
+        cards: list_cards(connection)?,
+        board_revision: board_revision(connection)?,
+    })
+}
+
+fn fresh_card_snapshot(id: &str) -> Result<CardSnapshot, String> {
+    with_connection(|connection| {
+        let card =
+            get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+        Ok(CardSnapshot {
+            card,
+            board_revision: board_revision(connection)?,
+        })
+    })
+}
+
+fn commit_board_revision(
+    connection: &mut Connection,
+    before: &HashMap<String, String>,
+    after: &HashMap<String, String>,
+) -> Result<Option<BoardChange>, String> {
+    let mut changed_ids = after
+        .iter()
+        .filter(|(id, value)| before.get(*id) != Some(*value))
+        .map(|(id, _)| id.clone())
+        .collect::<Vec<_>>();
+    let mut removed_ids = before
+        .keys()
+        .filter(|id| !after.contains_key(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+    changed_ids.sort();
+    removed_ids.sort();
+    if changed_ids.is_empty() && removed_ids.is_empty() {
+        return Ok(None);
+    }
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    transaction
+        .execute(
+            "UPDATE kanban_board_metadata SET board_revision=board_revision+1 WHERE singleton=1",
+            [],
+        )
+        .map_err(db_error)?;
+    for id in &changed_ids {
+        transaction
+            .execute(
+                "UPDATE kanban_cards SET record_revision=record_revision+1 WHERE id=?1",
+                [id],
+            )
+            .map_err(db_error)?;
+    }
+    let revision: i64 = transaction
+        .query_row(
+            "SELECT board_revision FROM kanban_board_metadata WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    let mut upserts = Vec::with_capacity(changed_ids.len());
+    for id in changed_ids {
+        if let Some(card) = get_card(connection, &id)? {
+            upserts.push(card);
+        }
+    }
+    Ok(Some(BoardChange {
+        upserts,
+        removed_ids,
+        board_revision: revision,
+    }))
 }
 
 pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
@@ -2436,6 +2627,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             delivery_operation_stage TEXT,
             delivery_error TEXT,
             workflow_revision INTEGER NOT NULL DEFAULT 1,
+            record_revision INTEGER NOT NULL DEFAULT 1,
             project_id TEXT,
             workspace_id TEXT,
             parent_id TEXT,
@@ -2449,6 +2641,11 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             UNIQUE(external_provider, external_id)
          );
          CREATE INDEX IF NOT EXISTS kanban_cards_status_idx ON kanban_cards(status, updated_at);
+         CREATE TABLE IF NOT EXISTS kanban_board_metadata (
+            singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+            board_revision INTEGER NOT NULL DEFAULT 0
+         );
+         INSERT OR IGNORE INTO kanban_board_metadata(singleton, board_revision) VALUES (1, 0);
          CREATE TABLE IF NOT EXISTS card_pull_requests (
             card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
             repository TEXT NOT NULL,
@@ -2571,6 +2768,14 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
         connection
             .execute(
                 "ALTER TABLE kanban_cards ADD COLUMN workflow_revision INTEGER NOT NULL DEFAULT 1",
+                [],
+            )
+            .map_err(db_error)?;
+    }
+    if !columns.iter().any(|column| column == "record_revision") {
+        connection
+            .execute(
+                "ALTER TABLE kanban_cards ADD COLUMN record_revision INTEGER NOT NULL DEFAULT 1",
                 [],
             )
             .map_err(db_error)?;
@@ -2767,7 +2972,7 @@ fn list_cards(connection: &mut Connection) -> Result<Vec<KanbanCard>, String> {
         let mut statement = connection.prepare(
             "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                     card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
-                    workflow_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                    workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
                     parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
              FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC, id ASC"
         ).map_err(db_error)?;
@@ -2787,7 +2992,7 @@ fn get_card(connection: &Connection, id: &str) -> Result<Option<KanbanCard>, Str
     let mut card = connection.query_row(
         "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                 card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
-                workflow_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
                 parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
          FROM kanban_cards WHERE id = ?1",
         [id],
@@ -3051,8 +3256,8 @@ fn load_environment(
 }
 
 fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
-    let parent_id = row.get::<_, Option<String>>(22)?;
-    let provider_parent_title = row.get::<_, Option<String>>(25)?;
+    let parent_id = row.get::<_, Option<String>>(23)?;
+    let provider_parent_title = row.get::<_, Option<String>>(26)?;
     Ok(KanbanCard {
         id: row.get(0)?,
         provider: {
@@ -3079,20 +3284,21 @@ fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
         delivery_operation_stage: row.get(14)?,
         delivery_error: row.get(15)?,
         workflow_revision: row.get(16)?,
-        project_id: row.get(17)?,
+        record_revision: row.get(17)?,
+        project_id: row.get(18)?,
         environment: None,
-        created_at: row.get(18)?,
-        updated_at: row.get(19)?,
-        sort_order: row.get(20)?,
-        in_scope: row.get(21)?,
+        created_at: row.get(19)?,
+        updated_at: row.get(20)?,
+        sort_order: row.get(21)?,
+        in_scope: row.get(22)?,
         parent: parent_id.map(|id| CardRelationshipSummary {
             external_id: id.strip_prefix("superthread:").unwrap_or(&id).to_string(),
             id,
             title: provider_parent_title.unwrap_or_default(),
             status: String::new(),
         }),
-        hierarchy_finalized: row.get::<_, i64>(23)? != 0,
-        child_count: row.get::<_, i64>(24)? as u64,
+        hierarchy_finalized: row.get::<_, i64>(24)? != 0,
+        child_count: row.get::<_, i64>(25)? as u64,
         children: Vec::new(),
         events: Vec::new(),
     })
@@ -3944,6 +4150,110 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["child", "parent"]
         );
+    }
+
+    #[test]
+    fn revision_schema_migrates_existing_cards_and_initializes_board_metadata() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE kanban_cards (
+            id TEXT PRIMARY KEY, external_provider TEXT NOT NULL, external_id TEXT NOT NULL,
+            title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', board_id TEXT NOT NULL DEFAULT '',
+            board_title TEXT NOT NULL DEFAULT '', list_id TEXT NOT NULL DEFAULT '', list_title TEXT NOT NULL DEFAULT '',
+            card_url TEXT NOT NULL DEFAULT '', assignee_names TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'needs_refinement' CHECK(status IN ('needs_refinement','refining','needs_refinement_input','ready','agent_working','needs_human','approved','done')),
+            completion_outcome TEXT, feature_environment INTEGER NOT NULL DEFAULT 0, delivery_operation_stage TEXT,
+            delivery_error TEXT, workflow_revision INTEGER NOT NULL DEFAULT 1, project_id TEXT, workspace_id TEXT,
+            parent_id TEXT, hierarchy_finalized INTEGER NOT NULL DEFAULT 0, provider_child_count INTEGER NOT NULL DEFAULT 0,
+            provider_parent_title TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0, in_scope INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(external_provider, external_id));
+            INSERT INTO kanban_cards(id,external_provider,external_id,title,created_at,updated_at)
+            VALUES ('legacy','local:p','1','Legacy',1,1);") .unwrap();
+        migrate(&connection).unwrap();
+        let record: i64 = connection
+            .query_row(
+                "SELECT record_revision FROM kanban_cards WHERE id='legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(record, 1);
+        assert_eq!(board_revision(&connection).unwrap(), 0);
+    }
+
+    #[test]
+    fn revision_bookkeeping_touches_derived_relationships_once_per_transaction() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO kanban_cards
+            (id,external_provider,external_id,title,status,created_at,updated_at,parent_id)
+            VALUES ('parent','local:p','1','Parent','needs_refinement',1,1,NULL),
+                   ('child','local:p','2','Child','needs_refinement',1,1,'parent');",
+            )
+            .unwrap();
+        let before = serialized_board_entities(&mut connection).unwrap();
+        connection
+            .execute(
+                "UPDATE kanban_cards SET title='Changed', status='ready' WHERE id='child'",
+                [],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome) VALUES ('child',2,'user','test','success')", []).unwrap();
+        let after = serialized_board_entities(&mut connection).unwrap();
+        let change = commit_board_revision(&mut connection, &before, &after)
+            .unwrap()
+            .unwrap();
+        assert_eq!(change.board_revision, 1);
+        assert_eq!(
+            change
+                .upserts
+                .iter()
+                .map(|card| card.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["child", "parent"]
+        );
+        let revisions = connection
+            .prepare("SELECT id,record_revision FROM kanban_cards ORDER BY id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(revisions, vec![("child".into(), 2), ("parent".into(), 2)]);
+        assert!(commit_board_revision(&mut connection, &after, &after)
+            .unwrap()
+            .is_none());
+        assert_eq!(board_revision(&connection).unwrap(), 1);
+    }
+
+    #[test]
+    fn revisions_report_deletion_and_card_order_has_stable_id_tie_breaker() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection.execute_batch("INSERT INTO kanban_cards(id,external_provider,external_id,title,created_at,updated_at,sort_order)
+            VALUES ('z','local:p','1','Z',1,1,0), ('a','local:p','2','A',1,1,0);").unwrap();
+        assert_eq!(
+            list_cards(&mut connection)
+                .unwrap()
+                .iter()
+                .map(|card| card.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "z"]
+        );
+        let before = serialized_board_entities(&mut connection).unwrap();
+        connection
+            .execute("DELETE FROM kanban_cards WHERE id='a'", [])
+            .unwrap();
+        let after = serialized_board_entities(&mut connection).unwrap();
+        let change = commit_board_revision(&mut connection, &before, &after)
+            .unwrap()
+            .unwrap();
+        assert_eq!(change.removed_ids, vec!["a"]);
+        assert_eq!(change.board_revision, 1);
     }
 
     #[test]

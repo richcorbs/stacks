@@ -1,9 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CardEnvironmentHealth, CardEnvironmentPane, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
+import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, KanbanSyncCard } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
-  return invoke<KanbanCard[]>('kanban_cards');
+  return invoke<BoardSnapshot>('kanban_cards');
+}
+
+export function fetchKanbanCard(id: string) {
+  return invoke<CardSnapshot>('kanban_card_snapshot', { id });
 }
 
 export function fetchKanbanEnvironmentHealth(cardIds: string[]) {
@@ -11,13 +15,13 @@ export function fetchKanbanEnvironmentHealth(cardIds: string[]) {
 }
 
 export function createLocalKanbanCard(projectId: string, title: string, content: string, parentId: string | null = null) {
-  return invoke<KanbanCard>('kanban_create_local_card', { projectId, title, content, parentId });
+  return invoke<CardSnapshot>('kanban_create_local_card', { projectId, title, content, parentId }).then(({ card }) => card);
 }
 
 export function updateLocalKanbanCard(id: string, title: string, content: string, parentId?: string | null) {
-  return invoke<KanbanCard>('kanban_update_local_card', {
+  return invoke<CardSnapshot>('kanban_update_local_card', {
     id, title, content, parentId: parentId ?? null, parentSpecified: parentId !== undefined,
-  });
+  }).then(({ card }) => card);
 }
 
 export function openKanbanCard(id: string) {
@@ -25,21 +29,21 @@ export function openKanbanCard(id: string) {
 }
 
 export function deleteKanbanCard(id: string) {
-  return invoke<void>('kanban_delete_card', { id });
+  return invoke<BoardChange>('kanban_delete_card', { id });
 }
 
 export function syncKanbanCards(cards: KanbanSyncCard[]) {
-  return invoke<KanbanCard[]>('kanban_sync_superthread_cards', { cards });
+  return invoke<BoardSnapshot>('kanban_sync_superthread_cards', { cards });
 }
 
 export function setKanbanStatus(id: string, status: KanbanStatus, expectedRevision: number, actor: 'user' | 'agent' = 'user') {
-  return invoke<KanbanCard>('kanban_set_status', { id, status, expectedRevision, actor });
+  return invoke<CardSnapshot>('kanban_set_status', { id, status, expectedRevision, actor }).then(({ card }) => card);
 }
 
 export const KANBAN_REORDER_CONFLICT = 'KANBAN_REORDER_CONFLICT';
 
 export function reorderKanbanCards(status: KanbanStatus, expectedCardIds: string[], cardIds: string[]) {
-  return invoke<KanbanCard[]>('kanban_reorder_cards', { status, expectedCardIds, cardIds });
+  return invoke<BoardChange>('kanban_reorder_cards', { status, expectedCardIds, cardIds });
 }
 
 export function isKanbanReorderConflict(error: unknown) {
@@ -47,7 +51,7 @@ export function isKanbanReorderConflict(error: unknown) {
 }
 
 export function setKanbanProject(id: string, projectId: string) {
-  return invoke<KanbanCard>('kanban_set_project', { id, projectId });
+  return invoke<CardSnapshot>('kanban_set_project', { id, projectId }).then(({ card }) => card);
 }
 
 export type EnvironmentStartPreflight = { repository_id: string; target_checkout_path: string; target_branch: string; target_revision: string };
@@ -72,7 +76,7 @@ export function approveAndCommitKanbanCard(id: string, expectedWorkflowRevision:
 }
 
 export function closeKanbanCard(id: string, expectedRevision: number) {
-  return invoke<KanbanCard>('kanban_close_card', { id, expectedRevision });
+  return invoke<CardSnapshot>('kanban_close_card', { id, expectedRevision }).then(({ card }) => card);
 }
 
 export function refreshKanbanPullRequest(id: string) {
