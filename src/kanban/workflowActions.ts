@@ -43,7 +43,7 @@ export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWor
 
 function baseCardWorkflowActions({ card, project, projectAvailable }: CardWorkflowContext): CardWorkflowAction[] {
   const environment = card.environment;
-  const close: CardWorkflowAction = { kind: 'close', label: 'Close card', destructive: true, appearance: 'neutral-ghost', confirmation: { title: 'Close card?', detail: 'Moves this card to Done · Closed and stops its processes. The worktree, branch, and changes are preserved.' } };
+  const close: CardWorkflowAction = { kind: 'close', label: 'Close without delivery', destructive: true, appearance: 'neutral-ghost', confirmation: { title: 'Close without delivery?', detail: 'Moves this card to Done · Closed and stops its processes. The worktree, branch, and changes are preserved.' } };
   const actions: CardWorkflowAction[] = (() => {
     switch (card.status) {
       case 'needs_refinement': return [

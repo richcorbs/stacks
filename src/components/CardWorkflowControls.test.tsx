@@ -36,7 +36,7 @@ describe('CardWorkflowControls', () => {
     const markup = renderToStaticMarkup(
       <CardWorkflowControls
         actions={[
-          { kind: 'close', label: 'Close card', destructive: true, appearance: 'neutral-ghost' },
+          { kind: 'close', label: 'Close without delivery', destructive: true, appearance: 'neutral-ghost' },
           { kind: 'delete', label: 'Delete card', destructive: true, appearance: 'danger-ghost' },
           { kind: 'cleanup', label: 'Clean up', destructive: true, appearance: 'regular' },
         ]}
@@ -49,6 +49,8 @@ describe('CardWorkflowControls', () => {
     const buttons = markup.match(/<button[\s\S]*?<\/button>/g) ?? [];
 
     expect(buttons[0]).toContain('class="workflowActionNeutralGhost"');
+    expect(buttons[0]).toContain('aria-label="Close without delivery"');
+    expect(buttons[0]).toContain('>Close without delivery</button>');
     expect(buttons[1]).toContain('class="workflowActionDangerGhost"');
     expect(buttons[2]).toContain('class="workflowActionRegular"');
     expect(markup).not.toContain('destructiveAction');
