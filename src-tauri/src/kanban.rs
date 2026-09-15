@@ -5711,6 +5711,12 @@ fn environment_health(
 ) -> Result<CardEnvironmentHealth, String> {
     let card = get_card(connection, card_id)?
         .ok_or_else(|| format!("Kanban card {card_id} was not found"))?;
+    if card.hierarchy_finalized {
+        return Ok(CardEnvironmentHealth {
+            card_id: card.id,
+            issues: Vec::new(),
+        });
+    }
     let mut issues = Vec::new();
     let pending_target_merge: Option<String> = connection
         .query_row(
@@ -8428,6 +8434,31 @@ mod tests {
             assert_eq!(health.issues[0].code, "environment_missing");
             assert_eq!(health.issues[0].step, step);
         }
+    }
+
+    #[test]
+    fn environment_health_ignores_finalized_parent_with_active_child() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        local_card(&mut connection);
+        connection
+            .execute(
+                "UPDATE kanban_cards SET status='ready', hierarchy_finalized=1 WHERE id='local:test'",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO kanban_cards
+                 (id, external_provider, external_id, title, status, project_id, parent_id, created_at, updated_at)
+                 VALUES ('local:child', 'local:project', '2', 'Child', 'agent_working', 'project', 'local:test', 1, 1)",
+                [],
+            )
+            .unwrap();
+
+        let parent = get_card(&connection, "local:test").unwrap().unwrap();
+        assert_eq!(parent.status, "agent_working");
+        assert!(health_codes(&connection, "local:test").is_empty());
     }
 
     #[test]

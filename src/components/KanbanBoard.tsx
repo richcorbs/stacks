@@ -16,7 +16,7 @@ import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { deletePersistentPiSession } from '../pi/sessionController';
-import { environmentHealthTooltip, hasGitChanges } from '../kanban/useCardRepositoryStatus';
+import { environmentHealthTooltip, hasGitChanges, shouldShowEnvironmentWarning } from '../kanban/useCardRepositoryStatus';
 import { REFRESH_CARD_REPOSITORY_STATUS_EVENT } from '../kanban/refreshCoordinator';
 import { useKanbanRefreshCoordinator } from '../kanban/useKanbanRefreshCoordinator';
 import { cardLocalComparisonTarget } from '../git/comparisonTarget';
@@ -463,7 +463,8 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                     const repositoryStatus = repositoryStatuses[card.id];
                     const environmentHealth = repositoryStatus?.environmentHealth;
                     const healthTooltip = environmentHealthTooltip(environmentHealth);
-                    return <div className={`kanbanCardWrapper${environmentHealth?.issues.length ? ' hasEnvironmentWarning' : ''}`} key={card.id}>
+                    const showEnvironmentWarning = shouldShowEnvironmentWarning(card, environmentHealth);
+                    return <div className={`kanbanCardWrapper${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}`} key={card.id}>
                     <button
                       className={`kanbanCard${draggingId === card.id ? ' dragging' : ''}${dropBeforeId === card.id ? ' dropBefore' : ''}${keyboardFocusedCardId === card.id ? ' keyboardFocused' : ''}`}
                       type="button"
@@ -512,7 +513,7 @@ export function KanbanBoard({ spaces, workspaceSlug, superthreadEnabled, project
                         </span>
                       </span>
                     </button>
-                    {environmentHealth && environmentHealth.issues.length > 0 && (
+                    {showEnvironmentWarning && environmentHealth && (
                       <button
                         className="kanbanEnvironmentWarning"
                         type="button"
@@ -1324,7 +1325,7 @@ function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFon
             </label>
           )}
           {!project && <aside className="cardEnvironmentWarningPanel" role="alert"><div><strong>Card ownership is invalid</strong><span>This card references a project that no longer exists. Project-dependent actions are blocked.</span></div></aside>}
-          {environmentHealth && environmentHealth.issues.length > 0 && (
+          {shouldShowEnvironmentWarning(card, environmentHealth) && environmentHealth && (
             <aside className="cardEnvironmentWarningPanel" aria-labelledby="card-environment-warning-title">
               <div>
                 <strong id="card-environment-warning-title">Environment needs attention</strong>
