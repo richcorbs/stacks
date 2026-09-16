@@ -83,11 +83,9 @@ pub(in crate::kanban) fn refresh_pull_request(
         .as_str()
         .unwrap_or("Untitled pull request")
         .to_string();
-    if feature_environment
-        && value["state"].as_str() == Some("OPEN")
-        && title != feature_environment_title(&title)
-    {
-        title = feature_environment_title(&title);
+    let normalized_title = pull_request_title(&title, feature_environment);
+    if value["state"].as_str() == Some("OPEN") && title != normalized_title {
+        title = normalized_title;
         crate::github::run_gh(
             Some(Path::new(&settings.path)),
             &[
@@ -233,24 +231,43 @@ pub(in crate::kanban) async fn kanban_refresh_pull_request_operation(
     .map_err(|error| format!("GitHub refresh worker failed: {error}"))?
 }
 
+pub(in crate::kanban) fn begin_pull_request_creation(
+    connection: &Connection,
+    id: &str,
+    feature_environment: bool,
+) -> Result<(), String> {
+    let action = if feature_environment {
+        WorkflowAction::CreatePrWithFe
+    } else {
+        WorkflowAction::CreatePr
+    };
+    require_structural_capability(connection, id, action)?;
+    connection
+        .execute(
+            "UPDATE kanban_cards SET feature_environment=?1, delivery_operation_stage='creating_pr', delivery_error=NULL WHERE id=?2",
+            params![feature_environment as i64, id],
+        )
+        .map_err(db_error)?;
+    Ok(())
+}
+
 pub(in crate::kanban) async fn kanban_create_pull_request_operation(
     id: String,
     expected_workflow_revision: i64,
+    feature_environment: bool,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || with_connection(|connection| {
             let settings = project_delivery_settings(connection, &id)?;
             if settings.workflow != DeliveryWorkflow::GithubPullRequest { return Err("This project uses Local merge delivery".to_string()); }
-            let (status, revision, title, content, feature_environment, source_path, branch, source_revision): (CardStatus, i64, String, String, bool, String, String, Option<String>) = connection.query_row(
-                "SELECT c.status,c.workflow_revision,c.title,c.content,c.feature_environment,e.worktree_path,e.branch,e.source_revision FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
-                [&id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get::<_,i64>(4)? != 0,row.get(5)?,row.get(6)?,row.get(7)?)),
+            let (revision, title, content, source_path, branch, source_revision): (i64, String, String, String, String, Option<String>) = connection.query_row(
+                "SELECT c.workflow_revision,c.title,c.content,e.worktree_path,e.branch,e.source_revision FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
+                [&id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
             ).map_err(db_error)?;
             if revision != expected_workflow_revision { return Err("Card changed; reload before creating a pull request".to_string()); }
-            let _ = status;
-            require_structural_capability(connection, &id, WorkflowAction::CreatePr)?;
+            begin_pull_request_creation(connection, &id, feature_environment)?;
             let source = validate_checkout(&source_path, None)?;
-            if source.target_branch != branch || source_revision.as_deref() != Some(source.target_revision.as_str()) { return Err("The source branch changed after Ship It; ship it again before creating a PR".to_string()); }
-            connection.execute("UPDATE kanban_cards SET delivery_operation_stage='creating_pr', delivery_error=NULL WHERE id=?1", [&id]).map_err(db_error)?;
+            if source.target_branch != branch || source_revision.as_deref() != Some(source.target_revision.as_str()) { return Err("The source branch changed after Commit; commit updates before creating a PR".to_string()); }
             if refresh_pull_request(connection, &id)?.is_some_and(|pr| pr.state == PullRequestState::Open) {
                 return get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string());
             }
@@ -262,8 +279,10 @@ pub(in crate::kanban) async fn kanban_create_pull_request_operation(
             let metadata_path = { let path = PathBuf::from(git_dir); if path.is_absolute() { path } else { Path::new(&source_path).join(path) }.join("stacks-pr-metadata.json") };
             let metadata = fs::read_to_string(&metadata_path).ok().and_then(|text| serde_json::from_str::<PrMetadata>(&text).ok());
             let _ = fs::remove_file(metadata_path);
-            let mut pr_title = metadata.as_ref().map(|m| m.title.trim().to_string()).filter(|v| !v.is_empty()).unwrap_or(title);
-            if feature_environment { pr_title = feature_environment_title(&pr_title); }
+            let pr_title = pull_request_title(
+                &metadata.as_ref().map(|m| m.title.trim().to_string()).filter(|v| !v.is_empty()).unwrap_or(title),
+                feature_environment,
+            );
             let body = metadata.map(|m| m.body).filter(|v| !v.trim().is_empty()).unwrap_or(content);
             crate::github::run_gh(Some(Path::new(&source_path)), &["pr", "create", "--repo", &repository, "--base", &settings.target_branch, "--head", &branch, "--title", &pr_title, "--body", &body])?;
             connection.execute("UPDATE kanban_cards SET delivery_operation_stage='pr_created' WHERE id=?1", [&id]).map_err(db_error)?;

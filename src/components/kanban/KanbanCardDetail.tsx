@@ -90,7 +90,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const statusLabel = hierarchyStatusLabel(card);
   const editable = canEditKanbanCard(card);
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
-  const workflowCard = workflowOperation === 'ship' || workflowOperation === 'ship_with_fe' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
+  const workflowCard = workflowOperation === 'ship' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
@@ -310,15 +310,14 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
         case 'request_changes':
           if (card.status === 'approved') await onAction('request_changes');
           setActiveView('chat'); return;
-        case 'ship':
-        case 'ship_with_fe': {
+        case 'ship': {
           if (!card.environment) throw new Error('Card environment is missing');
           const expectedWorkflowRevision = card.workflow_revision;
           const expectedEnvironmentRevision = environmentRevisionRef.current;
           const result = await runApproveAndCommit({
             showAgent: () => setActiveView('chat'),
             sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'work'), prompt),
-            finalize: () => approveAndCommitKanbanCard(card.id, expectedWorkflowRevision, expectedEnvironmentRevision, action.kind === 'ship_with_fe'),
+            finalize: () => approveAndCommitKanbanCard(card.id, expectedWorkflowRevision, expectedEnvironmentRevision),
             refresh: async () => {
               const updated = preserveRevisionValues(await onReload());
               onCardUpdatedRef.current(updated);
@@ -357,10 +356,11 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
           return;
         }
-        case 'create_pr': {
+        case 'create_pr':
+        case 'create_pr_with_fe': {
           setActiveView('chat');
           await sendPromptToPiAndWait(cardPaneId(card.id, 'work'), `Generate succinct pull request metadata from the completed diff and commits. Write exactly one JSON object with string fields "title" and "body" to $(git rev-parse --git-dir)/stacks-pr-metadata.json. Do not alter the worktree or commits.`);
-          const updated = await createKanbanPullRequest(card.id, card.workflow_revision);
+          const updated = await createKanbanPullRequest(card.id, card.workflow_revision, action.kind === 'create_pr_with_fe');
           onCardUpdated(preserveRevisionValues(updated)); return;
         }
         case 'open_pr': if (card.pull_request?.url) await invoke('open_url', { url: card.pull_request.url }); return;
@@ -380,7 +380,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
         case 'delete': await onDelete(); return;
       }
     }).then((started) => {
-      if (started && ['start_work', 'ship', 'ship_with_fe', 'merge_target', 'merge_local', 'cleanup', 'cleanup_creation', 'retry_runtime_cleanup', 'close'].includes(action.kind)) {
+      if (started && ['start_work', 'ship', 'merge_target', 'merge_local', 'create_pr', 'create_pr_with_fe', 'cleanup', 'cleanup_creation', 'retry_runtime_cleanup', 'close'].includes(action.kind)) {
         window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
       }
     }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));

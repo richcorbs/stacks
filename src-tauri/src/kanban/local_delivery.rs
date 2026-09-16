@@ -9,7 +9,6 @@ pub(in crate::kanban) async fn kanban_approve_and_commit_operation(
     id: String,
     expected_workflow_revision: i64,
     expected_environment_revision: i64,
-    feature_environment: Option<bool>,
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
@@ -19,7 +18,6 @@ pub(in crate::kanban) async fn kanban_approve_and_commit_operation(
                     &id,
                     expected_workflow_revision,
                     expected_environment_revision,
-                    feature_environment.unwrap_or(false),
                 )
             })
         })
@@ -33,15 +31,8 @@ pub(in crate::kanban) fn approve_and_commit_with_failure_record(
     id: &str,
     expected_card: i64,
     expected_environment: i64,
-    feature_environment: bool,
 ) -> Result<WorkflowOperationResult, String> {
-    let result = approve_and_commit(
-        connection,
-        id,
-        expected_card,
-        expected_environment,
-        feature_environment,
-    );
+    let result = approve_and_commit(connection, id, expected_card, expected_environment);
     if let Err(detail) = &result {
         let _ = connection.execute(
             "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, error_code, error_detail) VALUES (?1, ?2, 'user', 'approve_and_commit', 'failure', 'approval_failed', ?3)",
@@ -56,7 +47,6 @@ pub(in crate::kanban) fn approve_and_commit(
     id: &str,
     expected_card: i64,
     expected_environment: i64,
-    feature_environment: bool,
 ) -> Result<WorkflowOperationResult, String> {
     validate_card_environment_project(connection, id)?;
     let (status, card_revision): (CardStatus, i64) = connection
@@ -83,13 +73,8 @@ pub(in crate::kanban) fn approve_and_commit(
             },
         );
     }
-    let action = if feature_environment {
-        WorkflowAction::ShipWithFe
-    } else {
-        WorkflowAction::Ship
-    };
     if status != CardStatus::AgentWorking {
-        require_structural_capability(connection, id, action)?;
+        require_structural_capability(connection, id, WorkflowAction::Ship)?;
     }
     let (source_path, source_branch, repository_id, environment_revision, lifecycle_state): (String, String, Option<String>, i64, String) = connection
         .query_row(
@@ -149,15 +134,17 @@ pub(in crate::kanban) fn approve_and_commit(
         &transaction,
         id,
         WorkflowActor::User,
-        action,
+        WorkflowAction::Ship,
         Some(card_revision),
         "approve_and_commit",
         Some("Verified clean source worktree"),
     )?;
-    transaction.execute(
-        "UPDATE kanban_cards SET feature_environment=CASE WHEN ?1 THEN 1 ELSE feature_environment END,delivery_error=NULL WHERE id=?2",
-        params![feature_environment as i64, id],
-    ).map_err(db_error)?;
+    transaction
+        .execute(
+            "UPDATE kanban_cards SET delivery_error=NULL WHERE id=?1",
+            [id],
+        )
+        .map_err(db_error)?;
     let environment_rows = transaction.execute(
         "UPDATE card_environments SET source_revision=?1, revision=revision+1, updated_at=?2 WHERE card_id=?3 AND revision=?4 AND worktree_path=?5 AND branch=?6 AND repository_id=?7 AND lifecycle_state='ready'",
         params![source_tip, now, id, expected_environment, source_path, source_branch, repository_id],
@@ -322,7 +309,7 @@ pub(in crate::kanban) fn merge_card(
     let source_tip = git_output(&source_path, &["rev-parse", "HEAD"])?;
     if recorded_source_revision.as_deref() != Some(source_tip.as_str()) {
         return Err(
-            "The source revision changed after Ship It; ship it again before merging".to_string(),
+            "The source revision changed after Commit; commit updates before merging".to_string(),
         );
     }
     let already = Command::new("git")

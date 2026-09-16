@@ -597,9 +597,21 @@ pub(in crate::kanban) fn record_cleanup_failure(
 }
 
 pub(in crate::kanban) fn feature_environment_title(title: &str) -> String {
+    format!("[FE] {}", plain_pull_request_title(title))
+}
+
+pub(in crate::kanban) fn plain_pull_request_title(title: &str) -> &str {
     let mut title = title.trim();
     while let Some(rest) = title.strip_prefix("[FE]") {
         title = rest.trim_start();
     }
-    format!("[FE] {title}")
+    title
+}
+
+pub(in crate::kanban) fn pull_request_title(title: &str, feature_environment: bool) -> String {
+    if feature_environment {
+        feature_environment_title(title)
+    } else {
+        plain_pull_request_title(title).to_string()
+    }
 }

@@ -25,8 +25,8 @@ export type CardWorkflowContext = {
 const labels: Record<CardWorkflowActionKind, string> = {
   open_refinement: 'Open refinement', finish_refinement: 'Write plan & finish refinement',
   stop_refinement: 'Stop refinement', start_work: 'Start work', return_to_refinement: 'Return to refinement',
-  request_changes: 'Request changes', ship: 'Ship It', ship_with_fe: 'Ship it w/FE',
-  merge_local: 'Merge locally', create_pr: 'Create PR', open_pr: 'Open PR', merge_pr: 'Merge PR',
+  request_changes: 'Request changes', ship: 'Commit',
+  merge_local: 'Merge locally', create_pr: 'Create PR', create_pr_with_fe: 'Create PR with FE', open_pr: 'Open PR', merge_pr: 'Merge PR',
   merge_target: 'Merge in target & resolve', cleanup: 'Clean up', cleanup_creation: 'Clean up',
   retry_runtime_cleanup: 'Retry process cleanup', close: 'Close without delivery', delete: 'Delete card',
 };
@@ -41,7 +41,7 @@ export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWor
       const operation = context.operation?.kind === action;
       return {
         kind: action,
-        label: action === 'ship' && context.card.status === 'approved' ? 'Ship It again'
+        label: action === 'ship' && context.card.status === 'approved' ? 'Commit updates'
           : action === 'start_work' && context.card.creation_operation ? 'Resume start'
           : action === 'cleanup' && context.card.cleanup_operation && context.card.cleanup_operation.status !== 'completed' ? 'Retry cleanup'
           : labels[action],
