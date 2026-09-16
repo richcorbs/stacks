@@ -306,6 +306,8 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardTerminalPane > .terminal, .cardTerminalPane > .split { width: 100%; height: 100%; }
 .cardTerminalPane .terminal { min-width: 0; min-height: 0; border: 0 !important; border-radius: 0; box-shadow: none !important; }
 .cardTerminalPane.multiple .terminal.active { border: 1px solid var(--focused-terminal-border, #3b82f6) !important; box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6) !important; }
+.cardTerminalPane.multiple .terminal.active.maximized { border-color: var(--maximized-terminal-border, #84cc16) !important; box-shadow: 0 0 0 1px var(--maximized-terminal-border, #84cc16) !important; }
+body.appWindowInactive .cardTerminalPane.multiple .terminal.active.maximized { border-color: var(--maximized-terminal-border-inactive, #426923) !important; box-shadow: 0 0 0 1px var(--maximized-terminal-border-inactive, #426923) !important; }
 .cardServiceView { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .cardServiceView > .kanbanEmpty { flex: 1; text-align: center; }
 .cardServiceView .terminal { border: 0; border-radius: 0; box-shadow: none; }
