@@ -1,8 +1,25 @@
 import { createRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { KanbanStatus } from '../../kanban/types';
-import { DoneLaneMenu, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import type { CardPullRequest, KanbanStatus } from '../../kanban/types';
+import { DoneLaneMenu, KanbanPullRequestBadge, shouldDismissDoneLaneMenu } from './KanbanLanes';
+
+function pullRequest(overrides: Partial<CardPullRequest> = {}): CardPullRequest {
+  return {
+    repository: 'stacks/example',
+    number: 98,
+    title: 'Fix PR icons',
+    url: 'https://github.com/stacks/example/pull/98',
+    state: 'open',
+    draft: false,
+    ci_status: 'success',
+    review_state: 'approved',
+    has_conflicts: false,
+    mergeable: true,
+    blockers: [],
+    ...overrides,
+  };
+}
 
 function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boolean; open?: boolean; cardsCount?: number }) {
   return renderToStaticMarkup(
@@ -18,6 +35,26 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
     />,
   );
 }
+
+describe('KanbanPullRequestBadge', () => {
+  it.each([
+    ['ready', pullRequest(), 'openReady', 'githubCiPassed', 'Pull request is ready to merge', 'open and ready to merge'],
+    ['pending CI only', pullRequest({ ci_status: 'pending', blockers: ['CI is pending'] }), 'openPending', 'githubCiRunning', 'CI is pending', 'open, CI running'],
+    ['pending CI plus another blocker', pullRequest({ ci_status: 'pending', blockers: ['CI is pending', 'Changes requested'] }), 'openBlocked', 'githubCiFailed', 'CI is pending\nChanges requested', 'open with blockers: CI is pending; Changes requested'],
+    ['otherwise blocked', pullRequest({ blockers: ['Pull request is a draft'] }), 'openBlocked', 'githubCiFailed', 'Pull request is a draft', 'open with blockers: Pull request is a draft'],
+  ])('renders the %s board presentation', (_name, pr, className, iconClass, tooltip, accessibleStatus) => {
+    const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pr} />);
+
+    expect(markup).toContain(`kanbanPrBadge ${className}`);
+    expect(markup).toContain(iconClass);
+    expect(markup).toContain(`title="${tooltip}"`);
+    expect(markup).toContain(`aria-label="Pull request #98, ${accessibleStatus}"`);
+  });
+
+  it('does not render non-open pull requests', () => {
+    expect(renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest({ state: 'merged' })} />)).toBe('');
+  });
+});
 
 describe('DoneLaneMenu', () => {
   it('dismisses only pointer events outside the menu wrapper', () => {
