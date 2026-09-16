@@ -155,6 +155,8 @@ export type KanbanSyncCard = {
   assignee_names: string[];
   task_parent_id?: string | null;
   task_parent_title?: string | null;
+  /** True when the provider response authoritatively included relationship coverage. */
+  parent_relationship_hydrated?: boolean;
   total_task_children?: number;
   /** null means scope could not be classified during a partial provider read. */
   in_scope: boolean | null;

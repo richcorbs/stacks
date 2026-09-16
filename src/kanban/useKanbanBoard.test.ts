@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, matchesRefreshSnapshot, mergeChangedKanbanCard, performKanbanLoad, piLifecycleIntent, recoverKanbanReorderCards, shouldRestoreUiRequestCard } from './useKanbanBoard';
+import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, loadSuperthreadCardDetails, matchesRefreshSnapshot, mergeChangedKanbanCard, performKanbanLoad, piLifecycleIntent, recoverKanbanReorderCards, shouldRestoreUiRequestCard } from './useKanbanBoard';
 import type { KanbanCard, KanbanSyncCard, SuperthreadIntegration } from './types';
 import type { Project } from '../types';
 
@@ -149,6 +149,44 @@ describe('Kanban card loading', () => {
     expect(harness.state.cards).toEqual([existing]);
     expect(harness.state.error).toBe('Refresh failed');
     expect(harness.state.loading).toBe(false);
+  });
+});
+
+describe('Superthread card detail loading', () => {
+  function provider(load: SuperthreadIntegration['load']): SuperthreadIntegration {
+    return {
+      kind: 'superthread', ownerProjectId: 'remote', load,
+      create: async () => { throw new Error('unexpected create'); },
+      sync: async () => ({ cards: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }),
+    };
+  }
+
+  it('propagates provider failures without replacing the existing snapshot', async () => {
+    const existing = { ...card('superthread:2242', 'Local snapshot'), provider: 'superthread' as const, external_id: '2242' };
+    let persisted = false;
+
+    await expect(loadSuperthreadCardDetails(existing, provider(async () => { throw new Error('invalid detail response'); }), async () => {
+      persisted = true;
+      return { cards: [], board_revision: 1 };
+    })).rejects.toThrow('invalid detail response');
+
+    expect(persisted).toBe(false);
+    expect(existing.title).toBe('Local snapshot');
+  });
+
+  it('persists successful retries as bounded partial snapshots', async () => {
+    const existing = { ...card('superthread:2242', 'Local snapshot'), provider: 'superthread' as const, external_id: '2242' };
+    const detail: KanbanSyncCard = {
+      id: '2242', title: 'Hydrated', content: '', board_id: 'board', board_title: 'Board', list_id: 'list', list_title: 'List',
+      card_url: '', assignee_names: [], task_parent_id: '2240', task_parent_title: 'Parent', parent_relationship_hydrated: true, in_scope: true,
+    };
+    const hydrated = { ...existing, title: 'Hydrated', parent: { id: 'superthread:2240', external_id: '2240', title: 'Parent', status: 'needs_refinement' as const } };
+
+    await expect(loadSuperthreadCardDetails(existing, provider(async () => detail), async (owner, snapshot) => {
+      expect(owner).toBe('remote');
+      expect(snapshot).toMatchObject({ cards: [detail], complete: false, successful_scope_ids: [], successful_board_ids: [] });
+      return { cards: [hydrated], board_revision: 2 };
+    })).resolves.toEqual({ cards: [hydrated], board_revision: 2 });
   });
 });
 

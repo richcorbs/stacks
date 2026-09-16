@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { superthreadIntegration } from './cardProvider';
-import { createSuperthreadCard, fetchSuperthreadBoards, fetchSuperthreadCards, fetchSuperthreadLists } from './api';
+import { createSuperthreadCard, fetchSuperthreadBoards, fetchSuperthreadCard, fetchSuperthreadCards, fetchSuperthreadLists } from './api';
 
 vi.mock('./api', () => ({
   createSuperthreadCard: vi.fn(),
@@ -12,12 +12,13 @@ vi.mock('./api', () => ({
 
 const createMock = vi.mocked(createSuperthreadCard);
 const boardsMock = vi.mocked(fetchSuperthreadBoards);
+const cardMock = vi.mocked(fetchSuperthreadCard);
 const cardsMock = vi.mocked(fetchSuperthreadCards);
 const listsMock = vi.mocked(fetchSuperthreadLists);
 
 describe('Superthread card provider creation', () => {
   beforeEach(() => {
-    createMock.mockReset(); boardsMock.mockReset(); cardsMock.mockReset(); listsMock.mockReset();
+    createMock.mockReset(); boardsMock.mockReset(); cardMock.mockReset(); cardsMock.mockReset(); listsMock.mockReset();
   });
 
   it('creates in configured scope and maps a complete managed sync snapshot', async () => {
@@ -46,6 +47,7 @@ describe('Superthread card provider creation', () => {
       assignee_names: [],
       task_parent_id: null,
       task_parent_title: null,
+      parent_relationship_hydrated: true,
       total_task_children: 0,
       in_scope: true,
     });
@@ -79,12 +81,32 @@ describe('Superthread card provider creation', () => {
 
     const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync();
     expect(snapshot.cards).toHaveLength(3);
-    expect(snapshot.cards[0]).toMatchObject({ id: '1', content: null, in_scope: true });
+    expect(snapshot.cards[0]).toMatchObject({ id: '1', content: null, in_scope: true, parent_relationship_hydrated: false });
     expect(snapshot.cards[1]).toMatchObject({ id: '2', content: '', in_scope: false });
     expect(snapshot.cards[2]).toMatchObject({ id: '3', in_scope: null });
     expect(snapshot.successful_board_ids).toEqual(['good']);
     expect(snapshot.failed_scopes).toEqual([{ scope: 'board:bad:lists', message: 'list access denied' }]);
     expect(snapshot.complete).toBe(false);
+  });
+
+  it('maps detailed parent coverage authoritatively', async () => {
+    cardMock.mockResolvedValue({
+      id: '2242', title: 'Child', content: 'Details', board_id: 'board-1', board_title: 'Dev - Active',
+      list_id: 'doing', list_title: 'Doing', total_comments: 0, assignee_names: [], card_url: '',
+      task_parent: { id: '2240', title: 'Parent card' },
+    });
+    const provider = superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' });
+    const local = {
+      id: 'superthread:2242', provider: 'superthread' as const, external_id: '2242', title: 'Child', content: '',
+      board_id: 'board-1', board_title: 'Dev - Active', list_id: 'doing', list_title: 'Doing', card_url: '', assignee_names: [],
+      status: 'needs_refinement' as const, workflow_revision: 1, record_revision: 1, project_id: 'owner', parent: null,
+      child_count: 0, children: [], hierarchy_finalized: false, environment: null, created_at: 1, updated_at: 1,
+      sort_order: 0, events: [], capabilities: [],
+    };
+
+    await expect(provider.load(local)).resolves.toMatchObject({
+      id: '2242', task_parent_id: '2240', task_parent_title: 'Parent card', parent_relationship_hydrated: true,
+    });
   });
 
   it('classifies a fully discovered empty snapshot as complete', async () => {

@@ -275,13 +275,11 @@ export function useKanbanBoard(provider: SuperthreadIntegration | null) {
         return store.card(card.id) ?? card;
       } catch { return store.card(card.id) ?? card; }
     }
-    try {
-      if (!provider) return store.card(card.id) ?? card;
-      const detail = await provider.load(card);
-      if (!detail) return store.card(card.id) ?? card;
-      applySnapshot(await syncKanbanCards(provider.ownerProjectId, partialSuperthreadSnapshot([detail])));
-      return store.card(card.id) ?? card;
-    } catch { return store.card(card.id) ?? card; }
+    if (!provider) return store.card(card.id) ?? card;
+    const snapshot = await loadSuperthreadCardDetails(card, provider);
+    if (!snapshot) return store.card(card.id) ?? card;
+    applySnapshot(snapshot);
+    return store.card(card.id) ?? card;
   }
 
   return { cards, cardsHydrated, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, act, stopRefinement, assignProject, loadDetails, applyCardSnapshot, patchCard };
@@ -330,6 +328,16 @@ export async function createKanbanCardForProject(
 
 function partialSuperthreadSnapshot(cards: KanbanSyncCard[]): SuperthreadSnapshot {
   return { cards, successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: false };
+}
+
+export async function loadSuperthreadCardDetails(
+  card: KanbanCard,
+  provider: SuperthreadIntegration,
+  persist: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardSnapshot> = syncKanbanCards,
+) {
+  const detail = await provider.load(card);
+  if (!detail) return null;
+  return persist(provider.ownerProjectId, partialSuperthreadSnapshot([detail]));
 }
 
 type KanbanLoadOptions = {

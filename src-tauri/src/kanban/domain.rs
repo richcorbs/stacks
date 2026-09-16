@@ -30,6 +30,8 @@ pub struct KanbanCardSnapshot {
     #[serde(default)]
     pub task_parent_title: Option<String>,
     #[serde(default)]
+    pub parent_relationship_hydrated: bool,
+    #[serde(default)]
     pub total_task_children: u64,
     #[serde(default)]
     pub in_scope: Option<bool>,

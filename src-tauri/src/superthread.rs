@@ -87,6 +87,7 @@ struct AuthStatus {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SuperthreadTaskParent {
+    #[serde(alias = "task_id")]
     pub id: String,
     #[serde(default)]
     pub title: String,
@@ -703,27 +704,37 @@ mod tests {
     }
 
     #[test]
-    fn parses_card_fixture_with_missing_optional_fields() {
+    fn parses_card_fixture_with_actual_task_parent_shape() {
         let card: SuperthreadCard = serde_json::from_str(
             r#"{
-            "id":"2067",
-            "title":"Example",
+            "id":"2242",
+            "title":"Child",
             "list_id":"doing",
             "assignees":[{"user_id":"u1"}],
-            "task_parent":{"id":"100","title":"Parent"},
+            "task_parent":{"task_id":"2240","title":"Parent"},
             "total_task_children":2
         }"#,
         )
         .unwrap();
-        assert_eq!(card.id, "2067");
+        assert_eq!(card.id, "2242");
         assert_eq!(card.content, None);
         assert_eq!(card.total_comments, 0);
         assert_eq!(card.assignees[0].user_id, "u1");
         assert_eq!(
             card.task_parent.as_ref().map(|parent| parent.id.as_str()),
-            Some("100")
+            Some("2240")
         );
         assert_eq!(card.total_task_children, 2);
+        assert_eq!(serde_json::to_value(card.task_parent.unwrap()).unwrap()["id"], "2240");
+    }
+
+    #[test]
+    fn parses_legacy_task_parent_id_shape() {
+        let card: SuperthreadCard = serde_json::from_str(
+            r#"{"id":"2242","title":"Child","list_id":"doing","task_parent":{"id":"2240","title":"Parent"}}"#,
+        )
+        .unwrap();
+        assert_eq!(card.task_parent.unwrap().id, "2240");
     }
 
     #[cfg(unix)]
