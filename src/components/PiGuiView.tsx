@@ -3,8 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
-import { subscribePiImageDrops } from '../pi/imageDropBroker';
-import type { PiCommand, PiModel, PiPromptImage, PiSessionContext } from '../pi/types';
+import { subscribePiFileDrops } from '../pi/fileDropBroker';
+import { activePathToken, applyPathCompletion, formatDroppedPathReference, insertPathReferences } from '../pi/pathReferences';
+import type { PiCommand, PiModel, PiSessionContext } from '../pi/types';
 import { hasVisiblePiStreamingText, visiblePiMessages } from '../pi/transcript';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { listenForPiPrompt } from '../pi/promptEvent';
@@ -37,8 +38,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const modalUiRequest = pi.uiRequest && !isStructuredPiUiRequest(pi.uiRequest) ? pi.uiRequest : null;
   const [prompt, setPrompt] = useState('');
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
-  const [attachments, setAttachments] = useState<Array<PiPromptImage & { name: string; byteSize: number }>>([]);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [pathSuggestions, setPathSuggestions] = useState<Array<{ path: string; isDir: boolean }>>([]);
+  const [selectedPathIndex, setSelectedPathIndex] = useState(0);
+  const [completionCursor, setCompletionCursor] = useState(0);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [extensionInput, setExtensionInput] = useState('');
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
   const [contextPicker, setContextPicker] = useState<'model' | 'thinking' | null>(null);
@@ -47,6 +50,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const paneRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
   const shouldStickToBottomRef = useRef(true);
   const previousVisibleRef = useRef(visible);
   const handledRestartNonceRef = useRef(0);
@@ -55,6 +60,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const historyDraftRef = useRef('');
   const initialPromptSentRef = useRef(false);
   const quickResponseInFlightRef = useRef(false);
+  const selectionRef = useRef({ start: 0, end: 0 });
+  const pathRequestRef = useRef(0);
   const quickResponseSessionEligible = canSendPiQuickResponse(pi);
   const quickResponseSessionEligibleRef = useRef(quickResponseSessionEligible);
   quickResponseSessionEligibleRef.current = quickResponseSessionEligible;
@@ -164,20 +171,48 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       });
   }), [pi.isStreaming, pi.prompt, pi.restart, pi.starting, pi.stopped, terminal.id]);
 
-  useEffect(() => subscribePiImageDrops(terminal.id, (paths) => {
-      if (!pi.context.supportsImages) {
-        setAttachmentError('The selected model does not support image input');
-        return;
-      }
-      setAttachmentError(null);
-      Promise.allSettled(paths.slice(0, 5).map((path) => invoke<{ data: string; mimeType: string; name: string; byteSize: number }>('read_pi_image', { path })))
+  useEffect(() => subscribePiFileDrops(terminal.id, (paths) => {
+    if (paths.length === 0) {
+      setComposerError('No filesystem items were included in the drop');
+      return;
+    }
+    const references = paths.map((path) => formatDroppedPathReference(path, cwd));
+    const edit = insertPathReferences(promptRef.current, selectionRef.current.start, selectionRef.current.end, references);
+    selectionRef.current = { start: edit.cursor, end: edit.cursor };
+    setPrompt(edit.value);
+    setComposerError(null);
+    setSelectedCommandIndex(-1);
+    setCompletionCursor(edit.cursor);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(selectionRef.current.start, selectionRef.current.end);
+    });
+  }), [cwd, terminal.id]);
+
+  useEffect(() => {
+    const token = activePathToken(prompt, completionCursor);
+    if (!token || matchingSlashCommands(pi.commands, prompt).length > 0) {
+      pathRequestRef.current += 1;
+      setPathSuggestions([]);
+      return;
+    }
+    const request = ++pathRequestRef.current;
+    const timer = window.setTimeout(() => {
+      invoke<Array<{ path: string; isDir: boolean }>>('discover_pi_paths', { root: cwd, query: token.query, limit: 50 })
         .then((results) => {
-          const images = results.flatMap((result) => result.status === 'fulfilled' ? [{ type: 'image' as const, ...result.value }] : []);
-          const failure = results.find((result) => result.status === 'rejected');
-          if (images.length) setAttachments((current) => [...current, ...images].slice(0, 5));
-          if (failure?.status === 'rejected') setAttachmentError(failure.reason instanceof Error ? failure.reason.message : String(failure.reason));
+          if (pathRequestRef.current !== request) return;
+          setPathSuggestions(results);
+          setSelectedPathIndex(0);
+          setComposerError(null);
+        })
+        .catch((error) => {
+          if (pathRequestRef.current !== request) return;
+          setPathSuggestions([]);
+          setComposerError(`Could not find workspace files: ${String(error)}`);
         });
-    }), [pi.context.supportsImages, terminal.id]);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [completionCursor, cwd, pi.commands, prompt]);
 
   useEffect(() => {
     const dismiss = (event: MouseEvent) => {
@@ -205,13 +240,30 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, pi.uiRequest, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
+  const completionToken = activePathToken(prompt, completionCursor);
+  const matchingPaths = matchingCommands.length === 0 && completionToken ? pathSuggestions : [];
   const hasStreamingText = hasVisiblePiStreamingText(pi.streamingText);
   const hasActiveStreamingText = hasStreamingText && pi.isStreamingText;
 
   function chooseCommand(command: PiCommand) {
     setPrompt(applySlashCommand(command));
     setSelectedCommandIndex(-1);
+    setPathSuggestions([]);
     requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function choosePath(path: { path: string; isDir: boolean }) {
+    const token = activePathToken(prompt, completionCursor);
+    if (!token) return;
+    const edit = applyPathCompletion(prompt, token, path.path, path.isDir);
+    setPrompt(edit.value);
+    selectionRef.current = { start: edit.cursor, end: edit.cursor };
+    setCompletionCursor(edit.cursor);
+    setPathSuggestions([]);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(edit.cursor, edit.cursor);
+    });
   }
 
   function cyclePromptHistory(direction: -1 | 1) {
@@ -281,36 +333,27 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const slashName = message.startsWith('/') ? message.slice(1).split(/\s/, 1)[0] : '';
     const extensionCommand = pi.commands.some((command) => command.name === slashName && command.source === 'extension');
     const builtinCommand = isGuiBuiltinCommand(slashName);
-    if ((!message && attachments.length === 0) || (pi.isStreaming && builtinCommand)) return;
-    if (builtinCommand && attachments.length > 0) {
-      setAttachmentError(`/${slashName} does not accept image attachments`);
-      return;
-    }
+    if (!message || (pi.isStreaming && builtinCommand)) return;
     // Claim inline controls synchronously so a click cannot race this submit.
     // Pi receives cancellation; the text remains an ordinary prompt/steer/follow-up.
     const structuredRequestDismissal = pi.dismissStructuredUiRequest();
-    const submittedAttachments = attachments;
     historyIndexRef.current = null;
     historyDraftRef.current = '';
     setPrompt('');
-    setAttachments([]);
-    setAttachmentError(null);
+    setPathSuggestions([]);
+    setComposerError(null);
     shouldStickToBottomRef.current = true;
-    const images = submittedAttachments.map(({ name: _name, byteSize: _byteSize, ...image }) => image);
     await structuredRequestDismissal.catch(() => {});
     const send = builtinCommand
       ? pi.runBuiltinCommand(message)
       : pi.isStreaming && extensionCommand
-        ? pi.prompt(message, images)
+        ? pi.prompt(message, [])
         : pi.isStreaming && behavior === 'followUp'
-          ? pi.followUp(message, images)
+          ? pi.followUp(message, [])
           : pi.isStreaming
-            ? pi.steer(message, images)
-            : pi.prompt(message, images);
-    await send.catch(() => {
-      setPrompt(message);
-      setAttachments(submittedAttachments);
-    });
+            ? pi.steer(message, [])
+            : pi.prompt(message, []);
+    await send.catch(() => setPrompt(message));
   }
 
   function showSelectionPopup(event: React.MouseEvent<HTMLDivElement>) {
@@ -415,6 +458,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     <div
       ref={paneRef}
       className={`terminal piGuiPane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
+      data-pi-pane-id={terminal.id}
       style={{ '--pi-font-size': `${fontSize}px` } as React.CSSProperties}
       onMouseDown={() => {
         if (!active) onFocus();
@@ -509,26 +553,42 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               <em>{command.source}{command.location ? ` · ${command.location}` : ''}</em>
             </button>)}
           </div>}
-          {attachments.length > 0 && <div className="piImageAttachments">
-            {attachments.map((image, index) => <div className="piImageAttachment" key={`${image.name}:${index}`} title={image.name}>
-              <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
-              <span>{image.name}</span>
-              <button type="button" aria-label={`Remove ${image.name}`} onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
-            </div>)}
+          {matchingPaths.length > 0 && <div className="piCommandMenu piPathMenu" role="listbox" aria-label="Workspace files">
+            {matchingPaths.map((path, index) => <button
+              type="button"
+              role="option"
+              aria-selected={index === selectedPathIndex}
+              className={index === selectedPathIndex ? 'selected' : ''}
+              key={`${path.isDir ? 'directory' : 'file'}:${path.path}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choosePath(path)}
+            >
+              <span><strong>{path.path}{path.isDir ? '/' : ''}</strong></span>
+              <em>{path.isDir ? 'directory' : 'file'}</em>
+            </button>)}
           </div>}
-          {attachmentError && <div className="piAttachmentError">{attachmentError}</div>}
+          {composerError && <div className="piComposerError">{composerError}</div>}
           <textarea
             ref={inputRef}
             className={prompt.includes('\n') ? undefined : 'singleLine'}
             value={prompt}
             rows={1}
-            placeholder={attachments.length ? 'Ask Pi about the attached image…' : pi.isStreaming ? 'Steer Pi… (↩) · follow up (⌥↩)' : 'Ask Pi…'}
+            placeholder={pi.isStreaming ? 'Steer Pi… (↩) · follow up (⌥↩)' : 'Ask Pi…'}
             disabled={pi.starting}
+            onSelect={(event) => {
+              const { selectionStart: start, selectionEnd: end } = event.currentTarget;
+              selectionRef.current = { start, end };
+              setCompletionCursor(end);
+            }}
             onChange={(event) => {
               historyIndexRef.current = null;
               historyDraftRef.current = '';
+              const cursor = event.target.selectionEnd;
+              selectionRef.current = { start: event.target.selectionStart, end: cursor };
+              setCompletionCursor(cursor);
               setPrompt(event.target.value);
               setSelectedCommandIndex(0);
+              setComposerError(null);
             }}
             onKeyDown={(event) => {
               if (event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
@@ -546,6 +606,12 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               if (event.key === 'Enter' && event.altKey && !event.metaKey && !event.ctrlKey) {
                 event.preventDefault();
                 submit('followUp').catch(console.error);
+                return;
+              }
+              if (matchingPaths.length > 0 && !event.metaKey && !event.ctrlKey && !event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                event.preventDefault();
+                const direction = event.key === 'ArrowDown' ? 1 : -1;
+                setSelectedPathIndex((current) => (current + direction + matchingPaths.length) % matchingPaths.length);
                 return;
               }
               if (matchingCommands.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
@@ -568,9 +634,20 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
                   return;
                 }
               }
+              if (matchingPaths.length > 0 && !event.metaKey && !event.ctrlKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
+                event.preventDefault();
+                choosePath(matchingPaths[Math.max(0, selectedPathIndex)]);
+                return;
+              }
               if (matchingCommands.length > 0 && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
                 event.preventDefault();
                 chooseCommand(matchingCommands[Math.max(0, selectedCommandIndex)]);
+                return;
+              }
+              if (event.key === 'Escape' && matchingPaths.length > 0) {
+                event.preventDefault();
+                pathRequestRef.current += 1;
+                setPathSuggestions([]);
                 return;
               }
               if (event.key === 'Escape' && matchingCommands.length > 0) {
@@ -592,7 +669,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           {pi.isStreaming ? (
             <button className="piComposerAction stop" type="button" onClick={() => pi.abort().catch(() => {})} title="Stop Pi" aria-label="Stop Pi"><span className="piStopSquare" aria-hidden="true" /></button>
           ) : (
-            <button className="piComposerAction" type="button" disabled={(!prompt.trim() && attachments.length === 0) || pi.starting} onClick={() => submit().catch(console.error)} title="Send" aria-label="Send"><svg className="piSendArrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4.5 6.5 8 3l3.5 3.5" /></svg></button>
+            <button className="piComposerAction" type="button" disabled={!prompt.trim() || pi.starting} onClick={() => submit().catch(console.error)} title="Send" aria-label="Send"><svg className="piSendArrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4.5 6.5 8 3l3.5 3.5" /></svg></button>
           )}
         </div>
       </div>
