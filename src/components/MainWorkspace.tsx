@@ -1,6 +1,7 @@
 import type { Project } from '../types';
 import { KanbanBoard } from './KanbanBoard';
 import type { KanbanCard } from '../kanban/types';
+import type { CardPaletteRegistration } from '../commandPaletteCards';
 
 type MainWorkspaceProps = {
   projects: Project[];
@@ -17,6 +18,7 @@ type MainWorkspaceProps = {
   onAddProject: () => void;
   onCleanupCard: (card: KanbanCard) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<boolean>;
+  onPaletteCardsChange: (registration: CardPaletteRegistration | null) => void;
 };
 
 export function MainWorkspace({
@@ -34,6 +36,7 @@ export function MainWorkspace({
   onAddProject,
   onCleanupCard,
   onStartWork,
+  onPaletteCardsChange,
 }: MainWorkspaceProps) {
   return (
     <main className="main">
@@ -53,6 +56,7 @@ export function MainWorkspace({
           onAddProject={onAddProject}
           onCleanupCard={onCleanupCard}
           onStartWork={onStartWork}
+          onPaletteCardsChange={onPaletteCardsChange}
         />
       </section>
     </main>

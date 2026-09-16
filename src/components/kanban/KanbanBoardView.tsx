@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../../types';
 import { useKanbanBoard } from '../../kanban/useKanbanBoard';
 import { canonicalCardById } from '../../kanban/boardStore';
@@ -21,7 +21,7 @@ import { KanbanLanes } from './KanbanLanes';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { startLaunchCardRecovery } from '../../kanban/launchRecovery';
 
-export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork }: KanbanBoardProps) {
+export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps) {
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
   const superthreadOwner = uniqueSuperthreadProject(projects);
@@ -120,6 +120,21 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
     await board.interact(card.id);
     setSelectedCard(await board.loadDetails(card));
   }
+
+  const boardCardsRef = useRef(board.cards);
+  const openCardRef = useRef(openCard);
+  boardCardsRef.current = board.cards;
+  openCardRef.current = openCard;
+  const openPaletteCard = useCallback((cardId: string) => {
+    const current = canonicalCardById(boardCardsRef.current, cardId);
+    if (current) void openCardRef.current(current);
+  }, []);
+
+  useEffect(() => {
+    onPaletteCardsChange({ cards: visibleCards, projects, openCard: openPaletteCard });
+  }, [onPaletteCardsChange, openPaletteCard, projects, visibleCards]);
+
+  useEffect(() => () => onPaletteCardsChange(null), [onPaletteCardsChange]);
 
   function toggleDoneCollapsed() {
     const collapsed = !doneCollapsed;

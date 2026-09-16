@@ -6,6 +6,10 @@ export type PaletteItem = {
   title: string;
   subtitle?: string;
   keywords?: string;
+  /** Overrides display metadata when an item must restrict what is searchable. */
+  searchText?: string;
+  kind?: 'command' | 'card';
+  cardNumber?: string;
   danger?: boolean;
   action: () => void;
 };
@@ -13,14 +17,19 @@ export type PaletteItem = {
 type CommandPaletteProps = {
   open: boolean;
   items: PaletteItem[];
+  cardItems?: PaletteItem[];
   onClose: () => void;
   onRunItem?: () => void;
 };
 
 export function scorePaletteItem(item: PaletteItem, query: string) {
-  const haystack = `${item.title} ${item.subtitle ?? ''} ${item.keywords ?? ''}`.toLowerCase();
-  const q = query.trim().toLowerCase();
-  if (!q) return 1;
+  const originalQuery = query.trim().toLowerCase();
+  if (!originalQuery) return 1;
+  const q = item.kind === 'card' ? originalQuery.replace(/^#/, '') : originalQuery;
+  if (!q) return 0;
+  if (item.kind === 'card' && item.cardNumber?.toLowerCase() === q) return 1_000;
+
+  const haystack = (item.searchText ?? `${item.title} ${item.subtitle ?? ''} ${item.keywords ?? ''}`).toLowerCase();
   if (haystack.includes(q)) return 100 - haystack.indexOf(q);
   let index = 0;
   for (const char of q) {
@@ -31,17 +40,22 @@ export function scorePaletteItem(item: PaletteItem, query: string) {
   return 10;
 }
 
-export function CommandPalette({ open, items, onClose, onRunItem }: CommandPaletteProps) {
+export function filterPaletteItems(commandItems: PaletteItem[], cardItems: PaletteItem[], query: string) {
+  const candidates = query.trim() ? [...commandItems, ...cardItems] : commandItems;
+  return candidates
+    .map((item, sourceIndex) => ({ item, sourceIndex, score: scorePaletteItem(item, query) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || a.sourceIndex - b.sourceIndex)
+    .map(({ item }) => item)
+    .slice(0, 12);
+}
+
+export function CommandPalette({ open, items, cardItems = [], onClose, onRunItem }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const filteredItems = useMemo(() => items
-    .map((item) => ({ item, score: scorePaletteItem(item, query) }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map(({ item }) => item)
-    .slice(0, 12), [items, query]);
+  const filteredItems = useMemo(() => filterPaletteItems(items, cardItems, query), [cardItems, items, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -70,7 +84,7 @@ export function CommandPalette({ open, items, onClose, onRunItem }: CommandPalet
         <input
           ref={inputRef}
           value={query}
-          placeholder="Search commands and terminals…"
+          placeholder="Search commands and cards…"
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}

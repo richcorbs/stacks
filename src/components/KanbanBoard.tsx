@@ -1,5 +1,6 @@
 import type { Project } from '../types';
 import type { KanbanCard } from '../kanban/types';
+import type { CardPaletteRegistration } from '../commandPaletteCards';
 import { KanbanBoardView } from './kanban/KanbanBoardView';
 
 export type KanbanBoardProps = {
@@ -17,6 +18,7 @@ export type KanbanBoardProps = {
   onAddProject: () => void;
   onCleanupCard: (card: KanbanCard) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<boolean>;
+  onPaletteCardsChange: (registration: CardPaletteRegistration | null) => void;
 };
 
 /** Stable public entry point for the Kanban workspace. */
