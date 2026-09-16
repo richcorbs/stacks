@@ -27,80 +27,56 @@ function deferred() {
 function WorkflowTransitionHarness({ ship }: { ship: () => Promise<void> }) {
   const workflow = useWorkflowOperation();
   const [approved, setApproved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const availableActions = approved ? approvedActions : actions;
 
   const perform = async (action: CardWorkflowAction) => {
     if (workflow.isRunning()) return;
-    setError(null);
     await workflow.run(action.kind, async () => {
       await ship();
       setApproved(true);
-    }).catch((failure) => setError(failure instanceof Error ? failure.message : String(failure)));
+    }).catch(() => undefined);
   };
 
-  return <CardWorkflowControls
-    actions={availableActions}
-    working={workflow.working}
-    actionError={error}
-    mergedWithoutEnvironment={false}
-    onAction={perform}
-  />;
+  return <CardWorkflowControls actions={availableActions} working={workflow.working} onAction={perform} />;
 }
 
 describe('CardWorkflowControls', () => {
-  it('reports workflow progress without replacing action labels', () => {
-    const markup = renderToStaticMarkup(
-      <CardWorkflowControls
-        actions={actions}
-        working
-        actionError={null}
-        mergedWithoutEnvironment={false}
-        onAction={() => {}}
-      />,
-    );
+  it('shows only action labels while working and disables every action', () => {
+    const markup = renderToStaticMarkup(<CardWorkflowControls actions={actions} working onAction={() => {}} />);
     const buttons = markup.match(/<button[\s\S]*?<\/button>/g) ?? [];
 
-    expect(markup).toContain('class="cardFooterContext" aria-live="polite"><span>Working…</span>');
-    expect(markup.match(/Working…/g)).toHaveLength(1);
+    expect(markup).not.toContain('Working…');
+    expect(markup).not.toContain('cardFooterContext');
     expect(buttons).toHaveLength(2);
     expect(buttons.every((button) => button.includes('disabled=""'))).toBe(true);
     expect(buttons[0]).toContain('aria-label="Request changes"');
-    expect(buttons[0]).toContain('>Request changes</button>');
     expect(buttons[1]).toContain('aria-label="Commit"');
-    expect(buttons[1]).toContain('>Commit</button>');
-    expect(buttons.every((button) => !button.includes('Working…'))).toBe(true);
   });
 
-  it('shows durable environment recovery detail', () => {
-    const markup = renderToStaticMarkup(
-      <CardWorkflowControls actions={[]} working={false} actionError={null} mergedWithoutEnvironment={false} recoveryMessage="Setup completion is ambiguous" onAction={() => {}} />,
-    );
-    expect(markup).toContain('role="alert"');
-    expect(markup).toContain('Setup completion is ambiguous');
-  });
-
-  it('maps explicit action appearances to stable classes', () => {
+  it('groups regular actions left and ghost actions right while preserving order within each group', () => {
     const markup = renderToStaticMarkup(
       <CardWorkflowControls
         actions={[
           { kind: 'close', label: 'Close without delivery', destructive: true, appearance: 'neutral-ghost' },
+          { kind: 'request_changes', label: 'Request changes' },
           { kind: 'delete', label: 'Delete card', destructive: true, appearance: 'danger-ghost' },
           { kind: 'cleanup', label: 'Clean up', destructive: true, appearance: 'regular' },
         ]}
         working={false}
-        actionError={null}
-        mergedWithoutEnvironment={false}
         onAction={() => {}}
       />,
     );
-    const buttons = markup.match(/<button[\s\S]*?<\/button>/g) ?? [];
+    const groups = markup.match(/<div class="cardFooterActionGroup[^>]*>[\s\S]*?<\/div>/g) ?? [];
+    const [leftGroup = '', rightGroup = ''] = groups;
 
-    expect(buttons[0]).toContain('class="workflowActionNeutralGhost"');
-    expect(buttons[0]).toContain('aria-label="Close without delivery"');
-    expect(buttons[0]).toContain('>Close without delivery</button>');
-    expect(buttons[1]).toContain('class="workflowActionDangerGhost"');
-    expect(buttons[2]).toContain('class="workflowActionRegular"');
+    expect(groups).toHaveLength(2);
+    expect(leftGroup).toContain('aria-label="Request changes"');
+    expect(leftGroup).toContain('aria-label="Clean up"');
+    expect(leftGroup.indexOf('Request changes')).toBeLessThan(leftGroup.indexOf('Clean up'));
+    expect(leftGroup).not.toContain('Close without delivery');
+    expect(rightGroup).toContain('class="workflowActionNeutralGhost"');
+    expect(rightGroup).toContain('class="workflowActionDangerGhost"');
+    expect(rightGroup.indexOf('Close without delivery')).toBeLessThan(rightGroup.indexOf('Delete card'));
     expect(markup).not.toContain('destructiveAction');
   });
 
@@ -109,8 +85,6 @@ describe('CardWorkflowControls', () => {
       <CardWorkflowControls
         actions={[actions[0], { ...actions[1], disabledReason: 'Unavailable' }]}
         working={false}
-        actionError={null}
-        mergedWithoutEnvironment={false}
         onAction={() => {}}
       />,
     );
@@ -141,7 +115,7 @@ describe('CardWorkflowControls', () => {
     const expectPending = () => {
       expect(ship).toHaveBeenCalledOnce();
       expect(renderer.root.findAllByType('button').every((button) => button.props.disabled)).toBe(true);
-      expect(renderer.root.findByType('span').children).toEqual(['Working…']);
+      expect(renderer.root.findAllByType('span')).toHaveLength(0);
     };
     expectPending();
 
@@ -156,7 +130,7 @@ describe('CardWorkflowControls', () => {
     expect(settledButtons.every((button) => !button.props.disabled)).toBe(true);
   });
 
-  it('restores the original actions and displays the error after Commit fails', async () => {
+  it('restores the original actions after Commit fails', async () => {
     const pending = deferred();
     const ship = vi.fn(async () => {
       await pending.promise;
@@ -173,6 +147,6 @@ describe('CardWorkflowControls', () => {
     const settledButtons = renderer.root.findAllByType('button');
     expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Commit']);
     expect(settledButtons.every((button) => !button.props.disabled)).toBe(true);
-    expect(renderer.root.findByProps({ role: 'alert' }).children).toEqual(['Commit verification failed']);
+    expect(renderer.root.findAllByProps({ role: 'alert' })).toHaveLength(0);
   });
 });
