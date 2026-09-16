@@ -871,7 +871,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piMessageTimestamp { display: block; margin-top: 5px; color: #687b8e; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: max(7px, calc(var(--pi-font-size, 13px) - 4px)); line-height: 1; }
 .piQueuedMessage .piMessageText { border-style: dashed; background: color-mix(in srgb, var(--pi-pane-accent) 11%, #111c27); color: #9fb0c0; box-shadow: none; }
 .piQueuedMessage small { display: block; margin-bottom: 4px; color: #718ba3; font: calc(8px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; }
-.piQueuedMessage span { white-space: pre-wrap; }
+.piQueuedMessageContent { white-space: normal; }
 .piMessageImages { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 7px; }
 .piMessageImages img { max-width: min(320px, 100%); max-height: 220px; border: 1px solid #3c6b91; border-radius: 6px; object-fit: contain; background: #0d1b28; }
 .piOmittedImage { padding: 6px 8px; border: 1px solid #30475b; border-radius: 5px; color: #74889b; font-size: calc(9px + var(--ui-font-delta, 0px)); }

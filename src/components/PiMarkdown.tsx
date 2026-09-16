@@ -1,14 +1,43 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Markdown, { type Components } from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
+
+const chatSanitizationSchema: NonNullable<Parameters<typeof rehypeSanitize>[0]> = {
+  tagNames: [
+    'a', 'b', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'hr', 'i', 'input', 'kbd', 'li', 'mark', 'ol', 'p', 'pre', 's', 'small', 'span', 'strong', 'sub',
+    'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul',
+  ],
+  attributes: {
+    a: ['href', 'title'],
+    code: [['className', /^language-/]],
+    input: [['type', 'checkbox'], 'checked', 'disabled'],
+    li: [['className', 'task-list-item']],
+    ol: ['start'],
+    table: [['className', 'contains-task-list']],
+    td: ['align'],
+    th: ['align'],
+    ul: [['className', 'contains-task-list']],
+  },
+  protocols: {
+    href: ['http', 'https', 'mailto'],
+  },
+  strip: ['audio', 'canvas', 'embed', 'iframe', 'img', 'math', 'object', 'picture', 'script', 'source', 'style', 'svg', 'video'],
+};
 
 const markdownComponents: Components = {
   pre: ({ children }) => <MarkdownCodeBlock>{children}</MarkdownCodeBlock>,
 };
 
 export const PiMarkdown = memo(function PiMarkdown({ children }: { children: string }) {
-  return <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{children}</Markdown>;
+  return <Markdown
+    remarkPlugins={[remarkGfm]}
+    rehypePlugins={[rehypeRaw, [rehypeSanitize, chatSanitizationSchema]]}
+    components={markdownComponents}
+  >{children}</Markdown>;
 });
 
 function MarkdownCodeBlock({ children }: { children: ReactNode }) {
