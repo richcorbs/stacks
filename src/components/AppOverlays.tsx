@@ -10,6 +10,7 @@ export function AppOverlays(props: OverlayLayoutProps) {
     <CommandPalette
       open={props.commandPaletteOpen}
       items={props.commandPaletteItems}
+      cardItems={props.commandPaletteCardItems}
       onClose={props.closeCommandPalette}
       onRunItem={props.closeCommandPalette}
     />

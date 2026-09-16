@@ -25,6 +25,7 @@ export function AppLayout({ appStyle, main, overlays }: {
         onAddProject={main.openProjectDialog}
         onCleanupCard={main.cleanupCard}
         onStartWork={main.startWork}
+        onPaletteCardsChange={main.onPaletteCardsChange}
       />
       <AppOverlays {...overlays} />
     </div>

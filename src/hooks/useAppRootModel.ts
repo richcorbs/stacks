@@ -24,6 +24,7 @@ import type { KanbanCard } from '../kanban/types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
 import { runShortcutAction } from '../shortcutActions';
 import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
+import { buildCardPaletteItems, type CardPaletteRegistration } from '../commandPaletteCards';
 
 export function useAppRootModel() {
   const [loaded, setLoaded] = useState(false);
@@ -36,6 +37,7 @@ export function useAppRootModel() {
   const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
   const [cardTerminal, setCardTerminal] = useState<CardTerminalContext | null>(null);
+  const [paletteCards, setPaletteCards] = useState<CardPaletteRegistration | null>(null);
   const [, setMetaKeyDown] = useState(false);
   const startingCardIds = useRef(new Set<string>());
   const { toast, showToast } = useToast();
@@ -169,6 +171,11 @@ export function useAppRootModel() {
     onFocusCardTerminalPane: (paneId) => dispatchCardTerminalCommand({ type: 'focus', paneId }),
   }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, selectedProject, store]);
 
+  const paletteCardItems = useMemo(
+    () => paletteCards ? buildCardPaletteItems(paletteCards) : [],
+    [paletteCards],
+  );
+
   const shortcutHandlers: ShortcutHandlers = {
     setMetaKeyDown, openProjectDialog: () => { void openProjectDialog(); }, requestQuit: () => appSettings.confirm_close ? setConfirmQuitOpen(true) : void invoke('quit_app'),
     adjustTerminalFontSize: (delta) => setAppSettings((current) => ({ ...current, terminal_font_size: clampTerminalFontSize(current.terminal_font_size + delta) })),
@@ -186,9 +193,9 @@ export function useAppRootModel() {
 
   return {
     appStyle: useAppStyle(appSettings),
-    main: { projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork },
+    main: { projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork, onPaletteCardsChange: setPaletteCards },
     overlays: {
-      appSettings, setAppSettings, commandPaletteOpen, commandPaletteItems: paletteItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
+      appSettings, setAppSettings, commandPaletteOpen, commandPaletteItems: paletteItems, commandPaletteCardItems: paletteCardItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
       dialog, confirmDeleteProject: store.projects.find((project) => project.id === confirmDeleteProjectId) ?? null, confirmQuitOpen, toast, setDialog,
       closeCommandPalette: () => setCommandPaletteOpen(false), closeSettings: () => setSettingsOpen(false), closeDialog: () => setDialog(null), submitDialog,
       closeOneTimeCommand: () => setOneTimeCommandOpen(false), runOneTimeCommand: (command: string) => { setOneTimeCommandOpen(false); dispatchCardTerminalCommand({ type: 'run-one-time', command }); },
