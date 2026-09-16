@@ -10,7 +10,7 @@ mod github;
 mod kanban;
 mod menu;
 mod open;
-mod pi_image;
+mod pi_paths;
 mod pi_rpc;
 mod process_group;
 mod project_direct;
@@ -47,10 +47,10 @@ use kanban::{
 };
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
-use pi_image::read_pi_image;
+use pi_paths::discover_pi_paths;
 use pi_rpc::{
-    delete_pi_session, pi_project_trusted, pi_session_exists, send_pi_rpc,
-    set_pi_project_trusted, start_pi_session, stop_pi_session, PiRpcRegistry,
+    delete_pi_session, pi_project_trusted, pi_session_exists, send_pi_rpc, set_pi_project_trusted,
+    start_pi_session, stop_pi_session, PiRpcRegistry,
 };
 use project_direct::{
     project_direct_delete, project_direct_load_or_create, project_direct_save_layout,
@@ -128,7 +128,7 @@ pub fn run() {
             pi_project_trusted,
             set_pi_project_trusted,
             send_pi_rpc,
-            read_pi_image,
+            discover_pi_paths,
             stop_pi_session,
             delete_pi_session,
             git_info,

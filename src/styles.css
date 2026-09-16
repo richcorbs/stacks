@@ -824,6 +824,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 
 .piGuiPane { --pi-pane-accent: var(--focused-terminal-border, #3b82f6); display: flex; flex-direction: column; overflow: hidden; background: #0c1219; color: #b9c5d3; }
 .piGuiPane.maximized { --pi-pane-accent: var(--maximized-terminal-border, #84cc16); }
+.piGuiPane.piFileDropTarget { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--pi-pane-accent) 88%, white), inset 0 0 42px color-mix(in srgb, var(--pi-pane-accent) 18%, transparent) !important; }
 .piGuiContext { width: 100%; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .piContextPicker { position: relative; min-width: 0; max-width: 220px; }
 .piContextPickerTrigger { min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; color: #a2b1c1; display: flex; align-items: center; gap: 3px; cursor: pointer; font: calc(10px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -951,12 +952,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piCommandMenu em { flex: 0 0 auto; color: #52677c; font-size: calc(8px + var(--ui-font-delta, 0px)); font-style: normal; }
 .piComposer textarea { box-sizing: border-box; width: 100%; min-height: 23px; padding: 3px 0; resize: none; border: 0; outline: 0; background: transparent; color: #c7d1dc; font-family: inherit; font-size: calc(var(--pi-font-size, 13px) + 2px); line-height: 1.45; }
 .piComposer textarea.singleLine { transform: translateY(-2px); }
-.piImageAttachments { margin-bottom: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
-.piImageAttachment { position: relative; width: 72px; padding: 3px; border: 1px solid #30475b; border-radius: 6px; background: #0b141d; }
-.piImageAttachment img { display: block; width: 100%; height: 48px; object-fit: cover; border-radius: 3px; }
-.piImageAttachment span { display: block; padding: 3px 2px 0; overflow: hidden; color: #74889b; font-size: calc(8px + var(--ui-font-delta, 0px)); text-overflow: ellipsis; white-space: nowrap; }
-.piImageAttachment button { position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; padding: 0; border: 1px solid #4c6174; border-radius: 50%; background: #1b2a38; color: #b7c5d2; cursor: pointer; font-size: calc(11px + var(--ui-font-delta, 0px)); line-height: 12px; }
-.piAttachmentError { margin-bottom: 6px; color: #cf7e85; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.piComposerError { margin-bottom: 6px; color: #cf7e85; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .piComposer textarea::placeholder { color: #536579; text-indent: 4px; }
 .piComposerAction { flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 1px solid #6388a8; border: 1px solid color-mix(in srgb, var(--pi-pane-accent) 70%, #738291); border-radius: 7px; background: #477aa5; background: color-mix(in srgb, var(--pi-pane-accent) 62%, #263746); color: #eef6fc; color: color-mix(in srgb, var(--pi-pane-accent) 12%, #f2f6fa); cursor: pointer; display: grid; place-items: center; line-height: 1; font-size: calc(16px + var(--ui-font-delta, 0px)); font-weight: 650; }
 .piSendArrow { width: 14px; height: 14px; display: block; overflow: visible; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

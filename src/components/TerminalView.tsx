@@ -51,6 +51,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
   return (
     <div
       className={`terminal ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
+      data-terminal-pane-id={terminal.id}
       onMouseDown={() => {
         beginSelectionCopy();
         restartTerminalSessionIfDead();

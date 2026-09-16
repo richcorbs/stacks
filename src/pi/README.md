@@ -58,6 +58,12 @@ While a run is active but has not produced assistant text or a live tool card, t
 
 The context footer refreshes RPC `get_session_stats` after startup, restart, and each settled run. It renders `contextUsage` as a percentage donut with exact token counts in its tooltip. App-level Cmd+V routing checks both the event target and active element before attempting a PTY write. The Pi composer handles Cmd+V directly through the clipboard plugin so paste remains reliable in the Tauri webview.
 
+## File references and native drops
+
+Typing an `@path` token at the composer caret opens ignore-aware fuzzy completion rooted at the Pi session working directory. Discovery includes hidden files and directories, honors Git ignore rules, excludes `.git`, does not follow symlinks, and is bounded in both traversal and returned results. Choosing a directory continues completion inside it; choosing a file adds trailing space. Only the active token is replaced, and references that contain spaces or shell-significant characters use Pi's quoted form, such as `@"docs/my file.md"`.
+
+The app owns one Tauri native drag/drop listener. Physical native coordinates are converted with the current window scale factor and hit-tested against pane identities, so a drop is delivered to the Pi pane beneath the pointer rather than whichever shell pane is active. Pi panes highlight on enter/over and insert every dropped file or directory at the composer's last saved selection. Paths inside the session working directory become relative references; external paths remain absolute. Images follow this same textual-reference path and are not converted into model attachments. Shell panes retain their existing image-path insertion behavior.
+
 ## Skills and slash commands
 
 Pi performs its standard global resource discovery at process startup and adds loaded skills to the model context. Trusted projects additionally load their project-local skills, prompt templates, packages, and extensions. Trust is recorded for the user-facing project path and inherited by workspace directories such as Git worktrees. After startup the GUI calls RPC `get_commands` and offers completion for `/skill:name`, prompt-template commands, and extension commands; the selected text is sent through RPC `prompt`, where Pi performs the actual expansion or execution.

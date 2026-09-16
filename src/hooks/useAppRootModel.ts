@@ -11,7 +11,7 @@ import { useAppWindowFocusClass } from './useAppWindowFocusClass';
 import { useToast } from './useToast';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { useAppStyle } from './useAppStyle';
-import { useImageDropToTerminal } from './useImageDropToTerminal';
+import { useNativeFileDropRouter } from './useNativeFileDropRouter';
 import { clampTerminalFontSize, clampUiFontSize } from '../settings';
 import { buildCommandPaletteItems } from '../commandPaletteItems';
 import { selectedKanbanProject } from '../kanban/providerSelection';
@@ -62,7 +62,7 @@ export function useAppRootModel() {
   useAppWindowFocusClass();
   useAppToastEvents(showToast);
   useAppCloseRequest(appSettings.confirm_close, setConfirmQuitOpen);
-  useImageDropToTerminal(cardTerminal?.active ? cardTerminal.focusedPaneId : null, 'terminal');
+  useNativeFileDropRouter();
 
   async function openProjectDialog() {
     const selected = await open({ directory: true, multiple: false, title: 'Choose Project Directory' }).catch(() => null);
