@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import TestRenderer, { act } from 'react-test-renderer';
+import { describe, expect, it, vi } from 'vitest';
 import type { KanbanCard } from '../../kanban/types';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
 
@@ -14,7 +15,7 @@ function card(childCount: number): KanbanCard {
 }
 
 function render(childCount: number) {
-  return renderToStaticMarkup(<CardHierarchyBadges card={card(childCount)} />);
+  return renderToStaticMarkup(<CardHierarchyBadges card={card(childCount)} onNavigateParent={() => undefined} />);
 }
 
 describe('CardHierarchyBadges', () => {
@@ -29,6 +30,44 @@ describe('CardHierarchyBadges', () => {
     expect(markup).toContain('<svg aria-hidden="true" viewBox="0 0 24 24"');
     expect(markup).toContain('<rect width="6" height="6" x="9" y="2" rx="1"></rect>');
     expect(markup).toContain('<path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path>');
+  });
+
+  it('renders an accessible parent-ID button without exposing the title as badge text', () => {
+    const child = {
+      ...card(0),
+      id: 'superthread:2242',
+      external_id: '2242',
+      provider: 'superthread' as const,
+      parent: { id: 'superthread:2240', external_id: '2240', title: 'EPIC: Make web app responsive', status: 'ready' as const },
+    };
+    const markup = renderToStaticMarkup(<CardHierarchyBadges card={child} onNavigateParent={() => undefined} />);
+
+    expect(markup).toContain('<button class="kanbanHierarchyBadge parent"');
+    expect(markup).toContain('title="Parent #2240: EPIC: Make web app responsive"');
+    expect(markup).toContain('aria-label="Parent #2240: EPIC: Make web app responsive"');
+    expect(markup).toContain('>#2240</button>');
+  });
+
+  it('isolates parent pointer and click events before navigating', async () => {
+    const child = {
+      ...card(0),
+      parent: { id: 'local:p:12', external_id: '12', title: 'Parent card', status: 'ready' as const },
+    };
+    const navigate = vi.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<CardHierarchyBadges card={child} onNavigateParent={navigate} />); });
+    const button = renderer.root.findByType('button');
+    const stopPropagation = vi.fn();
+
+    button.props.onPointerDown({ stopPropagation });
+    button.props.onPointerMove({ stopPropagation });
+    button.props.onPointerUp({ stopPropagation });
+    button.props.onPointerCancel({ stopPropagation });
+    button.props.onClick({ stopPropagation });
+
+    expect(stopPropagation).toHaveBeenCalledTimes(5);
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith('local:p:12');
   });
 
   it('renders no children badge or icon when the child count is zero', () => {

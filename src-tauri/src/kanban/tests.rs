@@ -30,6 +30,7 @@ fn test_superthread_snapshot(
 ) -> SuperthreadSyncSnapshot {
     SuperthreadSyncSnapshot {
         cards,
+        parent_hydrations: Vec::new(),
         successful_scope_ids: vec!["space".into()],
         successful_board_ids: vec!["board".into()],
         failed_scopes: Vec::new(),
@@ -1402,6 +1403,82 @@ fn superthread_detail_relationships_are_authoritative_and_survive_list_syncs() {
     assert!(child.parent.is_none());
     assert_eq!(unrelated.title, "Unrelated");
     assert!(unrelated.in_scope);
+}
+
+#[test]
+fn parent_hydrations_assign_reparent_clear_and_preserve_conflicts_without_importing_children() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "owner", "superthread", "/tmp/superthread");
+    let mut initial = test_superthread_snapshot(
+        vec![
+            superthread_card("2240", None, "b", "Doing", true),
+            superthread_card("3000", None, "b", "Doing", true),
+            superthread_card("2242", None, "b", "Doing", true),
+            superthread_card("9999", None, "b", "Doing", false),
+        ],
+        false,
+    );
+    initial.parent_hydrations = vec![SuperthreadParentHydration {
+        parent_id: "2240".into(),
+        parent_title: "Parent 2240".into(),
+        children: vec![
+            SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() },
+            SuperthreadTaskChildSnapshot { id: "9999".into(), title: "Hidden child".into(), status: "backlog".into() },
+            SuperthreadTaskChildSnapshot { id: "not-imported".into(), title: "Unknown".into(), status: "backlog".into() },
+        ],
+    }];
+    let cards = sync_cards(&mut connection, "owner", initial).unwrap();
+    assert_eq!(cards.iter().find(|card| card.external_id == "2242").unwrap().parent.as_ref().map(|parent| parent.id.as_str()), Some("superthread:2240"));
+    assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='9999'", [], |row| row.get::<_, Option<String>>(0)).unwrap().as_deref(), Some("superthread:2240"));
+    assert_eq!(connection.query_row("SELECT COUNT(*) FROM kanban_cards WHERE external_id='not-imported'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+
+    let mut reparent = test_superthread_snapshot(Vec::new(), false);
+    reparent.parent_hydrations = vec![
+        SuperthreadParentHydration { parent_id: "2240".into(), parent_title: "Parent 2240".into(), children: Vec::new() },
+        SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), children: vec![SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() }] },
+    ];
+    sync_cards(&mut connection, "owner", reparent).unwrap();
+    assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='2242'", [], |row| row.get::<_, Option<String>>(0)).unwrap().as_deref(), Some("superthread:3000"));
+    assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='9999'", [], |row| row.get::<_, Option<String>>(0)).unwrap(), None);
+
+    // Conflicting authoritative records are both omitted, preserving the prior edge.
+    let mut conflict = test_superthread_snapshot(Vec::new(), false);
+    let claimed_child = || SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() };
+    conflict.parent_hydrations = vec![
+        SuperthreadParentHydration { parent_id: "2240".into(), parent_title: "Parent 2240".into(), children: vec![claimed_child()] },
+        SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), children: vec![claimed_child()] },
+    ];
+    sync_cards(&mut connection, "owner", conflict).unwrap();
+    assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='2242'", [], |row| row.get::<_, Option<String>>(0)).unwrap().as_deref(), Some("superthread:3000"));
+
+    let mut clear = test_superthread_snapshot(Vec::new(), false);
+    clear.parent_hydrations = vec![SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), children: Vec::new() }];
+    sync_cards(&mut connection, "owner", clear).unwrap();
+    assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='2242'", [], |row| row.get::<_, Option<String>>(0)).unwrap(), None);
+}
+
+#[test]
+fn relationship_enrichment_hides_an_out_of_scope_parent_but_retains_its_edge() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "owner", "superthread", "/tmp/superthread");
+    let mut snapshot = test_superthread_snapshot(
+        vec![superthread_card("2240", None, "b", "Doing", true), superthread_card("2242", None, "b", "Doing", true)],
+        false,
+    );
+    snapshot.parent_hydrations = vec![SuperthreadParentHydration {
+        parent_id: "2240".into(), parent_title: "Parent".into(),
+        children: vec![SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() }],
+    }];
+    sync_cards(&mut connection, "owner", snapshot).unwrap();
+    connection.execute("UPDATE kanban_cards SET in_scope=0 WHERE external_id='2240'", []).unwrap();
+
+    let cards = list_cards(&mut connection).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert!(cards[0].parent.is_none());
+    assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='2242'", [], |row| row.get::<_, Option<String>>(0)).unwrap().as_deref(), Some("superthread:2240"));
+    assert!(get_card(&connection, "superthread:2242").unwrap().unwrap().parent.is_none());
 }
 
 #[test]

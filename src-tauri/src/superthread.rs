@@ -94,6 +94,15 @@ pub struct SuperthreadTaskParent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SuperthreadTaskChild {
+    pub task_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SuperthreadCard {
     pub id: String,
     pub title: String,
@@ -116,8 +125,10 @@ pub struct SuperthreadCard {
     card_url: String,
     #[serde(default)]
     pub task_parent: Option<SuperthreadTaskParent>,
-    #[serde(default)]
-    pub total_task_children: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_children: Option<Vec<SuperthreadTaskChild>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_task_children: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -712,6 +723,10 @@ mod tests {
             "list_id":"doing",
             "assignees":[{"user_id":"u1"}],
             "task_parent":{"task_id":"2240","title":"Parent"},
+            "task_children":[
+                {"task_id":"2243","title":"First child","status":"started"},
+                {"task_id":"2244","title":"Second child","status":"backlog"}
+            ],
             "total_task_children":2
         }"#,
         )
@@ -724,7 +739,9 @@ mod tests {
             card.task_parent.as_ref().map(|parent| parent.id.as_str()),
             Some("2240")
         );
-        assert_eq!(card.total_task_children, 2);
+        assert_eq!(card.total_task_children, Some(2));
+        let children = card.task_children.unwrap();
+        assert_eq!((children[0].task_id.as_str(), children[0].title.as_str(), children[0].status.as_str()), ("2243", "First child", "started"));
         assert_eq!(serde_json::to_value(card.task_parent.unwrap()).unwrap()["id"], "2240");
     }
 

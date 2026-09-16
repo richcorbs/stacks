@@ -61,6 +61,7 @@ function renderHeader(currentCard: KanbanCard, gitChangeSummary: GitChangeSummar
     onRequestClose={() => undefined}
     onAssignProject={async () => undefined}
     onActionError={() => undefined}
+    onNavigateParent={() => undefined}
   />);
 }
 

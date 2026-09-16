@@ -248,6 +248,10 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
           onToggleDone={toggleDoneCollapsed}
           onCleanupMerged={cleanupMergedCards}
           onOpenCard={openCard}
+          onNavigateParent={(parentId) => {
+            const parent = board.cards.find((candidate) => candidate.id === parentId);
+            if (parent) openCard(parent, 'overview');
+          }}
         />
       )}
       {!board.loading && visibleCards.length === 0 && (
@@ -332,9 +336,9 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
             setSelectedCard(board.applyCardSnapshot(updated));
             if (updated.parent) board.load().catch(console.error);
           }}
-          onNavigate={(id) => {
+          onNavigate={(id, initialView) => {
             const target = board.cards.find((candidate) => candidate.id === id);
-            if (target) openCard(target);
+            if (target) openCard(target, initialView);
           }}
           onDelete={async () => {
             await board.remove(selectedCard.id);

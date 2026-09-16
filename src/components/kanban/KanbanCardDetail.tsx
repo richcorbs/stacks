@@ -60,7 +60,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   onDelete: () => Promise<void>;
   onReload: () => Promise<KanbanCard>;
   onCardUpdated: (card: KanbanCard) => void;
-  onNavigate: (id: string) => void;
+  onNavigate: (id: string, initialView?: CardView) => void;
 }) {
   const projectId = card.project_id ?? '';
   const workflow = useWorkflowOperation();
@@ -132,6 +132,13 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   function requestClose() {
     if (savingEdit || !confirmDiscardEdits()) return;
     onClose();
+  }
+
+  function navigateToParent(parentId: string) {
+    if (savingEdit || !confirmDiscardEdits()) return;
+    if (editing) cancelEditing();
+    setActiveView('overview');
+    onNavigate(parentId, 'overview');
   }
 
   async function saveEdit() {
@@ -415,6 +422,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           onRequestClose={requestClose}
           onAssignProject={onOpenChat}
           onActionError={setActionError}
+          onNavigateParent={navigateToParent}
         />
         <CardDetailTabs
           activeView={activeView}

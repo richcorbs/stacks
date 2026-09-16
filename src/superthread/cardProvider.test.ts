@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { superthreadIntegration } from './cardProvider';
+import { mapWithConcurrency, superthreadIntegration } from './cardProvider';
 import { createSuperthreadCard, fetchSuperthreadBoards, fetchSuperthreadCard, fetchSuperthreadCards, fetchSuperthreadLists } from './api';
 
 vi.mock('./api', () => ({
@@ -107,6 +107,68 @@ describe('Superthread card provider creation', () => {
     await expect(provider.load(local)).resolves.toMatchObject({
       id: '2242', task_parent_id: '2240', task_parent_title: 'Parent card', parent_relationship_hydrated: true,
     });
+  });
+
+  it('hydrates positive-count and locally known parents, including a zero-child transition', async () => {
+    boardsMock.mockResolvedValue({ boards: [{ id: 'board-1', title: 'Dev - Active' }], successful_space_ids: ['space-1'], warnings: [], complete: true });
+    listsMock.mockResolvedValue([{ id: 'doing', title: 'Doing', behavior: 'started' }]);
+    cardsMock.mockResolvedValue([
+      { id: '2240', title: 'Listed parent', content: null, board_id: 'board-1', board_title: 'Dev - Active', list_id: 'doing', list_title: 'Doing', total_comments: 0, assignee_names: [], card_url: '', total_task_children: 1 },
+      { id: '2242', title: 'Child', content: null, board_id: 'board-1', board_title: 'Dev - Active', list_id: 'doing', list_title: 'Doing', total_comments: 0, assignee_names: [], card_url: '', total_task_children: 0 },
+      { id: '3000', title: 'Known parent now empty', content: null, board_id: 'board-1', board_title: 'Dev - Active', list_id: 'doing', list_title: 'Doing', total_comments: 0, assignee_names: [], card_url: '', total_task_children: 0 },
+    ]);
+    cardMock.mockImplementation(async (id) => ({
+      id, title: id === '2240' ? 'Listed parent' : 'Known parent now empty', content: null,
+      board_id: 'board-1', board_title: 'Dev - Active', list_id: 'doing', list_title: 'Doing',
+      total_comments: 0, assignee_names: [], card_url: '', total_task_children: id === '2240' ? 1 : 0,
+      task_children: id === '2240' ? [{ task_id: '2242', title: 'Child', status: 'started' }] : null,
+    }));
+
+    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync(false, ['superthread:3000']);
+
+    expect(cardMock.mock.calls.map(([id]) => id)).toEqual(['2240', '3000']);
+    expect(snapshot.parent_hydrations).toEqual([
+      { parent_id: '2240', parent_title: 'Listed parent', children: [{ id: '2242', title: 'Child', status: 'started' }] },
+      { parent_id: '3000', parent_title: 'Known parent now empty', children: [] },
+    ]);
+  });
+
+  it('rejects count mismatches and conflicting child claims without choosing by completion order', async () => {
+    boardsMock.mockResolvedValue({ boards: [{ id: 'board-1', title: 'Dev - Active' }], successful_space_ids: ['space-1'], warnings: [], complete: true });
+    listsMock.mockResolvedValue([{ id: 'doing', title: 'Doing', behavior: 'started' }]);
+    cardsMock.mockResolvedValue(['10', '20', '30'].map((id) => ({ id, title: `Parent ${id}`, content: null, board_id: 'board-1', board_title: 'Dev - Active', list_id: 'doing', list_title: 'Doing', total_comments: 0, assignee_names: [], card_url: '', total_task_children: id === '30' ? 2 : 1 })));
+    cardMock.mockImplementation(async (id) => ({
+      id, title: `Parent ${id}`, content: null, board_id: 'board-1', board_title: 'Dev - Active', list_id: 'doing', list_title: 'Doing', total_comments: 0, assignee_names: [], card_url: '',
+      task_children: [{ task_id: id === '30' ? 'other' : 'shared', title: 'Child', status: 'started' }],
+    }));
+
+    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync();
+
+    expect(snapshot.parent_hydrations).toEqual([]);
+    expect(snapshot.failed_scopes.map(({ scope }) => scope)).toEqual(expect.arrayContaining([
+      'parent:10:hierarchy', 'parent:20:hierarchy', 'parent:30:hierarchy',
+    ]));
+  });
+
+  it('enforces the fixed hierarchy concurrency bound', async () => {
+    let inFlight = 0;
+    let maximum = 0;
+    const releases: Array<() => void> = [];
+    const operation = vi.fn(async (id: number) => {
+      inFlight += 1;
+      maximum = Math.max(maximum, inFlight);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      inFlight -= 1;
+      return id;
+    });
+    const pending = mapWithConcurrency([1, 2, 3, 4, 5, 6], 4, operation);
+    await vi.waitFor(() => expect(operation).toHaveBeenCalledTimes(4));
+    releases.splice(0).forEach((release) => release());
+    await vi.waitFor(() => expect(operation).toHaveBeenCalledTimes(6));
+    releases.splice(0).forEach((release) => release());
+
+    await expect(pending).resolves.toEqual([1, 2, 3, 4, 5, 6]);
+    expect(maximum).toBe(4);
   });
 
   it('classifies a fully discovered empty snapshot as complete', async () => {

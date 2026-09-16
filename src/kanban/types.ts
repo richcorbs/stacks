@@ -162,8 +162,21 @@ export type KanbanSyncCard = {
   in_scope: boolean | null;
 };
 
+export type SuperthreadTaskChildSnapshot = {
+  id: string;
+  title: string;
+  status: string;
+};
+
+export type SuperthreadParentHydration = {
+  parent_id: string;
+  parent_title: string;
+  children: SuperthreadTaskChildSnapshot[];
+};
+
 export type SuperthreadSnapshot = {
   cards: KanbanSyncCard[];
+  parent_hydrations: SuperthreadParentHydration[];
   successful_scope_ids: string[];
   successful_board_ids: string[];
   failed_scopes: Array<{ scope: string; message: string }>;
@@ -175,7 +188,7 @@ export type SuperthreadSnapshot = {
 export interface SuperthreadIntegration {
   readonly kind: 'superthread';
   readonly ownerProjectId: string;
-  sync(refresh?: boolean): Promise<SuperthreadSnapshot>;
+  sync(refresh?: boolean, knownParentIds?: string[]): Promise<SuperthreadSnapshot>;
   create(title: string, content: string): Promise<KanbanSyncCard>;
   load(card: KanbanCard): Promise<KanbanSyncCard | null>;
 }

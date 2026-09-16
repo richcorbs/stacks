@@ -38,9 +38,27 @@ pub struct KanbanCardSnapshot {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct SuperthreadTaskChildSnapshot {
+    pub id: String,
+    pub title: String,
+    #[allow(dead_code)] // Provider diagnostic metadata; Stacks workflow status remains authoritative.
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SuperthreadParentHydration {
+    pub parent_id: String,
+    pub parent_title: String,
+    #[serde(default)]
+    pub children: Vec<SuperthreadTaskChildSnapshot>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SuperthreadSyncSnapshot {
     #[serde(default)]
     pub cards: Vec<KanbanCardSnapshot>,
+    #[serde(default)]
+    pub parent_hydrations: Vec<SuperthreadParentHydration>,
     #[serde(default)]
     pub successful_scope_ids: Vec<String>,
     #[serde(default)]

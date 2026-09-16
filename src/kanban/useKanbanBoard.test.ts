@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, loadSuperthreadCardDetails, matchesRefreshSnapshot, mergeChangedKanbanCard, performKanbanLoad, piLifecycleIntent, recoverKanbanReorderCards, shouldRestoreUiRequestCard } from './useKanbanBoard';
+import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, loadSuperthreadCardDetails, matchesRefreshSnapshot, mergeChangedKanbanCard, performKanbanLoad, piLifecycleIntent, recoverKanbanReorderCards, shouldRestoreUiRequestCard, superthreadHierarchyFailureToast } from './useKanbanBoard';
 import type { KanbanCard, KanbanSyncCard, SuperthreadIntegration } from './types';
 import type { Project } from '../types';
 
@@ -152,12 +152,24 @@ describe('Kanban card loading', () => {
   });
 });
 
+describe('Superthread hierarchy warnings', () => {
+  it('summarizes unique failed parent IDs in one toast while ignoring ordinary scopes', () => {
+    expect(superthreadHierarchyFailureToast([
+      { scope: 'board:b:cards' },
+      { scope: 'parent:2242:hierarchy' },
+      { scope: 'parent:2240:hierarchy' },
+      { scope: 'parent:2242:hierarchy' },
+    ])).toBe('Could not refresh hierarchy for parents #2240, #2242');
+    expect(superthreadHierarchyFailureToast([{ scope: 'board:b:cards' }])).toBeNull();
+  });
+});
+
 describe('Superthread card detail loading', () => {
   function provider(load: SuperthreadIntegration['load']): SuperthreadIntegration {
     return {
       kind: 'superthread', ownerProjectId: 'remote', load,
       create: async () => { throw new Error('unexpected create'); },
-      sync: async () => ({ cards: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }),
+      sync: async () => ({ cards: [], parent_hydrations: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }),
     };
   }
 
@@ -211,7 +223,7 @@ describe('Kanban card creation', () => {
 
   it('dispatches remote creation and returns the imported card', async () => {
     const created = { ...card('superthread:48', 'Remote card'), provider: 'superthread' as const, external_id: '48', project_id: 'remote' };
-    const provider: SuperthreadIntegration = { kind: 'superthread', ownerProjectId: 'remote', sync: async () => ({ cards: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }), create: async () => snapshot, load: async () => null };
+    const provider: SuperthreadIntegration = { kind: 'superthread', ownerProjectId: 'remote', sync: async () => ({ cards: [], parent_hydrations: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }), create: async () => snapshot, load: async () => null };
     const result = await createKanbanCardForProject(remoteProject, ' Remote card ', 'Brief', provider, {
       createLocal: async () => { throw new Error('unexpected local create'); },
       persistSuperthread: async (ownerProjectId, received) => { expect(ownerProjectId).toBe('remote'); expect(received.cards).toEqual([snapshot]); expect(received.complete).toBe(false); return [created]; },
@@ -223,7 +235,7 @@ describe('Kanban card creation', () => {
     let creates = 0;
     const provider: SuperthreadIntegration = {
       kind: 'superthread', ownerProjectId: 'remote',
-      sync: async () => ({ cards: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }),
+      sync: async () => ({ cards: [], parent_hydrations: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: true }),
       create: async () => { creates += 1; return snapshot; }, load: async () => null,
     };
     await expect(createKanbanCardForProject(remoteProject, 'Remote', '', provider, {

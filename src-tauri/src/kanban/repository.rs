@@ -833,6 +833,9 @@ pub(in crate::kanban) fn enrich_relationships_batched(
     connection: &Connection,
     cards: &mut [KanbanCard],
 ) -> Result<(), String> {
+    for card in cards.iter_mut() {
+        card.parent = None;
+    }
     let indexes = cards
         .iter()
         .enumerate()
@@ -843,7 +846,7 @@ pub(in crate::kanban) fn enrich_relationships_batched(
             .prepare(
                 "SELECT c.id, p.id, p.external_id, p.title, p.status
              FROM kanban_cards c JOIN kanban_cards p ON p.id=c.parent_id
-             WHERE c.in_scope=1",
+             WHERE c.in_scope=1 AND p.in_scope=1",
             )
             .map_err(db_error)?;
         let rows = statement
@@ -982,7 +985,7 @@ pub(in crate::kanban) fn relationship_summary(
 ) -> Result<Option<CardRelationshipSummary>, String> {
     connection
         .query_row(
-            "SELECT id, external_id, title, status FROM kanban_cards WHERE id=?1",
+            "SELECT id, external_id, title, status FROM kanban_cards WHERE id=?1 AND in_scope=1",
             [id],
             |row| {
                 Ok(CardRelationshipSummary {
@@ -1039,10 +1042,9 @@ pub(in crate::kanban) fn enrich_relationships(
     cards: &mut [KanbanCard],
 ) -> Result<(), String> {
     for card in cards {
-        if let Some(parent) = &card.parent {
-            if let Some(summary) = relationship_summary(connection, &parent.id)? {
-                card.parent = Some(summary);
-            }
+        let parent_id = card.parent.take().map(|parent| parent.id);
+        if let Some(parent_id) = parent_id {
+            card.parent = relationship_summary(connection, &parent_id)?;
         }
         let mut statement = connection.prepare(
             "SELECT id, external_id, title, status FROM kanban_cards WHERE parent_id=?1 AND in_scope=1 ORDER BY created_at, CAST(external_id AS INTEGER), id"
