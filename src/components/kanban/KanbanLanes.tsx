@@ -224,7 +224,6 @@ export function KanbanLanes({
                   )}
                 </div>;
               })}
-              {cards.length === 0 && <div className="kanbanLaneEmpty">Drop cards here</div>}
             </div>
           </>)}
         </section>
