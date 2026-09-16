@@ -10,10 +10,11 @@ function isRevisionConflict(message: string) {
   return normalized.includes('environment changed') || normalized.includes('layout changed');
 }
 
-export function collectCardLevelErrors({ actionError, detailLoadError, recoveryError }: {
+export function collectCardLevelErrors({ actionError, detailLoadError, recoveryError, agentFailure }: {
   actionError: string | null;
   detailLoadError: string | null;
   recoveryError?: string | null;
+  agentFailure?: string | null;
 }): CardLevelError[] {
   const errors = new Map<string, CardLevelError>();
   const add = (message: string | null | undefined, requiresReload: boolean, displayMessage = message) => {
@@ -28,6 +29,7 @@ export function collectCardLevelErrors({ actionError, detailLoadError, recoveryE
   add(actionError, Boolean(actionError && isRevisionConflict(actionError)));
   add(detailLoadError, true, detailLoadError && `Card details could not be loaded: ${detailLoadError}`);
   add(recoveryError, false);
+  add(agentFailure, false, agentFailure && `Work agent failed: ${agentFailure}`);
   return [...errors.values()];
 }
 

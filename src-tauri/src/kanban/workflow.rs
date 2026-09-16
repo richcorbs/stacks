@@ -291,6 +291,7 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
                 .then(|| "Finish or retry the current delivery operation".to_string())
                 .or(environment.clone());
             vec![
+                capability(StartWork, environment.clone().or(project.clone())),
                 capability(RequestChanges, None),
                 capability(MergeTarget, environment.clone()),
                 capability(Ship, ship_reason),
@@ -442,7 +443,10 @@ pub fn lifecycle_transition(
         ) => AgentWorking,
         (
             PiThread::Work,
-            PiLifecycleIntent::AgentSettled | PiLifecycleIntent::UiInputRequested,
+            PiLifecycleIntent::AgentSettled
+            | PiLifecycleIntent::ProtocolFailed
+            | PiLifecycleIntent::ProcessExited
+            | PiLifecycleIntent::UiInputRequested,
             AgentWorking,
         ) => NeedsHuman,
         _ => return None,
@@ -550,7 +554,7 @@ mod tests {
             .into_iter()
             .map(|capability| capability.action)
             .collect::<Vec<_>>();
-        assert_eq!(standard, vec![RequestChanges, MergeTarget, Ship, Close]);
+        assert_eq!(standard, vec![StartWork, RequestChanges, MergeTarget, Ship, Close]);
 
         let mut feature_environment = context(CardStatus::NeedsHuman);
         feature_environment.delivery_workflow = DeliveryWorkflow::GithubPullRequest;
@@ -561,7 +565,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             feature_environment,
-            vec![RequestChanges, MergeTarget, Ship, Close]
+            vec![StartWork, RequestChanges, MergeTarget, Ship, Close]
         );
     }
 
@@ -740,6 +744,16 @@ mod tests {
             PiLifecycleIntent::AgentSettled
         )
         .is_none());
+        assert_eq!(
+            lifecycle_transition(
+                &context(CardStatus::AgentWorking),
+                PiThread::Work,
+                PiLifecycleIntent::ProtocolFailed
+            )
+            .unwrap()
+            .to,
+            CardStatus::NeedsHuman
+        );
         assert!(lifecycle_transition(
             &context(CardStatus::NeedsHuman),
             PiThread::Work,

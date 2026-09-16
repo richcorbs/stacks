@@ -864,9 +864,10 @@ pub(in crate::kanban) fn kanban_apply_pi_lifecycle_intent_operation(
     generation: String,
     event_id: String,
     event_order: Option<i64>,
+    failure_detail: Option<String>,
 ) -> Result<CardSnapshot, String> {
     with_connection(|connection| {
-        apply_pi_lifecycle_intent(
+        apply_pi_lifecycle_intent_with_detail(
             connection,
             &id,
             thread,
@@ -874,12 +875,14 @@ pub(in crate::kanban) fn kanban_apply_pi_lifecycle_intent_operation(
             &generation,
             &event_id,
             event_order,
+            failure_detail.as_deref(),
         )
         .map(|_| ())
     })?;
     fresh_card_snapshot(&id)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::kanban) fn apply_pi_lifecycle_intent(
     connection: &mut Connection,
     id: &str,
@@ -888,6 +891,28 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent(
     generation: &str,
     event_id: &str,
     event_order: Option<i64>,
+) -> Result<KanbanCard, String> {
+    apply_pi_lifecycle_intent_with_detail(
+        connection,
+        id,
+        thread,
+        intent,
+        generation,
+        event_id,
+        event_order,
+        None,
+    )
+}
+
+pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
+    connection: &mut Connection,
+    id: &str,
+    thread: PiThread,
+    intent: PiLifecycleIntent,
+    generation: &str,
+    event_id: &str,
+    event_order: Option<i64>,
+    failure_detail: Option<&str>,
 ) -> Result<KanbanCard, String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -931,9 +956,14 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent(
                  WHERE id=?3 AND workflow_revision=?4",
                 params![transition.to, now, id, card.workflow_revision],
             ).map_err(db_error)?;
+        let failed = matches!(
+            intent,
+            PiLifecycleIntent::ProtocolFailed | PiLifecycleIntent::ProcessExited
+        );
         transaction.execute(
-                "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'agent',?3,'success',?4,?5,?6)",
-                params![id, now, intent, transition.from, transition.to, format!("Pi {} {}", thread, intent)],
+                "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail) VALUES (?1,?2,'agent',?3,?4,?5,?6,?7,?8,?9)",
+                params![id, now, intent, if failed { "failure" } else { "success" }, transition.from, transition.to,
+                    format!("Pi {} {}", thread, intent), failed.then(|| intent.as_str()), failure_detail],
             ).map_err(db_error)?;
     }
     if let Some(event_order) = event_order {
@@ -944,6 +974,64 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent(
     }
     transaction.commit().map_err(db_error)?;
     get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
+}
+
+pub(in crate::kanban) fn kanban_record_agent_launch_failure_operation(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_project_id: String,
+    error_detail: String,
+) -> Result<CardSnapshot, String> {
+    with_connection(|connection| {
+        record_agent_launch_failure(
+            connection,
+            &id,
+            expected_workflow_revision,
+            &expected_project_id,
+            &error_detail,
+        )
+    })?;
+    fresh_card_snapshot(&id)
+}
+
+pub(in crate::kanban) fn record_agent_launch_failure(
+    connection: &mut Connection,
+    id: &str,
+    expected_workflow_revision: i64,
+    expected_project_id: &str,
+    error_detail: &str,
+) -> Result<(), String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let card =
+        get_card(&transaction, &id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+    if card.workflow_revision != expected_workflow_revision
+        || card.project_id.as_deref() != Some(&expected_project_id)
+    {
+        return Err("Card changed; launch failure was not recorded".to_string());
+    }
+    if !matches!(
+        card.status,
+        CardStatus::AgentWorking | CardStatus::NeedsHuman
+    ) {
+        return Err("Card is no longer eligible for work-agent launch".to_string());
+    }
+    validate_card_environment_project(&transaction, &id)?;
+    let now = unix_timestamp();
+    let to = CardStatus::NeedsHuman;
+    transaction.execute(
+            "UPDATE kanban_cards SET status=?1,workflow_revision=workflow_revision+1,updated_at=?2,
+             sort_order=(SELECT COALESCE(MAX(sort_order),-1)+1 FROM kanban_cards destination WHERE destination.status=?1)
+             WHERE id=?3 AND workflow_revision=?4",
+            params![to, now, id, card.workflow_revision],
+        ).map_err(db_error)?;
+    transaction.execute(
+            "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail)
+             VALUES (?1,?2,'system','agent_launch_failed','failure',?3,?4,'Work agent launch failed','agent_launch_failed',?5)",
+            params![id, now, card.status, to, error_detail],
+        ).map_err(db_error)?;
+    transaction.commit().map_err(db_error)
 }
 
 pub(in crate::kanban) fn kanban_status_metadata_operation() -> Vec<workflow::StatusMetadata> {

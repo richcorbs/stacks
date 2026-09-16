@@ -31,6 +31,7 @@ function dependencies(cards: KanbanCard[], submitContinue: LaunchRecoveryDepende
     latestCard: vi.fn(async (id) => cards.find((candidate) => candidate.id === id) ?? null),
     hasPersistedSession: vi.fn(async () => true),
     submitContinue,
+    launchWork: vi.fn(async () => true),
   };
 }
 
@@ -56,15 +57,16 @@ describe('launch card recovery', () => {
     const cards = [card('first', 'agent_working', 0, { environment: workEnvironment('/work/first') }), card('second', 'agent_working', 1, { environment: workEnvironment('/work/second') })];
     let acceptFirst!: () => void;
     const firstAccepted = new Promise<void>((resolve) => { acceptFirst = resolve; });
-    const submit = vi.fn(async (config: PiSessionConfig, stillEligible: () => Promise<boolean>) => {
-      if (config.paneId.includes('first')) await firstAccepted;
-      return stillEligible();
+    const deps = dependencies(cards);
+    deps.launchWork = vi.fn(async (cardId) => {
+      if (cardId === 'first') await firstAccepted;
+      return true;
     });
-    const recovery = runLaunchCardRecovery(cards, projects, dependencies(cards, submit));
-    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    const recovery = runLaunchCardRecovery(cards, projects, deps);
+    await vi.waitFor(() => expect(deps.launchWork).toHaveBeenCalledTimes(1));
     acceptFirst();
     await recovery;
-    expect(submit.mock.calls.map(([config]) => config.paneId)).toEqual(['kanban-card:first:work', 'kanban-card:second:work']);
+    expect(vi.mocked(deps.launchWork).mock.calls.map(([cardId]) => cardId)).toEqual(['first', 'second']);
   });
 
   it('continues after missing projects, environments, sessions, and submission failures', async () => {
@@ -75,17 +77,17 @@ describe('launch card recovery', () => {
       card('startup', 'agent_working', 3, { environment: workEnvironment('/invalid') }),
       card('success', 'refining', 4, { project_id: 'p2' }),
     ];
-    const submit = vi.fn(async (config: PiSessionConfig, stillEligible: () => Promise<boolean>) => {
-      if (config.paneId.includes('startup')) throw new Error('invalid worktree path');
-      return stillEligible();
-    });
+    const submit = vi.fn(async (_config: PiSessionConfig, stillEligible: () => Promise<boolean>) => stillEligible());
     const deps = dependencies(cards, submit);
+    deps.launchWork = vi.fn(async (cardId) => {
+      if (cardId === 'environment') throw new Error('work environment is missing');
+      if (cardId === 'startup') throw new Error('invalid worktree path');
+      return true;
+    });
     deps.hasPersistedSession = vi.fn(async (paneId) => !paneId.includes('session'));
     const failures = await runLaunchCardRecovery(cards, projects, deps);
     expect(failures.map(({ item }) => item.cardId)).toEqual(['environment', 'startup', 'project', 'session']);
-    expect(submit.mock.calls.map(([config]) => config.paneId)).toEqual([
-      'kanban-card:startup:work', 'kanban-card:success:planning',
-    ]);
+    expect(submit.mock.calls.map(([config]) => config.paneId)).toEqual(['kanban-card:success:planning']);
     expect(launchRecoveryToast(failures)).toContain('Could not automatically continue 4 cards');
   });
 

@@ -4,6 +4,7 @@ import { getPiSessionController, type PiSessionConfig } from '../pi/sessionContr
 import { fetchKanbanCard } from './api';
 import { cardPaneId, cardWorkspaceId, type CardChatThread } from './cardWorkspace';
 import type { KanbanCard, KanbanStatus } from './types';
+import { launchWorkAgent } from './workAgentLauncher';
 
 export type LaunchRecoveryItem = {
   cardId: string;
@@ -22,6 +23,7 @@ export type LaunchRecoveryDependencies = {
   latestCard: (cardId: string) => Promise<KanbanCard | null>;
   hasPersistedSession: (paneId: string) => Promise<boolean>;
   submitContinue: (config: PiSessionConfig, stillEligible: () => Promise<boolean>) => Promise<boolean>;
+  launchWork: (cardId: string, projects: Project[]) => Promise<boolean>;
 };
 
 const defaultDependencies: LaunchRecoveryDependencies = {
@@ -34,6 +36,7 @@ const defaultDependencies: LaunchRecoveryDependencies = {
   },
   hasPersistedSession: (paneId) => invoke<boolean>('pi_session_exists', { paneId }),
   submitContinue: (config, stillEligible) => getPiSessionController(config).submitLaunchContinue(stillEligible),
+  launchWork: launchWorkAgent,
 };
 
 /** Work cards lead; filtering preserves the canonical lane/card order in each group. */
@@ -57,12 +60,15 @@ export async function runLaunchCardRecovery(
       if (!card || card.status !== item.expectedStatus) continue;
       const project = projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('owning project is missing');
-      const cwd = item.thread === 'planning' ? project.path : worktreePath(card);
+      if (item.thread === 'work') {
+        if (!await dependencies.launchWork(card.id, projects)) throw new Error('card changed before recovery could launch');
+        continue;
+      }
       const paneId = cardPaneId(card.id, item.thread);
       if (!await dependencies.hasPersistedSession(paneId)) throw new Error('existing Pi conversation is missing');
       await dependencies.submitContinue({
         paneId,
-        cwd,
+        cwd: project.path,
         workspaceId: cardWorkspaceId(card.id),
         projectId: project.id,
         projectPath: project.path,
@@ -72,14 +78,6 @@ export async function runLaunchCardRecovery(
     }
   }
   return failures;
-}
-
-function worktreePath(card: KanbanCard) {
-  const environment = card.environment;
-  if (!environment || environment.lifecycle_state !== 'ready' || !environment.worktree_path.trim()) {
-    throw new Error('work environment is missing or unavailable');
-  }
-  return environment.worktree_path;
 }
 
 let launchRecovery: Promise<LaunchRecoveryFailure[]> | null = null;

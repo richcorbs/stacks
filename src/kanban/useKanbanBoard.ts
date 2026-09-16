@@ -118,12 +118,12 @@ export function useKanbanBoard(provider: SuperthreadIntegration | null) {
     };
   }, [publish, store]);
 
-  function enqueueLifecycleIntent(cardId: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failurePrefix?: string, expectedRevision?: number): Promise<KanbanCard | null> {
+  function enqueueLifecycleIntent(cardId: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failurePrefix?: string, expectedRevision?: number, failureDetail?: string): Promise<KanbanCard | null> {
     const previous = lifecycleTransitionsRef.current.get(cardId) ?? Promise.resolve();
     const result = previous.catch(() => {}).then(async () => {
       const current = store.card(cardId);
       if (!current || (expectedRevision !== undefined && current.workflow_revision !== expectedRevision)) return null;
-      const snapshot = await applyKanbanPiLifecycleIntent(cardId, thread, intent, generation, eventId, eventOrder);
+      const snapshot = await applyKanbanPiLifecycleIntent(cardId, thread, intent, generation, eventId, eventOrder, failureDetail);
       return applyCardSnapshot(snapshot.card, snapshot.board_revision);
     });
     const gate = result.then(() => undefined, (statusError) => {
@@ -178,15 +178,23 @@ export function useKanbanBoard(provider: SuperthreadIntegration | null) {
     subscribeAllPiEvents((envelope) => {
       const session = cardAgentSession(envelope.pane_id);
       const eventType = typeof envelope.event?.type === 'string' ? envelope.event.type : '';
-      const planningError = session?.thread === 'planning' && (eventType === 'pi_protocol_error' || eventType === 'pi_process_exit');
-      if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled' && !planningError)) return;
+      const lifecycleError = eventType === 'pi_protocol_error' || eventType === 'pi_process_exit';
+      if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled' && !lifecycleError)) return;
+      // stop_pi_session emits an exit for the superseded process during an
+      // intentional restart. Only project failures from the controller's
+      // currently accepted generation.
+      if (lifecycleError && getRetainedPiSessionController(envelope.pane_id)?.lifecycleGeneration() !== envelope.generation) return;
       const card = store.card(session.cardId);
       if (!card) return;
       const intent = piLifecycleIntent(eventType);
+      const failureDetail = eventType === 'pi_protocol_error'
+        ? (typeof (envelope.event as { message?: unknown }).message === 'string'
+          ? String((envelope.event as { message: string }).message) : 'Pi protocol failed')
+        : eventType === 'pi_process_exit' ? 'Pi process exited unexpectedly' : undefined;
       const transition = intent
-        ? enqueueLifecycleIntent(session.cardId, session.thread, intent, envelope.generation, envelope.event_id, envelope.event_order)
+        ? enqueueLifecycleIntent(session.cardId, session.thread, intent, envelope.generation, envelope.event_id, envelope.event_order, undefined, undefined, failureDetail)
         : Promise.resolve(null);
-      if (eventType === 'agent_settled' || planningError) {
+      if (eventType === 'agent_settled' || lifecycleError) {
         transition.finally(() => loadDetails(store.card(session.cardId) ?? card).catch(console.error));
       }
     }).then((cleanup) => {

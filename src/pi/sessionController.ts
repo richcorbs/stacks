@@ -69,7 +69,7 @@ export class PiSessionController {
   private activityRevision = 0;
   private uiResponseEpoch = 0;
   private initializationPromise: Promise<void> | null = null;
-  private launchContinuePromise: Promise<boolean> | null = null;
+  private launchPromptPromise: Promise<boolean> | null = null;
   private deleted = false;
   private stopListening?: () => void;
   private uiRequestTimer?: ReturnType<typeof setTimeout>;
@@ -109,17 +109,29 @@ export class PiSessionController {
     return this.initializationPromise;
   };
 
-  /** At most one launch-recovery prompt can be submitted through this pane controller. */
-  submitLaunchContinue = (stillEligible: () => Promise<boolean> = async () => true) => {
-    if (!this.launchContinuePromise) {
-      this.launchContinuePromise = this.initializeAndHydrate().then(async () => {
-        if (!await stillEligible()) return false;
-        await this.prompt('continue');
-        return true;
-      });
-    }
-    return this.launchContinuePromise;
+  /**
+   * Hydrates the retained transcript before launching card work. A blank work
+   * conversation receives the full task exactly once; an interrupted existing
+   * conversation receives a continuation instead. Concurrent callers share the
+   * same accepted prompt, while later explicit retries may start another turn.
+   */
+  submitWorkLaunch = (initialPrompt: string, stillEligible: () => Promise<boolean> = async () => true) => {
+    if (this.launchPromptPromise) return this.launchPromptPromise;
+    const launch = this.initializeAndHydrate().then(async () => {
+      if (this.snapshot.stopped || this.snapshot.error) await this.restart();
+      if (!await stillEligible()) return false;
+      if (this.snapshot.isStreaming) return true;
+      const acceptedPromptExists = this.snapshot.messages.some((message) => message.role === 'user');
+      await this.prompt(acceptedPromptExists ? 'continue' : initialPrompt);
+      return true;
+    });
+    this.launchPromptPromise = launch;
+    launch.finally(() => { if (this.launchPromptPromise === launch) this.launchPromptPromise = null; }).catch(() => {});
+    return launch;
   };
+
+  /** Planning relaunch compatibility; work launch uses submitWorkLaunch. */
+  submitLaunchContinue = (stillEligible: () => Promise<boolean> = async () => true) => this.submitWorkLaunch('continue', stillEligible);
 
   setViewOpen = (open: boolean) => {
     viewPresence.set(this.config.paneId, open);
