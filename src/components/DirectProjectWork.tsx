@@ -15,6 +15,7 @@ import { DiffOverlay } from './DiffOverlay';
 import { SplitView } from './WorkspaceTerminalTree';
 import { TerminalView } from './TerminalView';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
+import { DirectWorkGitMetadata, type DirectWorkGitState } from './DirectWorkGitMetadata';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -42,7 +43,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   const [savedSignature, setSavedSignature] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [gitState, setGitState] = useState<{ kind: 'git'; info: GitInfo } | { kind: 'not-git' } | { kind: 'error'; message: string } | null>(null);
+  const [gitState, setGitState] = useState<DirectWorkGitState>(null);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
   const [pendingCloseShellPane, setPendingCloseShellPane] = useState<string | null>(null);
   const [serverRunning, setServerRunning] = useState(() => Boolean(getTerminalSession(workTerminalId(owner, 'server'))?.running));
@@ -217,11 +218,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
           <div className="kanbanDetailHeading">
             <div className="kanbanDetailHeaderMeta"><span>Direct project work</span><span title={project.path}>{project.path}</span></div>
             <h2>{project.name}</h2>
-            <div className="directWorkGitStatus">
-              {gitState?.kind === 'git' ? <><span> {gitState.info.branch}</span><span className="diffGitStats" title="Files created / changed / deleted"><span className="gitAdded">+{gitState.info.created}</span><span className="gitChanged">~{gitState.info.changed}</span><span className="gitRemoved">-{gitState.info.deleted}</span></span></>
-                : gitState?.kind === 'not-git' ? <strong>Not a Git repository</strong>
-                  : gitState?.kind === 'error' ? <span title={gitState.message}>Git status unavailable</span> : <span>Checking Git status…</span>}
-            </div>
+            <DirectWorkGitMetadata gitState={gitState} />
           </div>
           <button type="button" aria-label="Close Direct project work" onClick={onClose}>×</button>
         </header>
