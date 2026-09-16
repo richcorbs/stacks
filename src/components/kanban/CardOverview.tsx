@@ -82,8 +82,8 @@ export function CardOverview({
       </div>
     ) : card.content
       ? card.provider === 'local'
-        ? <div className="kanbanLocalDescription">{card.content}</div>
-        : <div dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
+        ? <div className="kanbanCardDescription kanbanLocalDescription">{card.content}</div>
+        : <div className="kanbanCardDescription" dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
       : <p className="kanbanMuted">No description.</p>}
     {!editing && card.children.length > 0 && <section className="kanbanChildList" aria-label="Child cards">
       <h3>{childCountLabel(card.child_count)}</h3>
