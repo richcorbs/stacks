@@ -56,6 +56,7 @@ fn superthread_card(
         assignee_names: Vec::new(),
         task_parent_id: None,
         task_parent_title: None,
+        parent_relationship_hydrated: false,
         total_task_children: 0,
         in_scope: Some(in_scope),
     }
@@ -1108,6 +1109,7 @@ fn sync_preserves_local_workflow_state() {
         assignee_names: vec!["Ada".into()],
         task_parent_id: None,
         task_parent_title: None,
+        parent_relationship_hydrated: false,
         total_task_children: 0,
         in_scope: Some(true),
     };
@@ -1293,7 +1295,7 @@ fn superthread_sync_rejects_a_mismatched_explicit_owner() {
 }
 
 #[test]
-fn superthread_sync_persists_parent_references_and_provider_counts() {
+fn superthread_detail_relationships_are_authoritative_and_survive_list_syncs() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
     test_project(
@@ -1302,43 +1304,104 @@ fn superthread_sync_persists_parent_references_and_provider_counts() {
         "superthread",
         "/tmp/superthread",
     );
-    let snapshot =
-        |id: &str, title: &str, parent: Option<(&str, &str)>, count| KanbanCardSnapshot {
-            id: id.into(),
-            title: title.into(),
-            content: Some(String::new()),
-            board_id: "b".into(),
-            board_title: "Board".into(),
-            list_id: "l".into(),
-            list_title: "List".into(),
-            card_url: String::new(),
-            assignee_names: Vec::new(),
-            task_parent_id: parent.map(|value| value.0.into()),
-            task_parent_title: parent.map(|value| value.1.into()),
-            total_task_children: count,
-            in_scope: Some(true),
-        };
-    let cards = sync_cards(
+    let snapshot = |id: &str,
+                    title: &str,
+                    parent: Option<(&str, &str)>,
+                    count,
+                    hydrated| KanbanCardSnapshot {
+        id: id.into(),
+        title: title.into(),
+        content: Some(String::new()),
+        board_id: "b".into(),
+        board_title: "Board".into(),
+        list_id: "l".into(),
+        list_title: "List".into(),
+        card_url: String::new(),
+        assignee_names: Vec::new(),
+        task_parent_id: parent.map(|value| value.0.into()),
+        task_parent_title: parent.map(|value| value.1.into()),
+        parent_relationship_hydrated: hydrated,
+        total_task_children: count,
+        in_scope: Some(true),
+    };
+
+    // Ordinary list data establishes the cards but has no parent coverage.
+    sync_cards(
         &mut connection,
         "superthread-project",
         test_superthread_snapshot(
             vec![
-                snapshot("10", "Parent", None, 1),
-                snapshot("11", "Child", Some(("10", "Parent")), 0),
+                snapshot("2240", "Parent", None, 1, false),
+                snapshot("2242", "Child", None, 0, false),
+                snapshot("3000", "Unrelated", None, 0, false),
             ],
+            true,
+        ),
+    )
+    .unwrap();
+
+    // Opening the child persists the detailed relationship and enriches both cards.
+    let cards = sync_cards(
+        &mut connection,
+        "superthread-project",
+        test_superthread_snapshot(
+            vec![snapshot(
+                "2242",
+                "Child",
+                Some(("2240", "Upstream parent title")),
+                0,
+                true,
+            )],
             false,
         ),
     )
     .unwrap();
-    let parent = cards.iter().find(|card| card.external_id == "10").unwrap();
-    let child = cards.iter().find(|card| card.external_id == "11").unwrap();
-    assert_eq!(parent.child_count, 1);
-    assert!(parent.hierarchy_finalized);
+    let parent = cards.iter().find(|card| card.external_id == "2240").unwrap();
+    let child = cards.iter().find(|card| card.external_id == "2242").unwrap();
     assert_eq!(parent.children[0].id, child.id);
-    assert_eq!(
-        child.parent.as_ref().map(|value| value.id.as_str()),
-        Some("superthread:10")
-    );
+    assert_eq!(child.parent.as_ref().map(|value| value.id.as_str()), Some("superthread:2240"));
+    // A locally available parent supplies its current title.
+    assert_eq!(child.parent.as_ref().map(|value| value.title.as_str()), Some("Parent"));
+    let stored: (Option<String>, Option<String>) = connection
+        .query_row(
+            "SELECT parent_id, provider_parent_title FROM kanban_cards WHERE id='superthread:2242'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(stored, (Some("superthread:2240".into()), Some("Upstream parent title".into())));
+
+    // A later list snapshot omits task_parent and must preserve hydrated fields.
+    sync_cards(
+        &mut connection,
+        "superthread-project",
+        test_superthread_snapshot(vec![snapshot("2242", "Child renamed", None, 0, false)], false),
+    )
+    .unwrap();
+    let preserved: (Option<String>, Option<String>) = connection
+        .query_row(
+            "SELECT parent_id, provider_parent_title FROM kanban_cards WHERE id='superthread:2242'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(preserved, stored);
+
+    // An authoritative detailed absence clears the relationship without reconciling
+    // unrelated cards or changing their scope.
+    let mut no_parent = snapshot("2242", "Child renamed", None, 0, true);
+    no_parent.in_scope = None;
+    let cards = sync_cards(
+        &mut connection,
+        "superthread-project",
+        test_superthread_snapshot(vec![no_parent], false),
+    )
+    .unwrap();
+    let child = cards.iter().find(|card| card.external_id == "2242").unwrap();
+    let unrelated = cards.iter().find(|card| card.external_id == "3000").unwrap();
+    assert!(child.parent.is_none());
+    assert_eq!(unrelated.title, "Unrelated");
+    assert!(unrelated.in_scope);
 }
 
 #[test]
@@ -1414,6 +1477,7 @@ fn imports_cards_without_disconnected_cleaned_tombstones() {
                 assignee_names: Vec::new(),
                 task_parent_id: None,
                 task_parent_title: None,
+                parent_relationship_hydrated: false,
                 total_task_children: 0,
                 in_scope: Some(true),
             }],

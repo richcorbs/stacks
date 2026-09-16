@@ -88,8 +88,9 @@ pub(in crate::kanban) fn sync_cards(
                 board_id=excluded.board_id, board_title=excluded.board_title,
                 list_id=excluded.list_id, list_title=excluded.list_title,
                 card_url=excluded.card_url, assignee_names=excluded.assignee_names,
-                project_id=excluded.project_id, parent_id=excluded.parent_id,
-                provider_parent_title=excluded.provider_parent_title,
+                project_id=excluded.project_id,
+                parent_id=CASE WHEN ?17 THEN excluded.parent_id ELSE kanban_cards.parent_id END,
+                provider_parent_title=CASE WHEN ?17 THEN excluded.provider_parent_title ELSE kanban_cards.provider_parent_title END,
                 provider_child_count=excluded.provider_child_count,
                 hierarchy_finalized=CASE WHEN excluded.provider_child_count > 0 THEN 1 ELSE kanban_cards.hierarchy_finalized END,
                 in_scope=CASE WHEN ?16 IS NULL THEN kanban_cards.in_scope ELSE ?16 END, updated_at=excluded.updated_at",
@@ -110,6 +111,7 @@ pub(in crate::kanban) fn sync_cards(
                 card.total_task_children as i64,
                 now,
                 card.in_scope.map(i64::from),
+                card.parent_relationship_hydrated,
             ],
         ).map_err(db_error)?;
     }

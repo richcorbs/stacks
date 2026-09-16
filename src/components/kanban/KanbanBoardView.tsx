@@ -44,6 +44,8 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
   );
   const creationProjects = creationAvailability.destinations;
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
+  const [detailLoadError, setDetailLoadError] = useState<{ cardId: string; message: string } | null>(null);
+  const detailLoadRequestRef = useRef(0);
   const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, recheckEnvironment } = useKanbanRefreshCoordinator({
     cards: board.cards,
     projects,
@@ -110,15 +112,38 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
       if (current !== selectedCard) setSelectedCard(current);
       return;
     }
+    detailLoadRequestRef.current += 1;
+    setDetailLoadError(null);
     setSelectedCard(null);
     window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'This card was removed' } }));
   }, [board.cards, selectedCard]);
 
+  async function hydrateCardDetails(card: KanbanCard, recordInteraction = false) {
+    const request = ++detailLoadRequestRef.current;
+    setDetailLoadError(null);
+    try {
+      if (recordInteraction) await board.interact(card.id);
+      const updated = await board.loadDetails(card);
+      if (detailLoadRequestRef.current === request) setSelectedCard(updated);
+      return updated;
+    } catch (error) {
+      if (detailLoadRequestRef.current === request) {
+        setDetailLoadError({ cardId: card.id, message: error instanceof Error ? error.message : String(error) });
+      }
+      throw error;
+    }
+  }
+
   async function openCard(card: KanbanCard, initialView?: CardView) {
     setSelectedCardInitialView(initialView);
     setSelectedCard(card);
-    await board.interact(card.id);
-    setSelectedCard(await board.loadDetails(card));
+    void hydrateCardDetails(card, true).catch(() => {});
+  }
+
+  function closeCardDetail() {
+    detailLoadRequestRef.current += 1;
+    setDetailLoadError(null);
+    setSelectedCard(null);
   }
 
   const boardCardsRef = useRef(board.cards);
@@ -273,7 +298,8 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
           environmentHealth={repositoryStatuses[selectedCard.id]?.environmentHealth}
           gitChangeSummary={gitChangeSummary}
           onRecheckEnvironment={() => recheckEnvironment(selectedCard.id)}
-          onClose={() => setSelectedCard(null)}
+          detailLoadError={detailLoadError?.cardId === selectedCard.id ? detailLoadError.message : null}
+          onClose={closeCardDetail}
           onUpdate={(title, content, parentId) => board.update(selectedCard.id, title, content, parentId).then((updated) => {
             setSelectedCard(updated);
             return updated;
@@ -312,13 +338,9 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
           }}
           onDelete={async () => {
             await board.remove(selectedCard.id);
-            setSelectedCard(null);
+            closeCardDetail();
           }}
-          onReload={async () => {
-            const updated = await board.loadDetails(selectedCard);
-            setSelectedCard(updated);
-            return updated;
-          }}
+          onReload={() => hydrateCardDetails(selectedCard)}
         />
       )}
     </div>

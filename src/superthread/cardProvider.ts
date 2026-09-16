@@ -18,11 +18,11 @@ export function superthreadIntegration(configuration: SuperthreadConfiguration):
       return mapCard(card, {
         id: card.board_id,
         title: card.board_title,
-      }, card.list_title, true);
+      }, card.list_title, true, true);
     },
     async load(card) {
       const detail = await fetchSuperthreadCard(card.external_id, workspaceSlug);
-      return mapCard(detail, { id: card.board_id, title: card.board_title }, card.list_title, true);
+      return mapCard(detail, { id: card.board_id, title: card.board_title }, card.list_title, true, true);
     },
     async sync(refresh = false): Promise<SuperthreadSnapshot> {
       let discovery;
@@ -56,7 +56,7 @@ export function superthreadIntegration(configuration: SuperthreadConfiguration):
           const scope = card.list_id.trim() && (discoveredTitle || card.list_title.trim())
             ? isManagedSuperthreadList(board.title, listTitle)
             : null;
-          cards.push(mapCard(card, board, listTitle, scope));
+          cards.push(mapCard(card, board, listTitle, scope, false));
         }
       }));
       const warnings = failedScopes.map((failure) => failure.message);
@@ -77,6 +77,7 @@ function mapCard(
   board: { id: string; title: string },
   listTitle: string,
   inScope: boolean | null,
+  parentRelationshipHydrated: boolean,
 ): KanbanSyncCard {
   return {
     id: card.id,
@@ -90,6 +91,7 @@ function mapCard(
     assignee_names: card.assignee_names,
     task_parent_id: card.task_parent?.id ?? null,
     task_parent_title: card.task_parent?.title ?? null,
+    parent_relationship_hydrated: parentRelationshipHydrated,
     total_task_children: card.total_task_children ?? 0,
     in_scope: inScope,
   };

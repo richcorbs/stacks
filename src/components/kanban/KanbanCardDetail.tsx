@@ -37,7 +37,7 @@ import { CardDetailHeader, CardDetailTabs } from './CardDetailChrome';
 const PiGuiView = lazy(() => import('../PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
 
-export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
+export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
   card: KanbanCard;
   cards: KanbanCard[];
   projects: Project[];
@@ -48,6 +48,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   initialView?: CardView;
   environmentHealth?: CardEnvironmentHealth;
   gitChangeSummary: import('../../types').GitChangeSummary | null;
+  detailLoadError: string | null;
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
   onClose: () => void;
   onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
@@ -426,6 +427,12 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           onRequestView={requestView}
           onRefreshDiff={() => setDiffRefreshNonce((nonce) => nonce + 1)}
         />
+        {detailLoadError && <div className="kanbanActionError" role="alert">
+          <span>Card details could not be loaded: {detailLoadError}</span>
+          <button type="button" disabled={reloadingCard} onClick={reloadCard}>
+            <AsyncButtonLabel idle="Reload card" busy="Reloading…" isBusy={reloadingCard} />
+          </button>
+        </div>}
         {(actionError?.includes('environment changed') || actionError?.includes('layout changed')) && <div className="kanbanActionError" role="alert">
           <span>{actionError}</span>
           <button type="button" disabled={reloadingCard} onClick={reloadCard}>
