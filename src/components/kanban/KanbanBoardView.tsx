@@ -20,6 +20,7 @@ import { NewCardDialog } from './NewCardDialog';
 import { KanbanLanes } from './KanbanLanes';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { startLaunchCardRecovery } from '../../kanban/launchRecovery';
+import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
 
 export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps) {
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
@@ -43,7 +44,9 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
     [projects, selectedProject, superthreadEnabled],
   );
   const creationProjects = creationAvailability.destinations;
-  const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
+  const { selectedCardId, selectedCard, selectCard, clearSelection } = useCanonicalCardSelection(board.cards);
+  const selectedCardIdRef = useRef(selectedCardId);
+  selectedCardIdRef.current = selectedCardId;
   const [detailLoadError, setDetailLoadError] = useState<{ cardId: string; message: string } | null>(null);
   const detailLoadRequestRef = useRef(0);
   const launchRecoveryStartedRef = useRef(false);
@@ -51,7 +54,7 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
     cards: board.cards,
     projects,
     visibleCards,
-    activeCardId: selectedCard?.id ?? null,
+    activeCardId: selectedCardId,
     patchCard: board.patchCard,
   });
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
@@ -103,26 +106,21 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
 
   useEffect(() => {
     const handleOpenProjectSwitcher = () => {
-      if (projectSwitcherOpen || selectedCard || newCard.open || openLaneMenu || pointerOrdering.draggingId) return;
+      if (projectSwitcherOpen || selectedCardId || newCard.open || openLaneMenu || pointerOrdering.draggingId) return;
       setProjectPickerPurpose('filter');
       setProjectSwitcherOpen(true);
     };
     window.addEventListener(OPEN_PROJECT_SWITCHER_EVENT, handleOpenProjectSwitcher);
     return () => window.removeEventListener(OPEN_PROJECT_SWITCHER_EVENT, handleOpenProjectSwitcher);
-  }, [pointerOrdering.draggingId, newCard.open, openLaneMenu, projectSwitcherOpen, selectedCard]);
+  }, [pointerOrdering.draggingId, newCard.open, openLaneMenu, projectSwitcherOpen, selectedCardId]);
 
   useEffect(() => {
-    if (!selectedCard) return;
-    const current = canonicalCardById(board.cards, selectedCard.id);
-    if (current) {
-      if (current !== selectedCard) setSelectedCard(current);
-      return;
-    }
+    if (!selectedCardId || selectedCard) return;
     detailLoadRequestRef.current += 1;
     setDetailLoadError(null);
-    setSelectedCard(null);
+    clearSelection(selectedCardId);
     window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'This card was removed' } }));
-  }, [board.cards, selectedCard]);
+  }, [clearSelection, selectedCard, selectedCardId]);
 
   async function hydrateCardDetails(card: KanbanCard, recordInteraction = false) {
     const request = ++detailLoadRequestRef.current;
@@ -130,10 +128,9 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
     try {
       if (recordInteraction) await board.interact(card.id);
       const updated = await board.loadDetails(card);
-      if (detailLoadRequestRef.current === request) setSelectedCard(updated);
       return updated;
     } catch (error) {
-      if (detailLoadRequestRef.current === request) {
+      if (detailLoadRequestRef.current === request && selectedCardIdRef.current === card.id) {
         setDetailLoadError({ cardId: card.id, message: error instanceof Error ? error.message : String(error) });
       }
       throw error;
@@ -142,14 +139,16 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
 
   async function openCard(card: KanbanCard, initialView?: CardView) {
     setSelectedCardInitialView(initialView);
-    setSelectedCard(card);
+    selectCard(card.id);
     void hydrateCardDetails(card, true).catch(() => {});
   }
 
-  function closeCardDetail() {
-    detailLoadRequestRef.current += 1;
-    setDetailLoadError(null);
-    setSelectedCard(null);
+  function closeCardDetail(expectedCardId?: string) {
+    if (expectedCardId === undefined || selectedCardIdRef.current === expectedCardId) {
+      detailLoadRequestRef.current += 1;
+      setDetailLoadError(null);
+    }
+    clearSelection(expectedCardId);
   }
 
   const boardCardsRef = useRef(board.cards);
@@ -310,16 +309,12 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
           onRecheckEnvironment={() => recheckEnvironment(selectedCard.id)}
           detailLoadError={detailLoadError?.cardId === selectedCard.id ? detailLoadError.message : null}
           onClose={closeCardDetail}
-          onUpdate={(title, content, parentId) => board.update(selectedCard.id, title, content, parentId).then((updated) => {
-            setSelectedCard(updated);
-            return updated;
-          })}
-          onAction={(action) => board.act(selectedCard.id, action).then(setSelectedCard)}
-          onStopRefinement={() => board.stopRefinement(selectedCard.id).then(setSelectedCard)}
+          onUpdate={(title, content, parentId) => board.update(selectedCard.id, title, content, parentId)}
+          onAction={(action) => board.act(selectedCard.id, action)}
+          onStopRefinement={() => board.stopRefinement(selectedCard.id)}
           onOpenChat={async (projectId) => {
             if (selectedCard.project_id === projectId) return;
-            const updated = await board.assignProject(selectedCard.id, projectId);
-            setSelectedCard(updated);
+            await board.assignProject(selectedCard.id, projectId);
           }}
           onStartWork={async () => {
             const started = await onStartWork(selectedCard.id);
@@ -334,12 +329,11 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
               if (!await onCleanupCard(current)) return;
             } finally {
               await board.load();
-              const updated = await board.loadDetails(current);
-              setSelectedCard(updated);
+              await board.loadDetails(current);
             }
           }}
           onCardUpdated={(updated) => {
-            setSelectedCard(board.applyCardSnapshot(updated));
+            board.applyCardSnapshot(updated);
             if (updated.parent) board.load().catch(console.error);
           }}
           onNavigate={(id, initialView) => {
@@ -347,8 +341,9 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
             if (target) openCard(target, initialView);
           }}
           onDelete={async () => {
-            await board.remove(selectedCard.id);
-            closeCardDetail();
+            const deletedCardId = selectedCard.id;
+            await board.remove(deletedCardId);
+            closeCardDetail(deletedCardId);
           }}
           onReload={() => hydrateCardDetails(selectedCard)}
         />
