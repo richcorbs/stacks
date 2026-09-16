@@ -249,12 +249,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanChildList button:hover { border-color: #3d5870; background: #182633; }
 .kanbanChildList button strong { overflow: hidden; color: #c0ccd7; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
 .kanbanChildList button small { color: #74899d; }
-.kanbanDetail > footer { flex: 0 0 auto; min-width: 0; min-height: 62px; box-sizing: border-box; padding: 10px 14px 10px 20px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; border-top: 1px solid #223142; background: #101923; }
-.cardFooterContext, .cardFooterActions { min-width: 0; display: flex; align-items: center; gap: 8px; }
-.cardFooterContext { align-items: flex-start; justify-content: center; flex-direction: column; gap: 2px; overflow: hidden; color: #93a4b7; font-size: calc(10px + var(--ui-font-delta, 0px)); text-align: left; }
-.cardFooterContext > span { box-sizing: border-box; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cardFooterContext .cardFooterError { color: #e08b91; }
-.cardFooterActions { justify-content: flex-end; flex-wrap: wrap; }
+.kanbanDetail > footer { flex: 0 0 auto; min-width: 0; min-height: 62px; box-sizing: border-box; padding: 10px 14px 10px 20px; display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; border-top: 1px solid #223142; background: #101923; }
+.cardFooterActions { min-width: 0; width: 100%; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; }
+.cardFooterActionGroup { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.cardFooterActionGroupRight { margin-left: auto; justify-content: flex-end; }
 .cardFooterActions button { white-space: nowrap; }
 .cardFooterActions button.workflowActionNeutralGhost,
 .cardFooterActions button.workflowActionDangerGhost { padding: 8px 11px; border: 0; background: transparent; }
@@ -305,8 +303,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .cardServiceView { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .cardServiceView > .kanbanEmpty { flex: 1; text-align: center; }
 .cardServiceView .terminal { border: 0; border-radius: 0; box-shadow: none; }
-.kanbanActionError { min-height: 33px; box-sizing: border-box; padding: 6px 20px; border-bottom: 1px solid #5a3135; background: #2b171b; color: #e08b91; font-size: calc(11px + var(--ui-font-delta, 0px)); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.kanbanActionError button { flex: none; padding: 3px 9px; border-color: #74444a; color: #f0b1b5; }
+.kanbanActionError, .cardLevelErrorBanner { min-height: 33px; box-sizing: border-box; padding: 6px 20px; border-bottom: 1px solid #5a3135; background: #2b171b; color: #e08b91; font-size: calc(11px + var(--ui-font-delta, 0px)); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.kanbanActionError button, .cardLevelErrorBanner button { flex: none; padding: 3px 9px; border-color: #74444a; color: #f0b1b5; }
+.cardLevelErrorMessages { min-width: 0; display: grid; gap: 2px; }
+.cardLevelErrorMessages span { white-space: pre-wrap; }
 .cardChat { box-sizing: border-box; flex: 1; min-width: 0; min-height: 0; padding-top: 18px; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid #223142; background: #0c1219; }
 .kanbanDetail.chatActive { background: #0c1219; }
 .kanbanDetail.chatActive > header, .kanbanDetail.chatActive .cardWorkspaceTabs { background: #0c1219; }

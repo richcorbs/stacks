@@ -33,6 +33,7 @@ import { useCardTerminalWorkspace } from '../../kanban/useCardTerminalWorkspace'
 import { CardServiceTerminal } from './CardServiceTerminal';
 import { CardOverview } from './CardOverview';
 import { CardDetailHeader, CardDetailTabs } from './CardDetailChrome';
+import { CardLevelErrorBanner, collectCardLevelErrors } from './CardLevelErrorBanner';
 
 const PiGuiView = lazy(() => import('../PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -92,6 +93,11 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
   const workflowCard = workflowOperation === 'ship' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
+  const cardLevelErrors = useMemo(() => collectCardLevelErrors({
+    actionError,
+    detailLoadError,
+    recoveryError: card.creation_operation?.error,
+  }), [actionError, card.creation_operation?.error, detailLoadError]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
     ...(project && !card.hierarchy_finalized ? ['chat' as const] : []),
@@ -416,6 +422,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           onAssignProject={onOpenChat}
           onActionError={setActionError}
         />
+        <CardLevelErrorBanner errors={cardLevelErrors} reloading={reloadingCard} onReload={reloadCard} />
         <CardDetailTabs
           activeView={activeView}
           hierarchyFinalized={card.hierarchy_finalized}
@@ -427,18 +434,6 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           onRequestView={requestView}
           onRefreshDiff={() => setDiffRefreshNonce((nonce) => nonce + 1)}
         />
-        {detailLoadError && <div className="kanbanActionError" role="alert">
-          <span>Card details could not be loaded: {detailLoadError}</span>
-          <button type="button" disabled={reloadingCard} onClick={reloadCard}>
-            <AsyncButtonLabel idle="Reload card" busy="Reloading…" isBusy={reloadingCard} />
-          </button>
-        </div>}
-        {(actionError?.includes('environment changed') || actionError?.includes('layout changed')) && <div className="kanbanActionError" role="alert">
-          <span>{actionError}</span>
-          <button type="button" disabled={reloadingCard} onClick={reloadCard}>
-            <AsyncButtonLabel idle="Reload card" busy="Reloading…" isBusy={reloadingCard} />
-          </button>
-        </div>}
         <CardOverview
           active={activeView === 'overview'}
           editing={editing}
@@ -551,9 +546,6 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           ) : <CardWorkflowControls
             actions={workflowActions}
             working={working}
-            actionError={actionError}
-            mergedWithoutEnvironment={card.status === 'done' && !card.environment}
-            recoveryMessage={card.creation_operation?.error}
             onAction={performWorkflowAction}
           />}
         </footer>
