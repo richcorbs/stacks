@@ -68,6 +68,13 @@ function classIndex(markup: string, className: string) {
   return markup.indexOf(`class="${className}`);
 }
 
+function repositoryTokens(markup: string) {
+  return Array.from(
+    markup.matchAll(/class="(?:(kanbanCardHeaderBranch|kanbanDetailRepositorySeparator|kanbanCardGitSummary)"|(kanbanCardPrLink)\s)/g),
+    (match) => match[1] ?? match[2],
+  );
+}
+
 describe('CardDetailHeader', () => {
   it('orders workflow and hierarchy metadata in the top row and repository metadata beneath the title', () => {
     const markup = renderHeader(card());
@@ -83,6 +90,73 @@ describe('CardDetailHeader', () => {
     expect(classIndex(markup, 'kanbanCardPrLink')).toBeGreaterThan(titleIndex);
     expect(classIndex(markup, 'kanbanCardHeaderBranch')).toBeLessThan(classIndex(markup, 'kanbanCardGitSummary'));
     expect(classIndex(markup, 'kanbanCardGitSummary')).toBeLessThan(classIndex(markup, 'kanbanCardPrLink'));
+  });
+
+  it('renders separators only between repository metadata items for every presence combination', () => {
+    const changed: GitChangeSummary = { added: 1, modified: 2, deleted: 3 };
+    const unchanged: GitChangeSummary = { added: 0, modified: 0, deleted: 0 };
+    const cases: Array<{
+      label: string;
+      currentCard: KanbanCard;
+      summary: GitChangeSummary | null;
+      expected: string[];
+    }> = [
+      {
+        label: 'branch, Git summary, and pull request',
+        currentCard: card(),
+        summary: changed,
+        expected: ['kanbanCardHeaderBranch', 'kanbanDetailRepositorySeparator', 'kanbanCardGitSummary', 'kanbanDetailRepositorySeparator', 'kanbanCardPrLink'],
+      },
+      {
+        label: 'branch and Git summary',
+        currentCard: card({ pull_request: null }),
+        summary: changed,
+        expected: ['kanbanCardHeaderBranch', 'kanbanDetailRepositorySeparator', 'kanbanCardGitSummary'],
+      },
+      {
+        label: 'branch and pull request',
+        currentCard: card(),
+        summary: null,
+        expected: ['kanbanCardHeaderBranch', 'kanbanDetailRepositorySeparator', 'kanbanCardPrLink'],
+      },
+      {
+        label: 'Git summary and pull request',
+        currentCard: card({ environment: null }),
+        summary: changed,
+        expected: ['kanbanCardGitSummary', 'kanbanDetailRepositorySeparator', 'kanbanCardPrLink'],
+      },
+      {
+        label: 'branch only',
+        currentCard: card({ pull_request: null }),
+        summary: unchanged,
+        expected: ['kanbanCardHeaderBranch'],
+      },
+      {
+        label: 'Git summary only',
+        currentCard: card({ environment: null, pull_request: null }),
+        summary: changed,
+        expected: ['kanbanCardGitSummary'],
+      },
+      {
+        label: 'pull request only',
+        currentCard: card({ environment: null }),
+        summary: null,
+        expected: ['kanbanCardPrLink'],
+      },
+      {
+        label: 'no repository metadata',
+        currentCard: card({ environment: null, pull_request: null }),
+        summary: unchanged,
+        expected: [],
+      },
+    ];
+
+    for (const { label, currentCard, summary, expected } of cases) {
+      const markup = renderHeader(currentCard, summary);
+      expect(repositoryTokens(markup), label).toEqual(expected);
+      expect(markup.match(/class="kanbanDetailRepositorySeparator" aria-hidden="true">•<\/span>/g)?.length ?? 0, label)
+        .toBe(expected.filter((token) => token === 'kanbanDetailRepositorySeparator').length);
+    }
   });
 
   it('renders Git and pull-request metadata without an environment branch', () => {
