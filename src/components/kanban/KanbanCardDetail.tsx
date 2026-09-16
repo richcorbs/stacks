@@ -93,11 +93,15 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const editDirty = hasDirtyCardDraft(card, draftTitle, draftContent);
   const workflowCard = workflowOperation === 'ship' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
+  const latestAgentRunEvent = card.events.find((event) =>
+    ['agent_launch_failed', 'protocol_failed', 'process_exited', 'agent_started', 'agent_settled'].includes(event.event_type));
+  const agentFailure = latestAgentRunEvent?.outcome === 'failure' ? latestAgentRunEvent.error_detail : null;
   const cardLevelErrors = useMemo(() => collectCardLevelErrors({
     actionError,
     detailLoadError,
     recoveryError: card.creation_operation?.error,
-  }), [actionError, card.creation_operation?.error, detailLoadError]);
+    agentFailure,
+  }), [actionError, agentFailure, card.creation_operation?.error, detailLoadError]);
   const cardTabs = useMemo<CardView[]>(() => [
     'overview',
     ...(project && !card.hierarchy_finalized ? ['chat' as const] : []),
@@ -466,7 +470,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
                   maximized={false}
                   canToggleMaximize={false}
                   restartRequestNonce={0}
-                  initialPrompt={cardChatPrompt(card, activeChatThread)}
+                  initialPrompt={activeChatThread === 'planning' ? cardChatPrompt(card, activeChatThread) : undefined}
                   fontSize={13}
                   onFocus={() => {}}
                   onClose={() => {}}

@@ -773,6 +773,58 @@ fn pi_lifecycle_is_idempotent_ordered_and_generation_scoped() {
 }
 
 #[test]
+fn work_pi_failure_moves_agent_working_to_needs_human_with_durable_detail() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    local_card(&mut connection);
+    connection.execute("UPDATE kanban_cards SET status='agent_working' WHERE id='local:test'", []).unwrap();
+    connection.execute(
+        "INSERT INTO card_pi_lifecycle(card_id,thread,generation,latest_event_order,latest_event_id) VALUES ('local:test','work','work-generation',-1,'')",
+        [],
+    ).unwrap();
+
+    let failed = apply_pi_lifecycle_intent_with_detail(
+        &mut connection,
+        "local:test",
+        PiThread::Work,
+        PiLifecycleIntent::ProtocolFailed,
+        "work-generation",
+        "failure-1",
+        Some(0),
+        Some("invalid RPC response"),
+    ).unwrap();
+    assert_eq!(failed.status, CardStatus::NeedsHuman);
+    let event: (String, String, String) = connection.query_row(
+        "SELECT outcome,error_code,error_detail FROM card_events WHERE card_id='local:test' ORDER BY id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(event, ("failure".into(), "protocol_failed".into(), "invalid RPC response".into()));
+}
+
+#[test]
+fn pre_generation_launch_failure_is_recorded_and_retryable() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "project", "local", "/tmp/project");
+    local_card(&mut connection);
+    connection.execute("UPDATE kanban_cards SET status='agent_working' WHERE id='local:test'", []).unwrap();
+    connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,lifecycle_state,revision,created_at,updated_at) VALUES ('env','local:test','project','/tmp/worktree','card-99','ready',1,1,1)", []).unwrap();
+
+    record_agent_launch_failure(&mut connection, "local:test", 1, "project", "Pi CLI was not found").unwrap();
+    let card = get_card(&connection, "local:test").unwrap().unwrap();
+    assert_eq!(card.status, CardStatus::NeedsHuman);
+    assert_eq!(card.workflow_revision, 2);
+    assert!(card.capabilities.iter().any(|capability| capability.action == WorkflowAction::StartWork && capability.available));
+    let event: (String, String, String) = connection.query_row(
+        "SELECT event_type,outcome,error_detail FROM card_events WHERE card_id='local:test' ORDER BY id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(event, ("agent_launch_failed".into(), "failure".into(), "Pi CLI was not found".into()));
+}
+
+#[test]
 fn project_reassignment_allows_only_refinement_statuses_and_renumbers_cards() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();

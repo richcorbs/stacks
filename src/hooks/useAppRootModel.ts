@@ -25,6 +25,7 @@ import { disposeTerminalSessions } from '../terminalSessionManager';
 import { runShortcutAction } from '../shortcutActions';
 import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
 import { buildCardPaletteItems, type CardPaletteRegistration } from '../commandPaletteCards';
+import { launchWorkAgent } from '../kanban/workAgentLauncher';
 
 export function useAppRootModel() {
   const [loaded, setLoaded] = useState(false);
@@ -115,27 +116,29 @@ export function useAppRootModel() {
       if (!card?.project_id) throw new Error('The card is not assigned to a project');
       const project = store.projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('The card project was not found');
+      let updated = card;
       if (card.environment) {
         const health = (await fetchKanbanEnvironmentHealth([card.id]))[0];
         if (health?.issues.length) throw new Error(health.issues[0].message);
-        return true;
+      } else {
+        if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
+        const input = card.provider === 'local' ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title) : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, project.start_work_command || '');
+        const setup = input.setupCommand?.trim();
+        if (!setup) throw new Error('Start-work setup command is empty');
+        updated = await startKanbanEnvironment(
+          cardId,
+          card.workflow_revision,
+          setup,
+          card.provider === 'superthread' || Boolean(project.start_work_command?.trim()),
+          card.creation_operation?.phase === 'recovery_required',
+        );
+        if (!updated.environment) {
+          showToast(updated.creation_operation?.error || 'Environment creation needs attention');
+          return false;
+        }
       }
-      if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
-      const input = card.provider === 'local' ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title) : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, project.start_work_command || '');
-      const setup = input.setupCommand?.trim();
-      if (!setup) throw new Error('Start-work setup command is empty');
-      const updated = await startKanbanEnvironment(
-        cardId,
-        card.workflow_revision,
-        setup,
-        card.provider === 'superthread' || Boolean(project.start_work_command?.trim()),
-        card.creation_operation?.phase === 'recovery_required',
-      );
-      if (!updated.environment) {
-        showToast(updated.creation_operation?.error || 'Environment creation needs attention');
-        return false;
-      }
-      showToast(`Started work on #${card.external_id}`); return true;
+      if (!await launchWorkAgent(cardId, store.projects)) throw new Error('The card changed before its work agent could start');
+      showToast(`Started work on #${updated.external_id}`); return true;
     } catch (error) { showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`); return false; }
     finally { startingCardIds.current.delete(cardId); }
   }

@@ -281,20 +281,34 @@ describe('PiSessionController', () => {
     h.controller.delete();
   });
 
-  it('shares awaitable initialization and accepts only one launch continue prompt', async () => {
+  it('shares awaitable initialization and accepts only one original work prompt', async () => {
     const h = harness();
-    const first = h.controller.submitLaunchContinue();
-    const duplicate = h.controller.submitLaunchContinue();
+    const first = h.controller.submitWorkLaunch('full card task');
+    const duplicate = h.controller.submitWorkLaunch('full card task');
     expect(duplicate).toBe(first);
     await vi.waitFor(() => expect(h.commands.length).toBeGreaterThanOrEqual(2));
     respond(h, 0, 'get_state', { isStreaming: false });
-    respond(h, 1, 'get_messages', { messages: [{ role: 'assistant', content: 'Earlier work', timestamp: 1 }] });
+    respond(h, 1, 'get_messages', { messages: [] });
     await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'prompt')).toBe(true));
     const prompts = h.commands.filter((command) => command.type === 'prompt');
     expect(prompts).toHaveLength(1);
-    expect(prompts[0].message).toBe('continue');
+    expect(prompts[0].message).toBe('full card task');
     h.controller.project(envelope({ type: 'response', id: prompts[0].id as string, command: 'prompt', success: true, data: {} }));
     await first;
+    h.controller.delete();
+  });
+
+  it('continues a persisted work transcript instead of resending the original task', async () => {
+    const h = harness();
+    const launch = h.controller.submitWorkLaunch('full card task');
+    await vi.waitFor(() => expect(h.commands.length).toBeGreaterThanOrEqual(2));
+    respond(h, 0, 'get_state', { isStreaming: false });
+    respond(h, 1, 'get_messages', { messages: [{ role: 'user', content: 'full card task', timestamp: 1 }] });
+    await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'prompt')).toBe(true));
+    const prompt = h.commands.find((command) => command.type === 'prompt')!;
+    expect(prompt.message).toBe('continue');
+    h.controller.project(envelope({ type: 'response', id: prompt.id as string, command: 'prompt', success: true, data: {} }));
+    await launch;
     h.controller.delete();
   });
 

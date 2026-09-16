@@ -46,6 +46,7 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
   const [detailLoadError, setDetailLoadError] = useState<{ cardId: string; message: string } | null>(null);
   const detailLoadRequestRef = useRef(0);
+  const launchRecoveryStartedRef = useRef(false);
   const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, recheckEnvironment } = useKanbanRefreshCoordinator({
     cards: board.cards,
     projects,
@@ -74,8 +75,13 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
   const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder });
 
   useEffect(() => {
-    if (projectsHydrated && board.cardsHydrated) startLaunchCardRecovery(board.cards, projects).catch(console.error);
-  }, [board.cards, board.cardsHydrated, projects, projectsHydrated]);
+    if (projectsHydrated && board.cardsHydrated && !launchRecoveryStartedRef.current) {
+      launchRecoveryStartedRef.current = true;
+      startLaunchCardRecovery(board.cards, projects)
+        .then(() => board.load())
+        .catch(console.error);
+    }
+  }, [board.cards, board.cardsHydrated, board.load, projects, projectsHydrated]);
 
   useEffect(() => {
     if (selectedProjectId && !filterProjectId) onSelectProject(null);

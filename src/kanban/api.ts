@@ -40,8 +40,12 @@ export function applyKanbanWorkflowAction(id: string, action: Extract<KanbanWork
   return invoke<CardSnapshot>('kanban_apply_workflow_action', { id, action, expectedRevision });
 }
 
-export function applyKanbanPiLifecycleIntent(id: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number) {
-  return invoke<CardSnapshot>('kanban_apply_pi_lifecycle_intent', { id, thread, intent, generation, eventId, eventOrder });
+export function applyKanbanPiLifecycleIntent(id: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failureDetail?: string) {
+  return invoke<CardSnapshot>('kanban_apply_pi_lifecycle_intent', { id, thread, intent, generation, eventId, eventOrder, failureDetail });
+}
+
+export function recordKanbanAgentLaunchFailure(id: string, expectedWorkflowRevision: number, expectedProjectId: string, errorDetail: string) {
+  return invoke<CardSnapshot>('kanban_record_agent_launch_failure', { id, expectedWorkflowRevision, expectedProjectId, errorDetail });
 }
 
 export function fetchKanbanStatusMetadata() {
