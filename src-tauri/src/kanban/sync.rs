@@ -68,6 +68,32 @@ pub(in crate::kanban) fn sync_cards(
             (!id.is_empty() && !card.title.trim().is_empty()).then(|| id.to_string())
         })
         .collect::<HashSet<_>>();
+    let mut parent_hydrations = snapshot.parent_hydrations;
+    parent_hydrations.sort_by(|left, right| left.parent_id.cmp(&right.parent_id));
+    let mut unsafe_parents = HashSet::new();
+    let mut child_claims: HashMap<String, Vec<String>> = HashMap::new();
+    for hydration in &parent_hydrations {
+        let parent_id = hydration.parent_id.trim();
+        let mut unique_children = HashSet::new();
+        if parent_id.is_empty()
+            || hydration.parent_title.trim().is_empty()
+            || hydration.children.iter().any(|child| {
+                child.id.trim().is_empty()
+                    || child.title.trim().is_empty()
+                    || !unique_children.insert(child.id.trim())
+            })
+        {
+            unsafe_parents.insert(parent_id.to_string());
+            continue;
+        }
+        for child in &hydration.children {
+            child_claims.entry(child.id.trim().to_string()).or_default().push(parent_id.to_string());
+        }
+    }
+    for parents in child_claims.values().filter(|parents| parents.len() > 1) {
+        unsafe_parents.extend(parents.iter().cloned());
+    }
+
     let transaction = connection.transaction().map_err(db_error)?;
     for card in snapshot.cards {
         if card.id.trim().is_empty() || card.title.trim().is_empty() {
@@ -114,6 +140,28 @@ pub(in crate::kanban) fn sync_cards(
                 card.parent_relationship_hydrated,
             ],
         ).map_err(db_error)?;
+    }
+    // Parent detail collections are authoritative only after provider-side completeness
+    // validation. Clear all safe parents first, then assign children in stable order so
+    // reparenting cannot depend on request completion order.
+    for hydration in parent_hydrations.iter().filter(|hydration| !unsafe_parents.contains(hydration.parent_id.trim())) {
+        let parent_local_id = format!("superthread:{}", hydration.parent_id.trim());
+        transaction.execute(
+            "UPDATE kanban_cards SET parent_id=NULL, provider_parent_title=NULL, updated_at=?1
+             WHERE external_provider='superthread' AND parent_id=?2",
+            params![now, parent_local_id],
+        ).map_err(db_error)?;
+    }
+    for hydration in parent_hydrations.iter().filter(|hydration| !unsafe_parents.contains(hydration.parent_id.trim())) {
+        let parent_local_id = format!("superthread:{}", hydration.parent_id.trim());
+        for child in &hydration.children {
+            transaction.execute(
+                "UPDATE kanban_cards SET parent_id=?1, provider_parent_title=?2, updated_at=?3
+                 WHERE external_provider='superthread' AND external_id=?4
+                   AND EXISTS (SELECT 1 FROM kanban_cards parent WHERE parent.id=?1 AND parent.external_provider='superthread')",
+                params![parent_local_id, hydration.parent_title.trim(), now, child.id.trim()],
+            ).map_err(db_error)?;
+        }
     }
     if complete {
         let retained = transaction

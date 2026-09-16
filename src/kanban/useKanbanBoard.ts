@@ -71,7 +71,12 @@ export function useKanbanBoard(provider: SuperthreadIntegration | null) {
     setSyncing(true);
     setProviderError(null);
     try {
-      const response = await provider.sync(refresh);
+      const knownParentIds = new Set<string>();
+      for (const card of store.cards()) {
+        if (card.provider === 'superthread' && card.child_count > 0) knownParentIds.add(card.external_id);
+        if (card.parent?.id.startsWith('superthread:')) knownParentIds.add(card.parent.external_id);
+      }
+      const response = await provider.sync(refresh, [...knownParentIds]);
       if (!syncGate.current.isCurrent(generation)) return;
       const snapshot = await syncGate.current.persistIfCurrent(generation, () => syncKanbanCards(provider.ownerProjectId, response));
       if (!snapshot || !syncGate.current.isCurrent(generation)) return;
@@ -79,6 +84,8 @@ export function useKanbanBoard(provider: SuperthreadIntegration | null) {
       if (response.warnings.length > 0) {
         setProviderError(`${response.warnings.length} provider scope${response.warnings.length === 1 ? '' : 's'} could not be read.`);
       }
+      const hierarchyToast = superthreadHierarchyFailureToast(response.failed_scopes);
+      if (hierarchyToast) window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: hierarchyToast } }));
     } catch (syncError) {
       if (syncGate.current.isCurrent(generation)) setProviderError(errorMessage(syncError));
     } finally {
@@ -327,7 +334,7 @@ export async function createKanbanCardForProject(
 }
 
 function partialSuperthreadSnapshot(cards: KanbanSyncCard[]): SuperthreadSnapshot {
-  return { cards, successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: false };
+  return { cards, parent_hydrations: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [], warnings: [], complete: false };
 }
 
 export async function loadSuperthreadCardDetails(
@@ -404,6 +411,15 @@ export function cardAgentSession(paneId: string): { cardId: string; thread: 'pla
     if (paneId.endsWith(suffix)) return { cardId: paneId.slice(prefix.length, -suffix.length), thread };
   }
   return null;
+}
+
+export function superthreadHierarchyFailureToast(failures: Array<{ scope: string }>) {
+  const parentIds = [...new Set(failures.flatMap((failure) => {
+    const match = /^parent:([^:]+):hierarchy$/.exec(failure.scope);
+    return match ? [match[1]] : [];
+  }))].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  return parentIds.length === 0 ? null
+    : `Could not refresh hierarchy for parent${parentIds.length === 1 ? '' : 's'} ${parentIds.map((id) => `#${id}`).join(', ')}`;
 }
 
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }

@@ -12,7 +12,7 @@ import { CardHierarchyBadges } from './CardHierarchyBadges';
 
 type CardServices = ReturnType<typeof useCardServices>;
 
-export function CardDetailHeader({ card, project, projects, statusLabel, gitChangeSummary, editable, editing, draftTitle, titleInputRef, onDraftTitleChange, onBeginEditing, onRequestClose, onAssignProject, onActionError }: {
+export function CardDetailHeader({ card, project, projects, statusLabel, gitChangeSummary, editable, editing, draftTitle, titleInputRef, onDraftTitleChange, onBeginEditing, onRequestClose, onAssignProject, onActionError, onNavigateParent }: {
   card: KanbanCard;
   project: Project | undefined;
   projects: Project[];
@@ -27,6 +27,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
   onRequestClose: () => void;
   onAssignProject: (projectId: string) => Promise<void>;
   onActionError: (message: string) => void;
+  onNavigateParent: (parentId: string) => void;
 }) {
   const hasBranch = Boolean(card.environment?.branch?.trim());
   const hasGitSummary = hasGitChangeSummary(gitChangeSummary);
@@ -41,7 +42,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
           onAssignProject(nextProjectId).catch((error) => onActionError(error instanceof Error ? error.message : String(error)));
         }} />
         <span className="kanbanCardStatus">{statusLabel}</span>
-        <CardHierarchyBadges card={card} />
+        <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
         {editable && !editing && <button className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={onBeginEditing}><span aria-hidden="true" /></button>}
       </div>
       {editing

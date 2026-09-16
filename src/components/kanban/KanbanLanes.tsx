@@ -90,6 +90,7 @@ export function KanbanLanes({
   onToggleDone,
   onCleanupMerged,
   onOpenCard,
+  onNavigateParent,
 }: {
   cards: KanbanCard[];
   projects: Project[];
@@ -105,6 +106,7 @@ export function KanbanLanes({
   onToggleDone: () => void;
   onCleanupMerged: () => void;
   onOpenCard: (card: KanbanCard, initialView?: CardView) => void;
+  onNavigateParent: (parentId: string) => void;
 }) {
   return <div className="kanbanLanes">
     {KANBAN_LANES.map((lane) => {
@@ -156,23 +158,27 @@ export function KanbanLanes({
                 const healthTooltip = environmentHealthTooltip(environmentHealth);
                 const showEnvironmentWarning = shouldShowEnvironmentWarning(card, environmentHealth);
                 return <div className={`kanbanCardWrapper${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}`} key={card.id}>
-                  <button
+                  <div
                     className={`kanbanCard${pointer.draggingId === card.id ? ' dragging' : ''}${pointer.dropBeforeId === card.id ? ' dropBefore' : ''}${keyboardFocusedCardId === card.id ? ' keyboardFocused' : ''}`}
-                    type="button"
-                    data-kanban-card-id={card.id}
                     onPointerDown={(event) => pointer.beginPointerDrag(event, card)}
                     onPointerMove={pointer.updatePointerDrag}
                     onPointerUp={pointer.finishPointerDrag}
                     onPointerCancel={pointer.cancelPointerDrag}
-                    onFocus={() => setKeyboardFocusedCardId(card.id)}
-                    onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                   >
+                    <button
+                      className="kanbanCardOpen"
+                      type="button"
+                      data-kanban-card-id={card.id}
+                      aria-label={`Open card #${card.external_id}: ${card.title}`}
+                      onFocus={() => setKeyboardFocusedCardId(card.id)}
+                      onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
+                    />
                     <span className="kanbanCardSource">
                       <span className="kanbanCardNumber">#{card.external_id}</span>
                       <span className={`kanbanProjectBadge${owningProject(card, projects) ? '' : ' invalid'}`}>
                         {owningProject(card, projects)?.name ?? 'Unknown project'}
                       </span>
-                      <CardHierarchyBadges card={card} />
+                      <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
                       {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title}</span>}
                     </span>
                     <strong>{card.title}</strong>
@@ -194,7 +200,7 @@ export function KanbanLanes({
                         )}
                       </span>
                     </span>
-                  </button>
+                  </div>
                   {showEnvironmentWarning && environmentHealth && (
                     <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>
                       <span aria-hidden="true">!</span>

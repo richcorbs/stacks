@@ -6,6 +6,12 @@ export type SuperthreadList = {
   behavior: SuperthreadCardStatus | string;
 };
 
+export type SuperthreadTaskChild = {
+  task_id: string;
+  title: string;
+  status?: SuperthreadCardStatus | string;
+};
+
 export type SuperthreadCard = {
   id: string;
   title: string;
@@ -18,6 +24,8 @@ export type SuperthreadCard = {
   assignee_names: string[];
   card_url: string;
   task_parent?: { id: string; title: string } | null;
+  /** Present on a complete card detail response, including as an empty array. */
+  task_children?: SuperthreadTaskChild[] | null;
   total_task_children?: number;
 };
 
