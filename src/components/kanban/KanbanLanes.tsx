@@ -1,11 +1,12 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { Project } from '../../types';
-import type { KanbanCard, KanbanStatus } from '../../kanban/types';
+import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import type { CardView } from '../../kanban/cardView';
 import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import { KANBAN_LANES } from '../../kanban/workflow';
 import { owningProject } from '../../kanban/projectScope';
+import { pullRequestPresentation } from '../../kanban/pullRequestPresentation';
 import { environmentHealthTooltip, hasGitChanges, shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { GithubStatusIcon } from '../GithubStatusIcon';
@@ -30,6 +31,26 @@ type DoneLaneMenuWrapper = Pick<HTMLElement, 'contains'>;
 export function shouldDismissDoneLaneMenu(wrapper: DoneLaneMenuWrapper | null, event: DoneLaneMenuDismissEvent) {
   if (event.type === 'keydown') return event.key === 'Escape';
   return event.type === 'pointerdown' && wrapper !== null && event.target !== null && !wrapper.contains(event.target as Node);
+}
+
+export function KanbanPullRequestBadge({ pullRequest }: { pullRequest: CardPullRequest }) {
+  if (pullRequest.state !== 'open') return null;
+  const presentation = pullRequestPresentation(pullRequest);
+  if (!presentation.indicatorStatus) return null;
+
+  return (
+    <span
+      className={`kanbanPrBadge ${presentation.className}`}
+      title={pullRequest.blockers.length > 0 ? pullRequest.blockers.join('\n') : 'Pull request is ready to merge'}
+    >
+      PR #{pullRequest.number}
+      <GithubStatusIcon
+        status={presentation.indicatorStatus}
+        context="CI"
+        label={`Pull request #${pullRequest.number}, ${presentation.status}`}
+      />
+    </span>
+  );
 }
 
 export function DoneLaneMenu({ cardsCount, collapsed, triggerRef, open, cleaningMerged, setOpen, onToggle, onCleanupMerged }: DoneLaneMenuProps) {
@@ -192,12 +213,7 @@ export function KanbanLanes({
                             {repositoryStatus.git!.deleted > 0 && <span className="gitRemoved">-{repositoryStatus.git!.deleted}</span>}
                           </span>
                         )}
-                        {card.pull_request?.state === 'open' && (
-                          <span className={`kanbanPrBadge ${card.pull_request.blockers.length === 0 ? 'ready' : 'blocked'}`} title={card.pull_request.blockers.length ? card.pull_request.blockers.join('\n') : 'Pull request is ready to merge'}>
-                            PR #{card.pull_request.number}
-                            <GithubStatusIcon status={card.pull_request.blockers.length === 0 ? 'success' : 'failure'} context="CI" label="PR readiness" />
-                          </span>
-                        )}
+                        {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} />}
                       </span>
                     </span>
                   </div>

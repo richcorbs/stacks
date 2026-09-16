@@ -1,26 +1,6 @@
 import type { SyntheticEvent } from 'react';
 import type { CardPullRequest } from '../kanban/types';
-
-type PullRequestPresentation = {
-  className: 'openReady' | 'openPending' | 'openBlocked' | 'merged' | 'closed';
-  status: string;
-};
-
-const CI_PENDING_BLOCKER = 'CI is pending';
-
-function pullRequestPresentation(pullRequest: CardPullRequest): PullRequestPresentation {
-  if (pullRequest.state === 'merged') return { className: 'merged', status: 'merged' };
-  if (pullRequest.state === 'closed') return { className: 'closed', status: 'closed without merging' };
-  if (pullRequest.ci_status === 'pending') {
-    const hasNonCiBlocker = pullRequest.blockers.some((blocker) => blocker !== CI_PENDING_BLOCKER);
-    if (!hasNonCiBlocker) return { className: 'openPending', status: 'open, CI running' };
-  }
-  if (pullRequest.blockers.length === 0) return { className: 'openReady', status: 'open and ready to merge' };
-  return {
-    className: 'openBlocked',
-    status: `open with blockers: ${pullRequest.blockers.join('; ')}`,
-  };
-}
+import { pullRequestPresentation } from '../kanban/pullRequestPresentation';
 
 export function CardPullRequestLink({ pullRequest, onOpen }: {
   pullRequest: CardPullRequest | null | undefined;
