@@ -796,9 +796,9 @@ pub(in crate::kanban) fn list_cards(
     load_creation_operations_batched(connection, &mut cards)?;
     load_cleanup_operations_batched(connection, &mut cards)?;
     load_pull_requests_batched(connection, &mut cards)?;
-    load_events_batched(connection, &mut cards)?;
+    let work_agent_launch_retries = load_events_batched(connection, &mut cards)?;
     enrich_relationships_batched(connection, &mut cards)?;
-    enrich_capabilities(connection, &mut cards)?;
+    enrich_capabilities(connection, &mut cards, Some(&work_agent_launch_retries))?;
     Ok(cards)
 }
 
@@ -823,7 +823,7 @@ pub(in crate::kanban) fn get_card(
         card.events = load_events(connection, id)?;
         let mut cards = vec![card.clone()];
         enrich_relationships(connection, &mut cards)?;
-        enrich_capabilities(connection, &mut cards)?;
+        enrich_capabilities(connection, &mut cards, None)?;
         *card = cards.remove(0);
     }
     Ok(card)
@@ -911,9 +911,30 @@ pub(in crate::kanban) fn enrich_relationships_batched(
     Ok(())
 }
 
+pub(in crate::kanban) fn work_agent_launch_retryable(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<bool, String> {
+    connection
+        .query_row(
+            "SELECT event_type FROM card_events
+             WHERE card_id=?1 AND (
+               event_type='agent_launch_failed'
+               OR (event_type='agent_started' AND to_status='agent_working')
+             )
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+            [card_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map(|event_type| event_type.as_deref() == Some("agent_launch_failed"))
+        .map_err(db_error)
+}
+
 pub(in crate::kanban) fn enrich_capabilities(
     connection: &Connection,
     cards: &mut [KanbanCard],
+    work_agent_launch_retries: Option<&HashMap<String, bool>>,
 ) -> Result<(), String> {
     crate::store::migrate_store_schema(connection)?;
     let projects = {
@@ -971,6 +992,10 @@ pub(in crate::kanban) fn enrich_capabilities(
                 card.runtime_cleanup_status.as_deref(),
                 Some("pending" | "failed")
             ),
+            work_agent_launch_retryable: match work_agent_launch_retries {
+                Some(retries) => retries.get(&card.id).copied().unwrap_or(false),
+                None => work_agent_launch_retryable(connection, &card.id)?,
+            },
             local_provider: card.provider == "local",
             has_parent: card.parent.is_some(),
             has_children: card.child_count > 0,
@@ -1300,15 +1325,23 @@ pub(in crate::kanban) fn load_pull_requests_batched(
 pub(in crate::kanban) fn load_events_batched(
     connection: &Connection,
     cards: &mut [KanbanCard],
-) -> Result<(), String> {
+) -> Result<HashMap<String, bool>, String> {
     let indexes = cards
         .iter()
         .enumerate()
         .map(|(index, card)| (card.id.clone(), index))
         .collect::<HashMap<_, _>>();
     let mut statement = connection.prepare(
-        "SELECT card_id, id, created_at, actor, event_type, outcome, from_status, to_status, summary, error_code, error_detail
-         FROM (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.card_id ORDER BY e.created_at DESC, e.id DESC) AS event_rank
+        "SELECT card_id, id, created_at, actor, event_type, outcome, from_status, to_status, summary, error_code, error_detail,
+                latest_work_launch_event
+         FROM (SELECT e.*,
+                      ROW_NUMBER() OVER (PARTITION BY e.card_id ORDER BY e.created_at DESC, e.id DESC) AS event_rank,
+                      (SELECT launch.event_type FROM card_events launch
+                       WHERE launch.card_id=e.card_id AND (
+                         launch.event_type='agent_launch_failed'
+                         OR (launch.event_type='agent_started' AND launch.to_status='agent_working')
+                       )
+                       ORDER BY launch.created_at DESC, launch.id DESC LIMIT 1) AS latest_work_launch_event
                FROM card_events e JOIN kanban_cards c ON c.id=e.card_id WHERE c.in_scope=1)
          WHERE event_rank <= 100 ORDER BY card_id, created_at DESC, id DESC"
     ).map_err(db_error)?;
@@ -1328,16 +1361,21 @@ pub(in crate::kanban) fn load_events_batched(
                     error_code: row.get(9)?,
                     error_detail: row.get(10)?,
                 },
+                row.get::<_, Option<String>>(11)?,
             ))
         })
         .map_err(db_error)?;
+    let mut work_agent_launch_retries = HashMap::new();
     for row in rows {
-        let (card_id, event) = row.map_err(db_error)?;
+        let (card_id, event, latest_work_launch_event) = row.map_err(db_error)?;
         if let Some(index) = indexes.get(&card_id) {
             cards[*index].events.push(event);
+            work_agent_launch_retries
+                .entry(card_id)
+                .or_insert(latest_work_launch_event.as_deref() == Some("agent_launch_failed"));
         }
     }
-    Ok(())
+    Ok(work_agent_launch_retries)
 }
 
 pub(in crate::kanban) fn load_pull_request(

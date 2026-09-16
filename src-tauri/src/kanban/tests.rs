@@ -826,6 +826,70 @@ fn pre_generation_launch_failure_is_recorded_and_retryable() {
 }
 
 #[test]
+fn successful_work_launch_suppresses_retry_after_settling_and_later_failure_restores_it() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "project", "local", "/tmp/project");
+    local_card(&mut connection);
+    connection.execute("UPDATE kanban_cards SET status='agent_working' WHERE id='local:test'", []).unwrap();
+    connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,lifecycle_state,revision,created_at,updated_at) VALUES ('env','local:test','project','/tmp/worktree','card-99','ready',1,1,1)", []).unwrap();
+    connection.execute(
+        "INSERT INTO card_pi_lifecycle(card_id,thread,generation,latest_event_order,latest_event_id) VALUES ('local:test','work','work-generation',-1,'')",
+        [],
+    ).unwrap();
+
+    let started = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Work,
+        PiLifecycleIntent::AgentStarted,
+        "work-generation",
+        "start-1",
+        Some(0),
+    ).unwrap();
+    assert_eq!(started.status, CardStatus::AgentWorking);
+    assert_eq!(started.workflow_revision, 1);
+
+    let settled = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Work,
+        PiLifecycleIntent::AgentSettled,
+        "work-generation",
+        "settled-1",
+        Some(1),
+    ).unwrap();
+    assert_eq!(settled.status, CardStatus::NeedsHuman);
+    assert!(!settled.capabilities.iter().any(|capability| capability.action == WorkflowAction::StartWork));
+
+    record_agent_launch_failure(&mut connection, "local:test", 2, "project", "Pi CLI stopped before launch").unwrap();
+    let failed = get_card(&connection, "local:test").unwrap().unwrap();
+    assert!(failed.capabilities.iter().any(|capability| capability.action == WorkflowAction::StartWork && capability.available));
+
+    let restarted = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Work,
+        PiLifecycleIntent::AgentStarted,
+        "work-generation",
+        "start-2",
+        Some(2),
+    ).unwrap();
+    assert_eq!(restarted.status, CardStatus::AgentWorking);
+    let settled_again = apply_pi_lifecycle_intent(
+        &mut connection,
+        "local:test",
+        PiThread::Work,
+        PiLifecycleIntent::AgentSettled,
+        "work-generation",
+        "settled-2",
+        Some(3),
+    ).unwrap();
+    assert_eq!(settled_again.status, CardStatus::NeedsHuman);
+    assert!(!settled_again.capabilities.iter().any(|capability| capability.action == WorkflowAction::StartWork));
+}
+
+#[test]
 fn project_reassignment_allows_only_refinement_statuses_and_renumbers_cards() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
