@@ -13,9 +13,26 @@ const environment = { id: 'e', card_id: 'local:1', project_id: 'p', worktree_pat
 
 describe('workflow action presentation', () => {
   it('preserves backend ordering and availability reasons', () => {
-    const actions = deriveCardWorkflowActions({ card: card('needs_human', [capability('request_changes'), capability('merge_target'), capability('ship', false, 'Environment missing'), capability('ship_with_fe'), capability('close')]), project });
-    expect(actions.map(({ kind }) => kind)).toEqual(['request_changes', 'merge_target', 'ship', 'ship_with_fe', 'close']);
-    expect(actions[2]).toMatchObject({ label: 'Ship It', disabledReason: 'Environment missing', primary: true });
+    const actions = deriveCardWorkflowActions({ card: card('needs_human', [capability('request_changes'), capability('merge_target'), capability('ship', false, 'Environment missing'), capability('close')]), project });
+    expect(actions.map(({ kind }) => kind)).toEqual(['request_changes', 'merge_target', 'ship', 'close']);
+    expect(actions[2]).toMatchObject({ label: 'Commit', disabledReason: 'Environment missing', primary: true });
+  });
+
+  it('keeps plain PR creation primary and FE creation secondary', () => {
+    const value = card('approved', [capability('create_pr'), capability('create_pr_with_fe')]);
+    const actions = deriveCardWorkflowActions({ card: value, project });
+    expect(actions).toMatchObject([
+      { kind: 'create_pr', label: 'Create PR', primary: true },
+      { kind: 'create_pr_with_fe', label: 'Create PR with FE' },
+    ]);
+    expect(actions[1].primary).toBeUndefined();
+
+    const pending = deriveCardWorkflowActions({ card: value, project, operation: { kind: 'create_pr_with_fe' } });
+    expect(pending[0].loading).toBe(false);
+    expect(pending[1]).toMatchObject({ loading: true, error: undefined });
+
+    const failed = deriveCardWorkflowActions({ card: value, project, operation: { kind: 'create_pr_with_fe', error: 'PR creation failed' } });
+    expect(failed[1]).toMatchObject({ loading: false, error: 'PR creation failed' });
   });
 
   it('adds presentation-only confirmation and appearance', () => {
@@ -28,9 +45,9 @@ describe('workflow action presentation', () => {
     expect(deriveCardWorkflowActions({ card: value, project, activeTab: 'chat' }).map(({ kind }) => kind)).toEqual(['finish_refinement']);
   });
 
-  it('keeps the active Ship action visible while pending', () => {
+  it('keeps the active commit action visible while pending', () => {
     const [ship] = deriveCardWorkflowActions({ card: card('approved', [capability('ship')]), project, operation: { kind: 'ship' } });
-    expect(ship).toMatchObject({ kind: 'ship', label: 'Ship It again', loading: true });
+    expect(ship).toMatchObject({ kind: 'ship', label: 'Commit updates', loading: true });
   });
 
   it('presents durable environment creation recovery supplied by the backend', () => {

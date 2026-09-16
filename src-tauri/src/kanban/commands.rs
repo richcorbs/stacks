@@ -200,13 +200,11 @@ pub async fn kanban_approve_and_commit(
     id: String,
     expected_workflow_revision: i64,
     expected_environment_revision: i64,
-    feature_environment: Option<bool>,
 ) -> Result<WorkflowOperationResult, String> {
     kanban_approve_and_commit_operation(
         id,
         expected_workflow_revision,
         expected_environment_revision,
-        feature_environment,
     )
     .await
 }
@@ -282,8 +280,9 @@ pub async fn kanban_refresh_pull_request(
 pub async fn kanban_create_pull_request(
     id: String,
     expected_workflow_revision: i64,
+    feature_environment: bool,
 ) -> Result<KanbanCard, String> {
-    kanban_create_pull_request_operation(id, expected_workflow_revision).await
+    kanban_create_pull_request_operation(id, expected_workflow_revision, feature_environment).await
 }
 
 #[tauri::command]

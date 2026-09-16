@@ -8,13 +8,13 @@ import { CardWorkflowControls } from './CardWorkflowControls';
 
 const actions: CardWorkflowAction[] = [
   { kind: 'request_changes', label: 'Request changes' },
-  { kind: 'ship', label: 'Ship It', primary: true, loading: true },
+  { kind: 'ship', label: 'Commit', primary: true, loading: true },
 ];
 
 const approvedActions: CardWorkflowAction[] = [
   { kind: 'request_changes', label: 'Request changes' },
   { kind: 'merge_target', label: 'Merge in target & resolve' },
-  { kind: 'ship', label: 'Ship It again' },
+  { kind: 'ship', label: 'Commit updates' },
   { kind: 'merge_local', label: 'Merge locally', primary: true },
 ];
 
@@ -67,8 +67,8 @@ describe('CardWorkflowControls', () => {
     expect(buttons.every((button) => button.includes('disabled=""'))).toBe(true);
     expect(buttons[0]).toContain('aria-label="Request changes"');
     expect(buttons[0]).toContain('>Request changes</button>');
-    expect(buttons[1]).toContain('aria-label="Ship It"');
-    expect(buttons[1]).toContain('>Ship It</button>');
+    expect(buttons[1]).toContain('aria-label="Commit"');
+    expect(buttons[1]).toContain('>Commit</button>');
     expect(buttons.every((button) => !button.includes('Working…'))).toBe(true);
   });
 
@@ -120,7 +120,7 @@ describe('CardWorkflowControls', () => {
     expect(buttons[1]).toContain('disabled=""');
   });
 
-  it('disables every action from Ship It click through prompting, finalization, and refresh', async () => {
+  it('disables every action from Commit click through prompting, finalization, and refresh', async () => {
     const prompting = deferred();
     const finalizing = deferred();
     const refreshing = deferred();
@@ -152,11 +152,11 @@ describe('CardWorkflowControls', () => {
     await act(async () => { refreshing.resolve(); await Promise.resolve(); });
 
     const settledButtons = renderer.root.findAllByType('button');
-    expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Merge in target & resolve', 'Ship It again', 'Merge locally']);
+    expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Merge in target & resolve', 'Commit updates', 'Merge locally']);
     expect(settledButtons.every((button) => !button.props.disabled)).toBe(true);
   });
 
-  it('restores the original actions and displays the error after Ship It fails', async () => {
+  it('restores the original actions and displays the error after Commit fails', async () => {
     const pending = deferred();
     const ship = vi.fn(async () => {
       await pending.promise;
@@ -171,7 +171,7 @@ describe('CardWorkflowControls', () => {
     await act(async () => { pending.resolve(); await Promise.resolve(); });
 
     const settledButtons = renderer.root.findAllByType('button');
-    expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Ship It']);
+    expect(settledButtons.map((button) => button.props['aria-label'])).toEqual(['Request changes', 'Commit']);
     expect(settledButtons.every((button) => !button.props.disabled)).toBe(true);
     expect(renderer.root.findByProps({ role: 'alert' }).children).toEqual(['Commit verification failed']);
   });

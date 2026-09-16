@@ -1862,6 +1862,8 @@ fn feature_environment_prefix_is_applied_exactly_once() {
     assert_eq!(feature_environment_title("Title"), "[FE] Title");
     assert_eq!(feature_environment_title("[FE] Title"), "[FE] Title");
     assert_eq!(feature_environment_title("[FE] [FE] Title"), "[FE] Title");
+    assert_eq!(pull_request_title("[FE] Title", false), "Title");
+    assert_eq!(pull_request_title("[FE] [FE] Title", true), "[FE] Title");
 }
 
 #[test]
@@ -1995,8 +1997,7 @@ fn approval_accepts_clean_committed_work_and_records_transition() {
     let (root, target, source) = merge_repository();
     let mut connection = approval_connection(&source, &target);
     let result =
-        approve_and_commit_with_failure_record(&mut connection, "local:approve", 5, 2, false)
-            .unwrap();
+        approve_and_commit_with_failure_record(&mut connection, "local:approve", 5, 2).unwrap();
     assert_eq!(result.card.status, "approved");
     assert_eq!(result.card.workflow_revision, 6);
     assert_eq!(result.card.environment.unwrap().revision, 3);
@@ -2009,10 +2010,82 @@ fn approval_accepts_clean_committed_work_and_records_transition() {
 }
 
 #[test]
-fn approved_card_can_be_shipped_again_after_its_source_revision_changes() {
+fn approval_does_not_change_feature_environment_mode() {
     let (root, target, source) = merge_repository();
     let mut connection = approval_connection(&source, &target);
-    let first = approve_and_commit(&mut connection, "local:approve", 5, 2, false).unwrap();
+    connection
+        .execute(
+            "UPDATE kanban_cards SET feature_environment=1 WHERE id='local:approve'",
+            [],
+        )
+        .unwrap();
+
+    let result = approve_and_commit(&mut connection, "local:approve", 5, 2).unwrap();
+    assert!(result.card.feature_environment);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn pr_creation_mode_is_structurally_validated_and_overwrites_stale_mode() {
+    let (root, target, source) = merge_repository();
+    let mut connection = approval_connection(&source, &target);
+    approve_and_commit(&mut connection, "local:approve", 5, 2).unwrap();
+
+    assert!(begin_pull_request_creation(&connection, "local:approve", false).is_err());
+    connection
+        .execute(
+            "UPDATE projects SET delivery_workflow='github_pull_request' WHERE id='p'",
+            [],
+        )
+        .unwrap();
+    assert!(begin_pull_request_creation(&connection, "local:approve", true).is_err());
+
+    begin_pull_request_creation(&connection, "local:approve", false).unwrap();
+    let plain: (bool, String) = connection
+        .query_row(
+            "SELECT feature_environment, delivery_operation_stage FROM kanban_cards WHERE id='local:approve'",
+            [],
+            |row| Ok((row.get::<_, i64>(0)? != 0, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(plain, (false, "creating_pr".to_string()));
+
+    connection
+        .execute(
+            "UPDATE projects SET supports_feature_environments=1 WHERE id='p'",
+            [],
+        )
+        .unwrap();
+    begin_pull_request_creation(&connection, "local:approve", true).unwrap();
+    assert!(connection
+        .query_row(
+            "SELECT feature_environment FROM kanban_cards WHERE id='local:approve'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+        != 0);
+    begin_pull_request_creation(&connection, "local:approve", false).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT feature_environment FROM kanban_cards WHERE id='local:approve'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        0
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn approved_card_can_be_committed_again_after_its_source_revision_changes() {
+    let (root, target, source) = merge_repository();
+    let mut connection = approval_connection(&source, &target);
+    let first = approve_and_commit(&mut connection, "local:approve", 5, 2).unwrap();
     assert_eq!(first.card.status, "approved");
 
     fs::write(source.join("after-ship.txt"), "follow-up\n").unwrap();
@@ -2021,11 +2094,11 @@ fn approved_card_can_be_shipped_again_after_its_source_revision_changes() {
     let changed_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
     let merge_error = merge_card(&mut connection, "local:approve", 6, 3).unwrap_err();
     assert!(
-        merge_error.to_lowercase().contains("ship it again"),
+        merge_error.to_lowercase().contains("commit updates"),
         "{merge_error}"
     );
 
-    let refreshed = approve_and_commit(&mut connection, "local:approve", 6, 3, false).unwrap();
+    let refreshed = approve_and_commit(&mut connection, "local:approve", 6, 3).unwrap();
     assert_eq!(refreshed.card.status, "approved");
     assert_eq!(refreshed.card.workflow_revision, 6);
     assert_eq!(
@@ -2060,7 +2133,7 @@ fn approval_reconciles_the_expected_agent_status_cycle() {
                 params![status, revision],
             )
             .unwrap();
-        let result = approve_and_commit(&mut connection, "local:approve", 5, 2, false).unwrap();
+        let result = approve_and_commit(&mut connection, "local:approve", 5, 2).unwrap();
         assert_eq!(result.card.status, "approved");
         fs::remove_dir_all(root).unwrap();
     }
@@ -2092,7 +2165,7 @@ fn approval_reports_modified_staged_untracked_and_deleted_files() {
             Dirty::Deleted => fs::remove_file(source.join("feature.txt")).unwrap(),
         }
         let detail =
-            approve_and_commit_with_failure_record(&mut connection, "local:approve", 5, 2, false)
+            approve_and_commit_with_failure_record(&mut connection, "local:approve", 5, 2)
                 .unwrap_err();
         assert!(detail.contains("worktree is not clean"), "{detail}");
         assert!(detail.contains(expected_counts), "{detail}");
@@ -2125,7 +2198,7 @@ fn approval_rejects_wrong_branch_and_stale_revisions() {
         )
         .unwrap();
     assert!(
-        approve_and_commit(&mut connection, "local:approve", 5, 2, false)
+        approve_and_commit(&mut connection, "local:approve", 5, 2)
             .unwrap_err()
             .contains("expected unexpected")
     );
@@ -2136,12 +2209,12 @@ fn approval_rejects_wrong_branch_and_stale_revisions() {
         )
         .unwrap();
     assert!(
-        approve_and_commit(&mut connection, "local:approve", 4, 2, false)
+        approve_and_commit(&mut connection, "local:approve", 4, 2)
             .unwrap_err()
             .contains("Card changed")
     );
     assert!(
-        approve_and_commit(&mut connection, "local:approve", 5, 1, false)
+        approve_and_commit(&mut connection, "local:approve", 5, 1)
             .unwrap_err()
             .contains("environment changed")
     );

@@ -58,9 +58,9 @@ string_enum!(WorkflowAction {
     ReturnToRefinement => "return_to_refinement",
     RequestChanges => "request_changes",
     Ship => "ship",
-    ShipWithFe => "ship_with_fe",
     MergeLocal => "merge_local",
     CreatePr => "create_pr",
+    CreatePrWithFe => "create_pr_with_fe",
     OpenPr => "open_pr",
     MergePr => "merge_pr",
     MergeTarget => "merge_target",
@@ -178,7 +178,7 @@ fn transition_target(
         (AgentWorking, RequestChanges) => Some((NeedsHuman, None)),
         (NeedsHuman, StartWork) => Some((AgentWorking, None)),
         (Approved, RequestChanges) => Some((NeedsHuman, None)),
-        (AgentWorking | NeedsHuman | Approved, Ship | ShipWithFe) => Some((Approved, None)),
+        (AgentWorking | NeedsHuman | Approved, Ship) => Some((Approved, None)),
         (Approved, MergeLocal | MergePr) => Some((Done, Some(CompletionOutcome::Merged))),
         (
             NeedsRefinement | Refining | NeedsRefinementInput | Ready | AgentWorking | NeedsHuman
@@ -290,17 +290,11 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
                 .resumable_operation
                 .then(|| "Finish or retry the current delivery operation".to_string())
                 .or(environment.clone());
-            let mut values = vec![
+            vec![
                 capability(RequestChanges, None),
                 capability(MergeTarget, environment.clone()),
-                capability(Ship, ship_reason.clone()),
-            ];
-            if context.delivery_workflow == DeliveryWorkflow::GithubPullRequest
-                && context.supports_feature_environments
-            {
-                values.push(capability(ShipWithFe, ship_reason));
-            }
-            values
+                capability(Ship, ship_reason),
+            ]
         }
         Approved if context.delivery_workflow == DeliveryWorkflow::GithubPullRequest => {
             let mut values = vec![
@@ -317,6 +311,9 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
                             .or(environment.clone()),
                     ));
                     values.push(capability(CreatePr, environment.clone()));
+                    if context.supports_feature_environments {
+                        values.push(capability(CreatePrWithFe, environment.clone()));
+                    }
                 }
                 Some(PullRequestState::Open) => {
                     values.push(capability(OpenPr, None));
@@ -400,7 +397,7 @@ pub fn target_merge_completion(
                 // A target merge finalized from Ready to merge is itself a
                 // verified, clean, explicit merge of the exact recorded target
                 // revision. Preserve approval so local delivery can proceed
-                // without a redundant second Ship It. Pre-approval merges still
+                // without a redundant second Commit. Pre-approval merges still
                 // settle in Needs you and require the normal approval step.
                 to: if context.status == CardStatus::Approved {
                     CardStatus::Approved
@@ -513,9 +510,9 @@ mod tests {
             ReturnToRefinement,
             RequestChanges,
             Ship,
-            ShipWithFe,
             MergeLocal,
             CreatePr,
+            CreatePrWithFe,
             OpenPr,
             MergePr,
             MergeTarget,
@@ -564,7 +561,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             feature_environment,
-            vec![RequestChanges, MergeTarget, Ship, ShipWithFe, Close]
+            vec![RequestChanges, MergeTarget, Ship, Close]
         );
     }
 
@@ -579,6 +576,37 @@ mod tests {
         assert_eq!(
             actions,
             vec![RequestChanges, MergeTarget, Ship, MergeLocal, Close]
+        );
+    }
+
+    #[test]
+    fn github_pr_capabilities_offer_ordered_feature_environment_choice() {
+        use WorkflowAction::*;
+
+        let mut github = context(CardStatus::Approved);
+        github.delivery_workflow = DeliveryWorkflow::GithubPullRequest;
+        assert_eq!(
+            capabilities(&github)
+                .into_iter()
+                .map(|capability| capability.action)
+                .collect::<Vec<_>>(),
+            vec![RequestChanges, MergeTarget, Ship, CreatePr, Close]
+        );
+
+        github.supports_feature_environments = true;
+        assert_eq!(
+            capabilities(&github)
+                .into_iter()
+                .map(|capability| capability.action)
+                .collect::<Vec<_>>(),
+            vec![
+                RequestChanges,
+                MergeTarget,
+                Ship,
+                CreatePr,
+                CreatePrWithFe,
+                Close,
+            ]
         );
     }
 
