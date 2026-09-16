@@ -158,7 +158,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .projectSwitcherEmpty { padding: 14px 10px; color: #65778a; text-align: center; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .projectSwitcherAdd { margin-top: 10px; padding: 7px 9px; border: 1px solid #2d3d4f; border-radius: 6px; background: transparent; color: #718ba3; cursor: pointer; font-size: calc(12px + var(--ui-font-delta, 0px)); }
 .projectSwitcherAdd:hover, .projectSwitcherAdd:focus-visible { background: #182531; color: #9ab0c4; outline: none; }
-.kanbanDetailBackdrop { z-index: 60; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 16px; }
+/* Overlay hierarchy: detail surfaces < standard dialogs < command palette. The
+   combined selector keeps the detail level below .modalBackdrop regardless of
+   stylesheet order because detail backdrops carry both classes. */
+.modalBackdrop.kanbanDetailBackdrop { z-index: 60; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 16px; }
 .kanbanDetail { width: min(1000px, calc(100vw - 32px)); max-width: 1000px; height: 95dvh; max-height: 95dvh; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #101821; border: 1px solid #2a3b4e; border-radius: 12px; box-shadow: 0 24px 80px rgba(0, 0, 0, .55); }
 .kanbanDetail > header { box-sizing: border-box; flex: 0 0 auto; min-width: 0; min-height: 82px; padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid #223142; }
 .kanbanDetailHeading { flex: 1; min-width: 0; }
