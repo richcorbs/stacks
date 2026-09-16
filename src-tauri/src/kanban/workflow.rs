@@ -149,6 +149,7 @@ pub struct WorkflowContext {
     pub creation_cleanup_available: bool,
     pub cleanup_operation_active: bool,
     pub runtime_cleanup_retryable: bool,
+    pub work_agent_launch_retryable: bool,
     pub local_provider: bool,
     pub has_parent: bool,
     pub has_children: bool,
@@ -290,12 +291,19 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
                 .resumable_operation
                 .then(|| "Finish or retry the current delivery operation".to_string())
                 .or(environment.clone());
-            vec![
-                capability(StartWork, environment.clone().or(project.clone())),
+            let mut values = Vec::new();
+            if context.work_agent_launch_retryable {
+                values.push(capability(
+                    StartWork,
+                    environment.clone().or(project.clone()),
+                ));
+            }
+            values.extend([
                 capability(RequestChanges, None),
                 capability(MergeTarget, environment.clone()),
                 capability(Ship, ship_reason),
-            ]
+            ]);
+            values
         }
         Approved if context.delivery_workflow == DeliveryWorkflow::GithubPullRequest => {
             let mut values = vec![
@@ -486,6 +494,7 @@ mod tests {
             creation_cleanup_available: false,
             cleanup_operation_active: false,
             runtime_cleanup_retryable: false,
+            work_agent_launch_retryable: false,
             local_provider: true,
             has_parent: false,
             has_children: false,
@@ -554,7 +563,18 @@ mod tests {
             .into_iter()
             .map(|capability| capability.action)
             .collect::<Vec<_>>();
-        assert_eq!(standard, vec![StartWork, RequestChanges, MergeTarget, Ship, Close]);
+        assert_eq!(standard, vec![RequestChanges, MergeTarget, Ship, Close]);
+
+        let mut retryable = context(CardStatus::NeedsHuman);
+        retryable.work_agent_launch_retryable = true;
+        let retryable = capabilities(&retryable)
+            .into_iter()
+            .map(|capability| capability.action)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            retryable,
+            vec![StartWork, RequestChanges, MergeTarget, Ship, Close]
+        );
 
         let mut feature_environment = context(CardStatus::NeedsHuman);
         feature_environment.delivery_workflow = DeliveryWorkflow::GithubPullRequest;
@@ -565,7 +585,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             feature_environment,
-            vec![StartWork, RequestChanges, MergeTarget, Ship, Close]
+            vec![RequestChanges, MergeTarget, Ship, Close]
         );
     }
 

@@ -748,6 +748,7 @@ pub(in crate::kanban) fn workflow_context_for_card(
             card.runtime_cleanup_status.as_deref(),
             Some("pending" | "failed")
         ),
+        work_agent_launch_retryable: work_agent_launch_retryable(connection, &card.id)?,
         local_provider: card.provider == "local",
         has_parent: card.parent.is_some(),
         has_children: card.child_count > 0,
@@ -944,25 +945,34 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
     }
     let card =
         get_card(&transaction, &id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
-    if let Some(transition) = workflow::lifecycle_transition(
+    let transition = workflow::lifecycle_transition(
         &workflow_context_for_card(&transaction, &card)?,
         thread,
         intent,
-    ) {
+    );
+    let records_initial_work_launch = thread == PiThread::Work
+        && intent == PiLifecycleIntent::AgentStarted
+        && card.status == CardStatus::AgentWorking;
+    if transition.is_some() || records_initial_work_launch {
         let now = unix_timestamp();
-        transaction.execute(
-                "UPDATE kanban_cards SET status=?1,workflow_revision=workflow_revision+1,updated_at=?2,
-                 sort_order=(SELECT COALESCE(MAX(sort_order),-1)+1 FROM kanban_cards destination WHERE destination.status=?1)
-                 WHERE id=?3 AND workflow_revision=?4",
-                params![transition.to, now, id, card.workflow_revision],
-            ).map_err(db_error)?;
+        if let Some(transition) = transition {
+            transaction.execute(
+                    "UPDATE kanban_cards SET status=?1,workflow_revision=workflow_revision+1,updated_at=?2,
+                     sort_order=(SELECT COALESCE(MAX(sort_order),-1)+1 FROM kanban_cards destination WHERE destination.status=?1)
+                     WHERE id=?3 AND workflow_revision=?4",
+                    params![transition.to, now, id, card.workflow_revision],
+                ).map_err(db_error)?;
+        }
         let failed = matches!(
             intent,
             PiLifecycleIntent::ProtocolFailed | PiLifecycleIntent::ProcessExited
         );
+        let (from_status, to_status) = transition
+            .map(|value| (value.from, value.to))
+            .unwrap_or((card.status, card.status));
         transaction.execute(
                 "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail) VALUES (?1,?2,'agent',?3,?4,?5,?6,?7,?8,?9)",
-                params![id, now, intent, if failed { "failure" } else { "success" }, transition.from, transition.to,
+                params![id, now, intent, if failed { "failure" } else { "success" }, from_status, to_status,
                     format!("Pi {} {}", thread, intent), failed.then(|| intent.as_str()), failure_detail],
             ).map_err(db_error)?;
     }
