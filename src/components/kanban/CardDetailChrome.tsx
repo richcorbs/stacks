@@ -28,9 +28,10 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
   onAssignProject: (projectId: string) => Promise<void>;
   onActionError: (message: string) => void;
 }) {
-  const hasRepositoryMetadata = Boolean(card.environment?.branch?.trim())
-    || hasGitChangeSummary(gitChangeSummary)
-    || Boolean(card.pull_request);
+  const hasBranch = Boolean(card.environment?.branch?.trim());
+  const hasGitSummary = hasGitChangeSummary(gitChangeSummary);
+  const hasPullRequest = Boolean(card.pull_request);
+  const hasRepositoryMetadata = hasBranch || hasGitSummary || hasPullRequest;
 
   return <header>
     <div className="kanbanDetailHeading">
@@ -48,7 +49,9 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
         : <h2>{card.title}</h2>}
       {hasRepositoryMetadata && <div className="kanbanDetailRepositoryMeta">
         <CardEnvironmentBranch branch={card.environment?.branch} />
+        {hasBranch && (hasGitSummary || hasPullRequest) && <span className="kanbanDetailRepositorySeparator" aria-hidden="true">•</span>}
         <CardGitSummary summary={gitChangeSummary} />
+        {hasGitSummary && hasPullRequest && <span className="kanbanDetailRepositorySeparator" aria-hidden="true">•</span>}
         <CardPullRequestLink pullRequest={card.pull_request} onOpen={openExternalLink} />
       </div>}
     </div>
