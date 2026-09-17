@@ -19,6 +19,8 @@ export function DialogFields({ dialog, setDialog, firstInputRef }: DialogFieldsP
     </>}
     <label>Delivery workflow<select value={dialog.deliveryWorkflow ?? 'local_merge'} onChange={(event) => setDialog({ ...dialog, deliveryWorkflow: event.target.value as 'local_merge' | 'github_pull_request' })}><option value="local_merge">Local merge</option><option value="github_pull_request">GitHub pull request</option></select></label>
     <label>Target branch<input value={dialog.targetBranch ?? 'main'} required onChange={(event) => setDialog({ ...dialog, targetBranch: event.target.value })} /></label>
+    <label className="checkboxLabel"><input type="checkbox" checked={dialog.releasesEnabled ?? false} onChange={(event) => setDialog({ ...dialog, releasesEnabled: event.target.checked })} />Enable Releases</label>
+    {dialog.releasesEnabled && <label>Release configuration<input value={dialog.releaseConfigPath ?? '.stacks/release.json'} required placeholder=".stacks/release.json" onChange={(event) => setDialog({ ...dialog, releaseConfigPath: event.target.value })} /></label>}
     {(dialog.deliveryWorkflow ?? 'local_merge') === 'github_pull_request' && <>
       <label className="checkboxLabel"><input type="checkbox" checked={dialog.supportsFeatureEnvironments ?? false} onChange={(event) => setDialog({ ...dialog, supportsFeatureEnvironments: event.target.checked })} />Supports feature environments</label>
       <label>Merge strategy<select value={dialog.githubMergeStrategy ?? 'merge'} onChange={(event) => setDialog({ ...dialog, githubMergeStrategy: event.target.value as 'merge' | 'squash' | 'rebase' })}><option value="merge">Merge commit</option><option value="squash">Squash</option><option value="rebase">Rebase</option></select></label>

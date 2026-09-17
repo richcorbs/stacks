@@ -53,6 +53,32 @@ See [`src/pi/README.md`](src/pi/README.md) for implementation and lifecycle deta
 - Configures terminal typography and scrollback, copy-on-select, confirmation and notification behavior, editor integration, status colors, GitHub polling, and Superthread behavior.
 - Checks signed updater artifacts published through GitHub Releases.
 
+### Repository release pipelines
+
+Projects can opt into a generic **Release** tab and select a repository-relative configuration file (default `.stacks/release.json`). Commands are repository-owned and versions are opaque. A minimal configuration is:
+
+```json
+{
+  "currentVersion": "./scripts/current-version",
+  "suggestedVersion": "./scripts/suggest-version",
+  "validateVersion": "./scripts/validate-version",
+  "generateNotes": "./scripts/release-notes",
+  "preflight": "./scripts/release-preflight",
+  "stages": [
+    {
+      "id": "publish",
+      "name": "Publish",
+      "run": "./scripts/publish",
+      "verify": "./scripts/verify-publish",
+      "repositoryAccess": "exclusive",
+      "approval": { "instructions": "Confirm the published candidate before continuing." }
+    }
+  ]
+}
+```
+
+Only `currentVersion` and one or more stages are required. `repositoryAccess` is `read` or `exclusive`; IDs must be unique. Commands run unchanged through the interactive login shell. Release values are never interpolated into them and are available only through `STACKS_RELEASE_VERSION`, `STACKS_RELEASE_PREVIOUS_VERSION`, `STACKS_RELEASE_PROJECT_PATH`, `STACKS_RELEASE_TARGET_BRANCH`, `STACKS_RELEASE_INITIAL_REVISION`, `STACKS_RELEASE_OPERATION_ID`, and `STACKS_RELEASE_NOTES_FILE`. The notes file is temporary and owner-readable only.
+
 ## Runtime requirements
 
 - macOS on Apple Silicon for the published builds.

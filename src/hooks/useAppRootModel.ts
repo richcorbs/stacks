@@ -68,10 +68,10 @@ export function useAppRootModel() {
   async function openProjectDialog() {
     const selected = await open({ directory: true, multiple: false, title: 'Choose Project Directory' }).catch(() => null);
     if (typeof selected !== 'string') return;
-    setDialog({ kind: 'project', name: selected.split('/').filter(Boolean).at(-1) ?? 'Project', path: selected, kanbanSource: 'local', deliveryWorkflow: 'local_merge', targetBranch: 'main', supportsFeatureEnvironments: false, githubMergeStrategy: 'merge', requirePassingCi: true, requireApproval: false });
+    setDialog({ kind: 'project', name: selected.split('/').filter(Boolean).at(-1) ?? 'Project', path: selected, kanbanSource: 'local', deliveryWorkflow: 'local_merge', targetBranch: 'main', supportsFeatureEnvironments: false, githubMergeStrategy: 'merge', requirePassingCi: true, requireApproval: false, releasesEnabled: false, releaseConfigPath: '.stacks/release.json' });
   }
   function editProject(project: Project) {
-    setDialog({ kind: 'editProject', projectId: project.id, name: project.name, path: project.path, kanbanSource: project.kanban_source, startWorkCommand: project.start_work_command, superthreadSpaces: project.superthread_spaces, superthreadWorkspaceSlug: project.superthread_workspace_slug, serverCommand: project.server_command, consoleCommand: project.console_command, deliveryWorkflow: project.delivery_workflow, targetBranch: project.target_branch, supportsFeatureEnvironments: project.supports_feature_environments, githubMergeStrategy: project.github_merge_strategy, requirePassingCi: project.require_passing_ci, requireApproval: project.require_approval });
+    setDialog({ kind: 'editProject', projectId: project.id, name: project.name, path: project.path, kanbanSource: project.kanban_source, startWorkCommand: project.start_work_command, superthreadSpaces: project.superthread_spaces, superthreadWorkspaceSlug: project.superthread_workspace_slug, serverCommand: project.server_command, consoleCommand: project.console_command, deliveryWorkflow: project.delivery_workflow, targetBranch: project.target_branch, supportsFeatureEnvironments: project.supports_feature_environments, githubMergeStrategy: project.github_merge_strategy, requirePassingCi: project.require_passing_ci, requireApproval: project.require_approval, releasesEnabled: project.releases_enabled, releaseConfigPath: project.release_config_path ?? '.stacks/release.json' });
   }
   async function submitDialog() {
     if (!dialog) return;
@@ -93,6 +93,8 @@ export function useAppRootModel() {
       target_branch: dialog.targetBranch?.trim() || 'main', supports_feature_environments: dialog.supportsFeatureEnvironments ?? false,
       github_merge_strategy: dialog.githubMergeStrategy ?? 'merge', require_passing_ci: dialog.requirePassingCi ?? true,
       require_approval: dialog.requireApproval ?? false,
+      releases_enabled: dialog.releasesEnabled ?? false,
+      release_config_path: dialog.releaseConfigPath?.trim() || '.stacks/release.json',
     };
     const next = { projects: dialog.kind === 'project' ? [...store.projects, project] : store.projects.map((item) => item.id === id ? project : item) };
     await invoke('save_store', { store: next }); setStore(next); setDialog(null);
@@ -170,6 +172,7 @@ export function useAppRootModel() {
     onRunOneTimeCommand: () => setOneTimeCommandOpen(true),
     onNewCard: (project) => window.dispatchEvent(new CustomEvent('stacks:new-card', { detail: { projectId: project?.id } })),
     onDirectProjectWork: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project?.id } })),
+    onRelease: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project?.id, view: 'release' } })),
     onCardTerminalCommand: (action) => dispatchCardTerminalCommand(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
     onFocusCardTerminalPane: (paneId) => dispatchCardTerminalCommand({ type: 'focus', paneId }),
   }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, selectedProject, store]);

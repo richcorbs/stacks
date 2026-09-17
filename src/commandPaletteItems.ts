@@ -17,6 +17,7 @@ export type CommandPaletteItemOptions = {
   onRunOneTimeCommand: () => void;
   onNewCard: (project: Project | null) => void;
   onDirectProjectWork: (project: Project | null) => void;
+  onRelease?: (project: Project | null) => void;
   onCardTerminalCommand: (command: 'split-right' | 'split-down' | 'search' | 'clear' | 'restart' | 'stop' | 'close' | 'toggle-maximize') => void;
   onFocusCardTerminalPane: (paneId: string) => void;
 };
@@ -28,6 +29,7 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
   const items: PaletteItem[] = [
     { id: 'new-card', title: 'New card', subtitle: cardProject ? `Add to ${cardProject.name}` : 'Choose a project', keywords: 'new add create local superthread kanban card', action: () => options.onNewCard(cardProject) },
     { id: 'direct-project-work', title: 'Direct project work', subtitle: project ? `Work in ${project.name}` : 'Choose a project', keywords: 'direct project primary checkout agent terminal diff', action: () => options.onDirectProjectWork(project) },
+    { id: 'release-project', title: 'Open Release', subtitle: project?.releases_enabled ? `Release ${project.name}` : 'Choose a release-enabled project', keywords: 'release deploy pipeline publish', action: () => options.onRelease?.(project?.releases_enabled ? project : null) },
     { id: 'new-project', title: 'New project', subtitle: 'Add a project directory', keywords: 'add open folder project', action: options.onNewProject },
     { id: 'edit-project', title: 'Edit project', subtitle: project?.name ?? 'Select a project first', keywords: 'rename path directory project', action: () => { if (project) options.onEditProject(project); } },
     { id: 'delete-project', title: 'Delete project', subtitle: project?.name ?? 'Select a project first', keywords: 'remove delete project directory', danger: true, action: () => { if (project) options.onDeleteProject(project.id); } },
