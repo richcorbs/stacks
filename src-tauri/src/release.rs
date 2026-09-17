@@ -141,6 +141,13 @@ pub struct ReleaseReconciliation {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReleasePreviewRefresh {
+    pub notes: String,
+    pub reconciliation: ReleaseReconciliation,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReleaseIdentity {
     #[serde(default)]
     pub id: serde_json::Value,
@@ -387,7 +394,7 @@ pub fn release_reconcile_preview(
     project_id: String,
     version: String,
     notes: String,
-) -> Result<ReleaseReconciliation, String> {
+) -> Result<ReleasePreviewRefresh, String> {
     let project = project(&project_id)?;
     let draft = inspect(&project, false)?;
     let config = draft
@@ -408,14 +415,7 @@ pub fn release_reconcile_preview(
         "preview",
         notes_path.to_string_lossy().as_ref(),
     );
-    let evidence = reconcile(&config, &root, &env)?
-        .ok_or_else(|| "This release configuration has no reconciliation command".to_string())?;
-    if evidence.disposition == "available" {
-        if let Some(command) = config.validate_version.as_deref() {
-            run_capture(command, &root, &env)?;
-        }
-    }
-    Ok(evidence)
+    refresh_release_preview(&config, &root, &env, &notes_path, notes)
 }
 
 #[tauri::command]
@@ -1448,6 +1448,31 @@ fn reconcile(
     Ok(Some(evidence))
 }
 
+fn refresh_release_preview(
+    config: &ReleaseConfig,
+    cwd: &Path,
+    env: &[(String, String)],
+    notes_path: &Path,
+    submitted_notes: String,
+) -> Result<ReleasePreviewRefresh, String> {
+    let notes = match config.generate_notes.as_deref() {
+        Some(command) => run_capture(command, cwd, env)?,
+        None => submitted_notes,
+    };
+    fs::write(notes_path, &notes).map_err(|error| error.to_string())?;
+    let reconciliation = reconcile(config, cwd, env)?
+        .ok_or_else(|| "This release configuration has no reconciliation command".to_string())?;
+    if reconciliation.disposition == "available" {
+        if let Some(command) = config.validate_version.as_deref() {
+            run_capture(command, cwd, env)?;
+        }
+    }
+    Ok(ReleasePreviewRefresh {
+        notes,
+        reconciliation,
+    })
+}
+
 fn require_action(
     evidence: &Option<ReleaseReconciliation>,
     actions: &[&str],
@@ -1879,6 +1904,79 @@ mod tests {
         );
         assert_eq!(env[0].1, "v 1; echo bad");
     }
+
+    #[test]
+    fn preview_refresh_generates_notes_and_reconciles_the_generated_value() {
+        let root =
+            std::env::temp_dir().join(format!("stacks-release-preview-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let notes_path = root.join("notes.txt");
+        fs::write(&notes_path, "edited notes").unwrap();
+        let mut config = test_config();
+        config.generate_notes = Some("printf 'generated notes'".into());
+        config.reconciliation.as_mut().unwrap().command = "test \"$(cat \"$STACKS_RELEASE_NOTES_FILE\")\" = 'generated notes' && printf '{\"protocolVersion\":1,\"disposition\":\"available\",\"requestedVersion\":\"%s\"}' \"$STACKS_RELEASE_VERSION\"".into();
+        let env = release_env(
+            "2.0.0",
+            "1.0.0",
+            &root,
+            "main",
+            "abc",
+            "preview",
+            notes_path.to_str().unwrap(),
+        );
+
+        let refreshed =
+            refresh_release_preview(&config, &root, &env, &notes_path, "edited notes".into())
+                .unwrap();
+
+        assert_eq!(refreshed.notes, "generated notes");
+        assert_eq!(fs::read_to_string(&notes_path).unwrap(), refreshed.notes);
+        assert_eq!(refreshed.reconciliation.requested_version, "2.0.0");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preview_refresh_without_generator_reconciles_submitted_notes() {
+        let root =
+            std::env::temp_dir().join(format!("stacks-release-preview-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let notes_path = root.join("notes.txt");
+        let mut config = test_config();
+        config.reconciliation.as_mut().unwrap().command = "test \"$(cat \"$STACKS_RELEASE_NOTES_FILE\")\" = 'supplied notes' && printf '{\"protocolVersion\":1,\"disposition\":\"available\",\"requestedVersion\":\"%s\"}' \"$STACKS_RELEASE_VERSION\"".into();
+        let env = release_env(
+            "2.0.0",
+            "1.0.0",
+            &root,
+            "main",
+            "abc",
+            "preview",
+            notes_path.to_str().unwrap(),
+        );
+
+        let refreshed =
+            refresh_release_preview(&config, &root, &env, &notes_path, "supplied notes".into())
+                .unwrap();
+
+        assert_eq!(refreshed.notes, "supplied notes");
+        assert_eq!(fs::read_to_string(&notes_path).unwrap(), refreshed.notes);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn test_config() -> ReleaseConfig {
+        ReleaseConfig {
+            current_version: "echo 1".into(),
+            suggested_version: None,
+            validate_version: None,
+            generate_notes: None,
+            preflight: None,
+            reconciliation: Some(ReleaseReconciliationConfig {
+                protocol_version: 1,
+                command: "true".into(),
+            }),
+            stages: vec![stage("release")],
+        }
+    }
+
     fn stage(id: &str) -> ReleaseStageConfig {
         ReleaseStageConfig {
             id: id.into(),

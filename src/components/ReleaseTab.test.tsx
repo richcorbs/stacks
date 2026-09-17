@@ -1,11 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
-import { describe, expect, it, vi } from 'vitest';
-import type { ReleaseReconciliation, ReleaseStageState } from '../releaseApi';
-import { ReconciliationSummary, ReleaseStage } from './ReleaseTab';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReleaseConfig, ReleaseDraft, ReleaseOperation, ReleaseReconciliation, ReleaseStageState } from '../releaseApi';
+import { CommandPreview, ReconciliationSummary, ReleaseStage, ReleaseTab } from './ReleaseTab';
 
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+beforeEach(() => invoke.mockReset());
 
 function stage(overrides: Partial<ReleaseStageState> = {}): ReleaseStageState {
   return {
@@ -27,6 +30,118 @@ function stage(overrides: Partial<ReleaseStageState> = {}): ReleaseStageState {
 function reconciliation(overrides: Partial<ReleaseReconciliation> = {}): ReleaseReconciliation {
   return { protocolVersion: 1, disposition: 'resumableDraft', requestedVersion: '1.2.4', latestPublishedVersion: '1.2.3', sourceRevision: 'source', headRevision: 'head', preparedRevision: 'abcdef1234567890', preparedParent: 'source', approvedPaths: [], localTagRevision: null, remoteTagRevision: 'abcdef1234567890', release: { id: 7, tag: 'v1.2.4', revision: 'abcdef1234567890', title: 'Stacks v1.2.4', notes: '# Notes', target: 'abcdef1234567890', draft: true, prerelease: false, url: 'https://example.com/draft' }, expectedAssets: [], existingAssets: [], missingAssets: [], extraAssets: [], conflictingAssets: [], artifact: {}, identity: { tag: 'v1.2.4' }, issues: [], permittedActions: ['approve'], provenStages: ['prepare', 'build', 'draft'], ...overrides };
 }
+
+function config(overrides: Partial<ReleaseConfig> = {}): ReleaseConfig {
+  return {
+    currentVersion: 'current-version',
+    preflight: 'check-project',
+    reconciliation: { protocolVersion: 1, command: 'reconcile' },
+    stages: [
+      { id: 'prepare', name: 'Prepare', run: 'run-prepare', verify: 'verify-prepare', repositoryAccess: 'exclusive', approval: { instructions: 'Review it' } },
+      { id: 'publish', name: 'Publish', run: 'run-publish', repositoryAccess: 'read' },
+    ],
+    ...overrides,
+  };
+}
+
+describe('command preview', () => {
+  it('renders independently accessible steps collapsed by default', () => {
+    const markup = renderToStaticMarkup(<CommandPreview config={config()} />);
+
+    expect(markup).toContain('0. Preflight');
+    expect(markup).toContain('1. Prepare');
+    expect(markup).toContain('2. Publish');
+    expect(markup.match(/aria-expanded="false"/g)).toHaveLength(3);
+    expect(markup.match(/aria-controls="release-preview-step-/g)).toHaveLength(3);
+    expect(markup).not.toContain('check-project');
+    expect(markup).not.toContain('repository access');
+    expect(markup).not.toContain('run-prepare');
+  });
+
+  it('omits preflight when it is not configured', () => {
+    const markup = renderToStaticMarkup(<CommandPreview config={config({ preflight: null })} />);
+    expect(markup).not.toContain('Preflight');
+    expect(markup).toContain('1. Prepare');
+  });
+
+  it('shows preflight and stage details while keeping multiple steps open', () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<CommandPreview config={config()} />); });
+    const buttons = renderer.root.findAllByType('button');
+
+    act(() => buttons[0].props.onClick());
+    act(() => buttons[1].props.onClick());
+
+    expect(buttons[0].props['aria-expanded']).toBe(true);
+    expect(buttons[1].props['aria-expanded']).toBe(true);
+    expect(renderer.root.findAllByProps({ className: 'releasePreviewDetails' })).toHaveLength(2);
+    expect(renderer.root.findAllByType('code').map((node) => node.children.join(''))).toEqual(['check-project', 'run-prepare', 'verify-prepare']);
+    expect(renderer.root.findByProps({ className: 'releasePreviewMetadata' }).children.join('')).toBe('exclusive repository access · approval required');
+    expect(renderer.root.findAllByProps({ className: 'releasePreviewDetails' })[0].props.id).toBe(buttons[0].props['aria-controls']);
+  });
+});
+
+function draft(overrides: Partial<ReleaseDraft> = {}): ReleaseDraft {
+  return { valid: true, error: null, configPath: '/repo/.stacks/release.json', currentVersion: '1.2.3', suggestedVersion: '1.2.4', generatedNotes: 'original notes', targetBranch: 'main', sourceRevision: 'source', config: config({ generateNotes: 'generate-notes' }), reconciliation: reconciliation(), ...overrides };
+}
+
+function operation(overrides: Partial<ReleaseOperation> = {}): ReleaseOperation {
+  return { id: 'operation', projectId: 'project', projectPath: '/repo', repositoryIdentity: '/repo/.git', configPath: '/repo/.stacks/release.json', config: config({ stages: [] }), previousVersion: '1.2.3', version: '1.2.4', notes: 'persisted notes', targetBranch: 'main', initialRevision: 'abcdef1234567890', expectedRevision: 'abcdef1234567890', preparedRevision: null, preparedParent: null, approvedPaths: [], reconciliation: reconciliation({ permittedActions: [] }), identityFingerprint: '', artifactEvidence: null, releaseUrl: null, adopted: false, status: 'failed', stages: [], createdAt: 100, updatedAt: 105, completedAt: null, revision: 1, ...overrides };
+}
+
+async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft = draft()) {
+  invoke.mockImplementation((command: string) => {
+    if (command === 'release_inspect') return Promise.resolve(releaseDraft);
+    if (command === 'release_history') return Promise.resolve(history);
+    return Promise.resolve(undefined);
+  });
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => { renderer = TestRenderer.create(<ReleaseTab project={{ id: 'project', name: 'Project', path: '/repo' }} />); });
+  return renderer;
+}
+
+describe('release status refresh', () => {
+  it('atomically replaces edited notes with regenerated notes and matching evidence', async () => {
+    const renderer = await renderReleaseTab();
+    act(() => renderer.root.findByType('textarea').props.onChange({ target: { value: 'edited notes' } }));
+    const refreshed = reconciliation({ disposition: 'available', requestedVersion: '1.2.4', permittedActions: ['start'] });
+    invoke.mockImplementation((command: string, args: unknown) => {
+      if (command === 'release_reconcile_preview') {
+        expect(args).toEqual({ projectId: 'project', version: '1.2.4', notes: 'edited notes' });
+        return Promise.resolve({ notes: 'regenerated notes', reconciliation: refreshed });
+      }
+      if (command === 'release_history') return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    const refresh = renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Refresh release status')!;
+    await act(async () => { refresh.props.onClick(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    expect(renderer.root.findByType('textarea').props.value).toBe('regenerated notes');
+    expect(renderer.root.findByProps({ className: 'releaseReconciliation available' })).toBeDefined();
+    expect(renderer.root.findByType(ReconciliationSummary).props.reconciliation).toBe(refreshed);
+  });
+
+  it('keeps the existing notes and evidence when the combined refresh fails', async () => {
+    const existing = reconciliation({ disposition: 'conflict' });
+    const renderer = await renderReleaseTab([], draft({ reconciliation: existing }));
+    invoke.mockImplementation((command: string) => command === 'release_reconcile_preview' ? Promise.reject(new Error('reconciliation failed')) : Promise.resolve([]));
+
+    const refresh = renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Refresh release status')!;
+    await act(async () => { refresh.props.onClick(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    expect(renderer.root.findByType('textarea').props.value).toBe('original notes');
+    expect(renderer.root.findByType(ReconciliationSummary).props.reconciliation).toBe(existing);
+    expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('reconciliation failed');
+  });
+
+  it('uses the new label for setup and active-operation refresh actions', async () => {
+    const renderer = await renderReleaseTab([operation()]);
+    const labels = renderer.root.findAllByType('button').map((button) => button.children.join(''));
+    expect(labels.filter((label) => label === 'Refresh release status')).toHaveLength(2);
+    expect(labels).not.toContain('Refresh reconciliation');
+  });
+});
 
 describe('release reconciliation summary', () => {
   it('identifies a resumable draft and opens its GitHub URL', () => {
