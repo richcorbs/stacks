@@ -1033,13 +1033,20 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseStatus { padding: 3px 7px; border-radius: 999px; background: #263a4d; color: #a9bed0; font-size: 11px; }
 .releaseStatus.completed { background: #173324; color: #79c894; } .releaseStatus.failed, .releaseStatus.interrupted { background: #3a2025; color: #df858b; }
 .releaseStage { padding: 10px 0; border-top: 1px solid #223142; }
-.releaseStageHeading > span:nth-of-type(2) { color: #8094a6; font-size: 12px; }
+.releaseStageHeading { width: 100%; box-sizing: border-box; }
+.releaseStageHeading .releaseStageStatus { color: #8094a6; font-size: 12px; }
 .releaseStageHeading small { margin-left: auto; color: #65798c; }
-.releaseStageIcon { width: 18px; color: #708598; text-align: center; }
+.releaseStageDisclosure { margin: -4px 0; padding: 4px 6px 4px 0; border: 0; border-radius: 5px; outline: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.releaseStageDisclosure:hover { background: #152330; }
+.releaseStageDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: #152330; }
+.releaseStageIcon { width: 18px; flex: 0 0 18px; color: #708598; text-align: center; }
 .releaseStage.running .releaseStageIcon { color: #72aee0; animation: release-spin 1s linear infinite; }
 .releaseStage.completed .releaseStageIcon { color: #70bd8d; }
-.releaseStage details { margin: 8px 0 0 28px; }
-.releaseStage summary { cursor: pointer; color: #8098ad; font-size: 12px; }
+.releaseStageDisclosureIndicator { margin-left: 0; color: #708598; font-size: 18px; line-height: 1; transition: transform 120ms ease; }
+.releaseStageStatus + .releaseStageDisclosureIndicator { margin-left: auto; }
+.releaseStageDisclosure[aria-expanded="true"] .releaseStageDisclosureIndicator { transform: rotate(90deg); }
+.releaseStageOutput { margin: 10px 0 0 28px; }
+.releaseStageOutputMeta { color: #8098ad; font-size: 12px; }
 .releaseLog { max-height: 280px; overflow: auto; margin: 7px 0 0; padding: 10px; background: #080e14; color: #9eafbd; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .releaseLog a { color: #79add8; }
 .releaseActions { margin-top: 14px; }
