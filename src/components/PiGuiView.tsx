@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
-import { applySlashCommand, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
+import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiFileDrops } from '../pi/fileDropBroker';
 import { activePathToken, applyPathCompletion, formatDroppedPathReference, insertPathReferences } from '../pi/pathReferences';
 import type { PiCommand, PiModel, PiSessionContext } from '../pi/types';
@@ -613,18 +613,30 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
                 return;
               }
               if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+                const input = event.currentTarget;
                 const direction = event.key === 'ArrowUp' ? -1 : 1;
-                const shouldCycle = shouldCycleCommandHistory(
-                  prompt,
-                  composerHasMultipleVisualLines(event.currentTarget),
-                  direction,
-                  event.currentTarget.selectionStart,
-                  event.currentTarget.selectionEnd,
-                );
-                if (shouldCycle && cyclePromptHistory(direction)) {
-                  event.preventDefault();
+                const value = input.value;
+                const selectionStart = input.selectionStart;
+                const selectionEnd = input.selectionEnd;
+                if (shouldCycleCommandHistory(value, direction, selectionStart, selectionEnd)) {
+                  if (cyclePromptHistory(direction)) event.preventDefault();
                   return;
                 }
+                if (selectionStart === selectionEnd) requestAnimationFrame(() => {
+                  if (inputRef.current !== input || document.activeElement !== input || input.value !== value) return;
+                  const boundary = boundaryForUnmovedHistoryArrow(
+                    value,
+                    direction,
+                    selectionStart,
+                    selectionEnd,
+                    input.selectionStart,
+                    input.selectionEnd,
+                  );
+                  if (boundary === null) return;
+                  selectionRef.current = { start: boundary, end: boundary };
+                  setCompletionCursor(boundary);
+                  input.setSelectionRange(boundary, boundary);
+                });
               }
               if (matchingPaths.length > 0 && !event.metaKey && !event.ctrlKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
                 event.preventDefault();
@@ -811,13 +823,6 @@ function ContextUsage({ context }: { context: PiSessionContext }) {
   return <span className="piContextUsage" data-tooltip={tooltip} aria-label={`Context usage: ${tooltip}`}>
     <span className="piContextDonut" style={{ background: `conic-gradient(#a9b6c2 ${percent * 3.6}deg, #647484 0deg)` }} />
   </span>;
-}
-
-function composerHasMultipleVisualLines(input: HTMLTextAreaElement) {
-  const style = getComputedStyle(input);
-  const lineHeight = Number.parseFloat(style.lineHeight);
-  const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-  return Number.isFinite(lineHeight) && input.scrollHeight - verticalPadding > lineHeight + 1;
 }
 
 function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) {

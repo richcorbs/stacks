@@ -52,12 +52,28 @@ export function applySlashCommand(command: PiCommand): string {
 
 export function shouldCycleCommandHistory(
   value: string,
-  visuallyMultiline = false,
-  direction?: -1 | 1,
-  selectionStart?: number,
+  direction: -1 | 1,
+  selectionStart: number,
   selectionEnd = selectionStart,
 ) {
-  if (!visuallyMultiline && !value.includes('\n')) return true;
-  if (direction === undefined || selectionStart === undefined || selectionStart !== selectionEnd) return false;
+  if (selectionStart !== selectionEnd) return false;
   return direction === -1 ? selectionStart === 0 : selectionStart === value.length;
+}
+
+export function boundaryForUnmovedHistoryArrow(
+  value: string,
+  direction: -1 | 1,
+  selectionStartBefore: number,
+  selectionEndBefore: number,
+  selectionStartAfter: number,
+  selectionEndAfter: number,
+): number | null {
+  if (
+    selectionStartBefore !== selectionEndBefore
+    || selectionStartAfter !== selectionEndAfter
+    || selectionStartAfter !== selectionStartBefore
+  ) return null;
+
+  const boundary = direction === -1 ? 0 : value.length;
+  return selectionStartBefore === boundary ? null : boundary;
 }

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { applySlashCommand, fuzzyCommandScore, GUI_BUILTIN_COMMANDS, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory, slashCommandQuery } from './commands';
+import {
+  applySlashCommand,
+  boundaryForUnmovedHistoryArrow,
+  fuzzyCommandScore,
+  GUI_BUILTIN_COMMANDS,
+  isGuiBuiltinCommand,
+  matchingSlashCommands,
+  shouldCycleCommandHistory,
+  slashCommandQuery,
+} from './commands';
 import type { PiCommand } from './types';
 
 const commands: PiCommand[] = [
@@ -51,13 +60,51 @@ describe('Pi slash commands', () => {
     expect(applySlashCommand(commands[0])).toBe('/skill:grill-me ');
   });
 
-  it('cycles history for one-line input and at multiline boundaries', () => {
-    expect(shouldCycleCommandHistory('single line')).toBe(true);
-    expect(shouldCycleCommandHistory('first\nsecond')).toBe(false);
-    expect(shouldCycleCommandHistory('visually wrapped input', true)).toBe(false);
-    expect(shouldCycleCommandHistory('first\nsecond', true, 1, 12, 12)).toBe(true);
-    expect(shouldCycleCommandHistory('first\nsecond', true, -1, 0, 0)).toBe(true);
-    expect(shouldCycleCommandHistory('first\nsecond', true, 1, 5, 5)).toBe(false);
-    expect(shouldCycleCommandHistory('first\nsecond', true, 1, 0, 5)).toBe(false);
+  describe('prompt history arrows', () => {
+    it('only cycles single-line history at the absolute boundary', () => {
+      const value = 'single line';
+      expect(shouldCycleCommandHistory(value, -1, 0, 0)).toBe(true);
+      expect(shouldCycleCommandHistory(value, -1, 4, 4)).toBe(false);
+      expect(shouldCycleCommandHistory(value, -1, value.length, value.length)).toBe(false);
+      expect(shouldCycleCommandHistory(value, 1, 0, 0)).toBe(false);
+      expect(shouldCycleCommandHistory(value, 1, 4, 4)).toBe(false);
+      expect(shouldCycleCommandHistory(value, 1, value.length, value.length)).toBe(true);
+    });
+
+    it('only cycles multiline history at the absolute boundary', () => {
+      const value = 'first\nsecond';
+      expect(shouldCycleCommandHistory(value, -1, 0, 0)).toBe(true);
+      expect(shouldCycleCommandHistory(value, -1, 3, 3)).toBe(false);
+      expect(shouldCycleCommandHistory(value, -1, value.length, value.length)).toBe(false);
+      expect(shouldCycleCommandHistory(value, 1, 0, 0)).toBe(false);
+      expect(shouldCycleCommandHistory(value, 1, 7, 7)).toBe(false);
+      expect(shouldCycleCommandHistory(value, 1, value.length, value.length)).toBe(true);
+    });
+
+    it('does not cycle history when text is selected', () => {
+      const value = 'first\nsecond';
+      expect(shouldCycleCommandHistory(value, -1, 0, 5)).toBe(false);
+      expect(shouldCycleCommandHistory(value, 1, 6, value.length)).toBe(false);
+    });
+
+    it('moves an unchanged collapsed caret to the relevant field boundary', () => {
+      const value = 'text that may be visually wrapped';
+      expect(boundaryForUnmovedHistoryArrow(value, -1, 4, 4, 4, 4)).toBe(0);
+      expect(boundaryForUnmovedHistoryArrow(value, 1, 4, 4, 4, 4)).toBe(value.length);
+    });
+
+    it('leaves native caret movement and selections unchanged', () => {
+      const value = 'first\nsecond';
+      expect(boundaryForUnmovedHistoryArrow(value, -1, 9, 9, 3, 3)).toBeNull();
+      expect(boundaryForUnmovedHistoryArrow(value, 1, 3, 3, 9, 9)).toBeNull();
+      expect(boundaryForUnmovedHistoryArrow(value, -1, 2, 5, 2, 5)).toBeNull();
+      expect(boundaryForUnmovedHistoryArrow(value, 1, 4, 4, 4, 7)).toBeNull();
+    });
+
+    it('does not reapply a boundary when the caret is already there', () => {
+      const value = 'single line';
+      expect(boundaryForUnmovedHistoryArrow(value, -1, 0, 0, 0, 0)).toBeNull();
+      expect(boundaryForUnmovedHistoryArrow(value, 1, value.length, value.length, value.length, value.length)).toBeNull();
+    });
   });
 });
