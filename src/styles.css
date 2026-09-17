@@ -1023,8 +1023,14 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseFacts strong { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c4d0db; }
 .releaseFacts .mono, .releaseCommand code, .releaseSummary code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .releasePreview, .releaseOperation, .releaseHistory { padding: 14px; border: 1px solid #25384a; border-radius: 8px; background: #0f1922; }
-.releasePreviewStage { padding: 10px 0; border-top: 1px solid #223142; }
-.releasePreviewStage > span { margin-left: 8px; color: #708598; font-size: 11px; }
+.releasePreviewSteps { margin-top: 8px; }
+.releasePreviewStep { border-top: 1px solid #223142; }
+.releasePreviewDisclosure { display: flex; width: 100%; box-sizing: border-box; align-items: center; justify-content: space-between; padding: 10px 6px; border: 0; border-radius: 5px; outline: none; background: transparent; color: #c4d0db; font: inherit; text-align: left; cursor: pointer; }
+.releasePreviewDisclosure:hover { background: #152330; }
+.releasePreviewDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: #152330; }
+.releasePreviewDetails { padding: 0 6px 10px; }
+.releasePreviewMetadata { color: #708598; font-size: 11px; }
+.releasePreview > small { display: block; margin-top: 10px; color: #708598; }
 .releaseCommand { margin-top: 7px; }
 .releaseCommand code { display: block; margin-top: 3px; padding: 7px; overflow-x: auto; background: #0a1118; color: #aebdcb; white-space: pre-wrap; }
 .releaseStart { justify-self: start; }
