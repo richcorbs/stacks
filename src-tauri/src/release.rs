@@ -25,13 +25,30 @@ pub struct ReleaseConfig {
     pub current_version: String,
     #[serde(default, alias = "suggestedVersionCommand")]
     pub suggested_version: Option<String>,
-    #[serde(default, alias = "versionValidationCommand", alias = "validateVersionCommand")]
+    #[serde(
+        default,
+        alias = "versionValidationCommand",
+        alias = "validateVersionCommand"
+    )]
     pub validate_version: Option<String>,
-    #[serde(default, alias = "releaseNotesCommand", alias = "generateReleaseNotesCommand")]
+    #[serde(
+        default,
+        alias = "releaseNotesCommand",
+        alias = "generateReleaseNotesCommand"
+    )]
     pub generate_notes: Option<String>,
     #[serde(default, alias = "preflightCommand")]
     pub preflight: Option<String>,
+    #[serde(default)]
+    pub reconciliation: Option<ReleaseReconciliationConfig>,
     pub stages: Vec<ReleaseStageConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReleaseReconciliationConfig {
+    pub protocol_version: u32,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +90,81 @@ pub struct ReleaseDraft {
     pub target_branch: String,
     pub source_revision: Option<String>,
     pub config: Option<ReleaseConfig>,
+    pub reconciliation: Option<ReleaseReconciliation>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseReconciliation {
+    pub protocol_version: u32,
+    pub disposition: String,
+    pub requested_version: String,
+    #[serde(default)]
+    pub latest_published_version: Option<String>,
+    #[serde(default)]
+    pub source_revision: Option<String>,
+    #[serde(default)]
+    pub head_revision: Option<String>,
+    #[serde(default)]
+    pub prepared_revision: Option<String>,
+    #[serde(default)]
+    pub prepared_parent: Option<String>,
+    #[serde(default)]
+    pub approved_paths: Vec<String>,
+    #[serde(default)]
+    pub local_tag_revision: Option<String>,
+    #[serde(default)]
+    pub remote_tag_revision: Option<String>,
+    #[serde(default)]
+    pub release: Option<ReleaseIdentity>,
+    #[serde(default)]
+    pub expected_assets: Vec<String>,
+    #[serde(default)]
+    pub existing_assets: Vec<ArtifactEvidence>,
+    #[serde(default)]
+    pub missing_assets: Vec<String>,
+    #[serde(default)]
+    pub extra_assets: Vec<String>,
+    #[serde(default)]
+    pub conflicting_assets: Vec<String>,
+    #[serde(default)]
+    pub artifact: serde_json::Value,
+    #[serde(default)]
+    pub identity: serde_json::Value,
+    #[serde(default)]
+    pub issues: Vec<String>,
+    #[serde(default)]
+    pub permitted_actions: Vec<String>,
+    #[serde(default)]
+    pub proven_stages: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseIdentity {
+    #[serde(default)]
+    pub id: serde_json::Value,
+    pub tag: String,
+    #[serde(default)]
+    pub revision: Option<String>,
+    pub title: String,
+    pub notes: String,
+    #[serde(default)]
+    pub target: String,
+    pub draft: bool,
+    pub prerelease: bool,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactEvidence {
+    pub name: String,
+    #[serde(default)]
+    pub size: Option<u64>,
+    #[serde(default)]
+    pub digest: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +182,22 @@ pub struct ReleaseOperation {
     pub target_branch: String,
     pub initial_revision: String,
     pub expected_revision: String,
+    #[serde(default)]
+    pub prepared_revision: Option<String>,
+    #[serde(default)]
+    pub prepared_parent: Option<String>,
+    #[serde(default)]
+    pub approved_paths: Vec<String>,
+    #[serde(default)]
+    pub reconciliation: Option<ReleaseReconciliation>,
+    #[serde(default)]
+    pub identity_fingerprint: String,
+    #[serde(default)]
+    pub artifact_evidence: serde_json::Value,
+    #[serde(default)]
+    pub release_url: Option<String>,
+    #[serde(default)]
+    pub adopted: bool,
     pub status: String,
     pub stages: Vec<ReleaseStageState>,
     pub created_at: i64,
@@ -177,10 +285,14 @@ fn terminate_release_process(process: &mut LiveReleaseProcess) -> Result<(), std
             if libc::kill(group, libc::SIGTERM) == 0 {
                 let deadline = std::time::Instant::now() + Duration::from_secs(2);
                 while std::time::Instant::now() < deadline {
-                    if libc::kill(group, 0) != 0 { return Ok(()); }
+                    if libc::kill(group, 0) != 0 {
+                        return Ok(());
+                    }
                     thread::sleep(Duration::from_millis(25));
                 }
-                if libc::kill(group, 0) == 0 { libc::kill(group, libc::SIGKILL); }
+                if libc::kill(group, 0) == 0 {
+                    libc::kill(group, libc::SIGKILL);
+                }
                 return Ok(());
             }
         }
@@ -265,8 +377,45 @@ pub fn release_inspect(project_id: String) -> Result<ReleaseDraft, String> {
             target_branch: project.target_branch,
             source_revision: None,
             config: None,
+            reconciliation: None,
         }),
     }
+}
+
+#[tauri::command]
+pub fn release_reconcile_preview(
+    project_id: String,
+    version: String,
+    notes: String,
+) -> Result<ReleaseReconciliation, String> {
+    let project = project(&project_id)?;
+    let draft = inspect(&project, false)?;
+    let config = draft
+        .config
+        .ok_or_else(|| "Release configuration is unavailable".to_string())?;
+    let previous = draft
+        .current_version
+        .ok_or_else(|| "Current version is unavailable".to_string())?;
+    let root = canonical_primary_checkout(&project.path)?;
+    let head = repository_preflight(&root, &project.target_branch, None)?;
+    let notes_path = write_notes("preview-user", &notes)?;
+    let env = release_env(
+        version.trim(),
+        &previous,
+        &root,
+        &project.target_branch,
+        &head,
+        "preview",
+        notes_path.to_string_lossy().as_ref(),
+    );
+    let evidence = reconcile(&config, &root, &env)?
+        .ok_or_else(|| "This release configuration has no reconciliation command".to_string())?;
+    if evidence.disposition == "available" {
+        if let Some(command) = config.validate_version.as_deref() {
+            run_capture(command, &root, &env)?;
+        }
+    }
+    Ok(evidence)
 }
 
 #[tauri::command]
@@ -322,12 +471,33 @@ pub fn release_start(
         &id,
         notes_path.to_string_lossy().as_ref(),
     );
-    if let Some(command) = config.validate_version.as_deref() {
-        run_capture(command, &root, &command_env)?;
+    let reconciliation = reconcile(&config, &root, &command_env)?;
+    require_action(&reconciliation, &["start", "resume", "complete", "approve"])?;
+    if reconciliation
+        .as_ref()
+        .map(|item| item.disposition.as_str())
+        .unwrap_or("available")
+        == "available"
+    {
+        if let Some(command) = config.validate_version.as_deref() {
+            run_capture(command, &root, &command_env)?;
+        }
+        if let Some(command) = config.preflight.as_deref() {
+            run_capture(command, &root, &command_env)?;
+        }
     }
-    if let Some(command) = config.preflight.as_deref() {
-        run_capture(command, &root, &command_env)?;
-    }
+    let source_revision = reconciliation
+        .as_ref()
+        .and_then(|item| item.source_revision.clone())
+        .unwrap_or_else(|| head.clone());
+    let proven = reconciliation
+        .as_ref()
+        .map(|item| item.proven_stages.clone())
+        .unwrap_or_default();
+    let disposition = reconciliation
+        .as_ref()
+        .map(|item| item.disposition.as_str())
+        .unwrap_or("available");
     let created = now();
     let mut operation = ReleaseOperation {
         id: id.clone(),
@@ -340,16 +510,56 @@ pub fn release_start(
         version,
         notes,
         target_branch: project.target_branch,
-        initial_revision: head.clone(),
+        initial_revision: source_revision,
         expected_revision: head,
-        status: "running".into(),
+        prepared_revision: reconciliation
+            .as_ref()
+            .and_then(|item| item.prepared_revision.clone()),
+        prepared_parent: reconciliation
+            .as_ref()
+            .and_then(|item| item.prepared_parent.clone()),
+        approved_paths: reconciliation
+            .as_ref()
+            .map(|item| item.approved_paths.clone())
+            .unwrap_or_default(),
+        reconciliation: reconciliation.clone(),
+        identity_fingerprint: reconciliation
+            .as_ref()
+            .map(|item| identity_fingerprint(&config, item))
+            .unwrap_or_default(),
+        artifact_evidence: reconciliation
+            .as_ref()
+            .map(|item| item.artifact.clone())
+            .unwrap_or(serde_json::Value::Null),
+        release_url: reconciliation
+            .as_ref()
+            .and_then(|item| item.release.as_ref())
+            .and_then(|release| release.url.clone()),
+        adopted: disposition != "available",
+        status: if disposition == "published" {
+            "completed"
+        } else if disposition == "resumableDraft" && proven.iter().any(|id| id == "draft") {
+            "awaitingApproval"
+        } else {
+            "running"
+        }
+        .into(),
         stages: config
             .stages
             .iter()
             .map(|stage| ReleaseStageState {
                 id: stage.id.clone(),
                 name: stage.name.clone(),
-                status: "pending".into(),
+                status: if proven.iter().any(|id| id == &stage.id) {
+                    if stage.approval.is_some() && disposition != "published" {
+                        "awaitingApproval"
+                    } else {
+                        "completed"
+                    }
+                } else {
+                    "pending"
+                }
+                .into(),
                 attempt: 0,
                 attempt_token: None,
                 started_at: None,
@@ -362,18 +572,29 @@ pub fn release_start(
             .collect(),
         created_at: created,
         updated_at: created,
-        completed_at: None,
+        completed_at: if disposition == "published" {
+            Some(created)
+        } else {
+            None
+        },
         revision: 1,
     };
     persist_new(&operation)?;
-    start_stage(
-        &app,
-        registry.inner().clone(),
-        &mut operation,
-        0,
-        false,
-        &notes_path,
-    )?;
+    if operation.status == "running" {
+        let index = operation
+            .stages
+            .iter()
+            .position(|stage| stage.status == "pending")
+            .ok_or_else(|| "Reconciliation did not identify a stage to resume".to_string())?;
+        start_stage(
+            &app,
+            registry.inner().clone(),
+            &mut operation,
+            index,
+            false,
+            &notes_path,
+        )?;
+    }
     load_operation(&id)
 }
 
@@ -411,26 +632,79 @@ pub fn release_retry(
     {
         return Err("A release process is already running".into());
     }
+    if !operation.stages.iter().any(|stage| {
+        matches!(
+            stage.status.as_str(),
+            "failed" | "cancelled" | "interrupted"
+        )
+    }) {
+        return Err("There is no failed, cancelled, or interrupted stage to retry".into());
+    }
+    let root = Path::new(&operation.project_path);
+    repository_preflight(root, &operation.target_branch, None)?;
+    let notes_path = write_notes(&operation.id, &operation.notes)?;
+    let env = release_env(
+        &operation.version,
+        &operation.previous_version,
+        root,
+        &operation.target_branch,
+        &operation.initial_revision,
+        &operation.id,
+        notes_path.to_string_lossy().as_ref(),
+    );
+    let evidence = reconcile(&operation.config, root, &env)?;
+    require_action(&evidence, &["retry", "resume", "approve", "complete"])?;
+    if let Some(evidence) = evidence {
+        operation.prepared_revision = evidence.prepared_revision.clone();
+        operation.prepared_parent = evidence.prepared_parent.clone();
+        operation.approved_paths = evidence.approved_paths.clone();
+        operation.release_url = evidence
+            .release
+            .as_ref()
+            .and_then(|release| release.url.clone());
+        operation.artifact_evidence = evidence.artifact.clone();
+        operation.identity_fingerprint = identity_fingerprint(&operation.config, &evidence);
+        for stage in &mut operation.stages {
+            if evidence.proven_stages.iter().any(|id| id == &stage.id) {
+                stage.status = if operation
+                    .config
+                    .stages
+                    .iter()
+                    .find(|item| item.id == stage.id)
+                    .and_then(|item| item.approval.as_ref())
+                    .is_some()
+                    && evidence.disposition != "published"
+                {
+                    "awaitingApproval"
+                } else {
+                    "completed"
+                }
+                .into();
+            }
+        }
+        if evidence.disposition == "published" {
+            operation.reconciliation = Some(evidence);
+            complete_operation(&mut operation, "completed")?;
+            return load_operation(&operation_id);
+        }
+        operation.reconciliation = Some(evidence);
+    }
+    if operation
+        .stages
+        .iter()
+        .any(|stage| stage.status == "awaitingApproval")
+    {
+        operation.status = "awaitingApproval".into();
+        update_operation(&mut operation, None)?;
+        return load_operation(&operation_id);
+    }
     let index = operation
         .stages
         .iter()
-        .position(|stage| {
-            matches!(
-                stage.status.as_str(),
-                "failed" | "cancelled" | "interrupted"
-            )
-        })
-        .ok_or_else(|| {
-            "There is no failed, cancelled, or interrupted stage to retry".to_string()
-        })?;
-    repository_preflight(
-        Path::new(&operation.project_path),
-        &operation.target_branch,
-        Some(&operation.expected_revision),
-    )?;
+        .position(|stage| stage.status != "completed")
+        .ok_or_else(|| "Reconciliation proved all stages complete".to_string())?;
     operation.status = "running".into();
     update_operation(&mut operation, None)?;
-    let notes_path = write_notes(&operation.id, &operation.notes)?;
     start_stage(
         &app,
         registry.inner().clone(),
@@ -454,6 +728,27 @@ pub fn release_approve(
         .iter()
         .position(|stage| stage.status == "awaitingApproval")
         .ok_or_else(|| "No release stage is awaiting approval".to_string())?;
+    let root = Path::new(&operation.project_path);
+    repository_preflight(root, &operation.target_branch, None)?;
+    let notes_path = write_notes(&operation.id, &operation.notes)?;
+    let env = release_env(
+        &operation.version,
+        &operation.previous_version,
+        root,
+        &operation.target_branch,
+        &operation.initial_revision,
+        &operation.id,
+        notes_path.to_string_lossy().as_ref(),
+    );
+    let evidence = reconcile(&operation.config, root, &env)?;
+    require_action(&evidence, &["approve", "complete"])?;
+    if let Some(evidence) = evidence {
+        operation.release_url = evidence
+            .release
+            .as_ref()
+            .and_then(|release| release.url.clone());
+        operation.reconciliation = Some(evidence);
+    }
     operation.stages[index].status = "completed".into();
     operation.stages[index].completed_at = Some(now());
     if index + 1 == operation.stages.len() {
@@ -461,7 +756,6 @@ pub fn release_approve(
     } else {
         operation.status = "running".into();
         update_operation(&mut operation, None)?;
-        let notes_path = write_notes(&operation.id, &operation.notes)?;
         start_stage(
             &app,
             registry.inner().clone(),
@@ -472,6 +766,85 @@ pub fn release_approve(
         )?;
     }
     Ok(load_operation(&operation_id)?)
+}
+
+#[tauri::command]
+pub fn release_refresh(operation_id: String) -> Result<ReleaseOperation, String> {
+    let mut operation = load_operation(&operation_id)?;
+    let root = Path::new(&operation.project_path);
+    repository_preflight(root, &operation.target_branch, None)?;
+    let notes_path = write_notes(&operation.id, &operation.notes)?;
+    let env = release_env(
+        &operation.version,
+        &operation.previous_version,
+        root,
+        &operation.target_branch,
+        &operation.initial_revision,
+        &operation.id,
+        notes_path.to_string_lossy().as_ref(),
+    );
+    let evidence = reconcile(&operation.config, root, &env)?
+        .ok_or_else(|| "This release configuration has no reconciliation command".to_string())?;
+    operation.release_url = evidence
+        .release
+        .as_ref()
+        .and_then(|release| release.url.clone());
+    operation.reconciliation = Some(evidence.clone());
+    if evidence.disposition == "published" {
+        complete_operation(&mut operation, "completed")?;
+    } else {
+        update_operation(&mut operation, None)?;
+    }
+    load_operation(&operation_id)
+}
+
+#[tauri::command]
+pub fn release_recover_prepared(operation_id: String) -> Result<ReleaseOperation, String> {
+    let mut operation = load_operation(&operation_id)?;
+    if operation
+        .stages
+        .iter()
+        .any(|stage| stage.status == "running")
+    {
+        return Err("Cancel the running process before recovery".into());
+    }
+    let root = PathBuf::from(&operation.project_path);
+    let identity = PathBuf::from(&operation.repository_identity);
+    repository_coordinator::global().coordinate(&identity, || {
+        let head = repository_preflight(&root, &operation.target_branch, operation.prepared_revision.as_deref())?;
+        let prepared = operation.prepared_revision.clone().ok_or_else(|| "No proven generated release commit is recorded".to_string())?;
+        let parent = operation.prepared_parent.clone().ok_or_else(|| "No proven release parent is recorded".to_string())?;
+        if parent != operation.initial_revision || git_output(&root, &["rev-parse", &format!("{prepared}^")])?.trim() != parent { return Err("The generated commit no longer directly follows the captured source revision".into()); }
+        let changed = git_output(&root, &["diff", "--name-only", &parent, &prepared])?;
+        let approved: HashSet<&str> = operation.approved_paths.iter().map(String::as_str).collect();
+        let unexpected: Vec<&str> = changed.lines().filter(|path| !approved.contains(path)).collect();
+        if unexpected.len() > 0 { return Err(format!("Generated commit changes unapproved paths: {}", unexpected.join(", "))); }
+        let notes_path = write_notes(&operation.id, &operation.notes)?;
+        let env = release_env(&operation.version, &operation.previous_version, &root, &operation.target_branch, &operation.initial_revision, &operation.id, notes_path.to_string_lossy().as_ref());
+        let evidence = reconcile(&operation.config, &root, &env)?.ok_or_else(|| "Recovery requires reconciliation evidence".to_string())?;
+        require_action(&Some(evidence.clone()), &["recover"])?;
+        let refs = git_output(&root, &["ls-remote", "origin"])?;
+        git_output(&root, &["fetch", "--prune", "origin"])?;
+        for line in refs.lines() {
+            let Some((revision, name)) = line.split_once(char::is_whitespace) else { continue; };
+            if name.ends_with("^{}") { continue; }
+            if git_output(&root, &["cat-file", "-e", &format!("{revision}^{{commit}}")]).is_err() { return Err(format!("Cannot resolve advertised remote ref {name}; recovery made no changes")); }
+            let status = Command::new("git").arg("-C").arg(&root).args(["merge-base", "--is-ancestor", &prepared, revision]).status().map_err(|error| error.to_string())?;
+            if status.success() { return Err(format!("Prepared commit is reachable from advertised remote ref {name}; cancel remote state manually, then refresh")); }
+            if status.code() != Some(1) { return Err(format!("Could not prove ancestry for advertised remote ref {name}; recovery made no changes")); }
+        }
+        let tag = format!("v{}", operation.version); let local_tag = git_output(&root, &["rev-parse", "--verify", &format!("refs/tags/{tag}^{{commit}}")]).ok().map(|value| value.trim().to_string());
+        if local_tag.as_deref().is_some_and(|revision| revision != prepared) { return Err(format!("Local tag {tag} points elsewhere; recovery made no changes")); }
+        if evidence.remote_tag_revision.is_some() || evidence.release.is_some() { return Err("Remote tag or GitHub release still claims this version; recovery made no changes".into()); }
+        // Every proof above is read-only. Mutations begin here and target only the proven identity.
+        if local_tag.is_some() { git_output(&root, &["tag", "-d", &tag]).map_err(|error| format!("Recovery partially failed deleting {tag}: {error}; HEAD remains {head}"))?; }
+        git_output(&root, &["reset", "--hard", &operation.initial_revision]).map_err(|error| format!("Recovery partially failed resetting the branch: {error}; inspect HEAD and local tag {tag}"))?;
+        let artifacts = root.join("release-artifacts").join(&tag);
+        if artifacts.exists() { fs::remove_dir_all(&artifacts).map_err(|error| format!("Branch reset succeeded but artifact cleanup failed at {}: {error}", artifacts.display()))?; }
+        repository_preflight(&root, &operation.target_branch, Some(&operation.initial_revision))?;
+        operation.reconciliation = Some(evidence); complete_operation(&mut operation, "abandoned")
+    })?;
+    load_operation(&operation_id)
 }
 
 #[tauri::command]
@@ -553,11 +926,17 @@ fn run_stage_attempt(
     registry: Arc<ReleaseRegistry>,
 ) -> Result<String, String> {
     let root = Path::new(&operation.project_path);
-    repository_preflight(
-        root,
-        &operation.target_branch,
-        Some(&operation.expected_revision),
-    )?;
+    let expected = if operation
+        .reconciliation
+        .as_ref()
+        .and_then(|item| item.release.as_ref())
+        .is_some()
+    {
+        None
+    } else {
+        Some(operation.expected_revision.as_str())
+    };
+    repository_preflight(root, &operation.target_branch, expected)?;
     let stage = &operation.config.stages[index];
     let env = release_env(
         &operation.version,
@@ -568,6 +947,8 @@ fn run_stage_attempt(
         &operation.id,
         notes_path,
     );
+    let fresh = reconcile(&operation.config, root, &env)?;
+    require_action(&fresh, &["start", "resume", "approve", "complete"])?;
     let execute = || -> Result<String, String> {
         if retry {
             if let Some(verify) = stage.verify.as_deref() {
@@ -580,11 +961,7 @@ fn run_stage_attempt(
                     log_path,
                     b"[Stacks: verifier did not prove completion; rerunning stage]\r\n",
                 )?;
-                repository_preflight(
-                    root,
-                    &operation.target_branch,
-                    Some(&operation.expected_revision),
-                )?;
+                repository_preflight(root, &operation.target_branch, expected)?;
             }
         }
         run_pty(&stage.run, root, &env, token, log_path, registry.clone())?;
@@ -694,6 +1071,32 @@ fn settle_attempt(
     operation.stages[index].log = log;
     operation.stages[index].truncated = truncated;
     operation.stages[index].completed_at = Some(timestamp);
+    let result = result.and_then(|head| {
+        let root = Path::new(&operation.project_path);
+        let env = release_env(
+            &operation.version,
+            &operation.previous_version,
+            root,
+            &operation.target_branch,
+            &operation.initial_revision,
+            &operation.id,
+            notes_path,
+        );
+        let evidence = reconcile(&operation.config, root, &env)
+            .map_err(|error| format!("Post-stage reconciliation failed: {error}"))?
+            .ok_or_else(|| "Post-stage reconciliation returned no evidence".to_string())?;
+        operation.prepared_revision = evidence.prepared_revision.clone();
+        operation.prepared_parent = evidence.prepared_parent.clone();
+        operation.approved_paths = evidence.approved_paths.clone();
+        operation.release_url = evidence
+            .release
+            .as_ref()
+            .and_then(|release| release.url.clone());
+        operation.artifact_evidence = evidence.artifact.clone();
+        operation.identity_fingerprint = identity_fingerprint(&operation.config, &evidence);
+        operation.reconciliation = Some(evidence);
+        Ok(head)
+    });
     match result {
         Ok(head) => {
             operation.expected_revision = head;
@@ -719,6 +1122,23 @@ fn settle_attempt(
             }
         }
         Err(error) => {
+            let root = Path::new(&operation.project_path);
+            let env = release_env(
+                &operation.version,
+                &operation.previous_version,
+                root,
+                &operation.target_branch,
+                &operation.initial_revision,
+                &operation.id,
+                notes_path,
+            );
+            if let Ok(Some(evidence)) = reconcile(&operation.config, root, &env) {
+                operation.release_url = evidence
+                    .release
+                    .as_ref()
+                    .and_then(|release| release.url.clone());
+                operation.reconciliation = Some(evidence);
+            }
             let cancelled = registry
                 .cancelled
                 .lock()
@@ -777,7 +1197,7 @@ fn inspect(project: &ProjectReleaseSettings, generate_notes: bool) -> Result<Rel
         .as_deref()
         .map(|command| run_capture(command, &root, &env).map(|value| value.trim().to_string()))
         .transpose()?;
-    let notes = if generate_notes {
+    let mut notes = if generate_notes {
         config
             .generate_notes
             .as_deref()
@@ -786,6 +1206,37 @@ fn inspect(project: &ProjectReleaseSettings, generate_notes: bool) -> Result<Rel
     } else {
         None
     };
+    let reconciliation = if generate_notes {
+        if let Some(version) = suggested.as_deref().filter(|value| !value.is_empty()) {
+            let notes_path = write_notes("preview", notes.as_deref().unwrap_or(""))?;
+            let reconciliation_env = release_env(
+                version,
+                &current,
+                &root,
+                &project.target_branch,
+                &head,
+                "inspection",
+                notes_path.to_string_lossy().as_ref(),
+            );
+            reconcile(&config, &root, &reconciliation_env)?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some(evidence) = reconciliation
+        .as_ref()
+        .filter(|item| item.disposition != "available")
+    {
+        if let Some(approved) = evidence
+            .identity
+            .get("notes")
+            .and_then(serde_json::Value::as_str)
+        {
+            notes = Some(approved.to_string());
+        }
+    }
     Ok(ReleaseDraft {
         valid: true,
         error: None,
@@ -796,6 +1247,7 @@ fn inspect(project: &ProjectReleaseSettings, generate_notes: bool) -> Result<Rel
         target_branch: project.target_branch.clone(),
         source_revision: Some(head),
         config: Some(config),
+        reconciliation,
     })
 }
 
@@ -814,6 +1266,13 @@ fn validate_config(config: &ReleaseConfig) -> Result<(), String> {
             command_present(name, command)?;
         }
     }
+    let reconciliation = config.reconciliation.as_ref().ok_or_else(|| {
+        "Release configuration requires a versioned reconciliation command".to_string()
+    })?;
+    if reconciliation.protocol_version != 1 {
+        return Err("Only release reconciliation protocol version 1 is supported".into());
+    }
+    command_present("reconciliation", &reconciliation.command)?;
     let mut ids = HashSet::new();
     for stage in &config.stages {
         if let Some(command) = stage.verify.as_deref() {
@@ -953,6 +1412,79 @@ fn git_output(root: &Path, args: &[&str]) -> Result<String, String> {
     } else {
         Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
     }
+}
+
+fn reconcile(
+    config: &ReleaseConfig,
+    cwd: &Path,
+    env: &[(String, String)],
+) -> Result<Option<ReleaseReconciliation>, String> {
+    let Some(contract) = config.reconciliation.as_ref() else {
+        return Ok(None);
+    };
+    if contract.protocol_version != 1 {
+        return Err(format!(
+            "Unsupported release reconciliation protocol {}",
+            contract.protocol_version
+        ));
+    }
+    let output = run_capture(&contract.command, cwd, env)?;
+    let evidence: ReleaseReconciliation = serde_json::from_str(output.trim())
+        .map_err(|error| format!("Reconciliation command returned invalid JSON: {error}"))?;
+    if evidence.protocol_version != contract.protocol_version {
+        return Err(
+            "Reconciliation protocol version does not match the configured contract".into(),
+        );
+    }
+    if evidence.requested_version
+        != env
+            .iter()
+            .find(|(key, _)| key == "STACKS_RELEASE_VERSION")
+            .map(|(_, value)| value.as_str())
+            .unwrap_or("")
+    {
+        return Err("Reconciliation evidence describes a different release version".into());
+    }
+    Ok(Some(evidence))
+}
+
+fn require_action(
+    evidence: &Option<ReleaseReconciliation>,
+    actions: &[&str],
+) -> Result<(), String> {
+    let Some(evidence) = evidence else {
+        return Err("Release action requires fresh structured reconciliation evidence; refresh or recover this legacy operation manually".into());
+    };
+    if actions.iter().any(|action| {
+        evidence
+            .permitted_actions
+            .iter()
+            .any(|allowed| allowed == action)
+    }) {
+        return Ok(());
+    }
+    let detail = if evidence.issues.is_empty() {
+        format!("Disposition is {}", evidence.disposition)
+    } else {
+        evidence.issues.join("\n")
+    };
+    Err(format!(
+        "Release reconciliation blocked this action: {detail}"
+    ))
+}
+
+fn identity_fingerprint(config: &ReleaseConfig, evidence: &ReleaseReconciliation) -> String {
+    fingerprint(
+        &serde_json::json!({ "config": config, "identity": evidence.identity, "expectedAssets": evidence.expected_assets }),
+    )
+}
+fn fingerprint(value: &serde_json::Value) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in value.to_string().bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 fn run_capture(command: &str, cwd: &Path, env: &[(String, String)]) -> Result<String, String> {
@@ -1128,9 +1660,57 @@ fn append_log(path: &Path, bytes: &[u8]) -> Result<(), String> {
     }
     fs::write(path, current).map_err(|error| error.to_string())
 }
+fn sanitize_log(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut output = String::with_capacity(input.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let character = chars[index];
+        if character == '\u{1b}' {
+            if chars.get(index + 1) == Some(&'[') {
+                index += 2;
+                while index < chars.len() {
+                    let end = chars[index];
+                    index += 1;
+                    if ('@'..='~').contains(&end) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if chars.get(index + 1) == Some(&']') {
+                index += 2;
+                while index < chars.len() {
+                    if chars[index] == '\u{7}' {
+                        index += 1;
+                        break;
+                    }
+                    if chars[index] == '\u{1b}' && chars.get(index + 1) == Some(&'\\') {
+                        index += 2;
+                        break;
+                    }
+                    index += 1;
+                }
+                continue;
+            }
+            index += 2;
+            continue;
+        }
+        if character == '\r' {
+            output.push('\n');
+            if chars.get(index + 1) == Some(&'\n') {
+                index += 1;
+            }
+        } else if character == '\n' || character == '\t' || !character.is_control() {
+            output.push(character);
+        }
+        index += 1;
+    }
+    output
+}
 fn read_log(path: &Path) -> (String, bool) {
     let bytes = fs::read(path).unwrap_or_default();
-    let text = String::from_utf8_lossy(&bytes).to_string();
+    let text = sanitize_log(&String::from_utf8_lossy(&bytes));
     let truncated = text.starts_with(TRUNCATION_MARKER.trim_start());
     (text, truncated)
 }
@@ -1155,6 +1735,10 @@ mod tests {
             validate_version: None,
             generate_notes: None,
             preflight: None,
+            reconciliation: Some(ReleaseReconciliationConfig {
+                protocol_version: 1,
+                command: "true".into(),
+            }),
             stages: vec![],
         };
         assert!(validate_config(&config).is_err());
@@ -1166,6 +1750,7 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.stacks/release.json");
         let config: ReleaseConfig = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         validate_config(&config).unwrap();
+        assert_eq!(config.reconciliation.as_ref().unwrap().protocol_version, 1);
         assert_eq!(
             config
                 .stages
@@ -1266,6 +1851,19 @@ mod tests {
             .success());
         assert!(canonical_primary_checkout(linked.to_str().unwrap()).is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn displayed_logs_remove_terminal_controls_and_preserve_progress_lines() {
+        let input = "plain\r\n\u{1b}[31mred\u{1b}[0m\rprogress 1\rprogress 2\n\u{1b}]0;unsafe title\u{7}done\u{8}\u{0}";
+        assert_eq!(
+            sanitize_log(input),
+            "plain\nred\nprogress 1\nprogress 2\ndone"
+        );
+        assert_eq!(
+            sanitize_log("before\u{1b}[2J\u{1b}[Hafter\tvalue"),
+            "beforeafter\tvalue"
+        );
     }
 
     #[test]

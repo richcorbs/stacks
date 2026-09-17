@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
-import type { ReleaseStageState } from '../releaseApi';
-import { ReleaseStage } from './ReleaseTab';
+import type { ReleaseReconciliation, ReleaseStageState } from '../releaseApi';
+import { ReconciliationSummary, ReleaseStage } from './ReleaseTab';
 
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
@@ -23,6 +23,24 @@ function stage(overrides: Partial<ReleaseStageState> = {}): ReleaseStageState {
     ...overrides,
   };
 }
+
+function reconciliation(overrides: Partial<ReleaseReconciliation> = {}): ReleaseReconciliation {
+  return { protocolVersion: 1, disposition: 'resumableDraft', requestedVersion: '1.2.4', latestPublishedVersion: '1.2.3', sourceRevision: 'source', headRevision: 'head', preparedRevision: 'abcdef1234567890', preparedParent: 'source', approvedPaths: [], localTagRevision: null, remoteTagRevision: 'abcdef1234567890', release: { id: 7, tag: 'v1.2.4', revision: 'abcdef1234567890', title: 'Stacks v1.2.4', notes: '# Notes', target: 'abcdef1234567890', draft: true, prerelease: false, url: 'https://example.com/draft' }, expectedAssets: [], existingAssets: [], missingAssets: [], extraAssets: [], conflictingAssets: [], artifact: {}, identity: { tag: 'v1.2.4' }, issues: [], permittedActions: ['approve'], provenStages: ['prepare', 'build', 'draft'], ...overrides };
+}
+
+describe('release reconciliation summary', () => {
+  it('identifies a resumable draft and opens its GitHub URL', () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<ReconciliationSummary reconciliation={reconciliation()} />); });
+    expect(renderer.root.findByType('strong').children.join('')).toBe('Draft release found');
+    act(() => renderer.root.findByProps({ className: 'releaseLink' }).props.onClick());
+    expect(invoke).toHaveBeenCalledWith('open_url', { url: 'https://example.com/draft' });
+  });
+  it('renders actionable conflict details and revisions', () => {
+    const markup = renderToStaticMarkup(<ReconciliationSummary reconciliation={reconciliation({ disposition: 'conflict', issues: ['Remote tag points elsewhere.'], permittedActions: ['refresh'] })} />);
+    expect(markup).toContain('Release conflict'); expect(markup).toContain('Remote tag points elsewhere.'); expect(markup).toContain('abcdef123456');
+  });
+});
 
 describe('ReleaseStage', () => {
   it('collapses output by default and makes the full heading a disclosure button', () => {

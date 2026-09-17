@@ -4,7 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import {
   ASSET_NAMES, artifactDir, clean, fail, findRelease, ghJson, git, latestPublished, matchingDraft,
-  missingReleaseAssets, prepare, releaseNotes, run, setVersions, sourceRevision, suggestPatch,
+  missingReleaseAssets, prepare, reconcileRelease, releaseNotes, run, setVersions, sourceRevision, suggestPatch,
   tagFor, uploadReleaseAsset, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets,
   verifyVersions, writeChecksums,
 } from './release-lib.mjs';
@@ -24,6 +24,7 @@ const version = options.version || process.env.STACKS_RELEASE_VERSION;
 const previous = options.previous || process.env.STACKS_RELEASE_PREVIOUS_VERSION;
 const source = options.source || sourceRevision();
 const notesFile = options.notes || process.env.STACKS_RELEASE_NOTES_FILE;
+const operation = process.env.STACKS_RELEASE_OPERATION_ID || '';
 const branch = options.branch || process.env.STACKS_RELEASE_TARGET_BRANCH;
 const ghOptions = { cwd: root, gh: options.gh };
 
@@ -37,19 +38,21 @@ function matchingRelease(tag) {
 }
 function prepared() { return verifyPrepared(root, { version: requireValue(version, 'version'), notesFile: requireValue(notesFile, 'notes'), source: requireValue(source, 'source') }); }
 function remoteRef(ref) { return run('git', ['ls-remote', '--refs', 'origin', ref], { cwd: root }).split(/\s+/)[0] || ''; }
+function remoteTag(tag) {
+  const rows = run('git', ['ls-remote', 'origin', `refs/tags/${tag}`, `refs/tags/${tag}^{}`], { cwd: root }).split('\n').filter(Boolean).map(row => row.split(/\s+/));
+  return rows.find(([, ref]) => ref === `refs/tags/${tag}^{}`)?.[0] || rows.find(([, ref]) => ref === `refs/tags/${tag}`)?.[0] || '';
+}
 function assertTagRevision(tag, revision) {
   let local = '';
   try { local = git(root, 'rev-parse', '--verify', `refs/tags/${tag}^{commit}`); } catch {}
   if (local && local !== revision) fail(`Existing local tag ${tag} points to ${local}, expected ${revision}`);
-  const remote = remoteRef(`refs/tags/${tag}`);
+  const remote = remoteTag(tag);
   if (remote && remote !== revision) fail(`Existing remote tag ${tag} points to ${remote}, expected ${revision}`);
 }
 function verifyRemoteRevision(tag, revision) {
-  const targetBranch = requireValue(branch, 'branch');
   assertTagRevision(tag, revision);
-  const remoteBranch = remoteRef(`refs/heads/${targetBranch}`);
-  const remoteTag = remoteRef(`refs/tags/${tag}`);
-  if (remoteBranch !== revision || remoteTag !== revision) fail(`Remote branch ${targetBranch} and tag ${tag} do not both point to release revision ${revision}`);
+  const remoteTagRevision = remoteTag(tag);
+  if (remoteTagRevision !== revision) fail(`Remote tag ${tag} does not point to release revision ${revision}`);
 }
 function validateDraft(release, revision) {
   const tag = tagFor(version);
@@ -57,24 +60,29 @@ function validateDraft(release, revision) {
   if (!release.draft) fail(`Release ${tag} is already published; refusing draft operation`);
   if (release.prerelease) fail(`Release ${tag} is unexpectedly marked prerelease`);
   if (release.name !== `Stacks ${tag}`) fail(`Draft ${tag} has conflicting title ${JSON.stringify(release.name)}`);
-  if (release.target_commitish !== revision) fail(`Draft ${tag} targets ${release.target_commitish}, expected ${revision}`);
+  if (remoteTag(tag) !== revision) fail(`Draft ${tag} does not resolve through its remote tag to ${revision}`);
   const approved = fs.readFileSync(notesFile, 'utf8');
   if ((release.body || '') !== approved) fail(`Draft ${tag} notes differ from approved release notes`);
   verifyReleaseAssets(release, verifyArtifacts(root, version));
   return release;
 }
 function createOrResumeDraft() {
-  const revision = prepared(); const tag = tagFor(version); const out = verifyArtifacts(root, version); const targetBranch = requireValue(branch, 'branch');
+  const tag = tagFor(version); const releases = releaseList(); const existing = findRelease(releases, tag)[0];
+  const revision = existing ? remoteTag(tag) : prepared(); const out = verifyArtifacts(root, version); const targetBranch = requireValue(branch, 'branch');
+  if (!revision) fail(`Existing GitHub release ${tag} has no resolvable remote tag`);
   assertTagRevision(tag, revision);
   const approvedNotes = fs.readFileSync(notesFile, 'utf8');
-  let release = matchingDraft(releaseList(), { tag, revision, title: `Stacks ${tag}`, body: approvedNotes });
+  let release = matchingDraft(releases, { tag, revision, title: `Stacks ${tag}`, body: approvedNotes });
   let uploadNames = missingReleaseAssets(release, out);
   let hasLocalTag = true;
   try { git(root, 'show-ref', '--verify', '--quiet', `refs/tags/${tag}`); } catch { hasLocalTag = false; }
   if (!hasLocalTag) git(root, 'tag', tag, revision);
   const remoteBranch = remoteRef(`refs/heads/${targetBranch}`);
-  if (remoteBranch !== revision) run('git', ['push', 'origin', `${revision}:refs/heads/${targetBranch}`], { cwd: root, capture: false });
-  if (remoteRef(`refs/tags/${tag}`) !== revision) run('git', ['push', 'origin', `refs/tags/${tag}:refs/tags/${tag}`], { cwd: root, capture: false });
+  if (!release && remoteBranch !== revision) {
+    if (remoteBranch) run('git', ['merge-base', '--is-ancestor', remoteBranch, revision], { cwd: root });
+    run('git', ['push', 'origin', `${revision}:refs/heads/${targetBranch}`], { cwd: root, capture: false });
+  }
+  if (remoteTag(tag) !== revision) run('git', ['push', 'origin', `refs/tags/${tag}:refs/tags/${tag}`], { cwd: root, capture: false });
   if (!release) {
     release = ghJson(['api', '--method', 'POST', 'repos/{owner}/{repo}/releases', '-f', `tag_name=${tag}`, '-f', `target_commitish=${revision}`, '-f', `name=Stacks ${tag}`, '-F', 'draft=true', '-F', 'prerelease=false', '--raw-field', `body=${approvedNotes}`], ghOptions);
     uploadNames = missingReleaseAssets(release, out);
@@ -88,19 +96,19 @@ function createOrResumeDraft() {
   console.log(`Draft verified: ${release.html_url}`);
 }
 function verifyDraft() {
-  const revision = prepared(); const tag = tagFor(version); verifyRemoteRevision(tag, revision);
+  const tag = tagFor(version); const revision = remoteTag(tag) || prepared(); verifyRemoteRevision(tag, revision);
   const release = validateDraft(matchingRelease(tag), revision);
   console.log(`Draft ready for smoke testing: ${release.html_url}`);
 }
 function publish() {
-  const revision = prepared(); const tag = tagFor(version); verifyRemoteRevision(tag, revision); const release = validateDraft(matchingRelease(tag), revision);
+  const tag = tagFor(version); const revision = remoteTag(tag) || prepared(); verifyRemoteRevision(tag, revision); const release = validateDraft(matchingRelease(tag), revision);
   const published = ghJson(['api', '--method', 'PATCH', `repos/{owner}/{repo}/releases/${release.id}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true'], ghOptions);
   console.log(`Published ${tagFor(version)}: ${published.html_url}`);
 }
 function verifyPublished() {
-  const revision = prepared(); const tag = tagFor(version); verifyRemoteRevision(tag, revision); const release = matchingRelease(tag);
+  const tag = tagFor(version); const revision = remoteTag(tag) || prepared(); verifyRemoteRevision(tag, revision); const release = matchingRelease(tag);
   if (!release || release.draft || release.prerelease) fail(`${tag} is not a published stable release`);
-  if (release.target_commitish !== revision) fail(`Published release targets ${release.target_commitish}, expected ${revision}`);
+  if (remoteTag(tag) !== revision) fail(`Published release tag does not resolve to ${revision}`);
   verifyReleaseAssets(release, verifyArtifacts(root, version));
   const latest = ghJson(['api', 'repos/{owner}/{repo}/releases/latest'], ghOptions);
   if (latest.id !== release.id || latest.tag_name !== tag) fail(`GitHub latest release is ${latest.tag_name}, expected ${tag}`);
@@ -135,6 +143,19 @@ try {
     case 'suggest': console.log(suggestPatch(requireValue(previous, 'previous'))); break;
     case 'validate': validateVersion(requireValue(version, 'version')); if (previous && suggestPatch(previous) !== version) fail(`Expected next patch ${suggestPatch(previous)}, got ${version}`); console.log(`Valid Stacks release version: ${version}`); break;
     case 'notes': process.stdout.write(releaseNotes(root, requireValue(previous, 'previous'), requireValue(source, 'source'))); break;
+    case 'reconcile': {
+      const requested = requireValue(version, 'version'); const prior = requireValue(previous, 'previous'); let revision = requireValue(source, 'source');
+      const requestedTag = tagFor(requested); const head = git(root, 'rev-parse', 'HEAD');
+      const preparedNotes = path.join(root, 'releases', `${requestedTag}.md`);
+      if (head === git(root, 'rev-parse', `${revision}^{commit}`) && git(root, 'show', '-s', '--format=%s', head) === `Release Stacks ${requestedTag}`) revision = git(root, 'rev-parse', `${head}^`);
+      const notesText = operation === 'inspection' && fs.existsSync(preparedNotes) ? fs.readFileSync(preparedNotes, 'utf8') : notesFile && fs.existsSync(notesFile) ? fs.readFileSync(notesFile, 'utf8') : fs.existsSync(preparedNotes) ? fs.readFileSync(preparedNotes, 'utf8') : releaseNotes(root, prior, revision);
+      const effectiveNotes = notesFile && fs.existsSync(notesFile) ? notesFile : path.join(root, '.git', 'stacks-reconcile-notes');
+      if (effectiveNotes.includes(`${path.sep}.git${path.sep}`)) fs.writeFileSync(effectiveNotes, notesText);
+      const refs = Object.fromEntries(run('git', ['ls-remote', 'origin'], { cwd: root }).split('\n').filter(Boolean).map(row => { const [sha, ref] = row.split(/\s+/); return [ref, sha]; }));
+      const releases = releaseList();
+      const result = reconcileRelease(root, { version: requested, previousVersion: prior, source: revision, notes: { file: effectiveNotes, text: notesText }, branch: requireValue(branch, 'branch'), releases, latest: prior, remoteRefs: refs });
+      process.stdout.write(`${JSON.stringify(result)}\n`); break;
+    }
     case 'preflight': preflight(); console.log('Release preflight passed.'); break;
     case 'prepare': prepare(root, { version, notesFile, source }); console.log(`Prepared ${tagFor(version)} release commit.`); break;
     case 'verify-prepare': prepared(); console.log(`Verified ${tagFor(version)} release commit.`); break;
@@ -146,6 +167,6 @@ try {
     case 'verify-publish': verifyPublished(); break;
     case 'set-version': setVersions(root, requireValue(version || options._[1], 'version')); break;
     case 'check-version': verifyVersions(root, version || JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version); console.log('Stacks versions are consistent.'); break;
-    default: fail('Usage: release.mjs <current|suggest|validate|notes|preflight|prepare|verify-prepare|build|verify-build|draft|verify-draft|publish|verify-publish> [--version X.Y.Z --previous X.Y.Z --source REV --notes FILE --branch NAME --root PATH]');
+    default: fail('Usage: release.mjs <current|suggest|validate|notes|reconcile|preflight|prepare|verify-prepare|build|verify-build|draft|verify-draft|publish|verify-publish> [--version X.Y.Z --previous X.Y.Z --source REV --notes FILE --branch NAME --root PATH]');
   }
 } catch (error) { console.error(`error: ${error.message}`); process.exit(1); }
