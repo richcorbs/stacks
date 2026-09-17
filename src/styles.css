@@ -131,7 +131,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanCard.dragging { opacity: .42; }
 .kanbanCard.dropBefore { box-shadow: 0 -2px 0 #6697c2, 0 3px 9px rgba(0, 0, 0, .12); }
 .kanbanCardSource { color: #63778d; font: calc(9px + var(--ui-font-delta, 0px)) ui-monospace, monospace; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
-.kanbanProjectBadge { display: inline-flex; padding: 3px 8px; border: 1px solid #36506a; border-radius: 999px; background: #172838; color: #9fc2df; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-transform: none; letter-spacing: normal; }
+.kanbanProjectBadge { display: inline-flex; padding: 3px 8px; border: 1px solid #34495d; border-radius: 999px; background: #172431; color: #687c92; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-transform: none; letter-spacing: normal; }
 .kanbanProjectBadge.invalid { border-color: #75424b; background: #351f25; color: #f1a8b0; }
 .kanbanHierarchyBadge { display: inline-block; max-width: 130px; padding: 3px 8px; overflow: hidden; border: 1px solid #384858; border-radius: 999px; background: #18222d; color: #91a4b6; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-transform: none; text-overflow: ellipsis; letter-spacing: normal; white-space: nowrap; }
 button.kanbanHierarchyBadge.parent { position: relative; z-index: 3; pointer-events: auto; cursor: pointer; }
@@ -171,7 +171,7 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanDetail { width: min(1000px, calc(100vw - 32px)); max-width: 1000px; height: 95dvh; max-height: 95dvh; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #101821; border: 1px solid #2a3b4e; border-radius: 12px; box-shadow: 0 24px 80px rgba(0, 0, 0, .55); }
 .kanbanDetail > header { box-sizing: border-box; flex: 0 0 auto; min-width: 0; min-height: 82px; padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid #223142; }
 .kanbanDetailHeading { flex: 1; min-width: 0; }
-.kanbanDetail > header span:not(.gitAdded):not(.gitChanged):not(.gitRemoved):not(.kanbanProjectBadge):not(.kanbanHierarchyBadge) { color: #687c92; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanDetail > header span:not(.gitAdded):not(.gitChanged):not(.gitRemoved):not(.kanbanProjectBadge):not(.kanbanCardStatus):not(.kanbanHierarchyBadge) { color: #687c92; font-size: calc(10px + var(--ui-font-delta, 0px)); }
 .kanbanDetailHeaderMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .kanbanDetailRepositoryMeta { min-width: 0; margin-top: 4px; display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; white-space: nowrap; }
 .kanbanDetailRepositoryMeta .kanbanCardHeaderBranch { flex: 0 1 auto; overflow: hidden; }
@@ -190,7 +190,7 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanDetail > header a.kanbanCardPrLink.openBlocked { color: #e27f86; }
 .kanbanDetail > header a.kanbanCardPrLink.merged { color: #b78ae0; }
 .kanbanDetail > header a.kanbanCardPrLink.closed { color: #7f91a3; }
-.kanbanDetailHeaderMeta .kanbanCardStatus { padding: 3px 8px; border: 1px solid #34495d; border-radius: 999px; background: #172431; color: #a8bdcf; font-size: calc(12px + var(--ui-font-delta, 0px)) !important; font-weight: 650; }
+.kanbanDetailHeaderMeta .kanbanCardStatus { padding: 3px 8px; border: 1px solid #36506a; border-radius: 999px; background: #172838; color: #9fc2df; font-size: calc(12px + var(--ui-font-delta, 0px)) !important; font-weight: 650; }
 .kanbanDetail > header .kanbanCardEditButton { width: 26px; height: 26px; margin-left: -3px; padding: 0; display: grid; place-items: center; border: 1px solid transparent; border-radius: 5px; cursor: pointer; }
 .kanbanCardEditButton > span { position: relative; width: 12px; height: 4px; border-radius: 1px; background: currentColor; transform: rotate(-45deg) translateX(-1.5px); }
 .kanbanCardEditButton > span::after { content: ''; position: absolute; right: -4px; top: 0; border-top: 2px solid transparent; border-bottom: 2px solid transparent; border-left: 3px solid currentColor; }
