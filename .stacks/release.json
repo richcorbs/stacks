@@ -1,0 +1,40 @@
+{
+  "currentVersion": "node scripts/release.mjs current",
+  "suggestedVersion": "node scripts/release.mjs suggest",
+  "validateVersion": "node scripts/release.mjs validate",
+  "generateNotes": "node scripts/release.mjs notes",
+  "preflight": "node scripts/release.mjs preflight",
+  "stages": [
+    {
+      "id": "prepare",
+      "name": "Prepare release commit",
+      "run": "node scripts/release.mjs prepare",
+      "verify": "node scripts/release.mjs verify-prepare",
+      "repositoryAccess": "exclusive"
+    },
+    {
+      "id": "build",
+      "name": "Validate and build signed artifacts",
+      "run": "node scripts/release.mjs build",
+      "verify": "node scripts/release.mjs verify-build",
+      "repositoryAccess": "read"
+    },
+    {
+      "id": "draft",
+      "name": "Push and create draft release",
+      "run": "node scripts/release.mjs draft",
+      "verify": "node scripts/release.mjs verify-draft",
+      "repositoryAccess": "exclusive",
+      "approval": {
+        "instructions": "Smoke-test the signed draft using the clickable GitHub URL in the stage output, then approve to publish it as latest."
+      }
+    },
+    {
+      "id": "publish",
+      "name": "Publish verified release",
+      "run": "node scripts/release.mjs publish",
+      "verify": "node scripts/release.mjs verify-publish",
+      "repositoryAccess": "read"
+    }
+  ]
+}
