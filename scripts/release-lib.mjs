@@ -29,6 +29,9 @@ export function ghJson(args, options = {}) {
   const output = run(options.gh || 'gh', args, { cwd: options.cwd, env: options.env });
   try { return JSON.parse(output); } catch { fail(`gh returned invalid JSON for: gh ${args.join(' ')}`); }
 }
+export function uploadReleaseAsset(tag, file, options = {}) {
+  return run(options.gh || 'gh', ['release', 'upload', tag, file], { cwd: options.cwd, env: options.env });
+}
 export function latestPublished(options = {}) {
   const release = ghJson(['api', 'repos/{owner}/{repo}/releases/latest'], options);
   if (!release || release.draft || release.prerelease || typeof release.tag_name !== 'string') fail('GitHub latest release is not a published stable release');

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare,
-  releaseNotes, suggestPatch, validateVersion, verifyArtifacts, verifyPrepared,
+  releaseNotes, suggestPatch, uploadReleaseAsset, validateVersion, verifyArtifacts, verifyPrepared,
   verifyReleaseAssets, verifyVersions, writeChecksums,
 } from './release-lib.mjs';
 
@@ -94,8 +94,12 @@ describe('mocked GitHub safety cases', () => {
     expect(() => matchingDraft([{ ...draft, draft: false }], identity)).toThrow(/published/);
     expect(() => matchingDraft([{ ...draft, body: 'different' }], identity)).toThrow(/conflicts/);
   });
-  it('surfaces a mocked gh upload failure without retrying destructively', () => {
-    const root = temp(); const gh = path.join(root, 'gh'); fs.writeFileSync(gh, '#!/bin/sh\necho upload failed >&2\nexit 17\n'); fs.chmodSync(gh, 0o755);
-    expect(() => ghJson(['api', '--method', 'POST', 'upload'], { gh })).toThrow(/upload failed/);
+  it('uploads release assets through gh release upload and surfaces failures', () => {
+    const root = temp(); const gh = path.join(root, 'gh'); const calls = path.join(root, 'calls');
+    fs.writeFileSync(gh, '#!/bin/sh\nprintf "%s\\n" "$@" > "$CALLS"\n'); fs.chmodSync(gh, 0o755);
+    uploadReleaseAsset('v1.2.4', '/tmp/Stacks-arm64.zip', { gh, env: { ...process.env, CALLS: calls } });
+    expect(fs.readFileSync(calls, 'utf8')).toBe('release\nupload\nv1.2.4\n/tmp/Stacks-arm64.zip\n');
+    fs.writeFileSync(gh, '#!/bin/sh\necho upload failed >&2\nexit 17\n');
+    expect(() => uploadReleaseAsset('v1.2.4', '/tmp/Stacks-arm64.zip', { gh })).toThrow(/upload failed/);
   });
 });

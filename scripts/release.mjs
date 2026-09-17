@@ -5,8 +5,8 @@ import process from 'node:process';
 import {
   ASSET_NAMES, artifactDir, clean, fail, findRelease, ghJson, git, latestPublished, matchingDraft,
   missingReleaseAssets, prepare, releaseNotes, run, setVersions, sourceRevision, suggestPatch,
-  tagFor, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets, verifyVersions,
-  writeChecksums,
+  tagFor, uploadReleaseAsset, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets,
+  verifyVersions, writeChecksums,
 } from './release-lib.mjs';
 
 function args(argv) {
@@ -81,7 +81,7 @@ function createOrResumeDraft() {
   }
   for (const name of uploadNames) {
     console.log(`Uploading ${name}…`);
-    ghJson(['api', '--method', 'POST', `repos/{owner}/{repo}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`, '-H', 'Content-Type: application/octet-stream', '--input', path.join(out, name)], ghOptions);
+    uploadReleaseAsset(tag, path.join(out, name), ghOptions);
   }
   release = releaseById(release.id);
   validateDraft(release, revision);
