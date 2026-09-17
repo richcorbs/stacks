@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare,
+  ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare, reconcileRelease,
   releaseNotes, suggestPatch, uploadReleaseAsset, validateVersion, verifyArtifacts, verifyPrepared,
   verifyReleaseAssets, verifyVersions, writeChecksums,
 } from './release-lib.mjs';
@@ -17,6 +17,7 @@ function writeJson(file, value) { fs.mkdirSync(path.dirname(file), { recursive: 
 function repository() {
   const root = temp();
   run(root, 'git', ['init', '-b', 'main']); run(root, 'git', ['config', 'user.email', 'test@example.com']); run(root, 'git', ['config', 'user.name', 'Release Test']);
+  fs.writeFileSync(path.join(root, '.gitignore'), 'release-artifacts/\n');
   writeJson(path.join(root, 'package.json'), { name: 'stacks', version: '1.2.3' });
   writeJson(path.join(root, 'package-lock.json'), { name: 'stacks', version: '1.2.3', packages: { '': { name: 'stacks', version: '1.2.3' } } });
   writeJson(path.join(root, 'src-tauri/tauri.conf.json'), { version: '1.2.3' });
@@ -82,6 +83,22 @@ describe('prepare and artifact postconditions', () => {
     expect(missingReleaseAssets(complete, out)).toEqual([]);
     expect(() => missingReleaseAssets({ assets: [{ id: 1, name: 'latest.json', size: size('latest.json') }] }, out)).toThrow(/first-upload/);
     expect(() => missingReleaseAssets({ assets: [...partial.assets, { id: 3, name: 'surprise.dmg', size: 1 }] }, out)).toThrow(/unexpected/);
+  });
+});
+
+describe('structured release reconciliation', () => {
+  it('distinguishes available, prepared, complete draft, published, and conflicting identity', () => {
+    const root = repository(); const source = run(root, 'git', ['rev-parse', 'HEAD']); const notes = path.join(temp(), 'notes.md'); fs.writeFileSync(notes, '# Approved\n');
+    const input = { version: '1.2.4', previousVersion: '1.2.3', source, notes: { file: notes, text: '# Approved\n' }, branch: 'main', releases: [], latest: '1.2.3', remoteRefs: {} };
+    expect(reconcileRelease(root, input).disposition).toBe('available');
+    prepare(root, { version: '1.2.4', notesFile: notes, source }); const revision = run(root, 'git', ['rev-parse', 'HEAD']);
+    expect(reconcileRelease(root, input)).toMatchObject({ disposition: 'resumablePrepared', preparedRevision: revision, preparedParent: source, provenStages: ['prepare'] });
+    const out = artifacts(root); const assets = ASSET_NAMES.map((name, id) => ({ id: id + 1, name, size: fs.statSync(path.join(out, name)).size, digest: `sha256:${run(root, 'shasum', ['-a', '256', path.join(out, name)]).split(' ')[0]}` }));
+    const draft = { id: 7, tag_name: 'v1.2.4', target_commitish: revision, name: 'Stacks v1.2.4', body: '# Approved\n', draft: true, prerelease: false, html_url: 'https://example.test/draft', assets };
+    const remoteRefs = { 'refs/tags/v1.2.4': revision };
+    expect(reconcileRelease(root, { ...input, releases: [draft], remoteRefs })).toMatchObject({ disposition: 'resumableDraft', missingAssets: [], provenStages: ['prepare', 'build', 'draft'] });
+    expect(reconcileRelease(root, { ...input, releases: [{ ...draft, draft: false }], remoteRefs }).disposition).toBe('published');
+    expect(reconcileRelease(root, { ...input, releases: [{ ...draft, name: 'Wrong title' }], remoteRefs })).toMatchObject({ disposition: 'conflict', permittedActions: ['refresh'] });
   });
 });
 

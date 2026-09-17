@@ -4,6 +4,10 @@
   "validateVersion": "node scripts/release.mjs validate",
   "generateNotes": "node scripts/release.mjs notes",
   "preflight": "node scripts/release.mjs preflight",
+  "reconciliation": {
+    "protocolVersion": 1,
+    "command": "node scripts/release.mjs reconcile"
+  },
   "stages": [
     {
       "id": "prepare",

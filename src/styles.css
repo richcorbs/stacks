@@ -1028,6 +1028,13 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseCommand { margin-top: 7px; }
 .releaseCommand code { display: block; margin-top: 3px; padding: 7px; overflow-x: auto; background: #0a1118; color: #aebdcb; white-space: pre-wrap; }
 .releaseStart { justify-self: start; }
+.releaseReconciliation { padding: 11px; border: 1px solid #2a4053; border-radius: 7px; background: #101c27; }
+.releaseReconciliation > div:first-child { display: flex; align-items: center; justify-content: space-between; color: #c3d0dc; }
+.releaseReconciliation.conflict, .releaseReconciliation.recoveryRequired { border-color: #684047; background: #21171c; }
+.releaseReconciliation p { margin: 7px 0 0; color: #dc969b; font-size: 12px; white-space: pre-wrap; }
+.releaseEvidence { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 7px; color: #8398aa; font-size: 11px; }
+.releaseEvidence code { color: #b6c5d2; }
+.releaseLink { border: 0; background: none; color: #79add8; cursor: pointer; }
 .releaseSummary { margin-bottom: 12px; }
 .releaseSummary > span:not(.releaseStatus) { color: #74889b; font-size: 12px; }
 .releaseStatus { padding: 3px 7px; border-radius: 999px; background: #263a4d; color: #a9bed0; font-size: 11px; }

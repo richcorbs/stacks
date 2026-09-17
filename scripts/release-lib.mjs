@@ -163,3 +163,81 @@ export function verifyReleaseAssets(release, out) {
   const first = [...assets].sort((a, b) => a.id - b.id)[0]?.name;
   if (first !== ASSET_NAMES[0]) fail(`${ASSET_NAMES[0]} was not uploaded first`);
 }
+
+function resolveOptional(root, ref) {
+  try { return git(root, 'rev-parse', '--verify', `${ref}^{commit}`); } catch { return null; }
+}
+function artifactEvidence(root, version) {
+  try {
+    const out = verifyArtifacts(root, version);
+    return { valid: true, directory: out, assets: ASSET_NAMES.map(name => ({ name, size: fs.statSync(path.join(out, name)).size, digest: `sha256:${sha256(path.join(out, name))}` })) };
+  } catch (error) { return { valid: false, directory: artifactDir(root, version), assets: [], error: error.message }; }
+}
+function remoteTagRevision(remoteRefs, tag) {
+  const peeled = remoteRefs[`refs/tags/${tag}^{}`];
+  return peeled || remoteRefs[`refs/tags/${tag}`] || null;
+}
+export function reconcileRelease(root, { version, previousVersion, source, notes, branch, releases, latest, remoteRefs = {} }) {
+  validateVersion(version); validateVersion(previousVersion);
+  const tag = tagFor(version); const title = `Stacks ${tag}`; const expectedNotes = notes;
+  const head = git(root, 'rev-parse', 'HEAD');
+  const localTagRevision = resolveOptional(root, `refs/tags/${tag}`);
+  const remoteTag = remoteTagRevision(remoteRefs, tag);
+  const matching = findRelease(releases, tag);
+  const release = matching[0];
+  const issues = [];
+  if (matching.length > 1) issues.push(`Multiple GitHub releases claim ${tag}.`);
+  let preparedRevision = null; let preparedParent = null; let preparedValid = false;
+  try { preparedRevision = verifyPrepared(root, { version, notesFile: notes.file, source }); preparedParent = git(root, 'rev-parse', `${preparedRevision}^`); preparedValid = true; } catch (error) {
+    const manifestPrepared = Object.values(versions(root)).every(value => value === version) || fs.existsSync(path.join(root, 'releases', `${tag}.md`));
+    if (manifestPrepared || git(root, 'show', '-s', '--format=%s', head) === `Release Stacks ${tag}`) issues.push(`Prepared release state is not safely resumable: ${error.message}`);
+  }
+  const intendedRevision = preparedRevision || (release ? (remoteTag || localTagRevision) : source);
+  if (!preparedRevision && release && intendedRevision && resolveOptional(root, intendedRevision)) {
+    preparedRevision = intendedRevision;
+    try { preparedParent = git(root, 'rev-parse', `${intendedRevision}^`); } catch {}
+  }
+  const actualSource = preparedParent || source;
+  if (localTagRevision && localTagRevision !== intendedRevision) issues.push(`Local tag ${tag} resolves to ${localTagRevision}, expected ${intendedRevision}. Existing tags are never moved.`);
+  if (remoteTag && remoteTag !== intendedRevision) issues.push(`Remote tag ${tag} resolves to ${remoteTag}, expected ${intendedRevision}. Remove the conflicting remote release/tag manually, then refresh reconciliation.`);
+  const artifact = artifactEvidence(root, version);
+  let releaseIdentityValid = true; let missingAssets = [...ASSET_NAMES]; let extraAssets = []; let conflictingAssets = [];
+  if (release) {
+    if (release.name !== title) { issues.push(`GitHub release title is ${JSON.stringify(release.name)}, expected ${JSON.stringify(title)}.`); releaseIdentityValid = false; }
+    if (release.target_commitish !== intendedRevision) { issues.push(`GitHub release target is ${JSON.stringify(release.target_commitish)}, expected immutable revision ${intendedRevision}.`); releaseIdentityValid = false; }
+    if ((release.body || '') !== expectedNotes.text) { issues.push('GitHub release notes differ from the approved notes.'); releaseIdentityValid = false; }
+    if (release.prerelease) { issues.push('GitHub release is marked prerelease.'); releaseIdentityValid = false; }
+    if (!remoteTag) { issues.push(`GitHub release ${tag} has no resolvable advertised remote tag.`); releaseIdentityValid = false; }
+    if (release.target_commitish && remoteTag && resolveOptional(root, remoteTag) && remoteTag !== intendedRevision) releaseIdentityValid = false;
+    const existing = new Map((release.assets || []).map(asset => [asset.name, asset]));
+    missingAssets = ASSET_NAMES.filter(name => !existing.has(name));
+    extraAssets = [...existing.keys()].filter(name => !ASSET_NAMES.includes(name));
+    if (artifact.valid) for (const [name, asset] of existing) {
+      const local = artifact.assets.find(item => item.name === name);
+      if (!local || local.size !== asset.size || (asset.digest && asset.digest !== local.digest)) conflictingAssets.push(name);
+    }
+    if (existing.size > 0 && !existing.has(ASSET_NAMES[0])) issues.push(`Draft cannot preserve required upload order because ${ASSET_NAMES[0]} is missing while later assets exist.`);
+    if (!release.draft && missingAssets.length) issues.push(`Published release is missing required assets: ${missingAssets.join(', ')}.`);
+    if (extraAssets.length) issues.push(`GitHub release has unexpected assets: ${extraAssets.join(', ')}.`);
+    if (conflictingAssets.length) issues.push(`GitHub release assets conflict with verified local files: ${conflictingAssets.join(', ')}.`);
+  }
+  let disposition = 'available'; let permittedActions = ['start'];
+  if (issues.length) { disposition = preparedRevision && !release && !remoteTag ? 'recoveryRequired' : 'conflict'; permittedActions = disposition === 'recoveryRequired' ? ['recover', 'refresh'] : ['refresh']; }
+  else if (release && !release.draft) { disposition = 'published'; permittedActions = ['complete', 'refresh']; }
+  else if (release) {
+    if (!releaseIdentityValid) { disposition = 'conflict'; permittedActions = ['refresh']; }
+    else if (!artifact.valid || conflictingAssets.length || extraAssets.length) { disposition = 'recoveryRequired'; permittedActions = ['refresh']; issues.push(`Local artifacts cannot safely resume this draft: ${artifact.error || 'asset evidence differs'}. Restore the exact release-artifacts/${tag} set; historical rebuilding from current HEAD is not allowed.`); }
+    else { disposition = 'resumableDraft'; permittedActions = missingAssets.length ? ['resume', 'refresh'] : ['approve', 'resume', 'refresh']; }
+  } else if (preparedValid) { disposition = artifact.valid ? 'resumablePrepared' : 'resumablePrepared'; permittedActions = ['resume', 'recover', 'refresh']; }
+  else if (localTagRevision || remoteTag) { disposition = 'conflict'; permittedActions = ['refresh']; issues.push(`${tag} is already reserved by ${remoteTag ? 'a remote' : 'a local'} tag.`); }
+  return {
+    protocolVersion: 1, disposition, requestedVersion: version, latestPublishedVersion: latest,
+    manifestVersions: versions(root), sourceRevision: actualSource, headRevision: head, preparedRevision, preparedParent,
+    approvedPaths: [...VERSION_FILES, `releases/${tag}.md`], localTagRevision, remoteTagRevision: remoteTag,
+    release: release ? { id: release.id, tag: release.tag_name, revision: remoteTag, title: release.name, notes: release.body || '', target: release.target_commitish || '', draft: !!release.draft, prerelease: !!release.prerelease, url: release.html_url || null } : null,
+    expectedAssets: ASSET_NAMES, existingAssets: (release?.assets || []).map(asset => ({ name: asset.name, size: asset.size, digest: asset.digest || null })),
+    missingAssets, extraAssets, conflictingAssets, artifact, identity: { tag, revision: intendedRevision, title, notes: expectedNotes.text, targetBranch: branch, prerelease: false, draft: true },
+    issues, permittedActions,
+    provenStages: [(preparedValid || (release && releaseIdentityValid)) && 'prepare', artifact.valid && (preparedValid || (release && releaseIdentityValid)) && 'build', release && releaseIdentityValid && artifact.valid && missingAssets.length === 0 && !extraAssets.length && !conflictingAssets.length && 'draft', release && !release.draft && releaseIdentityValid && 'publish'].filter(Boolean),
+  };
+}
