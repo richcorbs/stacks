@@ -7,12 +7,13 @@
     "dev": "vite",
     "build": "node scripts/check-kanban-contract.mjs && tsc && vite build",
     "test": "node scripts/check-kanban-contract.mjs && vitest run",
-    "check:version": "node scripts/check-version.mjs",
-    "version:set": "node scripts/version.mjs",
+    "check:version": "node scripts/release.mjs check-version",
+    "version:set": "node scripts/release.mjs set-version",
     "release:build": "TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/stacks-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"$(cat $HOME/.tauri/stacks-updater.password)\" tauri build --bundles app",
-    "release:prepare": "scripts/release.sh",
-    "release:publish": "scripts/publish-release.sh",
-    "release:finalize": "scripts/finalize-release.sh",
+    "release:prepare": "node scripts/release.mjs prepare",
+    "release:stage-build": "node scripts/release.mjs build",
+    "release:publish": "node scripts/release.mjs draft",
+    "release:finalize": "node scripts/release.mjs publish",
     "tauri": "tauri"
   },
   "dependencies": {

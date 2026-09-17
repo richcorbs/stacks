@@ -1162,6 +1162,47 @@ mod tests {
         assert!(validate_config(&config).unwrap_err().contains("Duplicate"));
     }
     #[test]
+    fn repository_release_config_matches_the_generic_runner_contract() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.stacks/release.json");
+        let config: ReleaseConfig = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        validate_config(&config).unwrap();
+        assert_eq!(
+            config
+                .stages
+                .iter()
+                .filter(|stage| stage.approval.is_some())
+                .count(),
+            1
+        );
+        assert_eq!(
+            config
+                .stages
+                .iter()
+                .find(|stage| stage.approval.is_some())
+                .unwrap()
+                .id,
+            "draft"
+        );
+        assert_eq!(
+            config
+                .stages
+                .iter()
+                .find(|stage| stage.id == "prepare")
+                .unwrap()
+                .repository_access,
+            RepositoryAccess::Exclusive
+        );
+        assert_eq!(
+            config
+                .stages
+                .iter()
+                .find(|stage| stage.id == "draft")
+                .unwrap()
+                .repository_access,
+            RepositoryAccess::Exclusive
+        );
+    }
+    #[test]
     fn rejects_unknown_fields_and_repository_access_values() {
         let unknown = r#"{"currentVersion":"true","stages":[{"id":"one","name":"One","run":"true","repositoryAccess":"read","surprise":true}]}"#;
         let access = r#"{"currentVersion":"true","stages":[{"id":"one","name":"One","run":"true","repositoryAccess":"write"}]}"#;

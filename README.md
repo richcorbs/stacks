@@ -190,25 +190,29 @@ The legacy `stacks-tauri` directory name is retained so upgrades keep existing d
 
 ## Versioning and releases
 
-Set all application version files together and add matching release notes:
+Stacks owns its generic-runner configuration in `.stacks/release.json`. The pipeline discovers GitHub's latest published version, generates editable commit-subject notes at a captured revision, prepares one release commit, validates and signs exact local artifacts, creates or resumes a draft, pauses for smoke-test approval, and then publishes that verified draft as latest.
+
+The same stage commands can be run directly. Supply the values normally provided by the runner as environment variables, or use the equivalent `--version`, `--previous`, `--source`, `--notes`, and `--branch` options:
 
 ```bash
-npm run version:set -- 0.4.30
-npm run check:version
-# Write releases/v0.4.30.md and commit the version change.
+export STACKS_RELEASE_VERSION=0.5.3
+export STACKS_RELEASE_PREVIOUS_VERSION=0.5.2
+export STACKS_RELEASE_SOURCE_REVISION="$(git rev-parse HEAD)"
+export STACKS_RELEASE_TARGET_BRANCH=main
+export STACKS_RELEASE_NOTES_FILE=/absolute/path/to/approved-notes.md
+
+node scripts/release.mjs preflight
+node scripts/release.mjs prepare
+node scripts/release.mjs verify-prepare
+node scripts/release.mjs build
+node scripts/release.mjs verify-build
+node scripts/release.mjs draft
+node scripts/release.mjs verify-draft
+# Smoke-test the clickable draft URL before continuing.
+node scripts/release.mjs publish
+node scripts/release.mjs verify-publish
 ```
 
-Releases are built locally:
+The generic runner calls the captured source revision `STACKS_RELEASE_INITIAL_REVISION`; Stacks' scripts accept that documented name as a fallback to `STACKS_RELEASE_SOURCE_REVISION`. Discovery, suggestion, validation, and notes generation are available as `current`, `suggest`, `validate`, and `notes`. Run any command without enough arguments to see the required values.
 
-```bash
-git tag v0.4.30
-git push origin main v0.4.30
-npm run release:prepare
-npm run release:publish
-# Smoke-test the draft release.
-npm run release:finalize
-```
-
-`release:prepare` validates the code, builds the Apple Silicon app, signs its updater archive, and writes files under `release-artifacts/v0.4.30/`. `release:publish` creates and verifies a draft GitHub release. `release:finalize` publishes it and verifies that GitHub marks it as the latest release.
-
-Updater credentials live at `~/.tauri/stacks-updater.key` and `~/.tauri/stacks-updater.password`. Back them up securely: losing the private key prevents existing installations from accepting future updates. Apple Developer ID signing and notarization are optional and are not part of the current release process.
+Updater credentials live at `~/.tauri/stacks-updater.key` and `~/.tauri/stacks-updater.password`. Back them up securely: losing the private key prevents existing installations from accepting future updates. Apple Developer ID signing and notarization are optional and are not part of the current release process. No release command automatically deletes or overwrites commits, tags, drafts, assets, or published releases.
