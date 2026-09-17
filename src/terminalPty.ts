@@ -78,6 +78,10 @@ export async function spawnTerminalPty({
       cols: size.cols,
       rows: size.rows,
     });
+    if (isCancelled()) {
+      await invoke('kill_pty', { terminalId, expectedGeneration: generation }).catch(() => undefined);
+      return;
+    }
     session.spawned = true;
     session.running = true;
     window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: true } }));

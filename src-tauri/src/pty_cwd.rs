@@ -8,6 +8,7 @@ pub trait PtyProcessRegistry {
 }
 
 pub struct PtyHandle {
+    pub generation: String,
     pub master: Box<dyn MasterPty + Send>,
     pub writer: Box<dyn std::io::Write + Send>,
     pub child: Box<dyn Child + Send + Sync>,

@@ -204,7 +204,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
     environmentRevisionRef,
     layoutRevisionRef,
   });
-  const cardServices = useCardServices(card.id, cardPath, terminalWorkspace.handleTerminalStopped);
+  const cardServices = useCardServices(card.id, cardPath, serverCommand, consoleCommand, terminalWorkspace.handleTerminalStopped);
   const {
     shellTree,
     shellTerminals,

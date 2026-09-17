@@ -74,6 +74,7 @@ export type TerminalSession = {
   starting: boolean;
   running: boolean;
   startupError: string | null;
+  ptyGeneration?: string;
   startupCwd?: string;
   startupCommand?: string | null;
   startupConfiguredCommand?: string | null;

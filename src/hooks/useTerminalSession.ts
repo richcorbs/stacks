@@ -45,7 +45,7 @@ export function useTerminalSession({
     if (session && (session.starting || session.running)) return false;
     if (session) {
       disposeTerminalSession(terminal.id);
-      invoke('kill_pty', { terminalId: terminal.id }).catch(() => {});
+      invoke('kill_pty', { terminalId: terminal.id, expectedGeneration: session.ptyGeneration }).catch(() => {});
     }
     termRef.current = null;
     fitRef.current = null;
@@ -62,13 +62,13 @@ export function useTerminalSession({
 
     if (session?.startupCwd && (session.startupCwd !== desiredCwd || session.startupConfiguredCommand !== (persistedStartupCommand || null))) {
       disposeTerminalSession(terminal.id);
-      invoke('kill_pty', { terminalId: terminal.id, expectedCwd: session.startupCwd }).catch(() => {});
+      invoke('kill_pty', { terminalId: terminal.id, expectedCwd: session.startupCwd, expectedGeneration: session.ptyGeneration }).catch(() => {});
       session = undefined;
     }
 
     if (session && !session.spawned && !session.starting) {
       disposeTerminalSession(terminal.id);
-      invoke('kill_pty', { terminalId: terminal.id }).catch(() => {});
+      invoke('kill_pty', { terminalId: terminal.id, expectedGeneration: session.ptyGeneration }).catch(() => {});
       session = undefined;
     }
 
@@ -88,6 +88,7 @@ export function useTerminalSession({
       if (initialInput) scheduleInitialInputAfterPromptRender(terminal.id, session, initialInput);
 
       const generation = `${terminal.id}:${Date.now()}:${Math.random()}`;
+      session.ptyGeneration = generation;
       session.starting = true;
       session.startupError = null;
       session.startupCwd = desiredCwd;
@@ -105,7 +106,7 @@ export function useTerminalSession({
             cwd: desiredCwd,
             command: startupCommand || null,
             active,
-            isCancelled: () => cancelled,
+            isCancelled: () => cancelled || getTerminalSession(terminal.id) !== session,
           }))
           .then(() => {
             if (session!.running) {

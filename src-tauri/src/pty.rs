@@ -68,6 +68,7 @@ pub fn spawn_pty(
         guard.terminals.insert(
             terminal_id.clone(),
             PtyHandle {
+                generation: generation.clone(),
                 master: pair.master,
                 writer,
                 child,
@@ -153,8 +154,37 @@ pub fn kill_pty(
     registry: State<'_, Mutex<PtyRegistry>>,
     terminal_id: String,
     _expected_cwd: Option<String>,
+    expected_generation: Option<String>,
 ) -> Result<(), String> {
-    kill_ptys(registry.inner(), &[terminal_id])
+    let Some(expected_generation) = expected_generation else {
+        return kill_ptys(registry.inner(), &[terminal_id]);
+    };
+    let handle = {
+        let mut guard = registry
+            .lock()
+            .map_err(|_| "PTY registry lock poisoned".to_string())?;
+        if !guard
+            .terminals
+            .get(&terminal_id)
+            .is_some_and(|handle| handle.generation == expected_generation)
+        {
+            return Ok(());
+        }
+        guard.terminals.remove(&terminal_id)
+    };
+    let Some(mut handle) = handle else {
+        return Ok(());
+    };
+    if let Err(error) = terminate_pty_child(handle.child.as_mut()) {
+        registry
+            .lock()
+            .map_err(|_| "PTY registry lock poisoned".to_string())?
+            .terminals
+            .entry(terminal_id)
+            .or_insert(handle);
+        return Err(error);
+    }
+    Ok(())
 }
 
 pub(crate) fn kill_ptys_with_prefix(
