@@ -204,6 +204,9 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanCardHeaderBranchName { min-width: 0; overflow: hidden; color: #687c92; text-overflow: ellipsis; white-space: nowrap; }
 .kanbanDetail > header button { border: 0; background: transparent; color: #7d8fa3; font-size: 20px; padding: 2px 7px; }
 .kanbanDetail > header button:hover:not(:disabled) { background: transparent; color: #c8d5e1; }
+.kanbanDetail > header button.kanbanHierarchyBadge.parent { padding: 3px 8px; border: 1px solid #384858; border-radius: 999px; background: #18222d; color: #91a4b6; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; }
+.kanbanDetail > header button.kanbanHierarchyBadge.parent:hover:not(:disabled) { border-color: #384858; background: #18222d; color: #91a4b6; }
+.kanbanDetail > header button.kanbanHierarchyBadge.parent:focus-visible { border-color: #384858; outline: 2px solid #78a9d1; outline-offset: 2px; background: #18222d; color: #91a4b6; }
 .kanbanDetailMeta { padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1d2a38; }
 .kanbanDetailMeta a { color: #7fa9cf; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanDetail select { background-color: #151f2a; color: #bdc9d5; }
