@@ -14,8 +14,16 @@ function options(overrides: Partial<CommandPaletteItemOptions> = {}): CommandPal
 describe('command palette items', () => {
   it('contains only board/project commands without a card terminal', () => {
     expect(buildCommandPaletteItems(options()).map((item) => item.id)).toEqual([
-      'new-card', 'direct-project-work', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks',
+      'new-card', 'direct-project-work', 'release-project', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks',
     ]);
+  });
+
+  it('routes Release only to an enabled project', () => {
+    const onRelease = vi.fn();
+    buildCommandPaletteItems(options({ onRelease })).find((item) => item.id === 'release-project')?.action();
+    expect(onRelease).toHaveBeenCalledWith(null);
+    buildCommandPaletteItems(options({ onRelease, selectedKanbanProject: { ...project, releases_enabled: true } })).find((item) => item.id === 'release-project')?.action();
+    expect(onRelease).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'p1', releases_enabled: true }));
   });
 
   it('adds focused card terminal commands only in an active Terminal tab', () => {

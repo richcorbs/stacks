@@ -44,6 +44,14 @@ struct Project {
     require_passing_ci: bool,
     #[serde(default)]
     require_approval: bool,
+    #[serde(default)]
+    releases_enabled: bool,
+    #[serde(default = "default_release_config_path")]
+    release_config_path: String,
+}
+
+fn default_release_config_path() -> String {
+    ".stacks/release.json".to_string()
 }
 
 fn default_delivery_workflow() -> String {
@@ -118,6 +126,8 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
         ("require_approval", "ALTER TABLE projects ADD COLUMN require_approval INTEGER NOT NULL DEFAULT 0"),
         ("superthread_spaces", "ALTER TABLE projects ADD COLUMN superthread_spaces TEXT"),
         ("superthread_workspace_slug", "ALTER TABLE projects ADD COLUMN superthread_workspace_slug TEXT"),
+        ("releases_enabled", "ALTER TABLE projects ADD COLUMN releases_enabled INTEGER NOT NULL DEFAULT 0"),
+        ("release_config_path", "ALTER TABLE projects ADD COLUMN release_config_path TEXT NOT NULL DEFAULT '.stacks/release.json'"),
     ] {
         if !columns.iter().any(|column| column == name) { connection.execute(sql, []).map_err(db_error)?; }
     }
@@ -281,7 +291,8 @@ fn migrate_legacy_card_environments(connection: &mut Connection) -> Result<(), S
 fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
     let mut project_statement = connection.prepare(
         "SELECT id, name, path, notes, collapsed, kanban_source, start_work_command, superthread_spaces, superthread_workspace_slug, server_command, console_command,
-                delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval
+                delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
+                releases_enabled, release_config_path
          FROM projects ORDER BY sort_order, rowid"
     ).map_err(db_error)?;
     let projects = project_statement
@@ -304,6 +315,8 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
                 github_merge_strategy: row.get(14)?,
                 require_passing_ci: row.get::<_, i64>(15)? != 0,
                 require_approval: row.get::<_, i64>(16)? != 0,
+                releases_enabled: row.get::<_, i64>(17)? != 0,
+                release_config_path: row.get(18)?,
                 workspaces: Vec::new(),
             })
         })
@@ -444,13 +457,15 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
         }
         transaction.execute(
             "INSERT INTO projects (id, name, path, notes, collapsed, kanban_source, start_work_command, superthread_spaces, superthread_workspace_slug, server_command, console_command, sort_order,
-                 delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                 delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
+                 releases_enabled, release_config_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![project.id, project.name, project.path, project.notes, project.collapsed as i64,
                 project.kanban_source, project.start_work_command, project.superthread_spaces, project.superthread_workspace_slug,
                 project.server_command, project.console_command, project_index as i64,
                 normalize_delivery_workflow(&project.delivery_workflow), target_branch, project.supports_feature_environments as i64,
-                normalize_merge_strategy(&project.github_merge_strategy), project.require_passing_ci as i64, project.require_approval as i64],
+                normalize_merge_strategy(&project.github_merge_strategy), project.require_passing_ci as i64, project.require_approval as i64,
+                project.releases_enabled as i64, if project.release_config_path.trim().is_empty() { default_release_config_path() } else { project.release_config_path.clone() }],
         ).map_err(db_error)?;
         for (workspace_index, workspace) in project.workspaces.iter().enumerate() {
             transaction.execute(
@@ -558,6 +573,8 @@ mod tests {
                 github_merge_strategy: default_merge_strategy(),
                 require_passing_ci: true,
                 require_approval: false,
+                releases_enabled: false,
+                release_config_path: default_release_config_path(),
             }],
         }
     }
@@ -636,6 +653,8 @@ mod tests {
             github_merge_strategy: default_merge_strategy(),
             require_passing_ci: true,
             require_approval: false,
+            releases_enabled: false,
+            release_config_path: default_release_config_path(),
         });
         write_store(&mut connection, &store).unwrap();
 

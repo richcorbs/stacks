@@ -16,24 +16,26 @@ import { SplitView } from './WorkspaceTerminalTree';
 import { TerminalView } from './TerminalView';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { DirectWorkGitMetadata, type DirectWorkGitState } from './DirectWorkGitMetadata';
+import { ReleaseTab } from './ReleaseTab';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
 type ServiceMode = 'server' | 'console';
 
-export function DirectProjectWork({ project, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onClose }: {
+export function DirectProjectWork({ project, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, onClose }: {
   project: Project;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
   copyOnSelect: boolean;
+  initialView?: WorkView;
   onClose: () => void;
 }) {
   const owner = useMemo(() => ({ kind: 'project' as const, projectId: project.id }), [project.id]);
   const workspaceId = workOwnerId(owner);
   const agentId = workAgentId(owner);
   const initialShellId = workTerminalId(owner, 'shell');
-  const [activeView, setActiveView] = useState<WorkView>('agent');
+  const [activeView, setActiveView] = useState<WorkView>(initialView && (initialView !== 'release' || project.releases_enabled) ? initialView : 'agent');
   const [shellTree, setShellTree] = useState<SplitNode>(() => directWorkInitialLayout(project.id));
   const [focusedShellPane, setFocusedShellPane] = useState(initialShellId);
   const [maximizedShellPane, setMaximizedShellPane] = useState<string | null>(null);
@@ -56,6 +58,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   const tabs = useMemo(() => directWorkTabs(project, isGit), [isGit, project]);
   const displayedTabs = useMemo<WorkView[]>(() => [
     'agent', 'diff', 'terminal',
+    ...(project.releases_enabled ? ['release' as const] : []),
     ...(project.server_command?.trim() ? ['server' as const] : []),
     ...(project.console_command?.trim() ? ['console' as const] : []),
   ], [project.console_command, project.server_command]);
@@ -227,7 +230,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
             <button className="cardDiffTabLabel" type="button" disabled={!isGit} title={!isGit ? 'Not a Git repository' : undefined} onClick={() => setActiveView(tab)}>Diff</button>
             {activeView === tab && <button className="cardDiffRefresh" type="button" aria-label="Refresh diff" onClick={() => { setDiffRefreshNonce((n) => n + 1); void refreshGit(); }}><span className="diffRefreshIcon" /></button>}
           </span> : tab === 'server' || tab === 'console' ? <ServiceTab key={tab} mode={tab} active={activeView === tab} enabled={tab === 'server' ? serverEnabled : consoleEnabled} running={tab === 'server' ? serverRunning : consoleRunning} onSelect={() => setActiveView(tab)} onToggle={() => toggleService(tab)} />
-            : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : 'Terminal'}</button>)}
+            : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'release' ? 'Release' : 'Terminal'}</button>)}
         </nav>
         {actionError && <div className="kanbanActionError" role="alert">{actionError}</div>}
         <section className={`cardChatView cardView${showAgent ? ' active' : ''}`} aria-label="Direct project work Agent">
@@ -239,6 +242,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
           <aside className="cardDiffExplorer"><DiffTab activePath={gitState?.kind === 'git' ? project.path : null} comparisonTarget={projectRemoteComparisonTarget(project)} refreshNonce={diffRefreshNonce} review={diffReview} /></aside>
           <div className="cardDiffContent">{diffReview.openDiff ? <DiffOverlay review={diffReview} fontSize={13} canSubmit onSubmit={submitDiffReview} onClose={() => diffReview.setOpenDiff(null)} /> : <div className="kanbanEmpty">Select a changed file to view its diff.</div>}</div>
         </section>
+        {project.releases_enabled && activeView === 'release' && <ReleaseTab project={project} />}
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>
           {loading ? <div className="kanbanEmpty">Opening terminal layout…</div> : shellTree.kind === 'empty' ? <div className="kanbanEmpty">Terminal closed.</div> : <div className={`cardTerminalPane${shellTerminalIds.length > 1 ? ' multiple' : ''}`}><SplitView node={shellTree} terminalsById={shellTerminals} workspace={{ id: workspaceId, name: 'Direct project work', cwd: project.path }} project={project} visible={activeView === 'terminal'} canEditTerminal={false} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activeTerminalId={focusedShellPane} displayedMaximizedTerminalId={maximizedShellPane} searchTerminalRequest={searchShellRequest} restartTerminalRequest={restartShellRequest} path="" onResizeSplit={(path, ratio) => setShellTree((tree) => setSplitRatio(tree, path, ratio))} onFocus={(pane) => { setFocusedShellPane(pane); setMaximizedShellPane((current) => current ? pane : null); }} onClose={setPendingCloseShellPane} onSplitTerminal={(direction, pane) => window.dispatchEvent(new CustomEvent('stacks:card-terminal-split', { detail: { direction, pane } }))} onEditTerminal={() => {}} onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)} canToggleMaximize={shellTerminalIds.length > 1} onToggleMaximize={(pane) => { setFocusedShellPane(pane); setMaximizedShellPane((current) => current ? null : pane); requestTerminalSessionsScrollToBottomAfterFit([pane]); }} /></div>}
         </section>

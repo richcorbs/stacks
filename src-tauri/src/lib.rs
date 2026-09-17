@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
@@ -17,6 +17,7 @@ mod project_direct;
 mod pty;
 mod pty_command;
 mod pty_cwd;
+mod release;
 mod repository_coordinator;
 mod settings;
 mod settings_model;
@@ -57,6 +58,10 @@ use project_direct::{
 };
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
+use release::{
+    release_abandon, release_approve, release_cancel, release_history, release_inspect,
+    release_retry, release_start, ReleaseRegistry,
+};
 use settings::{
     load_settings, reset_settings, save_app_settings, save_current_window_state, save_window_state,
 };
@@ -92,6 +97,7 @@ pub fn run() {
     }
 
     let automation_state = AutomationState::default();
+    let release_registry = Arc::new(ReleaseRegistry::default());
     let run_result = tauri::Builder::default()
         .menu(app_menu)
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
@@ -105,6 +111,7 @@ pub fn run() {
         .manage(WorkspaceSetupState::default())
         .manage(automation_state.clone())
         .manage(SuperthreadService::default())
+        .manage(release_registry.clone())
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
@@ -177,6 +184,13 @@ pub fn run() {
             project_direct_load_or_create,
             project_direct_save_layout,
             project_direct_delete,
+            release_inspect,
+            release_history,
+            release_start,
+            release_cancel,
+            release_retry,
+            release_approve,
+            release_abandon,
             superthread_boards,
             superthread_board_lists,
             superthread_board_cards,
@@ -196,6 +210,7 @@ pub fn run() {
         })
         .run(tauri::generate_context!());
 
+    release_registry.shutdown();
     automation::cleanup_server(&automation_state);
     if let Err(error) = run_result {
         eprintln!("Stacks failed to start: {error}");
