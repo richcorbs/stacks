@@ -4,6 +4,7 @@ import type { Project } from '../../types';
 import type { KanbanCard } from '../../kanban/types';
 import type { CardServiceMode } from '../../kanban/cardWorkspace';
 import { cardTerminalId, cardWorkspaceId } from '../../kanban/cardWorkspace';
+import { serviceStoppedMessage } from '../../managedServices';
 import { TerminalView } from '../TerminalView';
 
 const encoder = new TextEncoder();
@@ -44,6 +45,6 @@ export function CardServiceTerminal({ mode, command, enabled, active, card, proj
         canToggleMaximize={false}
         onToggleMaximize={() => {}}
       />
-    </Suspense> : <div className="kanbanEmpty">{mode === 'server' ? 'Rails server' : 'Rails console'} is stopped. Use the play button in the tab to start it.</div>}
+    </Suspense> : <div className="kanbanEmpty">{serviceStoppedMessage(mode)}</div>}
   </section>;
 }
