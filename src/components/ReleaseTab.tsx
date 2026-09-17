@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project } from '../types';
-import { abandonRelease, approveRelease, cancelRelease, inspectRelease, releaseHistory, retryRelease, startRelease, type ReleaseDraft, type ReleaseOperation } from '../releaseApi';
+import { abandonRelease, approveRelease, cancelRelease, inspectRelease, releaseHistory, retryRelease, startRelease, type ReleaseDraft, type ReleaseOperation, type ReleaseStageState } from '../releaseApi';
 
 export function ReleaseTab({ project }: { project: Project }) {
   const [draft, setDraft] = useState<ReleaseDraft | null>(null);
@@ -52,12 +52,7 @@ export function ReleaseTab({ project }: { project: Project }) {
       </div>}
       {displayed && <div className="releaseOperation">
         <div className="releaseSummary"><strong>{displayed.version}</strong><span className={`releaseStatus ${displayed.status}`}>{statusLabel(displayed.status)}</span><span>{duration}</span><code>{displayed.initialRevision.slice(0, 10)}</code></div>
-        <div className="releaseStages">{displayed.stages.map((stage, index) => <article className={`releaseStage ${stage.status}`} key={stage.id}>
-          <div className="releaseStageHeading"><span className="releaseStageIcon">{stage.status === 'running' ? '◌' : stage.status === 'completed' ? '✓' : stage.status === 'pending' ? '·' : '!'}</span><strong>{index + 1}. {stage.name}</strong><span>{statusLabel(stage.status)}</span>{stage.startedAt && <small>{formatDuration((stage.completedAt ?? Math.floor(Date.now() / 1000)) - stage.startedAt)}</small>}</div>
-          {stage.error && <div className="releaseStageError">{stage.error}</div>}
-          {stage.status === 'awaitingApproval' && displayed.config.stages[index].approval?.instructions && <p>{displayed.config.stages[index].approval?.instructions}</p>}
-          {stage.log && <details><summary>Attempt {stage.attempt} log{stage.truncated ? ' (truncated)' : ''}</summary><LinkedLog text={stage.log} /></details>}
-        </article>)}</div>
+        <div className="releaseStages">{displayed.stages.map((stage, index) => <ReleaseStage key={stage.id} stage={stage} index={index} approvalInstructions={displayed.config.stages[index].approval?.instructions} />)}</div>
         <div className="releaseActions">
           {displayed.status === 'running' && <button type="button" disabled={busy} onClick={() => void action(() => cancelRelease(displayed.id))}>Cancel process</button>}
           {displayed.status === 'awaitingApproval' && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action(() => approveRelease(displayed.id))}>Approve and continue</button>}
@@ -70,11 +65,36 @@ export function ReleaseTab({ project }: { project: Project }) {
   </section>;
 }
 
+export function ReleaseStage({ stage, index, approvalInstructions }: { stage: ReleaseStageState; index: number; approvalInstructions?: string | null }) {
+  const [outputOpen, setOutputOpen] = useState(false);
+  const hasOutput = Boolean(stage.log);
+  const outputId = `release-stage-output-${stage.id}`;
+  const headingContents = <>
+    <span className="releaseStageIcon">{stage.status === 'running' ? '◌' : stage.status === 'completed' ? '✓' : stage.status === 'pending' ? '·' : '!'}</span>
+    <strong>{index + 1}. {stage.name}</strong>
+    <span className="releaseStageStatus">{statusLabel(stage.status)}</span>
+    {stage.startedAt && <small>{formatDuration((stage.completedAt ?? Math.floor(Date.now() / 1000)) - stage.startedAt)}</small>}
+    {hasOutput && <span className="releaseStageDisclosureIndicator" aria-hidden="true">›</span>}
+  </>;
+
+  return <article className={`releaseStage ${stage.status}`}>
+    {hasOutput
+      ? <button className="releaseStageHeading releaseStageDisclosure" type="button" aria-expanded={outputOpen} aria-controls={outputId} onClick={() => setOutputOpen((open) => !open)}>{headingContents}</button>
+      : <div className="releaseStageHeading">{headingContents}</div>}
+    {stage.error && <div className="releaseStageError">{stage.error}</div>}
+    {stage.status === 'awaitingApproval' && approvalInstructions && <p>{approvalInstructions}</p>}
+    {hasOutput && outputOpen && <div className="releaseStageOutput" id={outputId}>
+      <div className="releaseStageOutputMeta">Attempt {stage.attempt}{stage.truncated ? ' (truncated)' : ''}</div>
+      <LinkedLog text={stage.log} />
+    </div>}
+  </article>;
+}
+
 function Fact({ label, value, mono = false }: { label: string; value: string | null; mono?: boolean }) { return <div><span>{label}</span><strong className={mono ? 'mono' : ''}>{value || '—'}</strong></div>; }
 function Command({ label, value }: { label: string; value: string }) { return <div className="releaseCommand"><span>{label}</span><code>{value}</code></div>; }
 function statusLabel(value: string) { return value.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase()); }
 function formatDuration(seconds: number) { const safe = Math.max(0, seconds); return safe < 60 ? `${safe}s` : `${Math.floor(safe / 60)}m ${safe % 60}s`; }
 function LinkedLog({ text }: { text: string }) {
   const parts = useMemo(() => text.split(/(https?:\/\/[^\s]+)/g), [text]);
-  return <pre className="releaseLog">{parts.map((part, index) => /^https?:\/\//.test(part) ? <a key={index} href={part} onClick={(event) => { event.preventDefault(); void invoke('open_url', { url: part }); }}>{part}</a> : part)}</pre>;
+  return <pre className="releaseLog">{parts.map((part, index) => /^https?:\/\//.test(part) ? <a key={index} href={part} onClick={(event) => { event.preventDefault(); event.stopPropagation(); void invoke('open_url', { url: part }); }}>{part}</a> : part)}</pre>;
 }

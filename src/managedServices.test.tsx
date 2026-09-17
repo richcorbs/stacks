@@ -59,7 +59,7 @@ describe('managed service lifecycle', () => {
 
   it('keeps a matching cached service enabled but stops a running service when its command changes', async () => {
     sessions.set('server-id', session('bin/dev'));
-    let renderer: TestRenderer.ReactTestRenderer;
+    let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<Harness />); });
     expect(latest.serverEnabled).toBe(true);
     expect(latest.serverRunning).toBe(true);
