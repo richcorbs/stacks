@@ -7,7 +7,7 @@ beforeAll(() => {
   if (!globalThis.window) Object.assign(globalThis, { window: new EventTarget() });
 });
 
-const config: PiSessionConfig = { paneId: 'pane-1', cwd: '/work', workspaceId: 'workspace-1', projectId: 'project-1', projectPath: '/project' };
+const config: PiSessionConfig = { paneId: 'kanban-card:card-1:work', cwd: '/work', workspaceId: 'kanban-card:card-1', projectId: 'project-1', projectPath: '/project' };
 
 function harness() {
   let eventSubscriber: ((event: PiRpcEnvelope) => void) | undefined;
@@ -107,20 +107,22 @@ describe('PiSessionController', () => {
     h.controller.delete();
   });
 
-  it('requests attention only when the pane view is not open', async () => {
-    const open = harness();
-    await begin(open);
-    open.controller.setViewOpen(true);
-    open.emit(envelope({ type: 'extension_ui_request', id: 'open-request', method: 'confirm' }));
-    expect(vi.mocked(open.dependencies.dispatch).mock.calls.some(([event]) => (event as CustomEvent).detail?.kind === 'pi-request')).toBe(false);
-    open.controller.delete();
-
-    const closed = harness();
-    await begin(closed);
-    closed.controller.setViewOpen(false);
-    closed.emit(envelope({ type: 'extension_ui_request', id: 'closed-request', method: 'confirm' }));
-    expect(vi.mocked(closed.dependencies.dispatch).mock.calls.some(([event]) => (event as CustomEvent).detail?.kind === 'pi-request')).toBe(true);
-    closed.controller.delete();
+  it('always projects structured requests for the application-level visibility filter', async () => {
+    for (const open of [true, false]) {
+      const h = harness();
+      await begin(h);
+      h.controller.setViewOpen(open);
+      h.emit(envelope({ type: 'extension_ui_request', id: `request-${open}`, method: 'confirm' }));
+      const attention = vi.mocked(h.dependencies.dispatch).mock.calls
+        .map(([event]) => event as CustomEvent)
+        .find((event) => event.detail?.kind === 'pi-request');
+      expect(attention?.detail).toMatchObject({
+        owner: { kind: 'card', cardId: 'card-1' },
+        target: { view: 'agent', agentThread: 'work', terminalId: config.paneId },
+      });
+      expect(attention?.detail.lifecycleKey).toContain(`request-${open}`);
+      h.controller.delete();
+    }
   });
 
   it.each([
@@ -265,6 +267,19 @@ describe('PiSessionController', () => {
     expect(h.controller.getSnapshot().messages[0].content).toBe('Retained plan');
     expect(h.controller.getSnapshot().uiRequest).toBeNull();
     expect(h.stop).not.toHaveBeenCalled();
+    h.controller.delete();
+  });
+
+  it('does not emit completion attention after a user abort', async () => {
+    const h = harness();
+    await begin(h);
+    h.emit(envelope({ type: 'agent_start' }));
+    const aborting = h.controller.abort();
+    const abortIndex = h.commands.findIndex((command) => command.type === 'abort');
+    respond(h, abortIndex, 'abort', {});
+    await aborting;
+    h.emit(envelope({ type: 'agent_settled' }));
+    expect(vi.mocked(h.dependencies.dispatch).mock.calls.some(([event]) => (event as CustomEvent).detail?.kind === 'pi-complete')).toBe(false);
     h.controller.delete();
   });
 

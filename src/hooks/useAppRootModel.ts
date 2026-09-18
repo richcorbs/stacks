@@ -27,6 +27,7 @@ import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
 import { buildCardPaletteItems, type CardPaletteRegistration } from '../commandPaletteCards';
 import { launchWorkAgent } from '../kanban/workAgentLauncher';
 import { flushAllProjectNotes } from '../projectNotes';
+import { useActivityNotifications } from './useActivityNotifications';
 
 export function useAppRootModel() {
   const [loaded, setLoaded] = useState(false);
@@ -78,6 +79,7 @@ export function useAppRootModel() {
   useAppToastEvents(showToast);
   useAppCloseRequest(requestQuit);
   useNativeFileDropRouter();
+  useActivityNotifications({ settings: appSettings, setSettings: setAppSettings, projects: store.projects, showToast });
 
   async function openProjectDialog() {
     const selected = await open({ directory: true, multiple: false, title: 'Choose Project Directory' }).catch(() => null);
@@ -217,7 +219,9 @@ export function useAppRootModel() {
     overlays: {
       appSettings, setAppSettings, commandPaletteOpen, commandPaletteItems: paletteItems, commandPaletteCardItems: paletteCardItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
       dialog, confirmDeleteProject: store.projects.find((project) => project.id === confirmDeleteProjectId) ?? null, confirmQuitOpen, toast, setDialog,
-      closeCommandPalette: () => setCommandPaletteOpen(false), closeSettings: () => setSettingsOpen(false), closeDialog: () => setDialog(null), submitDialog,
+      closeCommandPalette: () => setCommandPaletteOpen(false), closeSettings: () => setSettingsOpen(false),
+      notificationsUnavailable: (message: string) => { setAppSettings((current) => ({ ...current, activity_notifications: false })); showToast(message, 5000); },
+      closeDialog: () => setDialog(null), submitDialog,
       closeOneTimeCommand: () => setOneTimeCommandOpen(false), runOneTimeCommand: (command: string) => { setOneTimeCommandOpen(false); dispatchCardTerminalCommand({ type: 'run-one-time', command }); },
       cancelDeleteProject: () => setConfirmDeleteProjectId(null), deleteProject: () => { void deleteConfirmedProject(); }, cancelQuit: () => setConfirmQuitOpen(false),
       quit: () => { setConfirmQuitOpen(false); void flushAndQuit(); },

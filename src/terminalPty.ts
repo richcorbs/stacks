@@ -7,17 +7,31 @@ import { focusTerminalSession } from './terminalSessionManager';
 import { enqueueTerminalOutput } from './terminalOutput';
 import { safeTermSize } from './terminalSizing';
 import { publishTerminalRawOutput } from './terminalRawOutput';
+import { dispatchAppAttention, parseWorkOwnerId, type AppAttention } from './appAttention';
+
+export function processExitAttention(input: { terminalId: string; workspaceId: string; generation: string; commandBacked: boolean; eligible: boolean }): AppAttention | null {
+  const owner = parseWorkOwnerId(input.workspaceId);
+  if (!input.commandBacked || !input.eligible || !owner) return null;
+  const view = input.terminalId.includes(':terminal:server') ? 'server' as const
+    : input.terminalId.includes(':terminal:console') ? 'console' as const : 'terminal' as const;
+  return {
+    kind: 'process-exit', owner, target: { view, terminalId: input.terminalId },
+    lifecycleKey: `pty:${input.terminalId}:${input.generation}:exit`,
+  };
+}
 
 export function attachTerminalPtyListeners({
   session,
   terminalId,
   workspaceId,
   generation,
+  commandBacked,
 }: {
   session: TerminalSession;
   terminalId: string;
   workspaceId: string;
   generation: string;
+  commandBacked: boolean;
 }) {
   const dataPromise = listen<PtyData>('pty-data', (event) => {
     if (event.payload.terminal_id === terminalId && event.payload.generation === generation) {
@@ -33,9 +47,9 @@ export function attachTerminalPtyListeners({
       const remaining = session.decoder.decode();
       enqueueTerminalOutput(session, `${remaining}\r\n[process exited]\r\n`, workspaceId, terminalId);
       window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: false } }));
-      window.dispatchEvent(new CustomEvent('app-attention', {
-        detail: { kind: 'process-exit', workspaceId, terminalId },
-      }));
+      const attention = processExitAttention({ terminalId, workspaceId, generation, commandBacked, eligible: Boolean(session.activityNotificationEligible) });
+      if (attention) dispatchAppAttention(attention);
+      session.activityNotificationEligible = false;
     }
   }).then((fn) => { session.unlistenExit = fn; });
 
@@ -65,6 +79,7 @@ export async function spawnTerminalPty({
 }) {
   try {
     if (isCancelled()) return;
+    session.activityNotificationEligible = Boolean(command);
     await document.fonts?.ready.catch(() => undefined);
     if (isCancelled()) return;
     fit.fit();
@@ -79,6 +94,7 @@ export async function spawnTerminalPty({
       rows: size.rows,
     });
     if (isCancelled()) {
+      session.activityNotificationEligible = false;
       await invoke('kill_pty', { terminalId, expectedGeneration: generation }).catch(() => undefined);
       return;
     }
@@ -86,6 +102,9 @@ export async function spawnTerminalPty({
     session.running = true;
     window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: true } }));
     if (active) focusTerminalSession(terminalId, 'spawn-active', { scrollToBottom: false });
+  } catch (error) {
+    session.activityNotificationEligible = false;
+    throw error;
   } finally {
     session.starting = false;
   }

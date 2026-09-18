@@ -32,6 +32,7 @@ export type OverlayLayoutProps = {
   setDialog: React.Dispatch<React.SetStateAction<import('../types').DialogState | null>>;
   closeCommandPalette: () => void;
   closeSettings: () => void;
+  notificationsUnavailable: (message: string) => void;
   closeDialog: () => void;
   submitDialog: () => Promise<void>;
   closeOneTimeCommand: () => void;

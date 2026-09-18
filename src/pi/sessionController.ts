@@ -5,6 +5,7 @@ import { appendPiMessage, compactPiMessages } from './transcript';
 import { GUI_BUILTIN_COMMANDS } from './commands';
 import { notifyPiAgentSettled, notifyPiPromptFailed } from './promptEvent';
 import { notifyPiUiRequestDismissed, notifyPiUiRequestReceived, preparePiUiRequestResponse } from './uiRequestWorkflow';
+import { dispatchAppAttention, parseWorkOwnerId, type AgentThread } from '../appAttention';
 
 const EMPTY_CONTEXT: PiSessionContext = {
   modelName: '', modelId: '', provider: '', thinkingLevel: '', sessionId: '', sessionName: '',
@@ -443,7 +444,7 @@ export class PiSessionController {
         // Needs you for normal review rather than restoring Agent working.
         this.clearUiRequest(true, false);
         notifyPiAgentSettled(this.config.paneId);
-        if (this.completionNotificationEligible) this.dependencies.dispatch(new CustomEvent('app-attention', { detail: { kind: 'pi-complete', workspaceId: this.config.workspaceId, terminalId: this.config.paneId } }));
+        if (this.completionNotificationEligible) this.dispatchAttention('pi-complete', `${payload.generation}:run:${this.activityRevision}`);
         this.completionNotificationEligible = false;
         this.patch({ isStreaming: false, isStreamingText: false, streamingText: '', tools: [] });
         this.refreshState().catch(() => {});
@@ -478,12 +479,26 @@ export class PiSessionController {
         this.patch({ uiRequest: request });
         const open = viewPresence.get(this.config.paneId) === true;
         notifyPiUiRequestReceived(this.config.paneId, request.id, open);
-        if (!open) this.dependencies.dispatch(new CustomEvent('app-attention', { detail: { kind: 'pi-request', workspaceId: this.config.workspaceId, terminalId: this.config.paneId } }));
+        this.dispatchAttention('pi-request', `${payload.generation}:request:${request.id}`);
         if (request.timeout) this.uiRequestTimer = this.dependencies.setTimeout(() => this.clearUiRequest(true, true, request.id), request.timeout);
         break;
       }
     }
   };
+
+  private dispatchAttention(kind: 'pi-complete' | 'pi-request', lifecycleKey: string) {
+    const owner = parseWorkOwnerId(this.config.workspaceId);
+    if (!owner) return;
+    const agentThread: AgentThread | undefined = owner.kind === 'card'
+      ? (this.config.paneId.endsWith(':planning') ? 'planning' : 'work')
+      : undefined;
+    dispatchAppAttention({
+      kind,
+      owner,
+      target: { view: 'agent', agentThread, terminalId: this.config.paneId },
+      lifecycleKey: `pi:${this.config.paneId}:${lifecycleKey}:${kind}`,
+    }, this.dependencies.dispatch);
+  }
 
   private claimUiRequest(requestId: string) {
     const request = this.snapshot.uiRequest;

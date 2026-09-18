@@ -63,6 +63,7 @@ export type AppSettings = {
   superthread_enabled?: boolean | null;
   kanban_project_id?: string | null;
   kanban_done_collapsed?: boolean | null;
+  activity_notifications?: boolean | null;
 };
 export type TermSize = { cols: number; rows: number };
 export type TerminalSession = {
@@ -78,6 +79,7 @@ export type TerminalSession = {
   startupCwd?: string;
   startupCommand?: string | null;
   startupConfiguredCommand?: string | null;
+  activityNotificationEligible?: boolean;
   lastPtySize: TermSize | null;
   dataDisposable: { dispose: () => void };
   selectionDisposable: { dispose: () => void };

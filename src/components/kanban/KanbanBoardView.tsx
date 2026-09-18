@@ -23,6 +23,9 @@ import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { startLaunchCardRecovery } from '../../kanban/launchRecovery';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
 import { flushProjectNotes } from '../../projectNotes';
+import type { NotificationRoute } from '../../appAttention';
+import { fetchKanbanCard } from '../../kanban/api';
+import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
 
 export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps) {
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
@@ -53,6 +56,7 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
   const [detailLoadError, setDetailLoadError] = useState<{ cardId: string; message: string } | null>(null);
   const detailLoadRequestRef = useRef(0);
   const launchRecoveryStartedRef = useRef(false);
+  const pendingNotificationRouteRef = useRef<NotificationRoute | null>(null);
   const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, recheckEnvironment } = useKanbanRefreshCoordinator({
     cards: board.cards,
     projects,
@@ -105,6 +109,42 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
     setDirectWorkProjectId(projectId);
     return true;
   }, []);
+
+  useEffect(() => {
+    const route = (event: Event) => {
+      const detail = (event as CustomEvent<NotificationRoute>).detail;
+      if (!detail) return;
+      if (!projectsHydrated || !board.cardsHydrated) {
+        pendingNotificationRouteRef.current = detail;
+        return;
+      }
+      if (detail.ownerKind === 'project' && detail.projectId && projects.some((project) => project.id === detail.projectId)) {
+        void replaceDirectWork(detail.projectId, detail.targetView === 'agent' ? 'agent' : detail.targetView);
+        return;
+      }
+      if (detail.ownerKind !== 'card' || !detail.cardId) return;
+      void (async () => {
+        const card = board.cards.find((candidate) => candidate.id === detail.cardId)
+          ?? (await fetchKanbanCard(detail.cardId!).then(({ card: loaded }) => loaded).catch(() => null));
+        if (!card || !projects.some((project) => project.id === card.project_id)) return;
+        if (!board.cards.some((candidate) => candidate.id === card.id)) board.applyCardSnapshot(card);
+        const view: CardView = detail.targetView === 'agent' ? 'chat' : detail.targetView;
+        await openCard(card, view);
+        if (detail.targetView === 'terminal' && detail.terminalId) {
+          window.setTimeout(() => dispatchCardTerminalCommand({ type: 'focus', paneId: detail.terminalId! }), 0);
+        }
+      })();
+    };
+    window.addEventListener('stacks:notification-route', route);
+    return () => window.removeEventListener('stacks:notification-route', route);
+  }, [board.applyCardSnapshot, board.cards, board.cardsHydrated, projects, projectsHydrated, replaceDirectWork]);
+
+  useEffect(() => {
+    if (!projectsHydrated || !board.cardsHydrated || !pendingNotificationRouteRef.current) return;
+    const route = pendingNotificationRouteRef.current;
+    pendingNotificationRouteRef.current = null;
+    window.dispatchEvent(new CustomEvent<NotificationRoute>('stacks:notification-route', { detail: route }));
+  }, [board.cardsHydrated, projectsHydrated]);
 
   useEffect(() => {
     const openDirectWork = (event: Event) => {

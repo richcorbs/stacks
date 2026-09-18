@@ -22,6 +22,7 @@ import { PROJECT_WORKSPACE_AGENT_LABEL, PROJECT_WORKSPACE_NAME, PROJECT_WORKSPAC
 import { ReleaseTab } from './ReleaseTab';
 import { ProjectNotesView } from './ProjectNotesView';
 import { flushProjectNotes } from '../projectNotes';
+import { publishWorkPresence } from '../appAttention';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -210,6 +211,14 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   }
 
   const showAgent = activeView === 'agent';
+  useEffect(() => {
+    const terminalId = activeView === 'agent' ? agentId
+      : activeView === 'terminal' ? focusedShellPane
+      : activeView === 'server' ? serviceConfigs.server.terminalId
+      : activeView === 'console' ? serviceConfigs.console.terminalId : undefined;
+    publishWorkPresence({ owner, view: activeView, terminalId });
+    return () => publishWorkPresence(null);
+  }, [activeView, agentId, focusedShellPane, owner, serviceConfigs.console.terminalId, serviceConfigs.server.terminalId]);
   return <>
     <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={requestClose}>
       <article className={`kanbanDetail cardWorkspace directProjectWork${showAgent ? ' chatActive' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
