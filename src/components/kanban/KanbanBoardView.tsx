@@ -236,7 +236,7 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
               setProjectPickerPurpose('direct');
               setProjectSwitcherOpen(true);
             }
-          }}>Direct project work</button>
+          }}>Open Project Workspace</button>
           {syncAvailability.visible && <button type="button" title={syncAvailability.title} disabled={board.syncing || syncAvailability.disabled} onClick={() => board.sync(true)}>
             <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
           </button>}

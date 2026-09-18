@@ -18,6 +18,16 @@ describe('command palette items', () => {
     ]);
   });
 
+  it('uses Project Workspace terminology for the primary project checkout action', () => {
+    const item = buildCommandPaletteItems(options()).find((candidate) => candidate.id === 'direct-project-work');
+
+    expect(item).toMatchObject({
+      title: 'Open Project Workspace',
+      keywords: 'project workspace primary checkout agent terminal diff',
+    });
+    expect(item?.keywords).not.toMatch(/direct/i);
+  });
+
   it('routes Release only to an enabled project', () => {
     const onRelease = vi.fn();
     buildCommandPaletteItems(options({ onRelease })).find((item) => item.id === 'release-project')?.action();

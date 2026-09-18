@@ -78,7 +78,7 @@ fn load(connection: &Connection, project_id: &str) -> Result<Option<ProjectDirec
 pub fn project_direct_load_or_create(project_id: String) -> Result<ProjectDirectWork, String> {
     kanban::with_connection(|connection| {
         if !project_exists(connection, &project_id)? {
-            return Err("The Direct project work project was not found".into());
+            return Err("The Project Workspace project was not found".into());
         }
         if let Some(state) = load(connection, &project_id)? {
             return Ok(state);
@@ -96,7 +96,7 @@ pub fn project_direct_load_or_create(project_id: String) -> Result<ProjectDirect
             )
             .map_err(db_error)?;
         load(connection, &project_id)?
-            .ok_or_else(|| "Could not initialize Direct project work".into())
+            .ok_or_else(|| "Could not initialize Project Workspace".into())
     })
 }
 
@@ -115,7 +115,7 @@ pub fn project_direct_save_layout(
             params![split_layout.to_string(), focused_pane_id, unix_timestamp(), project_id, expected_revision],
         ).map_err(db_error)?;
         if changed == 0 {
-            return Err("Direct project work layout changed; reopen before saving".into());
+            return Err("Project Workspace layout changed; reopen before saving".into());
         }
         transaction
             .execute(
@@ -125,12 +125,12 @@ pub fn project_direct_save_layout(
             .map_err(db_error)?;
         for (index, pane_id) in pane_ids.iter().enumerate() {
             if !pane_id.starts_with(&format!("project-direct:{project_id}:terminal:")) {
-                return Err("A Direct project work pane has an invalid owner".into());
+                return Err("A Project Workspace pane has an invalid owner".into());
             }
             transaction.execute("INSERT INTO project_direct_panes (id, project_id, sort_order) VALUES (?1, ?2, ?3)", params![pane_id, project_id, index as i64]).map_err(db_error)?;
         }
         transaction.commit().map_err(db_error)?;
-        load(connection, &project_id)?.ok_or_else(|| "Direct project work was not found".into())
+        load(connection, &project_id)?.ok_or_else(|| "Project Workspace was not found".into())
     })
 }
 
@@ -195,7 +195,7 @@ fn unix_timestamp() -> i64 {
         .as_secs() as i64
 }
 fn db_error(error: rusqlite::Error) -> String {
-    format!("Direct project work database error: {error}")
+    format!("Project Workspace database error: {error}")
 }
 
 #[cfg(test)]
