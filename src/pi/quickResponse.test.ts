@@ -11,7 +11,7 @@ describe('Pi quick responses', () => {
     expect(canSendPiQuickResponse(state)).toBe(expected);
   });
 
-  it.each(['yes', 'no'] as const)('dismisses inline UI and sends %s as an ordinary prompt without images', async (message) => {
+  it.each(['yes', 'no', 'what do you recommend?'] as const)('dismisses inline UI and sends %s as an ordinary prompt without images', async (message) => {
     const order: string[] = [];
     const dismissStructuredUiRequest = vi.fn(async () => { order.push('dismiss'); });
     const prompt = vi.fn(async () => { order.push('prompt'); });
