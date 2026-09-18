@@ -18,6 +18,13 @@ function dependencies(result: TargetMergePrepareResult) {
 }
 
 describe('merge target and resolve orchestration', () => {
+  it('limits conflict resolution to safely completing the existing merge', () => {
+    expect(RESOLVE_TARGET_MERGE_PROMPT).toContain('merge of the target branch is already in progress');
+    expect(RESOLVE_TARGET_MERGE_PROMPT).toContain('Stage all resolutions and finish the existing merge commit');
+    expect(RESOLVE_TARGET_MERGE_PROMPT).toContain('Do not abort, rebase, squash, cherry-pick, start a different merge, or make unrelated changes');
+    expect(RESOLVE_TARGET_MERGE_PROMPT).toContain('cannot be resolved confidently, leave the merge in progress and report the blocker');
+  });
+
   it('finalizes a clean merge without prompting the agent', async () => {
     const deps = dependencies(prepared('merged'));
     await expect(runMergeTargetAndResolve(deps)).resolves.toEqual(completed);

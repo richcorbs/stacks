@@ -18,10 +18,44 @@ describe('card workspace contracts', () => {
     expect(cardTerminalId('local:74', 'shell')).toBe('kanban-card:local:74:terminal:shell');
   });
 
-  it('builds distinct planning and implementation prompts', () => {
-    expect(cardChatPrompt(card(), 'planning')).toContain('Do not implement or modify files');
-    expect(cardChatPrompt(card(), 'planning')).toContain('update_card_description');
-    expect(cardChatPrompt(card(), 'work')).toContain('You are running in the dedicated worktree and branch');
-    expect(cardChatPrompt(card(), 'work')).toContain('Description:\nKeep behavior stable.');
+  it('keeps planning read-only and approval-gated while requesting a self-contained brief', () => {
+    const prompt = cardChatPrompt(card(), 'planning');
+    expect(prompt).toContain('planning conversation for local card #74: Split the monolith');
+    expect(prompt).toContain('Do not implement or modify files');
+    expect(prompt).toContain('ask focused questions one at a time');
+    expect(prompt).toContain('concise, self-contained brief');
+    expect(prompt).toContain('desired outcome, acceptance criteria, technical approach, risks or open questions, and validation plan');
+    expect(prompt).toContain('Do not finish refinement until I explicitly approve');
+    expect(prompt).toContain('Description:\nKeep behavior stable.');
+  });
+
+  it('preserves local breakdown guidance and existing-child context without repeating tool contracts', () => {
+    const prompt = cardChatPrompt(card({
+      children: [{ id: 'local:75', external_id: '75', title: 'Extract service', status: 'needs_refinement' }],
+      child_count: 1,
+    }), 'planning');
+    expect(prompt).toContain('self-contained, independently deployable child cards');
+    expect(prompt).toContain('preserve every one in an approved breakdown');
+    expect(prompt).toContain('local:75 (#75 Extract service, Needs refinement)');
+    expect(prompt).not.toContain('update_card_description');
+    expect(prompt).not.toContain('start_work');
+    expect(prompt).not.toContain('call finish_refinement');
+  });
+
+  it('preserves provider-specific card identity', () => {
+    const prompt = cardChatPrompt(card({ id: 'superthread:abc', provider: 'superthread', external_id: 'ST-9' }), 'planning');
+    expect(prompt).toContain('Superthread card #ST-9: Split the monolith');
+    expect(prompt).not.toContain('independently deployable child cards');
+  });
+
+  it('keeps the work kickoff scoped to implementation in the dedicated worktree', () => {
+    const prompt = cardChatPrompt(card(), 'work');
+    expect(prompt).toContain('Implement local card #74: Split the monolith');
+    expect(prompt).toContain('dedicated worktree and branch');
+    expect(prompt).toContain('make the required changes');
+    expect(prompt).toContain('validate them');
+    expect(prompt).toContain('report relevant progress or decisions');
+    expect(prompt).toContain('Ask when human input is required');
+    expect(prompt).toContain('Description:\nKeep behavior stable.');
   });
 });

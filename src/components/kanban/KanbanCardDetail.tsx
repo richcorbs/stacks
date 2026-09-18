@@ -16,6 +16,7 @@ import { cardLocalComparisonTarget } from '../../git/comparisonTarget';
 import { runApproveAndCommit } from '../../kanban/approveAndCommit';
 import { runMergeTargetAndResolve } from '../../kanban/mergeTargetAndResolve';
 import { runWritePlanAndFinishRefinement } from '../../kanban/writePlanAndFinishRefinement';
+import { GENERATE_PR_METADATA_PROMPT } from '../../kanban/pullRequestMetadata';
 import { sendPromptToPiAndWait } from '../../pi/promptEvent';
 import { canEditKanbanCard, hasDirtyCardDraft } from '../../kanban/cardEditing';
 import { SplitView } from '../WorkspaceTerminalTree';
@@ -376,7 +377,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
         case 'create_pr':
         case 'create_pr_with_fe': {
           setActiveView('chat');
-          await sendPromptToPiAndWait(cardPaneId(card.id, 'work'), `Generate succinct pull request metadata from the completed diff and commits. Write exactly one JSON object with string fields "title" and "body" to $(git rev-parse --git-dir)/stacks-pr-metadata.json. Do not alter the worktree or commits.`);
+          await sendPromptToPiAndWait(cardPaneId(card.id, 'work'), GENERATE_PR_METADATA_PROMPT);
           const updated = await createKanbanPullRequest(card.id, card.workflow_revision, action.kind === 'create_pr_with_fe');
           onCardUpdated(preserveRevisionValues(updated)); return;
         }

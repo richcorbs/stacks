@@ -25,21 +25,22 @@ describe('write plan and finish refinement workflow', () => {
 
     expect(result).toBe(updated);
     expect(calls).toEqual(['agent', 'prompt', 'refresh']);
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain("user's click on Write plan & finish refinement is explicit approval");
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('finalize refinement now, in this turn');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('Do not ask for confirmation or merely present the plan for approval');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('complete, self-contained final implementation brief');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('prepare and persist the final brief and call finish_refinement in this same turn');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('when finish_refinement persists the brief atomically');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('first save the complete brief through the source provider');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain("user's click on Write plan & finish refinement explicitly approves");
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('finish refinement in this turn');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('Do not ask for confirmation or merely present a plan');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('complete, self-contained implementation brief');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('desired outcome, acceptance criteria, technical approach, risks or open questions, and validation plan');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('Use the available card tools to persist the brief and finish refinement now');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('save it before the transition or atomically with it');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('as the available tool contract requires');
     expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).not.toContain('update_card_description');
   });
 
   it('finalizes only a previously approved breakdown and otherwise adds no children', () => {
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('only if the user previously explicitly approved it');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('Do not introduce, propose, create, or include unapproved new child cards');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('finish the card without adding children');
-    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('preserve every existing linked draft child');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('Do not introduce an unapproved child breakdown');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('If a breakdown was previously approved');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('preserve every existing linked child');
+    expect(WRITE_PLAN_AND_FINISH_REFINEMENT_PROMPT).toContain('otherwise add no children');
   });
 
   it('refreshes and reports prompt delivery or execution failure without another transition', async () => {

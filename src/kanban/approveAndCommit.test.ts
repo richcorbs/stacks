@@ -15,8 +15,13 @@ describe('approve and commit workflow', () => {
     });
     expect(completed).toBe(result);
     expect(calls).toEqual(['agent', 'prompt', 'finalize', 'refresh']);
-    expect(APPROVE_AND_COMMIT_PROMPT).toContain('stage only those intended changes');
+    expect(APPROVE_AND_COMMIT_PROMPT).toContain('Stage and commit only the intended changes');
+    expect(APPROVE_AND_COMMIT_PROMPT).toContain('descriptive message');
+    expect(APPROVE_AND_COMMIT_PROMPT).toContain('Do not discard or overwrite unexpected changes');
+    expect(APPROVE_AND_COMMIT_PROMPT).toContain('worktree is already clean');
+    expect(APPROVE_AND_COMMIT_PROMPT).toContain('verify the work is committed');
     expect(APPROVE_AND_COMMIT_PROMPT).toContain('do not create an empty commit');
+    expect(APPROVE_AND_COMMIT_PROMPT).toContain('Report anything that prevents committing');
   });
 
   it('does not finalize when prompt delivery or the agent fails, but still refreshes', async () => {
