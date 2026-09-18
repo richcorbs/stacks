@@ -91,6 +91,7 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
             name TEXT NOT NULL,
             path TEXT NOT NULL,
             notes TEXT NOT NULL DEFAULT '',
+            notes_revision INTEGER NOT NULL DEFAULT 0,
             collapsed INTEGER NOT NULL DEFAULT 0,
             kanban_source TEXT,
             start_work_command TEXT,
@@ -118,6 +119,7 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
         .collect::<Result<Vec<_>, _>>()
         .map_err(db_error)?;
     for (name, sql) in [
+        ("notes_revision", "ALTER TABLE projects ADD COLUMN notes_revision INTEGER NOT NULL DEFAULT 0"),
         ("delivery_workflow", "ALTER TABLE projects ADD COLUMN delivery_workflow TEXT NOT NULL DEFAULT 'local_merge'"),
         ("target_branch", "ALTER TABLE projects ADD COLUMN target_branch TEXT NOT NULL DEFAULT 'main'"),
         ("supports_feature_environments", "ALTER TABLE projects ADD COLUMN supports_feature_environments INTEGER NOT NULL DEFAULT 0"),
@@ -187,6 +189,83 @@ fn pi_project_scope_from_connection(
         })
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ProjectNotes {
+    notes: String,
+    revision: i64,
+}
+
+#[tauri::command]
+pub fn load_project_notes(project_id: String) -> Result<ProjectNotes, String> {
+    kanban::with_connection(|connection| {
+        load_project_notes_from_connection(connection, &project_id)
+    })
+}
+
+fn load_project_notes_from_connection(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<ProjectNotes, String> {
+    connection
+        .query_row(
+            "SELECT notes, notes_revision FROM projects WHERE id=?1",
+            [project_id],
+            |row| {
+                Ok(ProjectNotes {
+                    notes: row.get(0)?,
+                    revision: row.get(1)?,
+                })
+            },
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => {
+                "Project notes could not be loaded because the project was not found".to_string()
+            }
+            other => db_error(other),
+        })
+}
+
+#[tauri::command]
+pub fn save_project_notes(
+    project_id: String,
+    notes: String,
+    expected_revision: i64,
+) -> Result<ProjectNotes, String> {
+    kanban::with_connection(|connection| {
+        save_project_notes_to_connection(connection, &project_id, &notes, expected_revision)
+    })
+}
+
+fn save_project_notes_to_connection(
+    connection: &Connection,
+    project_id: &str,
+    notes: &str,
+    expected_revision: i64,
+) -> Result<ProjectNotes, String> {
+    let changed = connection.execute(
+        "UPDATE projects SET notes=?1, notes_revision=notes_revision+1 WHERE id=?2 AND notes_revision=?3",
+        params![notes, project_id, expected_revision],
+    ).map_err(db_error)?;
+    if changed == 1 {
+        return load_project_notes_from_connection(connection, project_id);
+    }
+    let exists = connection
+        .query_row("SELECT 1 FROM projects WHERE id=?1", [project_id], |_| {
+            Ok(())
+        })
+        .optional()
+        .map_err(db_error)?
+        .is_some();
+    if exists {
+        Err(
+            "Project notes changed since they were loaded; retry after reviewing the current draft"
+                .to_string(),
+        )
+    } else {
+        Err("Project notes could not be saved because the project was not found".to_string())
+    }
+}
+
 #[tauri::command]
 pub fn save_store(store: ProjectStore) -> Result<(), String> {
     kanban::with_connection(|connection| write_store(connection, &store))?;
@@ -217,6 +296,15 @@ fn migrate_legacy_json(connection: &mut Connection) -> Result<(), String> {
         }
     }
     write_store(connection, &store)?;
+    // This is the sole migration boundary where notes from the old JSON source are imported.
+    for project in &store.projects {
+        connection
+            .execute(
+                "UPDATE projects SET notes=?1 WHERE id=?2",
+                params![project.notes, project.id],
+            )
+            .map_err(db_error)?;
+    }
     // Keep the source as a recovery snapshot. SQLite is authoritative after this marker exists.
     let migrated_path = path.with_extension("json.migrated");
     if !migrated_path.exists() {
@@ -429,6 +517,20 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
                 .map_err(db_error)?,
         );
     }
+    // Notes have a focused compare-and-swap writer. Snapshot them before the broad
+    // replacement so an unrelated settings save cannot become an alternate writer.
+    let persisted_notes = connection
+        .prepare("SELECT id, notes, notes_revision FROM projects")
+        .map_err(db_error)?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (row.get::<_, String>(1)?, row.get::<_, i64>(2)?),
+            ))
+        })
+        .map_err(db_error)?
+        .collect::<Result<std::collections::HashMap<_, _>, _>>()
+        .map_err(db_error)?;
     let transaction = connection.transaction().map_err(db_error)?;
     for project_id in &removed_projects {
         transaction
@@ -455,12 +557,16 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
                 project.name
             ));
         }
+        let (notes, notes_revision) = persisted_notes
+            .get(&project.id)
+            .cloned()
+            .unwrap_or_default();
         transaction.execute(
-            "INSERT INTO projects (id, name, path, notes, collapsed, kanban_source, start_work_command, superthread_spaces, superthread_workspace_slug, server_command, console_command, sort_order,
+            "INSERT INTO projects (id, name, path, notes, notes_revision, collapsed, kanban_source, start_work_command, superthread_spaces, superthread_workspace_slug, server_command, console_command, sort_order,
                  delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
                  releases_enabled, release_config_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
-            params![project.id, project.name, project.path, project.notes, project.collapsed as i64,
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            params![project.id, project.name, project.path, notes, notes_revision, project.collapsed as i64,
                 project.kanban_source, project.start_work_command, project.superthread_spaces, project.superthread_workspace_slug,
                 project.server_command, project.console_command, project_index as i64,
                 normalize_delivery_workflow(&project.delivery_workflow), target_branch, project.supports_feature_environments as i64,
@@ -814,6 +920,109 @@ mod tests {
                 .unwrap(),
             "p2"
         );
+    }
+
+    #[test]
+    fn adds_notes_revision_without_losing_existing_notes() {
+        let connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE projects (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '', collapsed INTEGER NOT NULL DEFAULT 0,
+                kanban_source TEXT, start_work_command TEXT, server_command TEXT,
+                console_command TEXT, sort_order INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO projects (id, name, path, notes) VALUES ('p1', 'Project', '/repo', 'existing');"
+        ).unwrap();
+
+        migrate_store_schema(&connection).unwrap();
+
+        assert_eq!(
+            load_project_notes_from_connection(&connection, "p1").unwrap(),
+            ProjectNotes {
+                notes: "existing".into(),
+                revision: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn loads_and_compare_and_swap_saves_project_notes() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        write_store(&mut connection, &sample_store()).unwrap();
+
+        assert_eq!(
+            load_project_notes_from_connection(&connection, "p1").unwrap(),
+            ProjectNotes {
+                notes: String::new(),
+                revision: 0,
+            }
+        );
+        assert_eq!(
+            save_project_notes_to_connection(&connection, "p1", "first", 0).unwrap(),
+            ProjectNotes {
+                notes: "first".into(),
+                revision: 1,
+            }
+        );
+        assert!(
+            save_project_notes_to_connection(&connection, "p1", "stale", 0)
+                .unwrap_err()
+                .contains("changed")
+        );
+        assert_eq!(
+            load_project_notes_from_connection(&connection, "p1").unwrap(),
+            ProjectNotes {
+                notes: "first".into(),
+                revision: 1,
+            }
+        );
+        assert!(load_project_notes_from_connection(&connection, "missing")
+            .unwrap_err()
+            .contains("not found"));
+    }
+
+    #[test]
+    fn broad_store_saves_preserve_notes_and_deletion_removes_them() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        let mut store = sample_store();
+        write_store(&mut connection, &store).unwrap();
+        save_project_notes_to_connection(&connection, "p1", "durable", 0).unwrap();
+
+        store.projects[0].name = "Renamed".into();
+        store.projects[0].notes = "stale broad snapshot".into();
+        write_store(&mut connection, &store).unwrap();
+        assert_eq!(
+            load_project_notes_from_connection(&connection, "p1").unwrap(),
+            ProjectNotes {
+                notes: "durable".into(),
+                revision: 1,
+            }
+        );
+
+        let mut new_project = store.projects[0].clone();
+        new_project.id = "p2".into();
+        new_project.name = "New".into();
+        new_project.notes = "must not be imported".into();
+        new_project.workspaces.clear();
+        store.projects.push(new_project);
+        write_store(&mut connection, &store).unwrap();
+        assert_eq!(
+            load_project_notes_from_connection(&connection, "p2").unwrap(),
+            ProjectNotes {
+                notes: String::new(),
+                revision: 0,
+            }
+        );
+
+        store.projects.retain(|project| project.id != "p2");
+        write_store(&mut connection, &store).unwrap();
+        assert!(load_project_notes_from_connection(&connection, "p2").is_err());
     }
 
     #[test]

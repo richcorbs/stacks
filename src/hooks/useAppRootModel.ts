@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -26,6 +26,7 @@ import { runShortcutAction } from '../shortcutActions';
 import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
 import { buildCardPaletteItems, type CardPaletteRegistration } from '../commandPaletteCards';
 import { launchWorkAgent } from '../kanban/workAgentLauncher';
+import { flushAllProjectNotes } from '../projectNotes';
 
 export function useAppRootModel() {
   const [loaded, setLoaded] = useState(false);
@@ -42,6 +43,19 @@ export function useAppRootModel() {
   const [, setMetaKeyDown] = useState(false);
   const startingCardIds = useRef(new Set<string>());
   const { toast, showToast } = useToast();
+  const flushAndQuit = useCallback(async () => {
+    try {
+      await flushAllProjectNotes();
+      await invoke('save_current_window_state');
+      await invoke('quit_app');
+    } catch (error) {
+      console.error('Quit cancelled because pending changes could not be saved', error);
+    }
+  }, []);
+  const requestQuit = useCallback(() => {
+    if (appSettings.confirm_close) setConfirmQuitOpen(true);
+    else void flushAndQuit();
+  }, [appSettings.confirm_close, flushAndQuit]);
 
   useEffect(() => {
     Promise.all([invoke<Store>('load_store'), invoke<AppSettings>('load_settings').catch(() => null)])
@@ -62,7 +76,7 @@ export function useAppRootModel() {
   useWindowStatePersistence();
   useAppWindowFocusClass();
   useAppToastEvents(showToast);
-  useAppCloseRequest(appSettings.confirm_close, setConfirmQuitOpen);
+  useAppCloseRequest(requestQuit);
   useNativeFileDropRouter();
 
   async function openProjectDialog() {
@@ -183,7 +197,7 @@ export function useAppRootModel() {
   );
 
   const shortcutHandlers: ShortcutHandlers = {
-    setMetaKeyDown, openProjectDialog: () => { void openProjectDialog(); }, requestQuit: () => appSettings.confirm_close ? setConfirmQuitOpen(true) : void invoke('quit_app'),
+    setMetaKeyDown, openProjectDialog: () => { void openProjectDialog(); }, requestQuit,
     adjustTerminalFontSize: (delta) => setAppSettings((current) => ({ ...current, terminal_font_size: clampTerminalFontSize(current.terminal_font_size + delta) })),
     adjustUiFontSize: (delta) => setAppSettings((current) => ({ ...current, ui_font_size: clampUiFontSize(current.ui_font_size + delta) })),
     openCommandPalette: () => setCommandPaletteOpen(true), openProjectSwitcher: () => { if (canOpenProjectSwitcher(document)) window.dispatchEvent(new CustomEvent(OPEN_PROJECT_SWITCHER_EVENT)); },
@@ -206,7 +220,7 @@ export function useAppRootModel() {
       closeCommandPalette: () => setCommandPaletteOpen(false), closeSettings: () => setSettingsOpen(false), closeDialog: () => setDialog(null), submitDialog,
       closeOneTimeCommand: () => setOneTimeCommandOpen(false), runOneTimeCommand: (command: string) => { setOneTimeCommandOpen(false); dispatchCardTerminalCommand({ type: 'run-one-time', command }); },
       cancelDeleteProject: () => setConfirmDeleteProjectId(null), deleteProject: () => { void deleteConfirmedProject(); }, cancelQuit: () => setConfirmQuitOpen(false),
-      quit: () => { setConfirmQuitOpen(false); void invoke('save_current_window_state').finally(() => invoke('quit_app')); },
+      quit: () => { setConfirmQuitOpen(false); void flushAndQuit(); },
     },
   };
 }
