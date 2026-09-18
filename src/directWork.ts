@@ -4,7 +4,7 @@ export type WorkOwner =
   | { kind: 'card'; cardId: string }
   | { kind: 'project'; projectId: string };
 
-export type WorkView = 'overview' | 'agent' | 'diff' | 'terminal' | 'release' | 'server' | 'console';
+export type WorkView = 'overview' | 'agent' | 'notes' | 'diff' | 'terminal' | 'release' | 'server' | 'console';
 
 export function workOwnerId(owner: WorkOwner) {
   return owner.kind === 'card' ? `kanban-card:${owner.cardId}` : `project-direct:${owner.projectId}`;
@@ -27,6 +27,7 @@ export function directWorkInitialLayout(projectId: string): SplitNode {
 export function directWorkTabs(project: Project, isGitRepository: boolean): WorkView[] {
   return [
     'agent',
+    'notes',
     ...(isGitRepository ? ['diff' as const] : []),
     'terminal',
     ...(project.releases_enabled ? ['release' as const] : []),

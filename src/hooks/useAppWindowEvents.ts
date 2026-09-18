@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { ToastDetail } from '../types';
 
@@ -17,19 +16,14 @@ export function useAppToastEvents(showToast: (toast: string | ToastDetail) => vo
   }, [showToast]);
 }
 
-export function useAppCloseRequest(confirmClose: boolean, setConfirmQuitOpen: (open: boolean) => void) {
+export function useAppCloseRequest(requestQuit: () => void) {
   useEffect(() => {
     const appWindow = getCurrentWindow();
     let unlisten: (() => void) | undefined;
     appWindow.onCloseRequested((event) => {
       event.preventDefault();
-      invoke('save_current_window_state').catch(console.error);
-      if (confirmClose) {
-        setConfirmQuitOpen(true);
-      } else {
-        invoke('quit_app').catch(console.error);
-      }
+      requestQuit();
     }).then((fn) => { unlisten = fn; }).catch(console.error);
     return () => unlisten?.();
-  }, [confirmClose]);
+  }, [requestQuit]);
 }

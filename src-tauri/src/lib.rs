@@ -66,7 +66,7 @@ use release::{
 use settings::{
     load_settings, reset_settings, save_app_settings, save_current_window_state, save_window_state,
 };
-use store::{load_store, save_store};
+use store::{load_project_notes, load_store, save_project_notes, save_store};
 use superthread::{
     superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
     superthread_create_card, SuperthreadService,
@@ -116,6 +116,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
+            load_project_notes,
+            save_project_notes,
             load_settings,
             save_window_state,
             save_current_window_state,

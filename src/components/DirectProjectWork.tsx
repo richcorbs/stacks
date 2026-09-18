@@ -20,6 +20,8 @@ import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { DirectWorkGitMetadata, type DirectWorkGitState } from './DirectWorkGitMetadata';
 import { PROJECT_WORKSPACE_AGENT_LABEL, PROJECT_WORKSPACE_NAME, PROJECT_WORKSPACE_VIEWS_LABEL, ProjectWorkspaceHeader } from './ProjectWorkspaceChrome';
 import { ReleaseTab } from './ReleaseTab';
+import { ProjectNotesView } from './ProjectNotesView';
+import { flushProjectNotes } from '../projectNotes';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -61,7 +63,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   const isGit = gitState?.kind !== 'not-git';
   const tabs = useMemo(() => directWorkTabs(project, isGit), [isGit, project]);
   const displayedTabs = useMemo<WorkView[]>(() => [
-    'agent', 'diff', 'terminal',
+    'agent', 'notes', 'diff', 'terminal',
     ...(project.releases_enabled ? ['release' as const] : []),
     ...(project.server_command?.trim() ? ['server' as const] : []),
     ...(project.console_command?.trim() ? ['console' as const] : []),
@@ -116,6 +118,18 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
     return () => window.clearTimeout(timer);
   }, [focusedShellPane, loading, project.id, revision, savedSignature, shellTerminalIds, shellTree]);
 
+  const requestClose = () => {
+    void flushProjectNotes(project.id).then(onClose).catch(() => setActiveView('notes'));
+  };
+
+  useEffect(() => {
+    const showFailedNotes = (event: Event) => {
+      if ((event as CustomEvent<{ projectId?: string }>).detail?.projectId === project.id) setActiveView('notes');
+    };
+    window.addEventListener('stacks:project-notes-save-failed', showFailedNotes);
+    return () => window.removeEventListener('stacks:project-notes-save-failed', showFailedNotes);
+  }, [project.id]);
+
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || document.querySelector('.confirmModal')) return;
@@ -123,11 +137,11 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
       if (focused?.closest('input, textarea, select, [contenteditable="true"]')) { focused.blur(); return; }
       event.preventDefault();
       event.stopPropagation();
-      onClose();
+      requestClose();
     };
     window.addEventListener('keydown', closeOnEscape, true);
     return () => window.removeEventListener('keydown', closeOnEscape, true);
-  }, [onClose]);
+  }, [project.id, onClose]);
 
   useEffect(() => {
     const handleTabs = (event: Event) => {
@@ -197,15 +211,15 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
 
   const showAgent = activeView === 'agent';
   return <>
-    <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={onClose}>
+    <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={requestClose}>
       <article className={`kanbanDetail cardWorkspace directProjectWork${showAgent ? ' chatActive' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
-        <ProjectWorkspaceHeader project={project} gitState={gitState} onClose={onClose} />
+        <ProjectWorkspaceHeader project={project} gitState={gitState} onClose={requestClose} />
         <nav className="cardWorkspaceTabs" aria-label={PROJECT_WORKSPACE_VIEWS_LABEL}>
           {displayedTabs.map((tab) => tab === 'diff' ? <span key={tab} className={`cardDiffTab${activeView === tab ? ' active' : ''}`}>
             <button className="cardDiffTabLabel" type="button" disabled={!isGit} title={!isGit ? 'Not a Git repository' : undefined} onClick={() => setActiveView(tab)}>Diff</button>
             {activeView === tab && <button className="cardDiffRefresh" type="button" aria-label="Refresh diff" onClick={() => { setDiffRefreshNonce((n) => n + 1); void refreshGit(); }}><span className="diffRefreshIcon" /></button>}
           </span> : tab === 'server' || tab === 'console' ? <ServiceTab key={tab} mode={tab} active={activeView === tab} enabled={tab === 'server' ? serverEnabled : consoleEnabled} running={tab === 'server' ? serverRunning : consoleRunning} onSelect={() => setActiveView(tab)} onToggle={() => toggleService(tab)} />
-            : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'release' ? 'Release' : 'Terminal'}</button>)}
+            : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'notes' ? 'Notes' : tab === 'release' ? 'Release' : 'Terminal'}</button>)}
         </nav>
         {actionError && <div className="kanbanActionError" role="alert">{actionError}</div>}
         <section className={`cardChatView cardView${showAgent ? ' active' : ''}`} aria-label={PROJECT_WORKSPACE_AGENT_LABEL}>
@@ -213,6 +227,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
             <PiGuiView terminal={{ id: agentId, workspaceId, kind: 'pi', cwd: project.path }} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} active={showAgent} visible={showAgent} maximized={false} canToggleMaximize={false} restartRequestNonce={0} fontSize={13} onFocus={() => {}} onClose={() => {}} onSplitTerminal={() => {}} onEditTerminal={() => {}} onToggleMaximize={() => {}} />
           </Suspense></div>
         </section>
+        <ProjectNotesView key={project.id} projectId={project.id} active={activeView === 'notes'} />
         <section className={`cardDiffView cardView${activeView === 'diff' ? ' active' : ''}`}>
           <aside className="cardDiffExplorer"><DiffTab activePath={gitState?.kind === 'git' ? project.path : null} comparisonTarget={projectRemoteComparisonTarget(project)} refreshNonce={diffRefreshNonce} review={diffReview} /></aside>
           <div className="cardDiffContent">{diffReview.openDiff ? <DiffOverlay review={diffReview} fontSize={13} canSubmit onSubmit={submitDiffReview} onClose={() => diffReview.setOpenDiff(null)} /> : <div className="kanbanEmpty">Select a changed file to view its diff.</div>}</div>

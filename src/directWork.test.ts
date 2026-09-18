@@ -16,8 +16,8 @@ describe('Direct project work identity and tabs', () => {
   });
 
   it('orders only the views available to the project', () => {
-    expect(directWorkTabs(project, true)).toEqual(['agent', 'diff', 'terminal', 'server', 'console']);
-    expect(directWorkTabs({ ...project, server_command: '', console_command: undefined }, false)).toEqual(['agent', 'terminal']);
-    expect(directWorkTabs({ ...project, releases_enabled: true }, true)).toEqual(['agent', 'diff', 'terminal', 'release', 'server', 'console']);
+    expect(directWorkTabs(project, true)).toEqual(['agent', 'notes', 'diff', 'terminal', 'server', 'console']);
+    expect(directWorkTabs({ ...project, server_command: '', console_command: undefined }, false)).toEqual(['agent', 'notes', 'terminal']);
+    expect(directWorkTabs({ ...project, releases_enabled: true }, true)).toEqual(['agent', 'notes', 'diff', 'terminal', 'release', 'server', 'console']);
   });
 });
