@@ -77,20 +77,44 @@ function repositoryTokens(markup: string) {
 }
 
 describe('CardDetailHeader', () => {
-  it('orders workflow and hierarchy metadata in the top row and repository metadata beneath the title', () => {
+  it('groups workflow metadata and the edit button on the left and adjacent hierarchy badges on the right', () => {
     const markup = renderHeader(card());
     const titleIndex = markup.indexOf('<h2>');
+    const leftStart = classIndex(markup, 'kanbanDetailHeaderMetaLeft');
+    const leftEnd = markup.indexOf('</div><div class="kanbanHierarchyGroup">');
 
+    expect(markup.indexOf('#82')).toBeGreaterThan(leftStart);
     expect(markup.indexOf('#82')).toBeLessThan(classIndex(markup, 'kanbanProjectBadge'));
     expect(classIndex(markup, 'kanbanProjectBadge')).toBeLessThan(classIndex(markup, 'kanbanCardStatus'));
-    expect(classIndex(markup, 'kanbanCardStatus')).toBeLessThan(classIndex(markup, 'kanbanHierarchyBadge parent'));
+    expect(classIndex(markup, 'kanbanCardStatus')).toBeLessThan(classIndex(markup, 'kanbanCardEditButton'));
+    expect(classIndex(markup, 'kanbanCardEditButton')).toBeLessThan(leftEnd);
+    expect(classIndex(markup, 'kanbanHierarchyGroup')).toBeGreaterThan(leftEnd);
+    expect(classIndex(markup, 'kanbanHierarchyBadge parent')).toBeGreaterThan(classIndex(markup, 'kanbanHierarchyGroup'));
     expect(classIndex(markup, 'kanbanHierarchyBadge parent')).toBeLessThan(classIndex(markup, 'kanbanHierarchyBadge children'));
-    expect(classIndex(markup, 'kanbanHierarchyBadge children')).toBeLessThan(classIndex(markup, 'kanbanCardEditButton'));
 
+    expect(markup).toContain('<button class="kanbanDetailClose" type="button" aria-label="Close card details"></button>');
     expect(classIndex(markup, 'kanbanCardGitSummary')).toBeGreaterThan(titleIndex);
     expect(classIndex(markup, 'kanbanCardPrLink')).toBeGreaterThan(titleIndex);
     expect(classIndex(markup, 'kanbanCardHeaderBranch')).toBeLessThan(classIndex(markup, 'kanbanCardGitSummary'));
     expect(classIndex(markup, 'kanbanCardGitSummary')).toBeLessThan(classIndex(markup, 'kanbanCardPrLink'));
+  });
+
+  it('renders the close icon after the heading with its accessible label intact', () => {
+    const markup = renderHeader(card());
+
+    expect(classIndex(markup, 'kanbanDetailClose')).toBeGreaterThan(markup.indexOf('</div><button'));
+    expect(markup).toContain('class="kanbanDetailClose" type="button" aria-label="Close card details"');
+    expect(markup).toContain('<span aria-hidden="true"></span>');
+  });
+
+  it('keeps an editable project control in the left group and omits an empty hierarchy group', () => {
+    const markup = renderHeader(card({ status: 'needs_refinement', parent: null, child_count: 0, environment: null }));
+    const leftStart = classIndex(markup, 'kanbanDetailHeaderMetaLeft');
+
+    expect(classIndex(markup, 'kanbanProjectAssignment')).toBeGreaterThan(leftStart);
+    expect(classIndex(markup, 'kanbanProjectAssignment')).toBeLessThan(classIndex(markup, 'kanbanCardStatus'));
+    expect(classIndex(markup, 'kanbanCardEditButton')).toBeGreaterThan(classIndex(markup, 'kanbanCardStatus'));
+    expect(markup).not.toContain('kanbanHierarchyGroup');
   });
 
   it('renders separators only between repository metadata items for every presence combination', () => {

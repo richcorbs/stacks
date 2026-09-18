@@ -97,7 +97,7 @@ export function DoneLaneMenu({ cardsCount, collapsed, triggerRef, open, cleaning
   );
 }
 
-function KanbanCardContents({
+export function KanbanCardContents({
   card,
   projects,
   repositoryStatus,
@@ -108,14 +108,20 @@ function KanbanCardContents({
   repositoryStatus: CardRepositoryStatus | undefined;
   onNavigateParent: (parentId: string) => void;
 }) {
+  const hasHierarchy = Boolean(card.parent) || card.child_count > 0;
+
   return <>
     <span className="kanbanCardSource">
-      <span className="kanbanCardNumber">#{card.external_id}</span>
-      <span className={`kanbanProjectBadge${owningProject(card, projects) ? '' : ' invalid'}`}>
-        {owningProject(card, projects)?.name ?? 'Unknown project'}
+      <span className="kanbanCardSourceLeft">
+        <span className="kanbanCardNumber">#{card.external_id}</span>
+        <span className={`kanbanProjectBadge${owningProject(card, projects) ? '' : ' invalid'}`}>
+          {owningProject(card, projects)?.name ?? 'Unknown project'}
+        </span>
+        {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span className="kanbanProviderBoardTitle">{card.board_title}</span>}
       </span>
-      <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
-      {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title}</span>}
+      {hasHierarchy && <span className="kanbanHierarchyGroup">
+        <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
+      </span>}
     </span>
     <strong>{card.title}</strong>
     <span className="kanbanCardMeta">

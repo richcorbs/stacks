@@ -33,17 +33,22 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
   const hasGitSummary = hasGitChangeSummary(gitChangeSummary);
   const hasPullRequest = Boolean(card.pull_request);
   const hasRepositoryMetadata = hasBranch || hasGitSummary || hasPullRequest;
+  const hasHierarchy = Boolean(card.parent) || card.child_count > 0;
 
   return <header>
     <div className="kanbanDetailHeading">
       <div className="kanbanDetailHeaderMeta">
-        <a href={card.card_url || undefined} onClick={(event) => card.card_url && openExternalLink(event, card.card_url)}>#{card.external_id}</a>
-        <CardProjectAssignment card={card} project={project ?? null} projects={projects} onChange={(nextProjectId) => {
-          onAssignProject(nextProjectId).catch((error) => onActionError(error instanceof Error ? error.message : String(error)));
-        }} />
-        <span className="kanbanCardStatus">{statusLabel}</span>
-        <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
-        {editable && !editing && <button className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={onBeginEditing}><span aria-hidden="true" /></button>}
+        <div className="kanbanDetailHeaderMetaLeft">
+          <a href={card.card_url || undefined} onClick={(event) => card.card_url && openExternalLink(event, card.card_url)}>#{card.external_id}</a>
+          <CardProjectAssignment card={card} project={project ?? null} projects={projects} onChange={(nextProjectId) => {
+            onAssignProject(nextProjectId).catch((error) => onActionError(error instanceof Error ? error.message : String(error)));
+          }} />
+          <span className="kanbanCardStatus">{statusLabel}</span>
+          {editable && !editing && <button className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={onBeginEditing}><span aria-hidden="true" /></button>}
+        </div>
+        {hasHierarchy && <div className="kanbanHierarchyGroup">
+          <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
+        </div>}
       </div>
       {editing
         ? <input ref={titleInputRef} className="kanbanCardTitleInput" aria-label="Card title" required value={draftTitle} onChange={(event) => onDraftTitleChange(event.target.value)} />
@@ -56,7 +61,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
         <CardPullRequestLink pullRequest={card.pull_request} onOpen={openExternalLink} />
       </div>}
     </div>
-    <button type="button" aria-label="Close card details" onClick={onRequestClose}>×</button>
+    <button className="kanbanDetailClose" type="button" aria-label="Close card details" onClick={onRequestClose} />
   </header>;
 }
 
