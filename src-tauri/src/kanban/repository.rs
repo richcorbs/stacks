@@ -53,7 +53,7 @@ pub(in crate::kanban) fn initialize_connection(
     crate::store::migrate_store_schema(connection)
         .map_err(|error| format!("Could not initialize project-store schema: {error}"))?;
     crate::project_direct::migrate(connection)
-        .map_err(|error| format!("Could not initialize Direct-work schema: {error}"))?;
+        .map_err(|error| format!("Could not initialize Project Workspace schema: {error}"))?;
     crate::release::migrate(connection)
         .map_err(|error| format!("Could not initialize release schema: {error}"))?;
     crate::store::migrate_legacy_data(connection, import_legacy_json)

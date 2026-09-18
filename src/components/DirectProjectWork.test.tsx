@@ -1,10 +1,26 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { PROJECT_WORKSPACE_AGENT_LABEL, PROJECT_WORKSPACE_VIEWS_LABEL, ProjectWorkspaceHeader } from './ProjectWorkspaceChrome';
 import { DirectWorkGitMetadata } from './DirectWorkGitMetadata';
 
 function classIndex(markup: string, className: string) {
   return markup.indexOf(`class="${className}`);
 }
+
+describe('Project Workspace presentation', () => {
+  it('identifies the opened view and its close and view accessibility labels', () => {
+    const markup = renderToStaticMarkup(<ProjectWorkspaceHeader
+      project={{ id: 'one', name: 'One', path: '/one', workspaces: [] }}
+      gitState={{ kind: 'not-git' }}
+      onClose={() => {}}
+    />);
+
+    expect(markup).toContain('<span>Project Workspace</span>');
+    expect(markup).toContain('aria-label="Close Project Workspace"');
+    expect(PROJECT_WORKSPACE_VIEWS_LABEL).toBe('Project Workspace views');
+    expect(PROJECT_WORKSPACE_AGENT_LABEL).toBe('Project Workspace Agent');
+  });
+});
 
 describe('DirectWorkGitMetadata', () => {
   it('renders the shared branch presentation, separator, and all Git counts in order', () => {

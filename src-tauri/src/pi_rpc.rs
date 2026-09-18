@@ -117,7 +117,7 @@ pub fn start_pi_session(
     if let Some(owner_project_id) = crate::project_direct::project_direct_owner(&pane_id) {
         if owner_project_id != project.id {
             return Err(
-                "The Direct project work Pi session does not belong to the supplied Stacks project"
+                "The Project Workspace Pi session does not belong to the supplied Stacks project"
                     .to_string(),
             );
         }
