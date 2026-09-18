@@ -1,8 +1,32 @@
 import { createRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { CardPullRequest, KanbanStatus } from '../../kanban/types';
-import { DoneLaneMenu, KanbanPullRequestBadge, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import type { Project } from '../../types';
+import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
+import { DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, shouldDismissDoneLaneMenu } from './KanbanLanes';
+
+const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
+
+function card(overrides: Partial<KanbanCard> = {}): KanbanCard {
+  return {
+    id: 'local:project-1:128', provider: 'local', external_id: '128', title: 'Align hierarchy badges', content: '',
+    board_id: project.id, board_title: project.name, list_id: '', list_title: '', card_url: '',
+    assignee_names: [], status: 'ready', workflow_revision: 1, record_revision: 1, project_id: project.id,
+    parent: { id: 'local:project-1:12', external_id: '12', title: 'Parent card', status: 'ready' },
+    child_count: 2, children: [], hierarchy_finalized: false, environment: null, pull_request: null,
+    created_at: 1, updated_at: 1, sort_order: 0, events: [], capabilities: [],
+    ...overrides,
+  };
+}
+
+function renderCardContents(currentCard: KanbanCard) {
+  return renderToStaticMarkup(<KanbanCardContents
+    card={currentCard}
+    projects={[project]}
+    repositoryStatus={undefined}
+    onNavigateParent={() => undefined}
+  />);
+}
 
 function pullRequest(overrides: Partial<CardPullRequest> = {}): CardPullRequest {
   return {
@@ -35,6 +59,39 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
     />,
   );
 }
+
+describe('KanbanCardContents', () => {
+  it('groups card and project metadata on the left and adjacent hierarchy badges on the right', () => {
+    const markup = renderCardContents(card());
+    const leftStart = markup.indexOf('class="kanbanCardSourceLeft"');
+    const leftEnd = markup.indexOf('</span><span class="kanbanHierarchyGroup">');
+    const parentIndex = markup.indexOf('class="kanbanHierarchyBadge parent"');
+    const childrenIndex = markup.indexOf('class="kanbanHierarchyBadge children"');
+
+    expect(leftStart).toBeGreaterThan(-1);
+    expect(markup.indexOf('#128')).toBeGreaterThan(leftStart);
+    expect(markup.indexOf('class="kanbanProjectBadge"')).toBeGreaterThan(leftStart);
+    expect(leftEnd).toBeGreaterThan(markup.indexOf('class="kanbanProjectBadge"'));
+    expect(parentIndex).toBeGreaterThan(leftEnd);
+    expect(childrenIndex).toBeGreaterThan(parentIndex);
+  });
+
+  it('omits the hierarchy group when the card has no hierarchy metadata', () => {
+    const markup = renderCardContents(card({ parent: null, child_count: 0 }));
+
+    expect(markup).toContain('class="kanbanCardSourceLeft"');
+    expect(markup).not.toContain('kanbanHierarchyGroup');
+  });
+
+  it('preserves provider board-title suppression and rendering in the left metadata group', () => {
+    const suppressed = renderCardContents(card({ provider: 'superthread', board_title: 'Dev - Active' }));
+    const visible = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap' }));
+
+    expect(suppressed).not.toContain('kanbanProviderBoardTitle');
+    expect(visible).toContain('<span class="kanbanProviderBoardTitle">Roadmap</span>');
+    expect(visible.indexOf('kanbanProviderBoardTitle')).toBeLessThan(visible.indexOf('kanbanHierarchyGroup'));
+  });
+});
 
 describe('KanbanPullRequestBadge', () => {
   it.each([
