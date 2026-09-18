@@ -1,4 +1,5 @@
-import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { useEffect, useLayoutEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { createPortal } from 'react-dom';
 import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
@@ -96,6 +97,43 @@ export function DoneLaneMenu({ cardsCount, collapsed, triggerRef, open, cleaning
   );
 }
 
+function KanbanCardContents({
+  card,
+  projects,
+  repositoryStatus,
+  onNavigateParent,
+}: {
+  card: KanbanCard;
+  projects: Project[];
+  repositoryStatus: CardRepositoryStatus | undefined;
+  onNavigateParent: (parentId: string) => void;
+}) {
+  return <>
+    <span className="kanbanCardSource">
+      <span className="kanbanCardNumber">#{card.external_id}</span>
+      <span className={`kanbanProjectBadge${owningProject(card, projects) ? '' : ' invalid'}`}>
+        {owningProject(card, projects)?.name ?? 'Unknown project'}
+      </span>
+      <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
+      {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title}</span>}
+    </span>
+    <strong>{card.title}</strong>
+    <span className="kanbanCardMeta">
+      {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
+      <span className="kanbanCardIndicators">
+        {hasGitChanges(repositoryStatus?.git) && (
+          <span className="kanbanGitBadge" title={`${repositoryStatus?.git?.branch} working tree changes`}>
+            {repositoryStatus!.git!.created > 0 && <span className="gitAdded">+{repositoryStatus!.git!.created}</span>}
+            {repositoryStatus!.git!.changed > 0 && <span className="gitChanged">~{repositoryStatus!.git!.changed}</span>}
+            {repositoryStatus!.git!.deleted > 0 && <span className="gitRemoved">-{repositoryStatus!.git!.deleted}</span>}
+          </span>
+        )}
+        {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} />}
+      </span>
+    </span>
+  </>;
+}
+
 export function KanbanLanes({
   cards: visibleCards,
   projects,
@@ -129,9 +167,53 @@ export function KanbanLanes({
   onOpenCard: (card: KanbanCard, initialView?: CardView) => void;
   onNavigateParent: (parentId: string) => void;
 }) {
+  const cardWrapperRefs = useRef(new Map<string, HTMLDivElement>());
+  const previousCardRects = useRef(new Map<string, DOMRect>());
+  const previousPreviewOrder = useRef<string | null>(null);
+  const movementAnimations = useRef(new Map<string, Animation>());
+
+  useLayoutEffect(() => {
+    movementAnimations.current.forEach((animation) => animation.cancel());
+    movementAnimations.current.clear();
+    const nextOrder = pointer.dragPreview?.cardIds.join('|') ?? '';
+    const shouldAnimate = previousPreviewOrder.current !== null && previousPreviewOrder.current !== nextOrder;
+    const nextRects = new Map<string, DOMRect>();
+    cardWrapperRefs.current.forEach((element, id) => {
+      const next = element.getBoundingClientRect();
+      nextRects.set(id, next);
+      const previous = previousCardRects.current.get(id);
+      if (!shouldAnimate || !previous || id === pointer.draggingId) return;
+      const x = previous.left - next.left;
+      const y = previous.top - next.top;
+      if (x === 0 && y === 0) return;
+      const animation = element.animate(
+        [{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }],
+        { duration: 160, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+      );
+      movementAnimations.current.set(id, animation);
+      animation.onfinish = () => movementAnimations.current.delete(id);
+    });
+    previousCardRects.current = nextRects;
+    previousPreviewOrder.current = nextOrder;
+  });
+
+  useEffect(() => () => movementAnimations.current.forEach((animation) => animation.cancel()), []);
+  useEffect(() => {
+    document.documentElement.classList.toggle('kanbanDragging', Boolean(pointer.dragPreview));
+    return () => document.documentElement.classList.remove('kanbanDragging');
+  }, [pointer.dragPreview]);
+
+  const draggedCard = pointer.dragPreview
+    ? visibleCards.find((card) => card.id === pointer.dragPreview?.cardId) ?? null
+    : null;
+
   return <div className="kanbanLanes">
     {KANBAN_LANES.map((lane) => {
-      const cards = visibleCards.filter((card) => card.status === lane.status);
+      const canonicalCards = visibleCards.filter((card) => card.status === lane.status);
+      const cardsById = new Map(canonicalCards.map((card) => [card.id, card]));
+      const cards = pointer.dragPreview?.sourceStatus === lane.status
+        ? pointer.dragPreview.cardIds.map((id) => cardsById.get(id)).filter((card): card is KanbanCard => Boolean(card))
+        : canonicalCards;
       return (
         <section
           className={`kanbanLane${lane.status === 'done' && doneCollapsed ? ' collapsed' : ''}`}
@@ -178,9 +260,17 @@ export function KanbanLanes({
                 const environmentHealth = repositoryStatus?.environmentHealth;
                 const healthTooltip = environmentHealthTooltip(environmentHealth);
                 const showEnvironmentWarning = shouldShowEnvironmentWarning(card, environmentHealth);
-                return <div className={`kanbanCardWrapper${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}`} key={card.id}>
+                const placeholder = pointer.draggingId === card.id;
+                return <div
+                  className={`kanbanCardWrapper${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}${placeholder ? ' kanbanCardPlaceholder' : ''}`}
+                  key={card.id}
+                  ref={(element) => {
+                    if (element) cardWrapperRefs.current.set(card.id, element);
+                    else cardWrapperRefs.current.delete(card.id);
+                  }}
+                >
                   <div
-                    className={`kanbanCard${pointer.draggingId === card.id ? ' dragging' : ''}${pointer.dropBeforeId === card.id ? ' dropBefore' : ''}${keyboardFocusedCardId === card.id ? ' keyboardFocused' : ''}`}
+                    className={`kanbanCard${keyboardFocusedCardId === card.id ? ' keyboardFocused' : ''}`}
                     onPointerDown={(event) => pointer.beginPointerDrag(event, card)}
                     onPointerMove={pointer.updatePointerDrag}
                     onPointerUp={pointer.finishPointerDrag}
@@ -194,28 +284,7 @@ export function KanbanLanes({
                       onFocus={() => setKeyboardFocusedCardId(card.id)}
                       onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                     />
-                    <span className="kanbanCardSource">
-                      <span className="kanbanCardNumber">#{card.external_id}</span>
-                      <span className={`kanbanProjectBadge${owningProject(card, projects) ? '' : ' invalid'}`}>
-                        {owningProject(card, projects)?.name ?? 'Unknown project'}
-                      </span>
-                      <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
-                      {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span>{card.board_title}</span>}
-                    </span>
-                    <strong>{card.title}</strong>
-                    <span className="kanbanCardMeta">
-                      {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
-                      <span className="kanbanCardIndicators">
-                        {hasGitChanges(repositoryStatus?.git) && (
-                          <span className="kanbanGitBadge" title={`${repositoryStatus.git?.branch} working tree changes`}>
-                            {repositoryStatus.git!.created > 0 && <span className="gitAdded">+{repositoryStatus.git!.created}</span>}
-                            {repositoryStatus.git!.changed > 0 && <span className="gitChanged">~{repositoryStatus.git!.changed}</span>}
-                            {repositoryStatus.git!.deleted > 0 && <span className="gitRemoved">-{repositoryStatus.git!.deleted}</span>}
-                          </span>
-                        )}
-                        {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} />}
-                      </span>
-                    </span>
+                    <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} onNavigateParent={onNavigateParent} />
                   </div>
                   {showEnvironmentWarning && environmentHealth && (
                     <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>
@@ -229,5 +298,30 @@ export function KanbanLanes({
         </section>
       );
     })}
+    {pointer.dragPreview && draggedCard && createPortal((() => {
+      const preview = pointer.dragPreview;
+      const repositoryStatus = repositoryStatuses[draggedCard.id];
+      const environmentHealth = repositoryStatus?.environmentHealth;
+      const healthTooltip = environmentHealthTooltip(environmentHealth);
+      const showEnvironmentWarning = shouldShowEnvironmentWarning(draggedCard, environmentHealth);
+      return <div
+        className={`kanbanCardDragOverlay${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}`}
+        aria-hidden="true"
+        style={{
+          left: preview.clientX - preview.pointerOffsetX,
+          top: preview.clientY - preview.pointerOffsetY,
+          width: preview.sourceBounds.width,
+          height: preview.sourceBounds.height,
+          transformOrigin: `${preview.pointerOffsetX}px ${preview.pointerOffsetY}px`,
+        }}
+      >
+        <div className="kanbanCard">
+          <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatus} onNavigateParent={() => {}} />
+        </div>
+        {showEnvironmentWarning && environmentHealth && (
+          <span className="kanbanEnvironmentWarning" title={healthTooltip}><span aria-hidden="true">!</span></span>
+        )}
+      </div>;
+    })(), document.body)}
   </div>;
 }

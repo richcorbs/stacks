@@ -2,7 +2,14 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { KanbanCard, KanbanStatus } from './types';
 import { reorderKanbanCardIds } from './workflow';
 import { buildFilteredLaneReorder } from './projectScope';
-import { dropTargetAtPoint } from './boardInteractions';
+import { dragPreviewOrder, dropTargetAtPoint } from './boardInteractions';
+
+type CardBounds = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 
 type PointerDrag = {
   cardId: string;
@@ -11,7 +18,23 @@ type PointerDrag = {
   startY: number;
   clientX: number;
   clientY: number;
+  pointerId: number;
+  pointerOffsetX: number;
+  pointerOffsetY: number;
+  sourceBounds: CardBounds;
   dragging: boolean;
+};
+
+export type CardDragPreview = {
+  cardId: string;
+  sourceStatus: KanbanStatus;
+  sourceBounds: CardBounds;
+  pointerOffsetX: number;
+  pointerOffsetY: number;
+  clientX: number;
+  clientY: number;
+  beforeId: string | null;
+  cardIds: string[];
 };
 
 export function usePointerCardOrdering({
@@ -23,8 +46,7 @@ export function usePointerCardOrdering({
   visibleCards: KanbanCard[];
   reorder: (status: KanbanStatus, expectedCardIds: string[], cardIds: string[]) => Promise<void>;
 }) {
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
+  const [dragPreview, setDragPreview] = useState<CardDragPreview | null>(null);
   const pointerDragRef = useRef<PointerDrag | null>(null);
   const dragScrollFrameRef = useRef<number | null>(null);
   const suppressCardClickRef = useRef(false);
@@ -33,8 +55,39 @@ export function usePointerCardOrdering({
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
   }, []);
 
+  function laneCardIds(status: KanbanStatus) {
+    return visibleCards.filter((card) => card.status === status).map((card) => card.id);
+  }
+
+  function updatePreview(drag: PointerDrag, beforeId: string | null | undefined) {
+    setDragPreview((current) => {
+      // Moving outside the source column keeps the last valid gap. A release there
+      // is still rejected by finishPointerDrag. If the threshold is crossed after
+      // leaving the lane, begin with a gap at the source's canonical position.
+      const canonicalIds = laneCardIds(drag.status);
+      const sourceIndex = canonicalIds.indexOf(drag.cardId);
+      const sourceBeforeId = canonicalIds[sourceIndex + 1] ?? null;
+      const validBeforeId = beforeId === undefined ? (current ? current.beforeId : sourceBeforeId) : beforeId;
+      const cardIds = beforeId === undefined && current
+        ? current.cardIds
+        : dragPreviewOrder(canonicalIds, drag.cardId, validBeforeId);
+      return {
+        cardId: drag.cardId,
+        sourceStatus: drag.status,
+        sourceBounds: drag.sourceBounds,
+        pointerOffsetX: drag.pointerOffsetX,
+        pointerOffsetY: drag.pointerOffsetY,
+        clientX: drag.clientX,
+        clientY: drag.clientY,
+        beforeId: validBeforeId ?? null,
+        cardIds,
+      };
+    });
+  }
+
   function beginPointerDrag(event: ReactPointerEvent, card: KanbanCard) {
     if (event.button !== 0 || card.hierarchy_finalized) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
     pointerDragRef.current = {
       cardId: card.id,
       status: card.status,
@@ -42,6 +95,10 @@ export function usePointerCardOrdering({
       startY: event.clientY,
       clientX: event.clientX,
       clientY: event.clientY,
+      pointerId: event.pointerId,
+      pointerOffsetX: event.clientX - bounds.left,
+      pointerOffsetY: event.clientY - bounds.top,
+      sourceBounds: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height },
       dragging: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -54,8 +111,7 @@ export function usePointerCardOrdering({
     drag.clientY = event.clientY;
     if (!drag.dragging && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
     drag.dragging = true;
-    setDraggingId(drag.cardId);
-    setDropBeforeId(dropTargetAtPoint(drag.cardId, drag.status, event.clientX, event.clientY) ?? null);
+    updatePreview(drag, dropTargetAtPoint(drag.cardId, drag.status, event.clientX, event.clientY));
     startDragAutoScroll();
     event.preventDefault();
   }
@@ -79,7 +135,7 @@ export function usePointerCardOrdering({
           : 0;
       if (velocity !== 0) {
         scroller.scrollTop += Math.max(-20, Math.min(20, velocity));
-        setDropBeforeId(dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY) ?? null);
+        updatePreview(drag, dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY));
         dragScrollFrameRef.current = requestAnimationFrame(scroll);
       }
     };
@@ -94,32 +150,64 @@ export function usePointerCardOrdering({
   function cancelPointerDrag() {
     pointerDragRef.current = null;
     stopDragAutoScroll();
-    setDraggingId(null);
-    setDropBeforeId(null);
+    setDragPreview(null);
   }
 
-  async function finishPointerDrag(event: ReactPointerEvent) {
+  async function finishPointerDragAt(clientX: number, clientY: number) {
     const drag = pointerDragRef.current;
     pointerDragRef.current = null;
     stopDragAutoScroll();
     if (!drag?.dragging) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const beforeId = dropTargetAtPoint(drag.cardId, drag.status, event.clientX, event.clientY);
-    setDraggingId(null);
-    setDropBeforeId(null);
+    const beforeId = dropTargetAtPoint(drag.cardId, drag.status, clientX, clientY);
+    setDragPreview(null);
     suppressCardClickRef.current = true;
     window.setTimeout(() => { suppressCardClickRef.current = false; }, 0);
     if (beforeId === undefined) return;
-    const currentIds = visibleCards.filter((card) => card.status === drag.status).map((card) => card.id);
+    const currentIds = laneCardIds(drag.status);
     const visibleOrder = reorderKanbanCardIds(currentIds, drag.cardId, beforeId);
     const nextOrder = buildFilteredLaneReorder(allCards, drag.status, visibleOrder);
     await reorder(drag.status, nextOrder.expectedCardIds, nextOrder.cardIds).catch(console.error);
   }
 
+  async function finishPointerDrag(event: ReactPointerEvent) {
+    const drag = pointerDragRef.current;
+    if (!drag?.dragging || event.pointerId !== drag.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    await finishPointerDragAt(event.clientX, event.clientY);
+  }
+
+  useEffect(() => {
+    if (!dragPreview) return;
+    // Reordering the captured card in the transient DOM can cause WebKit to drop
+    // pointer capture. Observe the active pointer at window level so release and
+    // cancellation always tear down the preview.
+    const finish = (event: PointerEvent) => {
+      const drag = pointerDragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void finishPointerDragAt(event.clientX, event.clientY);
+    };
+    const cancel = (event: PointerEvent) => {
+      const drag = pointerDragRef.current;
+      if (drag && event.pointerId === drag.pointerId) cancelPointerDrag();
+    };
+    const cancelOnBlur = () => cancelPointerDrag();
+    window.addEventListener('pointerup', finish, true);
+    window.addEventListener('pointercancel', cancel, true);
+    window.addEventListener('blur', cancelOnBlur);
+    return () => {
+      window.removeEventListener('pointerup', finish, true);
+      window.removeEventListener('pointercancel', cancel, true);
+      window.removeEventListener('blur', cancelOnBlur);
+    };
+  }, [dragPreview?.cardId, allCards, visibleCards, reorder]);
+
   return {
-    draggingId,
-    dropBeforeId,
+    draggingId: dragPreview?.cardId ?? null,
+    dropBeforeId: dragPreview?.beforeId ?? null,
+    dragPreview,
     beginPointerDrag,
     updatePointerDrag,
     finishPointerDrag,

@@ -122,14 +122,17 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanLaneMenuPopover button.danger:hover:not(:disabled) { background: #342329; }
 .kanbanLane > header p { margin: 4px 0 0; color: #5f7287; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .kanbanLaneCards { flex: 1; min-height: 0; padding: 8px; overflow-y: auto; }
-.kanbanCardWrapper { position: relative; }
+.kanbanCardWrapper { position: relative; transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
 .kanbanCard { position: relative; width: 100%; margin: 0 0 8px; padding: 10px; display: flex; flex-direction: column; gap: 7px; text-align: left; text-transform: none; border: 1px solid #263647; border-radius: 8px; background: #151f2a; color: #bdc9d5; cursor: grab; touch-action: none; user-select: none; box-shadow: 0 3px 9px rgba(0, 0, 0, .12); }
+.kanbanCardPlaceholder > * { visibility: hidden; }
+.kanbanCardDragOverlay { position: fixed; z-index: 100; pointer-events: none; transform: rotate(2.5deg); transform-origin: center; filter: drop-shadow(0 14px 18px rgba(0, 0, 0, .42)); }
+.kanbanCardDragOverlay > .kanbanCard { height: 100%; margin: 0; cursor: grabbing; }
+.kanbanCardDragOverlay .kanbanEnvironmentWarning { bottom: 8px; }
+html.kanbanDragging, html.kanbanDragging * { cursor: grabbing !important; }
 .kanbanCardOpen { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: inherit; }
 .kanbanCard > :not(.kanbanCardOpen) { position: relative; z-index: 2; pointer-events: none; }
 .kanbanCard.keyboardFocused { outline: 2px solid #4f83ad; outline-offset: 1px; border-color: #466b8d; }
 .kanbanCard:active { cursor: grabbing; }
-.kanbanCard.dragging { opacity: .42; }
-.kanbanCard.dropBefore { box-shadow: 0 -2px 0 #6697c2, 0 3px 9px rgba(0, 0, 0, .12); }
 .kanbanCardSource { color: #63778d; font: calc(9px + var(--ui-font-delta, 0px)) ui-monospace, monospace; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .kanbanProjectBadge { display: inline-flex; padding: 3px 8px; border: 1px solid #34495d; border-radius: 999px; background: #172431; color: #687c92; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-transform: none; letter-spacing: normal; }
 .kanbanProjectBadge.invalid { border-color: #75424b; background: #351f25; color: #f1a8b0; }
