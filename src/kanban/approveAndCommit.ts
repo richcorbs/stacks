@@ -1,6 +1,6 @@
 import type { WorkflowOperationResult } from './api';
 
-export const APPROVE_AND_COMMIT_PROMPT = `Inspect the completed work for this card and its Git diff. If there are intended uncommitted changes, stage only those intended changes, generate an appropriate descriptive commit message, and commit them. Do not discard or overwrite unexpected changes merely to make the worktree clean. If the worktree is already clean, inspect the existing commits and verify that the completed work is committed; do not create an empty commit. Report any problem that prevents committing the intended work.`;
+export const APPROVE_AND_COMMIT_PROMPT = `Review the completed work and Git diff. Stage and commit only the intended changes, using a descriptive message. Do not discard or overwrite unexpected changes to clean the worktree. If the worktree is already clean, verify the work is committed; do not create an empty commit. Report anything that prevents committing the intended work.`;
 
 export type ApproveAndCommitDependencies = {
   showAgent: () => void;

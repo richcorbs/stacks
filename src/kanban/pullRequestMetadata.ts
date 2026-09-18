@@ -1,0 +1,1 @@
+export const GENERATE_PR_METADATA_PROMPT = `Generate succinct pull request metadata from the completed diff and commits. Write exactly one JSON object with string fields "title" and "body" to $(git rev-parse --git-dir)/stacks-pr-metadata.json. Do not alter the worktree or commits.`;
