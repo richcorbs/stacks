@@ -52,7 +52,7 @@ export function ReleaseTab({ project }: { project: Project }) {
         <button className="primaryAction releaseStart" type="button" disabled={busy || !version.trim() || !draft.reconciliation || !draft.reconciliation.permittedActions.some((item) => ['start', 'resume', 'approve', 'complete'].includes(item))} onClick={() => void action(() => startRelease(project.id, version, notes))}>{draft.reconciliation && ['resumablePrepared', 'resumableDraft', 'published'].includes(draft.reconciliation.disposition) ? 'Resume release' : 'Start release'}</button>
       </div>}
       {displayed && <div className="releaseOperation">
-        <div className="releaseSummary"><strong>{displayed.version}</strong><span className={`releaseStatus ${displayed.status}`}>{statusLabel(displayed.status)}</span><span>{duration}</span><code>{displayed.initialRevision.slice(0, 10)}</code>{displayed.adopted && <span>resumed</span>}</div>
+        <div className="releaseSummary"><strong>{displayed.version}</strong><span className={`releaseStatus ${displayed.status}`}>{statusLabel(displayed.status)}</span><span className="releaseDuration">{duration}</span><code>{displayed.initialRevision.slice(0, 10)}</code>{displayed.adopted && <span>resumed</span>}</div>
         {displayed.reconciliation && <ReconciliationSummary reconciliation={displayed.reconciliation} />}
         <div className="releaseStages">{displayed.stages.map((stage, index) => <ReleaseStage key={stage.id} stage={stage} index={index} approvalInstructions={displayed.config.stages[index].approval?.instructions} />)}</div>
         <div className="releaseActions">
@@ -64,7 +64,7 @@ export function ReleaseTab({ project }: { project: Project }) {
           {!['completed', 'abandoned'].includes(displayed.status) && displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Abandon this release? Repository commits, tags, drafts, and artifacts remain and are not automatically undone.')) void action(() => abandonRelease(displayed.id)); }}>Abandon release</button>}
         </div>
       </div>}
-      {history.some((item) => ['completed', 'abandoned'].includes(item.status)) && <section className="releaseHistory"><h4>Release history</h4>{history.filter((item) => ['completed', 'abandoned'].includes(item.status)).map((item) => <div key={item.id}><strong>{item.version}</strong><span>{statusLabel(item.status)}</span><span>{formatDuration((item.completedAt ?? item.updatedAt) - item.createdAt)}</span><span>{item.stages.length} stages</span></div>)}</section>}
+      {history.some((item) => ['completed', 'abandoned'].includes(item.status)) && <section className="releaseHistory"><h4>Release history</h4>{history.filter((item) => ['completed', 'abandoned'].includes(item.status)).map((item) => <div key={item.id}><strong>{item.version}</strong><span>{statusLabel(item.status)}</span><span className="releaseDuration">{formatDuration((item.completedAt ?? item.updatedAt) - item.createdAt)}</span><span>{item.stages.length} stages</span></div>)}</section>}
     </div>
   </section>;
 }
@@ -102,7 +102,7 @@ export function ReleaseStage({ stage, index, approvalInstructions }: { stage: Re
     <span className="releaseStageIcon">{stage.status === 'running' ? '◌' : stage.status === 'completed' ? '✓' : stage.status === 'pending' ? '·' : '!'}</span>
     <strong>{index + 1}. {stage.name}</strong>
     <span className="releaseStageStatus">{statusLabel(stage.status)}</span>
-    {stage.startedAt && <small>{formatDuration((stage.completedAt ?? Math.floor(Date.now() / 1000)) - stage.startedAt)}</small>}
+    {stage.startedAt && <small className="releaseDuration">{formatDuration((stage.completedAt ?? Math.floor(Date.now() / 1000)) - stage.startedAt)}</small>}
     {hasOutput && <span className="releaseStageDisclosureIndicator" aria-hidden="true">›</span>}
   </>;
 
@@ -137,7 +137,7 @@ export function ReconciliationSummary({ reconciliation }: { reconciliation: Rele
 function Fact({ label, value, mono = false }: { label: string; value: string | null; mono?: boolean }) { return <div><span>{label}</span><strong className={mono ? 'mono' : ''}>{value || '—'}</strong></div>; }
 function Command({ label, value }: { label: string; value: string }) { return <div className="releaseCommand"><span>{label}</span><code>{value}</code></div>; }
 function statusLabel(value: string) { return value.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase()); }
-function formatDuration(seconds: number) { const safe = Math.max(0, seconds); return safe < 60 ? `${safe}s` : `${Math.floor(safe / 60)}m ${safe % 60}s`; }
+function formatDuration(seconds: number) { const safe = Math.max(0, seconds); return safe < 60 ? `${safe}s` : `${Math.floor(safe / 60)}m${safe % 60}s`; }
 function LinkedLog({ text }: { text: string }) {
   const parts = useMemo(() => text.split(/(https?:\/\/[^\s]+)/g), [text]);
   return <pre className="releaseLog">{parts.map((part, index) => /^https?:\/\//.test(part) ? <a key={index} href={part} onClick={(event) => { event.preventDefault(); event.stopPropagation(); void invoke('open_url', { url: part }); }}>{part}</a> : part)}</pre>;

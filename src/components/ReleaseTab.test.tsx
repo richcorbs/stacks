@@ -100,6 +100,17 @@ async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft =
   return renderer;
 }
 
+describe('release durations', () => {
+  it('uses compact lowercase durations for operation summaries and release history', async () => {
+    const active = operation({ id: 'active', completedAt: 163 });
+    const completed = operation({ id: 'completed', status: 'completed', createdAt: 200, updatedAt: 263, completedAt: 263 });
+    const renderer = await renderReleaseTab([active, completed]);
+
+    const durations = renderer.root.findAllByProps({ className: 'releaseDuration' });
+    expect(durations.map((node) => node.children.join(''))).toEqual(['1m3s', '1m3s']);
+  });
+});
+
 describe('release status refresh', () => {
   it('atomically replaces edited notes with regenerated notes and matching evidence', async () => {
     const renderer = await renderReleaseTab();
@@ -158,6 +169,15 @@ describe('release reconciliation summary', () => {
 });
 
 describe('ReleaseStage', () => {
+  it('renders compact lowercase durations in interactive step headings', () => {
+    const minuteMarkup = renderToStaticMarkup(<ReleaseStage stage={stage({ completedAt: 163 })} index={0} />);
+    const secondsMarkup = renderToStaticMarkup(<ReleaseStage stage={stage()} index={0} />);
+
+    expect(minuteMarkup).toContain('<small class="releaseDuration">1m3s</small>');
+    expect(minuteMarkup).toContain('<button class="releaseStageHeading releaseStageDisclosure"');
+    expect(secondsMarkup).toContain('<small class="releaseDuration">5s</small>');
+  });
+
   it('collapses output by default and makes the full heading a disclosure button', () => {
     const markup = renderToStaticMarkup(<ReleaseStage stage={stage()} index={0} />);
 
