@@ -16,10 +16,12 @@ import {
   InterfaceSettingsSection,
   TerminalSettingsSection,
 } from './SettingsSections';
+import { NotificationsSettingsSection } from './NotificationsSettingsSection';
 
-export function SettingsDialog({ settings, onChange, onClose }: {
+export function SettingsDialog({ settings, onChange, onNotificationsUnavailable, onClose }: {
   settings: ResolvedAppSettings;
   onChange: (settings: ResolvedAppSettings) => void;
+  onNotificationsUnavailable: (message: string) => void;
   onClose: () => void;
 }) {
   const firstInputRef = useRef<HTMLInputElement | null>(null);
@@ -80,6 +82,7 @@ export function SettingsDialog({ settings, onChange, onClose }: {
         <InterfaceSettingsSection draft={draft} firstInputRef={firstInputRef} update={update} />
         <TerminalSettingsSection draft={draft} update={update} />
         <ConfirmationSettingsSection draft={draft} update={update} />
+        <NotificationsSettingsSection draft={draft} update={update} onUnavailable={onNotificationsUnavailable} />
         <EditorSettingsSection draft={draft} update={update} chooseEditorApp={chooseEditorApp} />
         <section className="settingsSection">
           <h3>Superthread</h3>

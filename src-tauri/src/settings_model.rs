@@ -47,6 +47,8 @@ pub struct AppSettings {
     pub kanban_project_id: Option<String>,
     #[serde(default)]
     pub kanban_done_collapsed: Option<bool>,
+    #[serde(default)]
+    pub activity_notifications: Option<bool>,
 }
 
 impl AppSettings {
@@ -66,6 +68,7 @@ impl AppSettings {
         self.superthread_enabled = next.superthread_enabled;
         self.kanban_project_id = non_empty(next.kanban_project_id);
         self.kanban_done_collapsed = next.kanban_done_collapsed;
+        self.activity_notifications = next.activity_notifications;
     }
 }
 

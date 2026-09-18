@@ -94,7 +94,7 @@ export function useTerminalSession({
       session.startupCwd = desiredCwd;
       session.startupCommand = startupCommand || null;
       session.startupConfiguredCommand = persistedStartupCommand || null;
-      const listenersReady = attachTerminalPtyListeners({ session, terminalId: terminal.id, workspaceId: workspace.id, generation });
+      const listenersReady = attachTerminalPtyListeners({ session, terminalId: terminal.id, workspaceId: workspace.id, generation, commandBacked: Boolean(startupCommand) });
       requestAnimationFrame(() => {
         listenersReady
           .then(() => spawnTerminalPty({

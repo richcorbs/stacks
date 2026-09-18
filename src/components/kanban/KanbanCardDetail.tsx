@@ -35,6 +35,7 @@ import { CardServiceTerminal } from './CardServiceTerminal';
 import { CardOverview } from './CardOverview';
 import { CardDetailHeader, CardDetailTabs } from './CardDetailChrome';
 import { CardLevelErrorBanner, collectCardLevelErrors } from './CardLevelErrorBanner';
+import { publishWorkPresence } from '../../appAttention';
 
 const PiGuiView = lazy(() => import('../PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -415,6 +416,15 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   }
 
   const showChat = activeView === 'chat';
+  useEffect(() => {
+    const owner = { kind: 'card' as const, cardId: card.id };
+    const terminalId = activeView === 'chat' ? cardPaneId(card.id, activeChatThread)
+      : activeView === 'terminal' ? focusedShellPane
+      : activeView === 'server' ? cardTerminalId(card.id, 'server')
+      : activeView === 'console' ? cardTerminalId(card.id, 'console') : undefined;
+    publishWorkPresence({ owner, view: activeView === 'chat' ? 'agent' : activeView, agentThread: activeView === 'chat' ? activeChatThread : undefined, terminalId });
+    return () => publishWorkPresence(null);
+  }, [activeChatThread, activeView, card.id, focusedShellPane]);
   return <>
     <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={requestClose}>
       <article className={`kanbanDetail cardWorkspace${showChat ? ' chatActive' : ''}${editing ? ' editing' : ''}`} onMouseDown={(event) => event.stopPropagation()}>

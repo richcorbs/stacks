@@ -165,6 +165,8 @@ export function disposeTerminalSession(terminalId: string) {
   const session = terminalSessions.get(terminalId);
   if (!session) return;
   window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: false } }));
+  // Detach natural-exit attention before every explicit stop/restart/close path.
+  session.activityNotificationEligible = false;
   session.resizeObserver?.disconnect();
   session.dataDisposable.dispose();
   session.selectionDisposable.dispose();
