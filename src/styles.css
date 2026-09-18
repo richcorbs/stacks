@@ -183,7 +183,6 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanDetailRepositoryMeta .directWorkGitSummary,
 .kanbanDetailRepositoryMeta .kanbanCardPrLink { flex: 0 0 auto; }
 .kanbanCardGitSummary, .directWorkGitSummary { display: inline-flex; align-items: center; gap: 6px; font: 650 calc(10px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; white-space: nowrap; }
-.directProjectWork .kanbanDetailHeaderMeta span:last-child { max-width: min(70vw, 720px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .directWorkGitStatus { display: flex; align-items: center; margin-top: 6px; color: #8da2b5; font: 600 calc(11px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; }
 .directWorkGitStatus strong { color: #c7a772; }
 .kanbanDetailHeaderMeta a, .kanbanDetailRepositoryMeta a { color: #9bbbd6; font: 700 calc(12px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
