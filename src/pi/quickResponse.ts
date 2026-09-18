@@ -1,4 +1,4 @@
-export type PiQuickResponse = 'yes' | 'no';
+export type PiQuickResponse = 'yes' | 'no' | 'what do you recommend?';
 
 type QuickResponseSessionState = {
   starting: boolean;

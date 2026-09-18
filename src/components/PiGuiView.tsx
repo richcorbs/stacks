@@ -681,6 +681,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         <div className="piQuickResponses" aria-label="Quick responses">
           <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('yes').catch(console.error)}>YES</button>
           <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('no').catch(console.error)}>NO</button>
+          <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('what do you recommend?').catch(console.error)}>RECOMMEND</button>
         </div>
         <div className="piGuiContext piGuiContextBar" aria-label="Pi session context">
           <ContextPicker
