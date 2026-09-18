@@ -1,10 +1,36 @@
 import { invoke } from '@tauri-apps/api/core';
+import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { TerminalSession } from './types';
+
+type TerminalPasteKeyEvent = Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'preventDefault' | 'shiftKey' | 'stopPropagation' | 'type'>;
+type TerminalPasteTarget = Pick<Terminal, 'paste'>;
+
+export function handleTerminalPasteShortcut(
+  event: TerminalPasteKeyEvent,
+  term: TerminalPasteTarget,
+  readClipboardText: () => Promise<string> = readText,
+): boolean {
+  if (
+    event.type !== 'keydown'
+    || event.key.toLowerCase() !== 'v'
+    || !event.metaKey
+    || event.ctrlKey
+    || event.altKey
+    || event.shiftKey
+  ) return false;
+
+  event.preventDefault();
+  event.stopPropagation();
+  readClipboardText()
+    .then((text) => { if (text) term.paste(text); })
+    .catch((error) => console.error('Failed to read clipboard text for terminal paste:', error));
+  return true;
+}
 
 export function createTerminalSession({
   terminalId,
@@ -55,6 +81,7 @@ export function createTerminalSession({
   term.unicode.activeVersion = '11';
   term.loadAddon(webLinks);
   term.attachCustomKeyEventHandler((event) => {
+    if (handleTerminalPasteShortcut(event, term)) return false;
     if (event.key === 'Enter' && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       event.stopPropagation();

@@ -46,4 +46,10 @@ describe('keyboard shortcut router', () => {
     const h = handlers(); const events = [key('r'), key('g'), key('G', { shiftKey: true })]; events.forEach((event) => handleMetaShortcutKeyDown(event, h));
     expect(events.every((event) => !event.defaultPrevented)).toBe(true);
   });
+  it('leaves Cmd-V unclaimed so the event target can handle paste', () => {
+    const event = key('v');
+    handleMetaShortcutKeyDown(event, handlers());
+    expect(event.defaultPrevented).toBe(false);
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+  });
 });
