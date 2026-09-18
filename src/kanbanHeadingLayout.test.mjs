@@ -56,9 +56,10 @@ describe('kanban hierarchy heading layout', () => {
     expect(declarations).toContain('flex: 0 0 auto');
   });
 
-  it('centers the close icon in a square aligned with the metadata row', () => {
+  it('centers the square close icon beside the hierarchy row with equal top and right insets', () => {
     const header = declarationsFor('.kanbanDetail > header');
     const close = declarationsFor('.kanbanDetail > header > .kanbanDetailClose');
+    const icon = declarationsFor('.kanbanDetailClose::after');
 
     expect(header).toContain('padding: 20px');
     expect(close).toContain('width: 26px');
@@ -67,17 +68,9 @@ describe('kanban hierarchy heading layout', () => {
     expect(close).toContain('padding: 0');
     expect(close).toContain('display: grid');
     expect(close).toContain('place-items: center');
-  });
-
-  it('centers the square close icon beside the hierarchy row with equal top and right insets', () => {
-    const header = declarationsFor('.kanbanDetail > header');
-    const close = declarationsFor('.kanbanDetail > header > .kanbanDetailClose');
-
-    expect(header).toContain('padding: 20px');
-    expect(close).toContain('width: 26px');
-    expect(close).toContain('height: 26px');
-    expect(close).toContain('padding: 0');
-    expect(close).toContain('display: grid');
-    expect(close).toContain('place-items: center');
+    expect(icon).toContain("content: ''");
+    expect(icon).toContain('width: 13px');
+    expect(icon).toContain('height: 1.5px');
+    expect(icon).toContain('grid-area: 1 / 1');
   });
 });

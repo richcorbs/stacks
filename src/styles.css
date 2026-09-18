@@ -221,11 +221,6 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanDetailClose::before, .kanbanDetailClose::after { content: ''; width: 13px; height: 1.5px; grid-area: 1 / 1; border-radius: 999px; background: currentColor; }
 .kanbanDetailClose::before { transform: rotate(45deg); }
 .kanbanDetailClose::after { transform: rotate(-45deg); }
-.kanbanDetail > header > .kanbanDetailClose { box-sizing: border-box; width: 26px; height: 26px; flex: 0 0 26px; padding: 0; display: grid; place-items: center; }
-.kanbanDetailClose > span { position: relative; width: 12px; height: 12px; color: inherit !important; }
-.kanbanDetailClose > span::before,
-.kanbanDetailClose > span::after { content: ''; position: absolute; top: 0; left: 5px; width: 2px; height: 12px; border-radius: 1px; background: currentColor; transform: rotate(45deg); }
-.kanbanDetailClose > span::after { transform: rotate(-45deg); }
 .kanbanDetail > header button.kanbanHierarchyBadge.parent { padding: 3px 8px; border: 1px solid #384858; border-radius: 999px; background: #18222d; color: #91a4b6; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; }
 .kanbanDetail > header button.kanbanHierarchyBadge.parent:hover:not(:disabled) { border-color: #384858; background: #18222d; color: #91a4b6; }
 .kanbanDetail > header button.kanbanHierarchyBadge.parent:focus-visible { border-color: #384858; outline: 2px solid #78a9d1; outline-offset: 2px; background: #18222d; color: #91a4b6; }

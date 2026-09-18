@@ -92,7 +92,6 @@ describe('CardDetailHeader', () => {
     expect(classIndex(markup, 'kanbanHierarchyBadge parent')).toBeGreaterThan(classIndex(markup, 'kanbanHierarchyGroup'));
     expect(classIndex(markup, 'kanbanHierarchyBadge parent')).toBeLessThan(classIndex(markup, 'kanbanHierarchyBadge children'));
 
-    expect(markup).toContain('<button class="kanbanDetailClose" type="button" aria-label="Close card details"></button>');
     expect(classIndex(markup, 'kanbanCardGitSummary')).toBeGreaterThan(titleIndex);
     expect(classIndex(markup, 'kanbanCardPrLink')).toBeGreaterThan(titleIndex);
     expect(classIndex(markup, 'kanbanCardHeaderBranch')).toBeLessThan(classIndex(markup, 'kanbanCardGitSummary'));
@@ -103,8 +102,7 @@ describe('CardDetailHeader', () => {
     const markup = renderHeader(card());
 
     expect(classIndex(markup, 'kanbanDetailClose')).toBeGreaterThan(markup.indexOf('</div><button'));
-    expect(markup).toContain('class="kanbanDetailClose" type="button" aria-label="Close card details"');
-    expect(markup).toContain('<span aria-hidden="true"></span>');
+    expect(markup).toContain('<button class="kanbanDetailClose" type="button" aria-label="Close card details"></button>');
   });
 
   it('keeps an editable project control in the left group and omits an empty hierarchy group', () => {
