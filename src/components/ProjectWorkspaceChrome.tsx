@@ -12,7 +12,7 @@ export function ProjectWorkspaceHeader({ project, gitState, onClose }: {
 }) {
   return <header>
     <div className="kanbanDetailHeading">
-      <div className="kanbanDetailHeaderMeta"><span>{PROJECT_WORKSPACE_NAME}</span><span title={project.path}>{project.path}</span></div>
+      <div className="kanbanDetailHeaderMeta"><span>PROJECT WORKSPACE</span></div>
       <h2>{project.name}</h2>
       <DirectWorkGitMetadata gitState={gitState} />
     </div>

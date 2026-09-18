@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { PROJECT_WORKSPACE_AGENT_LABEL, PROJECT_WORKSPACE_VIEWS_LABEL, ProjectWorkspaceHeader } from './ProjectWorkspaceChrome';
+import { PROJECT_WORKSPACE_AGENT_LABEL, PROJECT_WORKSPACE_NAME, PROJECT_WORKSPACE_VIEWS_LABEL, ProjectWorkspaceHeader } from './ProjectWorkspaceChrome';
 import { DirectWorkGitMetadata } from './DirectWorkGitMetadata';
 
 function classIndex(markup: string, className: string) {
@@ -10,13 +10,15 @@ function classIndex(markup: string, className: string) {
 describe('Project Workspace presentation', () => {
   it('identifies the opened view and its close and view accessibility labels', () => {
     const markup = renderToStaticMarkup(<ProjectWorkspaceHeader
-      project={{ id: 'one', name: 'One', path: '/one', workspaces: [] }}
+      project={{ id: 'one', name: 'One', path: '/Users/example/one', workspaces: [] }}
       gitState={{ kind: 'not-git' }}
       onClose={() => {}}
     />);
 
-    expect(markup).toContain('<span>Project Workspace</span>');
+    expect(markup).toContain('<div class="kanbanDetailHeaderMeta"><span>PROJECT WORKSPACE</span></div>');
+    expect(markup).not.toContain('/Users/example/one');
     expect(markup).toContain('aria-label="Close Project Workspace"');
+    expect(PROJECT_WORKSPACE_NAME).toBe('Project Workspace');
     expect(PROJECT_WORKSPACE_VIEWS_LABEL).toBe('Project Workspace views');
     expect(PROJECT_WORKSPACE_AGENT_LABEL).toBe('Project Workspace Agent');
   });
