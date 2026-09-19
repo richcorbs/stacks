@@ -449,6 +449,43 @@ impl SuperthreadService {
         Ok(card)
     }
 
+    pub(crate) fn move_card(
+        &self,
+        card_id: &str,
+        board_id: &str,
+        list_id: &str,
+    ) -> Result<(), String> {
+        require_id(card_id, "Card")?;
+        require_id(board_id, "Board")?;
+        require_id(list_id, "List")?;
+        let cli = self.cli_path()?;
+        let token = self.api_token()?;
+        let output = run_process(
+            &cli,
+            &[
+                "cards",
+                "update",
+                card_id.trim(),
+                "--board",
+                board_id.trim(),
+                "--list",
+                list_id.trim(),
+            ],
+            ST_COMMAND_TIMEOUT,
+            Some(&token),
+        )?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(if message.is_empty() {
+                format!("Superthread CLI exited with {}", output.status)
+            } else {
+                message
+            })
+        }
+    }
+
     pub(crate) fn test_mapping(
         &self,
         configuration: &SuperthreadMappingDraft,
@@ -1097,6 +1134,27 @@ esac
             .unwrap_err()
             .contains("does not belong"));
         let _ = fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn moves_the_exact_card_on_the_captured_board_and_list() {
+        use std::fs;
+        let log = env::temp_dir().join(format!("stacks-st-move-log-{}", uuid::Uuid::new_v4()));
+        let script = format!(
+            r#"#!/bin/sh
+printf '%s\n' "$*" > '{}'
+"#,
+            log.display()
+        );
+        let (service, path) = fixture_service(&script);
+        service.move_card("141", "board-7", "done-3").unwrap();
+        assert_eq!(
+            fs::read_to_string(&log).unwrap().trim(),
+            "cards update 141 --board board-7 --list done-3"
+        );
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(log);
     }
 
     #[cfg(unix)]

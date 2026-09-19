@@ -585,8 +585,17 @@ pub async fn update_project_configuration(
     service: State<'_, SuperthreadService>,
     mut input: ProjectConfigurationInput,
 ) -> Result<ProjectStore, String> {
-    validate_live_superthread_configuration(service.inner().clone(), &mut input).await?;
-    update_project_configuration_validated(input)
+    let provider = service.inner().clone();
+    if kanban::with_connection(|connection| kanban::executing_for_project(connection, &input.id))? {
+        return Err(
+            "Project settings cannot be saved while provider synchronization is executing".into(),
+        );
+    }
+    validate_live_superthread_configuration(provider.clone(), &mut input).await?;
+    let saved = update_project_configuration_validated(input)?;
+    let _ = tauri::async_runtime::spawn_blocking(move || kanban::run_pending_once(provider, None))
+        .await;
+    Ok(saved)
 }
 
 async fn validate_live_superthread_configuration(
@@ -652,8 +661,8 @@ fn update_project_configuration_validated(
         if duplicate.is_some() {
             return Err("That project directory is already added".into());
         }
-        let (previous_source, previous_board_id, current_revision) = connection.query_row(
-            "SELECT COALESCE(kanban_source, 'local'), superthread_board_id, config_revision FROM projects WHERE id=?1", [&input.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)?)),
+        let (previous_source, previous_board_id, current_revision, previous_mapping_revision) = connection.query_row(
+            "SELECT COALESCE(kanban_source, 'local'), superthread_board_id, config_revision, superthread_mapping_revision FROM projects WHERE id=?1", [&input.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?)),
         ).optional().map_err(db_error)?.ok_or_else(|| "Project configuration could not be saved because the project was not found".to_string())?;
         if current_revision != input.expected_revision {
             return Err("Project configuration changed since it was loaded; review this draft before saving again".into());
@@ -675,6 +684,9 @@ fn update_project_configuration_validated(
             && previous_board_id.is_some()
             && previous_board_id.as_deref().unwrap_or_default()
                 != input.superthread_board_id.as_deref().unwrap_or_default();
+        if board_rebound && kanban::unresolved_for_project(connection, &input.id)? > 0 {
+            return Err("Superthread board cannot change while provider synchronization is pending or failed. Retry the synchronization first.".into());
+        }
         if previous_source != next_source || board_rebound {
             let active: i64 = connection.query_row("SELECT COUNT(*) FROM kanban_cards WHERE external_provider='superthread' AND (status != 'done' OR scope_suspended=1 OR delivery_operation_stage IS NOT NULL)", [], |row| row.get(0)).map_err(db_error)?;
             let environments: i64 = connection.query_row("SELECT COUNT(*) FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id WHERE c.external_provider='superthread'", [], |row| row.get(0)).map_err(db_error)?;
@@ -685,6 +697,16 @@ fn update_project_configuration_validated(
         let transaction = connection.transaction().map_err(db_error)?;
         if !update_project_configuration_row(&transaction, &input, next_source)? {
             return Err("Project configuration changed since it was loaded; review this draft before saving again".into());
+        }
+        let next_mapping_revision: i64 = transaction
+            .query_row(
+                "SELECT superthread_mapping_revision FROM projects WHERE id=?1",
+                [&input.id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        if next_mapping_revision != previous_mapping_revision {
+            kanban::supersede_for_mapping_change(&transaction, &input.id)?;
         }
         if previous_source != next_source {
             if next_source == "superthread" {

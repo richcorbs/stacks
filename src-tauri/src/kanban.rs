@@ -40,9 +40,10 @@ mod git_effects;
 mod github_delivery;
 mod health;
 mod local_delivery;
+mod provider_sync;
 mod repository;
-mod sync;
 mod superthread_refinement;
+mod sync;
 pub(crate) mod workflow;
 
 pub(crate) use cards::{
@@ -50,16 +51,19 @@ pub(crate) use cards::{
     create_local_card_for_project, register_pi_lifecycle_generation, validate_card_pi_start,
     validate_card_terminal_start,
 };
-pub(crate) use superthread_refinement::finish_superthread_refinement;
 pub use commands::*;
 pub use domain::*;
 #[allow(unused_imports)]
 pub use environment::{EnvironmentStartPreflight, WorkflowOperationResult};
 #[allow(unused_imports)]
 pub use local_delivery::TargetMergePrepareResult;
+pub(crate) use provider_sync::{
+    executing_for_project, run_pending_once, supersede_for_mapping_change, unresolved_for_project,
+};
 #[cfg(test)]
 pub(crate) use repository::migrate;
 pub(crate) use repository::{initialize_database, with_connection};
+pub(crate) use superthread_refinement::finish_superthread_refinement;
 
 #[cfg(test)]
 mod tests;

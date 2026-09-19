@@ -94,6 +94,10 @@ export function retryKanbanRuntimeCleanup(id: string) {
   return invoke<CardRuntimeCleanupResult>('kanban_retry_runtime_cleanup', { id });
 }
 
+export function retryKanbanProviderSync(id: string) {
+  return invoke<CardSnapshot>('kanban_retry_provider_sync', { id }).then(({ card }) => card);
+}
+
 export type KanbanPullRequestRefreshResult = { card: KanbanCard; error: string | null };
 
 export function refreshKanbanPullRequest(id: string) {

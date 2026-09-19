@@ -61,4 +61,14 @@ describe('CardOverview descriptions', () => {
     expect(markup).toContain('<p>long_unbroken_remote_description</p>');
     expect(markup).toContain('<pre><code>const  value = 1;</code></pre>');
   });
+
+  it('shows durable provider failures with an independent retry control', () => {
+    const markup = renderOverview(card({ provider_sync: {
+      id: 'operation', kind: 'done', state: 'failed', destination_column_name: 'Stacks is done',
+      attempts: 2, error: 'Superthread timed out', updated_at: 2,
+    } }));
+    expect(markup).toContain('Superthread update failed');
+    expect(markup).toContain('Superthread timed out');
+    expect(markup).toContain('Retry provider sync');
+  });
 });

@@ -1,5 +1,5 @@
 import DOMPurify from 'dompurify';
-import { useMemo, type Dispatch, type SetStateAction, type SyntheticEvent } from 'react';
+import { useMemo, useState, type Dispatch, type SetStateAction, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project } from '../../types';
 import type { CardEnvironmentHealth, KanbanCard } from '../../kanban/types';
@@ -7,6 +7,7 @@ import { candidateParents, childCountLabel, statusLabel as childStatusLabel } fr
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardCleanupStatus, cleanupPhaseLabel } from '../CardCleanupStatus';
 import { shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
+import { retryKanbanProviderSync } from '../../kanban/api';
 
 export function CardOverview({
   active,
@@ -43,6 +44,7 @@ export function CardOverview({
   onCardUpdated: (card: KanbanCard) => void;
   onNavigate: (id: string) => void;
 }) {
+  const [retryingProviderSync, setRetryingProviderSync] = useState(false);
   const sanitizedContent = useMemo(() => DOMPurify.sanitize(card.content, {
     FORBID_TAGS: ['img', 'style'], FORBID_ATTR: ['style'],
   }), [card.content]);
@@ -104,6 +106,18 @@ export function CardOverview({
       </ul>
     </aside>}
     {!editing && card.cleanup_operation && <CardCleanupStatus operation={card.cleanup_operation} />}
+    {!editing && card.provider_sync && ['pending', 'running', 'failed'].includes(card.provider_sync.state) && <aside className="cardEnvironmentWarningPanel" role="alert">
+      <div>
+        <strong>Superthread update {card.provider_sync.state}</strong>
+        <span>{card.provider_sync.error ?? `Moving this card to ${card.provider_sync.destination_column_name}. Local work is safely committed.`}</span>
+      </div>
+      {card.provider_sync.state === 'failed' && <button type="button" disabled={retryingProviderSync} onClick={async () => {
+        setRetryingProviderSync(true); setActionError(null);
+        try { onCardUpdated(await retryKanbanProviderSync(card.id)); }
+        catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
+        finally { setRetryingProviderSync(false); }
+      }}><AsyncButtonLabel idle="Retry provider sync" busy="Retrying…" isBusy={retryingProviderSync} /></button>}
+    </aside>}
     {!editing && card.delivery_error && <div className="kanbanActionError" role="alert">{card.delivery_error}</div>}
     {!editing && ['pending', 'failed'].includes(card.runtime_cleanup_status ?? '') && <aside className="cardEnvironmentWarningPanel" role="alert">
       <div><strong>Process cleanup needs attention</strong><span>{card.runtime_cleanup_error ?? 'Runtime cleanup is pending. Retry to stop card-owned processes and remove persisted conversations.'}</span></div>

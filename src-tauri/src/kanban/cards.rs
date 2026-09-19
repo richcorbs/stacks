@@ -765,6 +765,16 @@ pub(in crate::kanban) fn apply_workflow_transition(
         "INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,?3,?4,'success',?5,?6,?7)",
         params![id, now, actor, event_type, transition.from, transition.to, summary],
     ).map_err(db_error)?;
+    let provider_kind = match action {
+        WorkflowAction::StartWork => Some("start_work"),
+        WorkflowAction::MergeLocal | WorkflowAction::MergePr | WorkflowAction::Close => {
+            Some("done")
+        }
+        _ => None,
+    };
+    if let Some(kind) = provider_kind {
+        provider_sync::enqueue_transition(connection, id, kind, card.workflow_revision + 1)?;
+    }
     Ok(true)
 }
 
