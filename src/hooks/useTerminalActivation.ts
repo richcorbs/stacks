@@ -13,6 +13,7 @@ export function useTerminalActivation({
   termRef,
   fitRef,
   restartTerminalSessionIfDead,
+  restartIfDead = true,
 }: {
   terminalId: string;
   active: boolean;
@@ -21,6 +22,7 @@ export function useTerminalActivation({
   termRef: React.MutableRefObject<Terminal | null>;
   fitRef: React.MutableRefObject<FitAddon | null>;
   restartTerminalSessionIfDead: () => boolean;
+  restartIfDead?: boolean;
 }) {
   const wasVisibleRef = useRef(visible);
   const wasActiveRef = useRef(active);
@@ -34,7 +36,7 @@ export function useTerminalActivation({
 
     const term = termRef.current;
     const fit = fitRef.current;
-    if (active && restartTerminalSessionIfDead()) return;
+    if (active && restartIfDead && restartTerminalSessionIfDead()) return;
     if (!term || !fit) return;
 
     if (wasActive && !active) {
@@ -66,5 +68,5 @@ export function useTerminalActivation({
       window.setTimeout(fitAndResize, 50);
       window.setTimeout(fitAndResize, 150);
     });
-  }, [active, visible, maximized, terminalId, termRef, fitRef, restartTerminalSessionIfDead]);
+  }, [active, visible, maximized, terminalId, termRef, fitRef, restartTerminalSessionIfDead, restartIfDead]);
 }

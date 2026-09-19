@@ -88,8 +88,14 @@ describe('CardDetailTabs', () => {
       serverServices={{
         serverEnabled: false,
         consoleEnabled: false,
+        serverStarting: false,
+        consoleStarting: false,
         serverRunning: false,
         consoleRunning: false,
+        serverActive: false,
+        consoleActive: false,
+        serverRestartNonce: 0,
+        consoleRestartNonce: 0,
         toggle: async () => undefined,
       }}
       onRequestView={() => undefined}
@@ -98,6 +104,37 @@ describe('CardDetailTabs', () => {
 
     expect(markup).toContain('class="cardDiffRefresh"');
     expect(markup).toContain('aria-label="Refresh diff"');
+  });
+
+  it('renders Server and Console controls from command lifecycle rather than terminal mounting', () => {
+    const markup = renderToStaticMarkup(<CardDetailTabs
+      activeView="server"
+      hierarchyFinalized={false}
+      projectAvailable
+      cardPath="/tmp/stacks-card-82"
+      serverCommand="bin/dev"
+      consoleCommand="bin/console"
+      serverServices={{
+        serverEnabled: true,
+        consoleEnabled: true,
+        serverStarting: true,
+        consoleStarting: false,
+        serverRunning: false,
+        consoleRunning: false,
+        serverActive: true,
+        consoleActive: false,
+        serverRestartNonce: 1,
+        consoleRestartNonce: 2,
+        toggle: async () => undefined,
+      }}
+      onRequestView={() => undefined}
+      onRefreshDiff={() => undefined}
+    />);
+
+    expect(markup).toContain('aria-label="Stop server" aria-pressed="true"');
+    expect(markup).toContain('class="serviceStopIcon"');
+    expect(markup).toContain('aria-label="Start console" aria-pressed="false"');
+    expect(markup).toContain('class="servicePlayIcon"');
   });
 });
 

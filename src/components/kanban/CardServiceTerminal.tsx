@@ -9,11 +9,12 @@ import { TerminalView } from '../TerminalView';
 
 const encoder = new TextEncoder();
 
-export function CardServiceTerminal({ mode, command, enabled, active, card, project, cardPath, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
+export function CardServiceTerminal({ mode, command, enabled, active, restartRequestNonce, card, project, cardPath, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
   mode: CardServiceMode;
   command: string;
   enabled: boolean;
   active: boolean;
+  restartRequestNonce: number;
   card: KanbanCard;
   project: Project;
   cardPath: string;
@@ -31,12 +32,13 @@ export function CardServiceTerminal({ mode, command, enabled, active, card, proj
         active={active}
         visible={active}
         maximized={false}
+        managedService
         terminalFontSize={terminalFontSize}
         terminalFontFamily={terminalFontFamily}
         terminalScrollback={terminalScrollback}
         copyOnSelect={copyOnSelect}
         searchRequestNonce={0}
-        restartRequestNonce={0}
+        restartRequestNonce={restartRequestNonce}
         onFocus={() => {}}
         onClose={() => {}}
         onSplitTerminal={() => {}}
