@@ -88,11 +88,11 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
       {cardPath && (serverCommand || consoleCommand) && <span className="cardServiceTabs" aria-label="Card services">
         {serverCommand && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
           <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('server')}>Server</button>
-          <button className={`cardServiceToggle${serverServices.serverRunning ? ' running' : ''}`} type="button" onClick={() => serverServices.toggle('server')} aria-label={serverServices.serverEnabled ? 'Stop server' : 'Start server'} aria-pressed={serverServices.serverEnabled}><span className={serverServices.serverEnabled ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
+          <button className={`cardServiceToggle${serverServices.serverActive ? ' running' : ''}`} type="button" onClick={() => serverServices.toggle('server')} aria-label={serverServices.serverActive ? 'Stop server' : 'Start server'} aria-pressed={serverServices.serverActive}><span className={serverServices.serverActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
         </span>}
         {consoleCommand && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
           <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('console')}>Console</button>
-          <button className={`cardServiceToggle${serverServices.consoleRunning ? ' running' : ''}`} type="button" onClick={() => serverServices.toggle('console')} aria-label={serverServices.consoleEnabled ? 'Stop console' : 'Start console'} aria-pressed={serverServices.consoleEnabled}><span className={serverServices.consoleEnabled ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
+          <button className={`cardServiceToggle${serverServices.consoleActive ? ' running' : ''}`} type="button" onClick={() => serverServices.toggle('console')} aria-label={serverServices.consoleActive ? 'Stop console' : 'Start console'} aria-pressed={serverServices.consoleActive}><span className={serverServices.consoleActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
         </span>}
       </span>}
     </>}

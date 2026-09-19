@@ -43,10 +43,12 @@ export function attachTerminalPtyListeners({
 
   const exitPromise = listen<PtyExit>('pty-exit', (event) => {
     if (event.payload.terminal_id === terminalId && event.payload.generation === generation) {
+      session.starting = false;
       session.running = false;
+      session.managedStopRequested = false;
       const remaining = session.decoder.decode();
       enqueueTerminalOutput(session, `${remaining}\r\n[process exited]\r\n`, workspaceId, terminalId);
-      window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: false } }));
+      window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, generation, running: false } }));
       const attention = processExitAttention({ terminalId, workspaceId, generation, commandBacked, eligible: Boolean(session.activityNotificationEligible) });
       if (attention) dispatchAppAttention(attention);
       session.activityNotificationEligible = false;
@@ -65,6 +67,7 @@ export async function spawnTerminalPty({
   cwd,
   command,
   active,
+  managedService,
   isCancelled,
 }: {
   session: TerminalSession;
@@ -75,6 +78,7 @@ export async function spawnTerminalPty({
   cwd: string;
   command: string | null;
   active: boolean;
+  managedService: boolean;
   isCancelled: () => boolean;
 }) {
   try {
@@ -90,6 +94,7 @@ export async function spawnTerminalPty({
       generation,
       cwd,
       command,
+      managedService,
       cols: size.cols,
       rows: size.rows,
     });
@@ -100,7 +105,11 @@ export async function spawnTerminalPty({
     }
     session.spawned = true;
     session.running = true;
-    window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: true } }));
+    window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, generation, running: true } }));
+    if (session.managedStopRequested) {
+      await invoke('kill_pty', { terminalId, expectedGeneration: generation });
+      return;
+    }
     if (active) focusTerminalSession(terminalId, 'spawn-active', { scrollToBottom: false });
   } catch (error) {
     session.activityNotificationEligible = false;

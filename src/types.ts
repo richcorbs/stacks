@@ -80,6 +80,7 @@ export type TerminalSession = {
   startupCommand?: string | null;
   startupConfiguredCommand?: string | null;
   activityNotificationEligible?: boolean;
+  managedStopRequested?: boolean;
   lastPtySize: TermSize | null;
   dataDisposable: { dispose: () => void };
   selectionDisposable: { dispose: () => void };

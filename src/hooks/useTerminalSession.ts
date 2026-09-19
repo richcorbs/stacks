@@ -23,6 +23,7 @@ export function useTerminalSession({
   terminalScrollback,
   onSearchResultsChange,
   onInput,
+  managedService = false,
 }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
@@ -34,6 +35,7 @@ export function useTerminalSession({
   terminalScrollback: number;
   onSearchResultsChange: (event: { resultIndex: number; resultCount: number }) => void;
   onInput: (terminalId: string, data: string) => void;
+  managedService?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -106,6 +108,7 @@ export function useTerminalSession({
             cwd: desiredCwd,
             command: startupCommand || null,
             active,
+            managedService,
             isCancelled: () => cancelled || getTerminalSession(terminal.id) !== session,
           }))
           .then(() => {
@@ -123,7 +126,7 @@ export function useTerminalSession({
             session!.startupError = error;
             term.writeln(`\r\nPTY error: ${error}\r\n`);
             notifyTerminalStartup({ terminalId: terminal.id, ok: false, error });
-            window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId: terminal.id, running: false } }));
+            window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId: terminal.id, generation, running: false } }));
           });
       });
     } else if (session.term.element && session.term.element.parentElement !== host) {
@@ -143,7 +146,7 @@ export function useTerminalSession({
       detachResizeObserver();
       resultsDisposable.dispose();
     };
-  }, [terminal.id, terminal.command, terminal.cwd, workspace.id, project.path, workspace.cwd, workspace.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce, onSearchResultsChange, onInput]);
+  }, [terminal.id, terminal.command, terminal.cwd, workspace.id, project.path, workspace.cwd, workspace.command, visible, terminalFontFamily, terminalScrollback, sessionRestartNonce, onSearchResultsChange, onInput, managedService]);
 
   return { hostRef, termRef, fitRef, restartTerminalSessionIfDead };
 }

@@ -8,7 +8,7 @@ import { useTerminalSession } from '../hooks/useTerminalSession';
 import { TerminalSearchOverlay } from './TerminalSearchOverlay';
 import { TerminalControls } from './TerminalControls';
 
-export function TerminalView({ terminal, workspace, project, active, maximized, visible, canEdit = true, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, onEditTerminal, onInput, canToggleMaximize, onToggleMaximize }: {
+export function TerminalView({ terminal, workspace, project, active, maximized, visible, canEdit = true, managedService = false, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, onEditTerminal, onInput, canToggleMaximize, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -16,6 +16,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
   maximized: boolean;
   visible: boolean;
   canEdit?: boolean;
+  managedService?: boolean;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -42,11 +43,12 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
     terminalScrollback,
     onSearchResultsChange: search.onSearchResultsChange,
     onInput,
+    managedService,
   });
   const { beginSelectionCopy } = useTerminalSelectionCopy(termRef, copyOnSelect);
   useTerminalOptions({ terminalId: terminal.id, terminalFontSize, terminalFontFamily, terminalScrollback });
   useTerminalRestartRequest(restartRequestNonce, restartTerminalSessionIfDead);
-  useTerminalActivation({ terminalId: terminal.id, active, visible, maximized, termRef, fitRef, restartTerminalSessionIfDead });
+  useTerminalActivation({ terminalId: terminal.id, active, visible, maximized, termRef, fitRef, restartTerminalSessionIfDead, restartIfDead: !managedService });
 
   return (
     <div
@@ -54,7 +56,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
       data-terminal-pane-id={terminal.id}
       onMouseDown={() => {
         beginSelectionCopy();
-        restartTerminalSessionIfDead();
+        if (!managedService) restartTerminalSessionIfDead();
         if (!active) onFocus();
       }}
     >

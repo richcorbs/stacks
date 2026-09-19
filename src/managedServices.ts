@@ -9,8 +9,10 @@ export type ManagedServiceConfig = {
   cwd: string | null;
 };
 export type ManagedServiceState = {
-  enabled: boolean;
+  mounted: boolean;
+  starting: boolean;
   running: boolean;
+  restartNonce: number;
   identity: string;
 };
 
@@ -32,8 +34,10 @@ export function initialManagedServiceState(config: ManagedServiceConfig): Manage
   const session = getTerminalSession(config.terminalId);
   const matches = terminalSessionMatchesManagedService(session, config);
   return {
-    enabled: Boolean(matches && (session?.starting || session?.running)),
+    mounted: matches,
+    starting: Boolean(matches && session?.starting),
     running: Boolean(matches && session?.running),
+    restartNonce: 0,
     identity: managedServiceIdentity(config),
   };
 }
@@ -42,15 +46,25 @@ export function serviceStoppedMessage(mode: ManagedServiceMode) {
   return `The ${mode} is stopped. Use the play button in the tab to start it.`;
 }
 
-/**
- * Disposes the cached xterm session immediately, then kills only the PTY
- * generation that belonged to it. Stops for an id are serialized so callers
- * can await all prior cleanup before mounting a replacement session.
- */
+/** Stops only the matching PTY generation. The cached xterm remains mounted so
+ * its output is available after the generation-scoped exit event confirms the stop. */
 export function stopManagedService(config: ManagedServiceConfig) {
+  return queueManagedServiceKill(config, false);
+}
+
+/** Removes the old terminal before a configuration change or explicit restart. */
+export function disposeManagedService(config: ManagedServiceConfig) {
+  return queueManagedServiceKill(config, true);
+}
+
+function queueManagedServiceKill(config: ManagedServiceConfig, dispose: boolean) {
   const session = getTerminalSession(config.terminalId);
   const expectedGeneration = session?.ptyGeneration;
-  disposeTerminalSession(config.terminalId);
+  if (dispose) disposeTerminalSession(config.terminalId);
+  else if (session) {
+    session.managedStopRequested = true;
+    session.activityNotificationEligible = false;
+  }
 
   const previous = pendingStops.get(config.terminalId) ?? Promise.resolve();
   const stopping = previous
@@ -60,14 +74,14 @@ export function stopManagedService(config: ManagedServiceConfig) {
       expectedCwd: session?.startupCwd ?? config.cwd,
       expectedGeneration,
     }))
-    .then(() => undefined);
+    .then(() => undefined)
+    .catch((error) => {
+      if (!dispose && session) session.managedStopRequested = false;
+      throw error;
+    });
   pendingStops.set(config.terminalId, stopping);
   void stopping.finally(() => {
     if (pendingStops.get(config.terminalId) === stopping) pendingStops.delete(config.terminalId);
   }).catch(() => undefined);
   return stopping;
-}
-
-export async function waitForManagedServiceStop(terminalId: string) {
-  await pendingStops.get(terminalId)?.catch(() => undefined);
 }

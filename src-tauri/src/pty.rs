@@ -33,6 +33,7 @@ pub fn spawn_pty(
     generation: Option<String>,
     cwd: String,
     command: Option<String>,
+    managed_service: Option<bool>,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
@@ -51,7 +52,11 @@ pub fn spawn_pty(
 
     let child = pair
         .slave
-        .spawn_command(build_shell_command(cwd, command))
+        .spawn_command(build_shell_command(
+            cwd,
+            command,
+            managed_service.unwrap_or(false),
+        ))
         .map_err(|e| e.to_string())?;
     drop(pair.slave);
 
