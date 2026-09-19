@@ -226,7 +226,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         <nav className="cardWorkspaceTabs" aria-label={PROJECT_WORKSPACE_VIEWS_LABEL}>
           {displayedTabs.map((tab) => tab === 'diff' ? <span key={tab} className={`cardDiffTab${activeView === tab ? ' active' : ''}`}>
             <button className="cardDiffTabLabel" type="button" disabled={!isGit} title={!isGit ? 'Not a Git repository' : undefined} onClick={() => setActiveView(tab)}>Diff</button>
-            {activeView === tab && <button className="cardDiffRefresh" type="button" aria-label="Refresh diff" onClick={() => { setDiffRefreshNonce((n) => n + 1); void refreshGit(); }}><span className="diffRefreshIcon" /></button>}
+            <button className="cardDiffRefresh" type="button" disabled={!isGit} aria-label="Refresh diff" onClick={() => { setDiffRefreshNonce((n) => n + 1); void refreshGit(); }}><span className="diffRefreshIcon" /></button>
           </span> : tab === 'server' || tab === 'console' ? <ServiceTab key={tab} mode={tab} active={activeView === tab} enabled={tab === 'server' ? serverEnabled : consoleEnabled} running={tab === 'server' ? serverRunning : consoleRunning} onSelect={() => setActiveView(tab)} onToggle={() => toggleService(tab)} />
             : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'notes' ? 'Notes' : tab === 'release' ? 'Release' : 'Terminal'}</button>)}
         </nav>

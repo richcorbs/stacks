@@ -298,9 +298,10 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanEditActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .superthreadSelectedProject { color: #8295a8; font-size: calc(11px + var(--ui-font-delta, 0px)); font-weight: 650; }
 .kanbanDetail .primaryAction { background: #25496b; border-color: #3d6d98; }
-.kanbanDetail.cardWorkspace { width: min(1000px, calc(100vw - 32px)); }
+.kanbanDetail.cardWorkspace { width: min(1000px, calc(100vw - 32px)); background: #0c1219; }
 .cardWorkspaceTabs { flex: 0 0 auto; min-height: 38px; padding: 0 20px; display: flex; align-items: end; gap: 16px; border-bottom: 1px solid #223142; background: #0e1620; }
-.cardWorkspaceTabs button { padding: 10px 10px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #6f8297; font-size: calc(10px + var(--ui-font-delta, 0px)); font-weight: 650; letter-spacing: .05em; }
+.cardWorkspaceTabs button { padding: 7px 10px 11px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #6f8297; font-size: calc(10px + var(--ui-font-delta, 0px)); font-weight: 650; letter-spacing: .05em; }
+.cardWorkspaceTabs > button { align-self: stretch; display: inline-flex; align-items: end; }
 .cardWorkspaceTabs button.active { border-bottom-color: #6295c2; color: #b9cad9; }
 .cardDiffTab { align-self: stretch; display: inline-flex; align-items: end; border-bottom: 2px solid transparent; }
 .cardDiffTab.active { border-bottom-color: #6295c2; }
@@ -309,10 +310,13 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardServiceTabs { align-self: stretch; display: inline-flex; align-items: stretch; gap: 16px; }
 .cardServiceTab { display: inline-flex; align-items: end; gap: 0; border-bottom: 2px solid transparent; }
 .cardServiceTab.active { border-bottom-color: #6295c2; }
+.cardWorkspaceTabs .cardDiffTab:has(.cardDiffRefresh), .cardWorkspaceTabs .cardServiceTab { padding-right: 10px; }
 .cardWorkspaceTabs .cardServiceTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
 .cardWorkspaceTabs .cardServiceTab.active .cardServiceTabLabel { color: #b9cad9; }
+.cardDiffTab:hover, .cardServiceTab:hover { background: #2b4058; }
+.cardWorkspaceTabs button:hover:not(:disabled), .cardDiffTab:hover .cardDiffTabLabel:not(:disabled), .cardServiceTab:hover .cardServiceTabLabel:not(:disabled) { color: #d6deeb; }
 .cardWorkspaceTabs button.cardServiceToggle, .cardWorkspaceTabs button.cardDiffRefresh { width: 20px; height: 20px; margin-bottom: 7px; padding: 0; border: 1px solid #344657; border-radius: 5px; background: #151f29; display: grid; place-items: center; color: #73879a; }
-.cardWorkspaceTabs button.cardServiceToggle:hover, .cardWorkspaceTabs button.cardDiffRefresh:hover { border-color: #4a6278; color: #aabac8; }
+.cardWorkspaceTabs button.cardServiceToggle:hover, .cardWorkspaceTabs button.cardDiffRefresh:hover, .cardServiceTab:hover button.cardServiceToggle, .cardDiffTab:hover button.cardDiffRefresh { border-color: #4a6278; color: #aabac8; }
 .cardWorkspaceTabs button.cardServiceToggle.running { border-color: #416b55; background: #15271e; color: #70bd8d; }
 .servicePlayIcon { width: 0; height: 0; margin-left: 1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid currentColor; }
 .serviceStopIcon { width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
@@ -350,10 +354,8 @@ body.appWindowInactive .cardTerminalPane.multiple .terminal.active.maximized { b
 .cardLevelErrorMessages { min-width: 0; display: grid; gap: 2px; }
 .cardLevelErrorMessages span { white-space: pre-wrap; }
 .cardChat { box-sizing: border-box; flex: 1; min-width: 0; min-height: 0; padding-top: 18px; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid #223142; background: #0c1219; }
-.kanbanDetail.chatActive { background: #0c1219; }
-.kanbanDetail.chatActive > header, .kanbanDetail.chatActive .cardWorkspaceTabs { background: #0c1219; }
-.kanbanDetail.chatActive > header { border-bottom: 0; }
-.kanbanDetail.chatActive .cardWorkspaceTabs { border-bottom: 0; }
+.kanbanDetail.cardWorkspace > header { border-bottom: 0; background: #0c1219; }
+.kanbanDetail.cardWorkspace .cardWorkspaceTabs { border-bottom: 1px solid #223142; background: #0c1219; }
 .kanbanDetail.chatActive .cardChat .piGuiPane { flex: 1; min-height: 0; height: auto; border: 0 !important; border-radius: 0; box-shadow: none !important; }
 .cardChat .piGuiConversation { padding: 58px 24px 28px; }
 .cardChat .piComposer, .cardChat .piGuiFooter { margin-left: 24px; margin-right: 24px; }

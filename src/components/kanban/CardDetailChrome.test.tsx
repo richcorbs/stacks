@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { GitChangeSummary, Project } from '../../types';
 import type { CardPullRequest, KanbanCard } from '../../kanban/types';
-import { CardDetailHeader } from './CardDetailChrome';
+import { CardDetailHeader, CardDetailTabs } from './CardDetailChrome';
 
 const project: Project = { id: 'project-1', name: 'Stacks', path: '/tmp/stacks' };
 
@@ -75,6 +75,31 @@ function repositoryTokens(markup: string) {
     (match) => match[1] ?? match[2],
   );
 }
+
+describe('CardDetailTabs', () => {
+  it('keeps the Diff refresh control rendered while another tab is active', () => {
+    const markup = renderToStaticMarkup(<CardDetailTabs
+      activeView="overview"
+      hierarchyFinalized={false}
+      projectAvailable
+      cardPath="/tmp/stacks-card-82"
+      serverCommand=""
+      consoleCommand=""
+      serverServices={{
+        serverEnabled: false,
+        consoleEnabled: false,
+        serverRunning: false,
+        consoleRunning: false,
+        toggle: async () => undefined,
+      }}
+      onRequestView={() => undefined}
+      onRefreshDiff={() => undefined}
+    />);
+
+    expect(markup).toContain('class="cardDiffRefresh"');
+    expect(markup).toContain('aria-label="Refresh diff"');
+  });
+});
 
 describe('CardDetailHeader', () => {
   it('groups workflow metadata and the edit button on the left and adjacent hierarchy badges on the right', () => {
