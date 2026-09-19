@@ -82,6 +82,20 @@ pub fn save_app_settings(next: AppSettings) -> Result<(), String> {
     update_settings_on_disk(|settings| settings.apply_user_settings(next))
 }
 
+/// Merge only the named settings keys into the latest persisted value. This is
+/// used by Settings pages and by runtime preferences so stale React snapshots
+/// cannot replace unrelated settings or window geometry.
+#[tauri::command]
+pub fn patch_app_settings(next: AppSettings, fields: Vec<String>) -> Result<AppSettings, String> {
+    let _guard = settings_file_lock()
+        .lock()
+        .map_err(|_| "Settings file lock poisoned".to_string())?;
+    let mut settings = read_settings_from_disk_unlocked();
+    settings.apply_patch(next, &fields);
+    write_settings_to_disk_unlocked(&settings)?;
+    Ok(settings)
+}
+
 pub fn reset_settings_file() -> Result<(), String> {
     update_settings_on_disk(|settings| {
         settings.window = None;

@@ -5,11 +5,12 @@ type DialogFieldsProps = {
   dialog: DialogState;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
   firstInputRef: React.MutableRefObject<HTMLInputElement | null>;
+  showHeading?: boolean;
 };
 
-export function DialogFields({ dialog, setDialog, firstInputRef }: DialogFieldsProps) {
+export function DialogFields({ dialog, setDialog, firstInputRef, showHeading = true }: DialogFieldsProps) {
   return <>
-    <h2>{dialog.kind === 'project' ? 'Add Project' : 'Edit Project'}</h2>
+    {showHeading && <h2>{dialog.kind === 'project' ? 'Add Project' : 'Edit Project'}</h2>}
     <label>Name<input ref={firstInputRef} value={dialog.name} onChange={(event) => setDialog({ ...dialog, name: event.target.value })} /></label>
     <label>Directory<input value={dialog.path} placeholder="/Users/rich/Code/my-project" onChange={(event) => setDialog({ ...dialog, path: event.target.value })} /></label>
     <label>Work board<select value={dialog.kanbanSource ?? 'local'} onChange={(event) => setDialog({ ...dialog, kanbanSource: event.target.value as 'superthread' | 'local' })}><option value="local">Local Stacks board</option><option value="superthread">Superthread</option></select></label>

@@ -19,6 +19,12 @@ export type MainLayoutProps = {
 export type OverlayLayoutProps = {
   appSettings: ResolvedAppSettings;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
+  projects: Project[];
+  settingsPage: import('./SettingsDialog').SettingsPageId;
+  setSettingsPage: (page: import('./SettingsDialog').SettingsPageId) => void;
+  saveSettingsSection: (section: import('./SettingsDialog').GlobalSettingsSection, patch: Partial<ResolvedAppSettings>) => Promise<void>;
+  saveProjectConfiguration: (projectId: string, draft: import('../types').DialogState, expectedRevision: number) => Promise<void>;
+  deleteSettingsProject: (projectId: string) => Promise<void>;
   commandPaletteOpen: boolean;
   commandPaletteItems: PaletteItem[];
   commandPaletteCardItems: PaletteItem[];
