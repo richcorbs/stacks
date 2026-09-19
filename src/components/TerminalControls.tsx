@@ -1,6 +1,7 @@
-export function TerminalControls({ maximized, canToggleMaximize, canEdit = true, onSplitTerminal, onEditTerminal, onToggleMaximize, onClose }: {
+export function TerminalControls({ maximized, canToggleMaximize, canClose = canToggleMaximize, canEdit = true, onSplitTerminal, onEditTerminal, onToggleMaximize, onClose }: {
   maximized: boolean;
   canToggleMaximize: boolean;
+  canClose?: boolean;
   canEdit?: boolean;
   onSplitTerminal: (direction: 'row' | 'column') => void;
   onEditTerminal: () => void;
@@ -61,7 +62,6 @@ export function TerminalControls({ maximized, canToggleMaximize, canEdit = true,
         <span className="terminalEditIcon">✎</span>
       </button>}
       {canToggleMaximize && (
-        <>
           <button
             className="terminalControlButton"
             type="button"
@@ -79,7 +79,8 @@ export function TerminalControls({ maximized, canToggleMaximize, canEdit = true,
           >
             <span className="terminalMaximizeIcon" />
           </button>
-          <button
+      )}
+      {canClose && <button
             className="terminalControlButton terminalCloseButton"
             type="button"
             title="Close pane (⌘W)"
@@ -95,9 +96,8 @@ export function TerminalControls({ maximized, canToggleMaximize, canEdit = true,
             }}
           >
             <span className="terminalCloseIcon">&times;</span>
-          </button>
-        </>
-      )}
+          </button>}
+
     </div>
   );
 }

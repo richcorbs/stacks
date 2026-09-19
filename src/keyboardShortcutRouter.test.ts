@@ -19,7 +19,7 @@ Object.assign(globalThis, {
   },
 });
 
-function handlers(): ShortcutHandlers { return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), runCardTerminalAction: vi.fn() }; }
+function handlers(globalVisible = false): ShortcutHandlers { return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), isGlobalTerminalVisible: () => globalVisible, toggleGlobalTerminal: vi.fn(), newGlobalTerminalTab: vi.fn(), runGlobalTerminalAction: vi.fn(), runCardTerminalAction: vi.fn() }; }
 function key(value: string, init: { code?: string; shiftKey?: boolean; altKey?: boolean } = {}) {
   const event = {
     key: value, code: init.code ?? '', metaKey: true, ctrlKey: false, shiftKey: init.shiftKey ?? false, altKey: init.altKey ?? false,
@@ -41,6 +41,14 @@ describe('keyboard shortcut router', () => {
     cardOpen = true; cardTerminal = true;
     handleMetaShortcutKeyDown(key('d'), h); handleMetaShortcutKeyDown(key('Enter', { shiftKey: true }), h);
     expect(h.runCardTerminalAction).toHaveBeenCalledWith('split-right'); expect(h.runCardTerminalAction).toHaveBeenCalledWith('toggle-maximize');
+  });
+  it('gives global terminal tabs and terminal commands precedence while visible', () => {
+    const h = handlers(true); const seen = vi.fn(); testWindow.addEventListener('stacks:global-terminal-command', seen, { once: true });
+    cardOpen = true; cardTerminal = true;
+    handleMetaShortcutKeyDown(key('3'), h); handleMetaShortcutKeyDown(key('d'), h);
+    expect((seen.mock.calls[0][0] as CustomEvent).detail).toEqual({ type: 'select-tab', number: 3 });
+    expect(h.runGlobalTerminalAction).toHaveBeenCalledWith('split-right');
+    expect(h.runCardTerminalAction).not.toHaveBeenCalled();
   });
   it('does not claim removed Cmd-R, Cmd-G, or Shift-Cmd-G shortcuts', () => {
     const h = handlers(); const events = [key('r'), key('g'), key('G', { shiftKey: true })]; events.forEach((event) => handleMetaShortcutKeyDown(event, h));

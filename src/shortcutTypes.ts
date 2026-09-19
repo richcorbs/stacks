@@ -1,4 +1,6 @@
 export type ShortcutAction =
+  | 'toggle-global-terminal'
+  | 'new-global-terminal-tab'
   | 'add-project'
   | 'split-terminal-right'
   | 'split-terminal-down'
@@ -24,5 +26,9 @@ export type ShortcutHandlers = {
   openCommandPalette: () => void;
   openProjectSwitcher: () => void;
   openSettings: () => void;
+  isGlobalTerminalVisible: () => boolean;
+  toggleGlobalTerminal: () => void;
+  newGlobalTerminalTab: () => void;
+  runGlobalTerminalAction: (action: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize') => void;
   runCardTerminalAction: (action: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize') => void;
 };

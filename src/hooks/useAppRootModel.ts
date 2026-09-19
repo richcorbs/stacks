@@ -28,6 +28,7 @@ import { buildCardPaletteItems, type CardPaletteRegistration } from '../commandP
 import { launchWorkAgent } from '../kanban/workAgentLauncher';
 import { flushAllProjectNotes } from '../projectNotes';
 import { useActivityNotifications } from './useActivityNotifications';
+import { GLOBAL_TERMINAL_COMMAND_EVENT, type GlobalTerminalCommand } from '../components/GlobalTerminal';
 
 export function useAppRootModel() {
   const [loaded, setLoaded] = useState(false);
@@ -40,6 +41,8 @@ export function useAppRootModel() {
   const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
   const [cardTerminal, setCardTerminal] = useState<CardTerminalContext | null>(null);
+  const [globalTerminalVisible, setGlobalTerminalVisible] = useState(false);
+  const [globalTerminalNewTabNonce, setGlobalTerminalNewTabNonce] = useState(0);
   const [paletteCards, setPaletteCards] = useState<CardPaletteRegistration | null>(null);
   const [, setMetaKeyDown] = useState(false);
   const startingCardIds = useRef(new Set<string>());
@@ -198,8 +201,13 @@ export function useAppRootModel() {
     [paletteCards],
   );
 
+  const dispatchGlobalTerminal = (detail: GlobalTerminalCommand) => window.dispatchEvent(new CustomEvent(GLOBAL_TERMINAL_COMMAND_EVENT, { detail }));
   const shortcutHandlers: ShortcutHandlers = {
     setMetaKeyDown, openProjectDialog: () => { void openProjectDialog(); }, requestQuit,
+    isGlobalTerminalVisible: () => globalTerminalVisible,
+    toggleGlobalTerminal: () => setGlobalTerminalVisible((visible) => !visible),
+    newGlobalTerminalTab: () => { setGlobalTerminalVisible(true); setGlobalTerminalNewTabNonce((nonce) => nonce + 1); },
+    runGlobalTerminalAction: (action) => dispatchGlobalTerminal(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
     adjustTerminalFontSize: (delta) => setAppSettings((current) => ({ ...current, terminal_font_size: clampTerminalFontSize(current.terminal_font_size + delta) })),
     adjustUiFontSize: (delta) => setAppSettings((current) => ({ ...current, ui_font_size: clampUiFontSize(current.ui_font_size + delta) })),
     openCommandPalette: () => setCommandPaletteOpen(true), openProjectSwitcher: () => { if (canOpenProjectSwitcher(document)) window.dispatchEvent(new CustomEvent(OPEN_PROJECT_SWITCHER_EVENT)); },
@@ -215,6 +223,7 @@ export function useAppRootModel() {
 
   return {
     appStyle: useAppStyle(appSettings),
+    globalTerminal: { visible: globalTerminalVisible, newTabNonce: globalTerminalNewTabNonce, setVisible: setGlobalTerminalVisible },
     main: { projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork, onPaletteCardsChange: setPaletteCards },
     overlays: {
       appSettings, setAppSettings, commandPaletteOpen, commandPaletteItems: paletteItems, commandPaletteCardItems: paletteCardItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
