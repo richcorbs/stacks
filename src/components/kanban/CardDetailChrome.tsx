@@ -82,7 +82,7 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
       <button className={activeView === 'chat' ? 'active' : ''} type="button" disabled={!projectAvailable} onClick={() => onRequestView('chat')}>Agent</button>
       <span className={`cardDiffTab${activeView === 'diff' ? ' active' : ''}`}>
         <button className="cardDiffTabLabel" type="button" disabled={!cardPath} onClick={() => onRequestView('diff')}>Diff</button>
-        {activeView === 'diff' && <button className="cardDiffRefresh" type="button" aria-label="Refresh diff" title="Refresh diff" onClick={onRefreshDiff}><span className="diffRefreshIcon" aria-hidden="true" /></button>}
+        <button className="cardDiffRefresh" type="button" disabled={!cardPath} aria-label="Refresh diff" title="Refresh diff" onClick={onRefreshDiff}><span className="diffRefreshIcon" aria-hidden="true" /></button>
       </span>
       <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => onRequestView('terminal')}>Terminal</button>
       {cardPath && (serverCommand || consoleCommand) && <span className="cardServiceTabs" aria-label="Card services">
