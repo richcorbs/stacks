@@ -176,7 +176,11 @@ function sendRequest(socketPath: string, request: CardRequest, signal?: AbortSig
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) return abort();
 
-    const timeoutMs = request.action === "startLocalCardWork" ? 12 * 60_000 : 10_000;
+    const timeoutMs = request.action === "startLocalCardWork"
+      ? 12 * 60_000
+      : request.action === "finishExternalCardRefinement"
+        ? 5 * 60_000
+        : 10_000;
     socket.setTimeout(timeoutMs, () => finish(new Error("Stacks did not respond to the card request")));
     socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
     socket.on("data", (chunk) => {

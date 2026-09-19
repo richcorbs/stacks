@@ -127,7 +127,8 @@ fn handle_connection(mut stream: UnixStream, app: AppHandle, _state: AutomationS
             let card_id = client_request
                 .card_id
                 .ok_or_else(|| "A scoped card ID is required".to_string())?;
-            crate::kanban::kanban_finish_external_refinement(card_id)?;
+            let service = app.state::<crate::superthread::SuperthreadService>().inner().clone();
+            crate::kanban::finish_superthread_refinement(card_id, &service)?;
             return Ok(AutomationResponse::success(
                 "Finished refinement and moved the card to Ready for agent",
             ));
