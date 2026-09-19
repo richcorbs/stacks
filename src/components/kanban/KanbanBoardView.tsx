@@ -329,13 +329,15 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
       <ProjectSwitcherDialog
         open={projectSwitcherOpen}
         projects={projectPickerPurpose === 'release' ? releasePickerProjects : projects}
-        currentProjectId={null}
+        currentProjectId={projectPickerPurpose === 'filter' ? filterProjectId : null}
+        includeAllProjects={projectPickerPurpose === 'filter'}
         onCancel={() => setProjectSwitcherOpen(false)}
         onSelect={(project) => {
           if (projectPickerPurpose === 'direct' || projectPickerPurpose === 'release') {
+            if (!project) return;
             void replaceDirectWork(project.id, projectPickerPurpose === 'release' ? 'release' : undefined);
           } else {
-            onSelectProject(project.id);
+            onSelectProject(project?.id ?? null);
             setKeyboardFocusedCardId(null);
           }
           setProjectSwitcherOpen(false);
