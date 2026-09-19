@@ -297,24 +297,22 @@ impl SuperthreadService {
             );
         }
         *self.token_env_var.lock().map_err(lock_error)? = name.to_string();
-        Ok(())
+        self.api_token().map(|_| ())
     }
 
-    fn api_token(&self) -> Option<String> {
-        let name = self.token_env_var.lock().ok().map(|name| {
-            if name.is_empty() {
-                "ST_TOKEN".to_string()
-            } else {
-                name.clone()
-            }
-        })?;
-        env::var(name).ok().filter(|token| !token.trim().is_empty())
+    fn api_token(&self) -> Result<String, String> {
+        let name = self.token_env_var.lock().map_err(lock_error)?.clone();
+        let name = if name.is_empty() { "ST_TOKEN" } else { name.as_str() };
+        env::var(name)
+            .ok()
+            .filter(|token| !token.trim().is_empty())
+            .ok_or_else(|| format!("Superthread API token environment variable {name} is not set; Stacks does not use the Superthread CLI config token"))
     }
 
     fn boards(&self, included_spaces: &[String]) -> Result<SuperthreadBoardsResponse, String> {
         let cli = self.cli_path()?;
-        let token = self.api_token();
-        let spaces: Vec<Space> = run_st_json(&cli, &["spaces", "list"], token.as_deref())?;
+        let token = self.api_token()?;
+        let spaces: Vec<Space> = run_st_json(&cli, &["spaces", "list"], Some(&token))?;
         let included_spaces = included_spaces
             .iter()
             .map(|space| space.trim())
@@ -354,7 +352,7 @@ impl SuperthreadService {
                         let result = run_st_json::<Vec<BoardSummary>>(
                             &cli,
                             &["boards", "list", "--space", &space.id],
-                            token.as_deref(),
+                            Some(&token),
                         );
                         (space, result)
                     })
@@ -394,9 +392,8 @@ impl SuperthreadService {
     fn board_lists(&self, board_id: &str) -> Result<Vec<SuperthreadList>, String> {
         require_id(board_id, "Board")?;
         let cli = self.cli_path()?;
-        let token = self.api_token();
-        let detail: BoardDetail =
-            run_st_json(&cli, &["boards", "get", board_id.trim()], token.as_deref())?;
+        let token = self.api_token()?;
+        let detail: BoardDetail = run_st_json(&cli, &["boards", "get", board_id.trim()], Some(&token))?;
         Ok(detail.lists)
     }
 
@@ -407,7 +404,7 @@ impl SuperthreadService {
     ) -> Result<Vec<SuperthreadCard>, String> {
         require_id(board_id, "Board")?;
         let cli = self.cli_path()?;
-        let token = self.api_token();
+        let token = self.api_token()?;
         let mut response: CardsResponse = run_st_json(
             &cli,
             &[
@@ -418,7 +415,7 @@ impl SuperthreadService {
                 "--status",
                 "all",
             ],
-            token.as_deref(),
+            Some(&token),
         )?;
         let card_base_url = self.card_base_url(&cli, workspace_slug);
         let user_names = self.user_names(&cli)?;
@@ -436,8 +433,8 @@ impl SuperthreadService {
     ) -> Result<SuperthreadCard, String> {
         require_id(card_id, "Card")?;
         let cli = self.cli_path()?;
-        let token = self.api_token();
-        let mut card = run_st_json(&cli, &["cards", "get", card_id.trim()], token.as_deref())?;
+        let token = self.api_token()?;
+        let mut card = run_st_json(&cli, &["cards", "get", card_id.trim()], Some(&token))?;
         populate_assignee_names(&mut card, &self.user_names(&cli)?);
         populate_card_url(
             &mut card,
@@ -459,8 +456,8 @@ impl SuperthreadService {
             .collect::<Vec<_>>();
         self.configure_token_env(&configuration.api_token_env_var)?;
         let cli = self.cli_path()?;
-        let token = self.api_token();
-        let auth: AuthStatus = run_st_json(&cli, &["auth", "status"], token.as_deref())?;
+        let token = self.api_token()?;
+        let auth: AuthStatus = run_st_json(&cli, &["auth", "status"], Some(&token))?;
         if auth.workspace_name.trim().is_empty() {
             return Err("Superthread authentication did not identify a workspace".into());
         }
@@ -586,8 +583,8 @@ impl SuperthreadService {
         if !content.is_empty() {
             args.extend(["--content", content]);
         }
-        let token = self.api_token();
-        let mut card: SuperthreadCard = run_st_json(&cli, &args, token.as_deref())?;
+        let token = self.api_token()?;
+        let mut card: SuperthreadCard = run_st_json(&cli, &args, Some(&token))?;
         card.title = title.to_string();
         card.content = Some(content.to_string());
         card.board_id = board.id;
@@ -618,8 +615,8 @@ impl SuperthreadService {
             }
         }
         let generation = self.metadata_generation.load(Ordering::SeqCst);
-        let token = self.api_token();
-        let users = load_user_names(cli, token.as_deref())?;
+        let token = self.api_token()?;
+        let users = load_user_names(cli, Some(&token))?;
         if generation == self.metadata_generation.load(Ordering::SeqCst) {
             if let Ok(mut cache) = self.user_names.lock() {
                 *cache = Some(users.clone());
@@ -639,7 +636,7 @@ impl SuperthreadService {
             }
         }
         let generation = self.metadata_generation.load(Ordering::SeqCst);
-        let token = self.api_token();
+        let token = self.api_token().ok();
         let url = load_card_base_url(cli, workspace_slug, token.as_deref());
         if generation == self.metadata_generation.load(Ordering::SeqCst) {
             if let (Some(url), Ok(mut cache)) = (url.as_ref(), self.card_base_urls.lock()) {
@@ -921,6 +918,14 @@ mod tests {
     }
 
     #[test]
+    fn requires_the_configured_token_environment_variable() {
+        let service = SuperthreadService::default();
+        let error = service.configure_token_env("STACKS_TEST_MISSING_SUPERTHREAD_TOKEN_140").unwrap_err();
+        assert!(error.contains("is not set"));
+        assert!(error.contains("does not use the Superthread CLI config token"));
+    }
+
+    #[test]
     fn slugifies_workspace_names() {
         assert_eq!(slugify("Arcasa"), "arcasa");
         assert_eq!(slugify("My Product Team"), "my-product-team");
@@ -996,6 +1001,7 @@ esac
 "#).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let service = SuperthreadService::default();
+        std::env::set_var("ST_TOKEN", "fixture-token");
         *service.cli_path.lock().unwrap() = Some(path.clone());
 
         let boards = service.boards(&["Product".to_string()]).unwrap();
@@ -1023,6 +1029,7 @@ esac
         fs::write(&path, script).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let service = SuperthreadService::default();
+        std::env::set_var("ST_TOKEN", "fixture-token");
         *service.cli_path.lock().unwrap() = Some(path.clone());
         (service, path)
     }
