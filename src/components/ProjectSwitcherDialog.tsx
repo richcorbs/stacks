@@ -1,36 +1,44 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../types';
 import { handleProjectSwitcherKey } from '../projectSwitcher';
 
-export function ProjectSwitcherDialog({ open, projects, currentProjectId, onSelect, onCancel, onAddProject }: {
+type ProjectChoice = { key: string; project: Project | null };
+
+export function ProjectSwitcherDialog({ open, projects, currentProjectId, includeAllProjects = false, onSelect, onCancel, onAddProject }: {
   open: boolean;
   projects: Project[];
   currentProjectId: string | null;
-  onSelect: (project: Project) => void;
+  includeAllProjects?: boolean;
+  onSelect: (project: Project | null) => void;
   onCancel: () => void;
   onAddProject: () => void;
 }) {
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const projectButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const choiceButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const choices = useMemo<ProjectChoice[]>(() => [
+    ...(includeAllProjects ? [{ key: 'all-projects', project: null }] : []),
+    ...projects.map((project) => ({ key: `project:${project.id}`, project })),
+  ], [includeAllProjects, projects]);
 
   useEffect(() => {
     if (!open) return;
-    const currentIndex = projects.findIndex((project) => project.id === currentProjectId);
-    setHighlightedIndex(currentIndex >= 0 ? currentIndex : 0);
+    const currentIndex = choices.findIndex((choice) => choice.project?.id === currentProjectId
+      || (choice.project === null && currentProjectId === null));
+    setHighlightedIndex(currentIndex >= 0 ? currentIndex : choices.length > 0 ? 0 : -1);
     requestAnimationFrame(() => dialogRef.current?.focus());
-  }, [currentProjectId, open, projects]);
+  }, [choices, currentProjectId, open]);
 
   useEffect(() => {
     if (!open || highlightedIndex < 0) return;
-    projectButtonRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
+    choiceButtonRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
   }, [highlightedIndex, open]);
 
   if (!open) return null;
 
   const chooseHighlightedProject = () => {
-    const project = projects[highlightedIndex];
-    if (project) onSelect(project);
+    const choice = choices[highlightedIndex];
+    if (choice) onSelect(choice.project);
   };
 
   return (
@@ -44,7 +52,7 @@ export function ProjectSwitcherDialog({ open, projects, currentProjectId, onSele
         tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => handleProjectSwitcherKey(event, {
-          projectCount: projects.length,
+          projectCount: choices.length,
           addProjectFocused: Boolean((event.target as Element).closest('.projectSwitcherAdd')),
           setHighlightedIndex,
           chooseHighlightedProject,
@@ -53,21 +61,24 @@ export function ProjectSwitcherDialog({ open, projects, currentProjectId, onSele
       >
         <h2 id="project-switcher-title">Switch Project</h2>
         <div className="projectSwitcherList" role="listbox" aria-label="Projects">
-          {projects.map((project, index) => {
-            const current = project.id === currentProjectId;
+          {choices.map((choice, index) => {
+            const { project } = choice;
+            const current = project?.id === currentProjectId || (project === null && currentProjectId === null);
             return (
               <button
-                ref={(element) => { projectButtonRefs.current[index] = element; }}
+                ref={(element) => { choiceButtonRefs.current[index] = element; }}
                 type="button"
                 role="option"
                 aria-selected={index === highlightedIndex}
                 className={index === highlightedIndex ? 'highlighted' : ''}
-                key={project.id}
+                key={choice.key}
                 onMouseEnter={() => setHighlightedIndex(index)}
                 onFocus={() => setHighlightedIndex(index)}
                 onClick={() => onSelect(project)}
               >
-                <span><strong>{project.name}{current ? ' (current)' : ''}</strong><small>{project.kanban_source === 'superthread' ? 'Superthread' : 'Local board'}</small></span>
+                {project
+                  ? <span><strong>{project.name}{current ? ' (current)' : ''}</strong><small>{project.kanban_source === 'superthread' ? 'Superthread' : 'Local board'}</small></span>
+                  : <span><strong>All projects{current ? ' (current)' : ''}</strong></span>}
               </button>
             );
           })}
