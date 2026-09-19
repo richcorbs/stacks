@@ -106,7 +106,7 @@ pub(in crate::kanban) fn sync_cards(
                 list_id, list_title, card_url, assignee_names, status, project_id, parent_id, provider_parent_title,
                 provider_child_count, hierarchy_finalized, created_at, updated_at, sort_order, in_scope
              ) VALUES (?1, 'superthread', ?2, ?3, COALESCE(?4, ''), ?5, ?6, ?7, ?8, ?9, ?10,
-                'needs_refinement', ?11, ?12, ?13, ?14, CASE WHEN ?14 > 0 THEN 1 ELSE 0 END, ?15, ?15,
+                'needs_refinement', ?11, ?12, ?13, ?14, 0, ?15, ?15,
                 (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM kanban_cards WHERE status='needs_refinement'), COALESCE(?16, 0))
              ON CONFLICT(external_provider, external_id) DO UPDATE SET
                 title=excluded.title,
@@ -118,7 +118,6 @@ pub(in crate::kanban) fn sync_cards(
                 parent_id=CASE WHEN ?17 THEN excluded.parent_id ELSE kanban_cards.parent_id END,
                 provider_parent_title=CASE WHEN ?17 THEN excluded.provider_parent_title ELSE kanban_cards.provider_parent_title END,
                 provider_child_count=excluded.provider_child_count,
-                hierarchy_finalized=CASE WHEN excluded.provider_child_count > 0 THEN 1 ELSE kanban_cards.hierarchy_finalized END,
                 in_scope=CASE WHEN ?16 IS NULL THEN kanban_cards.in_scope ELSE ?16 END, updated_at=excluded.updated_at",
             params![
                 local_id,
@@ -163,6 +162,15 @@ pub(in crate::kanban) fn sync_cards(
             ).map_err(db_error)?;
         }
     }
+    // A provider child remains board-visible while an in-scope authoritative parent
+    // references it, even when the child's own list is outside discovery scope.
+    transaction.execute(
+        "UPDATE kanban_cards SET in_scope=1,updated_at=?1
+         WHERE external_provider='superthread' AND parent_id IN (
+            SELECT id FROM kanban_cards WHERE external_provider='superthread' AND in_scope=1
+         ) AND in_scope=0",
+        [now],
+    ).map_err(db_error)?;
     if complete {
         let retained = transaction
             .prepare("SELECT external_id FROM kanban_cards WHERE external_provider='superthread'")
@@ -175,7 +183,12 @@ pub(in crate::kanban) fn sync_cards(
             if !fetched_ids.contains(&external_id) {
                 transaction
                     .execute(
-                        "UPDATE kanban_cards SET in_scope=0, updated_at=?1 WHERE external_provider='superthread' AND external_id=?2",
+                        "UPDATE kanban_cards SET in_scope=0, updated_at=?1
+                         WHERE external_provider='superthread' AND external_id=?2
+                           AND NOT EXISTS (
+                             SELECT 1 FROM kanban_cards parent
+                             WHERE parent.id=kanban_cards.parent_id AND parent.external_provider='superthread' AND parent.in_scope=1
+                           )",
                         params![now, external_id],
                     )
                     .map_err(db_error)?;

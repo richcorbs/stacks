@@ -1133,78 +1133,6 @@ fn invalid_breakdown_rolls_back_parent_and_children() {
 }
 
 #[test]
-fn finishing_external_refinement_marks_the_card_ready_and_is_idempotent() {
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrate(&connection).unwrap();
-    let now = unix_timestamp();
-    connection.execute(
-            "INSERT INTO kanban_cards
-             (id, external_provider, external_id, title, content, status, workflow_revision, created_at, updated_at)
-             VALUES ('superthread:42', 'superthread', '42', 'External card', 'Saved final brief', 'needs_refinement', 4, ?1, ?1)",
-            [now],
-        ).unwrap();
-
-    let updated = finish_external_refinement(&mut connection, "superthread:42").unwrap();
-    assert_eq!(updated.status, "ready");
-    assert_eq!(updated.workflow_revision, 5);
-    assert_eq!(connection.query_row(
-            "SELECT COUNT(*) FROM card_events WHERE card_id='superthread:42' AND from_status='needs_refinement' AND to_status='ready'",
-            [],
-            |row| row.get::<_, i64>(0),
-        ).unwrap(), 1);
-
-    let retried = finish_external_refinement(&mut connection, "superthread:42").unwrap();
-    assert_eq!(retried.status, "ready");
-    assert_eq!(retried.workflow_revision, 5);
-    assert_eq!(
-        connection
-            .query_row(
-                "SELECT COUNT(*) FROM card_events WHERE card_id='superthread:42'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .unwrap(),
-        1
-    );
-}
-
-#[test]
-fn external_refinement_finishes_from_active_and_waiting_states() {
-    for source in ["refining", "needs_refinement_input"] {
-        let mut connection = Connection::open_in_memory().unwrap();
-        migrate(&connection).unwrap();
-        connection.execute(
-                "INSERT INTO kanban_cards (id,external_provider,external_id,title,status,workflow_revision,created_at,updated_at) VALUES ('superthread:42','superthread','42','External',?1,3,1,1)",
-                [source],
-            ).unwrap();
-        let updated = finish_external_refinement(&mut connection, "superthread:42").unwrap();
-        assert_eq!(updated.status, "ready");
-        let recorded: String = connection
-            .query_row(
-                "SELECT from_status FROM card_events WHERE card_id='superthread:42'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(recorded, source);
-    }
-}
-
-#[test]
-fn external_refinement_action_rejects_local_cards() {
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrate(&connection).unwrap();
-    local_card(&mut connection);
-
-    let error = finish_external_refinement(&mut connection, "local:test").unwrap_err();
-    assert!(error.contains("externally managed card"));
-    assert_eq!(
-        get_card(&connection, "local:test").unwrap().unwrap().status,
-        "needs_refinement"
-    );
-}
-
-#[test]
 fn sync_preserves_local_workflow_state() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
@@ -1572,6 +1500,38 @@ fn parent_hydrations_assign_reparent_clear_and_preserve_conflicts_without_import
     clear.parent_hydrations = vec![SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), children: Vec::new() }];
     sync_cards(&mut connection, "owner", clear).unwrap();
     assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='2242'", [], |row| row.get::<_, Option<String>>(0)).unwrap(), None);
+}
+
+#[test]
+fn full_sync_retains_children_of_in_scope_authoritative_parents_until_relationship_is_removed() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "owner", "superthread", "/tmp/superthread");
+    let parent_card = || superthread_card("parent", None, "b", "Doing", true);
+    let child_card = || superthread_card("child", None, "outside", "Outside", false);
+
+    let mut linked = test_superthread_snapshot(vec![parent_card(), child_card()], true);
+    linked.parent_hydrations = vec![SuperthreadParentHydration {
+        parent_id: "parent".into(), parent_title: "Parent".into(),
+        children: vec![SuperthreadTaskChildSnapshot { id: "child".into(), title: "Child".into(), status: "backlog".into() }],
+    }];
+    sync_cards(&mut connection, "owner", linked).unwrap();
+    assert_eq!(connection.query_row("SELECT in_scope FROM kanban_cards WHERE external_id='child'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+
+    // The managed-list snapshot no longer discovers the child, but the hydrated
+    // in-scope parent still protects it from ordinary scope reconciliation.
+    let mut still_linked = test_superthread_snapshot(vec![parent_card()], true);
+    still_linked.parent_hydrations = vec![SuperthreadParentHydration {
+        parent_id: "parent".into(), parent_title: "Parent".into(),
+        children: vec![SuperthreadTaskChildSnapshot { id: "child".into(), title: "Child".into(), status: "backlog".into() }],
+    }];
+    sync_cards(&mut connection, "owner", still_linked).unwrap();
+    assert_eq!(connection.query_row("SELECT in_scope FROM kanban_cards WHERE external_id='child'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+
+    let mut removed = test_superthread_snapshot(vec![parent_card()], true);
+    removed.parent_hydrations = vec![SuperthreadParentHydration { parent_id: "parent".into(), parent_title: "Parent".into(), children: Vec::new() }];
+    sync_cards(&mut connection, "owner", removed).unwrap();
+    assert_eq!(connection.query_row("SELECT in_scope FROM kanban_cards WHERE external_id='child'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
 }
 
 #[test]

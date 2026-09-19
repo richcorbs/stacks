@@ -383,46 +383,6 @@ pub(in crate::kanban) fn finalize_breakdown(
     Ok(())
 }
 
-pub(crate) fn kanban_finish_external_refinement(id: String) -> Result<KanbanCard, String> {
-    with_connection(|connection| finish_external_refinement(connection, &id))
-}
-
-pub(crate) fn finish_external_refinement(
-    connection: &mut Connection,
-    id: &str,
-) -> Result<KanbanCard, String> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(db_error)?;
-    let (provider, status, revision): (String, CardStatus, i64) = transaction
-        .query_row(
-            "SELECT external_provider, status, workflow_revision FROM kanban_cards WHERE id = ?1",
-            [id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()
-        .map_err(db_error)?
-        .ok_or_else(|| "Kanban card was not found".to_string())?;
-    if provider != "superthread" {
-        return Err("Only an externally managed card can use this refinement action".to_string());
-    }
-    if status == "ready" {
-        transaction.commit().map_err(db_error)?;
-        return get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string());
-    }
-    apply_workflow_transition(
-        &transaction,
-        id,
-        WorkflowActor::Agent,
-        WorkflowAction::FinishRefinement,
-        Some(revision),
-        "finish_refinement",
-        None,
-    )?;
-    transaction.commit().map_err(db_error)?;
-    get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
-}
-
 pub(in crate::kanban) fn kanban_open_card_operation(id: String) -> Result<String, String> {
     with_connection(|connection| {
         if get_card(connection, &id)?.is_none() {

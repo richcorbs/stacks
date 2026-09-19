@@ -120,9 +120,9 @@ pub struct SuperthreadCard {
     #[serde(default)]
     assignees: Vec<CardAssignee>,
     #[serde(default)]
-    assignee_names: Vec<String>,
+    pub(crate) assignee_names: Vec<String>,
     #[serde(default)]
-    card_url: String,
+    pub(crate) card_url: String,
     #[serde(default)]
     pub task_parent: Option<SuperthreadTaskParent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -329,7 +329,7 @@ impl SuperthreadService {
         Ok(response.cards)
     }
 
-    fn card(&self, card_id: &str, workspace_slug: Option<&str>) -> Result<SuperthreadCard, String> {
+    pub(crate) fn card(&self, card_id: &str, workspace_slug: Option<&str>) -> Result<SuperthreadCard, String> {
         require_id(card_id, "Card")?;
         let cli = self.cli_path()?;
         let mut card = run_st_json(&cli, &["cards", "get", card_id.trim()])?;

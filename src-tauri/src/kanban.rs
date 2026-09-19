@@ -42,13 +42,15 @@ mod health;
 mod local_delivery;
 mod repository;
 mod sync;
+mod superthread_refinement;
 pub(crate) mod workflow;
 
 pub(crate) use cards::{
     card_directory, card_pi_owner, card_pi_session, card_project_id, card_terminal_owner,
-    create_local_card_for_project, kanban_finish_external_refinement,
-    register_pi_lifecycle_generation, validate_card_pi_start, validate_card_terminal_start,
+    create_local_card_for_project, register_pi_lifecycle_generation, validate_card_pi_start,
+    validate_card_terminal_start,
 };
+pub(crate) use superthread_refinement::finish_superthread_refinement;
 pub use commands::*;
 pub use domain::*;
 #[allow(unused_imports)]
