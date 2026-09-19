@@ -302,11 +302,16 @@ impl SuperthreadService {
 
     fn api_token(&self) -> Result<String, String> {
         let name = self.token_env_var.lock().map_err(lock_error)?.clone();
-        let name = if name.is_empty() { "ST_TOKEN" } else { name.as_str() };
+        let name = if name.is_empty() {
+            "ST_TOKEN"
+        } else {
+            name.as_str()
+        };
         env::var(name)
             .ok()
             .filter(|token| !token.trim().is_empty())
-            .ok_or_else(|| format!("Superthread API token environment variable {name} is not set; Stacks does not use the Superthread CLI config token"))
+            .or_else(|| token_from_login_shell(name))
+            .ok_or_else(|| format!("Superthread API token environment variable {name} is not set in the app or login shell; Stacks does not use the Superthread CLI config token"))
     }
 
     fn boards(&self, included_spaces: &[String]) -> Result<SuperthreadBoardsResponse, String> {
@@ -393,7 +398,8 @@ impl SuperthreadService {
         require_id(board_id, "Board")?;
         let cli = self.cli_path()?;
         let token = self.api_token()?;
-        let detail: BoardDetail = run_st_json(&cli, &["boards", "get", board_id.trim()], Some(&token))?;
+        let detail: BoardDetail =
+            run_st_json(&cli, &["boards", "get", board_id.trim()], Some(&token))?;
         Ok(detail.lists)
     }
 
@@ -869,6 +875,18 @@ fn read_stream(mut stream: impl Read) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn token_from_login_shell(name: &str) -> Option<String> {
+    let shell = PathBuf::from(env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
+    let command = format!("printf '\\036%s\\036' \"${{{name}:-}}\"");
+    let output = run_process(&shell, &["-lic", &command], Duration::from_secs(5), None).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let token = stdout.split('\u{1e}').nth(1)?.trim().to_string();
+    (!token.is_empty()).then_some(token)
+}
+
 fn find_st_cli() -> Result<PathBuf, String> {
     if let Some(path) = env::var_os("ST_CLI_PATH")
         .map(PathBuf::from)
@@ -920,8 +938,10 @@ mod tests {
     #[test]
     fn requires_the_configured_token_environment_variable() {
         let service = SuperthreadService::default();
-        let error = service.configure_token_env("STACKS_TEST_MISSING_SUPERTHREAD_TOKEN_140").unwrap_err();
-        assert!(error.contains("is not set"));
+        let error = service
+            .configure_token_env("STACKS_TEST_MISSING_SUPERTHREAD_TOKEN_140")
+            .unwrap_err();
+        assert!(error.contains("is not set in the app or login shell"));
         assert!(error.contains("does not use the Superthread CLI config token"));
     }
 
@@ -1153,9 +1173,17 @@ esac
             marker.display()
         );
         let (service, path) = fixture_service(&script);
-        let error = service.create_card("b1", "missing", "Card", "", Some("test")).unwrap_err();
-        assert!(error.contains("does not belong"), "unexpected error: {error}");
-        assert!(!marker.exists(), "create command ran after validation failed");
+        let error = service
+            .create_card("b1", "missing", "Card", "", Some("test"))
+            .unwrap_err();
+        assert!(
+            error.contains("does not belong"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            !marker.exists(),
+            "create command ran after validation failed"
+        );
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(marker);
     }
