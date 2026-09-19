@@ -1,6 +1,8 @@
+use super::repository::{board_snapshot, fresh_card_snapshot};
 use super::*;
 #[allow(unused_imports)]
 use super::{cards::*, cleanup::*, environment::*, github_delivery::*, local_delivery::*, sync::*};
+use crate::superthread::SuperthreadService;
 
 #[tauri::command]
 pub fn kanban_cards() -> Result<BoardSnapshot, String> {
@@ -126,8 +128,15 @@ pub fn kanban_close_card(
     expected_revision: i64,
     pi_registry: State<'_, Mutex<PiRpcRegistry>>,
     pty_registry: State<'_, Mutex<PtyRegistry>>,
+    service: State<'_, SuperthreadService>,
 ) -> Result<CardRuntimeCleanupResult, String> {
-    kanban_close_card_operation(id, expected_revision, pi_registry, pty_registry)
+    let result =
+        kanban_close_card_operation(id.clone(), expected_revision, pi_registry, pty_registry);
+    let service = service.inner().clone();
+    std::thread::spawn(move || {
+        let _ = run_pending_once(service, Some(&id));
+    });
+    result
 }
 
 #[tauri::command]
@@ -156,13 +165,15 @@ pub fn kanban_set_project(id: String, project_id: String) -> Result<CardSnapshot
 #[tauri::command]
 pub async fn kanban_start_environment(
     state: State<'_, WorkspaceSetupState>,
+    service: State<'_, SuperthreadService>,
     id: String,
     expected_workflow_revision: i64,
     setup_command: String,
     custom_command: bool,
     explicit_retry: Option<bool>,
 ) -> Result<KanbanCard, String> {
-    kanban_start_environment_operation(
+    let card_id = id.clone();
+    let result = kanban_start_environment_operation(
         state,
         id,
         expected_workflow_revision,
@@ -170,7 +181,14 @@ pub async fn kanban_start_environment(
         custom_command,
         explicit_retry,
     )
-    .await
+    .await;
+    if result.is_ok() {
+        let service = service.inner().clone();
+        let _ =
+            tauri::async_runtime::spawn_blocking(move || run_pending_once(service, Some(&card_id)))
+                .await;
+    }
+    result
 }
 
 #[tauri::command]
@@ -228,16 +246,25 @@ pub async fn kanban_approve_and_commit(
 
 #[tauri::command]
 pub async fn kanban_merge_card(
+    service: State<'_, SuperthreadService>,
     id: String,
     expected_workflow_revision: i64,
     expected_environment_revision: i64,
 ) -> Result<WorkflowOperationResult, String> {
-    kanban_merge_card_operation(
+    let card_id = id.clone();
+    let result = kanban_merge_card_operation(
         id,
         expected_workflow_revision,
         expected_environment_revision,
     )
-    .await
+    .await;
+    if result.is_ok() {
+        let service = service.inner().clone();
+        let _ =
+            tauri::async_runtime::spawn_blocking(move || run_pending_once(service, Some(&card_id)))
+                .await;
+    }
+    result
 }
 
 #[tauri::command]
@@ -304,16 +331,42 @@ pub async fn kanban_create_pull_request(
 
 #[tauri::command]
 pub async fn kanban_merge_pull_request(
+    service: State<'_, SuperthreadService>,
     id: String,
     expected_workflow_revision: i64,
 ) -> Result<KanbanCard, String> {
-    kanban_merge_pull_request_operation(id, expected_workflow_revision).await
+    let card_id = id.clone();
+    let result = kanban_merge_pull_request_operation(id, expected_workflow_revision).await;
+    if result.is_ok() {
+        let service = service.inner().clone();
+        let _ =
+            tauri::async_runtime::spawn_blocking(move || run_pending_once(service, Some(&card_id)))
+                .await;
+    }
+    result
 }
 
 #[tauri::command]
-pub fn kanban_sync_superthread_cards(
+pub async fn kanban_sync_superthread_cards(
+    service: State<'_, SuperthreadService>,
     owner_project_id: String,
     snapshot: SuperthreadSyncSnapshot,
 ) -> Result<BoardSnapshot, String> {
-    kanban_sync_superthread_cards_operation(owner_project_id, snapshot)
+    let result = kanban_sync_superthread_cards_operation(owner_project_id, snapshot)?;
+    let provider = service.inner().clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || run_pending_once(provider, None)).await;
+    with_connection(board_snapshot).or(Ok(result))
+}
+
+#[tauri::command]
+pub async fn kanban_retry_provider_sync(
+    service: State<'_, SuperthreadService>,
+    id: String,
+) -> Result<CardSnapshot, String> {
+    let provider = service.inner().clone();
+    let card_id = id.clone();
+    tauri::async_runtime::spawn_blocking(move || run_pending_once(provider, Some(&card_id)))
+        .await
+        .map_err(|error| format!("Provider synchronization worker failed: {error}"))??;
+    fresh_card_snapshot(&id)
 }

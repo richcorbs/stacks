@@ -564,9 +564,9 @@ fn list_read_count_is_constant_and_get_card_remains_targeted() {
     TRACED_READS.store(0, Ordering::Relaxed);
     list_cards(&mut connection).unwrap();
     let initial_reads = TRACED_READS.load(Ordering::Relaxed);
-    // Cards, environments/panes, creation and cleanup operations, PRs,
+    // Cards, environments/panes, creation, cleanup and provider operations, PRs,
     // events, relationships, and workflow capability project context are each loaded in constant-size batches.
-    assert_eq!(initial_reads, 10);
+    assert_eq!(initial_reads, 11);
     for index in 0..25 {
         connection.execute(
                 "INSERT INTO kanban_cards (id,external_provider,external_id,title,project_id,created_at,updated_at,sort_order)
@@ -3292,6 +3292,41 @@ fn runtime_cleanup_attempts_every_target_and_recovers_without_workflow_change() 
         Some("complete")
     );
     assert!(recovered.runtime_cleanup_error.is_none());
+}
+
+#[test]
+fn provider_operations_capture_transition_identity_and_exclude_synthetic_done() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    initialize_connection(&mut connection, false).unwrap();
+    test_project(&connection, "owner", "superthread", "/tmp");
+    connection.execute("UPDATE projects SET superthread_in_progress_column_id='progress',superthread_in_progress_column_name='In progress',superthread_done_column_id='done',superthread_done_column_name='Stacks is done',superthread_mapping_revision=4 WHERE id='owner'", []).unwrap();
+    connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,board_id,list_id,list_title,status,workflow_revision,project_id,created_at,updated_at) VALUES ('superthread:141','superthread','141','Lifecycle','board','incoming','Incoming','agent_working',8,'owner',1,1)", []).unwrap();
+
+    let first = provider_sync::enqueue_transition(&connection, "superthread:141", "start_work", 8).unwrap();
+    let duplicate = provider_sync::enqueue_transition(&connection, "superthread:141", "start_work", 8).unwrap();
+    assert_eq!(first, duplicate);
+    let captured: (String,String,String,String,i64,i64,String) = connection.query_row("SELECT external_id,board_id,source_column_id,destination_column_id,workflow_revision,integration_revision,state FROM provider_sync_operations", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?))).unwrap();
+    assert_eq!(captured, ("141".into(),"board".into(),"incoming".into(),"progress".into(),8,4,"pending".into()));
+
+    connection.execute("UPDATE kanban_cards SET status='done',completion_outcome='closed',scope_suspended=1,workflow_revision=9 WHERE id='superthread:141'", []).unwrap();
+    provider_sync::enqueue_repairs(&connection, "owner").unwrap();
+    let done_count: i64 = connection.query_row("SELECT COUNT(*) FROM provider_sync_operations WHERE kind='done'", [], |row| row.get(0)).unwrap();
+    assert_eq!(done_count, 0);
+}
+
+#[test]
+fn mapping_changes_supersede_and_replace_applicable_operations() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    initialize_connection(&mut connection, false).unwrap();
+    test_project(&connection, "owner", "superthread", "/tmp");
+    connection.execute("UPDATE projects SET superthread_in_progress_column_id='old',superthread_in_progress_column_name='Old',superthread_done_column_id='done',superthread_done_column_name='Done',superthread_mapping_revision=1 WHERE id='owner'", []).unwrap();
+    connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,board_id,list_id,list_title,status,workflow_revision,project_id,created_at,updated_at) VALUES ('superthread:1','superthread','1','Work','board','incoming','Incoming','agent_working',2,'owner',1,1)", []).unwrap();
+    provider_sync::enqueue_transition(&connection,"superthread:1","start_work",2).unwrap();
+    connection.execute("UPDATE projects SET superthread_in_progress_column_id='new',superthread_in_progress_column_name='New',superthread_mapping_revision=2 WHERE id='owner'", []).unwrap();
+    provider_sync::supersede_for_mapping_change(&connection,"owner").unwrap();
+    let states = connection.prepare("SELECT state,destination_column_id,integration_revision FROM provider_sync_operations ORDER BY created_at,id").unwrap().query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,i64>(2)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
+    assert!(states.contains(&("superseded".into(),"old".into(),1)));
+    assert!(states.contains(&("pending".into(),"new".into(),2)));
 }
 
 #[test]

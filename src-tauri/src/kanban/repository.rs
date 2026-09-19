@@ -670,6 +670,27 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(db_error)?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS provider_sync_operations (
+            id TEXT PRIMARY KEY, card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK(kind IN ('start_work','done')), provider TEXT NOT NULL, external_id TEXT NOT NULL,
+            board_id TEXT NOT NULL, source_column_id TEXT NOT NULL, source_column_name TEXT NOT NULL,
+            destination_column_id TEXT NOT NULL, destination_column_name TEXT NOT NULL,
+            workflow_revision INTEGER NOT NULL, integration_revision INTEGER NOT NULL, project_id TEXT NOT NULL,
+            api_token_env_var TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','running','failed','succeeded','stale','superseded')),
+            logical_revision INTEGER NOT NULL DEFAULT 0,
+            attempts INTEGER NOT NULL DEFAULT 0, error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER,
+            UNIQUE(card_id,kind,workflow_revision,integration_revision,logical_revision)
+         );
+         CREATE INDEX IF NOT EXISTS provider_sync_pending_idx ON provider_sync_operations(state,created_at);
+         CREATE TABLE IF NOT EXISTS provider_sync_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT NOT NULL REFERENCES provider_sync_operations(id) ON DELETE CASCADE,
+            attempt_number INTEGER NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, outcome TEXT, error TEXT,
+            UNIQUE(operation_id,attempt_number)
+         );
+         INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (73, unixepoch());"
+    ).map_err(db_error)?;
+    provider_sync::recover_interrupted(connection)?;
     Ok(())
 }
 
@@ -809,6 +830,7 @@ pub(in crate::kanban) fn list_cards(
     load_environments_batched(connection, &mut cards)?;
     load_creation_operations_batched(connection, &mut cards)?;
     load_cleanup_operations_batched(connection, &mut cards)?;
+    provider_sync::load_summaries(connection, &mut cards)?;
     load_pull_requests_batched(connection, &mut cards)?;
     let work_agent_launch_retries = load_events_batched(connection, &mut cards)?;
     enrich_relationships_batched(connection, &mut cards)?;
@@ -833,6 +855,7 @@ pub(in crate::kanban) fn get_card(
         card.environment = load_environment(connection, id)?;
         card.creation_operation = load_creation_operation(connection, id)?;
         card.cleanup_operation = load_cleanup_operation(connection, id)?;
+        card.provider_sync = provider_sync::load_summary(connection, id)?;
         card.pull_request = load_pull_request(connection, card)?;
         card.events = load_events(connection, id)?;
         let mut cards = vec![card.clone()];
@@ -1631,6 +1654,7 @@ pub(in crate::kanban) fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<K
         environment: None,
         creation_operation: None,
         cleanup_operation: None,
+        provider_sync: None,
         created_at: row.get(21)?,
         updated_at: row.get(22)?,
         sort_order: row.get(23)?,

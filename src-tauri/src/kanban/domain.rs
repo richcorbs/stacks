@@ -41,7 +41,8 @@ pub struct KanbanCardSnapshot {
 pub struct SuperthreadTaskChildSnapshot {
     pub id: String,
     pub title: String,
-    #[allow(dead_code)] // Provider diagnostic metadata; Stacks workflow status remains authoritative.
+    #[allow(dead_code)]
+    // Provider diagnostic metadata; Stacks workflow status remains authoritative.
     pub status: String,
 }
 
@@ -215,6 +216,7 @@ pub struct KanbanCard {
     pub(in crate::kanban) environment: Option<CardEnvironment>,
     pub(in crate::kanban) creation_operation: Option<EnvironmentCreationOperation>,
     pub(in crate::kanban) cleanup_operation: Option<CardCleanupOperation>,
+    pub(in crate::kanban) provider_sync: Option<provider_sync::ProviderSyncOperationSummary>,
     pub(in crate::kanban) created_at: i64,
     pub(in crate::kanban) updated_at: i64,
     pub(in crate::kanban) sort_order: i64,

@@ -44,9 +44,10 @@ use kanban::{
     kanban_environment_health, kanban_environment_start_preflight, kanban_finalize_target_merge,
     kanban_finish_local_refinement, kanban_merge_card, kanban_merge_pull_request, kanban_open_card,
     kanban_prepare_target_merge, kanban_record_agent_launch_failure, kanban_refresh_pull_request,
-    kanban_reorder_cards, kanban_retry_runtime_cleanup, kanban_save_environment_layout,
-    kanban_set_merge_target, kanban_set_project, kanban_start_environment, kanban_status_metadata,
-    kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
+    kanban_reorder_cards, kanban_retry_provider_sync, kanban_retry_runtime_cleanup,
+    kanban_save_environment_layout, kanban_set_merge_target, kanban_set_project,
+    kanban_start_environment, kanban_status_metadata, kanban_sync_superthread_cards,
+    kanban_update_local_card, kanban_validate_project_deletion,
 };
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
@@ -185,6 +186,7 @@ pub fn run() {
             kanban_cleanup_environment_creation,
             kanban_cleanup_environment,
             kanban_close_card,
+            kanban_retry_provider_sync,
             kanban_retry_runtime_cleanup,
             kanban_create_pull_request,
             kanban_refresh_pull_request,
@@ -220,6 +222,12 @@ pub fn run() {
         .setup(|app| {
             kanban::initialize_database().map_err(std::io::Error::other)?;
             kanban::set_app_handle(app.handle().clone());
+            let provider = app.state::<SuperthreadService>().inner().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(error) = kanban::run_pending_once(provider, None) {
+                    eprintln!("Startup Superthread synchronization failed: {error}");
+                }
+            });
             setup_main_window(app)?;
             let state = app.state::<AutomationState>().inner().clone();
             if let Err(err) = automation::start_server(app.handle().clone(), state) {

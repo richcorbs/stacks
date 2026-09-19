@@ -244,6 +244,7 @@ pub(in crate::kanban) fn sync_cards(
             }
         }
     }
+    provider_sync::enqueue_repairs(&transaction, owner_project_id)?;
     transaction.commit().map_err(db_error)?;
     list_cards(connection)
 }

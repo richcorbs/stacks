@@ -131,6 +131,15 @@ export type KanbanCard = {
   environment: CardEnvironment | null;
   creation_operation?: EnvironmentCreationOperation | null;
   cleanup_operation?: CardCleanupOperation | null;
+  provider_sync?: {
+    id: string;
+    kind: 'start_work' | 'done';
+    state: 'pending' | 'running' | 'failed' | 'succeeded' | 'stale' | 'superseded';
+    destination_column_name: string;
+    attempts: number;
+    error: string | null;
+    updated_at: number;
+  } | null;
   created_at: number;
   updated_at: number;
   sort_order: number;
