@@ -12,6 +12,21 @@ export function validateVersion(version) {
   if (!VERSION_RE.test(version || '')) fail(`Invalid Stacks version ${JSON.stringify(version)}; expected SemVer X.Y.Z without prefixes or prerelease/build metadata`);
   return version;
 }
+export function compareVersions(left, right) {
+  validateVersion(left); validateVersion(right);
+  const leftParts = left.split('.').map(BigInt);
+  const rightParts = right.split('.').map(BigInt);
+  for (let index = 0; index < leftParts.length; index += 1) {
+    if (leftParts[index] > rightParts[index]) return 1;
+    if (leftParts[index] < rightParts[index]) return -1;
+  }
+  return 0;
+}
+export function validateReleaseVersion(version, previousVersion) {
+  validateVersion(version); validateVersion(previousVersion);
+  if (compareVersions(version, previousVersion) <= 0) fail(`Release version ${version} must be greater than the latest published version ${previousVersion}`);
+  return version;
+}
 export function tagFor(version) { return `v${validateVersion(version)}`; }
 export function suggestPatch(version) {
   validateVersion(version);

@@ -5,7 +5,7 @@ import process from 'node:process';
 import {
   ASSET_NAMES, artifactDir, clean, fail, findRelease, ghJson, git, latestPublished, matchingDraft,
   missingReleaseAssets, prepare, reconcileRelease, releaseNotes, run, setVersions, sourceRevision, suggestPatch,
-  tagFor, uploadReleaseAsset, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets,
+  tagFor, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets,
   verifyVersions, writeChecksums,
 } from './release-lib.mjs';
 
@@ -116,8 +116,7 @@ function verifyPublished() {
 }
 function preflight() {
   requireValue(version, 'version'); requireValue(previous, 'previous'); requireValue(source, 'source'); requireValue(notesFile, 'notes'); requireValue(branch, 'branch');
-  validateVersion(version); validateVersion(previous);
-  if (suggestPatch(previous) !== version) fail(`Stacks releases must be the next patch after ${previous}: expected ${suggestPatch(previous)}`);
+  validateReleaseVersion(version, previous);
   if (!fs.existsSync(notesFile) || !fs.readFileSync(notesFile, 'utf8').trim()) fail('Approved release notes are empty or missing');
   if (git(root, 'symbolic-ref', '--quiet', '--short', 'HEAD') !== branch) fail(`Target branch ${branch} is not checked out`);
   if (!clean(root)) fail('Working tree must be clean');
@@ -141,7 +140,7 @@ try {
   switch (command) {
     case 'current': console.log(latestPublished(ghOptions)); break;
     case 'suggest': console.log(suggestPatch(requireValue(previous, 'previous'))); break;
-    case 'validate': validateVersion(requireValue(version, 'version')); if (previous && suggestPatch(previous) !== version) fail(`Expected next patch ${suggestPatch(previous)}, got ${version}`); console.log(`Valid Stacks release version: ${version}`); break;
+    case 'validate': previous ? validateReleaseVersion(requireValue(version, 'version'), previous) : validateVersion(requireValue(version, 'version')); console.log(`Valid Stacks release version: ${version}`); break;
     case 'notes': process.stdout.write(releaseNotes(root, requireValue(previous, 'previous'), requireValue(source, 'source'))); break;
     case 'reconcile': {
       const requested = requireValue(version, 'version'); const prior = requireValue(previous, 'previous'); let revision = requireValue(source, 'source');

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare, reconcileRelease,
-  releaseNotes, suggestPatch, uploadReleaseAsset, validateVersion, verifyArtifacts, verifyPrepared,
+  releaseNotes, suggestPatch, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared,
   verifyReleaseAssets, verifyVersions, writeChecksums,
 } from './release-lib.mjs';
 
@@ -42,7 +42,11 @@ describe('release version discovery and validation', () => {
     const root = temp(); const gh = fakeGh(root, { tag_name: 'v2.7.9', draft: false, prerelease: false });
     expect(latestPublished({ gh })).toBe('2.7.9'); expect(suggestPatch('2.7.9')).toBe('2.7.10');
   });
-  it('rejects non-Stacks SemVer and non-published latest responses', () => {
+  it('accepts any higher stable SemVer for patch, minor, major, or skipped releases', () => {
+    for (const value of ['0.5.10', '0.6.0', '1.0.0', '4.12.37']) expect(validateReleaseVersion(value, '0.5.9')).toBe(value);
+  });
+  it('rejects equal, older, malformed, and non-published versions', () => {
+    for (const value of ['0.5.9', '0.5.8', '0.4.99']) expect(() => validateReleaseVersion(value, '0.5.9')).toThrow(/must be greater/);
     for (const value of ['v1.2.3', '1.2', '01.2.3', '1.2.3-beta']) expect(() => validateVersion(value)).toThrow();
     const root = temp(); const gh = fakeGh(root, { tag_name: 'v1.2.3', draft: true, prerelease: false });
     expect(() => latestPublished({ gh })).toThrow(/published stable/);
