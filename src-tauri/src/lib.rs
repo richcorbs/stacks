@@ -7,6 +7,7 @@ mod automation;
 mod fs_paths;
 mod git;
 mod github;
+mod global_terminal;
 mod kanban;
 mod menu;
 mod open;
@@ -34,6 +35,7 @@ use github::{
     github_action_runs, github_current_pull_request, github_merge_pull_request,
     github_pull_requests,
 };
+use global_terminal::{global_terminal_load_or_create, global_terminal_save};
 use kanban::{
     kanban_abort_target_merge, kanban_apply_pi_lifecycle_intent, kanban_apply_workflow_action,
     kanban_approve_and_commit, kanban_card_snapshot, kanban_cards, kanban_cleanup_environment,
@@ -133,6 +135,8 @@ pub fn run() {
             resize_pty,
             kill_pty,
             pty_cwd,
+            global_terminal_load_or_create,
+            global_terminal_save,
             start_pi_session,
             pi_session_exists,
             pi_project_trusted,

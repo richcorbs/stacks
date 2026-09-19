@@ -6,6 +6,18 @@ use tauri::{
 fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let items = [
         (
+            "menu-shortcut-toggle-global-terminal",
+            "Toggle Top-level Terminal",
+            "Cmd+T",
+            Some("Cmd+T"),
+        ),
+        (
+            "menu-shortcut-new-global-terminal-tab",
+            "New Top-level Terminal Tab",
+            "Cmd+Shift+T",
+            Some("Cmd+Shift+T"),
+        ),
+        (
             "menu-shortcut-add-project",
             "Add Project",
             "Cmd+O",
@@ -83,6 +95,12 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
             "Maximize / Restore Pane",
             "Cmd+Shift+Enter",
             Some("Cmd+Shift+Enter"),
+        ),
+        (
+            "menu-shortcut-global-terminal-tabs",
+            "Navigate Top-level Terminal Tabs",
+            "Cmd+1 … Cmd+9 / Cmd+[ / Cmd+]",
+            None,
         ),
         (
             "menu-shortcut-card-tabs",

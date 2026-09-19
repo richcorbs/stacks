@@ -54,6 +54,8 @@ pub(in crate::kanban) fn initialize_connection(
         .map_err(|error| format!("Could not initialize project-store schema: {error}"))?;
     crate::project_direct::migrate(connection)
         .map_err(|error| format!("Could not initialize Project Workspace schema: {error}"))?;
+    crate::global_terminal::migrate(connection)
+        .map_err(|error| format!("Could not initialize top-level terminal schema: {error}"))?;
     crate::release::migrate(connection)
         .map_err(|error| format!("Could not initialize release schema: {error}"))?;
     crate::store::migrate_legacy_data(connection, import_legacy_json)

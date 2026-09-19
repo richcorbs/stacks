@@ -1,14 +1,18 @@
 import type { ShortcutAction, ShortcutHandlers } from './shortcutTypes';
 
 export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHandlers) {
+  const terminalAction = (command: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize') =>
+    handlers.isGlobalTerminalVisible() ? handlers.runGlobalTerminalAction(command) : handlers.runCardTerminalAction(command);
   switch (action) {
+    case 'toggle-global-terminal': handlers.toggleGlobalTerminal(); break;
+    case 'new-global-terminal-tab': handlers.newGlobalTerminalTab(); break;
     case 'add-project': handlers.openProjectDialog(); break;
-    case 'split-terminal-right': handlers.runCardTerminalAction('split-right'); break;
-    case 'split-terminal-down': handlers.runCardTerminalAction('split-down'); break;
-    case 'close-terminal': handlers.runCardTerminalAction('close'); break;
-    case 'clear-terminal': handlers.runCardTerminalAction('clear'); break;
-    case 'search-terminal': handlers.runCardTerminalAction('search'); break;
-    case 'maximize-pane': handlers.runCardTerminalAction('toggle-maximize'); break;
+    case 'split-terminal-right': terminalAction('split-right'); break;
+    case 'split-terminal-down': terminalAction('split-down'); break;
+    case 'close-terminal': terminalAction('close'); break;
+    case 'clear-terminal': terminalAction('clear'); break;
+    case 'search-terminal': terminalAction('search'); break;
+    case 'maximize-pane': terminalAction('toggle-maximize'); break;
     case 'command-palette': handlers.openCommandPalette(); break;
     case 'switch-project': handlers.openProjectSwitcher(); break;
     case 'settings': handlers.openSettings(); break;

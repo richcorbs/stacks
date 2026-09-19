@@ -20,17 +20,21 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
     const control = selectableTextControl(event.target) ?? selectableTextControl(typeof document === 'undefined' ? null : document.activeElement);
     if (control && !isXtermTarget(control)) return handled(event, () => control.select());
   }
+  if (key === 't') return handled(event, () => runShortcutAction(event.shiftKey ? 'new-global-terminal-tab' : 'toggle-global-terminal', handlers));
   const registered = registeredShortcutAction(key, event.shiftKey);
   if (registered) return handled(event, () => runShortcutAction(registered, handlers));
   if (key === 'p') return handled(event, () => runShortcutAction('command-palette', handlers));
 
+  const globalTerminal = handlers.isGlobalTerminalVisible();
+  if (globalTerminal && /^[1-9]$/.test(event.key)) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:global-terminal-command', { detail: { type: 'select-tab', number: Number(event.key) } })));
+  if (globalTerminal && bracket && !event.shiftKey) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:global-terminal-command', { detail: { type: 'navigate-tab', direction: bracket } })));
   const cardOpen = Boolean(typeof document !== 'undefined' && document.querySelector('.kanbanDetail'));
   const cardTerminal = Boolean(typeof document !== 'undefined' && document.querySelector('.kanbanDetail .cardTerminalView.active'));
   if (cardOpen && /^[1-5]$/.test(event.key)) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', { detail: { number: Number(event.key) } })));
   if (cardOpen && bracket && !event.shiftKey) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', { detail: { direction: bracket } })));
   if (key === 'o' && !event.shiftKey) return handled(event, () => runShortcutAction('add-project', handlers));
   if (key === 'q') return handled(event, () => runShortcutAction('quit', handlers));
-  if (!cardTerminal) return;
+  if (!globalTerminal && !cardTerminal) return;
   if (key === 'd') return handled(event, () => runShortcutAction(event.shiftKey ? 'split-terminal-down' : 'split-terminal-right', handlers));
   if (key === 'w') return handled(event, () => runShortcutAction('close-terminal', handlers));
   if (key === 'f') return handled(event, () => runShortcutAction('search-terminal', handlers));
