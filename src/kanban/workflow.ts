@@ -3,17 +3,6 @@ import { KANBAN_STATUS_METADATA } from './workflowContract.generated';
 
 export const KANBAN_LANES: ReadonlyArray<{ status: KanbanStatus; label: string }> = KANBAN_STATUS_METADATA;
 
-export const EXECUTION_SUPERTHREAD_LISTS = new Set(['doing', 'in review', 'qa']);
-export const DEV_ACTIVE_INTAKE_LISTS = new Set(['backlog', 'to do']);
-
-export function isManagedSuperthreadList(boardTitle: string, listTitle: string) {
-  const board = boardTitle.trim().toLocaleLowerCase();
-  if (board.startsWith('obsolete')) return false;
-  const list = listTitle.trim().toLocaleLowerCase();
-  if (EXECUTION_SUPERTHREAD_LISTS.has(list)) return true;
-  return board === 'dev - active' && DEV_ACTIVE_INTAKE_LISTS.has(list);
-}
-
 export function completionLabel(outcome: 'merged' | 'closed' | null) {
   return outcome === 'merged' ? 'Done · Merged' : outcome === 'closed' ? 'Done · Closed' : 'Done';
 }

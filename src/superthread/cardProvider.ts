@@ -1,35 +1,37 @@
 import type { KanbanSyncCard, SuperthreadIntegration, SuperthreadParentHydration, SuperthreadSnapshot } from '../kanban/types';
-import { isManagedSuperthreadList } from '../kanban/workflow';
 import { createSuperthreadCard, fetchSuperthreadBoards, fetchSuperthreadCard, fetchSuperthreadCards, fetchSuperthreadLists } from './api';
 
 export type SuperthreadConfiguration = {
   ownerProjectId: string;
   spaces: string;
   workspaceSlug?: string;
+  boardId: string;
+  boardName: string;
+  incomingColumnIds: string[];
+  defaultIncomingColumnId: string;
+  apiTokenEnvVar?: string;
 };
 
 const HIERARCHY_CONCURRENCY = 4;
 
 export function superthreadIntegration(configuration: SuperthreadConfiguration): SuperthreadIntegration {
-  const { ownerProjectId, spaces, workspaceSlug = '' } = configuration;
+  const { ownerProjectId, spaces, workspaceSlug = '', boardId, boardName, incomingColumnIds, defaultIncomingColumnId, apiTokenEnvVar = 'ST_TOKEN' } = configuration;
+  const incomingIds = new Set(incomingColumnIds);
   return {
     kind: 'superthread',
     ownerProjectId,
     async create(title, content) {
-      const card = await createSuperthreadCard({ spaces, workspaceSlug, title, content });
-      return mapCard(card, {
-        id: card.board_id,
-        title: card.board_title,
-      }, card.list_title, true, true);
+      const card = await createSuperthreadCard({ boardId, listId: defaultIncomingColumnId, workspaceSlug, apiTokenEnvVar, title, content });
+      return mapCard(card, { id: boardId, title: boardName }, card.list_title, true, true);
     },
     async load(card) {
-      const detail = await fetchSuperthreadCard(card.external_id, workspaceSlug);
+      const detail = await fetchSuperthreadCard(card.external_id, workspaceSlug, apiTokenEnvVar);
       return mapCard(detail, { id: card.board_id, title: card.board_title }, card.list_title, true, true);
     },
     async sync(refresh = false, knownParentIds = []): Promise<SuperthreadSnapshot> {
       let discovery;
       try {
-        discovery = await fetchSuperthreadBoards(spaces, refresh);
+        discovery = await fetchSuperthreadBoards(spaces, refresh, apiTokenEnvVar);
       } catch (error) {
         const message = errorMessage(error);
         return { cards: [], parent_hydrations: [], successful_scope_ids: [], successful_board_ids: [], failed_scopes: [{ scope: 'spaces', message }], warnings: [message], complete: false };
@@ -38,10 +40,13 @@ export function superthreadIntegration(configuration: SuperthreadConfiguration):
       const successfulBoardIds: string[] = [];
       const cards: KanbanSyncCard[] = [];
       const listedChildCounts = new Map<string, number>();
-      await Promise.all(discovery.boards.map(async (board) => {
+      const discoveredBoard = discovery.boards.find((board) => board.id === boardId);
+      if (!discoveredBoard) failedScopes.push({ scope: `board:${boardId}`, message: `Configured Superthread board ${boardName || boardId} was not found or is inaccessible` });
+      const boards = discoveredBoard ? [discoveredBoard] : [];
+      await Promise.all(boards.map(async (board) => {
         const [listsResult, cardsResult] = await Promise.allSettled([
-          fetchSuperthreadLists(board.id),
-          fetchSuperthreadCards(board.id, workspaceSlug),
+          fetchSuperthreadLists(board.id, apiTokenEnvVar),
+          fetchSuperthreadCards(board.id, workspaceSlug, apiTokenEnvVar),
         ]);
         if (listsResult.status === 'rejected') failedScopes.push({ scope: `board:${board.id}:lists`, message: errorMessage(listsResult.reason) });
         if (cardsResult.status === 'rejected') failedScopes.push({ scope: `board:${board.id}:cards`, message: errorMessage(cardsResult.reason) });
@@ -57,8 +62,8 @@ export function superthreadIntegration(configuration: SuperthreadConfiguration):
           if (card.total_task_children !== undefined) listedChildCounts.set(card.id, card.total_task_children);
           const discoveredTitle = listById.get(card.list_id)?.title;
           const listTitle = discoveredTitle ?? card.list_title;
-          const scope = card.list_id.trim() && (discoveredTitle || card.list_title.trim())
-            ? isManagedSuperthreadList(board.title, listTitle)
+          const scope = listsResult.status === 'fulfilled' && card.list_id.trim() && (discoveredTitle || card.list_title.trim())
+            ? incomingIds.has(card.list_id)
             : null;
           cards.push(mapCard(card, board, listTitle, scope, false));
         }
@@ -68,7 +73,7 @@ export function superthreadIntegration(configuration: SuperthreadConfiguration):
       for (const card of cards) if ((card.total_task_children ?? 0) > 0) parentIds.add(card.id);
       const hierarchyResults = await mapWithConcurrency([...parentIds].sort(compareIds), HIERARCHY_CONCURRENCY, async (parentId) => {
         try {
-          const detail = await fetchSuperthreadCard(parentId, workspaceSlug);
+          const detail = await fetchSuperthreadCard(parentId, workspaceSlug, apiTokenEnvVar);
           if (detail.id.trim() !== parentId) throw new Error(`Superthread returned card ${detail.id || '(missing ID)'} instead`);
           if (!detail.title.trim()) throw new Error('the parent title was not included');
           const expectedCount = listedChildCounts.get(parentId) ?? detail.total_task_children;
@@ -110,7 +115,7 @@ export function superthreadIntegration(configuration: SuperthreadConfiguration):
         successful_board_ids: successfulBoardIds,
         failed_scopes: failedScopes,
         warnings,
-        complete: discovery.complete && failedScopes.length === 0 && successfulBoardIds.length === discovery.boards.length,
+        complete: discovery.complete && failedScopes.length === 0 && successfulBoardIds.length === boards.length,
       };
     },
   };

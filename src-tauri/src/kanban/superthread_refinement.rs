@@ -20,6 +20,9 @@ struct FinishContext {
     external_id: String,
     project_id: String,
     workspace_slug: Option<String>,
+    board_id: String,
+    default_incoming_column_id: String,
+    api_token_env_var: String,
     status: CardStatus,
     workflow_revision: i64,
 }
@@ -39,15 +42,21 @@ pub(crate) fn finish_superthread_refinement(
     // This short read deliberately completes before any provider calls. The validated
     // provider snapshot is persisted later under the normal board-operation lock.
     let context = with_connection(|connection| load_finish_context(connection, &id))?;
+    service.configure_token_env(&context.api_token_env_var)?;
     let workspace_slug = context.workspace_slug.as_deref();
     let parent = service.card(&context.external_id, workspace_slug)?;
+    validate_refinement_destination(&parent, &context)?;
     let hierarchy = validate_parent_detail(&parent, &context.external_id)?;
     let children = fetch_children(service, &hierarchy.child_ids, workspace_slug)?;
     validate_children(&children, &hierarchy.child_ids, &context.external_id)?;
+    for child in &children {
+        validate_refinement_destination(child, &context)?;
+    }
 
     // Superthread has no hierarchy revision token. A second authoritative read is
     // therefore required before any local mutation can begin.
     let confirmed_parent = service.card(&context.external_id, workspace_slug)?;
+    validate_refinement_destination(&confirmed_parent, &context)?;
     let confirmed_hierarchy = validate_parent_detail(&confirmed_parent, &context.external_id)?;
     if confirmed_hierarchy != hierarchy {
         return Err("The Superthread child hierarchy changed while it was being fetched; retry finish_refinement".to_string());
@@ -65,20 +74,37 @@ pub(crate) fn finish_superthread_refinement(
 fn load_finish_context(connection: &Connection, id: &str) -> Result<FinishContext, String> {
     connection.query_row(
         "SELECT c.id,c.external_id,c.project_id,c.status,c.workflow_revision,
-                COALESCE(p.kanban_source,'local'),p.superthread_workspace_slug,c.external_provider
+                COALESCE(p.kanban_source,'local'),p.superthread_workspace_slug,c.external_provider,
+                COALESCE(p.superthread_board_id,''),COALESCE(p.superthread_default_incoming_column_id,''),COALESCE(p.superthread_api_token_env_var,'ST_TOKEN')
          FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
         [id],
         |row| Ok((
             row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
             row.get::<_, CardStatus>(3)?, row.get::<_, i64>(4)?, row.get::<_, String>(5)?,
-            row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?,
+            row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, String>(9)?, row.get::<_, String>(10)?,
         )),
-    ).optional().map_err(db_error)?.map(|(local_id, external_id, project_id, status, workflow_revision, source, workspace_slug, provider)| {
+    ).optional().map_err(db_error)?.map(|(local_id, external_id, project_id, status, workflow_revision, source, workspace_slug, provider, board_id, default_incoming_column_id, api_token_env_var)| {
         if provider != "superthread" || source != "superthread" {
             return Err("Only a Superthread card owned by the configured Superthread project can use this refinement action".to_string());
         }
-        Ok(FinishContext { local_id, external_id, project_id, workspace_slug, status, workflow_revision })
+        if board_id.is_empty() || default_incoming_column_id.is_empty() { return Err("Configure the Superthread board and default incoming column before finishing refinement".to_string()); }
+        Ok(FinishContext { local_id, external_id, project_id, workspace_slug, board_id, default_incoming_column_id, api_token_env_var, status, workflow_revision })
     }).transpose()?.ok_or_else(|| "Kanban card was not found".to_string())
+}
+
+fn validate_refinement_destination(
+    card: &SuperthreadCard,
+    context: &FinishContext,
+) -> Result<(), String> {
+    if card.board_id.trim() != context.board_id
+        || card.list_id.trim() != context.default_incoming_column_id
+    {
+        return Err(format!(
+            "Superthread card {} is not on the configured board and default incoming column",
+            card.id
+        ));
+    }
+    Ok(())
 }
 
 fn validate_parent_detail(
@@ -381,7 +407,7 @@ mod tests {
     fn child(id: &str) -> SuperthreadCard {
         card(json!({
             "id": id, "title": format!("Authoritative {id}"), "content": format!("Brief {id}"),
-            "list_id": "outside", "list_title": "Outside scope", "board_id": "board", "board_title": "Board",
+            "list_id": "ready-list", "list_title": "Ready", "board_id": "board", "board_title": "Board",
             "task_parent": { "id": "parent", "title": "Authoritative parent" }, "total_task_children": 0
         }))
     }
@@ -413,6 +439,9 @@ mod tests {
                 external_id: "parent".into(),
                 project_id: "owner".into(),
                 workspace_slug: None,
+                board_id: "board".into(),
+                default_incoming_column_id: "ready-list".into(),
+                api_token_env_var: "ST_TOKEN".into(),
                 status: CardStatus::NeedsRefinement,
                 workflow_revision: 4,
             },

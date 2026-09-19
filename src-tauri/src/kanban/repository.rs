@@ -253,6 +253,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             updated_at INTEGER NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
             in_scope INTEGER NOT NULL DEFAULT 1,
+            scope_suspended INTEGER NOT NULL DEFAULT 0,
+            scope_prior_status TEXT,
             UNIQUE(external_provider, external_id)
          );
          CREATE INDEX IF NOT EXISTS kanban_cards_status_idx ON kanban_cards(status, updated_at);
@@ -521,6 +523,14 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
         (
             "provider_parent_title",
             "ALTER TABLE kanban_cards ADD COLUMN provider_parent_title TEXT",
+        ),
+        (
+            "scope_suspended",
+            "ALTER TABLE kanban_cards ADD COLUMN scope_suspended INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "scope_prior_status",
+            "ALTER TABLE kanban_cards ADD COLUMN scope_prior_status TEXT",
         ),
     ] {
         if !columns.iter().any(|column| column == name) {

@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { DialogState } from '../types';
+import { SuperthreadMappingFields } from './SuperthreadMappingFields';
 
 type DialogFieldsProps = {
   dialog: DialogState;
@@ -14,10 +15,13 @@ export function DialogFields({ dialog, setDialog, firstInputRef, showHeading = t
     <label>Name<input ref={firstInputRef} value={dialog.name} onChange={(event) => setDialog({ ...dialog, name: event.target.value })} /></label>
     <label>Directory<input value={dialog.path} placeholder="/Users/rich/Code/my-project" onChange={(event) => setDialog({ ...dialog, path: event.target.value })} /></label>
     <label>Work board<select value={dialog.kanbanSource ?? 'local'} onChange={(event) => setDialog({ ...dialog, kanbanSource: event.target.value as 'superthread' | 'local' })}><option value="local">Local Stacks board</option><option value="superthread">Superthread</option></select></label>
-    {dialog.kanbanSource === 'superthread' && <>
+    {dialog.kanbanSource === 'superthread' && <section className="superthreadSettingsCard" aria-labelledby="superthread-settings-title">
+      <h3 id="superthread-settings-title">Superthread configuration</h3>
       <label>Superthread spaces <span>(comma-separated)</span><input value={dialog.superthreadSpaces ?? ''} placeholder="Product & Engineering" required onChange={(event) => setDialog({ ...dialog, superthreadSpaces: event.target.value })} /></label>
       <label>Superthread URL slug <span>(optional)</span><input value={dialog.superthreadWorkspaceSlug ?? ''} placeholder="arcasa" onChange={(event) => setDialog({ ...dialog, superthreadWorkspaceSlug: event.target.value })} /></label>
-    </>}
+      <label>Superthread API Token Env Variable<input value={dialog.superthreadApiTokenEnvVar ?? 'ST_TOKEN'} placeholder="ST_TOKEN" required onChange={(event) => setDialog({ ...dialog, superthreadApiTokenEnvVar: event.target.value })} /></label>
+      <SuperthreadMappingFields dialog={dialog} setDialog={setDialog} />
+    </section>}
     <label>Delivery workflow<select value={dialog.deliveryWorkflow ?? 'local_merge'} onChange={(event) => setDialog({ ...dialog, deliveryWorkflow: event.target.value as 'local_merge' | 'github_pull_request' })}><option value="local_merge">Local merge</option><option value="github_pull_request">GitHub pull request</option></select></label>
     <label>Target branch<input value={dialog.targetBranch ?? 'main'} required onChange={(event) => setDialog({ ...dialog, targetBranch: event.target.value })} /></label>
     <label className="checkboxLabel"><input type="checkbox" checked={dialog.releasesEnabled ?? false} onChange={(event) => setDialog({ ...dialog, releasesEnabled: event.target.checked })} />Enable Releases</label>

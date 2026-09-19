@@ -204,7 +204,7 @@ describe('Superthread card detail loading', () => {
 
 describe('Kanban card creation', () => {
   const localProject: Project = { id: 'p1', name: 'Local', path: '/local', workspaces: [] };
-  const remoteProject: Project = { id: 'remote', name: 'Remote', path: '/remote', workspaces: [], kanban_source: 'superthread', superthread_spaces: 'Product' };
+  const remoteProject: Project = { id: 'remote', name: 'Remote', path: '/remote', workspaces: [], kanban_source: 'superthread', superthread_spaces: 'Product', superthread_board_id: 'board-1', superthread_board_name: 'Dev - Active', superthread_incoming_columns: [{ id: 'doing', name: 'Doing' }], superthread_default_incoming_column_id: 'doing' };
   const snapshot: KanbanSyncCard = {
     id: '48', title: 'Remote card', content: 'Brief', board_id: 'board', board_title: 'Dev - Active',
     list_id: 'backlog', list_title: 'Backlog', card_url: 'https://example/card-48', assignee_names: [], in_scope: true,
