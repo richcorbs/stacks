@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { DialogState } from '../types';
+import { SuperthreadMappingFields } from './SuperthreadMappingFields';
 
 type DialogFieldsProps = {
   dialog: DialogState;
@@ -17,6 +18,8 @@ export function DialogFields({ dialog, setDialog, firstInputRef, showHeading = t
     {dialog.kanbanSource === 'superthread' && <>
       <label>Superthread spaces <span>(comma-separated)</span><input value={dialog.superthreadSpaces ?? ''} placeholder="Product & Engineering" required onChange={(event) => setDialog({ ...dialog, superthreadSpaces: event.target.value })} /></label>
       <label>Superthread URL slug <span>(optional)</span><input value={dialog.superthreadWorkspaceSlug ?? ''} placeholder="arcasa" onChange={(event) => setDialog({ ...dialog, superthreadWorkspaceSlug: event.target.value })} /></label>
+      <label>Superthread API Token Env Variable<input value={dialog.superthreadApiTokenEnvVar ?? 'ST_TOKEN'} placeholder="ST_TOKEN" required onChange={(event) => setDialog({ ...dialog, superthreadApiTokenEnvVar: event.target.value })} /></label>
+      <SuperthreadMappingFields dialog={dialog} setDialog={setDialog} />
     </>}
     <label>Delivery workflow<select value={dialog.deliveryWorkflow ?? 'local_merge'} onChange={(event) => setDialog({ ...dialog, deliveryWorkflow: event.target.value as 'local_merge' | 'github_pull_request' })}><option value="local_merge">Local merge</option><option value="github_pull_request">GitHub pull request</option></select></label>
     <label>Target branch<input value={dialog.targetBranch ?? 'main'} required onChange={(event) => setDialog({ ...dialog, targetBranch: event.target.value })} /></label>

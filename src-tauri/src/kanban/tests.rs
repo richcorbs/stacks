@@ -19,8 +19,8 @@ fn count_traced_reads(sql: &str) {
 fn test_project(connection: &Connection, id: &str, source: &str, path: &str) {
     crate::store::migrate_store_schema(connection).unwrap();
     connection.execute(
-        "INSERT OR REPLACE INTO projects (id, name, path, kanban_source, superthread_spaces, sort_order) VALUES (?1, ?1, ?2, ?3, ?4, 0)",
-        params![id, path, source, (source == "superthread").then_some("Product")],
+        "INSERT OR REPLACE INTO projects (id, name, path, kanban_source, superthread_spaces, superthread_board_id, superthread_incoming_columns, sort_order) VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, 0)",
+        params![id, path, source, (source == "superthread").then_some("Product"), (source == "superthread").then_some("board"), if source == "superthread" { r#"[{"id":"Doing","name":"Doing"}]"# } else { "[]" }],
     ).unwrap();
 }
 
@@ -1184,6 +1184,40 @@ fn sync_preserves_local_workflow_state() {
 }
 
 #[test]
+fn superthread_scope_suspension_is_reversible_and_preserves_active_states() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "owner", "superthread", "/tmp/owner");
+    sync_cards(&mut connection, "owner", test_superthread_snapshot(vec![
+        superthread_card("planning", None, "board", "Incoming", true),
+        superthread_card("active", None, "board", "Incoming", true),
+    ], true)).unwrap();
+    connection.execute("UPDATE kanban_cards SET status='ready' WHERE external_id='planning'", []).unwrap();
+    connection.execute("UPDATE kanban_cards SET status='agent_working' WHERE external_id='active'", []).unwrap();
+
+    sync_cards(&mut connection, "owner", test_superthread_snapshot(vec![
+        superthread_card("planning", None, "board", "Elsewhere", false),
+        superthread_card("active", None, "board", "Elsewhere", false),
+    ], true)).unwrap();
+    let suspended: (String, Option<String>, i64, Option<String>) = connection.query_row(
+        "SELECT status,completion_outcome,scope_suspended,scope_prior_status FROM kanban_cards WHERE external_id='planning'", [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).unwrap();
+    assert_eq!(suspended, ("done".into(), Some("closed".into()), 1, Some("ready".into())));
+    assert_eq!(connection.query_row("SELECT status FROM kanban_cards WHERE external_id='active'", [], |row| row.get::<_, String>(0)).unwrap(), "agent_working");
+
+    sync_cards(&mut connection, "owner", test_superthread_snapshot(vec![
+        superthread_card("planning", None, "board", "Incoming", true),
+        superthread_card("active", None, "board", "Incoming", true),
+    ], true)).unwrap();
+    let restored: (String, Option<String>, i64) = connection.query_row(
+        "SELECT status,completion_outcome,scope_suspended FROM kanban_cards WHERE external_id='planning'", [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(restored, ("ready".into(), None, 0));
+}
+
+#[test]
 fn superthread_snapshots_reconcile_only_when_complete_and_restore_retained_rows() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
@@ -1225,7 +1259,7 @@ fn superthread_snapshots_reconcile_only_when_complete_and_restore_retained_rows(
     ).unwrap();
     assert_eq!(
         row,
-        ("Saved".into(), "new-board".into(), 0, "approved".into(), 1)
+        ("Saved".into(), "new-board".into(), 1, "approved".into(), 1)
     );
     assert_eq!(
         connection

@@ -49,8 +49,31 @@ export type SuperthreadBoardsResponse = {
 };
 
 export type CreateSuperthreadCardRequest = {
-  spaces: string;
+  boardId: string;
+  apiTokenEnvVar: string;
+  listId: string;
   workspaceSlug: string;
   title: string;
   content: string;
+};
+
+export type SuperthreadMappingDraft = {
+  spaces: string;
+  api_token_env_var: string;
+  board_id: string;
+  incoming_column_ids: string[];
+  default_incoming_column_id: string;
+  in_progress_column_id: string;
+  done_column_id: string;
+};
+
+export type SuperthreadMappingTestResult = {
+  board_id: string;
+  board_name: string;
+  incoming_columns: Array<{ id: string; name: string }>;
+  default_incoming_column_id: string;
+  in_progress_column_id: string;
+  in_progress_column_name: string;
+  done_column_id: string;
+  done_column_name: string;
 };

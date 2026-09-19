@@ -782,6 +782,11 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   align-items: center;
 }
 .settingsInlineField input { flex: 1; }
+.settingsInlineAction { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
+.settingsInlineAction button { flex: 0 0 auto; border: 1px solid #2d3d4f; background: #1a2531; color: inherit; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.settingsInlineAction button:disabled { cursor: default; opacity: .55; }
+.settingsInlineAction [role="status"] { color: #8295a8; font-size: calc(11px + var(--ui-font-delta, 0px)); line-height: 1.35; }
+.settingsProjectFields select[multiple] { min-height: 72px; padding: 4px; }
 .settingsInlineField button {
   flex: 0 0 auto;
   margin-top: 6px;

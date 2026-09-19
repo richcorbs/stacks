@@ -17,19 +17,28 @@ pub(in crate::kanban) fn sync_cards(
 ) -> Result<Vec<KanbanCard>, String> {
     let owner = connection
         .query_row(
-            "SELECT name, COALESCE(kanban_source, 'local'), COALESCE(superthread_spaces, '') FROM projects WHERE id=?1",
+            "SELECT name, COALESCE(kanban_source, 'local'), COALESCE(superthread_spaces, ''), COALESCE(superthread_board_id,''), COALESCE(superthread_incoming_columns,'[]') FROM projects WHERE id=?1",
             [owner_project_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)),
         )
         .optional()
         .map_err(db_error)?;
     match owner {
         None => return Err("Superthread sync owner project was not found.".to_string()),
-        Some((name, source, _)) if source != "superthread" => {
-            return Err(format!("Project {name} is not the configured Superthread owner."))
+        Some((name, source, _, _, _)) if source != "superthread" => {
+            return Err(format!(
+                "Project {name} is not the configured Superthread owner."
+            ))
         }
-        Some((name, _, spaces)) if spaces.trim().is_empty() => {
-            return Err(format!("Configure Superthread spaces on {name} before syncing."));
+        Some((name, _, spaces, _, _)) if spaces.trim().is_empty() => {
+            return Err(format!(
+                "Configure Superthread spaces on {name} before syncing."
+            ));
+        }
+        Some((name, _, _, board, _)) if board.trim().is_empty() => {
+            return Err(format!(
+                "Configure the Superthread board and columns on {name} before syncing."
+            ));
         }
         Some(_) => {}
     }
@@ -57,9 +66,10 @@ pub(in crate::kanban) fn sync_cards(
         snapshot.successful_scope_ids.len(),
         snapshot.successful_board_ids.len(),
     );
-    let _failure_details_are_well_formed = snapshot.failed_scopes.iter().all(|failure| {
-        !failure.scope.trim().is_empty() && !failure.message.trim().is_empty()
-    });
+    let _failure_details_are_well_formed = snapshot
+        .failed_scopes
+        .iter()
+        .all(|failure| !failure.scope.trim().is_empty() && !failure.message.trim().is_empty());
     let fetched_ids = snapshot
         .cards
         .iter()
@@ -87,7 +97,10 @@ pub(in crate::kanban) fn sync_cards(
             continue;
         }
         for child in &hydration.children {
-            child_claims.entry(child.id.trim().to_string()).or_default().push(parent_id.to_string());
+            child_claims
+                .entry(child.id.trim().to_string())
+                .or_default()
+                .push(parent_id.to_string());
         }
     }
     for parents in child_claims.values().filter(|parents| parents.len() > 1) {
@@ -100,6 +113,15 @@ pub(in crate::kanban) fn sync_cards(
             continue;
         }
         let local_id = format!("superthread:{}", card.id.trim());
+        let was_existing = transaction
+            .query_row(
+                "SELECT 1 FROM kanban_cards WHERE id=?1",
+                [&local_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(db_error)?
+            .is_some();
         transaction.execute(
             "INSERT INTO kanban_cards (
                 id, external_provider, external_id, title, content, board_id, board_title,
@@ -118,7 +140,7 @@ pub(in crate::kanban) fn sync_cards(
                 parent_id=CASE WHEN ?17 THEN excluded.parent_id ELSE kanban_cards.parent_id END,
                 provider_parent_title=CASE WHEN ?17 THEN excluded.provider_parent_title ELSE kanban_cards.provider_parent_title END,
                 provider_child_count=excluded.provider_child_count,
-                in_scope=CASE WHEN ?16 IS NULL THEN kanban_cards.in_scope ELSE ?16 END, updated_at=excluded.updated_at",
+                in_scope=CASE WHEN ?16 IS NULL THEN kanban_cards.in_scope ELSE 1 END, updated_at=excluded.updated_at",
             params![
                 local_id,
                 card.id.trim(),
@@ -139,19 +161,44 @@ pub(in crate::kanban) fn sync_cards(
                 card.parent_relationship_hydrated,
             ],
         ).map_err(db_error)?;
+        match card.in_scope {
+            Some(false) if was_existing => {
+                transaction.execute(
+                    "UPDATE kanban_cards SET scope_suspended=1,scope_prior_status=status,status='done',completion_outcome='closed',workflow_revision=workflow_revision+1,in_scope=1,updated_at=?1
+                     WHERE id=?2 AND scope_suspended=0 AND status IN ('needs_refinement','needs_refinement_input','ready')",
+                    params![now, local_id],
+                ).map_err(db_error)?;
+            }
+            Some(true) => {
+                transaction.execute(
+                    "UPDATE kanban_cards SET status=scope_prior_status,completion_outcome=NULL,scope_suspended=0,scope_prior_status=NULL,workflow_revision=workflow_revision+1,in_scope=1,updated_at=?1
+                     WHERE id=?2 AND scope_suspended=1 AND scope_prior_status IS NOT NULL",
+                    params![now, local_id],
+                ).map_err(db_error)?;
+            }
+            Some(false) | None => {}
+        }
     }
     // Parent detail collections are authoritative only after provider-side completeness
     // validation. Clear all safe parents first, then assign children in stable order so
     // reparenting cannot depend on request completion order.
-    for hydration in parent_hydrations.iter().filter(|hydration| !unsafe_parents.contains(hydration.parent_id.trim())) {
+    for hydration in parent_hydrations
+        .iter()
+        .filter(|hydration| !unsafe_parents.contains(hydration.parent_id.trim()))
+    {
         let parent_local_id = format!("superthread:{}", hydration.parent_id.trim());
-        transaction.execute(
-            "UPDATE kanban_cards SET parent_id=NULL, provider_parent_title=NULL, updated_at=?1
+        transaction
+            .execute(
+                "UPDATE kanban_cards SET parent_id=NULL, provider_parent_title=NULL, updated_at=?1
              WHERE external_provider='superthread' AND parent_id=?2",
-            params![now, parent_local_id],
-        ).map_err(db_error)?;
+                params![now, parent_local_id],
+            )
+            .map_err(db_error)?;
     }
-    for hydration in parent_hydrations.iter().filter(|hydration| !unsafe_parents.contains(hydration.parent_id.trim())) {
+    for hydration in parent_hydrations
+        .iter()
+        .filter(|hydration| !unsafe_parents.contains(hydration.parent_id.trim()))
+    {
         let parent_local_id = format!("superthread:{}", hydration.parent_id.trim());
         for child in &hydration.children {
             transaction.execute(
@@ -164,13 +211,15 @@ pub(in crate::kanban) fn sync_cards(
     }
     // A provider child remains board-visible while an in-scope authoritative parent
     // references it, even when the child's own list is outside discovery scope.
-    transaction.execute(
-        "UPDATE kanban_cards SET in_scope=1,updated_at=?1
+    transaction
+        .execute(
+            "UPDATE kanban_cards SET in_scope=1,updated_at=?1
          WHERE external_provider='superthread' AND parent_id IN (
             SELECT id FROM kanban_cards WHERE external_provider='superthread' AND in_scope=1
          ) AND in_scope=0",
-        [now],
-    ).map_err(db_error)?;
+            [now],
+        )
+        .map_err(db_error)?;
     if complete {
         let retained = transaction
             .prepare("SELECT external_id FROM kanban_cards WHERE external_provider='superthread'")

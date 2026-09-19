@@ -25,6 +25,7 @@ pub struct SuperthreadService {
     user_names: Arc<Mutex<Option<HashMap<String, String>>>>,
     card_base_urls: Arc<Mutex<HashMap<String, String>>>,
     metadata_generation: Arc<AtomicU64>,
+    token_env_var: Arc<Mutex<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,9 +51,6 @@ struct CardsResponse {
     #[serde(default)]
     cards: Vec<SuperthreadCard>,
 }
-
-const INTAKE_BOARD_TITLE: &str = "Dev - Active";
-const INTAKE_LIST_TITLE: &str = "Backlog";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SuperthreadList {
@@ -131,7 +129,7 @@ pub struct SuperthreadCard {
     pub total_task_children: Option<u64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SuperthreadBoard {
     id: String,
     title: String,
@@ -156,9 +154,11 @@ pub async fn superthread_boards(
     service: State<'_, SuperthreadService>,
     spaces: Vec<String>,
     refresh: bool,
+    api_token_env_var: String,
 ) -> Result<SuperthreadBoardsResponse, String> {
     let service = service.inner().clone();
     run_blocking(move || {
+        service.configure_token_env(&api_token_env_var)?;
         if refresh {
             service.invalidate_metadata();
         }
@@ -171,9 +171,14 @@ pub async fn superthread_boards(
 pub async fn superthread_board_lists(
     service: State<'_, SuperthreadService>,
     board_id: String,
+    api_token_env_var: String,
 ) -> Result<Vec<SuperthreadList>, String> {
     let service = service.inner().clone();
-    run_blocking(move || service.board_lists(&board_id)).await
+    run_blocking(move || {
+        service.configure_token_env(&api_token_env_var)?;
+        service.board_lists(&board_id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -181,9 +186,14 @@ pub async fn superthread_board_cards(
     service: State<'_, SuperthreadService>,
     board_id: String,
     workspace_slug: Option<String>,
+    api_token_env_var: String,
 ) -> Result<Vec<SuperthreadCard>, String> {
     let service = service.inner().clone();
-    run_blocking(move || service.board_cards(&board_id, workspace_slug.as_deref())).await
+    run_blocking(move || {
+        service.configure_token_env(&api_token_env_var)?;
+        service.board_cards(&board_id, workspace_slug.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -191,22 +201,76 @@ pub async fn superthread_card(
     service: State<'_, SuperthreadService>,
     card_id: String,
     workspace_slug: Option<String>,
+    api_token_env_var: String,
 ) -> Result<SuperthreadCard, String> {
     let service = service.inner().clone();
-    run_blocking(move || service.card(&card_id, workspace_slug.as_deref())).await
+    run_blocking(move || {
+        service.configure_token_env(&api_token_env_var)?;
+        service.card(&card_id, workspace_slug.as_deref())
+    })
+    .await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SuperthreadMappingDraft {
+    pub(crate) spaces: String,
+    pub(crate) board_id: String,
+    pub(crate) incoming_column_ids: Vec<String>,
+    pub(crate) default_incoming_column_id: String,
+    pub(crate) in_progress_column_id: String,
+    pub(crate) done_column_id: String,
+    pub(crate) api_token_env_var: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SuperthreadMappingTestResult {
+    pub(crate) board_id: String,
+    pub(crate) board_name: String,
+    pub(crate) incoming_columns: Vec<ColumnMapping>,
+    pub(crate) default_incoming_column_id: String,
+    pub(crate) in_progress_column_id: String,
+    pub(crate) in_progress_column_name: String,
+    pub(crate) done_column_id: String,
+    pub(crate) done_column_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ColumnMapping {
+    pub(crate) id: String,
+    pub(crate) name: String,
+}
+
+#[tauri::command]
+pub async fn superthread_test_mapping(
+    service: State<'_, SuperthreadService>,
+    configuration: SuperthreadMappingDraft,
+) -> Result<SuperthreadMappingTestResult, String> {
+    let service = service.inner().clone();
+    run_blocking(move || service.test_mapping(&configuration)).await
 }
 
 #[tauri::command]
 pub async fn superthread_create_card(
     service: State<'_, SuperthreadService>,
-    spaces: Vec<String>,
+    board_id: String,
+    list_id: String,
     title: String,
     content: String,
     workspace_slug: Option<String>,
+    api_token_env_var: String,
 ) -> Result<SuperthreadCard, String> {
     let service = service.inner().clone();
-    run_blocking(move || service.create_card(&spaces, &title, &content, workspace_slug.as_deref()))
-        .await
+    run_blocking(move || {
+        service.configure_token_env(&api_token_env_var)?;
+        service.create_card(
+            &board_id,
+            &list_id,
+            &title,
+            &content,
+            workspace_slug.as_deref(),
+        )
+    })
+    .await
 }
 
 async fn run_blocking<T: Send + 'static>(
@@ -218,9 +282,39 @@ async fn run_blocking<T: Send + 'static>(
 }
 
 impl SuperthreadService {
+    pub(crate) fn configure_token_env(&self, name: &str) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty()
+            || !name
+                .starts_with(|character: char| character == '_' || character.is_ascii_alphabetic())
+            || !name
+                .chars()
+                .all(|character| character == '_' || character.is_ascii_alphanumeric())
+        {
+            return Err(
+                "Superthread API Token Env Variable must be a valid environment variable name"
+                    .into(),
+            );
+        }
+        *self.token_env_var.lock().map_err(lock_error)? = name.to_string();
+        Ok(())
+    }
+
+    fn api_token(&self) -> Option<String> {
+        let name = self.token_env_var.lock().ok().map(|name| {
+            if name.is_empty() {
+                "ST_TOKEN".to_string()
+            } else {
+                name.clone()
+            }
+        })?;
+        env::var(name).ok().filter(|token| !token.trim().is_empty())
+    }
+
     fn boards(&self, included_spaces: &[String]) -> Result<SuperthreadBoardsResponse, String> {
         let cli = self.cli_path()?;
-        let spaces: Vec<Space> = run_st_json(&cli, &["spaces", "list"])?;
+        let token = self.api_token();
+        let spaces: Vec<Space> = run_st_json(&cli, &["spaces", "list"], token.as_deref())?;
         let included_spaces = included_spaces
             .iter()
             .map(|space| space.trim())
@@ -255,10 +349,12 @@ impl SuperthreadService {
                 .cloned()
                 .map(|space| {
                     let cli = cli.clone();
+                    let token = token.clone();
                     std::thread::spawn(move || {
                         let result = run_st_json::<Vec<BoardSummary>>(
                             &cli,
                             &["boards", "list", "--space", &space.id],
+                            token.as_deref(),
                         );
                         (space, result)
                     })
@@ -298,7 +394,9 @@ impl SuperthreadService {
     fn board_lists(&self, board_id: &str) -> Result<Vec<SuperthreadList>, String> {
         require_id(board_id, "Board")?;
         let cli = self.cli_path()?;
-        let detail: BoardDetail = run_st_json(&cli, &["boards", "get", board_id.trim()])?;
+        let token = self.api_token();
+        let detail: BoardDetail =
+            run_st_json(&cli, &["boards", "get", board_id.trim()], token.as_deref())?;
         Ok(detail.lists)
     }
 
@@ -309,6 +407,7 @@ impl SuperthreadService {
     ) -> Result<Vec<SuperthreadCard>, String> {
         require_id(board_id, "Board")?;
         let cli = self.cli_path()?;
+        let token = self.api_token();
         let mut response: CardsResponse = run_st_json(
             &cli,
             &[
@@ -319,6 +418,7 @@ impl SuperthreadService {
                 "--status",
                 "all",
             ],
+            token.as_deref(),
         )?;
         let card_base_url = self.card_base_url(&cli, workspace_slug);
         let user_names = self.user_names(&cli)?;
@@ -329,10 +429,15 @@ impl SuperthreadService {
         Ok(response.cards)
     }
 
-    pub(crate) fn card(&self, card_id: &str, workspace_slug: Option<&str>) -> Result<SuperthreadCard, String> {
+    pub(crate) fn card(
+        &self,
+        card_id: &str,
+        workspace_slug: Option<&str>,
+    ) -> Result<SuperthreadCard, String> {
         require_id(card_id, "Card")?;
         let cli = self.cli_path()?;
-        let mut card = run_st_json(&cli, &["cards", "get", card_id.trim()])?;
+        let token = self.api_token();
+        let mut card = run_st_json(&cli, &["cards", "get", card_id.trim()], token.as_deref())?;
         populate_assignee_names(&mut card, &self.user_names(&cli)?);
         populate_card_url(
             &mut card,
@@ -341,32 +446,132 @@ impl SuperthreadService {
         Ok(card)
     }
 
+    pub(crate) fn test_mapping(
+        &self,
+        configuration: &SuperthreadMappingDraft,
+    ) -> Result<SuperthreadMappingTestResult, String> {
+        let spaces = configuration
+            .spaces
+            .split(',')
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        self.configure_token_env(&configuration.api_token_env_var)?;
+        let cli = self.cli_path()?;
+        let token = self.api_token();
+        let auth: AuthStatus = run_st_json(&cli, &["auth", "status"], token.as_deref())?;
+        if auth.workspace_name.trim().is_empty() {
+            return Err("Superthread authentication did not identify a workspace".into());
+        }
+        let discovery = self.boards(&spaces)?;
+        if !discovery.complete {
+            return Err(discovery
+                .warnings
+                .into_iter()
+                .map(|warning| warning.message)
+                .collect::<Vec<_>>()
+                .join("; "));
+        }
+        let matches = discovery
+            .boards
+            .into_iter()
+            .filter(|board| board.id == configuration.board_id.trim())
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Err(format!(
+                "Configured Superthread board ID '{}' was not found or was ambiguous",
+                configuration.board_id
+            ));
+        }
+        let board = matches[0].clone();
+        let lists = self.board_lists(&board.id)?;
+        let by_id = lists
+            .iter()
+            .map(|list| (list.id.as_str(), list))
+            .collect::<HashMap<_, _>>();
+        let mut all = configuration.incoming_column_ids.clone();
+        all.push(configuration.in_progress_column_id.clone());
+        all.push(configuration.done_column_id.clone());
+        if all.iter().any(|id| id.trim().is_empty()) {
+            return Err("Incoming, In progress, and Stacks is done columns are required".into());
+        }
+        let unique = all
+            .iter()
+            .map(|id| id.trim())
+            .collect::<std::collections::HashSet<_>>();
+        if unique.len() != all.len() {
+            return Err(
+                "Incoming, In progress, and Stacks is done columns must be distinct and unique"
+                    .into(),
+            );
+        }
+        if !configuration
+            .incoming_column_ids
+            .iter()
+            .any(|id| id == &configuration.default_incoming_column_id)
+        {
+            return Err("Default incoming column must be one of the Incoming columns".into());
+        }
+        for id in &all {
+            if !by_id.contains_key(id.trim()) {
+                return Err(format!(
+                    "Configured column ID '{id}' does not belong to board '{}' or was deleted",
+                    board.title
+                ));
+            }
+        }
+        let incoming_columns = configuration
+            .incoming_column_ids
+            .iter()
+            .map(|id| {
+                let list = by_id[id.trim()];
+                ColumnMapping {
+                    id: list.id.clone(),
+                    name: list.title.clone(),
+                }
+            })
+            .collect();
+        Ok(SuperthreadMappingTestResult {
+            board_id: board.id,
+            board_name: board.title,
+            incoming_columns,
+            default_incoming_column_id: configuration.default_incoming_column_id.clone(),
+            in_progress_column_id: configuration.in_progress_column_id.clone(),
+            in_progress_column_name: by_id[configuration.in_progress_column_id.trim()]
+                .title
+                .clone(),
+            done_column_id: configuration.done_column_id.clone(),
+            done_column_name: by_id[configuration.done_column_id.trim()].title.clone(),
+        })
+    }
+
     fn create_card(
         &self,
-        included_spaces: &[String],
+        board_id: &str,
+        list_id: &str,
         title: &str,
         content: &str,
         workspace_slug: Option<&str>,
     ) -> Result<SuperthreadCard, String> {
+        require_id(board_id, "Board")?;
+        require_id(list_id, "List")?;
         let title = title.trim();
         if title.is_empty() {
             return Err("Card title is required".to_string());
         }
-
-        let matching_boards = self
-            .boards(included_spaces)?
-            .boards
+        let list = self
+            .board_lists(board_id)?
             .into_iter()
-            .filter(|board| normalized_title_matches(&board.title, INTAKE_BOARD_TITLE))
-            .collect::<Vec<_>>();
-        let board = require_unique_destination(matching_boards, "board", INTAKE_BOARD_TITLE)?;
-        let matching_lists = self
-            .board_lists(&board.id)?
-            .into_iter()
-            .filter(|list| normalized_title_matches(&list.title, INTAKE_LIST_TITLE))
-            .collect::<Vec<_>>();
-        let list = require_unique_destination(matching_lists, "list", INTAKE_LIST_TITLE)?;
-
+            .find(|list| list.id == list_id)
+            .ok_or_else(|| {
+                "Configured default incoming column does not belong to the configured board"
+                    .to_string()
+            })?;
+        let board = SuperthreadBoard {
+            id: board_id.trim().to_string(),
+            title: String::new(),
+        };
         let cli = self.cli_path()?;
         let mut args = vec![
             "cards",
@@ -381,7 +586,8 @@ impl SuperthreadService {
         if !content.is_empty() {
             args.extend(["--content", content]);
         }
-        let mut card: SuperthreadCard = run_st_json(&cli, &args)?;
+        let token = self.api_token();
+        let mut card: SuperthreadCard = run_st_json(&cli, &args, token.as_deref())?;
         card.title = title.to_string();
         card.content = Some(content.to_string());
         card.board_id = board.id;
@@ -412,7 +618,8 @@ impl SuperthreadService {
             }
         }
         let generation = self.metadata_generation.load(Ordering::SeqCst);
-        let users = load_user_names(cli)?;
+        let token = self.api_token();
+        let users = load_user_names(cli, token.as_deref())?;
         if generation == self.metadata_generation.load(Ordering::SeqCst) {
             if let Ok(mut cache) = self.user_names.lock() {
                 *cache = Some(users.clone());
@@ -432,7 +639,8 @@ impl SuperthreadService {
             }
         }
         let generation = self.metadata_generation.load(Ordering::SeqCst);
-        let url = load_card_base_url(cli, workspace_slug);
+        let token = self.api_token();
+        let url = load_card_base_url(cli, workspace_slug, token.as_deref());
         if generation == self.metadata_generation.load(Ordering::SeqCst) {
             if let (Some(url), Ok(mut cache)) = (url.as_ref(), self.card_base_urls.lock()) {
                 cache.insert(key.to_string(), url.clone());
@@ -452,22 +660,6 @@ impl SuperthreadService {
     }
 }
 
-fn normalized_title_matches(title: &str, expected: &str) -> bool {
-    title.trim().eq_ignore_ascii_case(expected.trim())
-}
-
-fn require_unique_destination<T>(
-    mut matches: Vec<T>,
-    kind: &str,
-    title: &str,
-) -> Result<T, String> {
-    match matches.len() {
-        1 => Ok(matches.remove(0)),
-        0 => Err(format!("Superthread {kind} '{title}' was not found in the configured spaces")),
-        count => Err(format!("Superthread {kind} '{title}' is ambiguous: found {count} matches in the configured spaces")),
-    }
-}
-
 fn space_matches_filter(title: &str, filter: &str) -> bool {
     let title = title.trim();
     let filter = filter.trim();
@@ -484,9 +676,9 @@ fn require_id(value: &str, kind: &str) -> Result<(), String> {
     }
 }
 
-fn load_user_names(cli: &Path) -> Result<HashMap<String, String>, String> {
+fn load_user_names(cli: &Path, token: Option<&str>) -> Result<HashMap<String, String>, String> {
     Ok(
-        run_st_json::<Vec<SuperthreadUser>>(cli, &["users", "list"])?
+        run_st_json::<Vec<SuperthreadUser>>(cli, &["users", "list"], token)?
             .into_iter()
             .map(|user| {
                 let full_name = format!("{} {}", user.first_name.trim(), user.last_name.trim())
@@ -520,14 +712,18 @@ fn populate_assignee_names(card: &mut SuperthreadCard, user_names: &HashMap<Stri
         .collect();
 }
 
-fn load_card_base_url(cli: &Path, configured_slug: Option<&str>) -> Option<String> {
+fn load_card_base_url(
+    cli: &Path,
+    configured_slug: Option<&str>,
+    token: Option<&str>,
+) -> Option<String> {
     let workspace_slug = if let Some(slug) = configured_slug
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
         slugify(slug)
     } else {
-        let status: AuthStatus = run_st_json(cli, &["whoami"]).ok()?;
+        let status: AuthStatus = run_st_json(cli, &["whoami"], token).ok()?;
         env::var("ST_WORKSPACE_SLUG")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -569,10 +765,14 @@ fn slugify(value: &str) -> String {
     slug
 }
 
-fn run_st_json<T: for<'de> Deserialize<'de>>(cli: &Path, args: &[&str]) -> Result<T, String> {
+fn run_st_json<T: for<'de> Deserialize<'de>>(
+    cli: &Path,
+    args: &[&str],
+    token: Option<&str>,
+) -> Result<T, String> {
     let mut full_args = args.to_vec();
     full_args.extend(["--output", "json"]);
-    let output = run_process(cli, &full_args, ST_COMMAND_TIMEOUT)?;
+    let output = run_process(cli, &full_args, ST_COMMAND_TIMEOUT, token)?;
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if message.is_empty() {
@@ -592,12 +792,20 @@ struct ProcessOutput {
     stderr: Vec<u8>,
 }
 
-fn run_process(program: &Path, args: &[&str], timeout: Duration) -> Result<ProcessOutput, String> {
+fn run_process(
+    program: &Path,
+    args: &[&str],
+    timeout: Duration,
+    token: Option<&str>,
+) -> Result<ProcessOutput, String> {
     let mut command = Command::new(program);
     command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(token) = token {
+        command.env("ST_TOKEN", token);
+    }
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command
@@ -680,7 +888,12 @@ fn find_st_cli() -> Result<PathBuf, String> {
     }
 
     let shell = PathBuf::from(env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
-    let output = run_process(&shell, &["-lic", "command -v st"], Duration::from_secs(5))?;
+    let output = run_process(
+        &shell,
+        &["-lic", "command -v st"],
+        Duration::from_secs(5),
+        None,
+    )?;
     let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
     if output.status.success() && path.is_file() {
         return Ok(path);
@@ -741,8 +954,18 @@ mod tests {
         );
         assert_eq!(card.total_task_children, Some(2));
         let children = card.task_children.unwrap();
-        assert_eq!((children[0].task_id.as_str(), children[0].title.as_str(), children[0].status.as_str()), ("2243", "First child", "started"));
-        assert_eq!(serde_json::to_value(card.task_parent.unwrap()).unwrap()["id"], "2240");
+        assert_eq!(
+            (
+                children[0].task_id.as_str(),
+                children[0].title.as_str(),
+                children[0].status.as_str()
+            ),
+            ("2243", "First child", "started")
+        );
+        assert_eq!(
+            serde_json::to_value(card.task_parent.unwrap()).unwrap()["id"],
+            "2240"
+        );
     }
 
     #[test]
@@ -806,7 +1029,52 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn creates_an_unassigned_card_in_the_unique_intake_destination() {
+    fn validates_mapping_ids_and_refreshes_current_labels() {
+        use std::fs;
+        let script = r#"#!/bin/sh
+case "$1 $2" in
+  "auth status") echo '{"workspace_name":"Test workspace"}' ;;
+  "spaces list") echo '[{"id":"s1","title":"Configured"}]' ;;
+  "boards list") echo '[{"id":"b1","title":"Renamed board"},{"id":"b2","title":"Renamed board"}]' ;;
+  "boards get") echo '{"lists":[{"id":"in1","title":"Renamed incoming"},{"id":"progress","title":"Doing"},{"id":"done","title":"Shipped"}]}' ;;
+  *) echo "unexpected arguments: $*" >&2; exit 2 ;;
+esac
+"#;
+        let (service, path) = fixture_service(script);
+        let draft = SuperthreadMappingDraft {
+            spaces: "Configured".into(),
+            board_id: "b1".into(),
+            incoming_column_ids: vec!["in1".into()],
+            default_incoming_column_id: "in1".into(),
+            in_progress_column_id: "progress".into(),
+            done_column_id: "done".into(),
+            api_token_env_var: "ST_TOKEN".into(),
+        };
+        let tested = service.test_mapping(&draft).unwrap();
+        assert_eq!(
+            (tested.board_id.as_str(), tested.board_name.as_str()),
+            ("b1", "Renamed board")
+        );
+        assert_eq!(tested.incoming_columns[0].name, "Renamed incoming");
+
+        let mut duplicate = draft.clone();
+        duplicate.incoming_column_ids.push("progress".into());
+        assert!(service
+            .test_mapping(&duplicate)
+            .unwrap_err()
+            .contains("distinct"));
+        let mut deleted = draft;
+        deleted.done_column_id = "other-board-list".into();
+        assert!(service
+            .test_mapping(&deleted)
+            .unwrap_err()
+            .contains("does not belong"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_an_unassigned_card_in_the_configured_destination() {
         use std::fs;
         let log = env::temp_dir().join(format!("stacks-st-log-{}", uuid::Uuid::new_v4()));
         let script = format!(
@@ -826,7 +1094,8 @@ esac
 
         let card = service
             .create_card(
-                &["Configured".to_string()],
+                "b1",
+                "l1",
                 "  Ship card  ",
                 "Detailed brief",
                 Some("Example Workspace"),
@@ -836,7 +1105,7 @@ esac
         assert_eq!(card.title, "Ship card");
         assert_eq!(card.content.as_deref(), Some("Detailed brief"));
         assert_eq!(card.board_id, "b1");
-        assert_eq!(card.board_title, " dev - active ");
+        assert_eq!(card.board_title, "");
         assert_eq!(card.list_id, "l1");
         assert_eq!(card.list_title, " BACKLOG ");
         assert!(card.assignee_names.is_empty());
@@ -849,12 +1118,7 @@ esac
         assert!(!args.contains("assignee"));
 
         service
-            .create_card(
-                &["Configured".to_string()],
-                "No brief",
-                "",
-                Some("Example Workspace"),
-            )
+            .create_card("b1", "l1", "No brief", "", Some("Example Workspace"))
             .unwrap();
         let args = fs::read_to_string(&log).unwrap();
         assert_eq!(
@@ -868,57 +1132,25 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn validates_the_intake_destination_before_creation() {
+    fn validates_the_configured_destination_before_creation() {
         use std::fs;
-        for (boards, lists, expected) in [
-            (
-                "[]",
-                r#"[{"id":"l1","title":"Backlog","behavior":"backlog"}]"#,
-                "was not found",
-            ),
-            (
-                r#"[{"id":"b1","title":"Dev - Active"},{"id":"b2","title":"DEV - ACTIVE"}]"#,
-                r#"[{"id":"l1","title":"Backlog","behavior":"backlog"}]"#,
-                "ambiguous",
-            ),
-            (
-                r#"[{"id":"b1","title":"Dev - Active"}]"#,
-                "[]",
-                "was not found",
-            ),
-            (
-                r#"[{"id":"b1","title":"Dev - Active"}]"#,
-                r#"[{"id":"l1","title":"Backlog","behavior":"backlog"},{"id":"l2","title":" backlog ","behavior":"backlog"}]"#,
-                "ambiguous",
-            ),
-        ] {
-            let marker = env::temp_dir().join(format!("stacks-st-create-{}", uuid::Uuid::new_v4()));
-            let script = format!(
-                r#"#!/bin/sh
+        let marker = env::temp_dir().join(format!("stacks-st-create-{}", uuid::Uuid::new_v4()));
+        let script = format!(
+            r#"#!/bin/sh
 case "$1 $2" in
-  "spaces list") echo '[{{"id":"s1","title":"Configured"}}]' ;;
-  "boards list") echo '{}' ;;
-  "boards get") echo '{{"lists":{}}}' ;;
-  "cards create") touch '{}'; echo '{{"id":"48","title":"Card","list_id":"l1"}}' ;;
+  "boards get") echo '{{"lists":[{{"id":"other","title":"Other"}}]}}' ;;
+  "cards create") touch '{}'; echo '{{"id":"48","title":"Card","list_id":"other"}}' ;;
   *) echo "unexpected arguments: $*" >&2; exit 2 ;;
 esac
 "#,
-                boards,
-                lists,
-                marker.display()
-            );
-            let (service, path) = fixture_service(&script);
-            let error = service
-                .create_card(&["Configured".to_string()], "Card", "", Some("test"))
-                .unwrap_err();
-            assert!(error.contains(expected), "unexpected error: {error}");
-            assert!(
-                !marker.exists(),
-                "create command ran after validation failed"
-            );
-            let _ = fs::remove_file(path);
-            let _ = fs::remove_file(marker);
-        }
+            marker.display()
+        );
+        let (service, path) = fixture_service(&script);
+        let error = service.create_card("b1", "missing", "Card", "", Some("test")).unwrap_err();
+        assert!(error.contains("does not belong"), "unexpected error: {error}");
+        assert!(!marker.exists(), "create command ran after validation failed");
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(marker);
     }
 
     #[cfg(unix)]
@@ -928,6 +1160,7 @@ esac
             Path::new("/bin/sh"),
             &["-c", "sleep 1"],
             Duration::from_millis(10),
+            None,
         )
         .unwrap_err();
         assert!(error.contains("timed out"));

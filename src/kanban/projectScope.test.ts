@@ -37,7 +37,7 @@ describe('cross-project Kanban scope', () => {
   });
 
   it('offers local destinations plus one enabled Superthread destination', () => {
-    const remote = { ...project('remote'), kanban_source: 'superthread' as const, superthread_spaces: 'Product' };
+    const remote = configuredRemote();
     expect(cardCreationProjects([...projects, remote], false)).toEqual(projects);
     expect(cardCreationProjects([...projects, remote], true)).toEqual([...projects, remote]);
     expect(cardCreationProjects([...projects, remote, { ...remote, id: 'other' }], true)).toEqual(projects);
@@ -56,7 +56,7 @@ describe('cross-project Kanban scope', () => {
     expect(filtered.title).toMatch(/Enable the Superthread integration/);
     const missingSpaces = cardCreationAvailability([...projects, remote], remote, true);
     expect(missingSpaces.disabled).toBe(true);
-    expect(missingSpaces.title).toMatch(/Configure Superthread spaces/);
+    expect(missingSpaces.title).toMatch(/Configure and test/);
     const allProjects = cardCreationAvailability([...projects, remote], null, false);
     expect(allProjects.disabled).toBe(false);
     expect(allProjects.destinations).toEqual(projects);
@@ -64,7 +64,7 @@ describe('cross-project Kanban scope', () => {
 });
 
 describe('manual Superthread sync visibility', () => {
-  const remote = { ...project('remote'), kanban_source: 'superthread' as const, superthread_spaces: 'Product' };
+  const remote = configuredRemote();
 
   it('is enabled globally or for the selected owner and hidden for a selected local project', () => {
     const resolution = uniqueSuperthreadProject([...projects, remote]);
@@ -86,10 +86,16 @@ describe('manual Superthread sync visibility', () => {
     const unconfigured = superthreadSyncAvailability(true, uniqueSuperthreadProject([...projects, missingSpaces]), null);
     expect(unconfigured.visible).toBe(true);
     expect(unconfigured.disabled).toBe(true);
-    expect(unconfigured.title).toMatch(/Configure Superthread spaces on Project remote/);
+    expect(unconfigured.title).toMatch(/Configure and test.*Project remote/);
     expect(superthreadSyncAvailability(true, uniqueSuperthreadProject([...projects, remote]), null)).toEqual({ visible: true, disabled: false });
   });
 });
+
+function configuredRemote(): Project {
+  return { ...project('remote'), kanban_source: 'superthread', superthread_spaces: 'Product', superthread_board_id: 'board',
+    superthread_board_name: 'Board', superthread_incoming_columns: [{ id: 'incoming', name: 'Incoming' }],
+    superthread_default_incoming_column_id: 'incoming', superthread_in_progress_column_id: 'progress', superthread_done_column_id: 'done' };
+}
 
 function project(id: string): Project {
   return { id, name: `Project ${id}`, path: `/tmp/${id}`, workspaces: [], kanban_source: 'local' };

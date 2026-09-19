@@ -66,12 +66,16 @@ use release::{
     release_start, ReleaseRegistry,
 };
 use settings::{
-    load_settings, patch_app_settings, reset_settings, save_app_settings, save_current_window_state, save_window_state,
+    load_settings, patch_app_settings, reset_settings, save_app_settings,
+    save_current_window_state, save_window_state,
 };
-use store::{create_project, delete_project, load_project_notes, load_store, save_project_notes, save_store, update_project_configuration};
+use store::{
+    create_project, delete_project, load_project_notes, load_store, save_project_notes, save_store,
+    update_project_configuration,
+};
 use superthread::{
     superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
-    superthread_create_card, SuperthreadService,
+    superthread_create_card, superthread_test_mapping, SuperthreadService,
 };
 use workspace_setup::{cancel_workspace_setup, WorkspaceSetupState};
 
@@ -210,6 +214,7 @@ pub fn run() {
             superthread_board_cards,
             superthread_card,
             superthread_create_card,
+            superthread_test_mapping,
             cancel_workspace_setup,
         ])
         .setup(|app| {

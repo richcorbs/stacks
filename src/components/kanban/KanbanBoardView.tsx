@@ -33,10 +33,13 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
   const superthreadOwner = uniqueSuperthreadProject(projects);
   const provider = useMemo(() => {
     const owner = superthreadOwner.project;
-    return superthreadEnabled && owner?.superthread_spaces?.trim() ? superthreadIntegration({
-      ownerProjectId: owner.id,
-      spaces: owner.superthread_spaces,
-      workspaceSlug: owner.superthread_workspace_slug,
+    return superthreadEnabled && owner?.superthread_spaces?.trim() && owner.superthread_board_id && owner.superthread_board_name
+      && owner.superthread_default_incoming_column_id && owner.superthread_incoming_columns?.length ? superthreadIntegration({
+      ownerProjectId: owner.id, spaces: owner.superthread_spaces, workspaceSlug: owner.superthread_workspace_slug,
+      boardId: owner.superthread_board_id, boardName: owner.superthread_board_name,
+      incomingColumnIds: owner.superthread_incoming_columns.map((column) => column.id),
+      defaultIncomingColumnId: owner.superthread_default_incoming_column_id,
+      apiTokenEnvVar: owner.superthread_api_token_env_var ?? 'ST_TOKEN',
     }) : null;
   }, [superthreadEnabled, superthreadOwner.project]);
   const board = useKanbanBoard(provider);

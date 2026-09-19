@@ -35,7 +35,7 @@ describe('Superthread card provider creation', () => {
       card_url: 'https://app.superthread.com/example/card-48',
     });
 
-    await expect(superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product, Engineering', workspaceSlug: 'example' }).create('New card', 'Detailed brief')).resolves.toEqual({
+    await expect(superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product, Engineering', workspaceSlug: 'example', boardId: 'board-1', boardName: 'Dev - Active', incomingColumnIds: ['list-1'], defaultIncomingColumnId: 'list-1' }).create('New card', 'Detailed brief')).resolves.toEqual({
       id: '48',
       title: 'New card',
       content: 'Detailed brief',
@@ -52,7 +52,9 @@ describe('Superthread card provider creation', () => {
       in_scope: true,
     });
     expect(createMock).toHaveBeenCalledWith({
-      spaces: 'Product, Engineering',
+      boardId: 'board-1',
+      apiTokenEnvVar: 'ST_TOKEN',
+      listId: 'list-1',
       workspaceSlug: 'example',
       title: 'New card',
       content: 'Detailed brief',
@@ -79,14 +81,12 @@ describe('Superthread card provider creation', () => {
       list_id: 'unknown', list_title: '', total_comments: 0, assignee_names: [], card_url: '',
     }]);
 
-    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync();
-    expect(snapshot.cards).toHaveLength(3);
+    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product', boardId: 'good', boardName: 'Dev - Active', incomingColumnIds: ['doing'], defaultIncomingColumnId: 'doing' }).sync();
+    expect(snapshot.cards).toHaveLength(1);
     expect(snapshot.cards[0]).toMatchObject({ id: '1', content: null, in_scope: true, parent_relationship_hydrated: false });
-    expect(snapshot.cards[1]).toMatchObject({ id: '2', content: '', in_scope: false });
-    expect(snapshot.cards[2]).toMatchObject({ id: '3', in_scope: null });
     expect(snapshot.successful_board_ids).toEqual(['good']);
-    expect(snapshot.failed_scopes).toEqual([{ scope: 'board:bad:lists', message: 'list access denied' }]);
-    expect(snapshot.complete).toBe(false);
+    expect(snapshot.failed_scopes).toEqual([]);
+    expect(snapshot.complete).toBe(true);
   });
 
   it('maps detailed parent coverage authoritatively', async () => {
@@ -95,7 +95,7 @@ describe('Superthread card provider creation', () => {
       list_id: 'doing', list_title: 'Doing', total_comments: 0, assignee_names: [], card_url: '',
       task_parent: { id: '2240', title: 'Parent card' },
     });
-    const provider = superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' });
+    const provider = superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product', boardId: 'board-1', boardName: 'Dev - Active', incomingColumnIds: ['doing'], defaultIncomingColumnId: 'doing' });
     const local = {
       id: 'superthread:2242', provider: 'superthread' as const, external_id: '2242', title: 'Child', content: '',
       board_id: 'board-1', board_title: 'Dev - Active', list_id: 'doing', list_title: 'Doing', card_url: '', assignee_names: [],
@@ -124,7 +124,7 @@ describe('Superthread card provider creation', () => {
       task_children: id === '2240' ? [{ task_id: '2242', title: 'Child', status: 'started' }] : null,
     }));
 
-    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync(false, ['superthread:3000']);
+    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product', boardId: 'board-1', boardName: 'Dev - Active', incomingColumnIds: ['doing'], defaultIncomingColumnId: 'doing' }).sync(false, ['superthread:3000']);
 
     expect(cardMock.mock.calls.map(([id]) => id)).toEqual(['2240', '3000']);
     expect(snapshot.parent_hydrations).toEqual([
@@ -142,7 +142,7 @@ describe('Superthread card provider creation', () => {
       task_children: [{ task_id: id === '30' ? 'other' : 'shared', title: 'Child', status: 'started' }],
     }));
 
-    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync();
+    const snapshot = await superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product', boardId: 'board-1', boardName: 'Dev - Active', incomingColumnIds: ['doing'], defaultIncomingColumnId: 'doing' }).sync();
 
     expect(snapshot.parent_hydrations).toEqual([]);
     expect(snapshot.failed_scopes.map(({ scope }) => scope)).toEqual(expect.arrayContaining([
@@ -173,8 +173,8 @@ describe('Superthread card provider creation', () => {
 
   it('classifies a fully discovered empty snapshot as complete', async () => {
     boardsMock.mockResolvedValue({ boards: [], successful_space_ids: ['space-1'], warnings: [], complete: true });
-    await expect(superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product' }).sync()).resolves.toMatchObject({
-      cards: [], successful_scope_ids: ['space-1'], successful_board_ids: [], failed_scopes: [], complete: true,
+    await expect(superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product', boardId: 'board-1', boardName: 'Dev - Active', incomingColumnIds: ['doing'], defaultIncomingColumnId: 'doing' }).sync()).resolves.toMatchObject({
+      cards: [], successful_scope_ids: ['space-1'], successful_board_ids: [], complete: false,
     });
   });
 });

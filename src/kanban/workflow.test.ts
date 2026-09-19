@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjacentKanbanStatus, isManagedSuperthreadList, KANBAN_LANES, reorderKanbanCardIds } from './workflow';
+import { adjacentKanbanStatus, KANBAN_LANES, reorderKanbanCardIds } from './workflow';
 
 describe('Kanban workflow', () => {
   it('orders refinement ownership before the execution lifecycle', () => {
@@ -13,21 +13,6 @@ describe('Kanban workflow', () => {
       ['approved', 'Ready to merge'],
       ['done', 'Done'],
     ]);
-  });
-
-  it('imports execution columns from every board', () => {
-    expect(isManagedSuperthreadList('Roadmap', 'Doing')).toBe(true);
-    expect(isManagedSuperthreadList('Other board', ' in REVIEW ')).toBe(true);
-    expect(isManagedSuperthreadList('Dev - Active', 'QA')).toBe(true);
-    expect(isManagedSuperthreadList('Roadmap', 'Done')).toBe(false);
-    expect(isManagedSuperthreadList('OBSOLETE - Product Roadmap - Active', 'Doing')).toBe(false);
-  });
-
-  it('only imports Backlog and To Do from Dev - Active', () => {
-    expect(isManagedSuperthreadList('Dev - Active', 'Backlog')).toBe(true);
-    expect(isManagedSuperthreadList(' dev - ACTIVE ', 'To Do')).toBe(true);
-    expect(isManagedSuperthreadList('Roadmap', 'Backlog')).toBe(false);
-    expect(isManagedSuperthreadList('Other board', 'To Do')).toBe(false);
   });
 
   it('moves through the local workflow in order', () => {
