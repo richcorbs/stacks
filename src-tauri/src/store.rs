@@ -48,6 +48,30 @@ struct Project {
     releases_enabled: bool,
     #[serde(default = "default_release_config_path")]
     release_config_path: String,
+    #[serde(default)]
+    config_revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectConfigurationInput {
+    id: String,
+    name: String,
+    path: String,
+    #[serde(default)] kanban_source: Option<String>,
+    #[serde(default)] start_work_command: Option<String>,
+    #[serde(default)] superthread_spaces: Option<String>,
+    #[serde(default)] superthread_workspace_slug: Option<String>,
+    #[serde(default)] server_command: Option<String>,
+    #[serde(default)] console_command: Option<String>,
+    #[serde(default = "default_delivery_workflow")] delivery_workflow: String,
+    #[serde(default = "default_target_branch")] target_branch: String,
+    #[serde(default)] supports_feature_environments: bool,
+    #[serde(default = "default_merge_strategy")] github_merge_strategy: String,
+    #[serde(default = "default_true")] require_passing_ci: bool,
+    #[serde(default)] require_approval: bool,
+    #[serde(default)] releases_enabled: bool,
+    #[serde(default = "default_release_config_path")] release_config_path: String,
+    #[serde(default)] expected_revision: i64,
 }
 
 fn default_release_config_path() -> String {
@@ -130,6 +154,7 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
         ("superthread_workspace_slug", "ALTER TABLE projects ADD COLUMN superthread_workspace_slug TEXT"),
         ("releases_enabled", "ALTER TABLE projects ADD COLUMN releases_enabled INTEGER NOT NULL DEFAULT 0"),
         ("release_config_path", "ALTER TABLE projects ADD COLUMN release_config_path TEXT NOT NULL DEFAULT '.stacks/release.json'"),
+        ("config_revision", "ALTER TABLE projects ADD COLUMN config_revision INTEGER NOT NULL DEFAULT 0"),
     ] {
         if !columns.iter().any(|column| column == name) { connection.execute(sql, []).map_err(db_error)?; }
     }
@@ -272,6 +297,158 @@ pub fn save_store(store: ProjectStore) -> Result<(), String> {
     write_legacy_json_mirror(&store)
 }
 
+fn validate_project_input(input: &ProjectConfigurationInput) -> Result<(), String> {
+    if input.name.trim().is_empty() || input.path.trim().is_empty() {
+        return Err("Name and directory are required".into());
+    }
+    let branch = normalize_target_branch(&input.target_branch);
+    if !valid_branch_name(branch) {
+        return Err(format!("Invalid target branch for project {}", input.name.trim()));
+    }
+    if input.kanban_source.as_deref() == Some("superthread")
+        && input.superthread_spaces.as_deref().unwrap_or_default().trim().is_empty()
+    {
+        return Err("Superthread spaces are required".into());
+    }
+    Ok(())
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
+}
+
+fn persist_targeted_store(store: ProjectStore) -> Result<ProjectStore, String> {
+    write_legacy_json_mirror(&store)?;
+    Ok(store)
+}
+
+#[tauri::command]
+pub fn create_project(input: ProjectConfigurationInput) -> Result<ProjectStore, String> {
+    validate_project_input(&input)?;
+    let store = kanban::with_connection(|connection| {
+        if connection.query_row("SELECT 1 FROM projects WHERE id=?1", [&input.id], |_| Ok(())).optional().map_err(db_error)?.is_some() {
+            return Err("That project already exists".into());
+        }
+        if connection.query_row("SELECT 1 FROM projects WHERE path=?1", [input.path.trim()], |_| Ok(())).optional().map_err(db_error)?.is_some() {
+            return Err("That project directory is already added".into());
+        }
+        let source = if input.kanban_source.as_deref() == Some("superthread") { "superthread" } else { "local" };
+        if source == "superthread" {
+            if let Some(owner) = connection.query_row("SELECT name FROM projects WHERE kanban_source='superthread' LIMIT 1", [], |row| row.get::<_, String>(0)).optional().map_err(db_error)? {
+                return Err(format!("Superthread is already owned by {owner}. Change that project to a local board first."));
+            }
+            let active: i64 = connection.query_row("SELECT COUNT(*) FROM kanban_cards WHERE external_provider='superthread' AND status != 'done'", [], |row| row.get(0)).map_err(db_error)?;
+            let environments: i64 = connection.query_row("SELECT COUNT(*) FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id WHERE c.external_provider='superthread'", [], |row| row.get(0)).map_err(db_error)?;
+            if active > 0 || environments > 0 { return Err(format!("Superthread ownership cannot change: finish {active} active Superthread card(s) and clean up {environments} environment(s) first.")); }
+        }
+        let order: i64 = connection.query_row("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM projects", [], |row| row.get(0)).map_err(db_error)?;
+        let target = normalize_target_branch(&input.target_branch).to_string();
+        let release = if input.release_config_path.trim().is_empty() { default_release_config_path() } else { input.release_config_path.trim().into() };
+        let spaces = if source == "superthread" { non_empty(input.superthread_spaces.clone()) } else { None };
+        let slug = if source == "superthread" { non_empty(input.superthread_workspace_slug.clone()) } else { None };
+        let transaction = connection.transaction().map_err(db_error)?;
+        transaction.execute(
+            "INSERT INTO projects(id,name,path,kanban_source,start_work_command,superthread_spaces,superthread_workspace_slug,server_command,console_command,sort_order,delivery_workflow,target_branch,supports_feature_environments,github_merge_strategy,require_passing_ci,require_approval,releases_enabled,release_config_path,config_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,0)",
+            params![input.id, input.name.trim(), input.path.trim(), source, non_empty(input.start_work_command), spaces, slug,
+                non_empty(input.server_command), non_empty(input.console_command), order, normalize_delivery_workflow(&input.delivery_workflow), target,
+                input.supports_feature_environments as i64, normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64,
+                input.require_approval as i64, input.releases_enabled as i64, release],
+        ).map_err(db_error)?;
+        if source == "superthread" { transaction.execute("UPDATE kanban_cards SET project_id=?1 WHERE external_provider='superthread'", [&input.id]).map_err(db_error)?; }
+        transaction.commit().map_err(db_error)?;
+        read_store(connection)
+    })?;
+    persist_targeted_store(store)
+}
+
+#[tauri::command]
+pub fn update_project_configuration(input: ProjectConfigurationInput) -> Result<ProjectStore, String> {
+    validate_project_input(&input)?;
+    let store = kanban::with_connection(|connection| {
+        let duplicate = connection.query_row(
+            "SELECT name FROM projects WHERE id != ?1 AND path = ?2 LIMIT 1",
+            params![input.id, input.path.trim()], |row| row.get::<_, String>(0),
+        ).optional().map_err(db_error)?;
+        if duplicate.is_some() { return Err("That project directory is already added".into()); }
+        let (previous_source, current_revision) = connection.query_row(
+            "SELECT COALESCE(kanban_source, 'local'), config_revision FROM projects WHERE id=?1", [&input.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        ).optional().map_err(db_error)?.ok_or_else(|| "Project configuration could not be saved because the project was not found".to_string())?;
+        if current_revision != input.expected_revision {
+            return Err("Project configuration changed since it was loaded; review this draft before saving again".into());
+        }
+        let next_source = if input.kanban_source.as_deref() == Some("superthread") { "superthread" } else { "local" };
+        if next_source == "superthread" {
+            if let Some(owner) = connection.query_row(
+                "SELECT name FROM projects WHERE kanban_source='superthread' AND id != ?1 LIMIT 1", [&input.id], |row| row.get::<_, String>(0),
+            ).optional().map_err(db_error)? {
+                return Err(format!("Superthread is already owned by {owner}. Change that project to a local board first."));
+            }
+        }
+        if previous_source != next_source {
+            let active: i64 = connection.query_row("SELECT COUNT(*) FROM kanban_cards WHERE external_provider='superthread' AND status != 'done'", [], |row| row.get(0)).map_err(db_error)?;
+            let environments: i64 = connection.query_row("SELECT COUNT(*) FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id WHERE c.external_provider='superthread'", [], |row| row.get(0)).map_err(db_error)?;
+            if active > 0 || environments > 0 {
+                return Err(format!("Superthread ownership cannot change: finish {active} active Superthread card(s) and clean up {environments} environment(s) first."));
+            }
+        }
+        let transaction = connection.transaction().map_err(db_error)?;
+        if !update_project_configuration_row(&transaction, &input, next_source)? {
+            return Err("Project configuration changed since it was loaded; review this draft before saving again".into());
+        }
+        if previous_source != next_source {
+            if next_source == "superthread" { transaction.execute("UPDATE kanban_cards SET project_id=?1 WHERE external_provider='superthread'", [&input.id],).map_err(db_error)?; }
+            else { transaction.execute("UPDATE kanban_cards SET project_id=NULL,in_scope=0 WHERE external_provider='superthread'", []).map_err(db_error)?; }
+        }
+        transaction.commit().map_err(db_error)?;
+        read_store(connection)
+    })?;
+    persist_targeted_store(store)
+}
+
+fn update_project_configuration_row(
+    connection: &Connection,
+    input: &ProjectConfigurationInput,
+    source: &str,
+) -> Result<bool, String> {
+    let target_branch = normalize_target_branch(&input.target_branch).to_string();
+    let release_path = if input.release_config_path.trim().is_empty() { default_release_config_path() } else { input.release_config_path.trim().into() };
+    let superthread_spaces = if source == "superthread" { non_empty(input.superthread_spaces.clone()) } else { None };
+    let superthread_slug = if source == "superthread" { non_empty(input.superthread_workspace_slug.clone()) } else { None };
+    connection.execute(
+        "UPDATE projects SET name=?1,path=?2,kanban_source=?3,start_work_command=?4,superthread_spaces=?5,superthread_workspace_slug=?6,server_command=?7,console_command=?8,delivery_workflow=?9,target_branch=?10,supports_feature_environments=?11,github_merge_strategy=?12,require_passing_ci=?13,require_approval=?14,releases_enabled=?15,release_config_path=?16,config_revision=config_revision+1 WHERE id=?17 AND config_revision=?18",
+        params![input.name.trim(), input.path.trim(), source, non_empty(input.start_work_command.clone()), superthread_spaces, superthread_slug,
+            non_empty(input.server_command.clone()), non_empty(input.console_command.clone()), normalize_delivery_workflow(&input.delivery_workflow), target_branch,
+            input.supports_feature_environments as i64, normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64,
+            input.require_approval as i64, input.releases_enabled as i64, release_path, input.id, input.expected_revision],
+    ).map(|changed| changed == 1).map_err(db_error)
+}
+
+#[tauri::command]
+pub fn delete_project(project_id: String) -> Result<ProjectStore, String> {
+    let (store, removed_cards) = kanban::with_connection(|connection| {
+        let source = connection.query_row("SELECT COALESCE(kanban_source,'local') FROM projects WHERE id=?1", [&project_id], |row| row.get::<_, String>(0)).optional().map_err(db_error)?
+            .ok_or_else(|| "Project could not be deleted because it was not found".to_string())?;
+        let active: i64 = connection.query_row("SELECT COUNT(*) FROM kanban_cards WHERE project_id=?1 AND status != 'done'", [&project_id], |row| row.get(0)).map_err(db_error)?;
+        let environments: i64 = connection.query_row("SELECT COUNT(*) FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id WHERE e.project_id=?1 OR c.project_id=?1", [&project_id], |row| row.get(0)).map_err(db_error)?;
+        if active > 0 || environments > 0 { return Err(format!("Project deletion is blocked: finish its {active} active card(s) and clean up its {environments} card environment(s) first.")); }
+        let removed_cards = connection.prepare("SELECT id FROM kanban_cards WHERE project_id=?1 AND external_provider != 'superthread'").map_err(db_error)?
+            .query_map([&project_id], |row| row.get::<_, String>(0)).map_err(db_error)?.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
+        let transaction = connection.transaction().map_err(db_error)?;
+        if source == "superthread" { transaction.execute("UPDATE kanban_cards SET project_id=NULL,in_scope=0 WHERE external_provider='superthread'", []).map_err(db_error)?; }
+        transaction.execute("DELETE FROM kanban_cards WHERE project_id=?1 AND external_provider != 'superthread'", [&project_id]).map_err(db_error)?;
+        transaction.execute("DELETE FROM kanban_project_sequences WHERE project_id=?1", [&project_id]).map_err(db_error)?;
+        transaction.execute("DELETE FROM projects WHERE id=?1", [&project_id]).map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
+        Ok((read_store(connection)?, removed_cards))
+    })?;
+    let store = persist_targeted_store(store)?;
+    for card_id in removed_cards {
+        let directory = crate::kanban::card_directory(&card_id)?;
+        if directory.exists() { fs::remove_dir_all(directory).map_err(|error| format!("Project was deleted, but completed card files could not be removed: {error}"))?; }
+    }
+    Ok(store)
+}
+
 fn write_legacy_json_mirror(store: &ProjectStore) -> Result<(), String> {
     let path = legacy_store_path()?;
     let text = serde_json::to_string_pretty(store).map_err(|error| error.to_string())?;
@@ -380,7 +557,7 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
     let mut project_statement = connection.prepare(
         "SELECT id, name, path, notes, collapsed, kanban_source, start_work_command, superthread_spaces, superthread_workspace_slug, server_command, console_command,
                 delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
-                releases_enabled, release_config_path
+                releases_enabled, release_config_path, config_revision
          FROM projects ORDER BY sort_order, rowid"
     ).map_err(db_error)?;
     let projects = project_statement
@@ -405,6 +582,7 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
                 require_approval: row.get::<_, i64>(16)? != 0,
                 releases_enabled: row.get::<_, i64>(17)? != 0,
                 release_config_path: row.get(18)?,
+                config_revision: row.get(19)?,
                 workspaces: Vec::new(),
             })
         })
@@ -564,14 +742,14 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
         transaction.execute(
             "INSERT INTO projects (id, name, path, notes, notes_revision, collapsed, kanban_source, start_work_command, superthread_spaces, superthread_workspace_slug, server_command, console_command, sort_order,
                  delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
-                 releases_enabled, release_config_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+                 releases_enabled, release_config_path, config_revision)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![project.id, project.name, project.path, notes, notes_revision, project.collapsed as i64,
                 project.kanban_source, project.start_work_command, project.superthread_spaces, project.superthread_workspace_slug,
                 project.server_command, project.console_command, project_index as i64,
                 normalize_delivery_workflow(&project.delivery_workflow), target_branch, project.supports_feature_environments as i64,
                 normalize_merge_strategy(&project.github_merge_strategy), project.require_passing_ci as i64, project.require_approval as i64,
-                project.releases_enabled as i64, if project.release_config_path.trim().is_empty() { default_release_config_path() } else { project.release_config_path.clone() }],
+                project.releases_enabled as i64, if project.release_config_path.trim().is_empty() { default_release_config_path() } else { project.release_config_path.clone() }, project.config_revision],
         ).map_err(db_error)?;
         for (workspace_index, workspace) in project.workspaces.iter().enumerate() {
             transaction.execute(
@@ -681,6 +859,7 @@ mod tests {
                 require_approval: false,
                 releases_enabled: false,
                 release_config_path: default_release_config_path(),
+                config_revision: 0,
             }],
         }
     }
@@ -695,6 +874,38 @@ mod tests {
         assert_eq!(store.projects[0].github_merge_strategy, "merge");
         assert!(store.projects[0].require_passing_ci);
         assert!(!store.projects[0].require_approval);
+    }
+
+    #[test]
+    fn targeted_configuration_update_preserves_project_owned_state_and_rejects_stale_drafts() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        write_store(&mut connection, &sample_store()).unwrap();
+        connection.execute("ALTER TABLE projects ADD COLUMN future_value TEXT NOT NULL DEFAULT 'future'", []).unwrap();
+        connection.execute("UPDATE projects SET notes='new notes',notes_revision=7,collapsed=1,sort_order=9,future_value='keep me' WHERE id='p1'", []).unwrap();
+        let input = ProjectConfigurationInput {
+            id: "p1".into(), name: "Renamed".into(), path: "/renamed".into(),
+            kanban_source: Some("local".into()), start_work_command: Some(" setup ".into()),
+            superthread_spaces: None, superthread_workspace_slug: None,
+            server_command: Some("server".into()), console_command: Some("console".into()),
+            delivery_workflow: "github_pull_request".into(), target_branch: "develop".into(),
+            supports_feature_environments: true, github_merge_strategy: "squash".into(),
+            require_passing_ci: false, require_approval: true, releases_enabled: true,
+            release_config_path: "release.json".into(), expected_revision: 0,
+        };
+
+        assert!(update_project_configuration_row(&connection, &input, "local").unwrap());
+        assert!(!update_project_configuration_row(&connection, &input, "local").unwrap());
+        let saved = read_store(&connection).unwrap();
+        let project = &saved.projects[0];
+        assert_eq!((project.name.as_str(), project.path.as_str(), project.config_revision), ("Renamed", "/renamed", 1));
+        assert_eq!(project.workspaces.len(), 1);
+        let untouched: (String, i64, i64, i64, String) = connection.query_row(
+            "SELECT notes,notes_revision,collapsed,sort_order,future_value FROM projects WHERE id='p1'", [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        ).unwrap();
+        assert_eq!(untouched, ("new notes".into(), 7, 1, 9, "keep me".into()));
     }
 
     #[test]
@@ -761,6 +972,7 @@ mod tests {
             require_approval: false,
             releases_enabled: false,
             release_config_path: default_release_config_path(),
+            config_revision: 0,
         });
         write_store(&mut connection, &store).unwrap();
 

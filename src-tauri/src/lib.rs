@@ -66,9 +66,9 @@ use release::{
     release_start, ReleaseRegistry,
 };
 use settings::{
-    load_settings, reset_settings, save_app_settings, save_current_window_state, save_window_state,
+    load_settings, patch_app_settings, reset_settings, save_app_settings, save_current_window_state, save_window_state,
 };
-use store::{load_project_notes, load_store, save_project_notes, save_store};
+use store::{create_project, delete_project, load_project_notes, load_store, save_project_notes, save_store, update_project_configuration};
 use superthread::{
     superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
     superthread_create_card, SuperthreadService,
@@ -118,12 +118,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
+            create_project,
+            update_project_configuration,
+            delete_project,
             load_project_notes,
             save_project_notes,
             load_settings,
             save_window_state,
             save_current_window_state,
             save_app_settings,
+            patch_app_settings,
             reset_settings,
             new_id,
             quit_app,

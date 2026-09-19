@@ -4,7 +4,6 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { AppSettings, DialogState, Project, Store } from '../types';
 import { DEFAULT_APP_SETTINGS, resolveAppSettings, toPersistedAppSettings, type ResolvedAppSettings } from '../settingsModel';
-import { useDebouncedStoreSave } from './useDebouncedSave';
 import { useWindowStatePersistence } from './useWindowStatePersistence';
 import { useAppCloseRequest, useAppToastEvents } from './useAppWindowEvents';
 import { useAppWindowFocusClass } from './useAppWindowFocusClass';
@@ -29,6 +28,30 @@ import { launchWorkAgent } from '../kanban/workAgentLauncher';
 import { flushAllProjectNotes } from '../projectNotes';
 import { useActivityNotifications } from './useActivityNotifications';
 import { GLOBAL_TERMINAL_COMMAND_EVENT, type GlobalTerminalCommand } from '../components/GlobalTerminal';
+import type { GlobalSettingsSection, SettingsPageId } from '../components/SettingsDialog';
+
+function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, current: Project): Project {
+  return { ...current, name: draft.name.trim(), path: draft.path.trim(), kanban_source: draft.kanbanSource ?? 'local',
+    start_work_command: draft.startWorkCommand?.trim() || undefined,
+    superthread_spaces: draft.kanbanSource === 'superthread' ? draft.superthreadSpaces?.trim() : undefined,
+    superthread_workspace_slug: draft.kanbanSource === 'superthread' ? draft.superthreadWorkspaceSlug?.trim() || undefined : undefined,
+    server_command: draft.serverCommand?.trim() || undefined, console_command: draft.consoleCommand?.trim() || undefined,
+    delivery_workflow: draft.deliveryWorkflow ?? 'local_merge', target_branch: draft.targetBranch?.trim() || 'main',
+    supports_feature_environments: draft.supportsFeatureEnvironments ?? false, github_merge_strategy: draft.githubMergeStrategy ?? 'merge',
+    require_passing_ci: draft.requirePassingCi ?? true, require_approval: draft.requireApproval ?? false,
+    releases_enabled: draft.releasesEnabled ?? false, release_config_path: draft.releaseConfigPath?.trim() || '.stacks/release.json' };
+}
+
+function projectConfigurationInput(project: Project, expectedRevision: number) {
+  return { id: project.id, name: project.name, path: project.path, kanban_source: project.kanban_source,
+    start_work_command: project.start_work_command, superthread_spaces: project.superthread_spaces,
+    superthread_workspace_slug: project.superthread_workspace_slug, server_command: project.server_command,
+    console_command: project.console_command, delivery_workflow: project.delivery_workflow ?? 'local_merge',
+    target_branch: project.target_branch ?? 'main', supports_feature_environments: project.supports_feature_environments ?? false,
+    github_merge_strategy: project.github_merge_strategy ?? 'merge', require_passing_ci: project.require_passing_ci ?? true,
+    require_approval: project.require_approval ?? false, releases_enabled: project.releases_enabled ?? false,
+    release_config_path: project.release_config_path ?? '.stacks/release.json', expected_revision: expectedRevision };
+}
 
 export function useAppRootModel() {
   const [loaded, setLoaded] = useState(false);
@@ -37,6 +60,7 @@ export function useAppRootModel() {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId>('global:interface');
   const [oneTimeCommandOpen, setOneTimeCommandOpen] = useState(false);
   const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<string | null>(null);
   const [confirmQuitOpen, setConfirmQuitOpen] = useState(false);
@@ -66,10 +90,25 @@ export function useAppRootModel() {
       .then(([nextStore, settings]) => { setStore(nextStore); setAppSettings(resolveAppSettings(settings)); })
       .catch(console.error).finally(() => setLoaded(true));
   }, []);
-  useDebouncedStoreSave(loaded, store);
+  const persistedSettingsRef = useRef<ResolvedAppSettings | null>(null);
+  const pendingSettingsFieldsRef = useRef(new Set<keyof ResolvedAppSettings>());
+  const settingsSaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
     if (!loaded) return;
-    const timer = window.setTimeout(() => invoke('save_app_settings', { next: toPersistedAppSettings(appSettings) }).catch(console.error), 250);
+    const previous = persistedSettingsRef.current;
+    persistedSettingsRef.current = appSettings;
+    if (!previous) return;
+    (Object.keys(appSettings) as Array<keyof ResolvedAppSettings>)
+      .filter((key) => appSettings[key] !== previous[key])
+      .forEach((key) => pendingSettingsFieldsRef.current.add(key));
+    if (!pendingSettingsFieldsRef.current.size) return;
+    const timer = window.setTimeout(() => {
+      const fields = Array.from(pendingSettingsFieldsRef.current);
+      pendingSettingsFieldsRef.current.clear();
+      settingsSaveChainRef.current = settingsSaveChainRef.current.catch(() => undefined)
+        .then(() => invoke('patch_app_settings', { next: toPersistedAppSettings(appSettings), fields }));
+      void settingsSaveChainRef.current.catch(console.error);
+    }, 250);
     return () => window.clearTimeout(timer);
   }, [appSettings, loaded]);
   useEffect(() => {
@@ -90,7 +129,7 @@ export function useAppRootModel() {
     setDialog({ kind: 'project', name: selected.split('/').filter(Boolean).at(-1) ?? 'Project', path: selected, kanbanSource: 'local', deliveryWorkflow: 'local_merge', targetBranch: 'main', supportsFeatureEnvironments: false, githubMergeStrategy: 'merge', requirePassingCi: true, requireApproval: false, releasesEnabled: false, releaseConfigPath: '.stacks/release.json' });
   }
   function editProject(project: Project) {
-    setDialog({ kind: 'editProject', projectId: project.id, name: project.name, path: project.path, kanbanSource: project.kanban_source, startWorkCommand: project.start_work_command, superthreadSpaces: project.superthread_spaces, superthreadWorkspaceSlug: project.superthread_workspace_slug, serverCommand: project.server_command, consoleCommand: project.console_command, deliveryWorkflow: project.delivery_workflow, targetBranch: project.target_branch, supportsFeatureEnvironments: project.supports_feature_environments, githubMergeStrategy: project.github_merge_strategy, requirePassingCi: project.require_passing_ci, requireApproval: project.require_approval, releasesEnabled: project.releases_enabled, releaseConfigPath: project.release_config_path ?? '.stacks/release.json' });
+    setSettingsPage(`project:${project.id}`); setSettingsOpen(true);
   }
   async function submitDialog() {
     if (!dialog) return;
@@ -115,15 +154,14 @@ export function useAppRootModel() {
       releases_enabled: dialog.releasesEnabled ?? false,
       release_config_path: dialog.releaseConfigPath?.trim() || '.stacks/release.json',
     };
-    const next = { projects: dialog.kind === 'project' ? [...store.projects, project] : store.projects.map((item) => item.id === id ? project : item) };
-    await invoke('save_store', { store: next }); setStore(next); setDialog(null);
+    const next = await invoke<Store>('create_project', { input: projectConfigurationInput(project, 0) });
+    setStore(next); setDialog(null);
     setAppSettings((current) => ({ ...current, kanban_project_id: id }));
   }
   async function deleteConfirmedProject() {
     if (!confirmDeleteProjectId) return;
-    const next = { projects: store.projects.filter((project) => project.id !== confirmDeleteProjectId) };
     try {
-      await invoke('save_store', { store: next }); setStore(next);
+      const saved = await invoke<Store>('delete_project', { projectId: confirmDeleteProjectId }); setStore(saved);
       if (appSettings.kanban_project_id === confirmDeleteProjectId) setAppSettings((current) => ({ ...current, kanban_project_id: null }));
       setConfirmDeleteProjectId(null);
     } catch (error) { showToast(error instanceof Error ? error.message : String(error)); }
@@ -226,7 +264,27 @@ export function useAppRootModel() {
     globalTerminal: { visible: globalTerminalVisible, newTabNonce: globalTerminalNewTabNonce, setVisible: setGlobalTerminalVisible },
     main: { projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork, onPaletteCardsChange: setPaletteCards },
     overlays: {
-      appSettings, setAppSettings, commandPaletteOpen, commandPaletteItems: paletteItems, commandPaletteCardItems: paletteCardItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
+      appSettings, setAppSettings, projects: store.projects, settingsPage, setSettingsPage,
+      saveSettingsSection: async (_section: GlobalSettingsSection, patch: Partial<ResolvedAppSettings>) => {
+        const next = { ...appSettings, ...patch };
+        const save = settingsSaveChainRef.current.catch(() => undefined)
+          .then(() => invoke('patch_app_settings', { next: toPersistedAppSettings(next), fields: Object.keys(patch) }));
+        settingsSaveChainRef.current = save;
+        await save;
+        setAppSettings((current) => ({ ...current, ...patch }));
+      },
+      saveProjectConfiguration: async (projectId: string, draft: DialogState, expectedRevision: number) => {
+        if (draft.kind !== 'editProject' || draft.projectId !== projectId) throw new Error('Invalid project draft');
+        const current = store.projects.find((project) => project.id === projectId); if (!current) throw new Error('Project not found');
+        const candidate = dialogProject(draft, current);
+        const saved = await invoke<Store>('update_project_configuration', { input: projectConfigurationInput(candidate, expectedRevision) });
+        setStore(saved);
+      },
+      deleteSettingsProject: async (projectId: string) => {
+        const saved = await invoke<Store>('delete_project', { projectId }); setStore(saved);
+        if (appSettings.kanban_project_id === projectId) setAppSettings((current) => ({ ...current, kanban_project_id: null }));
+      },
+      commandPaletteOpen, commandPaletteItems: paletteItems, commandPaletteCardItems: paletteCardItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
       dialog, confirmDeleteProject: store.projects.find((project) => project.id === confirmDeleteProjectId) ?? null, confirmQuitOpen, toast, setDialog,
       closeCommandPalette: () => setCommandPaletteOpen(false), closeSettings: () => setSettingsOpen(false),
       notificationsUnavailable: (message: string) => { setAppSettings((current) => ({ ...current, activity_notifications: false })); showToast(message, 5000); },
