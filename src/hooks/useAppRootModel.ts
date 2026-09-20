@@ -34,6 +34,8 @@ function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, cur
   return { ...current, name: draft.name.trim(), path: draft.path.trim(), kanban_source: draft.kanbanSource ?? 'local',
     start_work_command: draft.startWorkCommand?.trim() || undefined,
     superthread_spaces: draft.kanbanSource === 'superthread' ? draft.superthreadSpaces?.trim() : undefined,
+    superthread_workspace_id: draft.superthreadWorkspaceId, superthread_workspace_name: draft.superthreadWorkspaceName,
+    superthread_space_id: draft.superthreadSpaceId, superthread_space_name: draft.superthreadSpaceName, superthread_binding_id: draft.superthreadBindingId,
     superthread_workspace_slug: draft.kanbanSource === 'superthread' ? draft.superthreadWorkspaceSlug?.trim() || undefined : undefined,
     superthread_api_token_env_var: draft.kanbanSource === 'superthread' ? draft.superthreadApiTokenEnvVar?.trim() || 'ST_TOKEN' : undefined,
     superthread_board_id: draft.kanbanSource === 'superthread' ? draft.superthreadBoardId : undefined,
@@ -54,6 +56,8 @@ function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, cur
 function projectConfigurationInput(project: Project, expectedRevision: number) {
   return { id: project.id, name: project.name, path: project.path, kanban_source: project.kanban_source,
     start_work_command: project.start_work_command, superthread_spaces: project.superthread_spaces,
+    superthread_workspace_id: project.superthread_workspace_id, superthread_workspace_name: project.superthread_workspace_name,
+    superthread_space_id: project.superthread_space_id, superthread_space_name: project.superthread_space_name, superthread_binding_id: project.superthread_binding_id,
     superthread_workspace_slug: project.superthread_workspace_slug, superthread_api_token_env_var: project.superthread_api_token_env_var,
     superthread_board_id: project.superthread_board_id,
     superthread_board_name: project.superthread_board_name, superthread_incoming_columns: project.superthread_incoming_columns,
@@ -134,6 +138,13 @@ export function useAppRootModel() {
   useWindowStatePersistence();
   useAppWindowFocusClass();
   useAppToastEvents(showToast);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow().listen<string>('superthread-credential-rotated', () => {
+      showToast('Superthread credential changed. Affected Pi sessions were restarted.');
+    }).then((cleanup) => { unlisten = cleanup; }).catch(console.error);
+    return () => unlisten?.();
+  }, [showToast]);
   useAppCloseRequest(requestQuit);
   useNativeFileDropRouter();
   useActivityNotifications({ settings: appSettings, setSettings: setAppSettings, projects: store.projects, showToast });
@@ -153,13 +164,13 @@ export function useAppRootModel() {
     const duplicate = store.projects.find((project) => project.path === path && (dialog.kind === 'project' || project.id !== dialog.projectId));
     if (duplicate) throw new Error('That project directory is already added');
     const id = dialog.kind === 'project' ? crypto.randomUUID() : dialog.projectId;
-    const existingOwner = store.projects.find((project) => project.kanban_source === 'superthread' && project.id !== id);
-    if (dialog.kanbanSource === 'superthread' && existingOwner) throw new Error(`Superthread is already owned by ${existingOwner.name}. Change that project to a local board first.`);
     if (dialog.kanbanSource === 'superthread' && !dialog.superthreadSpaces?.trim()) throw new Error('Superthread spaces are required');
     const project: Project = {
       id, name, path, workspaces: [], kanban_source: dialog.kanbanSource ?? 'local',
       start_work_command: dialog.startWorkCommand?.trim() || undefined,
       superthread_spaces: dialog.kanbanSource === 'superthread' ? dialog.superthreadSpaces?.trim() : undefined,
+      superthread_workspace_id: dialog.superthreadWorkspaceId, superthread_workspace_name: dialog.superthreadWorkspaceName,
+      superthread_space_id: dialog.superthreadSpaceId, superthread_space_name: dialog.superthreadSpaceName, superthread_binding_id: dialog.superthreadBindingId,
       superthread_workspace_slug: dialog.kanbanSource === 'superthread' ? dialog.superthreadWorkspaceSlug?.trim() || undefined : undefined,
       superthread_api_token_env_var: dialog.kanbanSource === 'superthread' ? dialog.superthreadApiTokenEnvVar?.trim() || 'ST_TOKEN' : undefined,
       superthread_board_id: dialog.kanbanSource === 'superthread' ? dialog.superthreadBoardId : undefined,

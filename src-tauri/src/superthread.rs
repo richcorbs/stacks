@@ -19,17 +19,32 @@ use wait_timeout::ChildExt;
 const ST_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 const BOARD_DISCOVERY_CONCURRENCY: usize = 4;
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct SuperthreadService {
     cli_path: Arc<Mutex<Option<PathBuf>>>,
-    user_names: Arc<Mutex<Option<HashMap<String, String>>>>,
+    user_names: Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
     card_base_urls: Arc<Mutex<HashMap<String, String>>>,
     metadata_generation: Arc<AtomicU64>,
-    token_env_var: Arc<Mutex<String>>,
+    // Deliberately not shared between clones. Every command first clones the managed
+    // service and configures that operation-local clone, so concurrent projects can
+    // never overwrite one another's credential selection.
+    token_env_var: Mutex<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct Space {
+impl Clone for SuperthreadService {
+    fn clone(&self) -> Self {
+        Self {
+            cli_path: self.cli_path.clone(),
+            user_names: self.user_names.clone(),
+            card_base_urls: self.card_base_urls.clone(),
+            metadata_generation: self.metadata_generation.clone(),
+            token_env_var: Mutex::new(self.token_env_var.lock().map(|value| value.clone()).unwrap_or_default()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Space {
     id: String,
     title: String,
 }
@@ -80,7 +95,12 @@ struct SuperthreadUser {
 
 #[derive(Debug, Deserialize)]
 struct AuthStatus {
+    #[serde(default, alias = "id", alias = "account_id")]
+    workspace_id: String,
+    #[serde(alias = "name", alias = "account_name")]
     workspace_name: String,
+    #[serde(default, alias = "app_slug")]
+    workspace_slug: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -147,6 +167,50 @@ pub struct SuperthreadBoardsResponse {
     successful_space_ids: Vec<String>,
     warnings: Vec<IntegrationWarning>,
     complete: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SuperthreadConnectionResult {
+    workspace_id: String,
+    workspace_name: String,
+    workspace_slug: Option<String>,
+    spaces: Vec<Space>,
+}
+
+#[tauri::command]
+pub async fn superthread_test_connection(
+    service: State<'_, SuperthreadService>,
+    api_token_env_var: String,
+) -> Result<SuperthreadConnectionResult, String> {
+    let service = service.inner().clone();
+    run_blocking(move || {
+        service.configure_token_env(&api_token_env_var)?;
+        let cli = service.cli_path()?;
+        let token = service.api_token()?;
+        let auth: AuthStatus = run_st_json(&cli, &["auth", "status"], Some(&token))?;
+        if auth.workspace_id.trim().is_empty() || auth.workspace_name.trim().is_empty() {
+            return Err("Superthread authentication did not return a stable workspace ID and name".into());
+        }
+        let spaces = run_st_json(&cli, &["spaces", "list"], Some(&token))?;
+        Ok(SuperthreadConnectionResult { workspace_id: auth.workspace_id, workspace_name: auth.workspace_name, workspace_slug: auth.workspace_slug, spaces })
+    }).await
+}
+
+#[tauri::command]
+pub async fn superthread_boards_for_space(
+    service: State<'_, SuperthreadService>,
+    space_id: String,
+    api_token_env_var: String,
+) -> Result<Vec<SuperthreadBoard>, String> {
+    let service = service.inner().clone();
+    run_blocking(move || {
+        service.configure_token_env(&api_token_env_var)?;
+        require_id(&space_id, "Space")?;
+        let cli = service.cli_path()?;
+        let token = service.api_token()?;
+        let boards: Vec<BoardSummary> = run_st_json(&cli, &["boards", "list", "--space", space_id.trim()], Some(&token))?;
+        Ok(boards.into_iter().map(|board| SuperthreadBoard { id: board.id, title: board.title }).collect())
+    }).await
 }
 
 #[tauri::command]
@@ -224,6 +288,11 @@ pub struct SuperthreadMappingDraft {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SuperthreadMappingTestResult {
+    pub(crate) workspace_id: String,
+    pub(crate) workspace_name: String,
+    pub(crate) space_id: String,
+    pub(crate) space_name: String,
+    pub(crate) workspace_slug: Option<String>,
     pub(crate) board_id: String,
     pub(crate) board_name: String,
     pub(crate) incoming_columns: Vec<ColumnMapping>,
@@ -307,11 +376,7 @@ impl SuperthreadService {
         } else {
             name.as_str()
         };
-        env::var(name)
-            .ok()
-            .filter(|token| !token.trim().is_empty())
-            .or_else(|| token_from_login_shell(name))
-            .ok_or_else(|| format!("Superthread API token environment variable {name} is not set in the app or login shell; Stacks does not use the Superthread CLI config token"))
+        resolve_api_token(name)
     }
 
     fn boards(&self, included_spaces: &[String]) -> Result<SuperthreadBoardsResponse, String> {
@@ -504,6 +569,15 @@ impl SuperthreadService {
         if auth.workspace_name.trim().is_empty() {
             return Err("Superthread authentication did not identify a workspace".into());
         }
+        if spaces.len() != 1 {
+            return Err("Select exactly one Superthread space".into());
+        }
+        let all_spaces: Vec<Space> = run_st_json(&cli, &["spaces", "list"], Some(&token))?;
+        let selected_spaces = all_spaces.into_iter().filter(|space| space_matches_filter(&space.title, &spaces[0])).collect::<Vec<_>>();
+        if selected_spaces.len() != 1 {
+            return Err("Configured Superthread space was not found or was ambiguous; select it by stable ID".into());
+        }
+        let selected_space = selected_spaces[0].clone();
         let discovery = self.boards(&spaces)?;
         if !discovery.complete {
             return Err(discovery
@@ -573,6 +647,11 @@ impl SuperthreadService {
             })
             .collect();
         Ok(SuperthreadMappingTestResult {
+            workspace_id: auth.workspace_id,
+            workspace_name: auth.workspace_name,
+            space_id: selected_space.id,
+            space_name: selected_space.title,
+            workspace_slug: auth.workspace_slug,
             board_id: board.id,
             board_name: board.title,
             incoming_columns,
@@ -652,8 +731,9 @@ impl SuperthreadService {
     }
 
     fn user_names(&self, cli: &Path) -> Result<HashMap<String, String>, String> {
+        let credential_key = self.token_env_var.lock().map_err(lock_error)?.clone();
         if let Ok(cache) = self.user_names.lock() {
-            if let Some(users) = cache.as_ref() {
+            if let Some(users) = cache.get(&credential_key) {
                 return Ok(users.clone());
             }
         }
@@ -662,19 +742,21 @@ impl SuperthreadService {
         let users = load_user_names(cli, Some(&token))?;
         if generation == self.metadata_generation.load(Ordering::SeqCst) {
             if let Ok(mut cache) = self.user_names.lock() {
-                *cache = Some(users.clone());
+                cache.insert(credential_key, users.clone());
             }
         }
         Ok(users)
     }
 
     fn card_base_url(&self, cli: &Path, workspace_slug: Option<&str>) -> Option<String> {
-        let key = workspace_slug
+        let token_env = self.token_env_var.lock().ok().map(|value| value.clone()).unwrap_or_default();
+        let slug_key = workspace_slug
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("__auto__");
+        let key = format!("{token_env}:{slug_key}");
         if let Ok(cache) = self.card_base_urls.lock() {
-            if let Some(url) = cache.get(key) {
+            if let Some(url) = cache.get(&key) {
                 return Some(url.clone());
             }
         }
@@ -683,7 +765,7 @@ impl SuperthreadService {
         let url = load_card_base_url(cli, workspace_slug, token.as_deref());
         if generation == self.metadata_generation.load(Ordering::SeqCst) {
             if let (Some(url), Ok(mut cache)) = (url.as_ref(), self.card_base_urls.lock()) {
-                cache.insert(key.to_string(), url.clone());
+                cache.insert(key, url.clone());
             }
         }
         url
@@ -692,7 +774,7 @@ impl SuperthreadService {
     fn invalidate_metadata(&self) {
         self.metadata_generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut users) = self.user_names.lock() {
-            *users = None;
+            users.clear();
         }
         if let Ok(mut urls) = self.card_base_urls.lock() {
             urls.clear();
@@ -763,12 +845,8 @@ fn load_card_base_url(
     {
         slugify(slug)
     } else {
-        let status: AuthStatus = run_st_json(cli, &["whoami"], token).ok()?;
-        env::var("ST_WORKSPACE_SLUG")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| slugify(&value))
-            .unwrap_or_else(|| slugify(&status.workspace_name))
+        let status: AuthStatus = run_st_json(cli, &["auth", "status"], token).ok()?;
+        status.workspace_slug.map(|value| slugify(&value)).unwrap_or_default()
     };
     if workspace_slug.is_empty() {
         return None;
@@ -883,12 +961,16 @@ fn run_process(
             return Err(format!("Could not wait for {}: {error}", program.display()));
         }
     };
-    let stdout = stdout_reader
+    let mut stdout = stdout_reader
         .join()
         .map_err(|_| "Could not read process output".to_string())??;
-    let stderr = stderr_reader
+    let mut stderr = stderr_reader
         .join()
         .map_err(|_| "Could not read process errors".to_string())??;
+    if let Some(token) = token.filter(|value| !value.is_empty()) {
+        stdout = redact_bytes(stdout, token);
+        stderr = redact_bytes(stderr, token);
+    }
     Ok(ProcessOutput {
         status,
         stdout,
@@ -912,13 +994,34 @@ fn read_stream(mut stream: impl Read) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn token_from_login_shell(name: &str) -> Option<String> {
-    let shell = PathBuf::from(env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
-    let command = format!("printf '\\036%s\\036' \"${{{name}:-}}\"");
-    let output = run_process(&shell, &["-lic", &command], Duration::from_secs(5), None).ok()?;
-    if !output.status.success() {
-        return None;
+fn redact_bytes(bytes: Vec<u8>, token: &str) -> Vec<u8> {
+    String::from_utf8_lossy(&bytes).replace(token, "[REDACTED]").into_bytes()
+}
+
+pub(crate) fn resolve_api_token(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty()
+        || !name.starts_with(|character: char| character == '_' || character.is_ascii_alphabetic())
+        || !name.chars().all(|character| character == '_' || character.is_ascii_alphanumeric())
+    {
+        return Err("Superthread API Token Env Variable must be a valid environment variable name".into());
     }
+    env::var(name).ok().filter(|token| !token.trim().is_empty())
+        .or_else(|| token_from_login_shell(name))
+        .ok_or_else(|| format!("Superthread API token environment variable {name} is not set in the app or login shell; Stacks does not use the Superthread CLI config token"))
+}
+
+fn token_from_login_shell(name: &str) -> Option<String> {
+    // The shell source is constant. The already-validated variable name is passed as
+    // positional data, not interpolated into executable shell text.
+    let shell = PathBuf::from(env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
+    let output = run_process(
+        &shell,
+        &["-lic", "printf '\\036'; printenv \"$1\"; printf '\\036'", "stacks-token", name],
+        Duration::from_secs(5),
+        None,
+    ).ok()?;
+    if !output.status.success() { return None; }
     let stdout = String::from_utf8(output.stdout).ok()?;
     let token = stdout.split('\u{1e}').nth(1)?.trim().to_string();
     (!token.is_empty()).then_some(token)
@@ -980,6 +1083,25 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("is not set in the app or login shell"));
         assert!(error.contains("does not use the Superthread CLI config token"));
+    }
+
+    #[test]
+    fn operation_clones_keep_credentials_isolated_and_redact_failures() {
+        std::env::set_var("STACKS_ST_TOKEN_ONE", "secret-one");
+        std::env::set_var("STACKS_ST_TOKEN_TWO", "secret-two");
+        let first = SuperthreadService::default();
+        let second = first.clone();
+        first.configure_token_env("STACKS_ST_TOKEN_ONE").unwrap();
+        second.configure_token_env("STACKS_ST_TOKEN_TWO").unwrap();
+        assert_eq!(first.api_token().unwrap(), "secret-one");
+        assert_eq!(second.api_token().unwrap(), "secret-two");
+        let output = run_process(Path::new("/bin/sh"), &["-c", "printf '%s' \"$ST_TOKEN\" >&2; exit 1"], Duration::from_secs(1), Some("secret-one")).unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "[REDACTED]");
+    }
+
+    #[test]
+    fn rejects_variable_names_before_login_shell_resolution() {
+        assert!(resolve_api_token("TOKEN; echo unsafe").unwrap_err().contains("valid environment variable"));
     }
 
     #[test]

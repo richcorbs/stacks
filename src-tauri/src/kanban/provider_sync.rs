@@ -93,6 +93,7 @@ pub(in crate::kanban) fn enqueue_transition(
     ).map_err(db_error)?;
     let inserted = connection.changes() == 1;
     if inserted {
+        connection.execute("UPDATE provider_sync_operations SET binding_id=(SELECT binding_id FROM kanban_cards WHERE id=?1) WHERE id=?2", params![card_id,id]).map_err(db_error)?;
         connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,?2,'system','provider_sync_queued','success',?3)", params![card_id,now,format!("Queued Superthread move from {source_name} to {destination_name}")]).map_err(db_error)?;
         Ok(Some(id))
     } else {

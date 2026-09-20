@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
@@ -35,6 +36,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 }) {
   const cwd = terminal.cwd || workspace.cwd || project.path;
   const pi = usePiSession(terminal.id, cwd, workspace.id, project.id, project.path);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow().listen<string>('superthread-credential-rotated', (event) => {
+      if (event.payload === project.id) pi.restart().catch(console.error);
+    }).then((cleanup) => { unlisten = cleanup; }).catch(console.error);
+    return () => unlisten?.();
+  }, [pi.restart, project.id]);
   const modalUiRequest = pi.uiRequest && !isStructuredPiUiRequest(pi.uiRequest) ? pi.uiRequest : null;
   const [prompt, setPrompt] = useState('');
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);

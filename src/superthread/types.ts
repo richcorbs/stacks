@@ -36,6 +36,14 @@ export type SuperthreadBoard = {
   cards: SuperthreadCard[];
 };
 
+export type SuperthreadSpace = { id: string; title: string };
+export type SuperthreadConnectionResult = {
+  workspace_id: string;
+  workspace_name: string;
+  workspace_slug?: string | null;
+  spaces: SuperthreadSpace[];
+};
+
 export type IntegrationWarning = {
   scope: string;
   message: string;
@@ -68,6 +76,11 @@ export type SuperthreadMappingDraft = {
 };
 
 export type SuperthreadMappingTestResult = {
+  workspace_id: string;
+  workspace_name: string;
+  space_id: string;
+  space_name: string;
+  workspace_slug?: string | null;
   board_id: string;
   board_name: string;
   incoming_columns: Array<{ id: string; name: string }>;

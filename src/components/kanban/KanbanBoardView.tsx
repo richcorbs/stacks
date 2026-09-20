@@ -5,7 +5,7 @@ import { canonicalCardById } from '../../kanban/boardStore';
 import type { KanbanCard, KanbanStatus } from '../../kanban/types';
 import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
 import { superthreadIntegration } from '../../superthread/cardProvider';
-import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, superthreadSyncAvailability, uniqueSuperthreadProject } from '../../kanban/projectScope';
+import { cardCreationAvailability, filterKanbanCards, hasSuperthreadMapping, resolveKanbanProjectFilter, superthreadSyncAvailability } from '../../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../../projectSwitcher';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
@@ -30,20 +30,17 @@ import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
 export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps) {
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
-  const superthreadOwner = uniqueSuperthreadProject(projects);
-  const provider = useMemo(() => {
-    const owner = superthreadOwner.project;
-    return superthreadEnabled && owner?.superthread_spaces?.trim() && owner.superthread_board_id && owner.superthread_board_name
-      && owner.superthread_default_incoming_column_id && owner.superthread_incoming_columns?.length ? superthreadIntegration({
-      ownerProjectId: owner.id, spaces: owner.superthread_spaces, workspaceSlug: owner.superthread_workspace_slug,
-      boardId: owner.superthread_board_id, boardName: owner.superthread_board_name,
-      incomingColumnIds: owner.superthread_incoming_columns.map((column) => column.id),
-      defaultIncomingColumnId: owner.superthread_default_incoming_column_id,
-      apiTokenEnvVar: owner.superthread_api_token_env_var ?? 'ST_TOKEN',
-    }) : null;
-  }, [superthreadEnabled, superthreadOwner.project]);
-  const board = useKanbanBoard(provider);
-  const syncAvailability = superthreadSyncAvailability(superthreadEnabled, superthreadOwner, filterProjectId);
+  const providers = useMemo(() => superthreadEnabled ? projects
+    .filter((project) => project.kanban_source === 'superthread' && hasSuperthreadMapping(project) && (!filterProjectId || project.id === filterProjectId))
+    .map((project) => superthreadIntegration({
+      ownerProjectId: project.id, spaces: project.superthread_spaces!, workspaceSlug: project.superthread_workspace_slug,
+      boardId: project.superthread_board_id!, boardName: project.superthread_board_name!,
+      incomingColumnIds: project.superthread_incoming_columns!.map((column) => column.id),
+      defaultIncomingColumnId: project.superthread_default_incoming_column_id!,
+      apiTokenEnvVar: project.superthread_api_token_env_var ?? 'ST_TOKEN',
+    })) : [], [filterProjectId, projects, superthreadEnabled]);
+  const board = useKanbanBoard(providers);
+  const syncAvailability = superthreadSyncAvailability(superthreadEnabled, projects, filterProjectId);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct' | 'release'>('filter');
   const [releasePickerProjects, setReleasePickerProjects] = useState<Project[]>([]);

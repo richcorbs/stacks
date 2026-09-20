@@ -1,5 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CreateSuperthreadCardRequest, SuperthreadBoard, SuperthreadBoardsResponse, SuperthreadCard, SuperthreadList, SuperthreadMappingDraft, SuperthreadMappingTestResult } from './types';
+import type { CreateSuperthreadCardRequest, SuperthreadBoard, SuperthreadBoardsResponse, SuperthreadCard, SuperthreadConnectionResult, SuperthreadList, SuperthreadMappingDraft, SuperthreadMappingTestResult } from './types';
+
+export function testSuperthreadConnection(apiTokenEnvVar = 'ST_TOKEN') {
+  return invoke<SuperthreadConnectionResult>('superthread_test_connection', { apiTokenEnvVar });
+}
+
+export function fetchSuperthreadBoardsForSpace(spaceId: string, apiTokenEnvVar = 'ST_TOKEN') {
+  return invoke<Array<Pick<SuperthreadBoard, 'id' | 'title'>>>('superthread_boards_for_space', { spaceId, apiTokenEnvVar });
+}
 
 export function fetchSuperthreadBoards(spaces: string, refresh = false, apiTokenEnvVar = 'ST_TOKEN') {
   return invoke<SuperthreadBoardsResponse>('superthread_boards', { spaces: parseSuperthreadSpaces(spaces), refresh, apiTokenEnvVar });

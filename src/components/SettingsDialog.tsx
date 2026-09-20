@@ -46,7 +46,9 @@ function projectDraft(project: Project): DialogState {
   return {
     kind: 'editProject', projectId: project.id, name: project.name, path: project.path,
     kanbanSource: project.kanban_source ?? 'local', startWorkCommand: project.start_work_command,
-    superthreadSpaces: project.superthread_spaces, superthreadWorkspaceSlug: project.superthread_workspace_slug,
+    superthreadSpaces: project.superthread_spaces, superthreadWorkspaceId: project.superthread_workspace_id, superthreadWorkspaceName: project.superthread_workspace_name,
+    superthreadSpaceId: project.superthread_space_id, superthreadSpaceName: project.superthread_space_name, superthreadBindingId: project.superthread_binding_id,
+    superthreadWorkspaceSlug: project.superthread_workspace_slug,
     superthreadApiTokenEnvVar: project.superthread_api_token_env_var ?? 'ST_TOKEN', superthreadBoardId: project.superthread_board_id, superthreadBoardName: project.superthread_board_name,
     superthreadIncomingColumns: project.superthread_incoming_columns, superthreadDefaultIncomingColumnId: project.superthread_default_incoming_column_id,
     superthreadInProgressColumnId: project.superthread_in_progress_column_id, superthreadInProgressColumnName: project.superthread_in_progress_column_name,

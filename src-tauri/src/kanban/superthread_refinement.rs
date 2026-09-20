@@ -363,21 +363,26 @@ fn upsert_provider_card(
     if external_id.is_empty() || card.title.trim().is_empty() {
         return Err("Superthread returned a card without an ID or title".to_string());
     }
-    let local_id = format!("superthread:{external_id}");
-    let parent_id = card
-        .task_parent
-        .as_ref()
-        .map(|parent| format!("superthread:{}", parent.id.trim()));
+    let binding_id: Option<String> = transaction.query_row("SELECT superthread_binding_id FROM projects WHERE id=?1", [project_id], |row| row.get(0)).optional().map_err(db_error)?.flatten();
+    let existing_id = if let Some(binding) = binding_id.as_deref() {
+        transaction.query_row("SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2", params![binding,external_id], |row| row.get::<_,String>(0)).optional().map_err(db_error)?
+    } else { None };
+    let local_id = existing_id.unwrap_or_else(|| binding_id.as_ref().map(|binding| format!("superthread:{binding}:{external_id}")).unwrap_or_else(|| format!("superthread:{external_id}")));
+    let parent_id = if let Some(parent) = card.task_parent.as_ref() {
+        if let Some(binding) = binding_id.as_deref() {
+            transaction.query_row("SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2", params![binding,parent.id.trim()], |row| row.get::<_,String>(0)).optional().map_err(db_error)?
+        } else { Some(format!("superthread:{}", parent.id.trim())) }
+    } else { None };
     let parent_title = card
         .task_parent
         .as_ref()
         .map(|parent| parent.title.trim().to_string());
     let child_count = card.total_task_children.unwrap_or(0) as i64;
     transaction.execute(
-        "INSERT INTO kanban_cards (id,external_provider,external_id,title,content,board_id,board_title,list_id,list_title,card_url,assignee_names,status,project_id,parent_id,provider_parent_title,provider_child_count,created_at,updated_at,sort_order,in_scope)
-         VALUES (?1,'superthread',?2,?3,COALESCE(?4,''),?5,?6,?7,?8,?9,?10,'needs_refinement',?11,?12,?13,?14,?15,?15,(SELECT COALESCE(MAX(sort_order),-1)+1 FROM kanban_cards WHERE status='needs_refinement'),?16)
-         ON CONFLICT(external_provider,external_id) DO UPDATE SET title=excluded.title,content=CASE WHEN ?4 IS NULL THEN kanban_cards.content ELSE ?4 END,board_id=excluded.board_id,board_title=excluded.board_title,list_id=excluded.list_id,list_title=excluded.list_title,card_url=excluded.card_url,assignee_names=excluded.assignee_names,project_id=excluded.project_id,provider_child_count=excluded.provider_child_count,in_scope=MAX(kanban_cards.in_scope,excluded.in_scope),updated_at=excluded.updated_at",
-        params![local_id, external_id, card.title.trim(), card.content, card.board_id, card.board_title, card.list_id, card.list_title, card.card_url, serde_json::to_string(&card.assignee_names).map_err(|error| error.to_string())?, project_id, parent_id, parent_title, child_count, now, i64::from(in_scope)],
+        "INSERT INTO kanban_cards (id,external_provider,external_id,title,content,board_id,board_title,list_id,list_title,card_url,assignee_names,status,project_id,parent_id,provider_parent_title,provider_child_count,created_at,updated_at,sort_order,in_scope,binding_id)
+         VALUES (?1,'superthread',?2,?3,COALESCE(?4,''),?5,?6,?7,?8,?9,?10,'needs_refinement',?11,?12,?13,?14,?15,?15,(SELECT COALESCE(MAX(sort_order),-1)+1 FROM kanban_cards WHERE status='needs_refinement'),?16,?17)
+         ON CONFLICT(id) DO UPDATE SET title=excluded.title,content=CASE WHEN ?4 IS NULL THEN kanban_cards.content ELSE ?4 END,board_id=excluded.board_id,board_title=excluded.board_title,list_id=excluded.list_id,list_title=excluded.list_title,card_url=excluded.card_url,assignee_names=excluded.assignee_names,project_id=excluded.project_id,provider_child_count=excluded.provider_child_count,in_scope=MAX(kanban_cards.in_scope,excluded.in_scope),updated_at=excluded.updated_at",
+        params![local_id, external_id, card.title.trim(), card.content, card.board_id, card.board_title, card.list_id, card.list_title, card.card_url, serde_json::to_string(&card.assignee_names).map_err(|error| error.to_string())?, project_id, parent_id, parent_title, child_count, now, i64::from(in_scope), binding_id],
     ).map_err(db_error)?;
     Ok(())
 }

@@ -75,8 +75,8 @@ use store::{
     update_project_configuration,
 };
 use superthread::{
-    superthread_board_cards, superthread_board_lists, superthread_boards, superthread_card,
-    superthread_create_card, superthread_test_mapping, SuperthreadService,
+    superthread_board_cards, superthread_board_lists, superthread_boards, superthread_boards_for_space, superthread_card,
+    superthread_create_card, superthread_test_connection, superthread_test_mapping, SuperthreadService,
 };
 use workspace_setup::{cancel_workspace_setup, WorkspaceSetupState};
 
@@ -212,6 +212,8 @@ pub fn run() {
             release_recover_prepared,
             release_abandon,
             superthread_boards,
+            superthread_boards_for_space,
+            superthread_test_connection,
             superthread_board_lists,
             superthread_board_cards,
             superthread_card,
