@@ -15,7 +15,7 @@ describe('workflow action presentation', () => {
   it('preserves backend ordering and availability reasons', () => {
     const actions = deriveCardWorkflowActions({ card: card('needs_human', [capability('request_changes'), capability('merge_target'), capability('ship', false, 'Environment missing'), capability('close')]), project });
     expect(actions.map(({ kind }) => kind)).toEqual(['request_changes', 'merge_target', 'ship', 'close']);
-    expect(actions[2]).toMatchObject({ label: 'Commit', disabledReason: 'Environment missing', primary: true });
+    expect(actions[2]).toMatchObject({ label: 'Approve & commit', disabledReason: 'Environment missing', primary: true });
   });
 
   it('keeps plain PR creation primary and FE creation secondary', () => {

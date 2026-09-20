@@ -116,6 +116,22 @@ export function mergeKanbanCard(id: string, expectedWorkflowRevision: number, ex
   return invoke<WorkflowOperationResult>('kanban_merge_card', { id, expectedWorkflowRevision, expectedEnvironmentRevision });
 }
 
+export function pushScriptedDelivery(id: string) {
+  return invoke<{ card: KanbanCard; message: string }>('kanban_scripted_push', { id });
+}
+
+export function deployScriptedDelivery(id: string, rerunUncertain = false) {
+  return invoke<{ card: KanbanCard; message: string }>('kanban_scripted_deploy', { id, rerunUncertain });
+}
+
+export function cancelScriptedDeployment(id: string) {
+  return invoke<void>('kanban_cancel_scripted_deployment', { id });
+}
+
+export function confirmScriptedDeployed(id: string) {
+  return invoke<{ card: KanbanCard; message: string }>('kanban_confirm_scripted_deployed', { id });
+}
+
 export type TargetMergePrepareResult = WorkflowOperationResult & {
   operation_id: string | null;
   state: 'noop' | 'merged' | 'conflicted';

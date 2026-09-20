@@ -6,11 +6,13 @@ export type CardPaletteRegistration = {
   cards: KanbanCard[];
   projects: Project[];
   openCard: (cardId: string) => void;
+  selectedCard?: KanbanCard | null;
+  runSelectedAction?: (action: string) => void;
 };
 
-export function buildCardPaletteItems({ cards, projects, openCard }: CardPaletteRegistration): PaletteItem[] {
+export function buildCardPaletteItems({ cards, projects, openCard, selectedCard, runSelectedAction }: CardPaletteRegistration): PaletteItem[] {
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
-  return cards.map((card) => ({
+  const cardItems: PaletteItem[] = cards.map((card) => ({
     id: `card:${card.id}`,
     kind: 'card',
     title: `#${card.external_id} ${card.title}`,
@@ -19,4 +21,9 @@ export function buildCardPaletteItems({ cards, projects, openCard }: CardPalette
     cardNumber: card.external_id,
     action: () => openCard(card.id),
   }));
+  const labels: Record<string, string> = { merge_local: 'Merge selected card locally', push: 'Push selected card', deploy: 'Deploy selected card', retry_push: 'Retry selected card push', retry_deploy: 'Retry selected card deployment', confirm_deployed: 'Confirm selected card deployed', run_deployment_again: 'Run selected card deployment again' };
+  const workflowItems = selectedCard && runSelectedAction ? selectedCard.capabilities
+    .filter(({ action, available }) => available && action in labels)
+    .map(({ action }) => ({ id: `card-action:${selectedCard.id}:${action}`, kind: 'command' as const, title: labels[action], subtitle: `#${selectedCard.external_id} ${selectedCard.title}`, searchText: `${labels[action]} ${selectedCard.title}`, action: () => runSelectedAction(action) })) : [];
+  return [...workflowItems, ...cardItems];
 }

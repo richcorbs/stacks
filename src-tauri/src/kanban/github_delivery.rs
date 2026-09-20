@@ -17,6 +17,7 @@ pub(in crate::kanban) struct ProjectDeliverySettings {
     pub(in crate::kanban) workflow: DeliveryWorkflow,
     pub(in crate::kanban) target_branch: String,
     pub(in crate::kanban) merge_strategy: String,
+    pub(in crate::kanban) deployment_command: Option<String>,
 }
 
 pub(in crate::kanban) fn project_delivery_settings(
@@ -24,9 +25,9 @@ pub(in crate::kanban) fn project_delivery_settings(
     card_id: &str,
 ) -> Result<ProjectDeliverySettings, String> {
     connection.query_row(
-        "SELECT p.path, p.delivery_workflow, p.target_branch, p.github_merge_strategy, p.require_passing_ci, p.require_approval
+        "SELECT p.path, p.delivery_workflow, p.target_branch, p.github_merge_strategy, p.deployment_command
          FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1", [card_id], |row| Ok(ProjectDeliverySettings {
-            path: row.get(0)?, workflow: row.get(1)?, target_branch: row.get(2)?, merge_strategy: row.get(3)?,
+            path: row.get(0)?, workflow: row.get(1)?, target_branch: row.get(2)?, merge_strategy: row.get(3)?, deployment_command: row.get(4)?,
         }),
     ).map_err(|error| match error { rusqlite::Error::QueryReturnedNoRows => "The card's project was not found".to_string(), other => db_error(other) })
 }

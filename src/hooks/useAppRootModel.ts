@@ -47,7 +47,7 @@ function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, cur
     superthread_done_column_id: draft.kanbanSource === 'superthread' ? draft.superthreadDoneColumnId : undefined,
     superthread_done_column_name: draft.kanbanSource === 'superthread' ? draft.superthreadDoneColumnName : undefined,
     server_command: draft.serverCommand?.trim() || undefined, console_command: draft.consoleCommand?.trim() || undefined,
-    delivery_workflow: draft.deliveryWorkflow ?? 'local_merge', target_branch: draft.targetBranch?.trim() || 'main',
+    delivery_workflow: draft.deliveryWorkflow ?? 'local_merge', deployment_command: draft.deploymentCommand?.trim() || undefined, target_branch: draft.targetBranch?.trim() || 'main',
     supports_feature_environments: draft.supportsFeatureEnvironments ?? false, github_merge_strategy: draft.githubMergeStrategy ?? 'merge',
     require_passing_ci: draft.requirePassingCi ?? true, require_approval: draft.requireApproval ?? false,
     releases_enabled: draft.releasesEnabled ?? false, release_config_path: draft.releaseConfigPath?.trim() || '.stacks/release.json' };
@@ -65,7 +65,7 @@ function projectConfigurationInput(project: Project, expectedRevision: number) {
     superthread_in_progress_column_id: project.superthread_in_progress_column_id, superthread_in_progress_column_name: project.superthread_in_progress_column_name,
     superthread_done_column_id: project.superthread_done_column_id, superthread_done_column_name: project.superthread_done_column_name,
     server_command: project.server_command,
-    console_command: project.console_command, delivery_workflow: project.delivery_workflow ?? 'local_merge',
+    console_command: project.console_command, delivery_workflow: project.delivery_workflow ?? 'local_merge', deployment_command: project.deployment_command,
     target_branch: project.target_branch ?? 'main', supports_feature_environments: project.supports_feature_environments ?? false,
     github_merge_strategy: project.github_merge_strategy ?? 'merge', require_passing_ci: project.require_passing_ci ?? true,
     require_approval: project.require_approval ?? false, releases_enabled: project.releases_enabled ?? false,
@@ -165,6 +165,7 @@ export function useAppRootModel() {
     if (duplicate) throw new Error('That project directory is already added');
     const id = dialog.kind === 'project' ? crypto.randomUUID() : dialog.projectId;
     if (dialog.kanbanSource === 'superthread' && !dialog.superthreadSpaces?.trim()) throw new Error('Superthread spaces are required');
+    if (dialog.deliveryWorkflow === 'scripted_delivery' && !dialog.deploymentCommand?.trim()) throw new Error('Deployment command is required for Scripted delivery');
     const project: Project = {
       id, name, path, workspaces: [], kanban_source: dialog.kanbanSource ?? 'local',
       start_work_command: dialog.startWorkCommand?.trim() || undefined,
@@ -182,7 +183,7 @@ export function useAppRootModel() {
       superthread_done_column_id: dialog.kanbanSource === 'superthread' ? dialog.superthreadDoneColumnId : undefined,
       superthread_done_column_name: dialog.kanbanSource === 'superthread' ? dialog.superthreadDoneColumnName : undefined,
       server_command: dialog.serverCommand?.trim() || undefined,
-      console_command: dialog.consoleCommand?.trim() || undefined, delivery_workflow: dialog.deliveryWorkflow ?? 'local_merge',
+      console_command: dialog.consoleCommand?.trim() || undefined, delivery_workflow: dialog.deliveryWorkflow ?? 'local_merge', deployment_command: dialog.deploymentCommand?.trim() || undefined,
       target_branch: dialog.targetBranch?.trim() || 'main', supports_feature_environments: dialog.supportsFeatureEnvironments ?? false,
       github_merge_strategy: dialog.githubMergeStrategy ?? 'merge', require_passing_ci: dialog.requirePassingCi ?? true,
       require_approval: dialog.requireApproval ?? false,

@@ -17,7 +17,7 @@ export function CardWorkflowControls({ actions, working, onAction }: {
     key={action.kind}
     type="button"
     className={[action.primary && 'primaryAction', action.appearance && appearanceClasses[action.appearance]].filter(Boolean).join(' ')}
-    disabled={working || Boolean(action.disabledReason)}
+    disabled={(working && action.kind !== 'cancel_deployment') || Boolean(action.disabledReason)}
     title={action.disabledReason}
     aria-label={action.label}
     onClick={() => onAction(action)}

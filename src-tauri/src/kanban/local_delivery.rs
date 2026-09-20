@@ -249,9 +249,13 @@ pub(in crate::kanban) fn merge_card(
         return Err("Card environment changed; reload before merging".to_string());
     }
     let settings = project_delivery_settings(connection, id)?;
-    if settings.workflow != DeliveryWorkflow::LocalMerge {
+    if !matches!(
+        settings.workflow,
+        DeliveryWorkflow::LocalMerge | DeliveryWorkflow::ScriptedDelivery
+    ) {
         return Err("This project uses GitHub pull request delivery".to_string());
     }
+    let scripted = settings.workflow == DeliveryWorkflow::ScriptedDelivery;
     let repository_id = repository_id
         .ok_or_else(|| "Set merge target before merging this legacy environment".to_string())?;
     let target_path = target_path
@@ -370,23 +374,44 @@ pub(in crate::kanban) fn merge_card(
     }
     transaction
         .execute(
-            "UPDATE kanban_cards SET delivery_error=NULL WHERE id=?1",
-            [id],
+            "UPDATE kanban_cards SET delivery_error=NULL, delivery_operation_stage=?2 WHERE id=?1",
+            params![
+                id,
+                if scripted {
+                    Some("merged")
+                } else {
+                    None::<&str>
+                }
+            ],
         )
         .map_err(db_error)?;
-    apply_workflow_transition(
-        &transaction,
-        id,
-        WorkflowActor::User,
-        WorkflowAction::MergeLocal,
-        Some(expected_card),
-        "merge_local",
-        Some(if already {
-            "Source was already reachable from target"
-        } else {
-            "Created explicit merge commit"
-        }),
-    )?;
+    if scripted {
+        let now = unix_timestamp();
+        transaction.execute(
+            "INSERT INTO scripted_delivery_operations(card_id,project_id,environment_id,repository_id,primary_checkout_path,target_branch,source_revision,merge_revision,stage,started_at,updated_at)
+             SELECT c.id,c.project_id,e.id,?2,?3,?4,?5,?6,'merged',?7,?7 FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1
+             ON CONFLICT(card_id) DO UPDATE SET source_revision=excluded.source_revision,merge_revision=excluded.merge_revision,stage='merged',verified_push_revision=NULL,deployed_revision=NULL,failure_class=NULL,summary=NULL,updated_at=excluded.updated_at,revision=scripted_delivery_operations.revision+1",
+            params![id, repository_id, target_path, target_branch, source_tip, target_tip, now],
+        ).map_err(db_error)?;
+        transaction.execute(
+            "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','scripted_merge','success','approved','approved',?3)",
+            params![id, now, if already { "Verified source already reachable from target" } else { "Merged source locally; push and deploy remain separate" }],
+        ).map_err(db_error)?;
+    } else {
+        apply_workflow_transition(
+            &transaction,
+            id,
+            WorkflowActor::User,
+            WorkflowAction::MergeLocal,
+            Some(expected_card),
+            "merge_local",
+            Some(if already {
+                "Source was already reachable from target"
+            } else {
+                "Created explicit merge commit"
+            }),
+        )?;
+    }
     transaction.commit().map_err(db_error)?;
     let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
     Ok(WorkflowOperationResult {

@@ -569,7 +569,7 @@ fn list_read_count_is_constant_and_get_card_remains_targeted() {
     TRACED_READS.store(0, Ordering::Relaxed);
     list_cards(&mut connection).unwrap();
     let initial_reads = TRACED_READS.load(Ordering::Relaxed);
-    // Cards, environments/panes, creation, cleanup and provider operations, PRs,
+    // Cards, environments/panes, creation, cleanup, Scripted delivery and provider operations, PRs,
     // events, relationships, and workflow capability project context are each loaded in constant-size batches.
     assert_eq!(initial_reads, 12);
     for index in 0..25 {

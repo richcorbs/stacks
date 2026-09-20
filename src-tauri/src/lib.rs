@@ -38,16 +38,17 @@ use github::{
 use global_terminal::{global_terminal_load_or_create, global_terminal_save};
 use kanban::{
     kanban_abort_target_merge, kanban_apply_pi_lifecycle_intent, kanban_apply_workflow_action,
-    kanban_approve_and_commit, kanban_card_snapshot, kanban_cards, kanban_cleanup_environment,
-    kanban_cleanup_environment_creation, kanban_close_card, kanban_create_local_card,
+    kanban_approve_and_commit, kanban_cancel_scripted_deployment, kanban_card_snapshot,
+    kanban_cards, kanban_cleanup_environment, kanban_cleanup_environment_creation,
+    kanban_close_card, kanban_confirm_scripted_deployed, kanban_create_local_card,
     kanban_create_pull_request, kanban_delete_card, kanban_delete_project_records,
     kanban_environment_health, kanban_environment_start_preflight, kanban_finalize_target_merge,
     kanban_finish_local_refinement, kanban_merge_card, kanban_merge_pull_request, kanban_open_card,
     kanban_prepare_target_merge, kanban_record_agent_launch_failure, kanban_refresh_pull_request,
     kanban_reorder_cards, kanban_retry_provider_sync, kanban_retry_runtime_cleanup,
-    kanban_save_environment_layout, kanban_set_merge_target, kanban_set_project,
-    kanban_start_environment, kanban_status_metadata, kanban_sync_superthread_cards,
-    kanban_update_local_card, kanban_validate_project_deletion,
+    kanban_save_environment_layout, kanban_scripted_deploy, kanban_scripted_push,
+    kanban_set_merge_target, kanban_set_project, kanban_start_environment, kanban_status_metadata,
+    kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
 };
 use menu::app_menu;
 use open::{open_path_in_editor, open_url};
@@ -194,6 +195,10 @@ pub fn run() {
             kanban_set_merge_target,
             kanban_approve_and_commit,
             kanban_merge_card,
+            kanban_scripted_push,
+            kanban_scripted_deploy,
+            kanban_cancel_scripted_deployment,
+            kanban_confirm_scripted_deployed,
             kanban_prepare_target_merge,
             kanban_finalize_target_merge,
             kanban_abort_target_merge,

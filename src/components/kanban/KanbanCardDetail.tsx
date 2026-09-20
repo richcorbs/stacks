@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../../types';
 import type { CardEnvironmentHealth, KanbanCard } from '../../kanban/types';
-import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cleanupKanbanEnvironmentCreation, closeKanbanCard, createKanbanPullRequest, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, retryKanbanRuntimeCleanup } from '../../kanban/api';
+import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cancelScriptedDeployment, cleanupKanbanEnvironmentCreation, closeKanbanCard, confirmScriptedDeployed, createKanbanPullRequest, deployScriptedDelivery, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, pushScriptedDelivery, retryKanbanRuntimeCleanup } from '../../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../../kanban/workflowActions';
 import { DiffTab } from '../DiffTab';
 import { DiffOverlay } from '../DiffOverlay';
@@ -39,6 +40,10 @@ import { publishWorkPresence } from '../../appAttention';
 
 const PiGuiView = lazy(() => import('../PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
+
+function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery']>['stage']) {
+  return ({ merged: 'Merged locally', pushing: 'Pushing…', push_failed: 'Push failed', pushed: 'Pushed', deploying: 'Deploying…', deployment_failed: 'Deployment failed', cancelled: 'Deployment cancelled', uncertain: 'Deployment outcome uncertain', deployed: 'Deployed' } as const)[stage];
+}
 
 export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate }: {
   card: KanbanCard;
@@ -79,6 +84,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const titleInputRef = useRef<HTMLInputElement>(null);
   const [reloadingCard, setReloadingCard] = useState(false);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
+  const [deploymentOutput, setDeploymentOutput] = useState('');
   const workflowRevisionRef = useRef(card.workflow_revision);
   const environmentRevisionRef = useRef(card.environment?.revision ?? 0);
   const layoutRevisionRef = useRef(card.environment?.layout_revision ?? 0);
@@ -236,6 +242,14 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   }
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<{ card_id: string; text: string }>('scripted-delivery-output', ({ payload }) => {
+      if (payload.card_id === card.id) setDeploymentOutput((current) => (current + payload.text).slice(-262144));
+    }).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
+  }, [card.id]);
+
+  useEffect(() => {
     workflowRevisionRef.current = Math.max(workflowRevisionRef.current, card.workflow_revision);
     environmentRevisionRef.current = Math.max(environmentRevisionRef.current, card.environment?.revision ?? 0);
     layoutRevisionRef.current = Math.max(layoutRevisionRef.current, card.environment?.layout_revision ?? 0);
@@ -303,7 +317,14 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   }, [activeView, card.content, card.title, cardTabs, consoleCommand, draftContent, draftTitle, editDirty, editing, serverCommand]);
 
   async function performWorkflowAction(action: CardWorkflowAction) {
-    if (workflow.isRunning() || action.disabledReason) return;
+    if (action.disabledReason) return;
+    if (action.kind === 'cancel_deployment') {
+      setActionError(null);
+      try { await cancelScriptedDeployment(card.id); }
+      catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
+      return;
+    }
+    if (workflow.isRunning()) return;
     if (action.confirmation && !window.confirm(`${action.confirmation.title}\n\n${action.confirmation.detail}`)) return;
     setActionError(null);
     await workflow.run(action.kind, async () => {
@@ -375,6 +396,27 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
           return;
         }
+        case 'push':
+        case 'retry_push': {
+          const result = await pushScriptedDelivery(card.id);
+          onCardUpdated(preserveRevisionValues(result.card));
+          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          return;
+        }
+        case 'deploy':
+        case 'retry_deploy':
+        case 'run_deployment_again': {
+          setDeploymentOutput('');
+          const result = await deployScriptedDelivery(card.id, action.kind === 'run_deployment_again');
+          onCardUpdated(preserveRevisionValues(result.card));
+          return;
+        }
+        case 'cancel_deployment': return;
+        case 'confirm_deployed': {
+          const result = await confirmScriptedDeployed(card.id);
+          onCardUpdated(preserveRevisionValues(result.card));
+          return;
+        }
         case 'create_pr':
         case 'create_pr_with_fe': {
           setActiveView('chat');
@@ -404,6 +446,17 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
       }
     }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
   }
+
+  useEffect(() => {
+    const runPaletteAction = (event: Event) => {
+      const detail = (event as CustomEvent<{ cardId?: string; action?: string }>).detail;
+      if (detail?.cardId !== card.id) return;
+      const action = workflowActions.find((candidate) => candidate.kind === detail.action);
+      if (action) void performWorkflowAction(action);
+    };
+    window.addEventListener('stacks:card-workflow-action', runPaletteAction);
+    return () => window.removeEventListener('stacks:card-workflow-action', runPaletteAction);
+  }, [card.id, workflowActions]);
 
   function submitDiffReview() {
     const prompt = composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments);
@@ -478,6 +531,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
         {project && !card.hierarchy_finalized && (
           <section className={`cardChatView cardView${showChat ? ' active' : ''}`} aria-label="Card chat">
             <div className="cardChat">
+              {deploymentOutput && <details className="scriptedDeliveryOutput"><summary>Deployment output (current session)</summary><pre>{deploymentOutput}</pre></details>}
               <Suspense fallback={<div className="kanbanEmpty">Opening card chat…</div>}>
                 <PiGuiView
                   key={activeChatThread}
@@ -566,11 +620,16 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
                 <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
               </button>
             </div>
-          ) : <CardWorkflowControls
+          ) : <>
+            {card.scripted_delivery && <div className={`scriptedDeliveryStatus stage-${card.scripted_delivery.stage}`}>
+              <span>{scriptedDeliveryLabel(card.scripted_delivery.stage)}</span>
+              {card.scripted_delivery.summary && <small>{card.scripted_delivery.summary}</small>}
+            </div>}
+            <CardWorkflowControls
             actions={workflowActions}
             working={working}
             onAction={performWorkflowAction}
-          />}
+          /></>}
         </footer>
       </article>
     </div>

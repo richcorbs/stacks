@@ -19,6 +19,10 @@ struct Project {
     id: String,
     name: String,
     path: String,
+    #[serde(default)]
+    deployment_command: Option<String>,
+    #[serde(default, skip_deserializing)]
+    delivery_workflow_locked: bool,
     #[serde(default, skip_serializing)]
     notes: String,
     #[serde(default, alias = "terminals", skip_serializing)]
@@ -92,6 +96,8 @@ pub struct ProjectConfigurationInput {
     id: String,
     name: String,
     path: String,
+    #[serde(default)]
+    deployment_command: Option<String>,
     #[serde(default)]
     kanban_source: Option<String>,
     #[serde(default)]
@@ -229,6 +235,7 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
     for (name, sql) in [
         ("notes_revision", "ALTER TABLE projects ADD COLUMN notes_revision INTEGER NOT NULL DEFAULT 0"),
         ("delivery_workflow", "ALTER TABLE projects ADD COLUMN delivery_workflow TEXT NOT NULL DEFAULT 'local_merge'"),
+        ("deployment_command", "ALTER TABLE projects ADD COLUMN deployment_command TEXT"),
         ("target_branch", "ALTER TABLE projects ADD COLUMN target_branch TEXT NOT NULL DEFAULT 'main'"),
         ("supports_feature_environments", "ALTER TABLE projects ADD COLUMN supports_feature_environments INTEGER NOT NULL DEFAULT 0"),
         ("github_merge_strategy", "ALTER TABLE projects ADD COLUMN github_merge_strategy TEXT NOT NULL DEFAULT 'merge'"),
@@ -460,6 +467,16 @@ fn validate_project_input(input: &ProjectConfigurationInput) -> Result<(), Strin
     if input.name.trim().is_empty() || input.path.trim().is_empty() {
         return Err("Name and directory are required".into());
     }
+    if normalize_delivery_workflow(&input.delivery_workflow) == "scripted_delivery"
+        && input
+            .deployment_command
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+    {
+        return Err("Deployment command is required for Scripted delivery".into());
+    }
     let branch = normalize_target_branch(&input.target_branch);
     if !valid_branch_name(branch) {
         return Err(format!(
@@ -626,12 +643,12 @@ fn create_project_validated(input: ProjectConfigurationInput) -> Result<ProjectS
         };
         let transaction = connection.transaction().map_err(db_error)?;
         transaction.execute(
-            "INSERT INTO projects(id,name,path,kanban_source,start_work_command,superthread_spaces,superthread_workspace_slug,superthread_api_token_env_var,superthread_board_id,superthread_board_name,superthread_incoming_columns,superthread_default_incoming_column_id,superthread_in_progress_column_id,superthread_in_progress_column_name,superthread_done_column_id,superthread_done_column_name,superthread_mapping_revision,server_command,console_command,sort_order,delivery_workflow,target_branch,supports_feature_environments,github_merge_strategy,require_passing_ci,require_approval,releases_enabled,release_config_path,config_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,1,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,0)",
+            "INSERT INTO projects(id,name,path,kanban_source,start_work_command,superthread_spaces,superthread_workspace_slug,superthread_api_token_env_var,superthread_board_id,superthread_board_name,superthread_incoming_columns,superthread_default_incoming_column_id,superthread_in_progress_column_id,superthread_in_progress_column_name,superthread_done_column_id,superthread_done_column_name,superthread_mapping_revision,server_command,console_command,sort_order,delivery_workflow,deployment_command,target_branch,supports_feature_environments,github_merge_strategy,require_passing_ci,require_approval,releases_enabled,release_config_path,config_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,1,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,0)",
             params![input.id, input.name.trim(), input.path.trim(), source, non_empty(input.start_work_command.clone()), spaces, slug,
                 input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN").trim(), input.superthread_board_id, input.superthread_board_name, serde_json::to_string(&input.superthread_incoming_columns).map_err(|e| e.to_string())?,
                 input.superthread_default_incoming_column_id, input.superthread_in_progress_column_id, input.superthread_in_progress_column_name,
                 input.superthread_done_column_id, input.superthread_done_column_name, non_empty(input.server_command.clone()), non_empty(input.console_command.clone()), order,
-                normalize_delivery_workflow(&input.delivery_workflow), target, input.supports_feature_environments as i64,
+                normalize_delivery_workflow(&input.delivery_workflow), non_empty(input.deployment_command.clone()), target, input.supports_feature_environments as i64,
                 normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64, input.require_approval as i64, input.releases_enabled as i64, release],
         ).map_err(db_error)?;
         if source == "superthread" {
@@ -750,11 +767,23 @@ fn update_project_configuration_validated(
         if duplicate.is_some() {
             return Err("That project directory is already added".into());
         }
-        let (previous_source, current_revision, previous_mapping_revision) = connection.query_row(
-            "SELECT COALESCE(kanban_source, 'local'), config_revision, superthread_mapping_revision FROM projects WHERE id=?1", [&input.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+        let (previous_source, current_revision, previous_mapping_revision, previous_workflow) = connection.query_row(
+            "SELECT COALESCE(kanban_source, 'local'), config_revision, superthread_mapping_revision, delivery_workflow FROM projects WHERE id=?1", [&input.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, String>(3)?)),
         ).optional().map_err(db_error)?.ok_or_else(|| "Project configuration could not be saved because the project was not found".to_string())?;
         if current_revision != input.expected_revision {
             return Err("Project configuration changed since it was loaded; review this draft before saving again".into());
+        }
+        let next_workflow = normalize_delivery_workflow(&input.delivery_workflow);
+        if previous_workflow != next_workflow {
+            let started: i64 = connection.query_row(
+                "SELECT COUNT(*) FROM kanban_cards c WHERE c.project_id=?1 AND c.status!='done' AND (c.status IN ('agent_working','needs_human','approved') OR EXISTS (SELECT 1 FROM card_environments e WHERE e.card_id=c.id))",
+                [&input.id], |row| row.get(0),
+            ).map_err(db_error)?;
+            if started > 0 {
+                return Err(
+                    "Delivery workflow cannot change while this project has started cards".into(),
+                );
+            }
         }
         let next_source = if input.kanban_source.as_deref() == Some("superthread") {
             "superthread"
@@ -863,14 +892,14 @@ fn update_project_configuration_row(
          superthread_board_id=?7,superthread_board_name=?8,superthread_incoming_columns=?9,superthread_default_incoming_column_id=?10,
          superthread_in_progress_column_id=?11,superthread_in_progress_column_name=?12,superthread_done_column_id=?13,superthread_done_column_name=?14,
          superthread_mapping_revision=superthread_mapping_revision + CASE WHEN COALESCE(superthread_board_id,'')!=COALESCE(?7,'') OR COALESCE((SELECT group_concat(json_extract(value,'$.id'),'|') FROM json_each(superthread_incoming_columns)),'')!=COALESCE((SELECT group_concat(json_extract(value,'$.id'),'|') FROM json_each(?9)),'') OR COALESCE(superthread_default_incoming_column_id,'')!=COALESCE(?10,'') OR COALESCE(superthread_in_progress_column_id,'')!=COALESCE(?11,'') OR COALESCE(superthread_done_column_id,'')!=COALESCE(?13,'') THEN 1 ELSE 0 END,
-         server_command=?15,console_command=?16,delivery_workflow=?17,target_branch=?18,supports_feature_environments=?19,github_merge_strategy=?20,require_passing_ci=?21,require_approval=?22,releases_enabled=?23,release_config_path=?24,config_revision=config_revision+1 WHERE id=?25 AND config_revision=?26",
+         server_command=?15,console_command=?16,delivery_workflow=?17,deployment_command=?28,target_branch=?18,supports_feature_environments=?19,github_merge_strategy=?20,require_passing_ci=?21,require_approval=?22,releases_enabled=?23,release_config_path=?24,config_revision=config_revision+1 WHERE id=?25 AND config_revision=?26",
         params![input.name.trim(), input.path.trim(), source, non_empty(input.start_work_command.clone()), superthread_spaces, superthread_slug,
             input.superthread_board_id, input.superthread_board_name, incoming, input.superthread_default_incoming_column_id,
             input.superthread_in_progress_column_id, input.superthread_in_progress_column_name, input.superthread_done_column_id, input.superthread_done_column_name,
             non_empty(input.server_command.clone()), non_empty(input.console_command.clone()), normalize_delivery_workflow(&input.delivery_workflow), target_branch,
             input.supports_feature_environments as i64, normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64,
             input.require_approval as i64, input.releases_enabled as i64, release_path, input.id, input.expected_revision,
-            input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN").trim()],
+            input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN").trim(), non_empty(input.deployment_command.clone())],
     ).map(|changed| changed == 1).map_err(db_error)
 }
 
@@ -1039,8 +1068,9 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
         "SELECT id, name, path, notes, collapsed, kanban_source, start_work_command, superthread_spaces, superthread_workspace_slug, superthread_api_token_env_var,
                 superthread_board_id, superthread_board_name, superthread_incoming_columns, superthread_default_incoming_column_id,
                 superthread_in_progress_column_id, superthread_in_progress_column_name, superthread_done_column_id, superthread_done_column_name, superthread_mapping_revision,
-                server_command, console_command, delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
-                releases_enabled, release_config_path, config_revision, superthread_workspace_id, superthread_workspace_name, superthread_space_id, superthread_space_name, superthread_binding_id
+                server_command, console_command, delivery_workflow, deployment_command, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
+                releases_enabled, release_config_path, config_revision, superthread_workspace_id, superthread_workspace_name, superthread_space_id, superthread_space_name, superthread_binding_id,
+                EXISTS(SELECT 1 FROM kanban_cards c WHERE c.project_id=projects.id AND c.status!='done' AND (c.status IN ('agent_working','needs_human','approved') OR EXISTS (SELECT 1 FROM card_environments e WHERE e.card_id=c.id)))
          FROM projects ORDER BY sort_order, rowid"
     ).map_err(db_error)?;
     let projects = project_statement
@@ -1049,6 +1079,8 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 path: row.get(2)?,
+                deployment_command: row.get(22)?,
+                delivery_workflow_locked: row.get::<_, i64>(36)? != 0,
                 notes: row.get(3)?,
                 collapsed: row.get::<_, i64>(4)? != 0,
                 kanban_source: row.get(5)?,
@@ -1069,19 +1101,19 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
                 server_command: row.get(19)?,
                 console_command: row.get(20)?,
                 delivery_workflow: row.get(21)?,
-                target_branch: row.get(22)?,
-                supports_feature_environments: row.get::<_, i64>(23)? != 0,
-                github_merge_strategy: row.get(24)?,
-                require_passing_ci: row.get::<_, i64>(25)? != 0,
-                require_approval: row.get::<_, i64>(26)? != 0,
-                releases_enabled: row.get::<_, i64>(27)? != 0,
-                release_config_path: row.get(28)?,
-                config_revision: row.get(29)?,
-                superthread_workspace_id: row.get(30)?,
-                superthread_workspace_name: row.get(31)?,
-                superthread_space_id: row.get(32)?,
-                superthread_space_name: row.get(33)?,
-                superthread_binding_id: row.get(34)?,
+                target_branch: row.get(23)?,
+                supports_feature_environments: row.get::<_, i64>(24)? != 0,
+                github_merge_strategy: row.get(25)?,
+                require_passing_ci: row.get::<_, i64>(26)? != 0,
+                require_approval: row.get::<_, i64>(27)? != 0,
+                releases_enabled: row.get::<_, i64>(28)? != 0,
+                release_config_path: row.get(29)?,
+                config_revision: row.get(30)?,
+                superthread_workspace_id: row.get(31)?,
+                superthread_workspace_name: row.get(32)?,
+                superthread_space_id: row.get(33)?,
+                superthread_space_name: row.get(34)?,
+                superthread_binding_id: row.get(35)?,
                 workspaces: Vec::new(),
             })
         })
@@ -1164,6 +1196,36 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
         .map_err(db_error)?
         .collect::<Result<std::collections::HashMap<_, _>, _>>()
         .map_err(db_error)?;
+    for project in &store.projects {
+        if normalize_delivery_workflow(&project.delivery_workflow) == "scripted_delivery"
+            && project
+                .deployment_command
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+        {
+            return Err("Deployment command is required for Scripted delivery".into());
+        }
+        let persisted_workflow = connection
+            .query_row(
+                "SELECT delivery_workflow FROM projects WHERE id=?1",
+                [&project.id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(db_error)?;
+        if persisted_workflow.as_deref().is_some_and(|workflow| {
+            workflow != normalize_delivery_workflow(&project.delivery_workflow)
+        }) {
+            let started: i64 = connection.query_row("SELECT COUNT(*) FROM kanban_cards c WHERE c.project_id=?1 AND c.status!='done' AND (c.status IN ('agent_working','needs_human','approved') OR EXISTS (SELECT 1 FROM card_environments e WHERE e.card_id=c.id))", [&project.id], |row| row.get(0)).map_err(db_error)?;
+            if started > 0 {
+                return Err(
+                    "Delivery workflow cannot change while this project has started cards".into(),
+                );
+            }
+        }
+    }
     let transaction = connection.transaction().map_err(db_error)?;
     for project_id in &removed_projects {
         transaction
@@ -1196,11 +1258,11 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
             .unwrap_or_default();
         transaction.execute(
             "INSERT INTO projects (id, name, path, notes, notes_revision, collapsed, kanban_source, start_work_command, superthread_spaces, superthread_workspace_slug, server_command, console_command, sort_order,
-                 delivery_workflow, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
+                 delivery_workflow, deployment_command, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
                  releases_enabled, release_config_path, config_revision, superthread_board_id, superthread_board_name, superthread_incoming_columns,
                  superthread_default_incoming_column_id, superthread_in_progress_column_id, superthread_in_progress_column_name,
                  superthread_done_column_id, superthread_done_column_name, superthread_mapping_revision, superthread_api_token_env_var)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?33, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
             params![project.id, project.name, project.path, notes, notes_revision, project.collapsed as i64,
                 project.kanban_source, project.start_work_command, project.superthread_spaces, project.superthread_workspace_slug,
                 project.server_command, project.console_command, project_index as i64,
@@ -1210,7 +1272,7 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
                 project.superthread_board_id, project.superthread_board_name, serde_json::to_string(&project.superthread_incoming_columns).map_err(|e| e.to_string())?,
                 project.superthread_default_incoming_column_id, project.superthread_in_progress_column_id, project.superthread_in_progress_column_name,
                 project.superthread_done_column_id, project.superthread_done_column_name, project.superthread_mapping_revision,
-                project.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN")],
+                project.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN"), project.deployment_command],
         ).map_err(db_error)?;
         for (workspace_index, workspace) in project.workspaces.iter().enumerate() {
             transaction.execute(
@@ -1235,7 +1297,7 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
 }
 
 fn normalize_delivery_workflow(value: &str) -> &str {
-    if value == "github_pull_request" {
+    if matches!(value, "github_pull_request" | "scripted_delivery") {
         value
     } else {
         "local_merge"
@@ -1285,6 +1347,8 @@ mod tests {
                 id: "p1".into(),
                 name: "Project".into(),
                 path: "/repo".into(),
+                deployment_command: None,
+                delivery_workflow_locked: false,
                 notes: "Scratch pad".into(),
                 workspaces: vec![WorkspaceEntry {
                     id: "w1".into(),
@@ -1357,6 +1421,7 @@ mod tests {
             id: "p1".into(),
             name: "Renamed".into(),
             path: "/renamed".into(),
+            deployment_command: None,
             kanban_source: Some("local".into()),
             start_work_command: Some(" setup ".into()),
             superthread_spaces: None,
@@ -1455,6 +1520,8 @@ mod tests {
             id: "remote".into(),
             name: "Remote".into(),
             path: "/remote".into(),
+            deployment_command: None,
+            delivery_workflow_locked: false,
             notes: String::new(),
             workspaces: Vec::new(),
             collapsed: false,

@@ -170,6 +170,22 @@ pub struct CardPullRequest {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ScriptedDeliveryOperation {
+    pub(in crate::kanban) stage: String,
+    pub(in crate::kanban) source_revision: String,
+    pub(in crate::kanban) merge_revision: String,
+    pub(in crate::kanban) verified_push_revision: Option<String>,
+    pub(in crate::kanban) deployed_revision: Option<String>,
+    pub(in crate::kanban) attempt: i64,
+    pub(in crate::kanban) failure_class: Option<String>,
+    pub(in crate::kanban) summary: Option<String>,
+    pub(in crate::kanban) started_at: i64,
+    pub(in crate::kanban) updated_at: i64,
+    pub(in crate::kanban) completed_at: Option<i64>,
+    pub(in crate::kanban) revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CardRelationshipSummary {
     pub(in crate::kanban) id: String,
     pub(in crate::kanban) external_id: String,
@@ -204,6 +220,7 @@ pub struct KanbanCard {
     pub(in crate::kanban) pull_request: Option<CardPullRequest>,
     pub(in crate::kanban) delivery_operation_stage: Option<String>,
     pub(in crate::kanban) delivery_error: Option<String>,
+    pub(in crate::kanban) scripted_delivery: Option<ScriptedDeliveryOperation>,
     pub(in crate::kanban) runtime_cleanup_status: Option<String>,
     pub(in crate::kanban) runtime_cleanup_error: Option<String>,
     pub(in crate::kanban) workflow_revision: i64,

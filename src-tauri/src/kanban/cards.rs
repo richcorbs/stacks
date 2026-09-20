@@ -694,7 +694,12 @@ pub(in crate::kanban) fn workflow_context_for_card(
             .as_ref()
             .map(|pull_request| pull_request.blockers.clone())
             .unwrap_or_default(),
-        resumable_operation: card.delivery_operation_stage.is_some(),
+        resumable_operation: card.delivery_operation_stage.is_some()
+            && card.scripted_delivery.is_none(),
+        scripted_delivery_stage: card
+            .scripted_delivery
+            .as_ref()
+            .map(|operation| operation.stage.clone()),
         creation_operation: card.creation_operation.is_some(),
         creation_cleanup_available: card
             .creation_operation

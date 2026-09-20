@@ -42,6 +42,7 @@ mod health;
 mod local_delivery;
 mod provider_sync;
 mod repository;
+mod scripted_delivery;
 mod superthread_refinement;
 mod sync;
 pub(crate) mod workflow;

@@ -4,7 +4,7 @@ import type { SearchAddon } from '@xterm/addon-search';
 import type { WebLinksAddon } from '@xterm/addon-web-links';
 
 export type Store = { projects: Project[] };
-export type DeliveryWorkflow = 'local_merge' | 'github_pull_request';
+export type DeliveryWorkflow = 'local_merge' | 'github_pull_request' | 'scripted_delivery';
 export type GithubMergeStrategy = 'merge' | 'squash' | 'rebase';
 export type Project = {
   id: string;
@@ -33,6 +33,8 @@ export type Project = {
   server_command?: string;
   console_command?: string;
   delivery_workflow?: DeliveryWorkflow;
+  deployment_command?: string;
+  delivery_workflow_locked?: boolean;
   target_branch?: string;
   supports_feature_environments?: boolean;
   github_merge_strategy?: GithubMergeStrategy;
@@ -114,7 +116,7 @@ export type TerminalSession = {
 };
 
 export type SuperthreadColumnMapping = { id: string; name: string };
-export type ProjectDialogSettings = { name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; superthreadSpaces?: string; superthreadWorkspaceId?: string; superthreadWorkspaceName?: string; superthreadSpaceId?: string; superthreadSpaceName?: string; superthreadBindingId?: string; superthreadWorkspaceSlug?: string; superthreadApiTokenEnvVar?: string; superthreadBoardId?: string; superthreadBoardName?: string; superthreadIncomingColumns?: SuperthreadColumnMapping[]; superthreadDefaultIncomingColumnId?: string; superthreadInProgressColumnId?: string; superthreadInProgressColumnName?: string; superthreadDoneColumnId?: string; superthreadDoneColumnName?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean; releasesEnabled?: boolean; releaseConfigPath?: string };
+export type ProjectDialogSettings = { name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; deploymentCommand?: string; deliveryWorkflowLocked?: boolean; superthreadSpaces?: string; superthreadWorkspaceId?: string; superthreadWorkspaceName?: string; superthreadSpaceId?: string; superthreadSpaceName?: string; superthreadBindingId?: string; superthreadWorkspaceSlug?: string; superthreadApiTokenEnvVar?: string; superthreadBoardId?: string; superthreadBoardName?: string; superthreadIncomingColumns?: SuperthreadColumnMapping[]; superthreadDefaultIncomingColumnId?: string; superthreadInProgressColumnId?: string; superthreadInProgressColumnName?: string; superthreadDoneColumnId?: string; superthreadDoneColumnName?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean; releasesEnabled?: boolean; releaseConfigPath?: string };
 export type DialogState =
   | ({ kind: 'project' } & ProjectDialogSettings)
   | ({ kind: 'editProject'; projectId: string } & ProjectDialogSettings);

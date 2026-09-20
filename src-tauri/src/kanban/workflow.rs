@@ -59,6 +59,13 @@ string_enum!(WorkflowAction {
     RequestChanges => "request_changes",
     Ship => "ship",
     MergeLocal => "merge_local",
+    Push => "push",
+    Deploy => "deploy",
+    RetryPush => "retry_push",
+    RetryDeploy => "retry_deploy",
+    ConfirmDeployed => "confirm_deployed",
+    RunDeploymentAgain => "run_deployment_again",
+    CancelDeployment => "cancel_deployment",
     CreatePr => "create_pr",
     CreatePrWithFe => "create_pr_with_fe",
     OpenPr => "open_pr",
@@ -79,7 +86,7 @@ string_enum!(PiLifecycleIntent {
     UiInputResolved => "ui_input_resolved",
 });
 string_enum!(PiThread { Planning => "planning", Work => "work" });
-string_enum!(DeliveryWorkflow { LocalMerge => "local_merge", GithubPullRequest => "github_pull_request" });
+string_enum!(DeliveryWorkflow { LocalMerge => "local_merge", GithubPullRequest => "github_pull_request", ScriptedDelivery => "scripted_delivery" });
 string_enum!(EnvironmentLifecycle { Creating => "creating", Ready => "ready", CleanupPending => "cleanup_pending", CleanupFailed => "cleanup_failed" });
 string_enum!(PullRequestState { Open => "open", Closed => "closed", Merged => "merged" });
 
@@ -145,6 +152,7 @@ pub struct WorkflowContext {
     pub pull_request: Option<PullRequestState>,
     pub pull_request_blockers: Vec<String>,
     pub resumable_operation: bool,
+    pub scripted_delivery_stage: Option<String>,
     pub creation_operation: bool,
     pub creation_cleanup_available: bool,
     pub cleanup_operation_active: bool,
@@ -180,7 +188,9 @@ fn transition_target(
         (NeedsHuman, StartWork) => Some((AgentWorking, None)),
         (Approved, RequestChanges) => Some((NeedsHuman, None)),
         (AgentWorking | NeedsHuman | Approved, Ship) => Some((Approved, None)),
-        (Approved, MergeLocal | MergePr) => Some((Done, Some(CompletionOutcome::Merged))),
+        (Approved, MergeLocal | MergePr | Deploy | ConfirmDeployed) => {
+            Some((Done, Some(CompletionOutcome::Merged)))
+        }
         (
             NeedsRefinement | Refining | NeedsRefinementInput | Ready | AgentWorking | NeedsHuman
             | Approved,
@@ -305,6 +315,36 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
             ]);
             values
         }
+        Approved if context.delivery_workflow == DeliveryWorkflow::ScriptedDelivery => {
+            let reason = environment.clone().or(project.clone());
+            match context.scripted_delivery_stage.as_deref() {
+                None => vec![
+                    capability(RequestChanges, None),
+                    capability(MergeTarget, environment.clone()),
+                    capability(Ship, reason.clone()),
+                    capability(MergeLocal, reason),
+                ],
+                Some("merged") => {
+                    vec![capability(Push, reason.clone()), capability(Deploy, reason)]
+                }
+                Some("pushing") => vec![capability(Push, Some("Push is already running".into()))],
+                Some("push_failed") => vec![
+                    capability(RetryPush, reason.clone()),
+                    capability(Deploy, reason),
+                ],
+                Some("pushed") => vec![capability(Deploy, reason)],
+                Some("deploying") => vec![capability(CancelDeployment, None)],
+                Some("deployment_failed") | Some("cancelled") => {
+                    vec![capability(RetryDeploy, reason)]
+                }
+                Some("uncertain") => vec![
+                    capability(ConfirmDeployed, None),
+                    capability(RunDeploymentAgain, reason),
+                ],
+                Some("deployed") => Vec::new(),
+                Some(_) => Vec::new(),
+            }
+        }
         Approved if context.delivery_workflow == DeliveryWorkflow::GithubPullRequest => {
             let mut values = vec![
                 capability(RequestChanges, None),
@@ -386,7 +426,10 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
     {
         actions.push(capability(Delete, None));
     }
-    if context.status != Done {
+    if context.status != Done
+        && !(context.delivery_workflow == DeliveryWorkflow::ScriptedDelivery
+            && context.scripted_delivery_stage.is_some())
+    {
         actions.push(capability(Close, None));
     }
     actions
@@ -490,6 +533,7 @@ mod tests {
             pull_request: None,
             pull_request_blockers: vec![],
             resumable_operation: false,
+            scripted_delivery_stage: None,
             creation_operation: false,
             creation_cleanup_available: false,
             cleanup_operation_active: false,
@@ -524,6 +568,13 @@ mod tests {
             RequestChanges,
             Ship,
             MergeLocal,
+            Push,
+            Deploy,
+            RetryPush,
+            RetryDeploy,
+            ConfirmDeployed,
+            RunDeploymentAgain,
+            CancelDeployment,
             CreatePr,
             CreatePrWithFe,
             OpenPr,
@@ -635,6 +686,44 @@ mod tests {
     }
 
     #[test]
+    fn scripted_delivery_capabilities_follow_durable_stages() {
+        use WorkflowAction::*;
+        let mut value = context(CardStatus::Approved);
+        value.delivery_workflow = DeliveryWorkflow::ScriptedDelivery;
+        assert_eq!(
+            capabilities(&value)
+                .into_iter()
+                .map(|item| item.action)
+                .collect::<Vec<_>>(),
+            vec![RequestChanges, MergeTarget, Ship, MergeLocal, Close]
+        );
+        value.scripted_delivery_stage = Some("merged".into());
+        assert_eq!(
+            capabilities(&value)
+                .into_iter()
+                .map(|item| item.action)
+                .collect::<Vec<_>>(),
+            vec![Push, Deploy]
+        );
+        value.scripted_delivery_stage = Some("uncertain".into());
+        assert_eq!(
+            capabilities(&value)
+                .into_iter()
+                .map(|item| item.action)
+                .collect::<Vec<_>>(),
+            vec![ConfirmDeployed, RunDeploymentAgain]
+        );
+        value.scripted_delivery_stage = Some("deploying".into());
+        assert_eq!(
+            capabilities(&value)
+                .into_iter()
+                .map(|item| item.action)
+                .collect::<Vec<_>>(),
+            vec![CancelDeployment]
+        );
+    }
+
+    #[test]
     fn capabilities_report_structural_disabled_reasons() {
         let mut value = context(CardStatus::Ready);
         value.project_present = false;
@@ -693,27 +782,19 @@ mod tests {
 
     #[test]
     fn target_merge_preserves_approval_but_does_not_grant_it() {
-        let approved = target_merge_completion(
-            &context(CardStatus::Approved),
-            WorkflowActor::User,
-        )
-        .unwrap();
+        let approved =
+            target_merge_completion(&context(CardStatus::Approved), WorkflowActor::User).unwrap();
         assert_eq!(approved.from, CardStatus::Approved);
         assert_eq!(approved.to, CardStatus::Approved);
 
-        let needs_human = target_merge_completion(
-            &context(CardStatus::NeedsHuman),
-            WorkflowActor::User,
-        )
-        .unwrap();
+        let needs_human =
+            target_merge_completion(&context(CardStatus::NeedsHuman), WorkflowActor::User).unwrap();
         assert_eq!(needs_human.from, CardStatus::NeedsHuman);
         assert_eq!(needs_human.to, CardStatus::NeedsHuman);
 
-        let agent_working = target_merge_completion(
-            &context(CardStatus::AgentWorking),
-            WorkflowActor::User,
-        )
-        .unwrap();
+        let agent_working =
+            target_merge_completion(&context(CardStatus::AgentWorking), WorkflowActor::User)
+                .unwrap();
         assert_eq!(agent_working.from, CardStatus::AgentWorking);
         assert_eq!(agent_working.to, CardStatus::NeedsHuman);
     }

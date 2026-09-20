@@ -222,8 +222,14 @@ export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated
   }, []);
 
   useEffect(() => {
-    onPaletteCardsChange({ cards: visibleCards, projects, openCard: openPaletteCard });
-  }, [onPaletteCardsChange, openPaletteCard, projects, visibleCards]);
+    onPaletteCardsChange({
+      cards: visibleCards,
+      projects,
+      openCard: openPaletteCard,
+      selectedCard,
+      runSelectedAction: (action) => window.dispatchEvent(new CustomEvent('stacks:card-workflow-action', { detail: { cardId: selectedCard?.id, action } })),
+    });
+  }, [onPaletteCardsChange, openPaletteCard, projects, selectedCard, visibleCards]);
 
   useEffect(() => () => onPaletteCardsChange(null), [onPaletteCardsChange]);
 
