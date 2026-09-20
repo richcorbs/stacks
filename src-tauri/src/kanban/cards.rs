@@ -653,6 +653,7 @@ pub(in crate::kanban) fn kanban_delete_card_operation(id: String) -> Result<Boar
         Ok(BoardChange {
             upserts: Vec::new(),
             removed_ids: vec![id],
+            detail_invalidated_ids: Vec::new(),
             board_revision: board_revision(connection)?,
         })
     })
@@ -1275,12 +1276,13 @@ pub(in crate::kanban) fn kanban_reorder_cards_operation(
         let mut upserts = Vec::new();
         for id in &card_ids {
             if let Some(card) = get_card(connection, id)? {
-                upserts.push(card);
+                upserts.push(KanbanCardSummary::from(&card));
             }
         }
         Ok(BoardChange {
             upserts,
             removed_ids: Vec::new(),
+            detail_invalidated_ids: card_ids,
             board_revision: revision,
         })
     })

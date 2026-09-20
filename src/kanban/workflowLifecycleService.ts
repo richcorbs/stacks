@@ -1,27 +1,27 @@
 import type { PiRpcEnvelope } from '../pi/types';
 import type { PiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
-import type { CardSnapshot, KanbanCard, PiLifecycleIntent } from './types';
+import type { CardSnapshot, KanbanCardDetail, KanbanCardSummary, PiLifecycleIntent } from './types';
 
 type CardThread = 'planning' | 'work';
 export type LifecycleSession = { lifecycleGeneration(): string | null; stopRefinement(): Promise<void> };
 
 export type WorkflowLifecycleDependencies = {
-  card: (id: string) => KanbanCard | undefined;
-  applyCard: (card: KanbanCard, boardRevision?: number) => KanbanCard;
+  card: (id: string) => KanbanCardSummary | undefined;
+  applyCard: (card: KanbanCardSummary, boardRevision?: number) => KanbanCardSummary;
   applyIntent: (id: string, thread: CardThread, intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failureDetail?: string) => Promise<CardSnapshot>;
   applyAction: (id: string, action: 'return_to_refinement' | 'request_changes' | 'stop_refinement', expectedRevision: number) => Promise<CardSnapshot>;
   subscribePi: (listener: (envelope: PiRpcEnvelope) => void) => Promise<() => void>;
   registerUiRequests: (handler: PiUiRequestWorkflowHandler) => () => void;
   session: (paneId: string) => LifecycleSession | undefined;
   load: () => Promise<void>;
-  loadDetails: (card: KanbanCard) => Promise<KanbanCard>;
+  loadDetails: (card: KanbanCardSummary) => Promise<KanbanCardDetail | KanbanCardSummary>;
   reportError: (message: string) => void;
 };
 
 /** Serializes all automatic workflow projections for each canonical card. */
 export class KanbanWorkflowLifecycleService {
   private transitions = new Map<string, Promise<void>>();
-  private uiBlocks = new Map<string, { generation: string; transition: Promise<KanbanCard | null> }>();
+  private uiBlocks = new Map<string, { generation: string; transition: Promise<KanbanCardSummary | null> }>();
   private unsubscribePi?: () => void;
   private unregisterUi?: () => void;
   private disposed = false;
@@ -143,7 +143,7 @@ export class KanbanWorkflowLifecycleService {
   };
 }
 
-export function shouldRestoreUiRequestCard(current: KanbanCard | undefined, blocked: KanbanCard): current is KanbanCard {
+export function shouldRestoreUiRequestCard(current: KanbanCardSummary | undefined, blocked: KanbanCardSummary): current is KanbanCardSummary {
   const waitingStatus = blocked.status === 'needs_refinement_input' ? 'needs_refinement_input' : 'needs_human';
   return Boolean(current && current.status === waitingStatus && current.workflow_revision === blocked.workflow_revision);
 }

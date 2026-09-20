@@ -1,24 +1,22 @@
 import type { Project } from '../types';
-import type { BoardChange, BoardSnapshot, CardSnapshot, KanbanCard, KanbanSyncCard, SuperthreadIntegration, SuperthreadSnapshot } from './types';
+import type { BoardChange, CardSnapshot, KanbanCardDetail, KanbanCardSummary, KanbanSyncCard, SuperthreadIntegration, SuperthreadSnapshot } from './types';
 
 export type KanbanCrudDependencies = {
-  createLocal: (projectId: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
-  persistSuperthread: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardSnapshot | KanbanCard[]>;
-  updateLocal: (id: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
+  createLocal: (projectId: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCardDetail>;
+  persistSuperthread: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardChange>;
+  updateLocal: (id: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCardDetail>;
   remove: (id: string) => Promise<BoardChange>;
   fetchCard: (id: string) => Promise<CardSnapshot>;
-  fetchBoard: () => Promise<BoardSnapshot>;
   open: (id: string) => Promise<unknown>;
-  assignProject: (id: string, projectId: string) => Promise<KanbanCard>;
+  assignProject: (id: string, projectId: string) => Promise<KanbanCardDetail>;
   deleteSession: (paneId: string) => Promise<unknown>;
-  applySnapshot: (snapshot: BoardSnapshot) => void;
   applyChange: (change: BoardChange) => void;
-  applyCard: (card: KanbanCard, boardRevision?: number) => KanbanCard;
-  card: (id: string) => KanbanCard | undefined;
+  applyCard: (card: KanbanCardSummary, boardRevision?: number) => KanbanCardSummary;
+  card: (id: string) => KanbanCardSummary | undefined;
   provider: (projectId: string | null) => SuperthreadIntegration | null;
 };
 
-/** Owns local/remote persistence and detail hydration, not presentation policy. */
+/** Owns local/remote persistence and targeted detail hydration, not presentation policy. */
 export class KanbanCrudService {
   constructor(private dependencies: KanbanCrudDependencies) {}
 
@@ -27,7 +25,7 @@ export class KanbanCrudService {
       createLocal: this.dependencies.createLocal,
       persistSuperthread: this.dependencies.persistSuperthread,
     }, parentId);
-    if (result.persistedSnapshot) this.dependencies.applySnapshot(result.persistedSnapshot);
+    if (result.persistedChange) this.dependencies.applyChange(result.persistedChange);
     else this.dependencies.applyCard(result.card);
     return this.dependencies.card(result.card.id) ?? result.card;
   }
@@ -35,8 +33,7 @@ export class KanbanCrudService {
   async update(id: string, title: string, content: string, parentId?: string | null) {
     const updated = await this.dependencies.updateLocal(id, title, content, parentId);
     this.dependencies.applyCard(updated);
-    this.dependencies.applySnapshot(await this.dependencies.fetchBoard());
-    return this.dependencies.card(id) ?? updated;
+    return updated;
   }
 
   async interact(id: string) { await this.dependencies.open(id); }
@@ -52,29 +49,26 @@ export class KanbanCrudService {
   async assignProject(id: string, projectId: string) {
     const updated = await this.dependencies.assignProject(id, projectId);
     this.dependencies.applyCard(updated);
-    this.dependencies.applySnapshot(await this.dependencies.fetchBoard());
-    return this.dependencies.card(id) ?? updated;
+    return updated;
   }
 
-  async loadDetails(card: KanbanCard) {
-    if (card.provider === 'local') {
-      try {
-        const snapshot = await this.dependencies.fetchCard(card.id);
-        this.dependencies.applyCard(snapshot.card, snapshot.board_revision);
-      } catch { /* Keep the last canonical local detail snapshot. */ }
-      return this.dependencies.card(card.id) ?? card;
+  async loadDetails(card: KanbanCardSummary): Promise<KanbanCardDetail> {
+    if (card.provider === 'superthread') {
+      const provider = this.dependencies.provider(card.project_id);
+      if (provider) {
+        const change = await loadSuperthreadCardDetails(card, provider, this.dependencies.persistSuperthread);
+        if (change) this.dependencies.applyChange(change);
+      }
     }
-    const provider = this.dependencies.provider(card.project_id);
-    if (!provider) return this.dependencies.card(card.id) ?? card;
-    const snapshot = await loadSuperthreadCardDetails(card, provider, this.dependencies.persistSuperthread as (owner: string, snapshot: SuperthreadSnapshot) => Promise<BoardSnapshot>);
-    if (snapshot) this.dependencies.applySnapshot(snapshot);
-    return this.dependencies.card(card.id) ?? card;
+    const snapshot = await this.dependencies.fetchCard(card.id);
+    this.dependencies.applyCard(snapshot.card, snapshot.board_revision);
+    return snapshot.card;
   }
 }
 
 export type CreateKanbanCardDependencies = {
-  createLocal: (projectId: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
-  persistSuperthread: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardSnapshot | KanbanCard[]>;
+  createLocal: (projectId: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCardDetail>;
+  persistSuperthread: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardChange | KanbanCardSummary[]>;
 };
 
 export async function createKanbanCardForProject(
@@ -84,25 +78,25 @@ export async function createKanbanCardForProject(
   provider: SuperthreadIntegration | null,
   dependencies: CreateKanbanCardDependencies,
   parentId: string | null = null,
-): Promise<{ card: KanbanCard; persistedCards?: KanbanCard[]; persistedSnapshot?: BoardSnapshot }> {
+): Promise<{ card: KanbanCardSummary; persistedCards?: KanbanCardSummary[]; persistedChange?: BoardChange }> {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) throw new Error('Card title is required');
   if ((project.kanban_source ?? 'local') === 'local') return { card: await dependencies.createLocal(project.id, trimmedTitle, content, parentId) };
   if (provider?.kind !== 'superthread' || provider.ownerProjectId !== project.id) throw new Error('Superthread card creation is unavailable because this project is not the configured owner');
   const remote = await provider.create(trimmedTitle, content);
-  let persisted: BoardSnapshot | KanbanCard[];
+  let persisted: BoardChange | KanbanCardSummary[];
   try { persisted = await dependencies.persistSuperthread(provider.ownerProjectId, partialSuperthreadSnapshot([remote])); }
   catch (error) { throw new Error(`The card was created in Superthread, but Stacks could not import it: ${errorMessage(error)}. Run Sync Superthread to recover it.`); }
-  const persistedCards = Array.isArray(persisted) ? persisted : persisted.cards;
+  const persistedCards = Array.isArray(persisted) ? persisted : persisted.upserts;
   const card = persistedCards.find((candidate) => candidate.provider === 'superthread' && candidate.external_id === remote.id);
   if (!card) throw new Error('The card was created in Superthread, but Stacks could not find it after import. Run Sync Superthread to recover it.');
-  return { card, persistedCards, ...(!Array.isArray(persisted) ? { persistedSnapshot: persisted } : {}) };
+  return { card, persistedCards, ...(!Array.isArray(persisted) ? { persistedChange: persisted } : {}) };
 }
 
 export async function loadSuperthreadCardDetails(
-  card: KanbanCard,
+  card: KanbanCardSummary,
   provider: SuperthreadIntegration,
-  persist: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardSnapshot>,
+  persist: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardChange>,
 ) {
   const detail = await provider.load(card);
   if (!detail) return null;

@@ -4,7 +4,7 @@ import type { Project } from '../types';
 import { getPiSessionController, type PiSessionConfig } from '../pi/sessionController';
 import { fetchKanbanCard } from './api';
 import { cardPaneId, cardWorkspaceId, type CardChatThread } from './cardWorkspace';
-import type { KanbanCard, KanbanStatus } from './types';
+import type { KanbanCardSummary, KanbanStatus } from './types';
 import { launchWorkAgent } from './workAgentLauncher';
 
 export type LaunchRecoveryItem = {
@@ -21,7 +21,7 @@ export type LaunchRecoveryFailure = {
 };
 
 export type LaunchRecoveryDependencies = {
-  latestCard: (cardId: string) => Promise<KanbanCard | null>;
+  latestCard: (cardId: string) => Promise<KanbanCardSummary | null>;
   hasPersistedSession: (paneId: string) => Promise<boolean>;
   submitContinue: (config: PiSessionConfig, stillEligible: () => Promise<boolean>) => Promise<boolean>;
   launchWork: (cardId: string, projects: Project[]) => Promise<boolean>;
@@ -41,7 +41,7 @@ const defaultDependencies: LaunchRecoveryDependencies = {
 };
 
 /** Work cards lead; filtering preserves the canonical lane/card order in each group. */
-export function launchRecoveryItems(cards: KanbanCard[]): LaunchRecoveryItem[] {
+export function launchRecoveryItems(cards: KanbanCardSummary[]): LaunchRecoveryItem[] {
   const items = (status: LaunchRecoveryItem['expectedStatus'], thread: CardChatThread) => cards
     .filter((card) => card.status === status)
     .map((card) => ({ cardId: card.id, title: card.title, externalId: card.external_id, expectedStatus: status, thread }));
@@ -49,7 +49,7 @@ export function launchRecoveryItems(cards: KanbanCard[]): LaunchRecoveryItem[] {
 }
 
 export async function runLaunchCardRecovery(
-  initialCards: KanbanCard[],
+  initialCards: KanbanCardSummary[],
   projects: Project[],
   dependencies: LaunchRecoveryDependencies = defaultDependencies,
 ): Promise<LaunchRecoveryFailure[]> {
@@ -85,7 +85,7 @@ let launchRecovery: Promise<LaunchRecoveryFailure[]> | null = null;
 
 /** Process-lifetime gate: React remounts and Strict Mode cannot launch a second queue. */
 export function startLaunchCardRecovery(
-  cards: KanbanCard[],
+  cards: KanbanCardSummary[],
   projects: Project[],
   dependencies: LaunchRecoveryDependencies = defaultDependencies,
   notify: (failures: LaunchRecoveryFailure[]) => void = notifyLaunchRecoveryFailures,

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PiRpcEnvelope } from '../pi/types';
 import type { PiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
 import { KanbanWorkflowLifecycleService } from './workflowLifecycleService';
-import type { KanbanCard } from './types';
+import type { KanbanCard, KanbanCardSummary } from './types';
 
 function card(revision = 1, status: KanbanCard['status'] = 'agent_working'): KanbanCard {
   return { id: 'c', provider: 'local', external_id: 'c', title: 'C', content: '', board_id: 'p', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status, workflow_revision: revision, record_revision: revision, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: true, environment: null, created_at: 1, updated_at: revision, sort_order: 0, events: [], capabilities: [] };
@@ -15,13 +15,13 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 describe('KanbanWorkflowLifecycleService', () => {
   it('serializes lifecycle intents per card', async () => {
     let listener!: (event: PiRpcEnvelope) => void;
-    let current = card();
+    let current: KanbanCardSummary = card();
     const first = deferred<{ card: KanbanCard; board_revision: number }>();
     const calls: string[] = [];
     const service = new KanbanWorkflowLifecycleService({
       card: () => current, applyCard: (next) => (current = next),
       applyIntent: async (_id, _thread, intent) => { calls.push(intent); return calls.length === 1 ? first.promise : { card: card(3), board_revision: 3 }; },
-      applyAction: async () => ({ card: current, board_revision: 1 }), subscribePi: async (next) => { listener = next; return () => {}; },
+      applyAction: async () => ({ card: card(current.workflow_revision, current.status), board_revision: 1 }), subscribePi: async (next) => { listener = next; return () => {}; },
       registerUiRequests: () => () => {}, session: () => ({ lifecycleGeneration: () => 'g', stopRefinement: async () => {} }),
       load: async () => {}, loadDetails: async (value) => value, reportError: () => {},
     });
@@ -52,13 +52,13 @@ describe('KanbanWorkflowLifecycleService', () => {
 
   it('blocks UI response until Needs you succeeds and restores only its expected revision', async () => {
     let handler!: PiUiRequestWorkflowHandler;
-    let current = card(1);
+    let current: KanbanCardSummary = card(1);
     const requested = deferred<{ card: KanbanCard; board_revision: number }>();
     const intents: string[] = [];
     const service = new KanbanWorkflowLifecycleService({
       card: () => current, applyCard: (next) => (current = next),
       applyIntent: async (_id, _thread, intent) => { intents.push(intent); return intent === 'ui_input_requested' ? requested.promise : { card: card(3), board_revision: 3 }; },
-      applyAction: async () => ({ card: current, board_revision: 1 }), subscribePi: async () => () => {},
+      applyAction: async () => ({ card: card(current.workflow_revision, current.status), board_revision: 1 }), subscribePi: async () => () => {},
       registerUiRequests: (next) => { handler = next; return () => {}; }, session: () => ({ lifecycleGeneration: () => 'g', stopRefinement: async () => {} }),
       load: async () => {}, loadDetails: async (value) => value, reportError: () => {},
     });

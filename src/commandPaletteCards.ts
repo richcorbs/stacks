@@ -1,13 +1,13 @@
 import type { PaletteItem } from './components/CommandPalette';
-import type { KanbanCard } from './kanban/types';
+import type { KanbanCardDetail, KanbanCardSummary } from './kanban/types';
 import type { Project } from './types';
 import type { CardWorkflowActionKind } from './kanban/workflowActions';
 
 export type CardPaletteRegistration = {
-  cards: KanbanCard[];
+  cards: KanbanCardSummary[];
   projects: Project[];
   openCard: (cardId: string) => void;
-  selectedCard?: KanbanCard | null;
+  selectedCard?: KanbanCardDetail | null;
   runSelectedAction?: (action: CardWorkflowActionKind) => void;
 };
 

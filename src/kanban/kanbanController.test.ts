@@ -20,7 +20,7 @@ function harness(fetchBoard: () => Promise<BoardSnapshot>) {
     fetchBoard, fetchCard: async (id) => ({ card: card(id), board_revision: 1 }),
     createLocal: async (_project, title) => card(title), updateLocal: async (id) => card(id, 2), deleteCard: async (id) => ({ upserts: [], removed_ids: [id], board_revision: 2 }),
     openCard: async () => {}, reorderCards: async (_status, _expected, ids) => ({ upserts: ids.map((id, index) => card(id, 2, index)), removed_ids: [], board_revision: 2 }),
-    assignProject: async (id, projectId) => ({ ...card(id, 2), project_id: projectId }), persistProvider: async () => ({ cards: [], board_revision: 1 }),
+    assignProject: async (id, projectId) => ({ ...card(id, 2), project_id: projectId }), persistProvider: async () => ({ upserts: [], removed_ids: [], detail_invalidated_ids: [], board_revision: 1 }),
     applyWorkflowAction: async (id) => ({ card: card(id, 2), board_revision: 2 }), applyLifecycleIntent: async (id) => ({ card: card(id, 2), board_revision: 2 }),
     isReorderConflict: (error) => String(error).includes('CONFLICT'), deletePiSession, retainedPiSession: () => undefined,
     subscribeBoardChanges: async (listener) => { boardListener = listener; return () => { boardUnsubscribed = true; }; },

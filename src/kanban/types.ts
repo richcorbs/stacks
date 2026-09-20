@@ -116,7 +116,12 @@ export type CardRelationshipSummary = {
   status: KanbanStatus;
 };
 
-export type KanbanCard = {
+export type CardEnvironmentIndicator = Pick<CardEnvironment,
+  'id' | 'project_id' | 'worktree_path' | 'branch' | 'target_branch' | 'lifecycle_state' | 'revision' | 'layout_revision'>;
+export type CardPullRequestIndicator = Pick<CardPullRequest,
+  'number' | 'url' | 'state' | 'ci_status' | 'review_state' | 'has_conflicts' | 'blockers'>;
+
+export type KanbanCardDetail = {
   id: string;
   provider: 'local' | 'superthread';
   external_id: string;
@@ -163,10 +168,25 @@ export type KanbanCard = {
   capabilities: KanbanCapability[];
 };
 
+/** Board-only projection. Detail-only fields cannot accidentally enter the entity store. */
+export type KanbanCardSummary = Pick<KanbanCardDetail,
+  'id' | 'provider' | 'external_id' | 'title' | 'board_id' | 'board_title' | 'list_title' | 'assignee_names' | 'status' |
+  'completion_outcome' | 'workflow_revision' | 'record_revision' | 'project_id' | 'parent' |
+  'child_count' | 'children' | 'hierarchy_finalized' | 'created_at' | 'updated_at' | 'sort_order'> & {
+    environment: CardEnvironmentIndicator | null;
+    pull_request?: CardPullRequestIndicator | null;
+    creation_operation?: Pick<EnvironmentCreationOperation, 'phase' | 'error'> | null;
+    cleanup_operation?: Pick<CardCleanupOperation, 'status'> | null;
+    runtime_cleanup_status?: 'pending' | 'complete' | 'failed' | null;
+  };
 
-export type CardSnapshot = { card: KanbanCard; board_revision: number };
-export type BoardSnapshot = { cards: KanbanCard[]; board_revision: number };
-export type BoardChange = { upserts: KanbanCard[]; removed_ids: string[]; board_revision: number };
+/** Compatibility name for detail/workspace code. New board code should use KanbanCardSummary. */
+export type KanbanCard = KanbanCardDetail;
+export type CardSnapshot = { card: KanbanCardDetail; board_revision: number };
+export type BoardSnapshot = { cards: KanbanCardSummary[]; board_revision: number };
+export type BoardChange = { upserts: KanbanCardSummary[]; removed_ids: string[]; detail_invalidated_ids?: string[]; board_revision: number };
+export type CardEventCursor = { created_at: number; id: number };
+export type CardEventPage = { events: CardEvent[]; next_cursor: CardEventCursor | null };
 
 export type KanbanSyncCard = {
   id: string;
@@ -215,5 +235,5 @@ export interface SuperthreadIntegration {
   readonly ownerProjectId: string;
   sync(refresh?: boolean, knownParentIds?: string[]): Promise<SuperthreadSnapshot>;
   create(title: string, content: string): Promise<KanbanSyncCard>;
-  load(card: KanbanCard): Promise<KanbanSyncCard | null>;
+  load(card: KanbanCardSummary): Promise<KanbanSyncCard | null>;
 }

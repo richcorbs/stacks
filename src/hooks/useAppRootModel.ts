@@ -16,7 +16,7 @@ import { buildCommandPaletteItems } from '../commandPaletteItems';
 import { selectedKanbanProject } from '../kanban/providerSelection';
 import { canOpenProjectSwitcher } from '../projectSwitcher';
 import type { CardTerminalContext } from '../cardTerminalCommands';
-import { fetchKanbanCards, fetchKanbanEnvironmentHealth, startKanbanEnvironment } from '../kanban/api';
+import { fetchKanbanCard, fetchKanbanEnvironmentHealth, startKanbanEnvironment } from '../kanban/api';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
@@ -203,8 +203,8 @@ export function useAppRootModel(events: EventBroker<AppEventMap>) {
     if (startingCardIds.current.has(cardId)) return false;
     startingCardIds.current.add(cardId);
     try {
-      const card = (await fetchKanbanCards()).cards.find((candidate) => candidate.id === cardId);
-      if (!card?.project_id) throw new Error('The card is not assigned to a project');
+      const card = (await fetchKanbanCard(cardId)).card;
+      if (!card.project_id) throw new Error('The card is not assigned to a project');
       const project = store.projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('The card project was not found');
       let updated = card;

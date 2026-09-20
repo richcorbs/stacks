@@ -1,11 +1,11 @@
-import type { KanbanCard } from './types';
+import type { KanbanCardSummary } from './types';
 import { KANBAN_LANES } from './workflow';
 
-export function keyboardNavigableCards(cards: KanbanCard[], doneCollapsed: boolean) {
+export function keyboardNavigableCards(cards: KanbanCardSummary[], doneCollapsed: boolean) {
   return doneCollapsed ? cards.filter((card) => card.status !== 'done') : cards;
 }
 
-export function adjacentBoardCard(cards: KanbanCard[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l') {
+export function adjacentBoardCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l') {
   const lanes = KANBAN_LANES.map((lane) => cards.filter((card) => card.status === lane.status));
   const first = lanes.find((lane) => lane.length > 0)?.[0] ?? null;
   const current = cards.find((card) => card.id === currentId);

@@ -1,4 +1,4 @@
-use super::repository::{board_snapshot, fresh_card_snapshot};
+use super::repository::{fresh_card_snapshot, load_event_page};
 use super::*;
 #[allow(unused_imports)]
 use super::{
@@ -15,6 +15,11 @@ pub fn kanban_cards() -> Result<BoardSnapshot, String> {
 #[tauri::command]
 pub fn kanban_card_snapshot(id: String) -> Result<CardSnapshot, String> {
     kanban_card_snapshot_operation(id)
+}
+
+#[tauri::command]
+pub fn kanban_card_events(id: String, cursor: Option<CardEventCursor>, limit: Option<usize>) -> Result<CardEventPage, String> {
+    with_read_connection(|connection| load_event_page(connection, &id, cursor, limit.unwrap_or(25)))
 }
 
 #[tauri::command]
@@ -377,11 +382,11 @@ pub async fn kanban_sync_superthread_cards(
     service: State<'_, SuperthreadService>,
     owner_project_id: String,
     snapshot: SuperthreadSyncSnapshot,
-) -> Result<BoardSnapshot, String> {
+) -> Result<BoardChange, String> {
     let result = kanban_sync_superthread_cards_operation(owner_project_id, snapshot)?;
     let provider = service.inner().clone();
     let _ = tauri::async_runtime::spawn_blocking(move || run_pending_once(provider, None)).await;
-    with_read_connection(board_snapshot).or(Ok(result))
+    Ok(result)
 }
 
 #[tauri::command]

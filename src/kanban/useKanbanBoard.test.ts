@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { beginKanbanLoad, cardAgentSession, createKanbanCardForProject, loadSuperthreadCardDetails, matchesRefreshSnapshot, mergeChangedKanbanCard, performKanbanLoad, piLifecycleIntent, recoverKanbanReorderCards, shouldRestoreUiRequestCard, superthreadHierarchyFailureToast } from './useKanbanBoard';
-import type { KanbanCard, KanbanSyncCard, SuperthreadIntegration } from './types';
+import type { KanbanCard, KanbanCardSummary, KanbanSyncCard, SuperthreadIntegration } from './types';
 import type { Project } from '../types';
 
 function card(id: string, title: string): KanbanCard {
@@ -36,14 +36,14 @@ function card(id: string, title: string): KanbanCard {
 function loadHarness(initialCards: KanbanCard[], initiallyLoaded = false) {
   const initialLoadStarted = { current: initiallyLoaded };
   const state = {
-    cards: initialCards,
+    cards: initialCards as KanbanCardSummary[],
     error: null as string | null,
     loading: !initiallyLoaded,
     initialLoadComplete: initiallyLoaded,
   };
   return {
     state,
-    load: (fetchCards: () => Promise<KanbanCard[]>) => performKanbanLoad({
+    load: (fetchCards: () => Promise<KanbanCardSummary[]>) => performKanbanLoad({
       initial: beginKanbanLoad(initialLoadStarted),
       fetchCards,
       setCards: (cards) => { state.cards = cards; },
@@ -179,7 +179,7 @@ describe('Superthread card detail loading', () => {
 
     await expect(loadSuperthreadCardDetails(existing, provider(async () => { throw new Error('invalid detail response'); }), async () => {
       persisted = true;
-      return { cards: [], board_revision: 1 };
+      return { upserts: [], removed_ids: [], detail_invalidated_ids: [], board_revision: 1 };
     })).rejects.toThrow('invalid detail response');
 
     expect(persisted).toBe(false);
@@ -197,8 +197,8 @@ describe('Superthread card detail loading', () => {
     await expect(loadSuperthreadCardDetails(existing, provider(async () => detail), async (owner, snapshot) => {
       expect(owner).toBe('remote');
       expect(snapshot).toMatchObject({ cards: [detail], complete: false, successful_scope_ids: [], successful_board_ids: [] });
-      return { cards: [hydrated], board_revision: 2 };
-    })).resolves.toEqual({ cards: [hydrated], board_revision: 2 });
+      return { upserts: [hydrated], removed_ids: [], detail_invalidated_ids: [], board_revision: 2 };
+    })).resolves.toEqual({ upserts: [hydrated], removed_ids: [], detail_invalidated_ids: [], board_revision: 2 });
   });
 });
 

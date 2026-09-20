@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project } from '../../types';
-import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
+import type { CardPullRequestIndicator, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import type { CardView } from '../../kanban/cardView';
 import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
@@ -34,7 +34,7 @@ export function shouldDismissDoneLaneMenu(wrapper: DoneLaneMenuWrapper | null, e
   return event.type === 'pointerdown' && wrapper !== null && event.target !== null && !wrapper.contains(event.target as Node);
 }
 
-export function KanbanPullRequestBadge({ pullRequest }: { pullRequest: CardPullRequest }) {
+export function KanbanPullRequestBadge({ pullRequest }: { pullRequest: CardPullRequestIndicator }) {
   if (pullRequest.state !== 'open') return null;
   const presentation = pullRequestPresentation(pullRequest);
   if (!presentation.indicatorStatus) return null;
@@ -103,7 +103,7 @@ export function KanbanCardContents({
   repositoryStatus,
   onNavigateParent,
 }: {
-  card: KanbanCard;
+  card: KanbanCardSummary;
   projects: Project[];
   repositoryStatus: CardRepositoryStatus | undefined;
   onNavigateParent: (parentId: string) => void;
@@ -157,7 +157,7 @@ export function KanbanLanes({
   onOpenCard,
   onNavigateParent,
 }: {
-  cards: KanbanCard[];
+  cards: KanbanCardSummary[];
   projects: Project[];
   repositoryStatuses: Record<string, CardRepositoryStatus>;
   doneCollapsed: boolean;
@@ -170,7 +170,7 @@ export function KanbanLanes({
   pointer: PointerOrdering;
   onToggleDone: () => void;
   onCleanupMerged: () => void;
-  onOpenCard: (card: KanbanCard, initialView?: CardView) => void;
+  onOpenCard: (card: KanbanCardSummary, initialView?: CardView) => void;
   onNavigateParent: (parentId: string) => void;
 }) {
   const cardWrapperRefs = useRef(new Map<string, HTMLDivElement>());
@@ -218,7 +218,7 @@ export function KanbanLanes({
       const canonicalCards = visibleCards.filter((card) => card.status === lane.status);
       const cardsById = new Map(canonicalCards.map((card) => [card.id, card]));
       const cards = pointer.dragPreview?.sourceStatus === lane.status
-        ? pointer.dragPreview.cardIds.map((id) => cardsById.get(id)).filter((card): card is KanbanCard => Boolean(card))
+        ? pointer.dragPreview.cardIds.map((id) => cardsById.get(id)).filter((card): card is KanbanCardSummary => Boolean(card))
         : canonicalCards;
       return (
         <section

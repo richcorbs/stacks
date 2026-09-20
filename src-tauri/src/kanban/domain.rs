@@ -238,8 +238,103 @@ pub struct KanbanCard {
     pub(in crate::kanban) updated_at: i64,
     pub(in crate::kanban) sort_order: i64,
     pub(in crate::kanban) in_scope: bool,
+    #[serde(skip_serializing)]
     pub(in crate::kanban) events: Vec<CardEvent>,
     pub(in crate::kanban) capabilities: Vec<WorkflowCapability>,
+}
+
+/// Targeted, self-contained detail projection (event history is separate).
+pub type KanbanCardDetail = KanbanCard;
+
+/// Lightweight board projection. Keep this type free of descriptions, terminal
+/// layouts/panes, complete operations, provider state, capabilities and event history.
+#[derive(Debug, Clone, Serialize)]
+pub struct KanbanCardSummary {
+    pub id: String,
+    pub provider: String,
+    pub external_id: String,
+    pub title: String,
+    pub board_id: String,
+    pub board_title: String,
+    pub list_title: String,
+    pub assignee_names: Vec<String>,
+    pub status: CardStatus,
+    pub completion_outcome: Option<CompletionOutcome>,
+    pub workflow_revision: i64,
+    pub record_revision: i64,
+    pub project_id: Option<String>,
+    pub parent: Option<CardRelationshipSummary>,
+    pub child_count: u64,
+    pub children: Vec<CardRelationshipSummary>,
+    pub hierarchy_finalized: bool,
+    pub environment: Option<CardEnvironmentIndicator>,
+    pub pull_request: Option<CardPullRequestIndicator>,
+    pub creation_operation: Option<CardCreationIndicator>,
+    pub cleanup_operation: Option<CardCleanupIndicator>,
+    pub runtime_cleanup_status: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CardEnvironmentIndicator {
+    pub id: String,
+    pub project_id: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub target_branch: Option<String>,
+    pub lifecycle_state: EnvironmentLifecycle,
+    pub revision: i64,
+    pub layout_revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CardPullRequestIndicator {
+    pub number: u64,
+    pub url: String,
+    pub state: PullRequestState,
+    pub ci_status: String,
+    pub review_state: String,
+    pub has_conflicts: bool,
+    pub blockers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CardCreationIndicator {
+    pub phase: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CardCleanupIndicator {
+    pub status: String,
+}
+
+impl From<&KanbanCard> for KanbanCardSummary {
+    fn from(card: &KanbanCard) -> Self {
+        Self {
+            id: card.id.clone(), provider: card.provider.clone(), external_id: card.external_id.clone(),
+            title: card.title.clone(), board_id: card.board_id.clone(), board_title: card.board_title.clone(), list_title: card.list_title.clone(), assignee_names: card.assignee_names.clone(),
+            status: card.status, completion_outcome: card.completion_outcome,
+            workflow_revision: card.workflow_revision, record_revision: card.record_revision, project_id: card.project_id.clone(),
+            parent: card.parent.clone(), child_count: card.child_count, children: card.children.clone(),
+            hierarchy_finalized: card.hierarchy_finalized,
+            environment: card.environment.as_ref().map(|value| CardEnvironmentIndicator {
+                id: value.id.clone(), project_id: value.project_id.clone(), worktree_path: value.worktree_path.clone(),
+                branch: value.branch.clone(), target_branch: value.target_branch.clone(), lifecycle_state: value.lifecycle_state,
+                revision: value.revision, layout_revision: value.layout_revision,
+            }),
+            pull_request: card.pull_request.as_ref().map(|value| CardPullRequestIndicator {
+                number: value.number, url: value.url.clone(), state: value.state, ci_status: value.ci_status.clone(),
+                review_state: value.review_state.clone(), has_conflicts: value.has_conflicts, blockers: value.blockers.clone(),
+            }),
+            creation_operation: card.creation_operation.as_ref().map(|value| CardCreationIndicator { phase: value.phase.clone(), error: value.error.clone() }),
+            cleanup_operation: card.cleanup_operation.as_ref().map(|value| CardCleanupIndicator { status: value.status.clone() }),
+            runtime_cleanup_status: card.runtime_cleanup_status.clone(),
+            created_at: card.created_at, updated_at: card.updated_at, sort_order: card.sort_order,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -258,21 +353,34 @@ pub struct CardRuntimeCleanupResult {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CardSnapshot {
-    pub card: KanbanCard,
+    pub card: KanbanCardDetail,
     pub board_revision: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BoardSnapshot {
-    pub cards: Vec<KanbanCard>,
+    pub cards: Vec<KanbanCardSummary>,
     pub board_revision: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BoardChange {
-    pub upserts: Vec<KanbanCard>,
+    pub upserts: Vec<KanbanCardSummary>,
     pub removed_ids: Vec<String>,
+    pub detail_invalidated_ids: Vec<String>,
     pub board_revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardEventCursor {
+    pub created_at: i64,
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CardEventPage {
+    pub events: Vec<CardEvent>,
+    pub next_cursor: Option<CardEventCursor>,
 }
 
 #[derive(Debug, Serialize)]

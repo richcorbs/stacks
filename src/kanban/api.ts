@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardSnapshot, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
+import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardEventCursor, CardEventPage, CardSnapshot, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
@@ -8,6 +8,10 @@ export function fetchKanbanCards() {
 
 export function fetchKanbanCard(id: string) {
   return invoke<CardSnapshot>('kanban_card_snapshot', { id });
+}
+
+export function fetchKanbanCardEvents(id: string, cursor: CardEventCursor | null = null) {
+  return invoke<CardEventPage>('kanban_card_events', { id, cursor, limit: 25 });
 }
 
 export function fetchKanbanEnvironmentHealth(cardIds: string[]) {
@@ -33,7 +37,7 @@ export function deleteKanbanCard(id: string) {
 }
 
 export function syncKanbanCards(ownerProjectId: string, snapshot: SuperthreadSnapshot) {
-  return invoke<BoardSnapshot>('kanban_sync_superthread_cards', { ownerProjectId, snapshot });
+  return invoke<BoardChange>('kanban_sync_superthread_cards', { ownerProjectId, snapshot });
 }
 
 export function applyKanbanWorkflowAction(id: string, action: Extract<KanbanWorkflowAction, 'return_to_refinement' | 'request_changes' | 'stop_refinement'>, expectedRevision: number) {

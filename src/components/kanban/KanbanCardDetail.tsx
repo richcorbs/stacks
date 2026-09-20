@@ -3,7 +3,7 @@ import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../../types';
-import type { CardEnvironmentHealth, KanbanCard } from '../../kanban/types';
+import type { CardEnvironmentHealth, KanbanCard, KanbanCardSummary } from '../../kanban/types';
 import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cancelScriptedDeployment, cleanupKanbanEnvironmentCreation, closeKanbanCard, confirmScriptedDeployed, createKanbanPullRequest, deployScriptedDelivery, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, pushScriptedDelivery, retryKanbanRuntimeCleanup } from '../../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../../kanban/workflowActions';
 import { useDiffReview } from '../../diffReview/useDiffReview';
@@ -44,9 +44,9 @@ function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery'
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
-export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate, onWorkflowControllerChange }: {
+export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate, onWorkflowControllerChange }: {
   card: KanbanCard;
-  cards: KanbanCard[];
+  cards: KanbanCardSummary[];
   projects: Project[];
   terminalFontSize: number;
   terminalFontFamily: string;
@@ -56,6 +56,8 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   environmentHealth?: CardEnvironmentHealth;
   gitChangeSummary: import('../../types').GitChangeSummary | null;
   detailLoadError: string | null;
+  hasOlderEvents: boolean;
+  onLoadOlderEvents: () => Promise<void>;
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
   onClose: () => void;
   onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
@@ -105,7 +107,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const statusLabel = hierarchyStatusLabel(card);
   const workflowCard = workflowOperation === 'ship' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
-  const latestAgentRunEvent = card.events.find((event) => ['agent_launch_failed', 'protocol_failed', 'process_exited', 'agent_started', 'agent_settled'].includes(event.event_type));
+  const latestAgentRunEvent = (card.events ?? []).find((event) => ['agent_launch_failed', 'protocol_failed', 'process_exited', 'agent_started', 'agent_settled'].includes(event.event_type));
   const agentFailure = latestAgentRunEvent?.outcome === 'failure' ? latestAgentRunEvent.error_detail : null;
   const cardLevelErrors = useMemo(() => collectCardLevelErrors({ actionError, detailLoadError, recoveryError: card.creation_operation?.error, agentFailure }), [actionError, agentFailure, card.creation_operation?.error, detailLoadError]);
 
@@ -375,6 +377,8 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           onUpdate={onUpdate}
           onCardUpdated={onCardUpdated}
           onNavigate={onNavigate}
+          hasOlderEvents={hasOlderEvents}
+          onLoadOlderEvents={onLoadOlderEvents}
         />
         {project && !card.hierarchy_finalized && <CardChatView card={card} project={project} cardPath={cardPath} thread={activeChatThread} active={showChat} deploymentOutput={deploymentOutput} />}
         <CardDiffView active={activeView === 'diff'} card={card} cardPath={cardPath} refreshNonce={diffRefreshNonce} review={diffReview} canSubmit={Boolean(project)} onSubmit={submitDiffReview} />

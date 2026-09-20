@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it } from 'vitest';
-import type { KanbanCard } from './types';
+import type { KanbanCard, KanbanCardSummary } from './types';
 import { useCanonicalCardSelection } from './useCanonicalCardSelection';
 
 function card(id: string, overrides: Partial<KanbanCard> = {}): KanbanCard {
@@ -17,7 +17,7 @@ function card(id: string, overrides: Partial<KanbanCard> = {}): KanbanCard {
 type Selection = ReturnType<typeof useCanonicalCardSelection>;
 let selection: Selection;
 
-function DetailProbe({ current }: { current: KanbanCard }) {
+function DetailProbe({ current }: { current: KanbanCardSummary }) {
   const [draft, setDraft] = useState('local draft');
   return <button type="button" data-card-id={current.id} data-status={current.status} onClick={() => setDraft('edited draft')}>
     {current.title}:{draft}

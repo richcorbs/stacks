@@ -1,13 +1,12 @@
 import { KanbanSyncRequestGate } from './syncRequestGate';
-import type { BoardSnapshot, KanbanCard, SuperthreadIntegration } from './types';
+import type { BoardChange, KanbanCardSummary, SuperthreadIntegration } from './types';
 
 export type ProviderSyncState = { syncing: boolean; providerError: string | null };
 
 export type ProviderSyncDependencies = {
-  fetchBoard: () => Promise<BoardSnapshot>;
-  persist: (ownerProjectId: string, snapshot: Awaited<ReturnType<SuperthreadIntegration['sync']>>) => Promise<BoardSnapshot>;
-  cards: () => KanbanCard[];
-  applySnapshot: (snapshot: BoardSnapshot) => void;
+  persist: (ownerProjectId: string, snapshot: Awaited<ReturnType<SuperthreadIntegration['sync']>>) => Promise<BoardChange>;
+  cards: () => KanbanCardSummary[];
+  applyChange: (change: BoardChange) => void;
   setState: (state: Partial<ProviderSyncState>) => void;
   notify: (message: string) => void;
 };
@@ -49,21 +48,11 @@ export class KanbanProviderSyncService {
       }));
       if (this.disposed || !this.gate.isCurrent(generation)) return;
       const successful = results.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []);
-      // Preserve every successful persistence even if another provider or the
-      // final recovery read fails. Revision ordering rejects obsolete snapshots.
       for (const { snapshot } of successful.sort((left, right) => left.snapshot.board_revision - right.snapshot.board_revision)) {
-        this.dependencies.applySnapshot(snapshot);
-      }
-      let recoveryFailure: string | null = null;
-      if (successful.length) {
-        try { this.dependencies.applySnapshot(await this.dependencies.fetchBoard()); }
-        catch (error) { recoveryFailure = errorMessage(error); }
+        this.dependencies.applyChange(snapshot);
       }
       if (this.disposed || !this.gate.isCurrent(generation)) return;
-      const failures = [
-        ...results.flatMap((result) => result.status === 'rejected' ? [errorMessage(result.reason)] : []),
-        ...(recoveryFailure ? [recoveryFailure] : []),
-      ];
+      const failures = results.flatMap((result) => result.status === 'rejected' ? [errorMessage(result.reason)] : []);
       const warnings = successful.flatMap(({ response }) => response.warnings);
       this.dependencies.setState({ providerError: [...failures, ...warnings].join('; ') || null });
       const hierarchyWarning = superthreadHierarchyFailureToast(successful.flatMap(({ response }) => response.failed_scopes));

@@ -1,5 +1,5 @@
 import type { GithubStatus } from '../github/types';
-import type { CardPullRequest } from './types';
+import type { CardPullRequestIndicator } from './types';
 
 export type PullRequestPresentation = {
   className: 'openReady' | 'openPending' | 'openBlocked' | 'merged' | 'closed';
@@ -9,7 +9,7 @@ export type PullRequestPresentation = {
 
 const CI_PENDING_BLOCKER = 'CI is pending';
 
-export function pullRequestPresentation(pullRequest: CardPullRequest): PullRequestPresentation {
+export function pullRequestPresentation(pullRequest: CardPullRequestIndicator): PullRequestPresentation {
   if (pullRequest.state === 'merged') {
     return { className: 'merged', status: 'merged', indicatorStatus: null };
   }

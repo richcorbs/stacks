@@ -10,7 +10,7 @@ import {
   setKanbanProject, syncKanbanCards, updateLocalKanbanCard,
 } from './api';
 import { KanbanController, matchesRefreshSnapshot } from './kanbanController';
-import type { BoardChange, KanbanCard, SuperthreadIntegration } from './types';
+import type { BoardChange, KanbanCard, KanbanCardSummary, SuperthreadIntegration } from './types';
 
 /** React is only responsible for controller lifetime and external-store projection. */
 export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadIntegration[] | null) {
@@ -32,7 +32,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     ...snapshot,
     // Existing presentation helpers consume arrays but never mutate them; the
     // controller itself exposes a readonly, frozen collection.
-    cards: snapshot.cards as KanbanCard[],
+    cards: snapshot.cards as KanbanCardSummary[],
     load: controller.load, sync: controller.sync, create: controller.create, update: controller.update,
     interact: controller.interact, remove: controller.remove, reorder: controller.reorder, act: controller.act,
     stopRefinement: controller.stopRefinement, assignProject: controller.assignProject,
@@ -56,7 +56,10 @@ function createBrowserKanbanController() {
     isReorderConflict: isKanbanReorderConflict,
     deletePiSession: deletePersistentPiSession,
     retainedPiSession: (paneId) => getRetainedPiSessionController(paneId) ?? undefined,
-    subscribeBoardChanges: async (listener) => getCurrentWindow().listen<BoardChange>('kanban-board-changed', ({ payload }) => listener(payload)),
+    subscribeBoardChanges: async (listener) => getCurrentWindow().listen<BoardChange>('kanban-board-changed', ({ payload }) => {
+      listener(payload);
+      if (payload.detail_invalidated_ids?.length) window.dispatchEvent(new CustomEvent('stacks:kanban-detail-invalidated', { detail: payload.detail_invalidated_ids }));
+    }),
     subscribePiEvents: subscribeAllPiEvents,
     registerUiRequestHandler: setPiUiRequestWorkflowHandler,
     notify: showAppToast,
@@ -78,8 +81,8 @@ export function beginKanbanLoad(initialLoadStarted: { current: boolean }) {
 
 type KanbanLoadOptions = {
   initial: boolean;
-  fetchCards: () => Promise<KanbanCard[]>;
-  setCards: (cards: KanbanCard[]) => void;
+  fetchCards: () => Promise<KanbanCardSummary[]>;
+  setCards: (cards: KanbanCardSummary[]) => void;
   setError: (error: string | null) => void;
   setLoading: (loading: boolean) => void;
   setInitialLoadComplete: (complete: boolean) => void;

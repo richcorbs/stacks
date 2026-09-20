@@ -1,11 +1,11 @@
 import type { Project } from '../types';
-import type { KanbanCard } from './types';
+import type { KanbanCardSummary } from './types';
 
-export const ENVIRONMENT_DEPENDENT_STATUSES = new Set<KanbanCard['status']>(['agent_working', 'needs_human', 'approved']);
-export const PR_REFRESH_STATUSES = new Set<KanbanCard['status']>(['agent_working', 'needs_human', 'approved']);
+export const ENVIRONMENT_DEPENDENT_STATUSES = new Set<KanbanCardSummary['status']>(['agent_working', 'needs_human', 'approved']);
+export const PR_REFRESH_STATUSES = new Set<KanbanCardSummary['status']>(['agent_working', 'needs_human', 'approved']);
 
 export type RefreshSnapshot = {
-  cards: KanbanCard[];
+  cards: KanbanCardSummary[];
   projects: Project[];
   visibleCardIds: string[];
   activeCardId: string | null;
@@ -20,7 +20,7 @@ export type RefreshRequest = {
 };
 
 export type RefreshTarget = {
-  card: KanbanCard;
+  card: KanbanCardSummary;
   project: Project | null;
   identity: string;
 };
@@ -31,7 +31,7 @@ export type RefreshCyclePlan = {
   activeCardId: string | null;
 };
 
-export function isPeriodicRefreshEligible(card: KanbanCard) {
+export function isPeriodicRefreshEligible(card: KanbanCardSummary) {
   return !card.hierarchy_finalized
     && card.status !== 'done'
     && (Boolean(card.environment) || ENVIRONMENT_DEPENDENT_STATUSES.has(card.status));
@@ -44,7 +44,7 @@ export function shouldRefreshPullRequest(target: RefreshTarget) {
     && PR_REFRESH_STATUSES.has(target.card.status);
 }
 
-export function targetIdentity(card: KanbanCard, project: Project | null) {
+export function targetIdentity(card: KanbanCardSummary, project: Project | null) {
   const environment = card.environment;
   return JSON.stringify([
     card.id,
@@ -60,11 +60,11 @@ export function targetIdentity(card: KanbanCard, project: Project | null) {
 }
 
 /** Includes edit/layout fields that reject stale writes but do not schedule work. */
-export function targetSnapshotIdentity(card: KanbanCard, project: Project | null) {
+export function targetSnapshotIdentity(card: KanbanCardSummary, project: Project | null) {
   return JSON.stringify([targetIdentity(card, project), card.record_revision, card.updated_at, card.environment?.layout_revision ?? null]);
 }
 
-export function targetFor(card: KanbanCard, projects: Project[], visible = false, active = false): RefreshTarget {
+export function targetFor(card: KanbanCardSummary, projects: Project[], visible = false, active = false): RefreshTarget {
   const project = projects.find((candidate) => candidate.id === card.project_id) ?? null;
   return { card, project, identity: JSON.stringify([targetSnapshotIdentity(card, project), visible, active]) };
 }
@@ -99,14 +99,14 @@ export function buildRefreshCyclePlan(snapshot: RefreshSnapshot, request: Refres
 
   const targets = [...generalIds]
     .map((id) => byId.get(id))
-    .filter((card): card is KanbanCard => Boolean(card))
+    .filter((card): card is KanbanCardSummary => Boolean(card))
     .filter((card) => !card.hierarchy_finalized)
     .filter((card) => card.status !== 'done' || card.id === snapshot.activeCardId)
     .map((card) => targetFor(card, snapshot.projects, snapshot.visibleCardIds.includes(card.id), card.id === snapshot.activeCardId));
   const healthIds = new Set([...generalIds, ...request.healthOnlyCardIds]);
   const healthTargets = [...healthIds]
     .map((id) => byId.get(id))
-    .filter((card): card is KanbanCard => Boolean(card))
+    .filter((card): card is KanbanCardSummary => Boolean(card))
     .filter((card) => !card.hierarchy_finalized)
     .filter((card) => isPeriodicRefreshEligible(card) || (card.id === snapshot.activeCardId && Boolean(card.environment)) || request.healthOnlyCardIds.has(card.id))
     .map((card) => targetFor(card, snapshot.projects, snapshot.visibleCardIds.includes(card.id), card.id === snapshot.activeCardId));

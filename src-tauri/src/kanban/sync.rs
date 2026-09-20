@@ -5,9 +5,15 @@ use super::{cards::*, domain::*, health::*, repository::*};
 pub(in crate::kanban) fn kanban_sync_superthread_cards_operation(
     owner_project_id: String,
     snapshot: SuperthreadSyncSnapshot,
-) -> Result<BoardSnapshot, String> {
+
+) -> Result<BoardChange, String> {
     with_board_mutation(|connection| sync_cards(connection, &owner_project_id, snapshot).map(|_| ()))?;
-    with_read_connection(board_snapshot)
+    with_read_connection(|connection| Ok(BoardChange {
+        upserts: list_card_summaries(connection)?.into_iter().filter(|card| card.project_id.as_deref() == Some(&owner_project_id)).collect(),
+        removed_ids: Vec::new(),
+        detail_invalidated_ids: Vec::new(),
+        board_revision: board_revision(connection)?,
+    }))
 }
 
 pub(in crate::kanban) fn sync_cards(

@@ -1,7 +1,7 @@
-import type { BoardChange, BoardSnapshot, KanbanCard } from './types';
+import type { BoardChange, BoardSnapshot, KanbanCardSummary } from './types';
 
 type OptimisticField = 'status' | 'sort_order';
-type Overlay = { generation: number; value: KanbanCard[OptimisticField] };
+type Overlay = { generation: number; value: KanbanCardSummary[OptimisticField] };
 type EntityMeta = { observedAtBoardRevision: number };
 
 export type KanbanStoreOptions = {
@@ -16,7 +16,7 @@ export type KanbanStoreOptions = {
  * advance board completeness in contiguous order.
  */
 export class KanbanEntityStore {
-  private entities = new Map<string, KanbanCard>();
+  private entities = new Map<string, KanbanCardSummary>();
   private entityMeta = new Map<string, EntityMeta>();
   private removedAt = new Map<string, number>();
   private pending = new Map<number, BoardChange>();
@@ -41,14 +41,14 @@ export class KanbanEntityStore {
     this.gapTimer = null;
   }
 
-  cards(): KanbanCard[] {
+  cards(): KanbanCardSummary[] {
     return [...this.entities.values()]
       .map((card) => {
         const overlay = this.overlays.get(card.id);
         if (!overlay?.size) return card;
         const visible = { ...card };
         for (const [field, entry] of overlay) {
-          if (field === 'status') visible.status = entry.value as KanbanCard['status'];
+          if (field === 'status') visible.status = entry.value as KanbanCardSummary['status'];
           else visible.sort_order = entry.value as number;
         }
         return visible;
@@ -60,7 +60,7 @@ export class KanbanEntityStore {
     return this.cards().find((card) => card.id === id);
   }
 
-  applyCard(card: KanbanCard, observedAtBoardRevision = 0) {
+  applyCard(card: KanbanCardSummary, observedAtBoardRevision = 0) {
     const removedRevision = this.removedAt.get(card.id) ?? 0;
     if (observedAtBoardRevision && removedRevision >= observedAtBoardRevision) return false;
     const current = this.entities.get(card.id);
@@ -119,7 +119,7 @@ export class KanbanEntityStore {
     return this.drainPending() || changed;
   }
 
-  beginOptimistic(fieldsByCard: Map<string, Partial<Pick<KanbanCard, OptimisticField>>>) {
+  beginOptimistic(fieldsByCard: Map<string, Partial<Pick<KanbanCardSummary, OptimisticField>>>) {
     const generation = ++this.generation;
     for (const [id, fields] of fieldsByCard) {
       const card = this.entities.get(id);
@@ -191,10 +191,10 @@ export class KanbanEntityStore {
   }
 }
 
-export function canonicalCardById(cards: KanbanCard[], id: string) {
+export function canonicalCardById(cards: KanbanCardSummary[], id: string) {
   return cards.find((card) => card.id === id) ?? null;
 }
 
-export function compareCards(a: KanbanCard, b: KanbanCard) {
+export function compareCards(a: KanbanCardSummary, b: KanbanCardSummary) {
   return a.sort_order - b.sort_order || a.created_at - b.created_at || a.id.localeCompare(b.id);
 }

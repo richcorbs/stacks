@@ -5,10 +5,10 @@ import { KanbanEntityStore } from './boardStore';
 import { KanbanCrudService } from './cardCrudService';
 import { KanbanProviderSyncService } from './providerSyncService';
 import { KanbanWorkflowLifecycleService, type LifecycleSession } from './workflowLifecycleService';
-import type { BoardChange, BoardSnapshot, CardSnapshot, KanbanCard, KanbanStatus, PiLifecycleIntent, SuperthreadIntegration, SuperthreadSnapshot } from './types';
+import type { BoardChange, BoardSnapshot, CardSnapshot, KanbanCardDetail, KanbanCardSummary, KanbanStatus, PiLifecycleIntent, SuperthreadIntegration, SuperthreadSnapshot } from './types';
 
 export type KanbanControllerSnapshot = Readonly<{
-  cards: readonly KanbanCard[];
+  cards: readonly KanbanCardSummary[];
   cardsHydrated: boolean;
   loading: boolean;
   syncing: boolean;
@@ -19,13 +19,13 @@ export type KanbanControllerSnapshot = Readonly<{
 export type KanbanControllerDependencies = {
   fetchBoard: () => Promise<BoardSnapshot>;
   fetchCard: (id: string) => Promise<CardSnapshot>;
-  createLocal: (projectId: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
-  updateLocal: (id: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
+  createLocal: (projectId: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCardDetail>;
+  updateLocal: (id: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCardDetail>;
   deleteCard: (id: string) => Promise<BoardChange>;
   openCard: (id: string) => Promise<unknown>;
   reorderCards: (status: KanbanStatus, expectedCardIds: string[], cardIds: string[]) => Promise<BoardChange>;
-  assignProject: (id: string, projectId: string) => Promise<KanbanCard>;
-  persistProvider: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardSnapshot>;
+  assignProject: (id: string, projectId: string) => Promise<KanbanCardDetail>;
+  persistProvider: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardChange>;
   applyWorkflowAction: (id: string, action: 'return_to_refinement' | 'request_changes' | 'stop_refinement', expectedRevision: number) => Promise<CardSnapshot>;
   applyLifecycleIntent: (id: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failureDetail?: string) => Promise<CardSnapshot>;
   isReorderConflict: (error: unknown) => boolean;
@@ -59,10 +59,9 @@ export class KanbanController {
     this.providers = [...configuration.providers];
     this.store = new KanbanEntityStore({ onGap: () => this.load().catch(this.reportUnhandled), gapTimeoutMs: dependencies.gapTimeoutMs });
     this.providerSync = new KanbanProviderSyncService({
-      fetchBoard: dependencies.fetchBoard,
       persist: dependencies.persistProvider,
       cards: () => this.store.cards(),
-      applySnapshot: this.applySnapshot,
+      applyChange: this.applyPartialChange,
       setState: (state) => this.patchSnapshot(state),
       notify: dependencies.notify,
     });
@@ -70,8 +69,8 @@ export class KanbanController {
     this.crud = new KanbanCrudService({
       createLocal: dependencies.createLocal, persistSuperthread: dependencies.persistProvider,
       updateLocal: dependencies.updateLocal, remove: dependencies.deleteCard, fetchCard: dependencies.fetchCard,
-      fetchBoard: dependencies.fetchBoard, open: dependencies.openCard, assignProject: dependencies.assignProject,
-      deleteSession: dependencies.deletePiSession, applySnapshot: this.applySnapshot, applyChange: this.applyPartialChange,
+      open: dependencies.openCard, assignProject: dependencies.assignProject,
+      deleteSession: dependencies.deletePiSession, applyChange: this.applyPartialChange,
       applyCard: this.applyCardSnapshot, card: (id) => this.store.card(id), provider: this.providerFor,
     });
     this.workflow = new KanbanWorkflowLifecycleService({
@@ -142,7 +141,7 @@ export class KanbanController {
   interact = (id: string) => this.crud.interact(id);
   remove = (id: string) => this.crud.remove(id);
   assignProject = (id: string, projectId: string) => this.crud.assignProject(id, projectId);
-  loadDetails = (card: KanbanCard) => this.crud.loadDetails(card);
+  loadDetails = (card: KanbanCardSummary) => this.crud.loadDetails(card);
   act = (id: string, action: 'return_to_refinement' | 'request_changes') => this.workflow.act(id, action);
   stopRefinement = (id: string) => this.workflow.stopRefinement(id);
 
@@ -164,12 +163,12 @@ export class KanbanController {
     }
   };
 
-  applyCardSnapshot = (card: KanbanCard, boardRevision = 0) => {
+  applyCardSnapshot = (card: KanbanCardSummary, boardRevision = 0) => {
     if (this.store.applyCard(card, boardRevision)) this.publishCards();
     return this.store.card(card.id) ?? card;
   };
 
-  patchCard = (updated: KanbanCard, expected: KanbanCard) => {
+  patchCard = (updated: KanbanCardSummary, expected: KanbanCardSummary) => {
     const current = this.store.card(updated.id);
     if (!current || !matchesRefreshSnapshot(current, expected) || !this.store.applyCard(updated)) return false;
     this.publishCards();
@@ -205,7 +204,7 @@ function freezeSnapshot(snapshot: KanbanControllerSnapshot): KanbanControllerSna
   return Object.freeze(snapshot);
 }
 
-export function matchesRefreshSnapshot(current: KanbanCard, expected: KanbanCard) {
+export function matchesRefreshSnapshot(current: KanbanCardSummary, expected: KanbanCardSummary) {
   return current.id === expected.id && current.record_revision === expected.record_revision && current.status === expected.status
     && current.workflow_revision === expected.workflow_revision && current.updated_at === expected.updated_at
     && current.project_id === expected.project_id && current.environment?.revision === expected.environment?.revision
