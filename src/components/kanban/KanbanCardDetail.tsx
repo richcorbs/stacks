@@ -20,7 +20,7 @@ import { runWritePlanAndFinishRefinement } from '../../kanban/writePlanAndFinish
 import { GENERATE_PR_METADATA_PROMPT } from '../../kanban/pullRequestMetadata';
 import { sendPromptToPiAndWait } from '../../pi/promptEvent';
 import { canEditKanbanCard, hasDirtyCardDraft } from '../../kanban/cardEditing';
-import { SplitView } from '../WorkspaceTerminalTree';
+import { WorkspaceShellView } from '../WorkspaceShellView';
 import { ConfirmCloseTerminalDialog } from '../ConfirmDialogs';
 import { disposeTerminalSession } from '../../terminalSessionManager';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
@@ -39,7 +39,6 @@ import { CardLevelErrorBanner, collectCardLevelErrors } from './CardLevelErrorBa
 import { publishWorkPresence } from '../../appAttention';
 
 const PiGuiView = lazy(() => import('../PiGuiView').then((module) => ({ default: module.PiGuiView })));
-const encoder = new TextEncoder();
 
 function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery']>['stage']) {
   return ({ merged: 'Merged locally', pushing: 'Pushing…', push_failed: 'Push failed', pushed: 'Pushed', deploying: 'Deploying…', deployment_failed: 'Deployment failed', cancelled: 'Deployment cancelled', uncertain: 'Deployment outcome uncertain', deployed: 'Deployed' } as const)[stage];
@@ -214,16 +213,10 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   });
   const cardServices = useCardServices(card.id, cardPath, serverCommand, consoleCommand, terminalWorkspace.handleTerminalStopped);
   const {
-    shellTree,
-    shellTerminals,
-    shellTerminalIds,
+    controller: shellController,
     focusedShellPane,
-    maximizedShellPane,
-    searchShellRequest,
-    restartShellRequest,
     pendingCloseShellPane,
     setPendingCloseShellPane,
-    focusShellPane,
     closeShellPane,
   } = terminalWorkspace;
 
@@ -574,41 +567,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           </div>
         </section>
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>
-          {project && cardPath && (
-            <div className={`cardTerminalPane${shellTerminalIds.length > 1 ? ' multiple' : ''}`}>
-              {shellTree.kind === 'empty' ? <div className="kanbanEmpty">Terminal closed. Reopen the card to start a new terminal.</div> : (
-                <SplitView
-                  node={shellTree}
-                  terminalsById={shellTerminals}
-                  workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: cardPath }}
-                  project={project}
-                  visible={activeView === 'terminal'}
-
-                  canEditTerminal={false}
-                  terminalFontSize={terminalFontSize}
-                  terminalFontFamily={terminalFontFamily}
-                  terminalScrollback={terminalScrollback}
-                  copyOnSelect={copyOnSelect}
-                  activeTerminalId={focusedShellPane}
-                  displayedMaximizedTerminalId={maximizedShellPane}
-                  searchTerminalRequest={searchShellRequest}
-                  restartTerminalRequest={restartShellRequest}
-                  path=""
-                  onResizeSplit={terminalWorkspace.setSplitRatio}
-                  onFocus={focusShellPane}
-                  onClose={(terminalId) => setPendingCloseShellPane(terminalId)}
-                  onSplitTerminal={(direction, targetTerminalId) => {
-                    window.dispatchEvent(new CustomEvent('stacks:card-terminal-split', { detail: { direction, pane: targetTerminalId } }));
-                  }}
-                  onEditTerminal={() => {}}
-
-                  onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)}
-                  canToggleMaximize={shellTerminalIds.length > 1}
-                  onToggleMaximize={terminalWorkspace.toggleMaximize}
-                />
-              )}
-            </div>
-          )}
+          {project && cardPath && <WorkspaceShellView controller={shellController} workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: cardPath }} project={project} visible={activeView === 'terminal'} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         </section>
         {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={cardServices.serverEnabled} active={activeView === 'server'} restartRequestNonce={cardServices.serverRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={cardServices.consoleEnabled} active={activeView === 'console'} restartRequestNonce={cardServices.consoleRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
