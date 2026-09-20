@@ -1,6 +1,7 @@
 import TestRenderer, { act } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TerminalSession } from './types';
+import { applicationEvents } from './applicationEvents';
 
 const { sessions, invoke, disposed } = vi.hoisted(() => ({
   sessions: new Map<string, TerminalSession>(),
@@ -14,25 +15,9 @@ vi.mock('./terminalSessionManager', () => ({
   disposeTerminalSession: (id: string) => {
     if (!sessions.delete(id)) return;
     disposed.push(id);
-    window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId: id, running: false } }));
+    applicationEvents.publish('terminal-running-changed', { terminalId: id, running: false });
   },
 }));
-
-const events = new EventTarget();
-Object.assign(globalThis, {
-  window: {
-    addEventListener: events.addEventListener.bind(events),
-    removeEventListener: events.removeEventListener.bind(events),
-    dispatchEvent: events.dispatchEvent.bind(events),
-  },
-});
-if (typeof globalThis.CustomEvent === 'undefined') {
-  class TestCustomEvent<T> extends Event {
-    detail: T;
-    constructor(type: string, init: CustomEventInit<T>) { super(type); this.detail = init.detail!; }
-  }
-  Object.assign(globalThis, { CustomEvent: TestCustomEvent });
-}
 
 import { serviceStoppedMessage } from './managedServices';
 import { useManagedServices } from './hooks/useManagedServices';
@@ -50,7 +35,7 @@ function dispatchRunning(terminalId: string, generation: string, running: boolea
     current.starting = false;
     current.running = running;
   }
-  window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, generation, running } }));
+  applicationEvents.publish('terminal-running-changed', { terminalId, generation, running });
 }
 
 function Harness({ serverCommand = 'bin/dev', consoleCommand = 'bin/console', cwd = '/worktree' }) {

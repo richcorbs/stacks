@@ -8,6 +8,7 @@ import { createTerminalSession } from '../terminalSessionFactory';
 import { attachTerminalPtyListeners, spawnTerminalPty } from '../terminalPty';
 import { attachTerminalResizeObserver } from '../terminalResizeObserver';
 import { notifyTerminalStartup } from '../terminalStartup';
+import { applicationEvents } from '../applicationEvents';
 
 const PROMPT_RENDER_SETTLE_MS = 100;
 const PROMPT_RENDER_TIMEOUT_MS = 30_000;
@@ -126,7 +127,7 @@ export function useTerminalSession({
             session!.startupError = error;
             term.writeln(`\r\nPTY error: ${error}\r\n`);
             notifyTerminalStartup({ terminalId: terminal.id, ok: false, error });
-            window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId: terminal.id, generation, running: false } }));
+            applicationEvents.publish('terminal-running-changed', { terminalId: terminal.id, generation, running: false });
           });
       });
     } else if (session.term.element && session.term.element.parentElement !== host) {
@@ -158,7 +159,7 @@ function scheduleInitialInputAfterPromptRender(terminalId: string, session: Term
   const cleanup = () => {
     if (settleTimer !== null) window.clearTimeout(settleTimer);
     if (timeoutTimer !== null) window.clearTimeout(timeoutTimer);
-    window.removeEventListener('terminal-output-rendered', handleRendered as EventListener);
+    unsubscribeRendered();
     if (session.pendingInitialInputCleanup === cleanup) session.pendingInitialInputCleanup = undefined;
   };
 
@@ -175,8 +176,8 @@ function scheduleInitialInputAfterPromptRender(terminalId: string, session: Term
     invoke('write_pty', { terminalId, data: Array.from(new TextEncoder().encode(input)) }).catch(console.error);
   };
 
-  const handleRendered = (event: CustomEvent<{ terminalId: string }>) => {
-    if (event.detail.terminalId !== terminalId) return;
+  const handleRendered = (detail: { terminalId: string }) => {
+    if (detail.terminalId !== terminalId) return;
     if (settleTimer !== null) window.clearTimeout(settleTimer);
     // The xterm write callback confirms that output has been painted. A short
     // quiet period coalesces prompt output that arrived in multiple chunks.
@@ -185,6 +186,6 @@ function scheduleInitialInputAfterPromptRender(terminalId: string, session: Term
 
   session.pendingInitialInputCleanup?.();
   session.pendingInitialInputCleanup = cleanup;
-  window.addEventListener('terminal-output-rendered', handleRendered as EventListener);
+  const unsubscribeRendered = applicationEvents.subscribe('terminal-output-rendered', handleRendered);
   timeoutTimer = window.setTimeout(cleanup, PROMPT_RENDER_TIMEOUT_MS);
 }

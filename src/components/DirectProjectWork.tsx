@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { GitInfo, Project, SplitNode, TerminalEntry } from '../types';
 import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
 import { disposeTerminalSession, getTerminalSession, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
-import { CARD_TERMINAL_COMMAND_EVENT, type CardTerminalCommand } from '../cardTerminalCommands';
+import type { CardTerminalCommand } from '../cardTerminalCommands';
+import { applicationEvents } from '../applicationEvents';
 import { directWorkInitialLayout, directWorkTabs, workAgentId, workOwnerId, workTerminalId, type WorkView } from '../directWork';
 import { loadOrCreateDirectWork, saveDirectWorkLayout } from '../directWorkApi';
 import { useDiffReview } from '../diffReview/useDiffReview';
@@ -124,11 +125,10 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   };
 
   useEffect(() => {
-    const showFailedNotes = (event: Event) => {
-      if ((event as CustomEvent<{ projectId?: string }>).detail?.projectId === project.id) setActiveView('notes');
+    const showFailedNotes = ({ projectId }: { projectId: string }) => {
+      if (projectId === project.id) setActiveView('notes');
     };
-    window.addEventListener('stacks:project-notes-save-failed', showFailedNotes);
-    return () => window.removeEventListener('stacks:project-notes-save-failed', showFailedNotes);
+    return applicationEvents.subscribe('project-notes-save-failed', showFailedNotes);
   }, [project.id]);
 
   useEffect(() => {
@@ -145,8 +145,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   }, [project.id, onClose]);
 
   useEffect(() => {
-    const handleTabs = (event: Event) => {
-      const detail = (event as CustomEvent<{ number?: number; direction?: -1 | 1 }>).detail;
+    const handleTabs = (detail: { number?: number; direction?: -1 | 1 }) => {
       if (detail?.number) {
         const target = tabs[detail.number - 1];
         if (target) setActiveView(target);
@@ -155,8 +154,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         setActiveView(tabs[(index + detail.direction + tabs.length) % tabs.length]);
       }
     };
-    const handleSplit = (event: Event) => {
-      const detail = (event as CustomEvent<{ direction?: 'row' | 'column'; pane?: string }>).detail;
+    const handleSplit = (detail: { direction?: 'row' | 'column'; pane?: string }) => {
       if (!detail?.direction) return;
       const target = detail.pane && shellTerminalIds.includes(detail.pane) ? detail.pane : focusedShellPane;
       if (!target) return;
@@ -164,32 +162,28 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
       setShellTree((tree) => splitLeaf(tree, target, pane, detail.direction!));
       setFocusedShellPane(pane);
     };
-    const handleClose = (event: Event) => {
-      const requested = (event as CustomEvent<{ pane?: string }>).detail?.pane;
+    const handleClose = (detail?: { pane?: string }) => {
+      const requested = detail?.pane;
       setPendingCloseShellPane(requested && shellTerminalIds.includes(requested) ? requested : focusedShellPane);
     };
-    const handleCommand = (event: Event) => {
+    const handleCommand = (command: CardTerminalCommand) => {
       if (activeView !== 'terminal') return;
-      const command = (event as CustomEvent<CardTerminalCommand>).detail;
       if (!command || !focusedShellPane) return;
-      if (command.type === 'split') handleSplit(new CustomEvent('split', { detail: { direction: command.direction } }));
-      else if (command.type === 'close') handleClose(event);
+      if (command.type === 'split') handleSplit({ direction: command.direction });
+      else if (command.type === 'close') handleClose();
       else if (command.type === 'search') setSearchShellRequest({ terminalId: focusedShellPane, nonce: Date.now() });
       else if (command.type === 'clear') { const session = getTerminalSession(focusedShellPane); session?.term.clearSelection(); session?.term.clear(); session?.term.scrollToBottom(); }
       else if (command.type === 'restart') { disposeTerminalSession(focusedShellPane); invoke('kill_pty', { terminalId: focusedShellPane }).catch(() => {}); setRestartShellRequest({ terminalId: focusedShellPane, nonce: Date.now() }); }
       else if (command.type === 'stop') { disposeTerminalSession(focusedShellPane); invoke('kill_pty', { terminalId: focusedShellPane }).catch(console.error); }
       else if (command.type === 'toggle-maximize' && shellTerminalIds.length > 1) { setMaximizedShellPane((current) => current ? null : focusedShellPane); requestTerminalSessionsScrollToBottomAfterFit([focusedShellPane]); }
     };
-    window.addEventListener('stacks:card-tab-shortcut', handleTabs);
-    window.addEventListener('stacks:card-terminal-split', handleSplit);
-    window.addEventListener('stacks:card-terminal-close', handleClose);
-    window.addEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
-    return () => {
-      window.removeEventListener('stacks:card-tab-shortcut', handleTabs);
-      window.removeEventListener('stacks:card-terminal-split', handleSplit);
-      window.removeEventListener('stacks:card-terminal-close', handleClose);
-      window.removeEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
-    };
+    const unsubscribes = [
+      applicationEvents.subscribe('card-tab-shortcut', handleTabs),
+      applicationEvents.subscribe('card-terminal-split', handleSplit),
+      applicationEvents.subscribe('card-terminal-close', handleClose),
+      applicationEvents.subscribe('card-terminal-command', handleCommand),
+    ];
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [activeView, focusedShellPane, owner, shellTerminalIds, tabs]);
 
   function closeShellPane(id: string) {
@@ -243,7 +237,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         </section>
         {project.releases_enabled && activeView === 'release' && <ReleaseTab project={project} />}
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>
-          {loading ? <div className="kanbanEmpty">Opening terminal layout…</div> : shellTree.kind === 'empty' ? <div className="kanbanEmpty">Terminal closed.</div> : <div className={`cardTerminalPane${shellTerminalIds.length > 1 ? ' multiple' : ''}`}><SplitView node={shellTree} terminalsById={shellTerminals} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} visible={activeView === 'terminal'} canEditTerminal={false} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activeTerminalId={focusedShellPane} displayedMaximizedTerminalId={maximizedShellPane} searchTerminalRequest={searchShellRequest} restartTerminalRequest={restartShellRequest} path="" onResizeSplit={(path, ratio) => setShellTree((tree) => setSplitRatio(tree, path, ratio))} onFocus={(pane) => { setFocusedShellPane(pane); setMaximizedShellPane((current) => current ? pane : null); }} onClose={setPendingCloseShellPane} onSplitTerminal={(direction, pane) => window.dispatchEvent(new CustomEvent('stacks:card-terminal-split', { detail: { direction, pane } }))} onEditTerminal={() => {}} onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)} canToggleMaximize={shellTerminalIds.length > 1} onToggleMaximize={(pane) => { setFocusedShellPane(pane); setMaximizedShellPane((current) => current ? null : pane); requestTerminalSessionsScrollToBottomAfterFit([pane]); }} /></div>}
+          {loading ? <div className="kanbanEmpty">Opening terminal layout…</div> : shellTree.kind === 'empty' ? <div className="kanbanEmpty">Terminal closed.</div> : <div className={`cardTerminalPane${shellTerminalIds.length > 1 ? ' multiple' : ''}`}><SplitView node={shellTree} terminalsById={shellTerminals} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} visible={activeView === 'terminal'} canEditTerminal={false} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activeTerminalId={focusedShellPane} displayedMaximizedTerminalId={maximizedShellPane} searchTerminalRequest={searchShellRequest} restartTerminalRequest={restartShellRequest} path="" onResizeSplit={(path, ratio) => setShellTree((tree) => setSplitRatio(tree, path, ratio))} onFocus={(pane) => { setFocusedShellPane(pane); setMaximizedShellPane((current) => current ? pane : null); }} onClose={setPendingCloseShellPane} onSplitTerminal={(direction, pane) => applicationEvents.publish('card-terminal-split', { direction, pane })} onEditTerminal={() => {}} onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)} canToggleMaximize={shellTerminalIds.length > 1} onToggleMaximize={(pane) => { setFocusedShellPane(pane); setMaximizedShellPane((current) => current ? null : pane); requestTerminalSessionsScrollToBottomAfterFit([pane]); }} /></div>}
         </section>
         {serviceConfigs.server.command && <DirectServiceTerminal mode="server" command={serviceConfigs.server.command} enabled={serverEnabled} active={activeView === 'server'} restartRequestNonce={serverRestartNonce} project={project} workspaceId={workspaceId} terminalId={serviceConfigs.server.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {serviceConfigs.console.command && <DirectServiceTerminal mode="console" command={serviceConfigs.console.command} enabled={consoleEnabled} active={activeView === 'console'} restartRequestNonce={consoleRestartNonce} project={project} workspaceId={workspaceId} terminalId={serviceConfigs.console.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}

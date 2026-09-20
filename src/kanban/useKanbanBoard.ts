@@ -1,3 +1,4 @@
+import { showAppToast } from '../applicationEvents';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
@@ -86,7 +87,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
       const warnings = successful.flatMap((result) => result.response.warnings);
       if (warnings.length || failures.length) setProviderError([...failures, ...warnings].join('; '));
       const hierarchyToast = superthreadHierarchyFailureToast(successful.flatMap((result) => result.response.failed_scopes));
-      if (hierarchyToast) window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: hierarchyToast } }));
+      if (hierarchyToast) showAppToast(hierarchyToast);
     } catch (syncError) {
       if (syncGate.current.isCurrent(generation)) setProviderError(errorMessage(syncError));
     } finally {
@@ -130,7 +131,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     const gate = result.then(() => undefined, (statusError) => {
       const message = `${failurePrefix ?? 'Card status could not be updated'}: ${errorMessage(statusError)}`;
       setError(message);
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } }));
+      showAppToast(message);
       load().catch(console.error);
     });
     lifecycleTransitionsRef.current.set(cardId, gate);

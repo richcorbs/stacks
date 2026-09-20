@@ -1,16 +1,16 @@
 import { useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { ToastDetail } from '../types';
+import { applicationEvents } from '../applicationEvents';
 
-export function useAppToastEvents(showToast: (toast: string | ToastDetail) => void) {
+export function useAppToastEvents(showToast: (toast: string | ToastDetail, durationMs?: number) => void) {
   useEffect(() => {
-    const onToast = (event: Event) => {
-      showToast((event as CustomEvent<ToastDetail>).detail);
-    };
-    const unlistenPromise = getCurrentWindow().listen<string>('app-toast', (event) => showToast(event.payload));
-    window.addEventListener('app-toast', onToast);
+    const unsubscribe = applicationEvents.subscribe('toast', (toast) => showToast(toast, toast.duration));
+    const unlistenPromise = getCurrentWindow().listen<string>('app-toast', (event) => {
+      applicationEvents.publish('toast', { message: event.payload });
+    });
     return () => {
-      window.removeEventListener('app-toast', onToast);
+      unsubscribe();
       unlistenPromise.then((unlisten) => unlisten()).catch(console.error);
     };
   }, [showToast]);

@@ -14,9 +14,8 @@ import { useNativeFileDropRouter } from './useNativeFileDropRouter';
 import { clampTerminalFontSize, clampUiFontSize } from '../settings';
 import { buildCommandPaletteItems } from '../commandPaletteItems';
 import { selectedKanbanProject } from '../kanban/providerSelection';
-import { canOpenProjectSwitcher, OPEN_PROJECT_SWITCHER_EVENT } from '../projectSwitcher';
-import { OPEN_DIRECT_WORK_EVENT } from '../directWork';
-import { CARD_TERMINAL_CONTEXT_EVENT, dispatchCardTerminalCommand, type CardTerminalContext } from '../cardTerminalCommands';
+import { canOpenProjectSwitcher } from '../projectSwitcher';
+import type { CardTerminalContext } from '../cardTerminalCommands';
 import { fetchKanbanCards, fetchKanbanEnvironmentHealth, startKanbanEnvironment } from '../kanban/api';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
@@ -27,7 +26,8 @@ import { buildCardPaletteItems, type CardPaletteRegistration } from '../commandP
 import { launchWorkAgent } from '../kanban/workAgentLauncher';
 import { flushAllProjectNotes } from '../projectNotes';
 import { useActivityNotifications } from './useActivityNotifications';
-import { GLOBAL_TERMINAL_COMMAND_EVENT, type GlobalTerminalCommand } from '../components/GlobalTerminal';
+import type { GlobalTerminalCommand } from '../globalTerminalState';
+import type { AppEventMap, EventBroker } from '../applicationEvents';
 import type { GlobalSettingsSection, SettingsPageId } from '../components/SettingsDialog';
 
 function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, current: Project): Project {
@@ -72,7 +72,7 @@ function projectConfigurationInput(project: Project, expectedRevision: number) {
     release_config_path: project.release_config_path ?? '.stacks/release.json', expected_revision: expectedRevision };
 }
 
-export function useAppRootModel() {
+export function useAppRootModel(events: EventBroker<AppEventMap>) {
   const [loaded, setLoaded] = useState(false);
   const [store, setStore] = useState<Store>({ projects: [] });
   const [appSettings, setAppSettings] = useState<ResolvedAppSettings>(DEFAULT_APP_SETTINGS);
@@ -130,11 +130,7 @@ export function useAppRootModel() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [appSettings, loaded]);
-  useEffect(() => {
-    const update = (event: Event) => setCardTerminal((event as CustomEvent<CardTerminalContext | null>).detail);
-    window.addEventListener(CARD_TERMINAL_CONTEXT_EVENT, update);
-    return () => window.removeEventListener(CARD_TERMINAL_CONTEXT_EVENT, update);
-  }, []);
+  useEffect(() => events.subscribe('card-terminal-context', setCardTerminal), [events]);
   useWindowStatePersistence();
   useAppWindowFocusClass();
   useAppToastEvents(showToast);
@@ -263,19 +259,19 @@ export function useAppRootModel() {
     onRestartApp: () => { void invoke('restart_app'); },
     onOpenDirectoryInEditor: (path) => { void invoke('open_path_in_editor', { path, editor: appSettings.editor_app }); },
     onRunOneTimeCommand: () => setOneTimeCommandOpen(true),
-    onNewCard: (project) => window.dispatchEvent(new CustomEvent('stacks:new-card', { detail: { projectId: project?.id } })),
-    onDirectProjectWork: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project?.id } })),
-    onRelease: (project) => window.dispatchEvent(new CustomEvent(OPEN_DIRECT_WORK_EVENT, { detail: { projectId: project?.id, view: 'release' } })),
-    onCardTerminalCommand: (action) => dispatchCardTerminalCommand(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
-    onFocusCardTerminalPane: (paneId) => dispatchCardTerminalCommand({ type: 'focus', paneId }),
-  }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, selectedProject, store]);
+    onNewCard: (project) => events.publish('new-card', { projectId: project?.id }),
+    onDirectProjectWork: (project) => events.publish('open-direct-work', { projectId: project?.id }),
+    onRelease: (project) => events.publish('open-direct-work', { projectId: project?.id, view: 'release' }),
+    onCardTerminalCommand: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
+    onFocusCardTerminalPane: (paneId) => events.publish('card-terminal-command', { type: 'focus', paneId }),
+  }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, events, selectedProject, store]);
 
   const paletteCardItems = useMemo(
     () => paletteCards ? buildCardPaletteItems(paletteCards) : [],
     [paletteCards],
   );
 
-  const dispatchGlobalTerminal = (detail: GlobalTerminalCommand) => window.dispatchEvent(new CustomEvent(GLOBAL_TERMINAL_COMMAND_EVENT, { detail }));
+  const dispatchGlobalTerminal = (detail: GlobalTerminalCommand) => events.publish('global-terminal-command', detail);
   const shortcutHandlers: ShortcutHandlers = {
     setMetaKeyDown, openProjectDialog: () => { void openProjectDialog(); }, requestQuit,
     isGlobalTerminalVisible: () => globalTerminalVisible,
@@ -284,9 +280,9 @@ export function useAppRootModel() {
     runGlobalTerminalAction: (action) => dispatchGlobalTerminal(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
     adjustTerminalFontSize: (delta) => setAppSettings((current) => ({ ...current, terminal_font_size: clampTerminalFontSize(current.terminal_font_size + delta) })),
     adjustUiFontSize: (delta) => setAppSettings((current) => ({ ...current, ui_font_size: clampUiFontSize(current.ui_font_size + delta) })),
-    openCommandPalette: () => setCommandPaletteOpen(true), openProjectSwitcher: () => { if (canOpenProjectSwitcher(document)) window.dispatchEvent(new CustomEvent(OPEN_PROJECT_SWITCHER_EVENT)); },
+    openCommandPalette: () => setCommandPaletteOpen(true), openProjectSwitcher: () => { if (canOpenProjectSwitcher(document)) events.publish('open-project-switcher', undefined); },
     openSettings: () => setSettingsOpen(true),
-    runCardTerminalAction: (action) => dispatchCardTerminalCommand(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
+    runCardTerminalAction: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
   };
   useKeyboardShortcuts(shortcutHandlers);
   const shortcutRef = useRef(shortcutHandlers); shortcutRef.current = shortcutHandlers;
@@ -325,7 +321,7 @@ export function useAppRootModel() {
       closeCommandPalette: () => setCommandPaletteOpen(false), closeSettings: () => setSettingsOpen(false),
       notificationsUnavailable: (message: string) => { setAppSettings((current) => ({ ...current, activity_notifications: false })); showToast(message, 5000); },
       closeDialog: () => setDialog(null), submitDialog,
-      closeOneTimeCommand: () => setOneTimeCommandOpen(false), runOneTimeCommand: (command: string) => { setOneTimeCommandOpen(false); dispatchCardTerminalCommand({ type: 'run-one-time', command }); },
+      closeOneTimeCommand: () => setOneTimeCommandOpen(false), runOneTimeCommand: (command: string) => { setOneTimeCommandOpen(false); events.publish('card-terminal-command', { type: 'run-one-time', command }); },
       cancelDeleteProject: () => setConfirmDeleteProjectId(null), deleteProject: () => { void deleteConfirmedProject(); }, cancelQuit: () => setConfirmQuitOpen(false),
       quit: () => { setConfirmQuitOpen(false); void flushAndQuit(); },
     },

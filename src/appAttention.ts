@@ -1,4 +1,5 @@
 import type { WorkOwner, WorkView } from './directWork';
+import { applicationEvents } from './applicationEvents';
 
 export type AgentThread = 'planning' | 'work';
 export type AttentionKind = 'pi-complete' | 'pi-request' | 'process-exit';
@@ -80,6 +81,6 @@ export function routeFromExtra(extra: Record<string, unknown> | undefined): Noti
   };
 }
 
-export function dispatchAppAttention(attention: AppAttention, dispatch: (event: Event) => boolean = (event) => window.dispatchEvent(event)) {
-  dispatch(new CustomEvent<AppAttention>('app-attention', { detail: attention }));
+export function dispatchAppAttention(attention: AppAttention, publish: (attention: AppAttention) => void = (value) => applicationEvents.publish('attention', value)) {
+  publish(attention);
 }
