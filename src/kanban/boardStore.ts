@@ -75,7 +75,7 @@ export class KanbanEntityStore {
 
   /** Applies an affected-entity command response without claiming completeness. */
   applyPartialChange(change: BoardChange) {
-    this.mergeChangeEntities(change);
+    return this.mergeChangeEntities(change);
   }
 
   /** Applies broadcast deltas only when every preceding revision is present. */
@@ -83,21 +83,21 @@ export class KanbanEntityStore {
     if (change.board_revision <= this.contiguousBoardRevision) {
       // Duplicate event delivery may still carry a newer record than a command
       // response observed for the same board revision.
-      this.mergeChangeEntities(change);
-      return;
+      return this.mergeChangeEntities(change);
     }
     if (change.board_revision !== this.contiguousBoardRevision + 1) {
       this.pending.set(change.board_revision, change);
       if (this.pending.size > this.maxPendingDeltas) this.requestGapRecovery();
       else this.armGapTimer();
-      return;
+      return false;
     }
-    this.applyContiguous(change);
-    this.drainPending();
+    const changed = this.applyContiguous(change);
+    return this.drainPending() || changed;
   }
 
   applyBoardSnapshot(snapshot: BoardSnapshot) {
     if (snapshot.board_revision < this.completeBoardRevision || snapshot.board_revision < this.contiguousBoardRevision) return false;
+    let changed = false;
     const present = new Set(snapshot.cards.map((card) => card.id));
     for (const [id] of this.entities) {
       const observed = this.entityMeta.get(id)?.observedAtBoardRevision ?? 0;
@@ -106,17 +106,17 @@ export class KanbanEntityStore {
         this.entityMeta.delete(id);
         this.removedAt.set(id, snapshot.board_revision);
         this.overlays.delete(id);
+        changed = true;
       }
     }
-    for (const card of snapshot.cards) this.applyCard(card, snapshot.board_revision);
+    for (const card of snapshot.cards) changed = this.applyCard(card, snapshot.board_revision) || changed;
     this.completeBoardRevision = snapshot.board_revision;
     this.contiguousBoardRevision = snapshot.board_revision;
     for (const revision of this.pending.keys()) {
       if (revision <= snapshot.board_revision) this.pending.delete(revision);
     }
     this.clearGapTimer();
-    this.drainPending();
-    return true;
+    return this.drainPending() || changed;
   }
 
   beginOptimistic(fieldsByCard: Map<string, Partial<Pick<KanbanCard, OptimisticField>>>) {
@@ -142,29 +142,34 @@ export class KanbanEntityStore {
   }
 
   private mergeChangeEntities(change: BoardChange) {
+    let changed = false;
     for (const id of change.removed_ids) {
       if ((this.entityMeta.get(id)?.observedAtBoardRevision ?? 0) > change.board_revision) continue;
-      this.entities.delete(id);
+      changed = this.entities.delete(id) || changed;
       this.entityMeta.delete(id);
       this.overlays.delete(id);
       this.removedAt.set(id, Math.max(change.board_revision, this.removedAt.get(id) ?? 0));
     }
-    for (const card of change.upserts) this.applyCard(card, change.board_revision);
+    for (const card of change.upserts) changed = this.applyCard(card, change.board_revision) || changed;
+    return changed;
   }
 
   private applyContiguous(change: BoardChange) {
-    this.mergeChangeEntities(change);
+    const changed = this.mergeChangeEntities(change);
     this.contiguousBoardRevision = change.board_revision;
+    return changed;
   }
 
   private drainPending() {
+    let changed = false;
     let next: BoardChange | undefined;
     while ((next = this.pending.get(this.contiguousBoardRevision + 1))) {
       this.pending.delete(next.board_revision);
-      this.applyContiguous(next);
+      changed = this.applyContiguous(next) || changed;
     }
     if (this.pending.size) this.armGapTimer();
     else this.clearGapTimer();
+    return changed;
   }
 
   private armGapTimer() {
