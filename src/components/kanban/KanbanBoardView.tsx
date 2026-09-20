@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../../types';
-import { useKanbanBoard } from '../../kanban/useKanbanBoard';
 import { canonicalCardById } from '../../kanban/boardStore';
 import type { KanbanCard, KanbanStatus } from '../../kanban/types';
 import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
-import { superthreadIntegration } from '../../superthread/cardProvider';
-import { cardCreationAvailability, filterKanbanCards, hasSuperthreadMapping, resolveKanbanProjectFilter, superthreadSyncAvailability } from '../../kanban/projectScope';
+import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, superthreadSyncAvailability } from '../../kanban/projectScope';
 import { OPEN_PROJECT_SWITCHER_EVENT } from '../../projectSwitcher';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
@@ -15,7 +13,7 @@ import { inspectRelease } from '../../releaseApi';
 import { useBoardKeyboardNavigation } from '../../kanban/useBoardKeyboardNavigation';
 import { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import type { CardView } from '../../kanban/cardView';
-import type { KanbanBoardProps } from '../KanbanBoard';
+import type { KanbanBoardModel, KanbanBoardProps } from '../KanbanBoard';
 import { KanbanCardDetail } from './KanbanCardDetail';
 import { NewCardDialog } from './NewCardDialog';
 import { KanbanLanes } from './KanbanLanes';
@@ -27,19 +25,9 @@ import type { NotificationRoute } from '../../appAttention';
 import { fetchKanbanCard } from '../../kanban/api';
 import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
 
-export function KanbanBoardView({ superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps) {
+export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
-  const providers = useMemo(() => superthreadEnabled ? projects
-    .filter((project) => project.kanban_source === 'superthread' && hasSuperthreadMapping(project) && (!filterProjectId || project.id === filterProjectId))
-    .map((project) => superthreadIntegration({
-      ownerProjectId: project.id, spaces: project.superthread_spaces!, workspaceSlug: project.superthread_workspace_slug,
-      boardId: project.superthread_board_id!, boardName: project.superthread_board_name!,
-      incomingColumnIds: project.superthread_incoming_columns!.map((column) => column.id),
-      defaultIncomingColumnId: project.superthread_default_incoming_column_id!,
-      apiTokenEnvVar: project.superthread_api_token_env_var ?? 'ST_TOKEN',
-    })) : [], [filterProjectId, projects, superthreadEnabled]);
-  const board = useKanbanBoard(providers);
   const syncAvailability = superthreadSyncAvailability(superthreadEnabled, projects, filterProjectId);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct' | 'release'>('filter');
