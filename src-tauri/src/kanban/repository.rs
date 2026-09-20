@@ -565,6 +565,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             merged_pr_number INTEGER,
             merged_pr_head_revision TEXT,
             pane_ids TEXT NOT NULL DEFAULT '[]',
+            override_authorized INTEGER NOT NULL DEFAULT 0,
             registration_validated INTEGER NOT NULL DEFAULT 0,
             validation_completed_at INTEGER,
             error_code TEXT,
@@ -791,7 +792,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             source_branch TEXT NOT NULL, target_branch TEXT NOT NULL, source_revision TEXT NOT NULL, target_revision TEXT,
             delete_local_branch INTEGER NOT NULL, delete_remote_branch INTEGER NOT NULL,
             merged_pr_repository TEXT, merged_pr_number INTEGER, merged_pr_head_revision TEXT,
-            pane_ids TEXT NOT NULL DEFAULT '[]', registration_validated INTEGER NOT NULL DEFAULT 0,
+            pane_ids TEXT NOT NULL DEFAULT '[]', override_authorized INTEGER NOT NULL DEFAULT 0,
+            registration_validated INTEGER NOT NULL DEFAULT 0,
             validation_completed_at INTEGER, error_code TEXT, error_detail TEXT,
             started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER
          );
@@ -945,6 +947,14 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
          );
          INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (75,unixepoch());"
     ).map_err(db_error)?;
+    let cleanup_columns = connection
+        .prepare("PRAGMA table_info(card_cleanup_operations)").map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1)).map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>().map_err(db_error)?;
+    if !cleanup_columns.iter().any(|column| column == "override_authorized") {
+        connection.execute("ALTER TABLE card_cleanup_operations ADD COLUMN override_authorized INTEGER NOT NULL DEFAULT 0", []).map_err(db_error)?;
+    }
+    connection.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (76,unixepoch())", []).map_err(db_error)?;
     provider_sync::recover_interrupted(connection)?;
     Ok(())
 }

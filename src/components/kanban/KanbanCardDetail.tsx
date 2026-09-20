@@ -273,7 +273,8 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
     mergePullRequest: async () => { onCardUpdatedRef.current(preserveRevisionValues(await mergeKanbanPullRequest(card.id, card.workflow_revision))); },
     cleanup: async () => {
       const entry = await fetchCleanupPreflight(card.id);
-      setCleanupInventory({ entries: [entry], eligible_merged: Number(entry.eligible && entry.completion_outcome === 'merged'), blocked: Number(!entry.eligible), closed: Number(entry.completion_outcome === 'closed'), completed: Number(entry.state === 'completed') });
+      if (!entry.has_resources) return;
+      setCleanupInventory({ entries: [entry], eligible_merged: Number(entry.merged && !entry.blocked), blocked: Number(entry.blocked), closed: 0, completed: 0 });
     },
     cleanupCreation: async () => { onCardUpdatedRef.current(preserveRevisionValues(await cleanupKanbanEnvironmentCreation(card.id))); },
     retryRuntimeCleanup: async () => applyRuntimeResult(await retryKanbanRuntimeCleanup(card.id)),

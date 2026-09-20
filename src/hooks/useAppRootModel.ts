@@ -248,6 +248,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>) {
         expectedRepositoryId: evidence.repository_id,
         expectedPrimaryCheckout: evidence.primary_checkout,
         expectedTargetBranch: evidence.current_target_branch,
+        cleanupAnyway: evidence.cleanup_anyway === true,
       });
       return true;
     } finally {

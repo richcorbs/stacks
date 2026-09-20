@@ -160,10 +160,15 @@ export class PiSessionController {
   steer = (message: string, images: PiPromptImage[] = []) => this.sendMessageCommand('steer', message, images);
   followUp = (message: string, images: PiPromptImage[] = []) => this.sendMessageCommand('follow_up', message, images);
 
-  abort = () => {
+  abort = async () => {
     this.completionNotificationEligible = false;
     notifyPiPromptFailed(this.config.paneId);
-    return this.sendRequest({ type: 'abort' });
+    // Pi's abort intentionally continues queued steering and follow-up messages.
+    // A user-facing stop must clear that queue first or each queued message starts
+    // another run and leaves the card projected as Agent working.
+    await this.sendRequest({ type: 'clear_queue' });
+    this.patch({ queuedSteering: [], queuedFollowUps: [] });
+    await this.sendRequest({ type: 'abort' });
   };
 
   /** Stops an active card refinement turn without deleting its durable session. */

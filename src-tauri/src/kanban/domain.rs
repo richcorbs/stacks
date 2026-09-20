@@ -347,12 +347,17 @@ pub struct CleanupResource {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CleanupPreflight {
     pub card_id: String,
+    pub card_number: String,
     pub card_title: String,
     pub project_id: String,
     pub project_name: String,
     pub completion_outcome: String,
     pub workflow_revision: i64,
     pub environment_revision: i64,
+    pub merged: bool,
+    pub blocked: bool,
+    pub override_available: bool,
+    pub has_resources: bool,
     pub eligible: bool,
     pub state: String,
     pub repository_id: Option<String>,

@@ -259,6 +259,9 @@ describe('PiSessionController', () => {
     h.emit(envelope({ type: 'extension_ui_request', id: 'question', method: 'confirm' }));
 
     const stopping = h.controller.stopRefinement();
+    await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'clear_queue')).toBe(true));
+    const clearIndex = h.commands.findIndex((command) => command.type === 'clear_queue');
+    respond(h, clearIndex, 'clear_queue', { steering: [], followUp: [] });
     await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'abort')).toBe(true));
     const abortIndex = h.commands.findIndex((command) => command.type === 'abort');
     respond(h, abortIndex, 'abort', {});
@@ -274,7 +277,14 @@ describe('PiSessionController', () => {
     const h = harness();
     await begin(h);
     h.emit(envelope({ type: 'agent_start' }));
+    h.emit(envelope({ type: 'queue_update', steering: ['queued steer'], followUp: ['queued follow-up'] }));
     const aborting = h.controller.abort();
+    await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'clear_queue')).toBe(true));
+    expect(h.commands.some((command) => command.type === 'abort')).toBe(false);
+    const clearIndex = h.commands.findIndex((command) => command.type === 'clear_queue');
+    respond(h, clearIndex, 'clear_queue', { steering: ['queued steer'], followUp: ['queued follow-up'] });
+    await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'abort')).toBe(true));
+    expect(h.controller.getSnapshot()).toMatchObject({ queuedSteering: [], queuedFollowUps: [] });
     const abortIndex = h.commands.findIndex((command) => command.type === 'abort');
     respond(h, abortIndex, 'abort', {});
     await aborting;

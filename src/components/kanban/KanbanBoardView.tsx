@@ -262,7 +262,11 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   async function cleanupMergedCards() {
     setOpenLaneMenu(null);
     setCleaningMerged(true);
-    try { setCleanupInventory(await fetchCleanupInventory(filterProjectId)); }
+    try {
+      const inventory = await fetchCleanupInventory(filterProjectId);
+      if (inventory.entries.length === 0) showAppToast('Nothing remains to clean up');
+      else setCleanupInventory(inventory);
+    }
     catch (error) { showAppToast(`Could not inspect cleanup: ${String(error)}`); }
     finally { setCleaningMerged(false); }
   }
