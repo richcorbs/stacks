@@ -161,27 +161,24 @@ export function useCardTerminalWorkspace({
     if (run) finishTemporaryRun(run.terminalId, false);
   }, []);
 
-  useEffect(() => {
-    const splitTerminal = (direction: 'row' | 'column', requestedPane?: string) => {
-      const targetPane = requestedPane && shellTerminalIds.includes(requestedPane) ? requestedPane : shellTerminalIds.includes(focusedShellPane) ? focusedShellPane : shellTerminalIds.at(-1);
-      if (!targetPane) return;
-      const newPane = cardTerminalId(card.id, `shell:${crypto.randomUUID()}`);
-      const applySplit = () => {
-        setShellTree((current) => splitLeaf(current, targetPane, newPane, direction));
-        focusShellPane(newPane);
-      };
-      const session = getTerminalSession(targetPane);
-      if (session?.running) session.term.write(clearWrappedPrompt(session.term), applySplit);
-      else applySplit();
+  function splitTerminal(direction: 'row' | 'column', requestedPane?: string) {
+    const targetPane = requestedPane && shellTerminalIds.includes(requestedPane) ? requestedPane : shellTerminalIds.includes(focusedShellPane) ? focusedShellPane : shellTerminalIds.at(-1);
+    if (!targetPane) return;
+    const newPane = cardTerminalId(card.id, `shell:${crypto.randomUUID()}`);
+    const applySplit = () => {
+      setShellTree((current) => splitLeaf(current, targetPane, newPane, direction));
+      focusShellPane(newPane);
     };
+    const session = getTerminalSession(targetPane);
+    if (session?.running) session.term.write(clearWrappedPrompt(session.term), applySplit);
+    else applySplit();
+  }
+
+  useEffect(() => {
     const closeTerminal = (event: Event) => {
       const requestedPane = (event as CustomEvent<{ pane?: string }>).detail?.pane;
       const closing = requestedPane && shellTerminalIds.includes(requestedPane) ? requestedPane : shellTerminalIds.includes(focusedShellPane) ? focusedShellPane : shellTerminalIds.at(-1);
       if (closing) setPendingCloseShellPane(closing);
-    };
-    const handleSplit = (event: Event) => {
-      const detail = (event as CustomEvent<{ direction?: 'row' | 'column'; pane?: string }>).detail;
-      if (detail?.direction) splitTerminal(detail.direction, detail.pane);
     };
     const handleCommand = (event: Event) => {
       if (activeView !== 'terminal') return;
@@ -198,11 +195,9 @@ export function useCardTerminalWorkspace({
       else if (command.type === 'toggle-maximize' && shellTerminalIds.length > 1) { setMaximizedShellPane((current) => current ? null : pane); requestTerminalSessionsScrollToBottomAfterFit([pane]); }
       else if (command.type === 'run-one-time') void runOneTimeCommand(command.command);
     };
-    window.addEventListener('stacks:card-terminal-split', handleSplit);
     window.addEventListener('stacks:card-terminal-close', closeTerminal);
     window.addEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
     return () => {
-      window.removeEventListener('stacks:card-terminal-split', handleSplit);
       window.removeEventListener('stacks:card-terminal-close', closeTerminal);
       window.removeEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
     };
@@ -232,6 +227,7 @@ export function useCardTerminalWorkspace({
     setPendingCloseShellPane,
     setSplitRatio: (path: string, ratio: number) => setShellTree((current) => setSplitRatio(current, path, ratio)),
     focusShellPane,
+    splitTerminal,
     toggleMaximize: (terminalId: string) => {
       focusShellPane(terminalId);
       setMaximizedShellPane((current) => current ? null : terminalId);
