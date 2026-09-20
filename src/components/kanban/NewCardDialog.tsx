@@ -22,7 +22,11 @@ export function NewCardDialog({
         model.submit('open');
       }}>
         <h2>Add card</h2>
-        <label>Project<select autoFocus value={model.projectId} disabled={model.creating} required onChange={(event) => { model.setProjectId(event.target.value); model.setParentId(''); }}>
+        <label>Project<select autoFocus={!model.projectId} value={model.projectId} disabled={model.creating} required onChange={(event) => {
+          model.setProjectId(event.target.value);
+          model.setParentId('');
+          requestAnimationFrame(() => model.titleRef.current?.focus());
+        }}>
           <option value="" disabled>Select a project…</option>
           {creationProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
         </select></label>
@@ -32,7 +36,7 @@ export function NewCardDialog({
             {candidateParents(cards, { id: '', project_id: model.projectId }).map((candidate) => <option value={candidate.id} key={candidate.id}>#{candidate.external_id} {candidate.title}</option>)}
           </select></label>
         )}
-        <label>Title<input ref={model.titleRef} autoFocus disabled={model.creating} value={model.title} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setTitle(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setTitle)} /></label>
+        <label>Title<input ref={model.titleRef} autoFocus={Boolean(model.projectId)} disabled={model.creating} value={model.title} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setTitle(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setTitle)} /></label>
         <label>Description<textarea rows={8} disabled={model.creating} value={model.description} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setDescription(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setDescription)} /></label>
         {model.error && <div className="kanbanEditError" role="alert">{model.error}</div>}
         <div className="modalActions">
