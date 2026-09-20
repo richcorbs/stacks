@@ -1,5 +1,4 @@
-export const CARD_TERMINAL_COMMAND_EVENT = 'stacks:card-terminal-command';
-export const CARD_TERMINAL_CONTEXT_EVENT = 'stacks:card-terminal-context';
+import { applicationEvents } from './applicationEvents';
 
 export type CardTerminalCommand =
   | { type: 'split'; direction: 'row' | 'column' }
@@ -22,9 +21,9 @@ export type CardTerminalContext = {
 };
 
 export function dispatchCardTerminalCommand(command: CardTerminalCommand) {
-  window.dispatchEvent(new CustomEvent<CardTerminalCommand>(CARD_TERMINAL_COMMAND_EVENT, { detail: command }));
+  applicationEvents.publish('card-terminal-command', command);
 }
 
 export function publishCardTerminalContext(context: CardTerminalContext | null) {
-  window.dispatchEvent(new CustomEvent<CardTerminalContext | null>(CARD_TERMINAL_CONTEXT_EVENT, { detail: context }));
+  applicationEvents.publish('card-terminal-context', context);
 }

@@ -2,21 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listenForPiPrompt, notifyPiAgentSettled, notifyPiPromptFailed, sendPromptToPiAndWait } from './promptEvent';
 
 beforeEach(() => {
-  const target = new EventTarget();
-  vi.stubGlobal('window', {
-    addEventListener: target.addEventListener.bind(target),
-    removeEventListener: target.removeEventListener.bind(target),
-    dispatchEvent: target.dispatchEvent.bind(target),
-    setTimeout,
-    clearTimeout,
-  });
-  vi.stubGlobal('CustomEvent', class<T> extends Event {
-    detail: T;
-    constructor(type: string, init: CustomEventInit<T>) {
-      super(type);
-      this.detail = init.detail as T;
-    }
-  });
+  vi.stubGlobal('window', { setTimeout, clearTimeout });
 });
 
 afterEach(() => vi.unstubAllGlobals());

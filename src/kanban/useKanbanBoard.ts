@@ -1,3 +1,4 @@
+import { showAppToast } from '../applicationEvents';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
@@ -58,7 +59,7 @@ function createBrowserKanbanController() {
     subscribeBoardChanges: async (listener) => getCurrentWindow().listen<BoardChange>('kanban-board-changed', ({ payload }) => listener(payload)),
     subscribePiEvents: subscribeAllPiEvents,
     registerUiRequestHandler: setPiUiRequestWorkflowHandler,
-    notify: (message) => window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } })),
+    notify: showAppToast,
     reportUnhandled: console.error,
   });
 }

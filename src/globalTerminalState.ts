@@ -1,6 +1,8 @@
 import type { SplitNode } from './types';
 import { collectLeafTerminalIds, removeLeaf } from './utils';
 
+export type GlobalTerminalCommand = { type: 'new-tab' | 'select-tab' | 'navigate-tab' | 'split' | 'close' | 'clear' | 'search' | 'toggle-maximize'; number?: number; direction?: -1 | 1 | 'row' | 'column' };
+
 export type GlobalTerminalTab = {
   id: string;
   split_layout: SplitNode;

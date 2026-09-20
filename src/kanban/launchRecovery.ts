@@ -1,3 +1,4 @@
+import { showAppToast } from '../applicationEvents';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project } from '../types';
 import { getPiSessionController, type PiSessionConfig } from '../pi/sessionController';
@@ -100,7 +101,7 @@ function notifyLaunchRecoveryFailures(failures: LaunchRecoveryFailure[]) {
   const message = launchRecoveryToast(failures);
   if (!message) return;
   console.warn('Automatic card recovery failures', failures);
-  window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } }));
+  showAppToast(message);
 }
 
 export function launchRecoveryToast(failures: LaunchRecoveryFailure[]) {

@@ -10,6 +10,7 @@ import type { AppAttention, NotificationRoute, WorkPresence } from './appAttenti
 import { attentionRoute, isAttentionVisible, routeFromExtra } from './appAttention';
 import type { KanbanCard } from './kanban/types';
 import type { Project } from './types';
+import { applicationEvents } from './applicationEvents';
 
 export const NOTIFICATION_PERMISSION_MESSAGE = 'Notifications are unavailable or permission was denied. Background notifications were turned off.';
 
@@ -84,7 +85,7 @@ export async function activateNotificationRoute(route: NotificationRoute | null)
   } catch (error) {
     console.warn('Could not activate Stacks from notification', error);
   }
-  if (route) window.dispatchEvent(new CustomEvent<NotificationRoute>('stacks:notification-route', { detail: route }));
+  if (route) applicationEvents.publish('notification-route', route);
 }
 
 export function registerNotificationActionListener() {

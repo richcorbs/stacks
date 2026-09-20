@@ -10,6 +10,7 @@ import {
   type ManagedServiceState,
 } from '../managedServices';
 import { getTerminalSession } from '../terminalSessionManager';
+import { applicationEvents } from '../applicationEvents';
 
 type ServiceStates = Record<ManagedServiceMode, ManagedServiceState>;
 type ServiceConfigs = Record<ManagedServiceMode, ManagedServiceConfig>;
@@ -58,8 +59,7 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
   }, [stableConfigs]);
 
   useLayoutEffect(() => {
-    const handleRunningChanged = (event: Event) => {
-      const detail = (event as CustomEvent<{ terminalId?: string; generation?: string; running?: boolean }>).detail;
+    const handleRunningChanged = (detail: { terminalId: string; generation?: string; running: boolean }) => {
       const mode = detail?.terminalId === stableConfigs.server.terminalId
         ? 'server'
         : detail?.terminalId === stableConfigs.console.terminalId ? 'console' : null;
@@ -81,8 +81,7 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
       }));
       if (!running) onTerminalStopped?.(config.terminalId);
     };
-    window.addEventListener('terminal-running-changed', handleRunningChanged);
-    return () => window.removeEventListener('terminal-running-changed', handleRunningChanged);
+    return applicationEvents.subscribe('terminal-running-changed', handleRunningChanged);
   }, [onTerminalStopped, stableConfigs]);
 
   const toggle = useCallback(async (mode: ManagedServiceMode) => {

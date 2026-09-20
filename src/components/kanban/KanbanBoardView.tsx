@@ -1,14 +1,14 @@
+import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../../types';
 import { canonicalCardById } from '../../kanban/boardStore';
 import type { KanbanCard, KanbanStatus } from '../../kanban/types';
 import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
 import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, superthreadSyncAvailability } from '../../kanban/projectScope';
-import { OPEN_PROJECT_SWITCHER_EVENT } from '../../projectSwitcher';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { DirectProjectWork } from '../DirectProjectWork';
-import { OPEN_DIRECT_WORK_EVENT, type WorkView } from '../../directWork';
+import type { WorkView } from '../../directWork';
 import { inspectRelease } from '../../releaseApi';
 import { useBoardKeyboardNavigation } from '../../kanban/useBoardKeyboardNavigation';
 import { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
@@ -99,9 +99,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   }, []);
 
   useEffect(() => {
-    const route = (event: Event) => {
-      const detail = (event as CustomEvent<NotificationRoute>).detail;
-      if (!detail) return;
+    const route = (detail: NotificationRoute) => {
       if (!projectsHydrated || !board.cardsHydrated) {
         pendingNotificationRouteRef.current = detail;
         return;
@@ -123,21 +121,19 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         }
       })();
     };
-    window.addEventListener('stacks:notification-route', route);
-    return () => window.removeEventListener('stacks:notification-route', route);
+    return applicationEvents.subscribe('notification-route', route);
   }, [board.applyCardSnapshot, board.cards, board.cardsHydrated, projects, projectsHydrated, replaceDirectWork]);
 
   useEffect(() => {
     if (!projectsHydrated || !board.cardsHydrated || !pendingNotificationRouteRef.current) return;
     const route = pendingNotificationRouteRef.current;
     pendingNotificationRouteRef.current = null;
-    window.dispatchEvent(new CustomEvent<NotificationRoute>('stacks:notification-route', { detail: route }));
+    applicationEvents.publish('notification-route', route);
   }, [board.cardsHydrated, projectsHydrated]);
 
   useEffect(() => {
-    const openDirectWork = (event: Event) => {
-      const detail = (event as CustomEvent<{ projectId?: string; view?: WorkView }>).detail;
-      const project = projects.find((candidate) => candidate.id === detail?.projectId);
+    const openDirectWork = (detail: { projectId?: string; view?: WorkView }) => {
+      const project = projects.find((candidate) => candidate.id === detail.projectId);
       if (project && (detail?.view !== 'release' || project.releases_enabled)) {
         void replaceDirectWork(project.id, detail?.view);
       } else if (detail?.view === 'release') {
@@ -149,8 +145,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         setProjectPickerPurpose('direct'); setProjectSwitcherOpen(true);
       }
     };
-    window.addEventListener(OPEN_DIRECT_WORK_EVENT, openDirectWork);
-    return () => window.removeEventListener(OPEN_DIRECT_WORK_EVENT, openDirectWork);
+    return applicationEvents.subscribe('open-direct-work', openDirectWork);
   }, [projects, replaceDirectWork]);
 
   useEffect(() => {
@@ -159,8 +154,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       setProjectPickerPurpose('filter');
       setProjectSwitcherOpen(true);
     };
-    window.addEventListener(OPEN_PROJECT_SWITCHER_EVENT, handleOpenProjectSwitcher);
-    return () => window.removeEventListener(OPEN_PROJECT_SWITCHER_EVENT, handleOpenProjectSwitcher);
+    return applicationEvents.subscribe('open-project-switcher', handleOpenProjectSwitcher);
   }, [pointerOrdering.draggingId, newCard.open, openLaneMenu, projectSwitcherOpen, selectedCardId]);
 
   useEffect(() => {
@@ -168,7 +162,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     detailLoadRequestRef.current += 1;
     setDetailLoadError(null);
     clearSelection(selectedCardId);
-    window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'This card was removed' } }));
+    showAppToast('This card was removed');
   }, [clearSelection, selectedCard, selectedCardId]);
 
   async function hydrateCardDetails(card: KanbanCard, recordInteraction = false) {
@@ -215,7 +209,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       projects,
       openCard: openPaletteCard,
       selectedCard,
-      runSelectedAction: (action) => window.dispatchEvent(new CustomEvent('stacks:card-workflow-action', { detail: { cardId: selectedCard?.id, action } })),
+      runSelectedAction: (action) => applicationEvents.publish('card-workflow-action', { cardId: selectedCard?.id, action }),
     });
   }, [onPaletteCardsChange, openPaletteCard, projects, selectedCard, visibleCards]);
 
@@ -252,9 +246,9 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     }
     setCleaningMerged(false);
     const cleanedCount = mergedCards.length - failures.length;
-    window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: failures.length
+    showAppToast(failures.length
       ? `Cleaned up ${cleanedCount}; ${failures.length} ${failures.length === 1 ? 'card was' : 'cards were'} retained because cleanup failed`
-      : `Cleaned up ${cleanedCount} merged ${cleanedCount === 1 ? 'card' : 'cards'}` } }));
+      : `Cleaned up ${cleanedCount} merged ${cleanedCount === 1 ? 'card' : 'cards'}`);
   }
 
   return (
