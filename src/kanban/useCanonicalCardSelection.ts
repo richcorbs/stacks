@@ -1,12 +1,12 @@
 import { useCallback, useState } from 'react';
 import { canonicalCardById } from './boardStore';
-import type { KanbanCard } from './types';
+import type { KanbanCardSummary } from './types';
 
 /**
  * Keeps navigation identity separate from mutable canonical card data.
  * Card updates can replace entities in the board without becoming navigation.
  */
-export function useCanonicalCardSelection(cards: KanbanCard[]) {
+export function useCanonicalCardSelection(cards: KanbanCardSummary[]) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const selectedCard = selectedCardId ? canonicalCardById(cards, selectedCardId) : null;
 

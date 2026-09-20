@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify';
 import { useMemo, useState, type Dispatch, type SetStateAction, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project } from '../../types';
-import type { CardEnvironmentHealth, KanbanCard } from '../../kanban/types';
+import type { CardEnvironmentHealth, KanbanCard, KanbanCardSummary } from '../../kanban/types';
 import { candidateParents, childCountLabel, statusLabel as childStatusLabel } from '../../kanban/hierarchy';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardCleanupStatus, cleanupPhaseLabel } from '../CardCleanupStatus';
@@ -26,11 +26,13 @@ export function CardOverview({
   onUpdate,
   onCardUpdated,
   onNavigate,
+  hasOlderEvents = false,
+  onLoadOlderEvents = async () => {},
 }: {
   active: boolean;
   editing: boolean;
   card: KanbanCard;
-  cards: KanbanCard[];
+  cards: KanbanCardSummary[];
   project: Project | undefined;
   environmentHealth?: CardEnvironmentHealth;
   recheckingEnvironment: boolean;
@@ -43,8 +45,11 @@ export function CardOverview({
   onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
   onCardUpdated: (card: KanbanCard) => void;
   onNavigate: (id: string) => void;
+  hasOlderEvents?: boolean;
+  onLoadOlderEvents?: () => Promise<void>;
 }) {
   const [retryingProviderSync, setRetryingProviderSync] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const sanitizedContent = useMemo(() => DOMPurify.sanitize(card.content, {
     FORBID_TAGS: ['img', 'style'], FORBID_ATTR: ['style'],
   }), [card.content]);
@@ -122,14 +127,18 @@ export function CardOverview({
     {!editing && ['pending', 'failed'].includes(card.runtime_cleanup_status ?? '') && <aside className="cardEnvironmentWarningPanel" role="alert">
       <div><strong>Process cleanup needs attention</strong><span>{card.runtime_cleanup_error ?? 'Runtime cleanup is pending. Retry to stop card-owned processes and remove persisted conversations.'}</span></div>
     </aside>}
-    {!editing && card.events.length > 0 && <details className="cardHistory">
-      <summary>History ({card.events.length})</summary>
-      <ol>{card.events.map((event) => <li key={event.id}>
+    {!editing && (card.events?.length ?? 0) > 0 && <details className="cardHistory">
+      <summary>History ({card.events?.length ?? 0})</summary>
+      <ol>{(card.events ?? []).map((event) => <li key={event.id}>
         <time>{new Date(event.created_at * 1000).toLocaleString()}</time>
         <span>{event.actor} · {event.event_type} · {event.outcome}{event.error_code?.startsWith('cleanup_') ? ` · ${cleanupPhaseFromErrorCode(event.error_code)}` : ''}</span>
         <strong>{event.from_status && event.to_status ? `${event.from_status} → ${event.to_status}` : event.summary}</strong>
         {event.error_detail && <small>{event.error_detail}</small>}
       </li>)}</ol>
+      {hasOlderEvents && <button type="button" disabled={loadingOlder} onClick={async () => {
+        setLoadingOlder(true);
+        try { await onLoadOlderEvents(); } finally { setLoadingOlder(false); }
+      }}><AsyncButtonLabel idle="Load older" busy="Loading…" isBusy={loadingOlder} /></button>}
     </details>}
   </section>;
 }

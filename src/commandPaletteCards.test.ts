@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildCardPaletteItems } from './commandPaletteCards';
 import { filterPaletteItems, scorePaletteItem, type PaletteItem } from './components/CommandPalette';
 import { filterKanbanCards } from './kanban/projectScope';
-import type { KanbanCard } from './kanban/types';
+import type { KanbanCard, KanbanCardSummary } from './kanban/types';
 import type { Project } from './types';
 
 const projects: Project[] = [
@@ -20,7 +20,7 @@ function card(id: string, number: string, title: string, projectId: string | nul
   };
 }
 
-function items(cards: KanbanCard[], openCard = vi.fn()) {
+function items(cards: KanbanCardSummary[], openCard = vi.fn()) {
   return { openCard, results: buildCardPaletteItems({ cards, projects, openCard }) };
 }
 

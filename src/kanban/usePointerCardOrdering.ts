@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import type { KanbanCard, KanbanStatus } from './types';
+import type { KanbanCardSummary, KanbanStatus } from './types';
 import { reorderKanbanCardIds } from './workflow';
 import { buildFilteredLaneReorder } from './projectScope';
 import { dragPreviewOrder, dropTargetAtPoint } from './boardInteractions';
@@ -42,8 +42,8 @@ export function usePointerCardOrdering({
   visibleCards,
   reorder,
 }: {
-  allCards: KanbanCard[];
-  visibleCards: KanbanCard[];
+  allCards: KanbanCardSummary[];
+  visibleCards: KanbanCardSummary[];
   reorder: (status: KanbanStatus, expectedCardIds: string[], cardIds: string[]) => Promise<void>;
 }) {
   const [dragPreview, setDragPreview] = useState<CardDragPreview | null>(null);
@@ -94,7 +94,7 @@ export function usePointerCardOrdering({
     });
   }
 
-  function beginPointerDrag(event: ReactPointerEvent, card: KanbanCard) {
+  function beginPointerDrag(event: ReactPointerEvent, card: KanbanCardSummary) {
     if (event.button !== 0 || !event.isPrimary || (event.buttons & 1) === 0 || card.hierarchy_finalized) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     pointerDragRef.current = {

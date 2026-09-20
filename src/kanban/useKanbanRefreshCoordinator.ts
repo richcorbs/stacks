@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GitChangeSummary, GitInfo, Project } from '../types';
 import { fetchKanbanEnvironmentHealth, refreshKanbanPullRequest } from './api';
-import type { CardEnvironmentHealth, KanbanCard } from './types';
+import type { CardEnvironmentHealth, KanbanCardSummary } from './types';
 import {
   buildRefreshCyclePlan,
   isRefreshTargetCurrent,
@@ -24,9 +24,9 @@ export type KanbanRefreshState = {
 
 type CachedStatus = { identity: string; value: CardRepositoryStatus };
 type CachedSummary = { identity: string; value: GitChangeSummary | null } | null;
-type PatchCard = (card: KanbanCard, expected: KanbanCard) => boolean;
+type PatchCard = (card: KanbanCardSummary, expected: KanbanCardSummary) => boolean;
 
-function snapshotOf(cards: KanbanCard[], projects: Project[], visibleCards: KanbanCard[], activeCardId: string | null): RefreshSnapshot {
+function snapshotOf(cards: KanbanCardSummary[], projects: Project[], visibleCards: KanbanCardSummary[], activeCardId: string | null): RefreshSnapshot {
   return { cards, projects, visibleCardIds: visibleCards.map((card) => card.id), activeCardId };
 }
 
@@ -38,9 +38,9 @@ export function useKanbanRefreshCoordinator({
   patchCard,
   intervalMs = 30_000,
 }: {
-  cards: KanbanCard[];
+  cards: KanbanCardSummary[];
   projects: Project[];
-  visibleCards: KanbanCard[];
+  visibleCards: KanbanCardSummary[];
   activeCardId: string | null;
   patchCard: PatchCard;
   intervalMs?: number;

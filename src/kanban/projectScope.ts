@@ -1,16 +1,16 @@
 import type { Project } from '../types';
-import type { KanbanCard, KanbanStatus } from './types';
+import type { KanbanCardSummary, KanbanStatus } from './types';
 
 /** A missing or stale saved filter always means the cross-project board. */
 export function resolveKanbanProjectFilter(projects: Project[], savedProjectId: string | null): string | null {
   return savedProjectId && projects.some((project) => project.id === savedProjectId) ? savedProjectId : null;
 }
 
-export function filterKanbanCards(cards: KanbanCard[], projectId: string | null): KanbanCard[] {
+export function filterKanbanCards(cards: KanbanCardSummary[], projectId: string | null): KanbanCardSummary[] {
   return projectId ? cards.filter((card) => card.project_id === projectId) : cards;
 }
 
-export function owningProject(card: KanbanCard, projects: Project[]): Project | null {
+export function owningProject(card: KanbanCardSummary, projects: Project[]): Project | null {
   return card.project_id ? projects.find((project) => project.id === card.project_id) ?? null : null;
 }
 
@@ -70,7 +70,7 @@ export function superthreadSyncAvailability(
  * Hidden cards therefore retain both their relative order and their lane positions.
  */
 export function mergeFilteredLaneOrder(
-  allCards: KanbanCard[],
+  allCards: KanbanCardSummary[],
   status: KanbanStatus,
   visibleOrderedIds: string[],
 ): string[] {
@@ -82,7 +82,7 @@ export function mergeFilteredLaneOrder(
 
 /** Captures the authoritative lane snapshot separately from its filtered drag result. */
 export function buildFilteredLaneReorder(
-  allCards: KanbanCard[],
+  allCards: KanbanCardSummary[],
   status: KanbanStatus,
   visibleOrderedIds: string[],
 ): { expectedCardIds: string[]; cardIds: string[] } {

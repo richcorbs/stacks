@@ -1,7 +1,7 @@
-import type { KanbanCard, KanbanStatus } from './types';
+import type { KanbanCard, KanbanCardSummary, KanbanStatus } from './types';
 import { KANBAN_LANES } from './workflow';
 
-export function candidateParents(cards: KanbanCard[], child: Pick<KanbanCard, 'id' | 'project_id'>): KanbanCard[] {
+export function candidateParents(cards: KanbanCardSummary[], child: Pick<KanbanCardSummary, 'id' | 'project_id'>): KanbanCardSummary[] {
   return cards.filter((card) => card.id !== child.id
     && card.project_id === child.project_id
     && card.parent === null

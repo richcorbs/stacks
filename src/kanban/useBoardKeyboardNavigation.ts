@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { KanbanCard } from './types';
+import type { KanbanCardSummary } from './types';
 import { adjacentBoardCard, keyboardNavigableCards } from './boardNavigation';
 import { isEditableElement } from './boardInteractions';
 
@@ -9,10 +9,10 @@ export function useBoardKeyboardNavigation({
   selectedCard,
   openCard,
 }: {
-  visibleCards: KanbanCard[];
+  visibleCards: KanbanCardSummary[];
   doneCollapsed: boolean;
-  selectedCard: KanbanCard | null;
-  openCard: (card: KanbanCard) => void;
+  selectedCard: KanbanCardSummary | null;
+  openCard: (card: KanbanCardSummary) => void;
 }) {
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const keyboardCards = useMemo(

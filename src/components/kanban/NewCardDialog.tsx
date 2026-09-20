@@ -1,5 +1,5 @@
 import type { Project } from '../../types';
-import type { KanbanCard } from '../../kanban/types';
+import type { KanbanCardSummary } from '../../kanban/types';
 import type { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { candidateParents } from '../../kanban/hierarchy';
 
@@ -12,7 +12,7 @@ export function NewCardDialog({
 }: {
   model: NewCardDialogModel;
   creationProjects: Project[];
-  cards: KanbanCard[];
+  cards: KanbanCardSummary[];
 }) {
   if (!model.open) return null;
   return (

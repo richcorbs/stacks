@@ -1,8 +1,8 @@
 import type { PointerEvent } from 'react';
-import type { KanbanCard } from '../../kanban/types';
+import type { KanbanCardSummary } from '../../kanban/types';
 import { childCountLabel } from '../../kanban/hierarchy';
 
-export function CardHierarchyBadges({ card, onNavigateParent }: { card: KanbanCard; onNavigateParent: (parentId: string) => void }) {
+export function CardHierarchyBadges({ card, onNavigateParent }: { card: KanbanCardSummary; onNavigateParent: (parentId: string) => void }) {
   const stopPointerPropagation = (event: PointerEvent<HTMLButtonElement>) => event.stopPropagation();
   return <>
     {card.parent && <button

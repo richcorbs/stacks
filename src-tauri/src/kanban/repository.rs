@@ -113,15 +113,14 @@ pub(crate) fn with_connection<T>(
 pub(in crate::kanban) fn serialized_board_entities(
     connection: &mut Connection,
 ) -> Result<HashMap<String, String>, String> {
-    let mut cards = list_cards(connection)?;
-    cards
-        .iter_mut()
-        .map(|card| {
+    list_card_summaries(connection)?
+        .into_iter()
+        .map(|mut card| {
             // A revision is metadata about freshness, not part of the serialized
             // entity change being detected.
             card.record_revision = 0;
-            serde_json::to_string(card)
-                .map(|serialized| (card.id.clone(), serialized))
+            serde_json::to_string(&card)
+                .map(|serialized| (card.id, serialized))
                 .map_err(|error| error.to_string())
         })
         .collect()
@@ -141,7 +140,7 @@ pub(in crate::kanban) fn board_snapshot(
     connection: &mut Connection,
 ) -> Result<BoardSnapshot, String> {
     Ok(BoardSnapshot {
-        cards: list_cards(connection)?,
+        cards: list_card_summaries(connection)?,
         board_revision: board_revision(connection)?,
     })
 }
@@ -149,7 +148,7 @@ pub(in crate::kanban) fn board_snapshot(
 pub(in crate::kanban) fn fresh_card_snapshot(id: &str) -> Result<CardSnapshot, String> {
     with_connection(|connection| {
         let card =
-            get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+            get_card_detail(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
         Ok(CardSnapshot {
             card,
             board_revision: board_revision(connection)?,
@@ -203,14 +202,15 @@ pub(in crate::kanban) fn commit_board_revision(
         .map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     let mut upserts = Vec::with_capacity(changed_ids.len());
-    for id in changed_ids {
-        if let Some(card) = get_card(connection, &id)? {
-            upserts.push(card);
+    for id in &changed_ids {
+        if let Some(card) = get_card(connection, id)? {
+            upserts.push(KanbanCardSummary::from(&card));
         }
     }
     Ok(Some(BoardChange {
         upserts,
         removed_ids,
+        detail_invalidated_ids: changed_ids,
         board_revision: revision,
     }))
 }
@@ -851,6 +851,52 @@ pub(in crate::kanban) fn migrate_refinement_statuses(
     Ok(())
 }
 
+pub(in crate::kanban) fn list_card_summaries(
+    connection: &mut Connection,
+) -> Result<Vec<KanbanCardSummary>, String> {
+    let mut cards = {
+        let mut statement = connection.prepare(
+            "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
+                    card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
+                    runtime_cleanup_status, runtime_cleanup_error, workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
+                    parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
+             FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC, id ASC"
+        ).map_err(db_error)?;
+        let rows = statement.query_map([], map_card).map_err(db_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?
+    };
+    // Board hydration deliberately reads only compact board dependencies. It
+    // never touches layouts, panes, creation/delivery/provider operations,
+    // capabilities, descriptions in its output, or event history.
+    load_environment_indicators_batched(connection, &mut cards)?;
+    load_creation_operations_batched(connection, &mut cards)?;
+    load_cleanup_operations_batched(connection, &mut cards)?;
+    load_pull_requests_batched(connection, &mut cards)?;
+    enrich_relationships_batched(connection, &mut cards)?;
+    Ok(cards.iter().map(KanbanCardSummary::from).collect())
+}
+
+fn load_environment_indicators_batched(connection: &Connection, cards: &mut [KanbanCard]) -> Result<(), String> {
+    let indexes = cards.iter().enumerate().map(|(index, card)| (card.id.clone(), index)).collect::<HashMap<_, _>>();
+    let mut statement = connection.prepare(
+        "SELECT e.card_id,e.id,e.project_id,e.worktree_path,e.branch,e.target_branch,e.lifecycle_state,e.revision,
+                COALESCE(l.layout_revision,1)
+         FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id
+         LEFT JOIN card_layouts l ON l.environment_id=e.id WHERE c.in_scope=1"
+    ).map_err(db_error)?;
+    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, CardEnvironment {
+        id: row.get(1)?, card_id: row.get(0)?, project_id: row.get(2)?, worktree_path: row.get(3)?, branch: row.get(4)?,
+        repository_id: None, target_checkout_path: None, target_branch: row.get(5)?, source_revision: None, target_revision: None,
+        lifecycle_state: row.get(6)?, revision: row.get(7)?, layout_revision: row.get(8)?,
+        split_layout: serde_json::json!({"kind":"empty"}), focused_pane_id: None, panes: Vec::new(),
+    }))).map_err(db_error)?;
+    for row in rows {
+        let (card_id, environment) = row.map_err(db_error)?;
+        if let Some(index) = indexes.get(&card_id) { cards[*index].environment = Some(environment); }
+    }
+    Ok(())
+}
+
 pub(in crate::kanban) fn list_cards(
     connection: &mut Connection,
 ) -> Result<Vec<KanbanCard>, String> {
@@ -881,6 +927,21 @@ pub(in crate::kanban) fn get_card(
     connection: &Connection,
     id: &str,
 ) -> Result<Option<KanbanCard>, String> {
+    get_card_projection(connection, id, true)
+}
+
+pub(in crate::kanban) fn get_card_detail(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<KanbanCardDetail>, String> {
+    get_card_projection(connection, id, false)
+}
+
+fn get_card_projection(
+    connection: &Connection,
+    id: &str,
+    include_events: bool,
+) -> Result<Option<KanbanCard>, String> {
     let mut card = connection.query_row(
         "SELECT id, external_provider, external_id, title, content, board_id, board_title, list_id, list_title,
                 card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
@@ -902,7 +963,7 @@ pub(in crate::kanban) fn get_card(
             .or(card.delivery_operation_stage.take());
         card.provider_sync = provider_sync::load_summary(connection, id)?;
         card.pull_request = load_pull_request(connection, card)?;
-        card.events = load_events(connection, id)?;
+        if include_events { card.events = load_events(connection, id)?; }
         let mut cards = vec![card.clone()];
         enrich_relationships(connection, &mut cards)?;
         enrich_capabilities(connection, &mut cards, None)?;
@@ -1407,6 +1468,31 @@ pub(in crate::kanban) fn load_pull_requests_batched(
         }
     }
     Ok(())
+}
+
+pub(in crate::kanban) fn load_event_page(
+    connection: &Connection,
+    card_id: &str,
+    cursor: Option<CardEventCursor>,
+    limit: usize,
+) -> Result<CardEventPage, String> {
+    let page_size = limit.clamp(1, 100);
+    let (cursor_created_at, cursor_id) = cursor
+        .map(|value| (value.created_at, value.id))
+        .unwrap_or((i64::MAX, i64::MAX));
+    let mut statement = connection.prepare(
+        "SELECT id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail
+         FROM card_events WHERE card_id=?1 AND (created_at < ?2 OR (created_at=?2 AND id < ?3))
+         ORDER BY created_at DESC,id DESC LIMIT ?4"
+    ).map_err(db_error)?;
+    let mut events = statement.query_map(params![card_id, cursor_created_at, cursor_id, (page_size + 1) as i64], |row| Ok(CardEvent {
+        id: row.get(0)?, created_at: row.get(1)?, actor: row.get(2)?, event_type: row.get(3)?, outcome: row.get(4)?,
+        from_status: row.get(5)?, to_status: row.get(6)?, summary: row.get(7)?, error_code: row.get(8)?, error_detail: row.get(9)?,
+    })).map_err(db_error)?.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
+    let has_more = events.len() > page_size;
+    events.truncate(page_size);
+    let next_cursor = if has_more { events.last().map(|event| CardEventCursor { created_at: event.created_at, id: event.id }) } else { None };
+    Ok(CardEventPage { events, next_cursor })
 }
 
 pub(in crate::kanban) fn load_events_batched(

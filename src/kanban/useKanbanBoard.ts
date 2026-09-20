@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { subscribeAllPiEvents } from '../pi/eventBroker';
 import { applyKanbanPiLifecycleIntent, applyKanbanWorkflowAction, createLocalKanbanCard, deleteKanbanCard, fetchKanbanCard, fetchKanbanCards, isKanbanReorderConflict, openKanbanCard, reorderKanbanCards, setKanbanProject, syncKanbanCards, updateLocalKanbanCard } from './api';
-import type { BoardChange, BoardSnapshot, KanbanCard, KanbanStatus, KanbanSyncCard, PiLifecycleIntent, SuperthreadIntegration, SuperthreadSnapshot } from './types';
+import type { BoardChange, BoardSnapshot, KanbanCard, KanbanCardDetail, KanbanCardSummary, KanbanStatus, KanbanSyncCard, PiLifecycleIntent, SuperthreadIntegration, SuperthreadSnapshot } from './types';
 import type { Project } from '../types';
 import { KanbanSyncRequestGate } from './syncRequestGate';
 import { setPiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
@@ -15,14 +15,14 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
   const storeRef = useRef<KanbanEntityStore | null>(null);
   if (!storeRef.current) storeRef.current = new KanbanEntityStore({ onGap: () => reloadRef.current?.().catch(console.error) });
   const store = storeRef.current;
-  const [cards, setCards] = useState<KanbanCard[]>([]);
+  const [cards, setCards] = useState<KanbanCardSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [cardsHydrated, setCardsHydrated] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
-  const uiRequestBlocksRef = useRef(new Map<string, Promise<KanbanCard | null>>());
+  const uiRequestBlocksRef = useRef(new Map<string, Promise<KanbanCardSummary | null>>());
   const lifecycleTransitionsRef = useRef(new Map<string, Promise<void>>());
   const initialLoadStartedRef = useRef(false);
   const syncGate = useRef(new KanbanSyncRequestGate());
@@ -42,7 +42,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     publish();
   }, [publish, store]);
 
-  const applyCardSnapshot = useCallback((card: KanbanCard, boardRevision = 0) => {
+  const applyCardSnapshot = useCallback((card: KanbanCardSummary, boardRevision = 0) => {
     store.applyCard(card, boardRevision);
     publish();
     return store.card(card.id) ?? card;
@@ -76,12 +76,12 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
         const scopedParents = store.cards().filter((card) => card.project_id === candidate.ownerProjectId)
           .flatMap((card) => card.child_count > 0 ? [card.external_id] : card.parent ? [card.parent.external_id] : []);
         const response = await candidate.sync(refresh, scopedParents);
-        const snapshot = await syncKanbanCards(candidate.ownerProjectId, response);
-        return { candidate, response, snapshot };
+        const change = await syncKanbanCards(candidate.ownerProjectId, response);
+        return { candidate, response, change };
       }));
       if (!syncGate.current.isCurrent(generation)) return;
       const successful = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
-      if (successful.length) applySnapshot(await fetchKanbanCards());
+      for (const { change } of successful) applyPartialChange(change);
       const failures = results.flatMap((result) => result.status === 'rejected' ? [errorMessage(result.reason)] : []);
       const warnings = successful.flatMap((result) => result.response.warnings);
       if (warnings.length || failures.length) setProviderError([...failures, ...warnings].join('; '));
@@ -92,7 +92,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     } finally {
       if (syncGate.current.isCurrent(generation)) setSyncing(false);
     }
-  }, [applySnapshot, provider]);
+  }, [applyPartialChange, provider]);
 
   useEffect(() => {
     load().catch(console.error);
@@ -109,6 +109,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     getCurrentWindow().listen<BoardChange>('kanban-board-changed', (event) => {
       store.applyBoardChange(event.payload);
       publish();
+      if (event.payload.detail_invalidated_ids?.length) window.dispatchEvent(new CustomEvent('stacks:kanban-detail-invalidated', { detail: event.payload.detail_invalidated_ids }));
     }).then((cleanup) => {
       if (cancelled) cleanup();
       else unsubscribe = cleanup;
@@ -119,7 +120,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     };
   }, [publish, store]);
 
-  function enqueueLifecycleIntent(cardId: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failurePrefix?: string, expectedRevision?: number, failureDetail?: string): Promise<KanbanCard | null> {
+  function enqueueLifecycleIntent(cardId: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failurePrefix?: string, expectedRevision?: number, failureDetail?: string): Promise<KanbanCardSummary | null> {
     const previous = lifecycleTransitionsRef.current.get(cardId) ?? Promise.resolve();
     const result = previous.catch(() => {}).then(async () => {
       const current = store.card(cardId);
@@ -207,7 +208,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
 
   async function create(project: Project, title: string, content: string, parentId: string | null = null) {
     const result = await createKanbanCardForProject(project, title, content, providers.find((candidate) => candidate.ownerProjectId === project.id) ?? null, undefined, parentId);
-    if (result.persistedSnapshot) applySnapshot(result.persistedSnapshot);
+    if (result.persistedChange) applyPartialChange(result.persistedChange);
     else applyCardSnapshot(result.card);
     return store.card(result.card.id) ?? result.card;
   }
@@ -215,8 +216,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
   async function update(id: string, title: string, content: string, parentId?: string | null) {
     const updated = await updateLocalKanbanCard(id, title, content, parentId);
     applyCardSnapshot(updated);
-    applySnapshot(await fetchKanbanCards());
-    return store.card(id) ?? updated;
+    return updated;
   }
 
   async function interact(id: string) { await openKanbanCard(id); }
@@ -252,9 +252,9 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     const current = store.card(id);
     if (!current || !['refining', 'needs_refinement_input'].includes(current.status)) throw new Error('Card is no longer being refined; reload the board');
     const snapshot = await applyKanbanWorkflowAction(id, 'stop_refinement', current.workflow_revision);
-    const updated = applyCardSnapshot(snapshot.card, snapshot.board_revision);
+    applyCardSnapshot(snapshot.card, snapshot.board_revision);
     await getRetainedPiSessionController(paneId)?.stopRefinement();
-    return updated;
+    return snapshot.card;
   }
 
   async function act(id: string, action: 'return_to_refinement' | 'request_changes') {
@@ -262,7 +262,8 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     if (!current) throw new Error('Card was not found; reload the board');
     try {
       const snapshot = await applyKanbanWorkflowAction(id, action, current.workflow_revision);
-      return applyCardSnapshot(snapshot.card, snapshot.board_revision);
+      applyCardSnapshot(snapshot.card, snapshot.board_revision);
+      return snapshot.card;
     } catch (actionError) {
       setError(errorMessage(actionError));
       throw actionError;
@@ -272,37 +273,35 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
   async function assignProject(id: string, projectId: string) {
     const updated = await setKanbanProject(id, projectId);
     applyCardSnapshot(updated);
-    applySnapshot(await fetchKanbanCards());
-    return store.card(id) ?? updated;
+    return updated;
   }
 
-  const patchCard = useCallback((updated: KanbanCard, expected: KanbanCard) => {
+  const patchCard = useCallback((updated: KanbanCardSummary, expected: KanbanCardSummary) => {
     const current = store.card(updated.id);
     if (!current || !matchesRefreshSnapshot(current, expected) || !store.applyCard(updated)) return false;
     publish();
     return true;
   }, [publish, store]);
 
-  async function loadDetails(card: KanbanCard) {
+  async function loadDetails(card: KanbanCardSummary): Promise<KanbanCardDetail> {
     if (card.provider === 'local') {
       try {
         const snapshot = await fetchKanbanCard(card.id);
         applyCardSnapshot(snapshot.card, snapshot.board_revision);
-        return store.card(card.id) ?? card;
-      } catch { return store.card(card.id) ?? card; }
+        return snapshot.card;
+      } catch { throw new Error('Card details could not be loaded'); }
     }
     const cardProvider = providers.find((candidate) => candidate.ownerProjectId === card.project_id);
-    if (!cardProvider) return store.card(card.id) ?? card;
+    if (!cardProvider) return (await fetchKanbanCard(card.id)).card;
     const snapshot = await loadSuperthreadCardDetails(card, cardProvider);
-    if (!snapshot) return store.card(card.id) ?? card;
-    applySnapshot(snapshot);
-    return store.card(card.id) ?? card;
+    if (snapshot) applyPartialChange(snapshot);
+    return (await fetchKanbanCard(card.id)).card;
   }
 
   return { cards, cardsHydrated, loading, syncing, error, providerError, load, sync, create, update, interact, remove, reorder, act, stopRefinement, assignProject, loadDetails, applyCardSnapshot, patchCard };
 }
 
-export function matchesRefreshSnapshot(current: KanbanCard, expected: KanbanCard) {
+export function matchesRefreshSnapshot(current: KanbanCardSummary, expected: KanbanCardSummary) {
   return current.id === expected.id
     && current.record_revision === expected.record_revision
     && current.status === expected.status
@@ -317,7 +316,7 @@ export function matchesRefreshSnapshot(current: KanbanCard, expected: KanbanCard
 
 type CreateKanbanCardDependencies = {
   createLocal: (projectId: string, title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
-  persistSuperthread: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardSnapshot | KanbanCard[]>;
+  persistSuperthread: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardChange | KanbanCardSummary[]>;
 };
 
 export async function createKanbanCardForProject(
@@ -327,20 +326,20 @@ export async function createKanbanCardForProject(
   provider: SuperthreadIntegration | null,
   dependencies: CreateKanbanCardDependencies = { createLocal: createLocalKanbanCard, persistSuperthread: syncKanbanCards },
   parentId: string | null = null,
-): Promise<{ card: KanbanCard; persistedCards?: KanbanCard[]; persistedSnapshot?: BoardSnapshot }> {
+): Promise<{ card: KanbanCardSummary; persistedCards?: KanbanCardSummary[]; persistedChange?: BoardChange }> {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) throw new Error('Card title is required');
   if ((project.kanban_source ?? 'local') === 'local') return { card: await dependencies.createLocal(project.id, trimmedTitle, content, parentId) };
   if (provider?.kind !== 'superthread' || provider.ownerProjectId !== project.id) throw new Error('Superthread card creation is unavailable because this project is not the configured owner');
 
   const remote = await provider.create(trimmedTitle, content);
-  let persisted: BoardSnapshot | KanbanCard[];
+  let persisted: BoardChange | KanbanCardSummary[];
   try { persisted = await dependencies.persistSuperthread(provider.ownerProjectId, partialSuperthreadSnapshot([remote])); }
   catch (error) { throw new Error(`The card was created in Superthread, but Stacks could not import it: ${errorMessage(error)}. Run Sync Superthread to recover it.`); }
-  const persistedCards = Array.isArray(persisted) ? persisted : persisted.cards;
+  const persistedCards = Array.isArray(persisted) ? persisted : persisted.upserts;
   const card = persistedCards.find((candidate) => candidate.provider === 'superthread' && candidate.external_id === remote.id);
   if (!card) throw new Error('The card was created in Superthread, but Stacks could not find it after import. Run Sync Superthread to recover it.');
-  return { card, persistedCards, ...(!Array.isArray(persisted) ? { persistedSnapshot: persisted } : {}) };
+  return { card, persistedCards, ...(!Array.isArray(persisted) ? { persistedChange: persisted } : {}) };
 }
 
 function partialSuperthreadSnapshot(cards: KanbanSyncCard[]): SuperthreadSnapshot {
@@ -348,9 +347,9 @@ function partialSuperthreadSnapshot(cards: KanbanSyncCard[]): SuperthreadSnapsho
 }
 
 export async function loadSuperthreadCardDetails(
-  card: KanbanCard,
+  card: KanbanCardSummary,
   provider: SuperthreadIntegration,
-  persist: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardSnapshot> = syncKanbanCards,
+  persist: (ownerProjectId: string, snapshot: SuperthreadSnapshot) => Promise<BoardChange> = syncKanbanCards,
 ) {
   const detail = await provider.load(card);
   if (!detail) return null;
@@ -359,8 +358,8 @@ export async function loadSuperthreadCardDetails(
 
 type KanbanLoadOptions = {
   initial: boolean;
-  fetchCards: () => Promise<KanbanCard[]>;
-  setCards: (cards: KanbanCard[]) => void;
+  fetchCards: () => Promise<KanbanCardSummary[]>;
+  setCards: (cards: KanbanCardSummary[]) => void;
   setError: (error: string | null) => void;
   setLoading: (loading: boolean) => void;
   setInitialLoadComplete: (complete: boolean) => void;
@@ -400,7 +399,7 @@ export function mergeChangedKanbanCard(cards: KanbanCard[], changed: KanbanCard)
   return cards.map((card) => card.id === changed.id ? changed : card);
 }
 
-export function shouldRestoreUiRequestCard(current: KanbanCard | undefined, blocked: KanbanCard): current is KanbanCard {
+export function shouldRestoreUiRequestCard(current: KanbanCardSummary | undefined, blocked: KanbanCardSummary): current is KanbanCardSummary {
   const waitingStatus = blocked.status === 'needs_refinement_input' ? 'needs_refinement_input' : 'needs_human';
   return Boolean(current && current.status === waitingStatus && current.workflow_revision === blocked.workflow_revision);
 }

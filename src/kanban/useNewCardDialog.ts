@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project } from '../types';
-import type { KanbanCard } from './types';
+import type { KanbanCardSummary } from './types';
 import { handleEditableClipboardKeyDown } from './editableClipboard';
 import { preselectedCardProject } from './projectScope';
 
@@ -15,8 +15,8 @@ export function useNewCardDialog({
   creationProjects: Project[];
   selectedProject: Project | null;
   filterProjectId: string | null;
-  create: (project: Project, title: string, content: string, parentId: string | null) => Promise<KanbanCard>;
-  openCard: (card: KanbanCard) => Promise<void>;
+  create: (project: Project, title: string, content: string, parentId: string | null) => Promise<KanbanCardSummary>;
+  openCard: (card: KanbanCardSummary) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');

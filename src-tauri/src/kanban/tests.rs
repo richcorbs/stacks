@@ -3342,3 +3342,35 @@ fn makes_card_ids_safe_for_directories() {
         "superthread_42_______oops"
     );
 }
+
+#[test]
+fn board_projection_omits_detail_and_history_fields() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    local_card(&mut connection);
+    connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome) VALUES ('local:test',10,'user','edited','success')", []).unwrap();
+    let snapshot = board_snapshot(&mut connection).unwrap();
+    let json = serde_json::to_value(snapshot).unwrap();
+    let card = &json["cards"][0];
+    assert!(card.get("content").is_none());
+    assert!(card.get("events").is_none());
+    assert!(card.get("capabilities").is_none());
+    assert!(card.get("provider_sync").is_none());
+}
+
+#[test]
+fn event_pages_use_timestamp_and_id_cursor_without_duplicates() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    local_card(&mut connection);
+    for index in 0..30 {
+        connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary) VALUES ('local:test',10,'system','test','success',?1)", [index.to_string()]).unwrap();
+    }
+    let first = load_event_page(&connection, "local:test", None, 25).unwrap();
+    assert_eq!(first.events.len(), 25);
+    let second = load_event_page(&connection, "local:test", first.next_cursor, 25).unwrap();
+    assert_eq!(second.events.len(), 5);
+    assert!(second.next_cursor.is_none());
+    let ids = first.events.iter().chain(&second.events).map(|event| event.id).collect::<HashSet<_>>();
+    assert_eq!(ids.len(), 30);
+}
