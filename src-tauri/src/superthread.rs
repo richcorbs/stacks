@@ -95,9 +95,9 @@ struct SuperthreadUser {
 
 #[derive(Debug, Deserialize)]
 struct AuthStatus {
-    #[serde(default, alias = "id", alias = "account_id")]
+    #[serde(default)]
     workspace_id: String,
-    #[serde(alias = "name", alias = "account_name")]
+    #[serde(default)]
     workspace_name: String,
     #[serde(default, alias = "app_slug")]
     workspace_slug: Option<String>,
@@ -1213,13 +1213,22 @@ esac
         (service, path)
     }
 
+    #[test]
+    fn parses_auth_status_without_treating_user_identity_as_workspace_identity() {
+        let status: AuthStatus = serde_json::from_str(r#"{
+          "id":"user-id","name":"User Name","workspace_id":"workspace-id","workspace_name":"Workspace Name"
+        }"#).unwrap();
+        assert_eq!(status.workspace_id, "workspace-id");
+        assert_eq!(status.workspace_name, "Workspace Name");
+    }
+
     #[cfg(unix)]
     #[test]
     fn validates_mapping_ids_and_refreshes_current_labels() {
         use std::fs;
         let script = r#"#!/bin/sh
 case "$1 $2" in
-  "auth status") echo '{"workspace_name":"Test workspace"}' ;;
+  "auth status") echo '{"id":"user-id","name":"Test User","workspace_id":"workspace-id","workspace_name":"Test workspace"}' ;;
   "spaces list") echo '[{"id":"s1","title":"Configured"}]' ;;
   "boards list") echo '[{"id":"b1","title":"Renamed board"},{"id":"b2","title":"Renamed board"}]' ;;
   "boards get") echo '{"lists":[{"id":"in1","title":"Renamed incoming"},{"id":"progress","title":"Doing"},{"id":"done","title":"Shipped"}]}' ;;
@@ -1237,6 +1246,7 @@ esac
             api_token_env_var: "ST_TOKEN".into(),
         };
         let tested = service.test_mapping(&draft).unwrap();
+        assert_eq!(tested.workspace_id, "workspace-id");
         assert_eq!(
             (tested.board_id.as_str(), tested.board_name.as_str()),
             ("b1", "Renamed board")
