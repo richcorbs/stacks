@@ -3,14 +3,13 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { Project, TerminalEntry } from '../types';
 import { collectLeafTerminalIds, setSplitRatio, splitLeaf } from '../utils';
-import { createGlobalTab, globalPaneId, removeGlobalPane, removeGlobalTab, selectRelativeTab, type GlobalTerminalState, type GlobalTerminalTab } from '../globalTerminalState';
+import { createGlobalTab, globalPaneId, removeGlobalPane, removeGlobalTab, selectRelativeTab, type GlobalTerminalCommand, type GlobalTerminalState, type GlobalTerminalTab } from '../globalTerminalState';
 import { loadGlobalTerminal, saveGlobalTerminal } from '../globalTerminalApi';
 import { disposeTerminalSession, disposeTerminalSessions, focusTerminalSession, getTerminalSession, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { SplitView } from './WorkspaceTerminalTree';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
+import { applicationEvents } from '../applicationEvents';
 
-export const GLOBAL_TERMINAL_COMMAND_EVENT = 'stacks:global-terminal-command';
-export type GlobalTerminalCommand = { type: 'new-tab' | 'select-tab' | 'navigate-tab' | 'split' | 'close' | 'clear' | 'search' | 'toggle-maximize'; number?: number; direction?: -1 | 1 | 'row' | 'column' };
 const encoder = new TextEncoder();
 const project: Project = { id: 'global-terminal', name: 'Top-level terminal', path: '' };
 
@@ -96,11 +95,7 @@ export function GlobalTerminal({ visible, newTabNonce, settings, onVisibleChange
     }
   }, [addTab, requestClosePane, selected, split, state]);
 
-  useEffect(() => {
-    const listener = (event: Event) => handleCommand((event as CustomEvent<GlobalTerminalCommand>).detail);
-    window.addEventListener(GLOBAL_TERMINAL_COMMAND_EVENT, listener);
-    return () => window.removeEventListener(GLOBAL_TERMINAL_COMMAND_EVENT, listener);
-  }, [handleCommand]);
+  useEffect(() => applicationEvents.subscribe('global-terminal-command', handleCommand), [handleCommand]);
 
   function closeConfirmed() {
     if (!state || !pendingClose) return;

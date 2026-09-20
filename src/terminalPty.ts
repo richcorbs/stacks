@@ -8,6 +8,7 @@ import { enqueueTerminalOutput } from './terminalOutput';
 import { safeTermSize } from './terminalSizing';
 import { publishTerminalRawOutput } from './terminalRawOutput';
 import { dispatchAppAttention, parseWorkOwnerId, type AppAttention } from './appAttention';
+import { applicationEvents } from './applicationEvents';
 
 export function processExitAttention(input: { terminalId: string; workspaceId: string; generation: string; commandBacked: boolean; eligible: boolean }): AppAttention | null {
   const owner = parseWorkOwnerId(input.workspaceId);
@@ -48,7 +49,7 @@ export function attachTerminalPtyListeners({
       session.managedStopRequested = false;
       const remaining = session.decoder.decode();
       enqueueTerminalOutput(session, `${remaining}\r\n[process exited]\r\n`, workspaceId, terminalId);
-      window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, generation, running: false } }));
+      applicationEvents.publish('terminal-running-changed', { terminalId, generation, running: false });
       const attention = processExitAttention({ terminalId, workspaceId, generation, commandBacked, eligible: Boolean(session.activityNotificationEligible) });
       if (attention) dispatchAppAttention(attention);
       session.activityNotificationEligible = false;
@@ -105,7 +106,7 @@ export async function spawnTerminalPty({
     }
     session.spawned = true;
     session.running = true;
-    window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, generation, running: true } }));
+    applicationEvents.publish('terminal-running-changed', { terminalId, generation, running: true });
     if (session.managedStopRequested) {
       await invoke('kill_pty', { terminalId, expectedGeneration: generation });
       return;

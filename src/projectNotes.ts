@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { applicationEvents } from './applicationEvents';
 
 export type ProjectNotesRecord = { notes: string; revision: number };
 export type ProjectNotesStatus = 'loading' | 'saving' | 'saved' | 'error';
@@ -128,7 +129,7 @@ export async function flushProjectNotes(projectId: string) {
   try {
     await pendingNotes.get(projectId)?.flush();
   } catch (error) {
-    window.dispatchEvent(new CustomEvent('stacks:project-notes-save-failed', { detail: { projectId } }));
+    applicationEvents.publish('project-notes-save-failed', { projectId });
     throw error;
   }
 }

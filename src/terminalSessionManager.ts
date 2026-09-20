@@ -1,4 +1,5 @@
 import type { TerminalSession } from './types';
+import { applicationEvents } from './applicationEvents';
 
 const terminalSessions = new Map<string, TerminalSession>();
 const oneTimeStartupCommands = new Map<string, string>();
@@ -164,7 +165,7 @@ export function disposeTerminalSession(terminalId: string) {
   oneTimeInitialInputs.delete(terminalId);
   const session = terminalSessions.get(terminalId);
   if (!session) return;
-  window.dispatchEvent(new CustomEvent('terminal-running-changed', { detail: { terminalId, running: false } }));
+  applicationEvents.publish('terminal-running-changed', { terminalId, running: false });
   // Detach natural-exit attention before every explicit stop/restart/close path.
   session.activityNotificationEligible = false;
   session.resizeObserver?.disconnect();

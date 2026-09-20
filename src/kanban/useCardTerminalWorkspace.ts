@@ -6,7 +6,8 @@ import type { CardEnvironmentPane, KanbanCard } from './types';
 import { saveKanbanEnvironmentLayout } from './api';
 import { clearOneTimeStartupCommand, disposeTerminalSession, getTerminalSession, registerOneTimeStartupCommand, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { buildOneTimeCommandScript } from '../oneTimeCommand';
-import { CARD_TERMINAL_COMMAND_EVENT, publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
+import { publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
+import { applicationEvents } from '../applicationEvents';
 import { insertTemporaryPane, temporaryPaneCwd, type TemporaryPaneRun } from '../cardTerminalState';
 import { cardTerminalId, cardWorkspaceId } from './cardWorkspace';
 import { LayoutSaveCoordinator, type LayoutSaveSnapshot } from './layoutSaveCoordinator';
@@ -174,18 +175,16 @@ export function useCardTerminalWorkspace({
       if (session?.running) session.term.write(clearWrappedPrompt(session.term), applySplit);
       else applySplit();
     };
-    const closeTerminal = (event: Event) => {
-      const requestedPane = (event as CustomEvent<{ pane?: string }>).detail?.pane;
+    const closeTerminal = (detail?: { pane?: string }) => {
+      const requestedPane = detail?.pane;
       const closing = requestedPane && shellTerminalIds.includes(requestedPane) ? requestedPane : shellTerminalIds.includes(focusedShellPane) ? focusedShellPane : shellTerminalIds.at(-1);
       if (closing) setPendingCloseShellPane(closing);
     };
-    const handleSplit = (event: Event) => {
-      const detail = (event as CustomEvent<{ direction?: 'row' | 'column'; pane?: string }>).detail;
+    const handleSplit = (detail: { direction?: 'row' | 'column'; pane?: string }) => {
       if (detail?.direction) splitTerminal(detail.direction, detail.pane);
     };
-    const handleCommand = (event: Event) => {
+    const handleCommand = (command: CardTerminalCommand) => {
       if (activeView !== 'terminal') return;
-      const command = (event as CustomEvent<CardTerminalCommand>).detail;
       const pane = focusedShellPane;
       if (!command || !pane) return;
       if (command.type === 'split') splitTerminal(command.direction);
@@ -194,18 +193,16 @@ export function useCardTerminalWorkspace({
       else if (command.type === 'clear') { const session = getTerminalSession(pane); session?.term.clearSelection(); session?.term.clear(); session?.term.scrollToBottom(); }
       else if (command.type === 'restart') { disposeTerminalSession(pane); invoke('kill_pty', { terminalId: pane }).catch(() => {}); setRestartShellRequest({ terminalId: pane, nonce: Date.now() }); }
       else if (command.type === 'stop') { disposeTerminalSession(pane); invoke('kill_pty', { terminalId: pane }).catch(console.error); }
-      else if (command.type === 'close') { if (!finishTemporaryRun(pane)) closeTerminal(event); }
+      else if (command.type === 'close') { if (!finishTemporaryRun(pane)) closeTerminal(); }
       else if (command.type === 'toggle-maximize' && shellTerminalIds.length > 1) { setMaximizedShellPane((current) => current ? null : pane); requestTerminalSessionsScrollToBottomAfterFit([pane]); }
       else if (command.type === 'run-one-time') void runOneTimeCommand(command.command);
     };
-    window.addEventListener('stacks:card-terminal-split', handleSplit);
-    window.addEventListener('stacks:card-terminal-close', closeTerminal);
-    window.addEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
-    return () => {
-      window.removeEventListener('stacks:card-terminal-split', handleSplit);
-      window.removeEventListener('stacks:card-terminal-close', closeTerminal);
-      window.removeEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
-    };
+    const unsubscribes = [
+      applicationEvents.subscribe('card-terminal-split', handleSplit),
+      applicationEvents.subscribe('card-terminal-close', closeTerminal),
+      applicationEvents.subscribe('card-terminal-command', handleCommand),
+    ];
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [activeView, card.id, cardPath, focusedShellPane, maximizedShellPane, shellTerminalIds, shellTree]);
 
   function closeShellPane(terminalId: string) {

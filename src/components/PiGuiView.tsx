@@ -1,3 +1,4 @@
+import { applicationEvents, showAppToast } from '../applicationEvents';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -130,15 +131,14 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     if (!active || !visible || pi.starting || modalUiRequest) return;
     inputRef.current?.focus();
     const focusComposer = () => requestAnimationFrame(() => inputRef.current?.focus());
-    const focusRequestedPane = (event: Event) => {
-      const request = (event as CustomEvent<{ terminalId?: string }>).detail;
-      if (request?.terminalId === terminal.id) inputRef.current?.focus();
+    const focusRequestedPane = (request: { terminalId?: string }) => {
+      if (request.terminalId === terminal.id) inputRef.current?.focus();
     };
     window.addEventListener('focus', focusComposer);
-    window.addEventListener('pane-focus-request', focusRequestedPane);
+    const unsubscribe = applicationEvents.subscribe('pane-focus-request', focusRequestedPane);
     return () => {
       window.removeEventListener('focus', focusComposer);
-      window.removeEventListener('pane-focus-request', focusRequestedPane);
+      unsubscribe();
     };
   }, [active, modalUiRequest, pi.starting, terminal.id, visible]);
 
@@ -424,9 +424,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     try {
       await writeText(selectionPopup.text);
       clearGuiSelection();
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Copied to clipboard' } }));
+      showAppToast('Copied to clipboard');
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not copy: ${String(error)}` } }));
+      showAppToast(`Could not copy: ${String(error)}`);
     }
   }
 
