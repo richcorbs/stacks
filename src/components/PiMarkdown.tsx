@@ -1,3 +1,4 @@
+import { showAppToast } from '../applicationEvents';
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Markdown, { type Components } from 'react-markdown';
@@ -56,9 +57,9 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
       setCopied(true);
       if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200);
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Code copied to clipboard' } }));
+      showAppToast('Code copied to clipboard');
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Could not copy: ${String(error)}` } }));
+      showAppToast(`Could not copy: ${String(error)}`);
     }
   }
 

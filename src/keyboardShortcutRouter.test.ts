@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleMetaShortcutKeyDown } from './keyboardShortcutRouter';
 import type { ShortcutHandlers } from './shortcutTypes';
+import { applicationEvents } from './applicationEvents';
 
 let cardOpen = false;
 let cardTerminal = false;
 const testWindow = new EventTarget();
-class TestCustomEvent<T> extends Event { detail: T; constructor(type: string, options: { detail: T }) { super(type); this.detail = options.detail; } }
 Object.assign(globalThis, {
   window: testWindow,
-  CustomEvent: TestCustomEvent,
   document: {
     activeElement: null,
     querySelector(selector: string) {
@@ -32,9 +31,10 @@ describe('keyboard shortcut router', () => {
   beforeEach(() => { cardOpen = false; cardTerminal = false; });
   it('keeps card tab number and bracket navigation', () => {
     cardOpen = true;
-    const seen = vi.fn(); testWindow.addEventListener('stacks:card-tab-shortcut', seen, { once: true });
+    const seen = vi.fn(); const unsubscribe = applicationEvents.subscribe('card-tab-shortcut', seen);
     handleMetaShortcutKeyDown(key('3'), handlers());
-    expect((seen.mock.calls[0][0] as CustomEvent).detail).toEqual({ number: 3 });
+    expect(seen).toHaveBeenCalledWith({ number: 3 });
+    unsubscribe();
   });
   it('routes terminal shortcuts only in an active card Terminal tab', () => {
     const h = handlers(); handleMetaShortcutKeyDown(key('d'), h); expect(h.runCardTerminalAction).not.toHaveBeenCalled();
@@ -43,10 +43,11 @@ describe('keyboard shortcut router', () => {
     expect(h.runCardTerminalAction).toHaveBeenCalledWith('split-right'); expect(h.runCardTerminalAction).toHaveBeenCalledWith('toggle-maximize');
   });
   it('gives global terminal tabs and terminal commands precedence while visible', () => {
-    const h = handlers(true); const seen = vi.fn(); testWindow.addEventListener('stacks:global-terminal-command', seen, { once: true });
+    const h = handlers(true); const seen = vi.fn(); const unsubscribe = applicationEvents.subscribe('global-terminal-command', seen);
     cardOpen = true; cardTerminal = true;
     handleMetaShortcutKeyDown(key('3'), h); handleMetaShortcutKeyDown(key('d'), h);
-    expect((seen.mock.calls[0][0] as CustomEvent).detail).toEqual({ type: 'select-tab', number: 3 });
+    expect(seen).toHaveBeenCalledWith({ type: 'select-tab', number: 3 });
+    unsubscribe();
     expect(h.runGlobalTerminalAction).toHaveBeenCalledWith('split-right');
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
   });

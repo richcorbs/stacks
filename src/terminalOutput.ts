@@ -1,4 +1,5 @@
 import type { TerminalSession } from './types';
+import { applicationEvents } from './applicationEvents';
 
 const MAX_OUTPUT_BATCH_CHARS = 256 * 1024;
 const MAX_QUEUED_OUTPUT_CHARS = 4 * 1024 * 1024;
@@ -7,7 +8,7 @@ function enqueueTerminalActivityEvent(session: TerminalSession, workspaceId: str
   if (session.outputActivityFrame !== null) return;
   session.outputActivityFrame = window.requestAnimationFrame(() => {
     session.outputActivityFrame = null;
-    window.dispatchEvent(new CustomEvent('terminal-output', { detail: { workspaceId, terminalId } }));
+    applicationEvents.publish('terminal-output', { workspaceId, terminalId });
   });
 }
 
@@ -45,7 +46,7 @@ function flushTerminalOutput(session: TerminalSession, terminalId: string) {
   session.outputWriteInProgress = true;
   session.term.write(batch, () => {
     session.outputWriteInProgress = false;
-    window.dispatchEvent(new CustomEvent('terminal-output-rendered', { detail: { terminalId } }));
+    applicationEvents.publish('terminal-output-rendered', { terminalId });
     flushTerminalOutput(session, terminalId);
   });
 }

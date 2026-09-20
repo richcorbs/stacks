@@ -203,7 +203,7 @@ fn record_pushed(
 pub async fn push(id: String) -> Result<ScriptedDeliveryResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 let (_, already) = reconcile_push(connection, &id)?;
                 let card = get_card(connection, &id)?
                     .ok_or_else(|| "Kanban card was not found".to_string())?;
@@ -289,7 +289,7 @@ fn finish_deployment(
 
 pub async fn deploy(id: String, rerun_uncertain: bool) -> Result<ScriptedDeliveryResult, String> {
     tauri::async_runtime::spawn_blocking(move || coordinate_card_repository(&id, true, || {
-        let (command, op, _tip) = with_connection(|connection| {
+        let (command, op, _tip) = with_board_mutation(|connection| {
             let before = evidence(connection, &id)?;
             if before.stage == "uncertain" && !rerun_uncertain { return Err("Deployment outcome is uncertain; confirm it or explicitly run the deployment again".into()); }
             let (tip, _) = reconcile_push(connection, &id)?;
@@ -312,7 +312,7 @@ pub async fn deploy(id: String, rerun_uncertain: bool) -> Result<ScriptedDeliver
         crate::process_group::configure_detached(&mut child);
         let mut child = match child.spawn() {
             Ok(child) => child,
-            Err(error) => return with_connection(|connection| {
+            Err(error) => return with_board_mutation(|connection| {
                 let mut result = finish_deployment(connection, &id, &token, false, false, None)?;
                 result.message = format!("Could not start deployment command: {error}");
                 Ok(result)
@@ -326,7 +326,7 @@ pub async fn deploy(id: String, rerun_uncertain: bool) -> Result<ScriptedDeliver
         for reader in readers { let _ = reader.join(); }
         DEPLOYMENTS.get_or_init(Default::default).lock().ok().map(|mut values| values.remove(&id));
         let cancelled = CANCELLED.get_or_init(Default::default).lock().map(|mut values| values.remove(&token)).unwrap_or(false);
-        with_connection(|connection| finish_deployment(connection, &id, &token, status.success(), cancelled, status.code()))
+        with_board_mutation(|connection| finish_deployment(connection, &id, &token, status.success(), cancelled, status.code()))
     })).await.map_err(|error| format!("Deployment worker failed: {error}"))?
 }
 
@@ -368,7 +368,7 @@ pub fn cancel(id: String) -> Result<(), String> {
 }
 
 pub fn confirm(id: String) -> Result<ScriptedDeliveryResult, String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let op = evidence(connection, &id)?;
         if op.stage != "uncertain" {
             return Err("Only an uncertain deployment can be confirmed".into());

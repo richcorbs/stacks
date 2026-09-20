@@ -7,12 +7,12 @@ import {
   buildRefreshCyclePlan,
   isRefreshTargetCurrent,
   KanbanRefreshCoordinator,
-  REFRESH_CARD_REPOSITORY_STATUS_EVENT,
   shouldRefreshPullRequest,
   targetIdentity,
   targetSnapshotIdentity,
   type RefreshSnapshot,
 } from './refreshCoordinator';
+import { applicationEvents } from '../applicationEvents';
 import { healthCheckFailure, type CardRepositoryStatus } from './useCardRepositoryStatus';
 
 export type KanbanRefreshState = {
@@ -135,9 +135,9 @@ export function useKanbanRefreshCoordinator({
   useEffect(() => {
     coordinator.start(intervalMs);
     const onRefresh = () => { void coordinator.request({ visible: true, active: true }); };
-    window.addEventListener(REFRESH_CARD_REPOSITORY_STATUS_EVENT, onRefresh);
+    const unsubscribe = applicationEvents.subscribe('refresh-card-repository-status', onRefresh);
     return () => {
-      window.removeEventListener(REFRESH_CARD_REPOSITORY_STATUS_EVENT, onRefresh);
+      unsubscribe();
       coordinator.dispose();
     };
   }, [coordinator, intervalMs]);

@@ -19,7 +19,7 @@ pub fn kanban_card_snapshot(id: String) -> Result<CardSnapshot, String> {
 
 #[tauri::command]
 pub fn kanban_card_events(id: String, cursor: Option<CardEventCursor>, limit: Option<usize>) -> Result<CardEventPage, String> {
-    with_connection(|connection| load_event_page(connection, &id, cursor, limit.unwrap_or(25)))
+    with_read_connection(|connection| load_event_page(connection, &id, cursor, limit.unwrap_or(25)))
 }
 
 #[tauri::command]

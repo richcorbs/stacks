@@ -1,3 +1,4 @@
+import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -12,7 +13,6 @@ import { composeDiffReviewPrompt } from '../../diffReview/prompt';
 import { sendTextToPiEditor } from '../../pi/editorTextEvent';
 import { deletePiSessionController } from '../../pi/sessionController';
 import { disposeAcceptedRuntimeOutcomes } from '../../kanban/runtimeCleanup';
-import { REFRESH_CARD_REPOSITORY_STATUS_EVENT } from '../../kanban/refreshCoordinator';
 import { cardLocalComparisonTarget } from '../../git/comparisonTarget';
 import { runApproveAndCommit } from '../../kanban/approveAndCommit';
 import { runMergeTargetAndResolve } from '../../kanban/mergeTargetAndResolve';
@@ -20,7 +20,7 @@ import { runWritePlanAndFinishRefinement } from '../../kanban/writePlanAndFinish
 import { GENERATE_PR_METADATA_PROMPT } from '../../kanban/pullRequestMetadata';
 import { sendPromptToPiAndWait } from '../../pi/promptEvent';
 import { canEditKanbanCard, hasDirtyCardDraft } from '../../kanban/cardEditing';
-import { SplitView } from '../WorkspaceTerminalTree';
+import { WorkspaceShellView } from '../WorkspaceShellView';
 import { ConfirmCloseTerminalDialog } from '../ConfirmDialogs';
 import { disposeTerminalSession } from '../../terminalSessionManager';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
@@ -39,7 +39,6 @@ import { CardLevelErrorBanner, collectCardLevelErrors } from './CardLevelErrorBa
 import { publishWorkPresence } from '../../appAttention';
 
 const PiGuiView = lazy(() => import('../PiGuiView').then((module) => ({ default: module.PiGuiView })));
-const encoder = new TextEncoder();
 
 function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery']>['stage']) {
   return ({ merged: 'Merged locally', pushing: 'Pushing…', push_failed: 'Push failed', pushed: 'Pushed', deploying: 'Deploying…', deployment_failed: 'Deployment failed', cancelled: 'Deployment cancelled', uncertain: 'Deployment outcome uncertain', deployed: 'Deployed' } as const)[stage];
@@ -216,16 +215,10 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   });
   const cardServices = useCardServices(card.id, cardPath, serverCommand, consoleCommand, terminalWorkspace.handleTerminalStopped);
   const {
-    shellTree,
-    shellTerminals,
-    shellTerminalIds,
+    controller: shellController,
     focusedShellPane,
-    maximizedShellPane,
-    searchShellRequest,
-    restartShellRequest,
     pendingCloseShellPane,
     setPendingCloseShellPane,
-    focusShellPane,
     closeShellPane,
   } = terminalWorkspace;
 
@@ -296,8 +289,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   }, [activeView, card.content, card.title, draftContent, draftTitle, editable, editDirty, editing, onClose, onUpdate, pendingCloseShellPane, savingEdit]);
 
   useEffect(() => {
-    const handleTabShortcut = (event: Event) => {
-      const detail = (event as CustomEvent<{ number?: number; direction?: -1 | 1 }>).detail;
+    const handleTabShortcut = (detail: { number?: number; direction?: -1 | 1 }) => {
       if (detail?.number) {
         const target = ({
           1: 'overview',
@@ -314,8 +306,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
       const currentIndex = Math.max(0, cardTabs.indexOf(activeView));
       requestView(cardTabs[(currentIndex + detail.direction + cardTabs.length) % cardTabs.length]);
     };
-    window.addEventListener('stacks:card-tab-shortcut', handleTabShortcut);
-    return () => window.removeEventListener('stacks:card-tab-shortcut', handleTabShortcut);
+    return applicationEvents.subscribe('card-tab-shortcut', handleTabShortcut);
   }, [activeView, card.content, card.title, cardTabs, consoleCommand, draftContent, draftTitle, editDirty, editing, serverCommand]);
 
   async function performWorkflowAction(action: CardWorkflowAction) {
@@ -364,10 +355,10 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
               const updated = preserveRevisionValues(await onReload());
               onCardUpdatedRef.current(updated);
               setDiffRefreshNonce((nonce) => nonce + 1);
-              window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+              applicationEvents.publish('refresh-card-repository-status', undefined);
             },
           });
-          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          showAppToast(result.message);
           return;
         }
         case 'merge_target': {
@@ -384,10 +375,10 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
               const updated = preserveRevisionValues(await onReload());
               onCardUpdatedRef.current(updated);
               setDiffRefreshNonce((nonce) => nonce + 1);
-              window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+              applicationEvents.publish('refresh-card-repository-status', undefined);
             },
           });
-          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          showAppToast(result.message);
           return;
         }
         case 'merge_local': {
@@ -395,14 +386,14 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           const result = await mergeKanbanCard(card.id, card.workflow_revision, environmentRevisionRef.current);
           const updated = preserveRevisionValues(await onReload());
           onCardUpdatedRef.current(updated);
-          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          showAppToast(result.message);
           return;
         }
         case 'push':
         case 'retry_push': {
           const result = await pushScriptedDelivery(card.id);
           onCardUpdated(preserveRevisionValues(result.card));
-          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          showAppToast(result.message);
           return;
         }
         case 'deploy':
@@ -444,20 +435,18 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
       }
     }).then((started) => {
       if (started && ['start_work', 'ship', 'merge_target', 'merge_local', 'create_pr', 'create_pr_with_fe', 'cleanup', 'cleanup_creation', 'retry_runtime_cleanup', 'close'].includes(action.kind)) {
-        window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+        applicationEvents.publish('refresh-card-repository-status', undefined);
       }
     }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
   }
 
   useEffect(() => {
-    const runPaletteAction = (event: Event) => {
-      const detail = (event as CustomEvent<{ cardId?: string; action?: string }>).detail;
+    const runPaletteAction = (detail: { cardId?: string; action?: string }) => {
       if (detail?.cardId !== card.id) return;
       const action = workflowActions.find((candidate) => candidate.kind === detail.action);
       if (action) void performWorkflowAction(action);
     };
-    window.addEventListener('stacks:card-workflow-action', runPaletteAction);
-    return () => window.removeEventListener('stacks:card-workflow-action', runPaletteAction);
+    return applicationEvents.subscribe('card-workflow-action', runPaletteAction);
   }, [card.id, workflowActions]);
 
   function submitDiffReview() {
@@ -578,41 +567,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           </div>
         </section>
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>
-          {project && cardPath && (
-            <div className={`cardTerminalPane${shellTerminalIds.length > 1 ? ' multiple' : ''}`}>
-              {shellTree.kind === 'empty' ? <div className="kanbanEmpty">Terminal closed. Reopen the card to start a new terminal.</div> : (
-                <SplitView
-                  node={shellTree}
-                  terminalsById={shellTerminals}
-                  workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: cardPath }}
-                  project={project}
-                  visible={activeView === 'terminal'}
-
-                  canEditTerminal={false}
-                  terminalFontSize={terminalFontSize}
-                  terminalFontFamily={terminalFontFamily}
-                  terminalScrollback={terminalScrollback}
-                  copyOnSelect={copyOnSelect}
-                  activeTerminalId={focusedShellPane}
-                  displayedMaximizedTerminalId={maximizedShellPane}
-                  searchTerminalRequest={searchShellRequest}
-                  restartTerminalRequest={restartShellRequest}
-                  path=""
-                  onResizeSplit={terminalWorkspace.setSplitRatio}
-                  onFocus={focusShellPane}
-                  onClose={(terminalId) => setPendingCloseShellPane(terminalId)}
-                  onSplitTerminal={(direction, targetTerminalId) => {
-                    window.dispatchEvent(new CustomEvent('stacks:card-terminal-split', { detail: { direction, pane: targetTerminalId } }));
-                  }}
-                  onEditTerminal={() => {}}
-
-                  onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)}
-                  canToggleMaximize={shellTerminalIds.length > 1}
-                  onToggleMaximize={terminalWorkspace.toggleMaximize}
-                />
-              )}
-            </div>
-          )}
+          {project && cardPath && <WorkspaceShellView controller={shellController} workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: cardPath }} project={project} visible={activeView === 'terminal'} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         </section>
         {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={cardServices.serverEnabled} active={activeView === 'server'} restartRequestNonce={cardServices.serverRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={cardServices.consoleEnabled} active={activeView === 'console'} restartRequestNonce={cardServices.consoleRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}

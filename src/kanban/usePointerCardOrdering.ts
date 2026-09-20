@@ -95,7 +95,7 @@ export function usePointerCardOrdering({
   }
 
   function beginPointerDrag(event: ReactPointerEvent, card: KanbanCardSummary) {
-    if (event.button !== 0 || !event.isPrimary || (event.buttons & 1) === 0 || card.hierarchy_finalized) return;
+    if (event.button !== 0 || !event.isPrimary || (event.buttons & 1) === 0) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     pointerDragRef.current = {
       cardId: card.id,

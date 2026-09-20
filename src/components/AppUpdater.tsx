@@ -1,3 +1,4 @@
+import { showAppToast } from '../applicationEvents';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -105,7 +106,7 @@ export function AppUpdater() {
 }
 
 function showToast(message: string) {
-  window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } }));
+  showAppToast(message);
 }
 
 function errorMessage(error: unknown) {

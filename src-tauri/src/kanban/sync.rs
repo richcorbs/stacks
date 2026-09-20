@@ -5,9 +5,10 @@ use super::{cards::*, domain::*, health::*, repository::*};
 pub(in crate::kanban) fn kanban_sync_superthread_cards_operation(
     owner_project_id: String,
     snapshot: SuperthreadSyncSnapshot,
+
 ) -> Result<BoardChange, String> {
-    with_connection(|connection| sync_cards(connection, &owner_project_id, snapshot).map(|_| ()))?;
-    with_connection(|connection| Ok(BoardChange {
+    with_board_mutation(|connection| sync_cards(connection, &owner_project_id, snapshot).map(|_| ()))?;
+    with_read_connection(|connection| Ok(BoardChange {
         upserts: list_card_summaries(connection)?.into_iter().filter(|card| card.project_id.as_deref() == Some(&owner_project_id)).collect(),
         removed_ids: Vec::new(),
         detail_invalidated_ids: Vec::new(),
@@ -103,7 +104,7 @@ pub(in crate::kanban) fn sync_cards(
         unsafe_parents.extend(parents.iter().cloned());
     }
 
-    let transaction = connection.transaction().map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     transaction.execute("UPDATE kanban_cards SET binding_id=?1 WHERE project_id=?2 AND external_provider='superthread' AND binding_id IS NULL", params![binding_id,owner_project_id]).map_err(db_error)?;
     for card in snapshot.cards {
         if card.id.trim().is_empty() || card.title.trim().is_empty() {

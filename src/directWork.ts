@@ -35,5 +35,3 @@ export function directWorkTabs(project: Project, isGitRepository: boolean): Work
     ...(project.console_command?.trim() ? ['console' as const] : []),
   ];
 }
-
-export const OPEN_DIRECT_WORK_EVENT = 'stacks:direct-project-work';
