@@ -81,7 +81,7 @@ describe('shared card workspace tab alignment', () => {
     expect(playIcon).toContain('border-left: 6px solid currentColor');
 
     const stopIcon = declarationsFor('.serviceStopIcon');
-    expect(stopIcon).toContain('width: 7px');
-    expect(stopIcon).toContain('height: 7px');
+    expect(stopIcon).toContain('width: 8px');
+    expect(stopIcon).toContain('height: 8px');
   });
 });
