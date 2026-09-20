@@ -22,6 +22,11 @@ fn test_project(connection: &Connection, id: &str, source: &str, path: &str) {
         "INSERT OR REPLACE INTO projects (id, name, path, kanban_source, superthread_spaces, superthread_board_id, superthread_incoming_columns, sort_order) VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, 0)",
         params![id, path, source, (source == "superthread").then_some("Product"), (source == "superthread").then_some("board"), if source == "superthread" { r#"[{"id":"Doing","name":"Doing"}]"# } else { "[]" }],
     ).unwrap();
+    if source == "superthread" {
+        let binding = format!("test-binding:{id}");
+        connection.execute("INSERT OR REPLACE INTO superthread_bindings(id,project_id,workspace_id,workspace_name,space_id,space_name,board_id,board_name,token_env_var,validation_revision,validated_at,state,created_at,updated_at) VALUES (?1,?2,?3,'Test','space','Product','board','Board','ST_TOKEN',1,unixepoch(),'active',unixepoch(),unixepoch())", params![binding,id,format!("workspace:{id}")]).unwrap();
+        connection.execute("UPDATE projects SET superthread_binding_id=?1 WHERE id=?2", params![binding,id]).unwrap();
+    }
 }
 
 fn test_superthread_snapshot(
@@ -566,7 +571,7 @@ fn list_read_count_is_constant_and_get_card_remains_targeted() {
     let initial_reads = TRACED_READS.load(Ordering::Relaxed);
     // Cards, environments/panes, creation, cleanup and provider operations, PRs,
     // events, relationships, and workflow capability project context are each loaded in constant-size batches.
-    assert_eq!(initial_reads, 11);
+    assert_eq!(initial_reads, 12);
     for index in 0..25 {
         connection.execute(
                 "INSERT INTO kanban_cards (id,external_provider,external_id,title,project_id,created_at,updated_at,sort_order)

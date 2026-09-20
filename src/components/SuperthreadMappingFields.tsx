@@ -1,29 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import type React from 'react';
 import type { DialogState } from '../types';
-import { fetchSuperthreadBoards, fetchSuperthreadLists, testSuperthreadMapping } from '../superthread/api';
-import type { SuperthreadBoard, SuperthreadList } from '../superthread/types';
+import { fetchSuperthreadBoards, fetchSuperthreadBoardsForSpace, fetchSuperthreadLists, testSuperthreadConnection, testSuperthreadMapping } from '../superthread/api';
+import type { SuperthreadBoard, SuperthreadList, SuperthreadSpace } from '../superthread/types';
 
 export function SuperthreadMappingFields({ dialog, setDialog }: {
   dialog: DialogState;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
 }) {
+  const [spaces, setSpaces] = useState<SuperthreadSpace[]>([]);
   const [boards, setBoards] = useState<Array<Pick<SuperthreadBoard, 'id' | 'title'>>>([]);
   const [lists, setLists] = useState<SuperthreadList[]>([]);
   const [state, setState] = useState<'idle' | 'loading' | 'testing'>('idle');
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!dialog.superthreadSpaces?.trim()) { setBoards([]); return; }
+    if (!dialog.superthreadSpaceId && !dialog.superthreadSpaces?.trim()) { setBoards([]); return; }
     let active = true;
     setState('loading'); setMessage(null);
-    fetchSuperthreadBoards(dialog.superthreadSpaces, false, dialog.superthreadApiTokenEnvVar ?? 'ST_TOKEN').then((result) => {
-      if (!active) return;
-      setBoards(result.boards);
-      if (result.warnings.length) setMessage(result.warnings.map((warning) => warning.message).join('; '));
-    }).catch((error) => active && setMessage(String(error))).finally(() => active && setState('idle'));
+    const request = dialog.superthreadSpaceId
+      ? fetchSuperthreadBoardsForSpace(dialog.superthreadSpaceId, dialog.superthreadApiTokenEnvVar ?? 'ST_TOKEN')
+      : fetchSuperthreadBoards(dialog.superthreadSpaces!, false, dialog.superthreadApiTokenEnvVar ?? 'ST_TOKEN').then((result) => result.boards);
+    request.then((result) => { if (active) setBoards(result); })
+      .catch((error) => active && setMessage(String(error))).finally(() => active && setState('idle'));
     return () => { active = false; };
-  }, [dialog.superthreadSpaces, dialog.superthreadApiTokenEnvVar]);
+  }, [dialog.superthreadSpaceId, dialog.superthreadSpaces, dialog.superthreadApiTokenEnvVar]);
 
   useEffect(() => {
     if (!dialog.superthreadBoardId) { setLists([]); return; }
@@ -36,6 +37,19 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
   const incomingIds = dialog.superthreadIncomingColumns?.map((column) => column.id) ?? [];
   const option = (list: SuperthreadList) => <option key={list.id} value={list.id}>{listLabels.get(list.id)}</option>;
 
+  async function connect() {
+    setState('testing'); setMessage(null);
+    try {
+      const result = await testSuperthreadConnection(dialog.superthreadApiTokenEnvVar ?? 'ST_TOKEN');
+      setSpaces(result.spaces);
+      setDialog({ ...dialog, superthreadWorkspaceId: result.workspace_id, superthreadWorkspaceName: result.workspace_name,
+        superthreadWorkspaceSlug: dialog.superthreadWorkspaceSlug || result.workspace_slug || undefined,
+        superthreadSpaceId: undefined, superthreadSpaceName: undefined, superthreadBoardId: undefined, superthreadBoardName: undefined });
+      setMessage('Connection authenticated. Select one space and board.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setState('idle'); }
+  }
+
   async function test() {
     setState('testing'); setMessage(null);
     try {
@@ -44,7 +58,10 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
         default_incoming_column_id: dialog.superthreadDefaultIncomingColumnId ?? '', in_progress_column_id: dialog.superthreadInProgressColumnId ?? '',
         done_column_id: dialog.superthreadDoneColumnId ?? '',
       });
-      setDialog({ ...dialog, superthreadBoardName: result.board_name, superthreadIncomingColumns: result.incoming_columns,
+      setDialog({ ...dialog, superthreadWorkspaceId: result.workspace_id, superthreadWorkspaceName: result.workspace_name,
+        superthreadSpaceId: result.space_id, superthreadSpaceName: result.space_name,
+        superthreadWorkspaceSlug: dialog.superthreadWorkspaceSlug || result.workspace_slug || undefined,
+        superthreadBoardName: result.board_name, superthreadIncomingColumns: result.incoming_columns,
         superthreadInProgressColumnName: result.in_progress_column_name, superthreadDoneColumnName: result.done_column_name });
       setMessage('Configuration is valid. Current board and column names were refreshed in this draft.');
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
@@ -52,6 +69,13 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
   }
 
   return <>
+    <div className="settingsInlineAction"><button type="button" disabled={state !== 'idle'} onClick={() => void connect()}>{state === 'testing' ? 'Testing…' : 'Test connection'}</button></div>
+    {dialog.superthreadWorkspaceId && <label>Authenticated workspace<input value={dialog.superthreadWorkspaceName || dialog.superthreadWorkspaceId} readOnly /></label>}
+    {(spaces.length > 0 || dialog.superthreadSpaceId) && <label>Superthread space<select value={dialog.superthreadSpaceId ?? ''} onChange={(event) => {
+      const space = spaces.find((item) => item.id === event.target.value);
+      setDialog({ ...dialog, superthreadSpaceId: space?.id, superthreadSpaceName: space?.title, superthreadSpaces: space?.title,
+        superthreadBoardId: undefined, superthreadBoardName: undefined, superthreadIncomingColumns: [] });
+    }}><option value="">Select a space…</option>{spaces.map((space) => <option key={space.id} value={space.id}>{space.title} · {space.id}</option>)}</select></label>}
     <label>Superthread board<select value={dialog.superthreadBoardId ?? ''} onChange={(event) => {
       const board = boards.find((item) => item.id === event.target.value);
       setDialog({ ...dialog, superthreadBoardId: event.target.value, superthreadBoardName: board?.title, superthreadIncomingColumns: [], superthreadDefaultIncomingColumnId: undefined, superthreadInProgressColumnId: undefined, superthreadDoneColumnId: undefined });

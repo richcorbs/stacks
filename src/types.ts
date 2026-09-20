@@ -14,6 +14,11 @@ export type Project = {
   kanban_source?: 'superthread' | 'local';
   start_work_command?: string;
   superthread_spaces?: string;
+  superthread_workspace_id?: string;
+  superthread_workspace_name?: string;
+  superthread_space_id?: string;
+  superthread_space_name?: string;
+  superthread_binding_id?: string;
   superthread_workspace_slug?: string;
   superthread_api_token_env_var?: string;
   superthread_board_id?: string;
@@ -109,7 +114,7 @@ export type TerminalSession = {
 };
 
 export type SuperthreadColumnMapping = { id: string; name: string };
-export type ProjectDialogSettings = { name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; superthreadSpaces?: string; superthreadWorkspaceSlug?: string; superthreadApiTokenEnvVar?: string; superthreadBoardId?: string; superthreadBoardName?: string; superthreadIncomingColumns?: SuperthreadColumnMapping[]; superthreadDefaultIncomingColumnId?: string; superthreadInProgressColumnId?: string; superthreadInProgressColumnName?: string; superthreadDoneColumnId?: string; superthreadDoneColumnName?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean; releasesEnabled?: boolean; releaseConfigPath?: string };
+export type ProjectDialogSettings = { name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; superthreadSpaces?: string; superthreadWorkspaceId?: string; superthreadWorkspaceName?: string; superthreadSpaceId?: string; superthreadSpaceName?: string; superthreadBindingId?: string; superthreadWorkspaceSlug?: string; superthreadApiTokenEnvVar?: string; superthreadBoardId?: string; superthreadBoardName?: string; superthreadIncomingColumns?: SuperthreadColumnMapping[]; superthreadDefaultIncomingColumnId?: string; superthreadInProgressColumnId?: string; superthreadInProgressColumnName?: string; superthreadDoneColumnId?: string; superthreadDoneColumnName?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean; releasesEnabled?: boolean; releaseConfigPath?: string };
 export type DialogState =
   | ({ kind: 'project' } & ProjectDialogSettings)
   | ({ kind: 'editProject'; projectId: string } & ProjectDialogSettings);

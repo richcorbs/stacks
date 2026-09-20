@@ -9,7 +9,8 @@ import { setPiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
 import { deletePersistentPiSession, getRetainedPiSessionController } from '../pi/sessionController';
 import { KanbanEntityStore } from './boardStore';
 
-export function useKanbanBoard(provider: SuperthreadIntegration | null) {
+export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadIntegration[] | null) {
+  const providers = Array.isArray(provider) ? provider : provider ? [provider] : [];
   const reloadRef = useRef<(() => Promise<void>) | null>(null);
   const storeRef = useRef<KanbanEntityStore | null>(null);
   if (!storeRef.current) storeRef.current = new KanbanEntityStore({ onGap: () => reloadRef.current?.().catch(console.error) });
@@ -66,25 +67,25 @@ export function useKanbanBoard(provider: SuperthreadIntegration | null) {
   reloadRef.current = load;
 
   const sync = useCallback(async (refresh = false) => {
-    if (!provider) return;
+    if (!providers.length) return;
     const generation = syncGate.current.begin();
     setSyncing(true);
     setProviderError(null);
     try {
-      const knownParentIds = new Set<string>();
-      for (const card of store.cards()) {
-        if (card.provider === 'superthread' && card.child_count > 0) knownParentIds.add(card.external_id);
-        if (card.parent?.id.startsWith('superthread:')) knownParentIds.add(card.parent.external_id);
-      }
-      const response = await provider.sync(refresh, [...knownParentIds]);
+      const results = await Promise.allSettled(providers.map(async (candidate) => {
+        const scopedParents = store.cards().filter((card) => card.project_id === candidate.ownerProjectId)
+          .flatMap((card) => card.child_count > 0 ? [card.external_id] : card.parent ? [card.parent.external_id] : []);
+        const response = await candidate.sync(refresh, scopedParents);
+        const snapshot = await syncKanbanCards(candidate.ownerProjectId, response);
+        return { candidate, response, snapshot };
+      }));
       if (!syncGate.current.isCurrent(generation)) return;
-      const snapshot = await syncGate.current.persistIfCurrent(generation, () => syncKanbanCards(provider.ownerProjectId, response));
-      if (!snapshot || !syncGate.current.isCurrent(generation)) return;
-      applySnapshot(snapshot);
-      if (response.warnings.length > 0) {
-        setProviderError(`${response.warnings.length} provider scope${response.warnings.length === 1 ? '' : 's'} could not be read.`);
-      }
-      const hierarchyToast = superthreadHierarchyFailureToast(response.failed_scopes);
+      const successful = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+      if (successful.length) applySnapshot(await fetchKanbanCards());
+      const failures = results.flatMap((result) => result.status === 'rejected' ? [errorMessage(result.reason)] : []);
+      const warnings = successful.flatMap((result) => result.response.warnings);
+      if (warnings.length || failures.length) setProviderError([...failures, ...warnings].join('; '));
+      const hierarchyToast = superthreadHierarchyFailureToast(successful.flatMap((result) => result.response.failed_scopes));
       if (hierarchyToast) window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: hierarchyToast } }));
     } catch (syncError) {
       if (syncGate.current.isCurrent(generation)) setProviderError(errorMessage(syncError));
@@ -205,7 +206,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | null) {
   }, [load]);
 
   async function create(project: Project, title: string, content: string, parentId: string | null = null) {
-    const result = await createKanbanCardForProject(project, title, content, provider, undefined, parentId);
+    const result = await createKanbanCardForProject(project, title, content, providers.find((candidate) => candidate.ownerProjectId === project.id) ?? null, undefined, parentId);
     if (result.persistedSnapshot) applySnapshot(result.persistedSnapshot);
     else applyCardSnapshot(result.card);
     return store.card(result.card.id) ?? result.card;
@@ -290,8 +291,9 @@ export function useKanbanBoard(provider: SuperthreadIntegration | null) {
         return store.card(card.id) ?? card;
       } catch { return store.card(card.id) ?? card; }
     }
-    if (!provider) return store.card(card.id) ?? card;
-    const snapshot = await loadSuperthreadCardDetails(card, provider);
+    const cardProvider = providers.find((candidate) => candidate.ownerProjectId === card.project_id);
+    if (!cardProvider) return store.card(card.id) ?? card;
+    const snapshot = await loadSuperthreadCardDetails(card, cardProvider);
     if (!snapshot) return store.card(card.id) ?? card;
     applySnapshot(snapshot);
     return store.card(card.id) ?? card;

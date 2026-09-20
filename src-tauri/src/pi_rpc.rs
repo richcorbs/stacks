@@ -241,6 +241,11 @@ fn spawn_pi_session(
         pi_command
             .env("STACKS_CARD_ID", owner.card_id)
             .env("STACKS_CARD_THREAD", owner.thread);
+        if let Some(name) = project.superthread_token_env_var.as_deref() {
+            // Resolve only in the backend at launch time. The token is inherited by
+            // Pi as ST_TOKEN and never crosses RPC/frontend/session persistence.
+            pi_command.env("ST_TOKEN", crate::superthread::resolve_api_token(name)?);
+        }
     }
     process_group::configure(&mut pi_command);
     let mut child = pi_command
