@@ -40,6 +40,19 @@ describe('workflow action presentation', () => {
     expect(close).toMatchObject({ destructive: true, appearance: 'neutral-ghost', confirmation: { title: 'Close without delivery?' } });
   });
 
+  it('explains upstream pushing only for Local merge projects', () => {
+    const value = card('approved', [capability('merge_local')]);
+    const [localMerge] = deriveCardWorkflowActions({ card: value, project });
+    expect(localMerge.confirmation?.detail).toContain('push the configured upstream when present');
+
+    const [scriptedMerge] = deriveCardWorkflowActions({
+      card: value,
+      project: { ...project, delivery_workflow: 'scripted_delivery' },
+    });
+    expect(scriptedMerge.confirmation?.detail).toContain('Push and cleanup are separate');
+    expect(scriptedMerge.confirmation?.detail).not.toContain('push the configured upstream when present');
+  });
+
   it('hides Open refinement only when its destination tab is already open', () => {
     const value = card('needs_refinement', [capability('open_refinement'), capability('finish_refinement')]);
     expect(deriveCardWorkflowActions({ card: value, project, activeTab: 'chat' }).map(({ kind }) => kind)).toEqual(['finish_refinement']);

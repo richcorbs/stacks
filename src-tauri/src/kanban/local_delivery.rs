@@ -210,7 +210,7 @@ pub(in crate::kanban) async fn kanban_merge_card_operation(
             })
         });
         if let Err(detail) = &result {
-            if !detail.starts_with("Git merge failed") {
+            if !detail.starts_with("Git merge failed") && !detail.starts_with("Git push failed") {
                 record_operation_failure(&id, "merge", "merge_preflight_failed", detail);
             }
         }
@@ -218,6 +218,34 @@ pub(in crate::kanban) async fn kanban_merge_card_operation(
     })
     .await
     .map_err(|error| format!("Merge worker failed: {error}"))?
+}
+
+pub(in crate::kanban) fn configured_target_upstream(
+    path: &str,
+    target_branch: &str,
+) -> Option<(String, String)> {
+    let remote = git_output(
+        path,
+        &["config", "--get", &format!("branch.{target_branch}.remote")],
+    )
+    .ok()?;
+    let upstream_ref = git_output(
+        path,
+        &["config", "--get", &format!("branch.{target_branch}.merge")],
+    )
+    .ok()?;
+    let remote = remote.trim();
+    let upstream_ref = upstream_ref.trim();
+    if remote.is_empty()
+        || remote == "."
+        || !upstream_ref.starts_with("refs/heads/")
+        || upstream_ref == "refs/heads/"
+        || !git_status_success(path, &["check-ref-format", upstream_ref]).ok()?
+        || git_output(path, &["remote", "get-url", remote]).is_err()
+    {
+        return None;
+    }
+    Some((remote.to_string(), upstream_ref.to_string()))
 }
 
 pub(in crate::kanban) fn merge_card(
@@ -364,6 +392,42 @@ pub(in crate::kanban) fn merge_card(
                 .to_string(),
         );
     }
+    let upstream = if scripted {
+        None
+    } else {
+        configured_target_upstream(&target_path, &target_branch)
+    };
+    if let Some((remote, upstream_ref)) = upstream.as_ref() {
+        let push = Command::new("git")
+            .args([
+                "-C",
+                &target_path,
+                "push",
+                "--",
+                remote,
+                &format!("HEAD:{upstream_ref}"),
+            ])
+            .output();
+        let failure = match push {
+            Ok(output) if output.status.success() => None,
+            Ok(output) => Some(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+            Err(error) => Some(error.to_string()),
+        };
+        if let Some(detail) = failure {
+            let message = format!(
+                "Git push failed after the local merge; the merge remains intact and the card remains Ready to merge. {detail}"
+            );
+            connection.execute(
+                "UPDATE kanban_cards SET delivery_error=?1 WHERE id=?2",
+                params![message, id],
+            ).map_err(db_error)?;
+            connection.execute(
+                "INSERT INTO card_events (card_id, created_at, actor, event_type, outcome, error_code, error_detail) VALUES (?1, ?2, 'user', 'merge', 'failure', 'git_push_failed', ?3)",
+                params![id, unix_timestamp(), message],
+            ).map_err(db_error)?;
+            return Err(message);
+        }
+    }
     let target_tip = git_output(&target_path, &["rev-parse", "HEAD"])?;
     let transaction = connection
         .savepoint()
@@ -416,10 +480,22 @@ pub(in crate::kanban) fn merge_card(
     let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
     Ok(WorkflowOperationResult {
         card,
-        message: if already {
-            format!("{source_branch} was already merged into {target_branch}")
+        message: if let Some((remote, upstream_ref)) = upstream {
+            if already {
+                format!("{source_branch} was already merged into {target_branch}; pushed {target_branch} to {remote} {upstream_ref}")
+            } else {
+                format!("Merged {source_branch} into {target_branch} and pushed to {remote} {upstream_ref}")
+            }
+        } else if scripted {
+            if already {
+                format!("{source_branch} was already merged into {target_branch}")
+            } else {
+                format!("Merged {source_branch} into {target_branch}")
+            }
+        } else if already {
+            format!("{source_branch} was already merged into {target_branch}; completed locally without a usable upstream")
         } else {
-            format!("Merged {source_branch} into {target_branch}")
+            format!("Merged {source_branch} into {target_branch}; completed locally without a usable upstream")
         },
         idempotent: already,
     })
