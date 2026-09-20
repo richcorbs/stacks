@@ -75,10 +75,14 @@ pub(in crate::kanban) fn environment_health(
     if let Some(phase) = pending_target_merge {
         issues.push(health_issue(
             "target_merge_pending",
-            if phase == "conflicted" {
-                "A target merge is awaiting conflict resolution. Use Merge in target & resolve to resume or recover it."
+            if phase == "target_conflicted" {
+                "The primary target checkout is awaiting reconciliation conflict resolution. Use Merge in target & resolve to resume or recover it."
+            } else if phase == "source_conflicted" {
+                "The card worktree is awaiting conflict resolution with the pushed target. Use Merge in target & resolve to resume or recover it."
+            } else if phase == "source_merged" {
+                "A synchronized and pushed target merge is awaiting final verification. Use Merge in target & resolve to resume it."
             } else {
-                "A completed target merge is awaiting final verification. Use Merge in target & resolve to resume or recover it."
+                "Target synchronization is incomplete. Use Merge in target & resolve to resume or recover it."
             },
             if card.status == "approved" { "merge" } else { "approval" },
         ));

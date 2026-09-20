@@ -2099,6 +2099,20 @@ fn upstream_merge_repository() -> (PathBuf, PathBuf, PathBuf) {
     (root, target, source)
 }
 
+fn local_merge_connection(source: &Path, target: &Path, workflow: &str) -> Connection {
+    let connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    crate::store::migrate_store_schema(&connection).unwrap();
+    let now = unix_timestamp();
+    connection.execute("INSERT INTO projects (id,name,path,kanban_source,delivery_workflow,target_branch,github_merge_strategy,require_passing_ci,require_approval) VALUES ('p','Project',?1,'local',?2,'main','merge',1,0)", params![target.to_str().unwrap(), workflow]).unwrap();
+    connection.execute("INSERT INTO kanban_cards (id, external_provider, external_id, title, status, workflow_revision, project_id, created_at, updated_at) VALUES ('local:merge', 'local:p', '1', 'Merge', 'approved', 3, 'p', ?1, ?1)", [now]).unwrap();
+    let repository = repository_identity(target.to_str().unwrap()).unwrap();
+    let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    connection.execute("INSERT INTO card_environments (id, card_id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, revision, created_at, updated_at) VALUES ('e', 'local:merge', 'p', ?1, 'feature', ?2, ?3, 'main', ?4, ?5, 2, ?6, ?6)", params![source.to_str().unwrap(), repository, target.to_str().unwrap(), source_tip, target_tip, now]).unwrap();
+    connection
+}
+
 fn target_merge_connection(source: &Path, target: &Path, status: &str) -> Connection {
     let connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
@@ -2110,13 +2124,6 @@ fn target_merge_connection(source: &Path, target: &Path, status: &str) -> Connec
     let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
     connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,repository_id,target_checkout_path,target_branch,source_revision,target_revision,lifecycle_state,revision,created_at,updated_at) VALUES ('target-merge-e','local:target-merge','p',?1,'feature',?2,?3,'main',?4,?5,'ready',2,?6,?6)", params![source.to_str().unwrap(),repository,target.to_str().unwrap(),source_tip,target_tip,now]).unwrap();
     connection
-}
-
-fn advance_target(target: &Path, contents: &str) {
-    fs::write(target.join("target.txt"), contents).unwrap();
-    git_ok(target, &["add", "."]);
-    git_ok(target, &["commit", "-m", "advance target"]);
-    git_ok(target, &["push", "origin", "main"]);
 }
 
 fn approval_connection(source: &Path, target: &Path) -> Connection {
@@ -2364,16 +2371,7 @@ fn approval_rejects_wrong_branch_and_stale_revisions() {
 #[test]
 fn merge_creates_explicit_commit_and_transitions_only_after_verification() {
     let (root, target, source) = merge_repository();
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrate(&connection).unwrap();
-    crate::store::migrate_store_schema(&connection).unwrap();
-    let now = unix_timestamp();
-    connection.execute("INSERT INTO projects (id,name,path,kanban_source,delivery_workflow,target_branch,github_merge_strategy,require_passing_ci,require_approval) VALUES ('p','Project',?1,'local','local_merge','main','merge',1,0)", [target.to_str().unwrap()]).unwrap();
-    connection.execute("INSERT INTO kanban_cards (id, external_provider, external_id, title, status, workflow_revision, project_id, created_at, updated_at) VALUES ('local:merge', 'local:p', '1', 'Merge', 'approved', 3, 'p', ?1, ?1)", [now]).unwrap();
-    let repository = repository_identity(target.to_str().unwrap()).unwrap();
-    let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-    let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-    connection.execute("INSERT INTO card_environments (id, card_id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, revision, created_at, updated_at) VALUES ('e', 'local:merge', 'p', ?1, 'feature', ?2, ?3, 'main', ?4, ?5, 2, ?6, ?6)", params![source.to_str().unwrap(), repository, target.to_str().unwrap(), source_tip, target_tip, now]).unwrap();
+    let mut connection = local_merge_connection(&source, &target, "local_merge");
     let result = merge_card(&mut connection, "local:merge", 3, 2).unwrap();
     assert_eq!(result.card.status, "done");
     assert_eq!(
@@ -2390,357 +2388,388 @@ fn merge_creates_explicit_commit_and_transitions_only_after_verification() {
         .count(),
         3
     );
+    assert!(result.message.contains("without a usable upstream"));
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn target_merge_migration_marks_existing_fetch_operations_remote() {
+fn local_merge_ignores_missing_local_only_and_invalid_upstreams() {
+    let (root, target, _source) = merge_repository();
+    assert_eq!(configured_target_upstream(target.to_str().unwrap(), "main"), None);
+
+    git_ok(&target, &["config", "branch.main.remote", "."]);
+    git_ok(&target, &["config", "branch.main.merge", "refs/heads/main"]);
+    assert_eq!(configured_target_upstream(target.to_str().unwrap(), "main"), None);
+
+    git_ok(&target, &["config", "branch.main.remote", "missing"]);
+    assert_eq!(configured_target_upstream(target.to_str().unwrap(), "main"), None);
+
+    git_ok(&target, &["remote", "add", "origin", root.to_str().unwrap()]);
+    git_ok(&target, &["config", "branch.main.remote", "origin"]);
+    git_ok(&target, &["config", "branch.main.merge", "refs/tags/main"]);
+    assert_eq!(configured_target_upstream(target.to_str().unwrap(), "main"), None);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn local_merge_pushes_the_exact_configured_upstream() {
+    let (root, target, source) = upstream_merge_repository();
+    let mut connection = local_merge_connection(&source, &target, "local_merge");
+
+    let result = merge_card(&mut connection, "local:merge", 3, 2).unwrap();
+    let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    let remote_tip = git_output(
+        root.join("remote.git").to_str().unwrap(),
+        &["rev-parse", "refs/heads/main"],
+    )
+    .unwrap();
+
+    assert_eq!(result.card.status, "done");
+    assert_eq!(remote_tip, target_tip);
+    assert!(result.message.contains("and pushed to origin refs/heads/main"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn local_merge_push_failure_keeps_the_merge_and_retry_only_pushes() {
+    let (root, target, source) = upstream_merge_repository();
+    let base = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    fs::write(target.join("remote-only.txt"), "remote advance\n").unwrap();
+    git_ok(&target, &["add", "."]);
+    git_ok(&target, &["commit", "-m", "remote advance"]);
+    git_ok(&target, &["push", "origin", "main"]);
+    git_ok(&target, &["reset", "--hard", &base]);
+    let mut connection = local_merge_connection(&source, &target, "local_merge");
+
+    let error = merge_card(&mut connection, "local:merge", 3, 2).unwrap_err();
+    let merged_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    assert!(error.starts_with("Git push failed after the local merge"), "{error}");
+    assert_eq!(get_card(&connection, "local:merge").unwrap().unwrap().status, "approved");
+    assert_eq!(get_card(&connection, "local:merge").unwrap().unwrap().environment.unwrap().revision, 2);
+    assert_eq!(git_output(target.to_str().unwrap(), &["rev-list", "--parents", "-n", "1", "HEAD"]).unwrap().split_whitespace().count(), 3);
+    let failure: (String, String) = connection.query_row(
+        "SELECT error_code,error_detail FROM card_events WHERE card_id='local:merge' ORDER BY id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!(failure.0, "git_push_failed");
+    assert!(failure.1.contains("card remains Ready to merge"));
+
+    git_ok(&target, &["push", "--force", "origin", &format!("{base}:refs/heads/main")]);
+    let result = merge_card(&mut connection, "local:merge", 3, 2).unwrap();
+    assert_eq!(result.card.status, "done");
+    assert!(result.idempotent);
+    assert_eq!(git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(), merged_tip);
+    assert_eq!(git_output(root.join("remote.git").to_str().unwrap(), &["rev-parse", "refs/heads/main"]).unwrap(), merged_tip);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn scripted_merge_keeps_push_as_a_separate_action() {
+    let (root, target, source) = upstream_merge_repository();
+    let remote_before = git_output(root.join("remote.git").to_str().unwrap(), &["rev-parse", "refs/heads/main"]).unwrap();
+    let mut connection = local_merge_connection(&source, &target, "scripted_delivery");
+
+    let result = merge_card(&mut connection, "local:merge", 3, 2).unwrap();
+    let remote_after = git_output(root.join("remote.git").to_str().unwrap(), &["rev-parse", "refs/heads/main"]).unwrap();
+    assert_eq!(result.card.status, "approved");
+    assert_eq!(result.card.delivery_operation_stage.as_deref(), Some("merged"));
+    assert_eq!(remote_after, remote_before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn target_merge_migration_preserves_pending_operations() {
     let (root, target, source) = upstream_merge_repository();
     let connection = target_merge_connection(&source, &target, "needs_human");
-    connection
-        .execute_batch(
-            "DROP TABLE card_target_merge_operations;
-                 CREATE TABLE card_target_merge_operations (
-                    id TEXT PRIMARY KEY,
-                    card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
-                    environment_id TEXT NOT NULL,
-                    workflow_revision INTEGER NOT NULL,
-                    environment_revision INTEGER NOT NULL,
-                    initial_status TEXT NOT NULL,
-                    repository_id TEXT NOT NULL,
-                    source_path TEXT NOT NULL,
-                    source_branch TEXT NOT NULL,
-                    target_branch TEXT NOT NULL,
-                    upstream_remote TEXT NOT NULL,
-                    upstream_merge_ref TEXT NOT NULL,
-                    source_revision TEXT NOT NULL,
-                    target_revision TEXT NOT NULL,
-                    phase TEXT NOT NULL,
-                    conflict_paths TEXT NOT NULL DEFAULT '[]',
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
-                 );
-                 DELETE FROM schema_migrations WHERE version=72;",
-        )
-        .unwrap();
+    connection.execute_batch(
+        "DROP TABLE card_target_merge_operations;
+         CREATE TABLE card_target_merge_operations (
+           id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE, environment_id TEXT NOT NULL,
+           workflow_revision INTEGER NOT NULL, environment_revision INTEGER NOT NULL, initial_status TEXT NOT NULL,
+           repository_id TEXT NOT NULL, source_path TEXT NOT NULL, source_branch TEXT NOT NULL, target_branch TEXT NOT NULL,
+           upstream_remote TEXT NOT NULL, upstream_merge_ref TEXT NOT NULL, source_revision TEXT NOT NULL,
+           target_revision TEXT NOT NULL, phase TEXT NOT NULL, conflict_paths TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+         ); DELETE FROM schema_migrations WHERE version IN (72,74);"
+    ).unwrap();
     let repository = repository_identity(target.to_str().unwrap()).unwrap();
     let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
     let target_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-    connection.execute(
-            "INSERT INTO card_target_merge_operations (id,card_id,environment_id,workflow_revision,environment_revision,initial_status,repository_id,source_path,source_branch,target_branch,upstream_remote,upstream_merge_ref,source_revision,target_revision,phase,conflict_paths,created_at,updated_at) VALUES ('old-op','local:target-merge','target-merge-e',4,2,'needs_human',?1,?2,'feature','main','origin','refs/heads/main',?3,?4,'conflicted','[]',1,1)",
-            params![repository,source.to_str().unwrap(),source_tip,target_tip],
-        ).unwrap();
-
+    connection.execute("INSERT INTO card_target_merge_operations VALUES ('old','local:target-merge','target-merge-e',4,2,'needs_human',?1,?2,'feature','main','origin','refs/heads/main',?3,?4,'conflicted','[]',1,1)", params![repository,source.to_str().unwrap(),source_tip,target_tip]).unwrap();
     migrate(&connection).unwrap();
     let operation = load_target_merge_operation(&connection, "local:target-merge")
         .unwrap()
         .unwrap();
-    assert_eq!(operation.target_source, "remote");
-    let migrated: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM schema_migrations WHERE version=72",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(migrated, 1);
+    assert_eq!(operation.phase, "source_conflicted");
+    assert_eq!(operation.target_path, target.to_str().unwrap());
+    assert_eq!(
+        operation.pushed_target_revision.as_deref(),
+        Some(target_tip.as_str())
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
-#[test]
-fn target_merge_prefers_upstream_over_a_newer_local_tip() {
-    for initial_status in ["needs_human", "approved"] {
-        let (root, target, source) = upstream_merge_repository();
-        let mut connection = target_merge_connection(&source, &target, initial_status);
-        advance_target(&target, "remote target change\n");
-        let remote_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-        git_ok(
-            &target,
-            &["remote", "rename", "origin", "configured-upstream"],
-        );
-        git_ok(&target, &["reset", "--hard", "HEAD^"]);
-        fs::write(target.join("local-only.txt"), "not pushed\n").unwrap();
-        git_ok(&target, &["add", "."]);
-        git_ok(&target, &["commit", "-m", "newer local target"]);
-        let local_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-        assert_ne!(remote_tip, local_tip);
+fn clone_writer(root: &Path) -> PathBuf {
+    let writer = root.join(format!("writer-{}", uuid::Uuid::new_v4()));
+    git_ok(
+        root,
+        &[
+            "clone",
+            root.join("remote.git").to_str().unwrap(),
+            writer.to_str().unwrap(),
+        ],
+    );
+    git_ok(&writer, &["config", "user.email", "writer@example.com"]);
+    git_ok(&writer, &["config", "user.name", "Remote Writer"]);
+    git_ok(&writer, &["checkout", "main"]);
+    writer
+}
 
+#[test]
+fn target_merge_reconciles_all_ancestry_states_and_uses_configured_upstream() {
+    for state in ["equal", "remote-ahead", "local-ahead", "diverged"] {
+        let (root, target, source) = upstream_merge_repository();
+        git_ok(&target, &["remote", "rename", "origin", "team"]);
+        if state == "local-ahead" || state == "diverged" {
+            fs::write(target.join("local-target.txt"), state).unwrap();
+            git_ok(&target, &["add", "."]);
+            git_ok(&target, &["commit", "-m", "local target"]);
+        }
+        if state == "remote-ahead" || state == "diverged" {
+            let writer = clone_writer(&root);
+            fs::write(writer.join("remote-target.txt"), state).unwrap();
+            git_ok(&writer, &["add", "."]);
+            git_ok(&writer, &["commit", "-m", "remote target"]);
+            git_ok(&writer, &["push", "origin", "main"]);
+        }
+        let local_before = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        let mut connection = target_merge_connection(&source, &target, "approved");
         let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
-        assert_eq!(prepared.state, "merged");
-        let operation_id = prepared.operation_id.unwrap();
+        assert_eq!(prepared.state, "source_merged", "{state}");
         let operation = load_target_merge_operation(&connection, "local:target-merge")
             .unwrap()
             .unwrap();
-        assert_eq!(operation.target_source, "remote");
-        assert_eq!(operation.target_revision, remote_tip);
-        let result =
-            finalize_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
-        assert_eq!(result.message, "Successfully merged with remote main");
-        assert_eq!(result.card.status, initial_status);
-        assert_eq!(result.card.workflow_revision, 4);
-        assert_eq!(result.card.environment.as_ref().unwrap().revision, 3);
-        assert!(!source.join("local-only.txt").exists());
+        assert_eq!(operation.upstream_remote, "team");
+        assert_eq!(operation.push_attempts, 1);
+        let pushed = operation.pushed_target_revision.clone().unwrap();
         assert_eq!(
-            git_output(
-                source.to_str().unwrap(),
-                &["rev-list", "--parents", "-n", "1", "HEAD"]
-            )
-            .unwrap()
-            .split_whitespace()
-            .count(),
-            3
+            git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+            pushed
         );
-        let summary: String = connection.query_row(
-                "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
-                [], |row| row.get(0),
-            ).unwrap();
-        assert!(summary.contains("remote target branch main"), "{summary}");
-        if initial_status == "approved" {
-            let delivered = merge_card(&mut connection, "local:target-merge", 4, 3).unwrap();
-            assert_eq!(delivered.card.status, "done");
+        assert!(git_output(
+            target.to_str().unwrap(),
+            &["ls-remote", "team", "refs/heads/main"]
+        )
+        .unwrap()
+        .starts_with(&pushed));
+        if state == "local-ahead" {
+            assert_eq!(pushed, local_before);
+        }
+        if state == "diverged" {
             assert_eq!(
-                delivered.card.completion_outcome,
-                Some(CompletionOutcome::Merged)
+                git_output(
+                    target.to_str().unwrap(),
+                    &["rev-list", "--parents", "-n", "1", "HEAD"]
+                )
+                .unwrap()
+                .split_whitespace()
+                .count(),
+                3
             );
         }
+        let result = finalize_target_merge(
+            &mut connection,
+            "local:target-merge",
+            prepared.operation_id.as_deref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result.card.status, "approved");
+        assert!(result.message.contains("Synchronized") || result.message.contains("synchronized"));
         fs::remove_dir_all(root).unwrap();
     }
 }
 
 #[test]
-fn target_merge_noop_preserves_status_and_creates_no_commit() {
-    let (root, target, source) = upstream_merge_repository();
-    let mut connection = target_merge_connection(&source, &target, "approved");
-    let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-    let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
-    assert_eq!(result.state, "noop");
-    assert!(result.idempotent);
-    assert_eq!(result.message, "Already up to date with remote main");
-    assert_eq!(result.card.status, "approved");
-    let summary: String = connection.query_row(
-            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
-            [], |row| row.get(0),
-        ).unwrap();
-    assert!(summary.contains("remote target branch main"), "{summary}");
-    assert_eq!(
-        git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
-        before
-    );
-    fs::remove_dir_all(root).unwrap();
+fn target_merge_rejects_dirty_or_active_primary_checkout_without_mutation() {
+    for kind in ["modified", "staged", "untracked", "operation"] {
+        let (root, target, source) = upstream_merge_repository();
+        let mut connection = target_merge_connection(&source, &target, "needs_human");
+        let before = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+        match kind {
+            "modified" => fs::write(target.join("base.txt"), "dirty").unwrap(),
+            "staged" => {
+                fs::write(target.join("base.txt"), "staged").unwrap();
+                git_ok(&target, &["add", "base.txt"]);
+            }
+            "untracked" => fs::write(target.join("untracked.txt"), "dirty").unwrap(),
+            "operation" => {
+                let marker = git_output(
+                    target.to_str().unwrap(),
+                    &["rev-parse", "--git-path", "CHERRY_PICK_HEAD"],
+                )
+                .unwrap();
+                let marker = if Path::new(&marker).is_absolute() {
+                    PathBuf::from(marker)
+                } else {
+                    target.join(marker)
+                };
+                fs::write(marker, &before).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
+        assert!(
+            error.contains("modified or untracked") || error.contains("in-progress Git operation"),
+            "{kind}: {error}"
+        );
+        assert_eq!(
+            git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+            before
+        );
+        assert!(
+            load_target_merge_operation(&connection, "local:target-merge")
+                .unwrap()
+                .is_none()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[test]
-fn target_merge_rejects_dirty_source_and_falls_back_without_upstream() {
+fn primary_target_conflict_is_resumed_verified_pushed_then_merged_into_card() {
     let (root, target, source) = upstream_merge_repository();
+    let writer = clone_writer(&root);
+    fs::write(target.join("base.txt"), "local target\n").unwrap();
+    git_ok(&target, &["add", "."]);
+    git_ok(&target, &["commit", "-m", "local target"]);
+    fs::write(writer.join("base.txt"), "remote target\n").unwrap();
+    git_ok(&writer, &["add", "."]);
+    git_ok(&writer, &["commit", "-m", "remote target"]);
+    git_ok(&writer, &["push", "origin", "main"]);
     let mut connection = target_merge_connection(&source, &target, "needs_human");
-    let before = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-    fs::write(source.join("dirty.txt"), "dirty\n").unwrap();
-    assert!(
-        prepare_target_merge(&mut connection, "local:target-merge", 4, 2)
-            .unwrap_err()
-            .contains("modified or untracked")
-    );
-    fs::remove_file(source.join("dirty.txt")).unwrap();
-    git_ok(&source, &["config", "--unset", "branch.main.remote"]);
-    let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
-    assert_eq!(result.state, "noop");
-    assert_eq!(result.message, "Already up to date with local main");
-    assert_eq!(
-        git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
-        before
-    );
-    let summary: String = connection.query_row(
-            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
-            [], |row| row.get(0),
-        ).unwrap();
-    assert!(summary.contains("local target branch main"), "{summary}");
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn target_merge_fetch_failure_falls_back_to_clean_committed_local_tip() {
-    let (root, target, source) = upstream_merge_repository();
-    let mut connection = target_merge_connection(&source, &target, "needs_human");
-    assert!(
-        prepare_target_merge(&mut connection, "local:target-merge", 3, 2)
-            .unwrap_err()
-            .contains("Card changed")
-    );
-    assert!(
-        prepare_target_merge(&mut connection, "local:target-merge", 4, 1)
-            .unwrap_err()
-            .contains("environment changed")
-    );
-    advance_target(&target, "committed local target\n");
-    let committed_tip = git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-    fs::write(target.join("target.txt"), "uncommitted target change\n").unwrap();
-    fs::write(target.join("untracked-target.txt"), "must remain local\n").unwrap();
-    git_ok(
-        &source,
-        &[
-            "remote",
-            "set-url",
-            "origin",
-            "/definitely/missing/stacks-target.git",
-        ],
-    );
-    let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
-    assert_eq!(prepared.state, "merged");
+    let first = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+    assert_eq!(first.state, "target_conflicted");
+    assert_eq!(first.checkout_path.as_deref(), target.to_str());
+    fs::write(target.join("base.txt"), "resolved target\n").unwrap();
+    git_ok(&target, &["add", "."]);
+    git_ok(&target, &["commit", "-m", "Merge upstream target"]);
+    let resumed = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+    assert_eq!(resumed.state, "source_merged");
     let operation = load_target_merge_operation(&connection, "local:target-merge")
         .unwrap()
         .unwrap();
-    assert_eq!(operation.target_source, "local");
-    assert_eq!(operation.target_revision, committed_tip);
-    assert_eq!(
-        fs::read_to_string(target.join("target.txt")).unwrap(),
-        "uncommitted target change\n"
-    );
-    assert_eq!(
-        fs::read_to_string(source.join("target.txt")).unwrap(),
-        "committed local target\n"
-    );
-    assert!(!source.join("untracked-target.txt").exists());
-    let result = finalize_target_merge(
+    assert!(operation.pushed_target_revision.is_some());
+    finalize_target_merge(
         &mut connection,
         "local:target-merge",
-        prepared.operation_id.as_deref().unwrap(),
+        resumed.operation_id.as_deref().unwrap(),
     )
     .unwrap();
-    assert_eq!(result.message, "Successfully merged with local main");
-    let summary: String = connection.query_row(
-            "SELECT summary FROM card_events WHERE card_id='local:target-merge' ORDER BY id DESC LIMIT 1",
-            [], |row| row.get(0),
-        ).unwrap();
-    assert!(summary.contains("local target branch main"), "{summary}");
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn target_merge_falls_back_for_missing_remote_branch_and_invalid_upstreams() {
-    for configuration in ["missing-branch", "local-only", "invalid-ref"] {
-        let (root, target, source) = upstream_merge_repository();
-        let mut connection = target_merge_connection(&source, &target, "needs_human");
-        match configuration {
-            "missing-branch" => git_ok(
-                &source,
-                &["config", "branch.main.merge", "refs/heads/does-not-exist"],
-            ),
-            "local-only" => git_ok(&source, &["config", "branch.main.remote", "."]),
-            "invalid-ref" => git_ok(&source, &["config", "branch.main.merge", "refs/tags/main"]),
-            _ => unreachable!(),
-        }
-        let result = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
-        assert_eq!(result.state, "noop", "{configuration}");
-        assert_eq!(
-            result.message, "Already up to date with local main",
-            "{configuration}"
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-}
-
-#[test]
-fn target_merge_rejects_an_active_git_operation() {
+fn card_worktree_conflict_after_push_aborts_without_rolling_back_upstream() {
     let (root, target, source) = upstream_merge_repository();
-    let mut connection = target_merge_connection(&source, &target, "needs_human");
-    let marker = git_output(
-        source.to_str().unwrap(),
-        &["rev-parse", "--git-path", "CHERRY_PICK_HEAD"],
-    )
-    .unwrap();
-    fs::write(
-        marker,
-        git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
-    )
-    .unwrap();
-    let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
-    assert!(error.contains("in-progress Git operation"), "{error}");
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn target_merge_conflicts_can_be_finalized_or_safely_aborted() {
-    let (root, target, source) = upstream_merge_repository();
-    fs::write(source.join("base.txt"), "source version\n").unwrap();
+    fs::write(source.join("base.txt"), "card version\n").unwrap();
     git_ok(&source, &["add", "."]);
-    git_ok(&source, &["commit", "-m", "source conflict"]);
+    git_ok(&source, &["commit", "-m", "card conflict"]);
     fs::write(target.join("base.txt"), "target version\n").unwrap();
     git_ok(&target, &["add", "."]);
     git_ok(&target, &["commit", "-m", "target conflict"]);
-    git_ok(&target, &["push", "origin", "main"]);
     let mut connection = target_merge_connection(&source, &target, "needs_human");
-    let starting_revision = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
-    let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
-    assert_eq!(prepared.state, "conflicted");
-    assert!(
-        prepared.message.contains("remote main"),
-        "{}",
-        prepared.message
-    );
-    assert!(health_codes(&connection, "local:target-merge")
-        .contains(&"target_merge_pending".to_string()));
-    let operation_id = prepared.operation_id.unwrap();
-    let retried = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
-    assert_eq!(retried.operation_id.as_deref(), Some(operation_id.as_str()));
-    assert!(
-        retried.message.contains("remote main"),
-        "{}",
-        retried.message
-    );
-    fs::write(source.join("base.txt"), "resolved\n").unwrap();
-    git_ok(&source, &["add", "."]);
-    git_ok(&source, &["commit", "-m", "Merge target with resolution"]);
-    let finalized =
-        finalize_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
-    assert_eq!(finalized.card.status, "needs_human");
-    assert_eq!(finalized.message, "Successfully merged with remote main");
+    let starting_source = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
 
-    // A second conflicted operation can be conservatively restored when no
-    // paths outside Git's recorded merge result were touched.
-    fs::write(target.join("base.txt"), "another target version\n").unwrap();
-    git_ok(&target, &["add", "."]);
-    git_ok(&target, &["commit", "-m", "second target conflict"]);
-    git_ok(&target, &["push", "origin", "main"]);
-    fs::write(source.join("base.txt"), "another source version\n").unwrap();
-    git_ok(&source, &["add", "."]);
-    git_ok(&source, &["commit", "-m", "second source conflict"]);
-    git_ok(&source, &["config", "--unset", "branch.main.remote"]);
-    let current = get_card(&connection, "local:target-merge")
+    let prepared = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap();
+    assert_eq!(prepared.state, "source_conflicted");
+    assert_eq!(prepared.checkout_path.as_deref(), source.to_str());
+    let operation = load_target_merge_operation(&connection, "local:target-merge")
         .unwrap()
         .unwrap();
-    let environment_revision = current.environment.unwrap().revision;
-    let prepared = prepare_target_merge(
-        &mut connection,
-        "local:target-merge",
-        current.workflow_revision,
-        environment_revision,
+    let pushed = operation.pushed_target_revision.clone().unwrap();
+    assert!(has_git_operation(source.to_str().unwrap()).unwrap());
+    assert!(git_output(
+        target.to_str().unwrap(),
+        &["ls-remote", "origin", "refs/heads/main"]
     )
-    .unwrap();
-    assert_eq!(prepared.state, "conflicted");
-    assert!(
-        prepared.message.contains("local main"),
-        "{}",
-        prepared.message
-    );
-    let operation_id = prepared.operation_id.unwrap();
-    let abort_operation = load_target_merge_operation(&connection, "local:target-merge")
-        .unwrap()
-        .unwrap();
-    assert_eq!(abort_operation.target_source, "local");
-    let abort_start = abort_operation.source_revision;
-    abort_target_merge(&mut connection, "local:target-merge", &operation_id).unwrap();
+    .unwrap()
+    .starts_with(&pushed));
+
+    abort_target_merge(&mut connection, "local:target-merge", &operation.id).unwrap();
     assert_eq!(
         git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
-        abort_start
+        starting_source
     );
     assert!(!has_git_operation(source.to_str().unwrap()).unwrap());
+    assert_eq!(
+        git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+        pushed
+    );
     assert!(git_output(
-        source.to_str().unwrap(),
+        target.to_str().unwrap(),
+        &["ls-remote", "origin", "refs/heads/main"]
+    )
+    .unwrap()
+    .starts_with(&pushed));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn target_merge_stops_after_two_non_fast_forward_push_attempts() {
+    use std::os::unix::fs::PermissionsExt;
+    let (root, target, source) = upstream_merge_repository();
+    fs::write(target.join("local.txt"), "local\n").unwrap();
+    git_ok(&target, &["add", "."]);
+    git_ok(&target, &["commit", "-m", "local target"]);
+    let writer = clone_writer(&root);
+    let git_dir = git_output(target.to_str().unwrap(), &["rev-parse", "--git-dir"]).unwrap();
+    let hook = if Path::new(&git_dir).is_absolute() {
+        PathBuf::from(&git_dir)
+    } else {
+        target.join(&git_dir)
+    }
+    .join("hooks/pre-push");
+    let counter = root.join("push-races");
+    fs::write(&hook, format!("#!/bin/sh\nset -e\nn=0; test ! -f '{counter}' || n=$(cat '{counter}')\nn=$((n+1)); echo $n > '{counter}'\ngit -C '{writer}' pull --ff-only >/dev/null\necho $n >> '{writer}/race.txt'\ngit -C '{writer}' add race.txt\ngit -C '{writer}' commit -m race-$n >/dev/null\ngit -C '{writer}' push origin main >/dev/null\n", counter=counter.display(), writer=writer.display())).unwrap();
+    let mut permissions = fs::metadata(&hook).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&hook, permissions).unwrap();
+    let mut connection = target_merge_connection(&source, &target, "needs_human");
+
+    let error = prepare_target_merge(&mut connection, "local:target-merge", 4, 2).unwrap_err();
+    assert!(error.contains("both push attempts"), "{error}");
+    let operation = load_target_merge_operation(&connection, "local:target-merge")
+        .unwrap()
+        .unwrap();
+    assert_eq!(operation.push_attempts, 2);
+    assert_eq!(operation.phase, "target_sync");
+    assert!(operation.pushed_target_revision.is_none());
+    assert!(!has_git_operation(target.to_str().unwrap()).unwrap());
+    assert!(git_output(
+        target.to_str().unwrap(),
         &["status", "--porcelain=v1", "--untracked-files=all"]
     )
     .unwrap()
     .is_empty());
-    assert_ne!(starting_revision, abort_start);
+    let advertised_before_abort = git_output(
+        target.to_str().unwrap(),
+        &["ls-remote", "origin", "refs/heads/main"],
+    )
+    .unwrap();
+    abort_target_merge(&mut connection, "local:target-merge", &operation.id).unwrap();
+    assert_eq!(
+        git_output(target.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap(),
+        operation.initial_target_revision
+    );
+    assert_eq!(
+        git_output(
+            target.to_str().unwrap(),
+            &["ls-remote", "origin", "refs/heads/main"]
+        )
+        .unwrap(),
+        advertised_before_abort
+    );
     fs::remove_dir_all(root).unwrap();
 }
 

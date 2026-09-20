@@ -506,13 +506,17 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             repository_id TEXT NOT NULL,
             source_path TEXT NOT NULL,
             source_branch TEXT NOT NULL,
+            target_checkout_path TEXT NOT NULL,
             target_branch TEXT NOT NULL,
             upstream_remote TEXT NOT NULL,
             upstream_merge_ref TEXT NOT NULL,
             source_revision TEXT NOT NULL,
+            initial_target_revision TEXT NOT NULL,
             target_revision TEXT NOT NULL,
-            target_source TEXT NOT NULL DEFAULT 'remote' CHECK(target_source IN ('local','remote')),
-            phase TEXT NOT NULL CHECK(phase IN ('conflicted','merged')),
+            remote_revision TEXT,
+            pushed_target_revision TEXT,
+            push_attempts INTEGER NOT NULL DEFAULT 0,
+            phase TEXT NOT NULL CHECK(phase IN ('target_sync','target_conflicted','pushed','source_conflicted','source_merged')),
             conflict_paths TEXT NOT NULL DEFAULT '[]',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
@@ -873,6 +877,38 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(db_error)?;
+    let target_merge_columns = connection
+        .prepare("PRAGMA table_info(card_target_merge_operations)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    if !target_merge_columns.iter().any(|column| column == "target_checkout_path") {
+        // Preserve old pending source-worktree merges. They already selected a
+        // fetched target, so treat it as pushed and resume at source verification.
+        connection.execute_batch(
+            "ALTER TABLE card_target_merge_operations RENAME TO card_target_merge_operations_v72;
+             CREATE TABLE card_target_merge_operations (
+                id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE REFERENCES kanban_cards(id) ON DELETE CASCADE,
+                environment_id TEXT NOT NULL, workflow_revision INTEGER NOT NULL, environment_revision INTEGER NOT NULL,
+                initial_status TEXT NOT NULL CHECK(initial_status IN ('needs_human','approved')),
+                repository_id TEXT NOT NULL, source_path TEXT NOT NULL, source_branch TEXT NOT NULL,
+                target_checkout_path TEXT NOT NULL, target_branch TEXT NOT NULL,
+                upstream_remote TEXT NOT NULL, upstream_merge_ref TEXT NOT NULL,
+                source_revision TEXT NOT NULL, initial_target_revision TEXT NOT NULL, target_revision TEXT NOT NULL,
+                remote_revision TEXT, pushed_target_revision TEXT, push_attempts INTEGER NOT NULL DEFAULT 0,
+                phase TEXT NOT NULL CHECK(phase IN ('target_sync','target_conflicted','pushed','source_conflicted','source_merged')),
+                conflict_paths TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+             );
+             INSERT INTO card_target_merge_operations
+                (id,card_id,environment_id,workflow_revision,environment_revision,initial_status,repository_id,source_path,source_branch,target_checkout_path,target_branch,upstream_remote,upstream_merge_ref,source_revision,initial_target_revision,target_revision,remote_revision,pushed_target_revision,push_attempts,phase,conflict_paths,created_at,updated_at)
+             SELECT o.id,o.card_id,o.environment_id,o.workflow_revision,o.environment_revision,o.initial_status,o.repository_id,o.source_path,o.source_branch,COALESCE(e.target_checkout_path,''),o.target_branch,o.upstream_remote,o.upstream_merge_ref,o.source_revision,o.target_revision,o.target_revision,o.target_revision,o.target_revision,1,CASE o.phase WHEN 'conflicted' THEN 'source_conflicted' ELSE 'source_merged' END,o.conflict_paths,o.created_at,o.updated_at
+             FROM card_target_merge_operations_v72 o LEFT JOIN card_environments e ON e.id=o.environment_id;
+             DROP TABLE card_target_merge_operations_v72;"
+        ).map_err(db_error)?;
+    }
+    connection.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (74, unixepoch())", []).map_err(db_error)?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS provider_sync_operations (
             id TEXT PRIMARY KEY, card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,

@@ -62,7 +62,9 @@ function presentationFor(action: CardWorkflowActionKind, { card, project }: Card
     case 'close': return { destructive: true, appearance: 'neutral-ghost', confirmation: { title: 'Close without delivery?', detail: 'Moves this card to Done · Closed and stops its processes. The worktree, branch, and changes are preserved.' } };
     case 'delete': return { destructive: true, appearance: 'danger-ghost', confirmation: { title: 'Delete card?', detail: 'This permanently deletes this local draft.' } };
     case 'stop_refinement': return { destructive: true, appearance: 'neutral-ghost' };
-    case 'merge_local': return { confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } };
+    case 'merge_local': return { confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: project?.delivery_workflow === 'local_merge'
+      ? `Create an explicit --no-ff merge commit in the project's primary checkout, then push the configured upstream when present. Cleanup is separate.`
+      : `Create an explicit --no-ff merge commit in the project's primary checkout. Push and cleanup are separate.` } };
     case 'deploy':
     case 'retry_deploy': return { confirmation: { title: 'Deploy this card?', detail: 'Stacks will safely push the current target branch if necessary, then run the project deployment command from the primary checkout.' } };
     case 'run_deployment_again': return { confirmation: { title: 'Run deployment again?', detail: 'The earlier attempt may have succeeded. Running a non-idempotent deployment command again can have side effects.' } };

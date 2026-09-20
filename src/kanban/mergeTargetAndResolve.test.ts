@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RESOLVE_TARGET_MERGE_PROMPT, runMergeTargetAndResolve } from './mergeTargetAndResolve';
+import { resolveCardWorktreeMergePrompt, resolvePrimaryTargetMergePrompt, runMergeTargetAndResolve } from './mergeTargetAndResolve';
 import type { TargetMergePrepareResult, WorkflowOperationResult } from './api';
 
 const card = { status: 'needs_human' } as WorkflowOperationResult['card'];
 const completed = { card, message: 'merged', idempotent: false };
-const prepared = (state: TargetMergePrepareResult['state'], operation_id: string | null = state === 'noop' ? null : 'op-1'): TargetMergePrepareResult => ({ card, message: state, idempotent: state === 'noop', state, operation_id });
+const prepared = (state: TargetMergePrepareResult['state'], path: string | null = null, operation_id: string | null = state === 'noop' ? null : 'op-1'): TargetMergePrepareResult => ({ card, message: state, idempotent: state === 'noop', state, operation_id, checkout_path: path });
 
-function dependencies(result: TargetMergePrepareResult) {
+function dependencies(...results: TargetMergePrepareResult[]) {
   return {
-    prepare: vi.fn().mockResolvedValue(result),
+    prepare: vi.fn().mockImplementation(() => Promise.resolve(results.shift())),
     showAgent: vi.fn(),
     sendPromptAndWait: vi.fn().mockResolvedValue(true),
     finalize: vi.fn().mockResolvedValue(completed),
@@ -18,26 +18,35 @@ function dependencies(result: TargetMergePrepareResult) {
 }
 
 describe('merge target and resolve orchestration', () => {
-  it('limits conflict resolution to safely completing the existing merge', () => {
-    expect(RESOLVE_TARGET_MERGE_PROMPT).toContain('merge of the target branch is already in progress');
-    expect(RESOLVE_TARGET_MERGE_PROMPT).toContain('Stage all resolutions and finish the existing merge commit');
-    expect(RESOLVE_TARGET_MERGE_PROMPT).toContain('Do not abort, rebase, squash, cherry-pick, start a different merge, or make unrelated changes');
-    expect(RESOLVE_TARGET_MERGE_PROMPT).toContain('cannot be resolved confidently, leave the merge in progress and report the blocker');
+  it('distinguishes primary-target and card-worktree instructions and includes exact paths', () => {
+    const target = resolvePrimaryTargetMergePrompt('/repo/primary');
+    expect(target).toContain('primary target checkout at /repo/primary');
+    expect(target).toContain('Do not abort, rebase, squash');
+    expect(target).toContain('push');
+    const source = resolveCardWorktreeMergePrompt('/repo/card');
+    expect(source).toContain('card worktree at /repo/card');
+    expect(source).toContain('successfully pushed target revision');
+    expect(source).toContain('Do not modify the primary target checkout');
   });
 
-  it('finalizes a clean merge without prompting the agent', async () => {
-    const deps = dependencies(prepared('merged'));
+  it('finalizes a completed card-worktree merge without prompting', async () => {
+    const deps = dependencies(prepared('source_merged'));
     await expect(runMergeTargetAndResolve(deps)).resolves.toEqual(completed);
     expect(deps.sendPromptAndWait).not.toHaveBeenCalled();
     expect(deps.finalize).toHaveBeenCalledWith('op-1');
     expect(deps.refresh).toHaveBeenCalledOnce();
   });
 
-  it('prompts narrowly for conflicts, then finalizes', async () => {
-    const deps = dependencies(prepared('conflicted'));
+  it('resumes through both conflict stages before finalizing', async () => {
+    const deps = dependencies(
+      prepared('target_conflicted', '/repo/primary'),
+      prepared('source_conflicted', '/repo/card'),
+      prepared('source_merged'),
+    );
     await runMergeTargetAndResolve(deps);
-    expect(deps.showAgent).toHaveBeenCalledOnce();
-    expect(deps.sendPromptAndWait).toHaveBeenCalledWith(RESOLVE_TARGET_MERGE_PROMPT);
+    expect(deps.prepare).toHaveBeenCalledTimes(3);
+    expect(deps.sendPromptAndWait).toHaveBeenNthCalledWith(1, resolvePrimaryTargetMergePrompt('/repo/primary'));
+    expect(deps.sendPromptAndWait).toHaveBeenNthCalledWith(2, resolveCardWorktreeMergePrompt('/repo/card'));
     expect(deps.finalize).toHaveBeenCalledWith('op-1');
     expect(deps.abort).not.toHaveBeenCalled();
   });
@@ -45,24 +54,22 @@ describe('merge target and resolve orchestration', () => {
   it('returns a no-op without agent, finalize, or abort', async () => {
     const deps = dependencies(prepared('noop'));
     await expect(runMergeTargetAndResolve(deps)).resolves.toMatchObject({ state: 'noop', idempotent: true });
-    expect(deps.showAgent).not.toHaveBeenCalled();
     expect(deps.finalize).not.toHaveBeenCalled();
     expect(deps.abort).not.toHaveBeenCalled();
   });
 
-  it.each(['prompt delivery', 'finalization'])('aborts and refreshes after %s failure', async (stage) => {
-    const deps = dependencies(prepared('conflicted'));
-    if (stage === 'prompt delivery') deps.sendPromptAndWait.mockResolvedValue(false);
-    else deps.finalize.mockRejectedValue(new Error('verification failed'));
-    await expect(runMergeTargetAndResolve(deps)).rejects.toThrow();
+  it('uses stage-aware abort when an agent request does not settle', async () => {
+    const deps = dependencies(prepared('target_conflicted', '/repo/primary'));
+    deps.sendPromptAndWait.mockResolvedValue(false);
+    await expect(runMergeTargetAndResolve(deps)).rejects.toThrow('safely recovered');
     expect(deps.abort).toHaveBeenCalledWith('op-1');
     expect(deps.refresh).toHaveBeenCalledOnce();
   });
 
-  it('surfaces manual recovery guidance when conservative abort refuses', async () => {
-    const deps = dependencies(prepared('conflicted'));
-    deps.sendPromptAndWait.mockResolvedValue(false);
-    deps.abort.mockRejectedValue(new Error('recover manually'));
-    await expect(runMergeTargetAndResolve(deps)).rejects.toThrow('Recovery also stopped: recover manually');
+  it('preserves durable backend state after a prepare or finalize failure', async () => {
+    const deps = dependencies(prepared('source_merged'));
+    deps.finalize.mockRejectedValue(new Error('verification failed'));
+    await expect(runMergeTargetAndResolve(deps)).rejects.toThrow('verification failed');
+    expect(deps.abort).not.toHaveBeenCalled();
   });
 });
