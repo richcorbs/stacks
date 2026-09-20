@@ -2993,6 +2993,9 @@ fn cleanup_operation_schema_retains_completed_audit_after_environment_deletion()
     connection.execute("INSERT INTO kanban_cards (id,external_provider,external_id,title,status,completion_outcome,workflow_revision,project_id,created_at,updated_at) VALUES ('local:cleanup','local:p','64','Cleanup','done','closed',3,'p',?1,?1)", [now]).unwrap();
     connection.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,revision,created_at,updated_at) VALUES ('cleanup-env','local:cleanup','p','/tmp/source','feature',2,?1,?1)", [now]).unwrap();
     connection.execute("INSERT INTO card_cleanup_operations (card_id,environment_id,workflow_revision,environment_revision,status,phase,completion_outcome,repository_id,source_path,target_path,source_branch,target_branch,source_revision,delete_local_branch,delete_remote_branch,started_at,updated_at) VALUES ('local:cleanup','cleanup-env',3,2,'pending','remove_metadata','closed','repo','/tmp/source','/tmp/repo','feature','main','abc',0,0,?1,?1)", [now]).unwrap();
+    assert_eq!(connection.query_row("SELECT override_authorized FROM card_cleanup_operations WHERE card_id='local:cleanup'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    connection.execute("UPDATE card_cleanup_operations SET override_authorized=1 WHERE card_id='local:cleanup'", []).unwrap();
+    assert_eq!(load_cleanup_snapshot(&connection, "local:cleanup").unwrap().override_authorized, true);
     let immutable_error = connection.execute("UPDATE card_cleanup_operations SET source_revision='changed' WHERE card_id='local:cleanup'", []).unwrap_err();
     assert!(immutable_error
         .to_string()
@@ -3056,6 +3059,7 @@ fn cleanup_snapshot(target: &Path, source: &Path, outcome: &str) -> CleanupSnaps
         delete_remote_branch: false,
         merged_pr_head_revision: None,
         pane_ids: Vec::new(),
+        override_authorized: false,
         registration_validated: false,
     }
 }
@@ -3109,18 +3113,31 @@ fn cleanup_remote_deletion_uses_exact_tip_lease_and_reconciles_absence() {
 }
 
 #[test]
+fn authorized_cleanup_forces_dirty_merged_worktree_removal() {
+    let (root, target, source) = merge_repository();
+    git_ok(&target, &["merge", "--no-ff", "feature", "-m", "merge"]);
+    let mut operation = cleanup_snapshot(&target, &source, "closed");
+    operation.override_authorized = true;
+    fs::write(source.join("dirty.txt"), "discard me\n").unwrap();
+    validate_cleanup_repository(&operation).unwrap();
+    remove_cleanup_worktree(&operation).unwrap();
+    assert!(!source.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn cleanup_rejects_absent_unvalidated_and_changed_source_evidence() {
     let (root, target, source) = merge_repository();
     let mut operation = cleanup_snapshot(&target, &source, "closed");
+    git_ok(&target, &["merge", "--no-ff", "feature", "-m", "merge"]);
     fs::write(source.join("dirty.txt"), "unsafe\n").unwrap();
     assert!(validate_cleanup_repository(&operation)
         .unwrap_err()
-        .contains("modified or untracked"));
+        .contains("became dirty"));
     fs::remove_file(source.join("dirty.txt")).unwrap();
     git_ok(&target, &["worktree", "remove", source.to_str().unwrap()]);
-    assert!(remove_cleanup_worktree(&operation)
-        .unwrap_err()
-        .contains("without persisted"));
+    // Branch-only reconciliation does not require a live worktree registration.
+    remove_cleanup_worktree(&operation).unwrap();
     operation.registration_validated = true;
     remove_cleanup_worktree(&operation).unwrap();
     git_ok(&target, &["branch", "-f", "feature", "main"]);

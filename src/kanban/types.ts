@@ -57,8 +57,10 @@ export type CardPullRequest = {
 
 export type CleanupResource = { resource_type: string; id: string; disposition: string };
 export type CleanupPreflight = {
-  card_id: string; card_title: string; project_id: string; project_name: string;
+  card_id: string; card_number: string; card_title: string; project_id: string; project_name: string;
   completion_outcome: 'merged' | 'closed' | string; workflow_revision: number; environment_revision: number;
+  merged: boolean; blocked: boolean; override_available: boolean; has_resources: boolean;
+  cleanup_anyway?: boolean;
   eligible: boolean; state: 'pending_cleanup' | 'pending' | 'failed' | 'completed' | string;
   repository_id: string | null; primary_checkout: string | null;
   recorded_target_branch: string | null; current_target_branch: string | null; target_revision: string | null;

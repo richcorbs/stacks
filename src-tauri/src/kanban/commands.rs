@@ -349,6 +349,7 @@ pub async fn kanban_cleanup_environment(
     expected_repository_id: Option<String>,
     expected_primary_checkout: Option<String>,
     expected_target_branch: Option<String>,
+    cleanup_anyway: bool,
 ) -> Result<KanbanCard, String> {
     kanban_cleanup_environment_operation(
         app,
@@ -360,6 +361,7 @@ pub async fn kanban_cleanup_environment(
         expected_repository_id,
         expected_primary_checkout,
         expected_target_branch,
+        cleanup_anyway,
     )
     .await
 }
