@@ -381,7 +381,7 @@ pub async fn kanban_sync_superthread_cards(
     let result = kanban_sync_superthread_cards_operation(owner_project_id, snapshot)?;
     let provider = service.inner().clone();
     let _ = tauri::async_runtime::spawn_blocking(move || run_pending_once(provider, None)).await;
-    with_connection(board_snapshot).or(Ok(result))
+    with_read_connection(board_snapshot).or(Ok(result))
 }
 
 #[tauri::command]

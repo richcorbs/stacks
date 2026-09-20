@@ -72,9 +72,9 @@ pub(in crate::kanban) fn run_cleanup(
             expected_environment_revision,
         )?;
         loop {
-            let operation = with_connection(|connection| load_cleanup_snapshot(connection, id))?;
+            let operation = with_read_connection(|connection| load_cleanup_snapshot(connection, id))?;
             if operation.status == "completed" {
-                return with_connection(|connection| {
+                return with_read_connection(|connection| {
                     get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
                 });
             }
@@ -98,7 +98,7 @@ pub(in crate::kanban) fn initialize_cleanup(
     expected_workflow_revision: i64,
     expected_environment_revision: i64,
 ) -> Result<(), String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         if connection
             .query_row(
                 "SELECT COUNT(*) FROM card_cleanup_operations WHERE card_id=?1",
@@ -111,7 +111,7 @@ pub(in crate::kanban) fn initialize_cleanup(
             return Ok(());
         }
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .savepoint()
             .map_err(db_error)?;
         require_structural_capability(&transaction, card_id, WorkflowAction::Cleanup)?;
         let (_status, outcome, workflow_revision, delivery_stage): (String, Option<String>, i64, Option<String>) = transaction.query_row(
@@ -499,9 +499,9 @@ pub(in crate::kanban) fn local_ref_tip(path: &str, branch: &str) -> Result<Optio
 pub(in crate::kanban) fn remove_cleanup_metadata(
     operation: &CleanupSnapshot,
 ) -> Result<(), String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .savepoint()
             .map_err(db_error)?;
         let removed = transaction
             .execute(
@@ -536,7 +536,7 @@ pub(in crate::kanban) fn remove_cleanup_metadata(
 }
 
 pub(in crate::kanban) fn advance_cleanup_phase(operation: &CleanupSnapshot) -> Result<(), String> {
-    with_connection(|connection| advance_cleanup_phase_in_connection(connection, operation))
+    with_board_mutation(|connection| advance_cleanup_phase_in_connection(connection, operation))
 }
 
 pub(in crate::kanban) fn advance_cleanup_phase_in_connection(
@@ -544,7 +544,7 @@ pub(in crate::kanban) fn advance_cleanup_phase_in_connection(
     operation: &CleanupSnapshot,
 ) -> Result<(), String> {
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     if operation.phase == "record_completion" {
         let now = unix_timestamp();
@@ -585,9 +585,9 @@ pub(in crate::kanban) fn record_cleanup_failure(
     code: &str,
     detail: &str,
 ) {
-    let _ = with_connection(|connection| {
+    let _ = with_board_mutation(|connection| {
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .savepoint()
             .map_err(db_error)?;
         transaction.execute("UPDATE card_cleanup_operations SET status='failed',error_code=?1,error_detail=?2,updated_at=?3 WHERE card_id=?4 AND phase=?5", params![code, detail, unix_timestamp(), card_id, phase]).map_err(db_error)?;
         transaction.execute("UPDATE card_environments SET lifecycle_state='cleanup_failed',updated_at=?1 WHERE card_id=?2", params![unix_timestamp(), card_id]).map_err(db_error)?;

@@ -12,7 +12,7 @@ pub(in crate::kanban) async fn kanban_approve_and_commit_operation(
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 approve_and_commit_with_failure_record(
                     connection,
                     &id,
@@ -128,7 +128,7 @@ pub(in crate::kanban) fn approve_and_commit(
     let source_tip = git_output(canonical_path, &["rev-parse", "HEAD"])?;
     let now = unix_timestamp();
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let workflow_changed = apply_workflow_transition(
         &transaction,
@@ -200,7 +200,7 @@ pub(in crate::kanban) async fn kanban_merge_card_operation(
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let result = coordinate_card_repository(&id, true, || {
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 merge_card(
                     connection,
                     &id,
@@ -366,7 +366,7 @@ pub(in crate::kanban) fn merge_card(
     }
     let target_tip = git_output(&target_path, &["rev-parse", "HEAD"])?;
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let environment_rows = transaction.execute("UPDATE card_environments SET source_revision=?1, target_revision=?2, revision=revision+1, updated_at=?3 WHERE card_id=?4 AND revision=?5 AND worktree_path=?6 AND branch=?7 AND repository_id=?8 AND target_checkout_path=?9 AND target_branch=?10 AND source_revision=?11", params![source_tip, target_tip, unix_timestamp(), id, expected_environment, source_path, source_branch, repository_id, target_path, target_branch, recorded_source_revision]).map_err(db_error)?;
     if environment_rows != 1 {
@@ -499,7 +499,7 @@ pub(in crate::kanban) async fn kanban_prepare_target_merge_operation(
 ) -> Result<TargetMergePrepareResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 prepare_target_merge(
                     connection,
                     &id,
@@ -529,7 +529,7 @@ pub(in crate::kanban) fn prepare_target_merge(
         return current_target_merge_result(connection, &operation);
     }
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let (status, workflow_revision): (String, i64) = transaction
         .query_row(
@@ -707,7 +707,7 @@ pub(in crate::kanban) async fn kanban_finalize_target_merge_operation(
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| finalize_target_merge(connection, &id, &operation_id))
+            with_board_mutation(|connection| finalize_target_merge(connection, &id, &operation_id))
         })
     })
     .await
@@ -762,7 +762,7 @@ pub(in crate::kanban) fn finalize_target_merge(
         return Err("The completed commit does not have the expected explicit merge topology. Do not rebase, squash, or replace the existing merge".to_string());
     }
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let (status, current_revision): (String, i64) = transaction
         .query_row(
@@ -836,7 +836,7 @@ pub(in crate::kanban) async fn kanban_abort_target_merge_operation(
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| abort_target_merge(connection, &id, &operation_id))
+            with_board_mutation(|connection| abort_target_merge(connection, &id, &operation_id))
         })
     })
     .await
