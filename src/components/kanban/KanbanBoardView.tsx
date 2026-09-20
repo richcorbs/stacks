@@ -2,7 +2,7 @@ import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../../types';
 import { canonicalCardById } from '../../kanban/boardStore';
-import type { CardEventCursor, KanbanCard, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
+import type { CardEventCursor, CleanupInventory, CleanupPreflight, KanbanCard, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
 import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, superthreadSyncAvailability } from '../../kanban/projectScope';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
@@ -22,8 +22,9 @@ import { startLaunchCardRecovery } from '../../kanban/launchRecovery';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
 import { flushProjectNotes } from '../../projectNotes';
 import type { NotificationRoute } from '../../appAttention';
-import { fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
+import { fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
 import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
+import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 
 export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
@@ -64,6 +65,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   const doneToggleRef = useRef<HTMLButtonElement | null>(null);
   const [openLaneMenu, setOpenLaneMenu] = useState<KanbanStatus | null>(null);
   const [cleaningMerged, setCleaningMerged] = useState(false);
+  const [cleanupInventory, setCleanupInventory] = useState<CleanupInventory | null>(null);
   const newCard = useNewCardDialog({
     creationProjects,
     selectedProject,
@@ -258,28 +260,30 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   }
 
   async function cleanupMergedCards() {
-    const mergedCards = visibleCards.filter((card) => card.status === 'done' && card.completion_outcome === 'merged' && (card.environment || card.cleanup_operation?.status !== 'completed'));
-    const newCleanups = mergedCards.filter((card) => !card.cleanup_operation);
     setOpenLaneMenu(null);
-    if (mergedCards.length === 0 || (newCleanups.length > 0 && !window.confirm(`Clean up ${newCleanups.length} merged ${newCleanups.length === 1 ? 'card' : 'cards'}?\n\nThis removes their card-owned processes, source worktrees, safely deletable branches, and environments. Cards remain in Done · Merged. Existing cleanup operations will be retried without another confirmation.`))) return;
+    setCleaningMerged(true);
+    try { setCleanupInventory(await fetchCleanupInventory(filterProjectId)); }
+    catch (error) { showAppToast(`Could not inspect cleanup: ${String(error)}`); }
+    finally { setCleaningMerged(false); }
+  }
+
+  async function confirmBulkCleanup(entries: CleanupPreflight[]) {
     setCleaningMerged(true);
     const failures: string[] = [];
-    for (const card of mergedCards) {
+    for (const entry of entries) {
+      const summary = board.cards.find((card) => card.id === entry.card_id);
+      if (!summary) { failures.push(entry.card_title); continue; }
       try {
-        const detail = await board.loadDetails(card);
-        const cleaned = await onCleanupCard(detail);
-        if (!cleaned) failures.push(card.title);
-        else board.applyCardSnapshot(await board.loadDetails(card));
-      } catch (error) {
-        console.error(error);
-        failures.push(card.title);
-      }
+        const detail = await board.loadDetails(summary);
+        const cleaned = await onCleanupCard(detail, entry);
+        if (!cleaned) failures.push(entry.card_title);
+        else board.applyCardSnapshot(await board.loadDetails(summary));
+      } catch (error) { console.error(error); failures.push(entry.card_title); }
     }
     setCleaningMerged(false);
-    const cleanedCount = mergedCards.length - failures.length;
-    showAppToast(failures.length
-      ? `Cleaned up ${cleanedCount}; ${failures.length} ${failures.length === 1 ? 'card was' : 'cards were'} retained because cleanup failed`
-      : `Cleaned up ${cleanedCount} merged ${cleanedCount === 1 ? 'card' : 'cards'}`);
+    setCleanupInventory(null);
+    const cleanedCount = entries.length - failures.length;
+    showAppToast(failures.length ? `Cleaned up ${cleanedCount}; ${failures.length} retained after revalidation` : `Cleaned up ${cleanedCount} merged ${cleanedCount === 1 ? 'card' : 'cards'}`);
   }
 
   return (
@@ -367,6 +371,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         }}
       />
       <NewCardDialog model={newCard} creationProjects={creationProjects} cards={board.cards} />
+      {cleanupInventory && <CleanupPreflightDialog bulk inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={confirmBulkCleanup} />}
       {directWorkProjectId && projects.find((project) => project.id === directWorkProjectId) && (
         <DirectProjectWork
           project={projects.find((project) => project.id === directWorkProjectId)!}
@@ -415,12 +420,12 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
             board.applyCardSnapshot(await board.loadDetails(selectedCard));
             return started;
           }}
-          onCleanup={async (environmentRevision) => {
+          onCleanup={async (evidence) => {
             const current = selectedDetail.environment
-              ? { ...selectedDetail, environment: { ...selectedDetail.environment, revision: environmentRevision } }
+              ? { ...selectedDetail, environment: { ...selectedDetail.environment, revision: evidence.environment_revision } }
               : selectedDetail;
             try {
-              if (!await onCleanupCard(current)) return;
+              if (!await onCleanupCard(current, evidence)) return;
             } finally {
               const refreshed = await board.loadDetails(current);
               board.applyCardSnapshot(refreshed);

@@ -329,17 +329,37 @@ pub async fn kanban_abort_target_merge(
 }
 
 #[tauri::command]
+pub async fn kanban_cleanup_preflight(app: AppHandle, id: String) -> Result<CleanupPreflight, String> {
+    kanban_cleanup_preflight_operation(app, id).await
+}
+
+#[tauri::command]
+pub async fn kanban_cleanup_inventory(app: AppHandle, project_id: Option<String>) -> Result<CleanupInventory, String> {
+    kanban_cleanup_inventory_operation(app, project_id).await
+}
+
+#[tauri::command]
 pub async fn kanban_cleanup_environment(
     app: AppHandle,
     id: String,
     expected_workflow_revision: i64,
     expected_environment_revision: i64,
+    expected_source_revision: Option<String>,
+    expected_target_revision: Option<String>,
+    expected_repository_id: Option<String>,
+    expected_primary_checkout: Option<String>,
+    expected_target_branch: Option<String>,
 ) -> Result<KanbanCard, String> {
     kanban_cleanup_environment_operation(
         app,
         id,
         expected_workflow_revision,
         expected_environment_revision,
+        expected_source_revision,
+        expected_target_revision,
+        expected_repository_id,
+        expected_primary_checkout,
+        expected_target_branch,
     )
     .await
 }

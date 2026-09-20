@@ -233,7 +233,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>) {
     } catch (error) { showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`); return false; }
     finally { startingCardIds.current.delete(cardId); }
   }
-  async function cleanupCard(card: KanbanCard) {
+  async function cleanupCard(card: KanbanCard, evidence: import('../kanban/types').CleanupPreflight) {
     const terminalIds = Array.from(new Set([
       ...(card.environment?.panes.filter((pane) => pane.kind === 'terminal').map((pane) => pane.id) ?? []),
       `kanban-card:${card.id}:terminal:server`, `kanban-card:${card.id}:terminal:console`,
@@ -243,6 +243,11 @@ export function useAppRootModel(events: EventBroker<AppEventMap>) {
         id: card.id,
         expectedWorkflowRevision: card.workflow_revision,
         expectedEnvironmentRevision: card.environment?.revision ?? 0,
+        expectedSourceRevision: evidence.source_revision,
+        expectedTargetRevision: evidence.target_revision,
+        expectedRepositoryId: evidence.repository_id,
+        expectedPrimaryCheckout: evidence.primary_checkout,
+        expectedTargetBranch: evidence.current_target_branch,
       });
       return true;
     } finally {

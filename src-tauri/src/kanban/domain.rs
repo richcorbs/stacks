@@ -337,6 +337,56 @@ impl From<&KanbanCard> for KanbanCardSummary {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CleanupResource {
+    pub resource_type: String,
+    pub id: String,
+    pub disposition: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CleanupPreflight {
+    pub card_id: String,
+    pub card_title: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub completion_outcome: String,
+    pub workflow_revision: i64,
+    pub environment_revision: i64,
+    pub eligible: bool,
+    pub state: String,
+    pub repository_id: Option<String>,
+    pub primary_checkout: Option<String>,
+    pub recorded_target_branch: Option<String>,
+    pub current_target_branch: Option<String>,
+    pub target_revision: Option<String>,
+    pub source_path: Option<String>,
+    pub source_exists: bool,
+    pub source_registered: bool,
+    pub source_branch: Option<String>,
+    pub source_clean: Option<bool>,
+    pub source_head: Option<String>,
+    pub source_revision: Option<String>,
+    pub source_git_operation: Option<bool>,
+    pub merge_proof: String,
+    pub local_branch_disposition: String,
+    pub remote_branch_disposition: String,
+    pub resources: Vec<CleanupResource>,
+    pub metadata: Vec<String>,
+    pub blockers: Vec<String>,
+    pub retained: Vec<String>,
+    pub orphan_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CleanupInventory {
+    pub entries: Vec<CleanupPreflight>,
+    pub eligible_merged: usize,
+    pub blocked: usize,
+    pub closed: usize,
+    pub completed: usize,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct RuntimeResourceOutcome {
     pub(in crate::kanban) resource_type: String,

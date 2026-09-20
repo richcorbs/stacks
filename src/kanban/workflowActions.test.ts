@@ -82,6 +82,6 @@ describe('workflow action presentation', () => {
     const failed = { ...card('done', [capability('retry_runtime_cleanup'), capability('cleanup')], environment), completion_outcome: 'closed' as const, runtime_cleanup_status: 'failed' as const, runtime_cleanup_error: 'PTY still running' };
     const actions = deriveCardWorkflowActions({ card: failed, project });
     expect(actions.map(({ kind }) => kind)).toEqual(['retry_runtime_cleanup', 'cleanup']);
-    expect(actions[1].confirmation?.detail).toContain('branch is retained');
+    expect(actions[1].confirmation).toBeUndefined();
   });
 });

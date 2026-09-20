@@ -929,6 +929,22 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
          );
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (73, unixepoch());"
     ).map_err(db_error)?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS card_cleanup_evidence (
+            card_id TEXT PRIMARY KEY REFERENCES card_cleanup_operations(card_id) ON DELETE CASCADE,
+            recorded_target_path TEXT, recorded_target_branch TEXT, reconciled_target_path TEXT NOT NULL,
+            reconciled_target_branch TEXT NOT NULL, merge_proof_type TEXT NOT NULL, merge_proof_detail TEXT NOT NULL,
+            local_branch_disposition TEXT NOT NULL, remote_branch_disposition TEXT NOT NULL,
+            remote_name TEXT, remote_tip TEXT, runtime_inventory TEXT NOT NULL, metadata_inventory TEXT NOT NULL,
+            captured_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS card_cleanup_phase_outcomes (
+            card_id TEXT NOT NULL REFERENCES card_cleanup_operations(card_id) ON DELETE CASCADE,
+            phase TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT, completed_at INTEGER NOT NULL,
+            PRIMARY KEY(card_id,phase)
+         );
+         INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (75,unixepoch());"
+    ).map_err(db_error)?;
     provider_sync::recover_interrupted(connection)?;
     Ok(())
 }

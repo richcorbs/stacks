@@ -1175,3 +1175,17 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseHistory { margin-top: 14px; }
 .releaseHistory > div { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 7px 0; border-top: 1px solid #223142; color: #8094a6; font-size: 12px; }
 @keyframes release-spin { to { transform: rotate(360deg); } }
+
+.cleanupPreflightModal { width: min(920px, calc(100vw - 48px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.cleanupPreflightList { overflow: auto; display: grid; gap: 14px; padding-right: 6px; }
+.cleanupPreflightList > section > h3 { margin: 8px 0; color: #8091a5; }
+.cleanupPreflightEntry { border: 1px solid #2d3d4f; border-radius: 8px; padding: 12px; margin-bottom: 10px; background: rgba(8, 14, 24, .55); }
+.cleanupPreflightEntry.blocked { border-color: rgba(211, 99, 99, .55); }
+.cleanupPreflightEntry > header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.cleanupPreflightEntry > header span { color: #8091a5; }
+.cleanupPreflightEntry dl { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 5px 12px; margin: 0 0 10px; }
+.cleanupPreflightEntry dt { color: #8091a5; }
+.cleanupPreflightEntry dd { margin: 0; overflow-wrap: anywhere; }
+.cleanupPreflightEntry ul { margin: 5px 0 10px; padding-left: 20px; }
+.cleanupPreflightEntry p { margin: 5px 0 10px; }
+.cleanupBlockers, .cleanupOrphanWarning { color: var(--danger-text, #ef9a9a); }

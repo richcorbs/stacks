@@ -55,6 +55,20 @@ export type CardPullRequest = {
   blockers: string[];
 };
 
+export type CleanupResource = { resource_type: string; id: string; disposition: string };
+export type CleanupPreflight = {
+  card_id: string; card_title: string; project_id: string; project_name: string;
+  completion_outcome: 'merged' | 'closed' | string; workflow_revision: number; environment_revision: number;
+  eligible: boolean; state: 'pending_cleanup' | 'pending' | 'failed' | 'completed' | string;
+  repository_id: string | null; primary_checkout: string | null;
+  recorded_target_branch: string | null; current_target_branch: string | null; target_revision: string | null;
+  source_path: string | null; source_exists: boolean; source_registered: boolean; source_branch: string | null;
+  source_clean: boolean | null; source_head: string | null; source_revision: string | null; source_git_operation: boolean | null;
+  merge_proof: string; local_branch_disposition: string; remote_branch_disposition: string;
+  resources: CleanupResource[]; metadata: string[]; blockers: string[]; retained: string[]; orphan_warning: string | null;
+};
+export type CleanupInventory = { entries: CleanupPreflight[]; eligible_merged: number; blocked: number; closed: number; completed: number };
+
 export type CardCleanupOperation = {
   status: 'pending' | 'failed' | 'completed';
   phase: 'runtime_sessions' | 'validate_repository' | 'remove_worktree' | 'delete_local_branch' | 'delete_remote_branch' | 'remove_metadata' | 'record_completion';

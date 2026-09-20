@@ -3,8 +3,8 @@ import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../../types';
-import type { CardEnvironmentHealth, KanbanCard, KanbanCardSummary } from '../../kanban/types';
-import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cancelScriptedDeployment, cleanupKanbanEnvironmentCreation, closeKanbanCard, confirmScriptedDeployed, createKanbanPullRequest, deployScriptedDelivery, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, pushScriptedDelivery, retryKanbanRuntimeCleanup } from '../../kanban/api';
+import type { CardEnvironmentHealth, CleanupInventory, CleanupPreflight, KanbanCard, KanbanCardSummary } from '../../kanban/types';
+import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cancelScriptedDeployment, cleanupKanbanEnvironmentCreation, closeKanbanCard, confirmScriptedDeployed, createKanbanPullRequest, deployScriptedDelivery, fetchCleanupPreflight, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, pushScriptedDelivery, retryKanbanRuntimeCleanup } from '../../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../../kanban/workflowActions';
 import { useDiffReview } from '../../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../../diffReview/prompt';
@@ -37,6 +37,7 @@ import { CardLevelErrorBanner, collectCardLevelErrors } from './CardLevelErrorBa
 import { publishWorkPresence } from '../../appAttention';
 import { useCardDetailModel } from '../../kanban/useCardDetailModel';
 import { executeCardWorkflowAction, type CardWorkflowExecutorDependencies } from '../../kanban/cardWorkflowExecutor';
+import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 
 function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery']>['stage']) {
   return ({ merged: 'Merged locally', pushing: 'Pushing…', push_failed: 'Push failed', pushed: 'Pushed', deploying: 'Deploying…', deployment_failed: 'Deployment failed', cancelled: 'Deployment cancelled', uncertain: 'Deployment outcome uncertain', deployed: 'Deployed' } as const)[stage];
@@ -65,13 +66,14 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   onStopRefinement: () => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
   onStartWork: () => Promise<boolean>;
-  onCleanup: (environmentRevision: number) => Promise<void>;
+  onCleanup: (evidence: CleanupPreflight) => Promise<void>;
   onDelete: () => Promise<void>;
   onReload: () => Promise<KanbanCard>;
   onCardUpdated: (card: KanbanCard) => void;
   onNavigate: (id: string, initialView?: CardView) => void;
   onWorkflowControllerChange?: (controller: CardDetailWorkflowController | null) => void;
 }) {
+  const [cleanupInventory, setCleanupInventory] = useState<CleanupInventory | null>(null);
   const projectId = card.project_id ?? '';
   const project = projects.find((candidate) => candidate.id === projectId);
   const cardPath = card.environment?.worktree_path ?? null;
@@ -269,7 +271,10 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
     createPullRequest: async (withFrontendEngineer) => { await sendPromptToPiAndWait(cardPaneId(card.id, 'work'), GENERATE_PR_METADATA_PROMPT); onCardUpdatedRef.current(preserveRevisionValues(await createKanbanPullRequest(card.id, card.workflow_revision, withFrontendEngineer))); },
     openPullRequest: async () => { if (card.pull_request?.url) await invoke('open_url', { url: card.pull_request.url }); },
     mergePullRequest: async () => { onCardUpdatedRef.current(preserveRevisionValues(await mergeKanbanPullRequest(card.id, card.workflow_revision))); },
-    cleanup: () => onCleanup(environmentRevisionRef.current),
+    cleanup: async () => {
+      const entry = await fetchCleanupPreflight(card.id);
+      setCleanupInventory({ entries: [entry], eligible_merged: Number(entry.eligible && entry.completion_outcome === 'merged'), blocked: Number(!entry.eligible), closed: Number(entry.completion_outcome === 'closed'), completed: Number(entry.state === 'completed') });
+    },
     cleanupCreation: async () => { onCardUpdatedRef.current(preserveRevisionValues(await cleanupKanbanEnvironmentCreation(card.id))); },
     retryRuntimeCleanup: async () => applyRuntimeResult(await retryKanbanRuntimeCleanup(card.id)),
     close: async () => applyRuntimeResult(await closeKanbanCard(card.id, card.workflow_revision)),
@@ -407,6 +412,11 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
         </footer>
       </article>
     </div>
+    {cleanupInventory && <CleanupPreflightDialog inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={async ([entry]) => {
+      if (!entry) return;
+      await onCleanup(entry);
+      setCleanupInventory(null);
+    }} />}
     {pendingCloseShellPane && (
       <ConfirmCloseTerminalDialog
         onCancel={() => setPendingCloseShellPane(null)}
