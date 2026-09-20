@@ -6,7 +6,8 @@ import type { CardEnvironmentPane, KanbanCard } from './types';
 import { saveKanbanEnvironmentLayout } from './api';
 import { clearOneTimeStartupCommand, disposeTerminalSession, getTerminalSession, registerOneTimeStartupCommand, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { buildOneTimeCommandScript } from '../oneTimeCommand';
-import { CARD_TERMINAL_COMMAND_EVENT, publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
+import { publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
+import { applicationEvents } from '../applicationEvents';
 import { temporaryPaneCwd } from '../cardTerminalState';
 import { cardTerminalId, cardWorkspaceId } from './cardWorkspace';
 import { LayoutSaveCoordinator, type LayoutSaveSnapshot } from './layoutSaveCoordinator';
@@ -112,23 +113,19 @@ export function useCardTerminalWorkspace({ card, cardPath, activeView, setAction
   }, [activeView, card.id, cardPath, shell.focusedPaneId, shell.maximizedPaneId, shell.paneIds]);
 
   useEffect(() => {
-    const handleSplit = (event: Event) => {
-      if (activeView !== 'terminal') return;
-      const detail = (event as CustomEvent<{ direction?: 'row' | 'column'; pane?: string }>).detail;
-      if (detail?.direction) void controller.split(detail.direction, detail.pane);
+    const handleSplit = (detail: { direction?: 'row' | 'column'; pane?: string }) => {
+      if (activeView === 'terminal' && detail.direction) void controller.split(detail.direction, detail.pane);
     };
-    const handleClose = (event: Event) => {
-      if (activeView === 'terminal') controller.requestClose((event as CustomEvent<{ pane?: string }>).detail?.pane);
+    const handleClose = (detail?: { pane?: string }) => {
+      if (activeView === 'terminal') controller.requestClose(detail?.pane);
     };
-    const handleCommand = (event: Event) => controller.handleCommand(controller.ownerId, activeView === 'terminal', (event as CustomEvent<CardTerminalCommand>).detail);
-    window.addEventListener('stacks:card-terminal-split', handleSplit);
-    window.addEventListener('stacks:card-terminal-close', handleClose);
-    window.addEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
-    return () => {
-      window.removeEventListener('stacks:card-terminal-split', handleSplit);
-      window.removeEventListener('stacks:card-terminal-close', handleClose);
-      window.removeEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
-    };
+    const handleCommand = (command: CardTerminalCommand) => controller.handleCommand(controller.ownerId, activeView === 'terminal', command);
+    const unsubscribes = [
+      applicationEvents.subscribe('card-terminal-split', handleSplit),
+      applicationEvents.subscribe('card-terminal-close', handleClose),
+      applicationEvents.subscribe('card-terminal-command', handleCommand),
+    ];
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [activeView, controller]);
 
   return {

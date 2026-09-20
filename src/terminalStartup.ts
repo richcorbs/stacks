@@ -1,6 +1,5 @@
 import { focusTerminalSession, getTerminalSession } from './terminalSessionManager';
-
-const TERMINAL_STARTUP_EVENT = 'terminal-startup-result';
+import { applicationEvents } from './applicationEvents';
 
 export type TerminalStartupResult = {
   terminalId: string;
@@ -9,7 +8,7 @@ export type TerminalStartupResult = {
 };
 
 export function notifyTerminalStartup(result: TerminalStartupResult) {
-  window.dispatchEvent(new CustomEvent<TerminalStartupResult>(TERMINAL_STARTUP_EVENT, { detail: result }));
+  applicationEvents.publish('terminal-startup-result', result);
 }
 
 export function waitForTerminalStartup(terminalId: string, timeoutMs = 15_000): Promise<void> {
@@ -20,7 +19,7 @@ export function waitForTerminalStartup(terminalId: string, timeoutMs = 15_000): 
     const cleanup = () => {
       window.clearTimeout(timeout);
       if (focusRetry !== null) window.clearTimeout(focusRetry);
-      window.removeEventListener(TERMINAL_STARTUP_EVENT, onStartup);
+      unsubscribe();
     };
     const fail = (message: string) => {
       if (settled) return;
@@ -43,15 +42,14 @@ export function waitForTerminalStartup(terminalId: string, timeoutMs = 15_000): 
       if (session?.running) focusAndFinish();
       else if (session?.startupError) fail(session.startupError);
     };
-    const onStartup = (event: Event) => {
-      const result = (event as CustomEvent<TerminalStartupResult>).detail;
+    const onStartup = (result: TerminalStartupResult) => {
       if (result.terminalId !== terminalId) return;
       if (result.ok) focusAndFinish();
       else fail(result.error || 'Terminal failed to start');
     };
     const timeout = window.setTimeout(() => fail('Terminal did not start and focus within 15 seconds'), timeoutMs);
 
-    window.addEventListener(TERMINAL_STARTUP_EVENT, onStartup);
+    const unsubscribe = applicationEvents.subscribe('terminal-startup-result', onStartup);
     inspectSession();
   });
 }

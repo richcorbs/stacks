@@ -96,6 +96,7 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30 })));
 
     expect(ordering.dragPreview).toBeNull();
+    expect(ordering.shouldSuppressCardClick()).toBe(false);
     expect(reorder).not.toHaveBeenCalled();
   });
 
@@ -119,6 +120,23 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     await act(async () => { fakeWindow.dispatchEvent(windowPointerEvent('pointerup', { clientX: 30, clientY: 100 })); });
     await act(async () => ordering.finishPointerDrag(pointerEvent({ clientX: 30, clientY: 100 })));
     expect(reorder).toHaveBeenCalledTimes(1);
+    expect(reorder).toHaveBeenCalledWith('needs_refinement', ['a', 'b'], ['b', 'a']);
+    expect(ordering.dragPreview).toBeNull();
+  });
+
+  it('allows a finalized parent to begin and commit a reorder in its effective column', async () => {
+    const parent = card('a', {
+      hierarchy_finalized: true,
+      child_count: 1,
+      children: [{ id: 'child', external_id: '3', title: 'Child', status: 'needs_refinement' }],
+    });
+    const reorder = await render([parent, card('b')]);
+
+    act(() => ordering.beginPointerDrag(pointerEvent(), parent));
+    act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30, clientY: 100 })));
+    expect(ordering.dragPreview?.cardIds).toEqual(['b', 'a']);
+
+    await act(async () => ordering.finishPointerDrag(pointerEvent({ clientX: 30, clientY: 100 })));
     expect(reorder).toHaveBeenCalledWith('needs_refinement', ['a', 'b'], ['b', 'a']);
     expect(ordering.dragPreview).toBeNull();
   });

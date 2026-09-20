@@ -1,9 +1,11 @@
+import { showAppToast } from '../applicationEvents';
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project } from '../types';
 import type { KanbanCard } from './types';
 import { handleEditableClipboardKeyDown } from './editableClipboard';
 import { preselectedCardProject } from './projectScope';
+import { applicationEvents } from '../applicationEvents';
 
 export function useNewCardDialog({
   creationProjects,
@@ -35,13 +37,7 @@ export function useNewCardDialog({
     setOpen(true);
   }
 
-  useEffect(() => {
-    const openNewCard = (event: Event) => {
-      show((event as CustomEvent<{ projectId?: string }>).detail?.projectId);
-    };
-    window.addEventListener('stacks:new-card', openNewCard);
-    return () => window.removeEventListener('stacks:new-card', openNewCard);
-  }, [creationProjects, selectedProject]);
+  useEffect(() => applicationEvents.subscribe('new-card', ({ projectId }) => show(projectId)), [creationProjects, selectedProject]);
 
   function invalidateClipboardOperation(control: HTMLInputElement | HTMLTextAreaElement) {
     clipboardOperationRef.current.set(control, (clipboardOperationRef.current.get(control) ?? 0) + 1);
@@ -60,7 +56,7 @@ export function useNewCardDialog({
       readText,
       requestFrame: (callback) => requestAnimationFrame(callback),
       setValue,
-      showError: (message) => window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } })),
+      showError: (message) => showAppToast(message),
       writeText,
     });
   }
@@ -78,10 +74,10 @@ export function useNewCardDialog({
       const filteredOut = Boolean(filterProjectId && filterProjectId !== destination.id);
       if (outcome === 'open') {
         setOpen(false);
-        if (filteredOut) window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: `Card added to ${destination.name}; it is hidden by the current filter` } }));
+        if (filteredOut) showAppToast(`Card added to ${destination.name}; it is hidden by the current filter`);
         await openCard(card);
       } else {
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: filteredOut ? `Card added to ${destination.name}; it is hidden by the current filter` : `Card added to ${destination.name}` } }));
+        showAppToast(filteredOut ? `Card added to ${destination.name}; it is hidden by the current filter` : `Card added to ${destination.name}`);
         if (outcome === 'close') setOpen(false);
         else requestAnimationFrame(() => titleRef.current?.focus());
       }

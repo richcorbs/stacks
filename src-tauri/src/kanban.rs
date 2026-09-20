@@ -6,7 +6,7 @@ use crate::{
     repository_coordinator,
     workspace_setup::{run_workspace_setup_durable, WorkspaceSetupState},
 };
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -63,7 +63,10 @@ pub(crate) use provider_sync::{
 };
 #[cfg(test)]
 pub(crate) use repository::migrate;
-pub(crate) use repository::{initialize_database, with_connection};
+pub(crate) use repository::{
+    affect_project_cards, initialize_database, with_board_mutation, with_read_connection,
+    with_write_connection,
+};
 pub(crate) use superthread_refinement::finish_superthread_refinement;
 
 #[cfg(test)]

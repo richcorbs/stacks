@@ -5,7 +5,8 @@ import { appendPiMessage, compactPiMessages } from './transcript';
 import { GUI_BUILTIN_COMMANDS } from './commands';
 import { notifyPiAgentSettled, notifyPiPromptFailed } from './promptEvent';
 import { notifyPiUiRequestDismissed, notifyPiUiRequestReceived, preparePiUiRequestResponse } from './uiRequestWorkflow';
-import { dispatchAppAttention, parseWorkOwnerId, type AgentThread } from '../appAttention';
+import { parseWorkOwnerId, type AgentThread } from '../appAttention';
+import { applicationEvents, type AppEventMap, type EventBroker } from '../applicationEvents';
 
 const EMPTY_CONTEXT: PiSessionContext = {
   modelName: '', modelId: '', provider: '', thinkingLevel: '', sessionId: '', sessionName: '',
@@ -45,7 +46,7 @@ export type ControllerDependencies = {
   subscribe: typeof subscribePiEvents;
   setTimeout: typeof globalThis.setTimeout;
   clearTimeout: typeof globalThis.clearTimeout;
-  dispatch: (event: Event) => boolean;
+  events: Pick<EventBroker<AppEventMap>, 'publish'>;
 };
 
 const defaultDependencies: ControllerDependencies = {
@@ -53,7 +54,7 @@ const defaultDependencies: ControllerDependencies = {
   subscribe: subscribePiEvents,
   setTimeout: globalThis.setTimeout.bind(globalThis),
   clearTimeout: globalThis.clearTimeout.bind(globalThis),
-  dispatch: (event) => window.dispatchEvent(event),
+  events: applicationEvents,
 };
 
 export class PiSessionController {
@@ -492,12 +493,12 @@ export class PiSessionController {
     const agentThread: AgentThread | undefined = owner.kind === 'card'
       ? (this.config.paneId.endsWith(':planning') ? 'planning' : 'work')
       : undefined;
-    dispatchAppAttention({
+    this.dependencies.events.publish('attention', {
       kind,
       owner,
       target: { view: 'agent', agentThread, terminalId: this.config.paneId },
       lifecycleKey: `pi:${this.config.paneId}:${lifecycleKey}:${kind}`,
-    }, this.dependencies.dispatch);
+    });
   }
 
   private claimUiRequest(requestId: string) {
@@ -563,10 +564,10 @@ export async function deletePersistentPiSession(paneId: string) {
 export function retainedPiSessionCount() { return controllers.size; }
 
 function notifyRunning(dependencies: ControllerDependencies, paneId: string, running: boolean) {
-  dependencies.dispatch(new CustomEvent('terminal-running-changed', { detail: { terminalId: paneId, running } }));
+  dependencies.events.publish('terminal-running-changed', { terminalId: paneId, running });
 }
 function notifyOutput(dependencies: ControllerDependencies, workspaceId: string, paneId: string) {
-  dependencies.dispatch(new CustomEvent('terminal-output', { detail: { workspaceId, terminalId: paneId } }));
+  dependencies.events.publish('terminal-output', { workspaceId, terminalId: paneId });
 }
 function withGuiBuiltinCommands(commands: PiCommand[]) {
   const names = new Set(GUI_BUILTIN_COMMANDS.map((command) => command.name));

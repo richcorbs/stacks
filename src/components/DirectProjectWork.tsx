@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GitInfo, Project } from '../types';
+import { applicationEvents } from '../applicationEvents';
 import { directWorkTabs, workAgentId, workTerminalId, type WorkView } from '../directWork';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
@@ -77,11 +78,10 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   };
 
   useEffect(() => {
-    const showFailedNotes = (event: Event) => {
-      if ((event as CustomEvent<{ projectId?: string }>).detail?.projectId === project.id) setActiveView('notes');
+    const showFailedNotes = ({ projectId }: { projectId: string }) => {
+      if (projectId === project.id) setActiveView('notes');
     };
-    window.addEventListener('stacks:project-notes-save-failed', showFailedNotes);
-    return () => window.removeEventListener('stacks:project-notes-save-failed', showFailedNotes);
+    return applicationEvents.subscribe('project-notes-save-failed', showFailedNotes);
   }, [project.id]);
 
   useEffect(() => {
@@ -98,8 +98,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   }, [project.id, onClose]);
 
   useEffect(() => {
-    const handleTabs = (event: Event) => {
-      const detail = (event as CustomEvent<{ number?: number; direction?: -1 | 1 }>).detail;
+    const handleTabs = (detail: { number?: number; direction?: -1 | 1 }) => {
       if (detail?.number) {
         const target = tabs[detail.number - 1];
         if (target) setActiveView(target);
@@ -108,8 +107,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         setActiveView(tabs[(index + detail.direction + tabs.length) % tabs.length]);
       }
     };
-    window.addEventListener('stacks:card-tab-shortcut', handleTabs);
-    return () => window.removeEventListener('stacks:card-tab-shortcut', handleTabs);
+    return applicationEvents.subscribe('card-tab-shortcut', handleTabs);
   }, [activeView, tabs]);
 
   function submitDiffReview() {

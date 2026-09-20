@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project, SplitNode } from '../types';
 import { collectLeafTerminalIds } from '../utils';
-import { CARD_TERMINAL_COMMAND_EVENT, type CardTerminalCommand } from '../cardTerminalCommands';
+import type { CardTerminalCommand } from '../cardTerminalCommands';
+import { applicationEvents } from '../applicationEvents';
 import { directWorkInitialLayout, workOwnerId, workTerminalId } from '../directWork';
 import { loadOrCreateDirectWork, saveDirectWorkLayout } from '../directWorkApi';
 import { createDirectWorkLayoutPersistence, type DirectWorkLayoutSnapshot } from '../directWorkLayoutPersistence';
@@ -69,23 +70,19 @@ export function useDirectProjectShell(project: Project, active: boolean) {
   useEffect(() => () => controller.dispose(), [controller]);
 
   useEffect(() => {
-    const handleSplit = (event: Event) => {
-      if (!active) return;
-      const detail = (event as CustomEvent<{ direction?: 'row' | 'column'; pane?: string }>).detail;
-      if (detail?.direction) void controller.split(detail.direction, detail.pane);
+    const handleSplit = (detail: { direction?: 'row' | 'column'; pane?: string }) => {
+      if (active && detail.direction) void controller.split(detail.direction, detail.pane);
     };
-    const handleClose = (event: Event) => {
-      if (active) controller.requestClose((event as CustomEvent<{ pane?: string }>).detail?.pane);
+    const handleClose = (detail?: { pane?: string }) => {
+      if (active) controller.requestClose(detail?.pane);
     };
-    const handleCommand = (event: Event) => controller.handleCommand(controller.ownerId, active, (event as CustomEvent<CardTerminalCommand>).detail);
-    window.addEventListener('stacks:card-terminal-split', handleSplit);
-    window.addEventListener('stacks:card-terminal-close', handleClose);
-    window.addEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
-    return () => {
-      window.removeEventListener('stacks:card-terminal-split', handleSplit);
-      window.removeEventListener('stacks:card-terminal-close', handleClose);
-      window.removeEventListener(CARD_TERMINAL_COMMAND_EVENT, handleCommand);
-    };
+    const handleCommand = (command: CardTerminalCommand) => controller.handleCommand(controller.ownerId, active, command);
+    const unsubscribes = [
+      applicationEvents.subscribe('card-terminal-split', handleSplit),
+      applicationEvents.subscribe('card-terminal-close', handleClose),
+      applicationEvents.subscribe('card-terminal-command', handleCommand),
+    ];
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [active, controller]);
 
   return { owner, workspaceId, controller, shell, loading, error, clearError: () => setError(null) };

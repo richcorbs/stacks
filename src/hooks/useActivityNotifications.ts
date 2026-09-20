@@ -6,6 +6,7 @@ import { AttentionDeduplicator, ensureNotificationPermission, notificationConten
 import { fetchKanbanCard } from '../kanban/api';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { Project } from '../types';
+import { applicationEvents } from '../applicationEvents';
 
 export function useActivityNotifications({
   settings,
@@ -25,8 +26,7 @@ export function useActivityNotifications({
   projectsRef.current = projects;
 
   useEffect(() => {
-    const handleAttention = (event: Event) => {
-      const attention = (event as CustomEvent<AppAttention>).detail;
+    const handleAttention = (attention: AppAttention) => {
       if (!attention?.lifecycleKey || !deduplicatorRef.current.accept(attention.lifecycleKey)) return;
       if (!settingsRef.current.activity_notifications) return;
       if (document.hasFocus() && isExactViewVisible(attention)) return;
@@ -57,13 +57,13 @@ export function useActivityNotifications({
       }
     };
 
-    window.addEventListener('app-attention', handleAttention);
+    const unsubscribe = applicationEvents.subscribe('attention', handleAttention);
     const actionListener = registerNotificationActionListener().catch((error) => {
       console.warn('Notification action listener is unavailable', error);
       return null;
     });
     return () => {
-      window.removeEventListener('app-attention', handleAttention);
+      unsubscribe();
       void actionListener.then((listener) => listener?.unregister()).catch(() => undefined);
     };
   }, [setSettings, showToast]);

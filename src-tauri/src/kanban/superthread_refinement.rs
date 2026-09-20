@@ -41,7 +41,7 @@ pub(crate) fn finish_superthread_refinement(
 ) -> Result<KanbanCard, String> {
     // This short read deliberately completes before any provider calls. The validated
     // provider snapshot is persisted later under the normal board-operation lock.
-    let context = with_connection(|connection| load_finish_context(connection, &id))?;
+    let context = with_read_connection(|connection| load_finish_context(connection, &id))?;
     service.configure_token_env(&context.api_token_env_var)?;
     let workspace_slug = context.workspace_slug.as_deref();
     let parent = service.card(&context.external_id, workspace_slug)?;
@@ -68,7 +68,7 @@ pub(crate) fn finish_superthread_refinement(
         children,
         hierarchy,
     };
-    with_connection(|connection| persist_validated_refinement(connection, &snapshot))
+    with_board_mutation(|connection| persist_validated_refinement(connection, &snapshot))
 }
 
 fn load_finish_context(connection: &Connection, id: &str) -> Result<FinishContext, String> {
@@ -211,7 +211,7 @@ fn persist_validated_refinement(
     snapshot: &ValidatedSuperthreadRefinement,
 ) -> Result<KanbanCard, String> {
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let current: (String, String, Option<String>, CardStatus, i64, bool, i64) = transaction.query_row(
         "SELECT external_provider,external_id,project_id,status,workflow_revision,hierarchy_finalized,provider_child_count FROM kanban_cards WHERE id=?1",
@@ -353,7 +353,7 @@ fn linked_external_child_ids(
 }
 
 fn upsert_provider_card(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &Connection,
     card: &SuperthreadCard,
     project_id: &str,
     now: i64,

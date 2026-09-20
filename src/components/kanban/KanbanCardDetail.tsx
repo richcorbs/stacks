@@ -1,3 +1,4 @@
+import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -12,7 +13,6 @@ import { composeDiffReviewPrompt } from '../../diffReview/prompt';
 import { sendTextToPiEditor } from '../../pi/editorTextEvent';
 import { deletePiSessionController } from '../../pi/sessionController';
 import { disposeAcceptedRuntimeOutcomes } from '../../kanban/runtimeCleanup';
-import { REFRESH_CARD_REPOSITORY_STATUS_EVENT } from '../../kanban/refreshCoordinator';
 import { cardLocalComparisonTarget } from '../../git/comparisonTarget';
 import { runApproveAndCommit } from '../../kanban/approveAndCommit';
 import { runMergeTargetAndResolve } from '../../kanban/mergeTargetAndResolve';
@@ -287,8 +287,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   }, [activeView, card.content, card.title, draftContent, draftTitle, editable, editDirty, editing, onClose, onUpdate, pendingCloseShellPane, savingEdit]);
 
   useEffect(() => {
-    const handleTabShortcut = (event: Event) => {
-      const detail = (event as CustomEvent<{ number?: number; direction?: -1 | 1 }>).detail;
+    const handleTabShortcut = (detail: { number?: number; direction?: -1 | 1 }) => {
       if (detail?.number) {
         const target = ({
           1: 'overview',
@@ -305,8 +304,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
       const currentIndex = Math.max(0, cardTabs.indexOf(activeView));
       requestView(cardTabs[(currentIndex + detail.direction + cardTabs.length) % cardTabs.length]);
     };
-    window.addEventListener('stacks:card-tab-shortcut', handleTabShortcut);
-    return () => window.removeEventListener('stacks:card-tab-shortcut', handleTabShortcut);
+    return applicationEvents.subscribe('card-tab-shortcut', handleTabShortcut);
   }, [activeView, card.content, card.title, cardTabs, consoleCommand, draftContent, draftTitle, editDirty, editing, serverCommand]);
 
   async function performWorkflowAction(action: CardWorkflowAction) {
@@ -355,10 +353,10 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
               const updated = preserveRevisionValues(await onReload());
               onCardUpdatedRef.current(updated);
               setDiffRefreshNonce((nonce) => nonce + 1);
-              window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+              applicationEvents.publish('refresh-card-repository-status', undefined);
             },
           });
-          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          showAppToast(result.message);
           return;
         }
         case 'merge_target': {
@@ -375,10 +373,10 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
               const updated = preserveRevisionValues(await onReload());
               onCardUpdatedRef.current(updated);
               setDiffRefreshNonce((nonce) => nonce + 1);
-              window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+              applicationEvents.publish('refresh-card-repository-status', undefined);
             },
           });
-          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          showAppToast(result.message);
           return;
         }
         case 'merge_local': {
@@ -386,14 +384,14 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           const result = await mergeKanbanCard(card.id, card.workflow_revision, environmentRevisionRef.current);
           const updated = preserveRevisionValues(await onReload());
           onCardUpdatedRef.current(updated);
-          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          showAppToast(result.message);
           return;
         }
         case 'push':
         case 'retry_push': {
           const result = await pushScriptedDelivery(card.id);
           onCardUpdated(preserveRevisionValues(result.card));
-          window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: result.message } }));
+          showAppToast(result.message);
           return;
         }
         case 'deploy':
@@ -435,20 +433,18 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
       }
     }).then((started) => {
       if (started && ['start_work', 'ship', 'merge_target', 'merge_local', 'create_pr', 'create_pr_with_fe', 'cleanup', 'cleanup_creation', 'retry_runtime_cleanup', 'close'].includes(action.kind)) {
-        window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+        applicationEvents.publish('refresh-card-repository-status', undefined);
       }
     }).catch((error) => setActionError(error instanceof Error ? error.message : String(error)));
   }
 
   useEffect(() => {
-    const runPaletteAction = (event: Event) => {
-      const detail = (event as CustomEvent<{ cardId?: string; action?: string }>).detail;
+    const runPaletteAction = (detail: { cardId?: string; action?: string }) => {
       if (detail?.cardId !== card.id) return;
       const action = workflowActions.find((candidate) => candidate.kind === detail.action);
       if (action) void performWorkflowAction(action);
     };
-    window.addEventListener('stacks:card-workflow-action', runPaletteAction);
-    return () => window.removeEventListener('stacks:card-workflow-action', runPaletteAction);
+    return applicationEvents.subscribe('card-workflow-action', runPaletteAction);
   }, [card.id, workflowActions]);
 
   function submitDiffReview() {
