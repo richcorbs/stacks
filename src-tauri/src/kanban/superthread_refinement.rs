@@ -68,7 +68,7 @@ pub(crate) fn finish_superthread_refinement(
         children,
         hierarchy,
     };
-    with_connection(|connection| persist_validated_refinement(connection, &snapshot))
+    with_board_mutation(|connection| persist_validated_refinement(connection, &snapshot))
 }
 
 fn load_finish_context(connection: &Connection, id: &str) -> Result<FinishContext, String> {

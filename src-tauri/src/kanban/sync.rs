@@ -6,7 +6,7 @@ pub(in crate::kanban) fn kanban_sync_superthread_cards_operation(
     owner_project_id: String,
     snapshot: SuperthreadSyncSnapshot,
 ) -> Result<BoardSnapshot, String> {
-    with_connection(|connection| sync_cards(connection, &owner_project_id, snapshot).map(|_| ()))?;
+    with_board_mutation(|connection| sync_cards(connection, &owner_project_id, snapshot).map(|_| ()))?;
     with_read_connection(board_snapshot)
 }
 

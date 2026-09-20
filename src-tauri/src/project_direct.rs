@@ -109,7 +109,7 @@ pub fn project_direct_save_layout(
     expected_revision: i64,
 ) -> Result<ProjectDirectWork, String> {
     kanban::with_write_connection(|connection| {
-        let transaction = connection.transaction().map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         let changed = transaction.execute(
             "UPDATE project_direct_work SET revision=revision+1, split_layout=?1, focused_pane_id=?2, updated_at=?3 WHERE project_id=?4 AND revision=?5",
             params![split_layout.to_string(), focused_pane_id, unix_timestamp(), project_id, expected_revision],

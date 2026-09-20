@@ -217,7 +217,7 @@ pub(in crate::kanban) async fn kanban_refresh_pull_request_operation(
 ) -> Result<KanbanPullRequestRefreshResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let refresh_result = coordinate_card_repository(&id, true, || {
-            with_connection(|connection| refresh_pull_request(connection, &id))
+            with_board_mutation(|connection| refresh_pull_request(connection, &id))
         });
         let error = refresh_result.err();
         if let Some(detail) = &error {
@@ -258,7 +258,7 @@ pub(in crate::kanban) async fn kanban_create_pull_request_operation(
     feature_environment: bool,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        coordinate_card_repository(&id, true, || with_connection(|connection| {
+        coordinate_card_repository(&id, true, || with_board_mutation(|connection| {
             let settings = project_delivery_settings(connection, &id)?;
             if settings.workflow != DeliveryWorkflow::GithubPullRequest { return Err("This project uses Local merge delivery".to_string()); }
             let (revision, title, content, source_path, branch, source_revision): (i64, String, String, String, String, Option<String>) = connection.query_row(
@@ -299,7 +299,7 @@ pub(in crate::kanban) async fn kanban_merge_pull_request_operation(
     expected_workflow_revision: i64,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        coordinate_card_repository(&id, true, || with_connection(|connection| {
+        coordinate_card_repository(&id, true, || with_board_mutation(|connection| {
             let settings = project_delivery_settings(connection, &id)?;
             if settings.workflow != DeliveryWorkflow::GithubPullRequest { return Err("This project uses Local merge delivery".to_string()); }
             let (status, revision): (CardStatus, i64) = connection.query_row("SELECT status,workflow_revision FROM kanban_cards WHERE id=?1", [&id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(db_error)?;
@@ -337,7 +337,7 @@ pub(in crate::kanban) fn record_operation_failure(
     error_code: &str,
     detail: &str,
 ) {
-    let _ = with_connection(|connection| {
+    let _ = with_board_mutation(|connection| {
         if matches!(
             event_type,
             "create_pr" | "merge_pr" | "refresh_pr" | "merge"

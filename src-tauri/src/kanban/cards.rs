@@ -47,7 +47,7 @@ pub(in crate::kanban) fn kanban_create_local_card_operation(
     if !is_local_kanban_source(&scope.kanban_source) {
         return Err("Cards can only be created for a local Kanban project".to_string());
     }
-    let id = with_connection(|connection| {
+    let id = with_board_mutation(|connection| {
         let card = create_local_card(connection, &scope.id, &scope.name, &title, &content)?;
         if let Some(parent_id) = parent_id.as_deref() {
             set_card_parent(connection, &card.id, Some(parent_id))?;
@@ -66,7 +66,7 @@ pub(crate) fn create_local_card_for_project(
     if !is_local_kanban_source(&scope.kanban_source) {
         return Err("Cards can only be created for a local Kanban project".to_string());
     }
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         create_local_card(connection, &scope.id, &scope.name, title, content)
     })
 }
@@ -120,7 +120,7 @@ pub(in crate::kanban) fn kanban_update_local_card_operation(
     parent_id: Option<String>,
     parent_specified: Option<bool>,
 ) -> Result<CardSnapshot, String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         if title.is_some() || content.is_some() {
             update_local_card(connection, &id, title.as_deref(), content.as_deref())?;
         }
@@ -165,7 +165,7 @@ pub(in crate::kanban) fn kanban_finish_local_refinement_operation(
     content: String,
     children: Option<Vec<ApprovedChildSpec>>,
 ) -> Result<KanbanCard, String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         finish_local_refinement(
             connection,
             &id,
@@ -593,7 +593,7 @@ pub(in crate::kanban) fn kanban_validate_project_deletion_operation(
 pub(in crate::kanban) fn kanban_delete_project_records_operation(
     project_id: String,
 ) -> Result<(), String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let card_ids = validate_project_deletion(connection, &project_id)?;
         let transaction = connection.savepoint().map_err(db_error)?;
         transaction
@@ -634,7 +634,7 @@ pub(in crate::kanban) fn validate_card_deletion(
 }
 
 pub(in crate::kanban) fn kanban_delete_card_operation(id: String) -> Result<BoardChange, String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         if !validate_card_deletion(connection, &id)? {
             return Ok(());
         }
@@ -797,7 +797,7 @@ pub(in crate::kanban) fn kanban_apply_workflow_action_operation(
     ) {
         return Err("This workflow action requires its operation-specific command".to_string());
     }
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let transaction = connection
             .savepoint()
             .map_err(db_error)?;
@@ -825,7 +825,7 @@ pub(crate) fn register_pi_lifecycle_generation(
     if !matches!(session.thread.as_str(), "planning" | "work") {
         return Ok(());
     }
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         connection.execute(
         "INSERT INTO card_pi_lifecycle (card_id,thread,generation,latest_event_order,latest_event_id) VALUES (?1,?2,?3,-1,'')
          ON CONFLICT(card_id,thread) DO UPDATE SET generation=excluded.generation,latest_event_order=-1,latest_event_id=''",
@@ -843,7 +843,7 @@ pub(in crate::kanban) fn kanban_apply_pi_lifecycle_intent_operation(
     event_order: Option<i64>,
     failure_detail: Option<String>,
 ) -> Result<CardSnapshot, String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         apply_pi_lifecycle_intent_with_detail(
             connection,
             &id,
@@ -968,7 +968,7 @@ pub(in crate::kanban) fn kanban_record_agent_launch_failure_operation(
     expected_project_id: String,
     error_detail: String,
 ) -> Result<CardSnapshot, String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         record_agent_launch_failure(
             connection,
             &id,
@@ -1222,7 +1222,7 @@ pub(in crate::kanban) fn finish_runtime_cleanup(
     pty_registry: &Mutex<PtyRegistry>,
 ) -> Result<CardRuntimeCleanupResult, String> {
     let outcomes = run_runtime_cleanup(id, targets, pi_registry, pty_registry);
-    with_connection(|connection| persist_runtime_cleanup_result(connection, id, &outcomes))?;
+    with_board_mutation(|connection| persist_runtime_cleanup_result(connection, id, &outcomes))?;
     let card = fresh_card_snapshot(id)?.card;
     Ok(CardRuntimeCleanupResult { card, outcomes })
 }
@@ -1234,7 +1234,7 @@ pub(in crate::kanban) fn kanban_close_card_operation(
     pty_registry: State<'_, Mutex<PtyRegistry>>,
 ) -> Result<CardRuntimeCleanupResult, String> {
     let targets =
-        with_connection(|connection| commit_card_close(connection, &id, expected_revision))?;
+        with_board_mutation(|connection| commit_card_close(connection, &id, expected_revision))?;
     finish_runtime_cleanup(&id, targets, pi_registry.inner(), pty_registry.inner())
 }
 
@@ -1243,7 +1243,7 @@ pub(in crate::kanban) fn kanban_retry_runtime_cleanup_operation(
     pi_registry: State<'_, Mutex<PiRpcRegistry>>,
     pty_registry: State<'_, Mutex<PtyRegistry>>,
 ) -> Result<CardRuntimeCleanupResult, String> {
-    let targets = with_connection(|connection| {
+    let targets = with_board_mutation(|connection| {
         require_structural_capability(connection, &id, WorkflowAction::RetryRuntimeCleanup)?;
         let status: Option<String> = connection
             .query_row(
@@ -1267,10 +1267,10 @@ pub(in crate::kanban) fn kanban_reorder_cards_operation(
     expected_card_ids: Vec<String>,
     card_ids: Vec<String>,
 ) -> Result<BoardChange, String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         reorder_cards(connection, status.as_str(), &expected_card_ids, &card_ids).map(|_| ())
     })?;
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let revision = board_revision(connection)?;
         let mut upserts = Vec::new();
         for id in &card_ids {
@@ -1396,7 +1396,7 @@ pub(in crate::kanban) fn kanban_set_project_operation(
     if !is_local_kanban_source(&destination.kanban_source) {
         return Err("Cards can only be reassigned to a local Kanban project".to_string());
     }
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         ensure_card_directory(&id)?;
         set_card_project(connection, &id, &destination.id, &destination.name)
     })?;

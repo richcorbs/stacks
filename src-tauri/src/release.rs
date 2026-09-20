@@ -1,5 +1,5 @@
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, PtySize};
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -1568,9 +1568,7 @@ fn update_operation(
     attempt_token: Option<&str>,
 ) -> Result<(), String> {
     kanban::with_write_connection(|connection| {
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         let current: Option<(i64, String)> = transaction
             .query_row(
                 "SELECT revision,state_json FROM release_operations WHERE id=?1",

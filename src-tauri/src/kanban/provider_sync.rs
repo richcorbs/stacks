@@ -201,7 +201,7 @@ fn finish(
 }
 
 fn attempt(service: &SuperthreadService, id: &str) -> Result<(), String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let Some(op) = operation(connection, id)? else {
             return Ok(());
         };
@@ -320,7 +320,7 @@ pub(crate) fn run_pending_once(
         .get_or_init(|| Mutex::new(()))
         .lock()
         .map_err(|_| "Provider synchronization lock failed".to_string())?;
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let projects = if let Some(card_id) = card_id {
             connection
                 .query_row(

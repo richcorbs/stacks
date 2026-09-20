@@ -457,9 +457,50 @@ fn save_project_notes_to_connection(
     }
 }
 
+fn store_affects_board(store: &ProjectStore) -> Result<bool, String> {
+    kanban::with_read_connection(|connection| {
+        let incoming = store.projects.iter().map(|project| project.id.as_str()).collect::<std::collections::HashSet<_>>();
+        let removed_cards: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM kanban_cards WHERE project_id IN (SELECT id FROM projects) AND project_id NOT IN (SELECT value FROM json_each(?1))",
+            [serde_json::to_string(&incoming).map_err(|error| error.to_string())?],
+            |row| row.get(0),
+        ).map_err(db_error)?;
+        if removed_cards > 0 {
+            return Ok(true);
+        }
+        for project in &store.projects {
+            let columns = serde_json::to_string(&project.superthread_incoming_columns).map_err(|error| error.to_string())?;
+            let changed = connection.query_row(
+                "SELECT kanban_source IS NOT ?2 OR delivery_workflow IS NOT ?3 OR supports_feature_environments IS NOT ?4
+                     OR require_passing_ci IS NOT ?5 OR require_approval IS NOT ?6 OR superthread_board_id IS NOT ?7
+                     OR superthread_incoming_columns IS NOT ?8 OR superthread_default_incoming_column_id IS NOT ?9
+                     OR superthread_in_progress_column_id IS NOT ?10 OR superthread_done_column_id IS NOT ?11
+                     OR superthread_api_token_env_var IS NOT ?12
+                 FROM projects WHERE id=?1",
+                params![project.id, project.kanban_source, normalize_delivery_workflow(&project.delivery_workflow),
+                    project.supports_feature_environments as i64, project.require_passing_ci as i64, project.require_approval as i64,
+                    project.superthread_board_id, columns, project.superthread_default_incoming_column_id,
+                    project.superthread_in_progress_column_id, project.superthread_done_column_id,
+                    project.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN")],
+                |row| row.get::<_, i64>(0),
+            ).optional().map_err(db_error)?.unwrap_or(0) != 0;
+            if changed {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+}
+
 #[tauri::command]
 pub fn save_store(store: ProjectStore) -> Result<(), String> {
-    kanban::with_board_mutation(|connection| write_store(connection, &store))?;
+    let affects_board = store_affects_board(&store)?;
+    let persist = |connection: &mut Connection| write_store(connection, &store);
+    if affects_board {
+        kanban::with_board_mutation(persist)?;
+    } else {
+        kanban::with_write_connection(persist)?;
+    }
     write_legacy_json_mirror(&store)
 }
 
@@ -641,7 +682,7 @@ fn create_project_validated(input: ProjectConfigurationInput) -> Result<ProjectS
         } else {
             None
         };
-        let transaction = connection.transaction().map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         transaction.execute(
             "INSERT INTO projects(id,name,path,kanban_source,start_work_command,superthread_spaces,superthread_workspace_slug,superthread_api_token_env_var,superthread_board_id,superthread_board_name,superthread_incoming_columns,superthread_default_incoming_column_id,superthread_in_progress_column_id,superthread_in_progress_column_name,superthread_done_column_id,superthread_done_column_name,superthread_mapping_revision,server_command,console_command,sort_order,delivery_workflow,deployment_command,target_branch,supports_feature_environments,github_merge_strategy,require_passing_ci,require_approval,releases_enabled,release_config_path,config_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,1,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,0)",
             params![input.id, input.name.trim(), input.path.trim(), source, non_empty(input.start_work_command.clone()), spaces, slug,
@@ -751,11 +792,30 @@ async fn validate_live_superthread_configuration(
     Ok(())
 }
 
+fn project_configuration_affects_board(input: &ProjectConfigurationInput) -> Result<bool, String> {
+    let source = if input.kanban_source.as_deref() == Some("superthread") { "superthread" } else { "local" };
+    let incoming = serde_json::to_string(&input.superthread_incoming_columns).map_err(|error| error.to_string())?;
+    kanban::with_read_connection(|connection| connection.query_row(
+        "SELECT COALESCE(kanban_source,'local') IS NOT ?2 OR delivery_workflow IS NOT ?3
+             OR supports_feature_environments IS NOT ?4 OR require_passing_ci IS NOT ?5 OR require_approval IS NOT ?6
+             OR superthread_board_id IS NOT ?7 OR superthread_incoming_columns IS NOT ?8
+             OR superthread_default_incoming_column_id IS NOT ?9 OR superthread_in_progress_column_id IS NOT ?10
+             OR superthread_done_column_id IS NOT ?11 OR superthread_api_token_env_var IS NOT ?12
+         FROM projects WHERE id=?1",
+        params![input.id, source, normalize_delivery_workflow(&input.delivery_workflow), input.supports_feature_environments as i64,
+            input.require_passing_ci as i64, input.require_approval as i64, input.superthread_board_id, incoming,
+            input.superthread_default_incoming_column_id, input.superthread_in_progress_column_id,
+            input.superthread_done_column_id, input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN")],
+        |row| row.get::<_, i64>(0),
+    ).optional().map_err(db_error).map(|changed| changed.unwrap_or(0) != 0))
+}
+
 fn update_project_configuration_validated(
     input: ProjectConfigurationInput,
 ) -> Result<ProjectStore, String> {
     validate_project_input(&input)?;
-    let store = kanban::with_board_mutation(|connection| {
+    let affects_board = project_configuration_affects_board(&input)?;
+    let persist = |connection: &mut Connection| {
         let duplicate = connection
             .query_row(
                 "SELECT name FROM projects WHERE id != ?1 AND path = ?2 LIMIT 1",
@@ -826,7 +886,12 @@ fn update_project_configuration_validated(
         }
         transaction.commit().map_err(db_error)?;
         read_store(connection)
-    })?;
+    };
+    let store = if affects_board {
+        kanban::with_board_mutation(persist)?
+    } else {
+        kanban::with_write_connection(persist)?
+    };
     persist_targeted_store(store)
 }
 
@@ -1154,6 +1219,7 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
         .filter(|id| !incoming_ids.contains(id.as_str()))
         .collect::<Vec<_>>();
     let mut removed_card_ids = Vec::new();
+    let mut affected_project_ids = removed_projects.iter().cloned().collect::<std::collections::HashSet<_>>();
     for project_id in &removed_projects {
         let active: i64 = connection
             .query_row(
@@ -1207,6 +1273,24 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
         {
             return Err("Deployment command is required for Scripted delivery".into());
         }
+        let incoming_columns = serde_json::to_string(&project.superthread_incoming_columns).map_err(|error| error.to_string())?;
+        let board_visible_changed = connection.query_row(
+            "SELECT kanban_source IS NOT ?2 OR delivery_workflow IS NOT ?3 OR supports_feature_environments IS NOT ?4
+                 OR require_passing_ci IS NOT ?5 OR require_approval IS NOT ?6 OR superthread_board_id IS NOT ?7
+                 OR superthread_incoming_columns IS NOT ?8 OR superthread_default_incoming_column_id IS NOT ?9
+                 OR superthread_in_progress_column_id IS NOT ?10 OR superthread_done_column_id IS NOT ?11
+                 OR superthread_api_token_env_var IS NOT ?12
+             FROM projects WHERE id=?1",
+            params![project.id, project.kanban_source, normalize_delivery_workflow(&project.delivery_workflow),
+                project.supports_feature_environments as i64, project.require_passing_ci as i64, project.require_approval as i64,
+                project.superthread_board_id, incoming_columns, project.superthread_default_incoming_column_id,
+                project.superthread_in_progress_column_id, project.superthread_done_column_id,
+                project.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN")],
+            |row| row.get::<_, i64>(0),
+        ).optional().map_err(db_error)?.unwrap_or(0) != 0;
+        if board_visible_changed {
+            affected_project_ids.insert(project.id.clone());
+        }
         let persisted_workflow = connection
             .query_row(
                 "SELECT delivery_workflow FROM projects WHERE id=?1",
@@ -1225,6 +1309,9 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
                 );
             }
         }
+    }
+    for project_id in affected_project_ids {
+        kanban::affect_project_cards(connection, &project_id)?;
     }
     let transaction = connection.savepoint().map_err(db_error)?;
     for project_id in &removed_projects {

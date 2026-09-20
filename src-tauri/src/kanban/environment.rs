@@ -111,7 +111,7 @@ pub(in crate::kanban) fn update_creation_phase(
     error: Option<&str>,
     cleanup_available: bool,
 ) -> Result<(), String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let tx = connection
             .savepoint()
             .map_err(db_error)?;
@@ -147,7 +147,7 @@ pub(in crate::kanban) fn prepare_creation_operation(
     let mut result_path = app_data_dir()?;
     result_path.push("setup-results");
     result_path.push(format!("{operation_id}.cwd"));
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let tx = connection
             .savepoint()
             .map_err(db_error)?;
@@ -343,7 +343,7 @@ pub(in crate::kanban) fn persist_validated_source(
     };
     let worktree_new = !pre_paths.contains(&source.target_checkout_path.as_str());
     let branch_new = !pre_branches.contains_key(&source.target_branch);
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let tx = connection
             .savepoint()
             .map_err(db_error)?;
@@ -366,7 +366,7 @@ pub(in crate::kanban) fn creation_recovery(
         Some(detail),
         cleanup_available,
     )?;
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         connection.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','recovery_required',?3)", params![card_id,unix_timestamp(),detail]).map_err(db_error)?;
         get_card(connection, card_id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
@@ -429,7 +429,7 @@ pub(in crate::kanban) fn compensate_creation(
                 true,
             );
         }
-        with_connection(|connection| {
+        with_board_mutation(|connection| {
             connection.execute("UPDATE environment_creation_operations SET worktree_removed=1,revision=revision+1,updated_at=?1 WHERE card_id=?2", params![unix_timestamp(),op.card_id]).map(|_| ()).map_err(db_error)
         })?;
     }
@@ -475,7 +475,7 @@ pub(in crate::kanban) fn compensate_creation(
             None => {} // A prior compensation attempt already deleted it.
         }
     }
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let tx = connection
             .savepoint()
             .map_err(db_error)?;
@@ -562,7 +562,7 @@ pub(in crate::kanban) fn run_environment_creation(
                 .map_err(|e| e.to_string())?
                 .trim()
                 .to_string();
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,error=NULL,revision=revision+1,updated_at=?2 WHERE card_id=?3", params![cwd,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
             })?;
             op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
@@ -596,7 +596,7 @@ pub(in crate::kanban) fn run_environment_creation(
                         false,
                     );
                 }
-                with_connection(|connection| {
+                with_board_mutation(|connection| {
                     connection.execute("UPDATE environment_creation_operations SET observed_target_revision=?1,pre_worktrees=?2,pre_branches=?3,error=NULL,revision=revision+1,updated_at=?4 WHERE card_id=?5", params![target.target_revision,current_worktrees,current_branches,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
                 })?;
                 op.observed_target_revision = target.target_revision;
@@ -643,7 +643,7 @@ pub(in crate::kanban) fn run_environment_creation(
             );
         }
         let token = uuid::Uuid::new_v4().to_string();
-        with_connection(|connection| {
+        with_board_mutation(|connection| {
             connection.execute("UPDATE environment_creation_operations SET phase='setup_running',attempt_token=?1,error=NULL,revision=revision+1,updated_at=?2 WHERE card_id=?3 AND phase='prepared'", params![token,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
         })?;
         match run_workspace_setup_durable(
@@ -653,7 +653,7 @@ pub(in crate::kanban) fn run_environment_creation(
             Path::new(&op.result_path),
         ) {
             Ok(result) => {
-                with_connection(|connection| {
+                with_board_mutation(|connection| {
                     connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,setup_output=?2,revision=revision+1,updated_at=?3 WHERE card_id=?4", params![result.cwd,result.output,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
                 })?;
             }
@@ -685,7 +685,7 @@ pub(in crate::kanban) fn run_environment_creation(
                 .map_err(|e| e.to_string())?
                 .trim()
                 .to_string();
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,revision=revision+1,updated_at=?2 WHERE card_id=?3", params![cwd,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
             })?;
             op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
@@ -919,7 +919,7 @@ pub(in crate::kanban) fn kanban_create_environment(
         ));
     }
     ensure_registered_distinct_worktree(&target_checkout_path, &worktree_path)?;
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         ensure_card_directory(&id)?;
         let transaction = connection.savepoint().map_err(db_error)?;
         let (card_status, workflow_revision, project_id, provider, finalized): (CardStatus, i64, String, String, bool) = transaction
@@ -1029,7 +1029,7 @@ pub(in crate::kanban) fn kanban_save_environment_layout_operation(
     panes: Vec<CardPane>,
     expected_layout_revision: i64,
 ) -> Result<KanbanCard, String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         validate_card_environment_project(connection, &id)?;
         save_environment_layout(
             connection,
@@ -1104,7 +1104,7 @@ pub(in crate::kanban) fn kanban_set_merge_target_operation(
     if repository_coordinator::repository_identity(&target_checkout_path)? != identity {
         return Err("The merge target belongs to a different repository".to_string());
     }
-    repository_coordinator::global().coordinate(&identity, || with_connection(|connection| {
+    repository_coordinator::global().coordinate(&identity, || with_board_mutation(|connection| {
         validate_card_environment_project(connection, &id)?;
         if card_repository_identity(&id, true)? != identity {
             return Err("The card repository changed while the operation was waiting; retry".to_string());

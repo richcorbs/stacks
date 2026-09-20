@@ -116,7 +116,17 @@ pub(crate) fn with_write_connection<T>(
     work: impl FnOnce(&mut Connection) -> Result<T, String>,
 ) -> Result<T, String> {
     let mut connection = open_connection(false)?;
-    work(&mut connection)
+    connection.execute_batch("BEGIN").map_err(db_error)?;
+    match work(&mut connection) {
+        Ok(result) => {
+            connection.execute_batch("COMMIT").map_err(db_error)?;
+            Ok(result)
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
 }
 
 fn install_mutation_tracking(connection: &Connection) -> Result<(), String> {
@@ -153,10 +163,17 @@ fn install_mutation_tracking(connection: &Connection) -> Result<(), String> {
          CREATE TEMP TRIGGER IF NOT EXISTS track_card_delete BEFORE DELETE ON main.kanban_cards WHEN OLD.in_scope=1 BEGIN
            INSERT OR IGNORE INTO kanban_removed VALUES(OLD.id);
            INSERT OR IGNORE INTO kanban_affected SELECT OLD.parent_id WHERE OLD.parent_id IS NOT NULL;
+           INSERT OR IGNORE INTO kanban_affected SELECT id FROM main.kanban_cards WHERE parent_id=OLD.id AND in_scope=1;
          END;
-         CREATE TEMP TRIGGER IF NOT EXISTS track_project_cards AFTER UPDATE OF kanban_source,delivery_workflow,supports_feature_environments ON main.projects
+         CREATE TEMP TRIGGER IF NOT EXISTS track_project_cards AFTER UPDATE OF kanban_source,delivery_workflow,supports_feature_environments,require_passing_ci,require_approval,superthread_board_id,superthread_incoming_columns,superthread_default_incoming_column_id,superthread_in_progress_column_id,superthread_done_column_id,superthread_api_token_env_var ON main.projects
          WHEN OLD.kanban_source IS NOT NEW.kanban_source OR OLD.delivery_workflow IS NOT NEW.delivery_workflow
            OR OLD.supports_feature_environments IS NOT NEW.supports_feature_environments
+           OR OLD.require_passing_ci IS NOT NEW.require_passing_ci OR OLD.require_approval IS NOT NEW.require_approval
+           OR OLD.superthread_board_id IS NOT NEW.superthread_board_id OR OLD.superthread_incoming_columns IS NOT NEW.superthread_incoming_columns
+           OR OLD.superthread_default_incoming_column_id IS NOT NEW.superthread_default_incoming_column_id
+           OR OLD.superthread_in_progress_column_id IS NOT NEW.superthread_in_progress_column_id
+           OR OLD.superthread_done_column_id IS NOT NEW.superthread_done_column_id
+           OR OLD.superthread_api_token_env_var IS NOT NEW.superthread_api_token_env_var
          BEGIN INSERT OR IGNORE INTO kanban_affected SELECT id FROM main.kanban_cards WHERE project_id=NEW.id AND in_scope=1; END;"
     ).map_err(db_error)?;
     for table in [
@@ -183,6 +200,53 @@ fn install_mutation_tracking(connection: &Connection) -> Result<(), String> {
         )).map_err(db_error)?;
     }
     Ok(())
+}
+
+#[derive(Debug, Default)]
+pub(in crate::kanban) struct MutationContext {
+    affected_ids: std::collections::BTreeSet<String>,
+    removed_ids: std::collections::BTreeSet<String>,
+}
+
+impl MutationContext {
+    pub(in crate::kanban) fn affect(&mut self, id: impl Into<String>) {
+        let id = id.into();
+        if !self.removed_ids.contains(&id) {
+            self.affected_ids.insert(id);
+        }
+    }
+
+    pub(in crate::kanban) fn remove(&mut self, id: impl Into<String>) {
+        let id = id.into();
+        self.affected_ids.remove(&id);
+        self.removed_ids.insert(id);
+    }
+
+    fn from_tracking_tables(connection: &Connection) -> Result<Self, String> {
+        let mut context = Self::default();
+        for id in tracked_ids(connection, "kanban_affected")? {
+            context.affect(id);
+        }
+        for id in tracked_ids(connection, "kanban_removed")? {
+            context.remove(id);
+        }
+        Ok(context)
+    }
+}
+
+pub(crate) fn affect_project_cards(connection: &Connection, project_id: &str) -> Result<(), String> {
+    let tracking: i64 = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE type='table' AND name='kanban_affected')",
+        [],
+        |row| row.get(0),
+    ).map_err(db_error)?;
+    if tracking == 0 {
+        return Ok(());
+    }
+    connection.execute(
+        "INSERT OR IGNORE INTO temp.kanban_affected SELECT id FROM kanban_cards WHERE project_id=?1 AND in_scope=1",
+        [project_id],
+    ).map(|_| ()).map_err(db_error)
 }
 
 fn tracked_ids(connection: &Connection, table: &str) -> Result<Vec<String>, String> {
@@ -232,11 +296,10 @@ pub(in crate::kanban) fn execute_board_mutation<T>(
             return Err(error);
         }
     };
-    let removed_ids = tracked_ids(connection, "kanban_removed")?;
-    let mut affected_ids = tracked_ids(connection, "kanban_affected")?;
-    affected_ids.retain(|id| !removed_ids.contains(id));
+    let context = MutationContext::from_tracking_tables(connection)?;
+    let removed_ids = context.removed_ids.into_iter().collect::<Vec<_>>();
     let mut surviving = Vec::new();
-    for id in affected_ids {
+    for id in context.affected_ids {
         if connection
             .query_row(
                 "SELECT in_scope FROM kanban_cards WHERE id=?1",
@@ -280,15 +343,6 @@ pub(in crate::kanban) fn execute_board_mutation<T>(
             board_revision: revision,
         }),
     ))
-}
-
-// Kept as the board-write spelling inside the Kanban modules while call sites
-// are organized by operation. Reads and non-board persistence must use the
-// focused helpers above.
-pub(crate) fn with_connection<T>(
-    work: impl FnOnce(&mut Connection) -> Result<T, String>,
-) -> Result<T, String> {
-    with_board_mutation(work)
 }
 
 pub(in crate::kanban) fn board_revision(connection: &Connection) -> Result<i64, String> {

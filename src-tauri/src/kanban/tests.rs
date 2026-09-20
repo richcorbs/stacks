@@ -3342,6 +3342,13 @@ fn board_mutation_reports_deletions_and_project_capability_dependencies() {
     for id in ["one", "two"] {
         connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,created_at,updated_at,in_scope) VALUES(?1,'local:project',?1,?1,'needs_refinement','project',1,1,1)", [id]).unwrap();
     }
+    let (_, unrelated) = execute_board_mutation(&mut connection, |connection| {
+        connection.execute("UPDATE projects SET notes='not card-visible' WHERE id='project'", []).map_err(db_error)?;
+        Ok(())
+    }).unwrap();
+    assert!(unrelated.is_none());
+    assert_eq!(board_revision(&connection).unwrap(), 0);
+
     let (_, change) = execute_board_mutation(&mut connection, |connection| {
         connection.execute("UPDATE projects SET supports_feature_environments=1 WHERE id='project'", []).map_err(db_error)?;
         connection.execute("DELETE FROM kanban_cards WHERE id='two'", []).map_err(db_error)?;
@@ -3352,4 +3359,89 @@ fn board_mutation_reports_deletions_and_project_capability_dependencies() {
     assert_eq!(change.upserts.iter().map(|card| card.id.as_str()).collect::<Vec<_>>(), vec!["one"]);
     assert_eq!(change.upserts[0].record_revision, 2);
     assert_eq!(change.board_revision, 1);
+}
+
+#[test]
+fn deleting_a_parent_affects_surviving_children() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    initialize_connection(&mut connection, false).unwrap();
+    for (id, parent) in [("parent", None), ("child", Some("parent"))] {
+        connection.execute(
+            "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,parent_id,created_at,updated_at,in_scope) VALUES(?1,'local:p',?1,?1,'needs_refinement',?2,1,1,1)",
+            params![id, parent],
+        ).unwrap();
+    }
+    let (_, change) = execute_board_mutation(&mut connection, |connection| {
+        connection.execute("DELETE FROM kanban_cards WHERE id='parent'", []).map_err(db_error)?;
+        Ok(())
+    }).unwrap();
+    let change = change.unwrap();
+    assert_eq!(change.removed_ids, vec!["parent"]);
+    assert_eq!(change.upserts.iter().map(|card| card.id.as_str()).collect::<Vec<_>>(), vec!["child"]);
+    assert!(change.upserts[0].parent.is_none());
+    assert_eq!(change.upserts[0].record_revision, 2);
+}
+
+#[test]
+fn concurrent_board_mutations_are_monotonic_while_reads_continue() {
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    let path = std::env::temp_dir().join(format!("stacks-kanban-concurrency-{}.sqlite3", uuid::Uuid::new_v4()));
+    let mut setup = Connection::open(&path).unwrap();
+    configure_connection(&setup).unwrap();
+    setup.pragma_update(None, "journal_mode", "WAL").unwrap();
+    initialize_connection(&mut setup, false).unwrap();
+    test_project(&setup, "project", "local", "/tmp/project");
+    for id in ["one", "two"] {
+        setup.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,created_at,updated_at,in_scope) VALUES(?1,'local:p',?1,?1,'needs_refinement','project',1,1,1)", [id]).unwrap();
+    }
+    drop(setup);
+
+    let barrier = Arc::new(Barrier::new(4));
+    let mut workers = Vec::new();
+    for id in ["one", "two"] {
+        let path = path.clone();
+        let barrier = barrier.clone();
+        workers.push(thread::spawn(move || {
+            let mut connection = Connection::open(path).unwrap();
+            configure_connection(&connection).unwrap();
+            barrier.wait();
+            execute_board_mutation(&mut connection, |connection| {
+                connection.execute("UPDATE kanban_cards SET title=title || ' changed' WHERE id=?1", [id]).map_err(db_error)?;
+                Ok(())
+            }).unwrap().1.unwrap().board_revision
+        }));
+    }
+    let ordinary_path = path.clone();
+    let ordinary_barrier = barrier.clone();
+    let ordinary = thread::spawn(move || {
+        let connection = Connection::open(ordinary_path).unwrap();
+        configure_connection(&connection).unwrap();
+        ordinary_barrier.wait();
+        connection.execute("UPDATE projects SET notes='saved concurrently' WHERE id='project'", []).unwrap();
+    });
+    let reader_path = path.clone();
+    let reader_barrier = barrier.clone();
+    let reader = thread::spawn(move || {
+        let connection = Connection::open(reader_path).unwrap();
+        configure_connection(&connection).unwrap();
+        reader_barrier.wait();
+        connection.query_row("SELECT COUNT(*) FROM kanban_cards", [], |row| row.get::<_, i64>(0)).unwrap()
+    });
+    let mut revisions = workers.into_iter().map(|worker| worker.join().unwrap()).collect::<Vec<_>>();
+    revisions.sort();
+    assert_eq!(revisions, vec![1, 2]);
+    ordinary.join().unwrap();
+    assert_eq!(reader.join().unwrap(), 2);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(board_revision(&connection).unwrap(), 2);
+    assert_eq!(connection.query_row("SELECT notes FROM projects WHERE id='project'", [], |row| row.get::<_, String>(0)).unwrap(), "saved concurrently");
+    let revisions = connection.prepare("SELECT record_revision FROM kanban_cards ORDER BY id").unwrap()
+        .query_map([], |row| row.get::<_, i64>(0)).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(revisions, vec![2, 2]);
+    drop(connection);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
 }

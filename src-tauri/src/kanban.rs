@@ -64,7 +64,7 @@ pub(crate) use provider_sync::{
 #[cfg(test)]
 pub(crate) use repository::migrate;
 pub(crate) use repository::{
-    initialize_database, with_board_mutation, with_connection, with_read_connection,
+    affect_project_cards, initialize_database, with_board_mutation, with_read_connection,
     with_write_connection,
 };
 pub(crate) use superthread_refinement::finish_superthread_refinement;

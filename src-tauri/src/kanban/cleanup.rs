@@ -98,7 +98,7 @@ pub(in crate::kanban) fn initialize_cleanup(
     expected_workflow_revision: i64,
     expected_environment_revision: i64,
 ) -> Result<(), String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         if connection
             .query_row(
                 "SELECT COUNT(*) FROM card_cleanup_operations WHERE card_id=?1",
@@ -499,7 +499,7 @@ pub(in crate::kanban) fn local_ref_tip(path: &str, branch: &str) -> Result<Optio
 pub(in crate::kanban) fn remove_cleanup_metadata(
     operation: &CleanupSnapshot,
 ) -> Result<(), String> {
-    with_connection(|connection| {
+    with_board_mutation(|connection| {
         let transaction = connection
             .savepoint()
             .map_err(db_error)?;
@@ -536,7 +536,7 @@ pub(in crate::kanban) fn remove_cleanup_metadata(
 }
 
 pub(in crate::kanban) fn advance_cleanup_phase(operation: &CleanupSnapshot) -> Result<(), String> {
-    with_connection(|connection| advance_cleanup_phase_in_connection(connection, operation))
+    with_board_mutation(|connection| advance_cleanup_phase_in_connection(connection, operation))
 }
 
 pub(in crate::kanban) fn advance_cleanup_phase_in_connection(
@@ -585,7 +585,7 @@ pub(in crate::kanban) fn record_cleanup_failure(
     code: &str,
     detail: &str,
 ) {
-    let _ = with_connection(|connection| {
+    let _ = with_board_mutation(|connection| {
         let transaction = connection
             .savepoint()
             .map_err(db_error)?;

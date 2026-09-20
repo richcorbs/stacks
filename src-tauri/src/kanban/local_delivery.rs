@@ -12,7 +12,7 @@ pub(in crate::kanban) async fn kanban_approve_and_commit_operation(
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 approve_and_commit_with_failure_record(
                     connection,
                     &id,
@@ -200,7 +200,7 @@ pub(in crate::kanban) async fn kanban_merge_card_operation(
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let result = coordinate_card_repository(&id, true, || {
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 merge_card(
                     connection,
                     &id,
@@ -499,7 +499,7 @@ pub(in crate::kanban) async fn kanban_prepare_target_merge_operation(
 ) -> Result<TargetMergePrepareResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| {
+            with_board_mutation(|connection| {
                 prepare_target_merge(
                     connection,
                     &id,
@@ -707,7 +707,7 @@ pub(in crate::kanban) async fn kanban_finalize_target_merge_operation(
 ) -> Result<WorkflowOperationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| finalize_target_merge(connection, &id, &operation_id))
+            with_board_mutation(|connection| finalize_target_merge(connection, &id, &operation_id))
         })
     })
     .await
@@ -836,7 +836,7 @@ pub(in crate::kanban) async fn kanban_abort_target_merge_operation(
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, true, || {
-            with_connection(|connection| abort_target_merge(connection, &id, &operation_id))
+            with_board_mutation(|connection| abort_target_merge(connection, &id, &operation_id))
         })
     })
     .await
