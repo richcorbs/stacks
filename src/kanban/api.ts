@@ -134,7 +134,8 @@ export function confirmScriptedDeployed(id: string) {
 
 export type TargetMergePrepareResult = WorkflowOperationResult & {
   operation_id: string | null;
-  state: 'noop' | 'merged' | 'conflicted';
+  state: 'noop' | 'target_sync' | 'target_conflicted' | 'pushed' | 'source_conflicted' | 'source_merged';
+  checkout_path: string | null;
 };
 
 export function prepareKanbanTargetMerge(id: string, expectedWorkflowRevision: number, expectedEnvironmentRevision: number) {
