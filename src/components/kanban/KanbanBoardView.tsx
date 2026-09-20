@@ -14,7 +14,7 @@ import { useBoardKeyboardNavigation } from '../../kanban/useBoardKeyboardNavigat
 import { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import type { CardView } from '../../kanban/cardView';
 import type { KanbanBoardModel, KanbanBoardProps } from '../KanbanBoard';
-import { KanbanCardDetail } from './KanbanCardDetail';
+import { KanbanCardDetail, type CardDetailWorkflowController } from './KanbanCardDetail';
 import { NewCardDialog } from './NewCardDialog';
 import { KanbanLanes } from './KanbanLanes';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
@@ -41,6 +41,8 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   const { selectedCardId, selectedCard, selectCard, clearSelection } = useCanonicalCardSelection(board.cards);
   const selectedCardIdRef = useRef(selectedCardId);
   selectedCardIdRef.current = selectedCardId;
+  const cardDetailWorkflowRef = useRef<CardDetailWorkflowController | null>(null);
+  const setCardDetailWorkflow = useCallback((controller: CardDetailWorkflowController | null) => { cardDetailWorkflowRef.current = controller; }, []);
   const [detailLoadError, setDetailLoadError] = useState<{ cardId: string; message: string } | null>(null);
   const detailLoadRequestRef = useRef(0);
   const launchRecoveryStartedRef = useRef(false);
@@ -209,7 +211,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       projects,
       openCard: openPaletteCard,
       selectedCard,
-      runSelectedAction: (action) => applicationEvents.publish('card-workflow-action', { cardId: selectedCard?.id, action }),
+      runSelectedAction: (action) => cardDetailWorkflowRef.current?.run(action),
     });
   }, [onPaletteCardsChange, openPaletteCard, projects, selectedCard, visibleCards]);
 
@@ -349,6 +351,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       )}
       {selectedCard && (
         <KanbanCardDetail
+          key={selectedCard.id}
           card={selectedCard}
           cards={board.cards}
           projects={projects}
@@ -389,6 +392,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
             board.applyCardSnapshot(updated);
             if (updated.parent) board.load().catch(console.error);
           }}
+          onWorkflowControllerChange={setCardDetailWorkflow}
           onNavigate={(id, initialView) => {
             const target = board.cards.find((candidate) => candidate.id === id);
             if (target) openCard(target, initialView);
