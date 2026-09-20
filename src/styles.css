@@ -336,7 +336,7 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardWorkspaceTabs button.cardServiceToggle:hover, .cardWorkspaceTabs button.cardDiffRefresh:hover, .cardServiceTab:hover button.cardServiceToggle, .cardDiffTab:hover button.cardDiffRefresh { border-color: #4a6278; color: #aabac8; }
 .cardWorkspaceTabs button.cardServiceToggle.running { border-color: #416b55; background: #15271e; color: #70bd8d; }
 .servicePlayIcon { width: 0; height: 0; margin-left: 1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid currentColor; }
-.serviceStopIcon { width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.serviceStopIcon { width: 8px; height: 8px; border-radius: 1px; background: currentColor; }
 .diffRefreshIcon { position: relative; width: 11px; height: 11px; }
 .diffRefreshIcon::before { content: ''; position: absolute; inset: 1px; border: 1.5px solid currentColor; border-left-color: transparent; border-radius: 50%; }
 .diffRefreshIcon::after { content: ''; position: absolute; left: 0; top: 1px; width: 0; height: 0; border-top: 2.5px solid transparent; border-bottom: 2.5px solid transparent; border-right: 4px solid currentColor; transform: rotate(-25deg); }
