@@ -25,12 +25,13 @@ export type CardWorkflowContext = {
 const labels: Record<CardWorkflowActionKind, string> = {
   open_refinement: 'Open refinement', finish_refinement: 'Write plan & finish refinement',
   stop_refinement: 'Stop refinement', start_work: 'Start work', return_to_refinement: 'Return to refinement',
-  request_changes: 'Request changes', ship: 'Commit',
-  merge_local: 'Merge locally', create_pr: 'Create PR', create_pr_with_fe: 'Create PR with FE', open_pr: 'Open PR', merge_pr: 'Merge PR',
+  request_changes: 'Request changes', ship: 'Approve & commit',
+  merge_local: 'Merge locally', push: 'Push', deploy: 'Deploy', retry_push: 'Retry push', retry_deploy: 'Retry deploy',
+  confirm_deployed: 'Confirm deployed', run_deployment_again: 'Run deployment again', cancel_deployment: 'Cancel deployment', create_pr: 'Create PR', create_pr_with_fe: 'Create PR with FE', open_pr: 'Open PR', merge_pr: 'Merge PR',
   merge_target: 'Merge in target & resolve', cleanup: 'Clean up', cleanup_creation: 'Clean up',
   retry_runtime_cleanup: 'Retry process cleanup', close: 'Close without delivery', delete: 'Delete card',
 };
-const primary = new Set<CardWorkflowActionKind>(['open_refinement', 'start_work', 'ship', 'merge_local', 'create_pr', 'merge_pr']);
+const primary = new Set<CardWorkflowActionKind>(['open_refinement', 'start_work', 'ship', 'merge_local', 'deploy', 'retry_deploy', 'create_pr', 'merge_pr']);
 
 /** Adds labels, confirmation copy, appearance, and transient operation state to backend capabilities. */
 export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWorkflowAction[] {
@@ -62,6 +63,11 @@ function presentationFor(action: CardWorkflowActionKind, { card, project }: Card
     case 'delete': return { destructive: true, appearance: 'danger-ghost', confirmation: { title: 'Delete card?', detail: 'This permanently deletes this local draft.' } };
     case 'stop_refinement': return { destructive: true, appearance: 'neutral-ghost' };
     case 'merge_local': return { confirmation: { title: `Merge into ${project?.target_branch ?? 'main'}?`, detail: `Create an explicit --no-ff merge commit in the project's primary checkout. Cleanup is separate.` } };
+    case 'deploy':
+    case 'retry_deploy': return { confirmation: { title: 'Deploy this card?', detail: 'Stacks will safely push the current target branch if necessary, then run the project deployment command from the primary checkout.' } };
+    case 'run_deployment_again': return { confirmation: { title: 'Run deployment again?', detail: 'The earlier attempt may have succeeded. Running a non-idempotent deployment command again can have side effects.' } };
+    case 'confirm_deployed': return { confirmation: { title: 'Confirm deployed?', detail: 'Record that the uncertain deployment succeeded and complete this card without running the command again.' } };
+    case 'cancel_deployment': return { destructive: true, appearance: 'neutral-ghost' };
     case 'cleanup_creation': return { destructive: true, appearance: 'regular', confirmation: { title: 'Clean up setup resources?', detail: 'Removes only the clean worktree and unchanged branch proven to have been created by this start operation.' } };
     case 'cleanup': return card.cleanup_operation && card.cleanup_operation.status !== 'completed'
       ? { destructive: true, appearance: 'regular' }

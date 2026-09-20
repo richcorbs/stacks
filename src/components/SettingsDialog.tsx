@@ -52,7 +52,7 @@ function projectDraft(project: Project): DialogState {
     superthreadInProgressColumnId: project.superthread_in_progress_column_id, superthreadInProgressColumnName: project.superthread_in_progress_column_name,
     superthreadDoneColumnId: project.superthread_done_column_id, superthreadDoneColumnName: project.superthread_done_column_name,
     serverCommand: project.server_command, consoleCommand: project.console_command,
-    deliveryWorkflow: project.delivery_workflow ?? 'local_merge', targetBranch: project.target_branch ?? 'main',
+    deliveryWorkflow: project.delivery_workflow ?? 'local_merge', deploymentCommand: project.deployment_command, deliveryWorkflowLocked: project.delivery_workflow_locked, targetBranch: project.target_branch ?? 'main',
     supportsFeatureEnvironments: project.supports_feature_environments ?? false,
     githubMergeStrategy: project.github_merge_strategy ?? 'merge', requirePassingCi: project.require_passing_ci ?? true,
     requireApproval: project.require_approval ?? false, releasesEnabled: project.releases_enabled ?? false,

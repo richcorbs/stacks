@@ -352,6 +352,29 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS scripted_delivery_operations (
+            card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL,
+            environment_id TEXT NOT NULL,
+            repository_id TEXT NOT NULL,
+            primary_checkout_path TEXT NOT NULL,
+            target_branch TEXT NOT NULL,
+            source_revision TEXT NOT NULL,
+            merge_revision TEXT NOT NULL,
+            verified_push_revision TEXT,
+            deployed_revision TEXT,
+            upstream_remote TEXT,
+            upstream_ref TEXT,
+            stage TEXT NOT NULL CHECK(stage IN ('merged','pushing','push_failed','pushed','deploying','deployment_failed','cancelled','uncertain','deployed')),
+            attempt INTEGER NOT NULL DEFAULT 0,
+            attempt_token TEXT,
+            failure_class TEXT,
+            summary TEXT,
+            started_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            completed_at INTEGER,
+            revision INTEGER NOT NULL DEFAULT 1
+         );
          CREATE TABLE IF NOT EXISTS card_cleanup_operations (
             card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
             environment_id TEXT NOT NULL,
@@ -449,6 +472,21 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
          );
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, unixepoch());"
     ).map_err(db_error)?;
+    // A deploying row cannot still have a supervised child after process restart.
+    // Preserve the ambiguity rather than rerunning a potentially non-idempotent command.
+    let has_delivery_columns = connection
+        .prepare("PRAGMA table_info(kanban_cards)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?
+        .iter()
+        .any(|column| column == "delivery_operation_stage");
+    if has_delivery_columns {
+        connection.execute("UPDATE scripted_delivery_operations SET stage='uncertain',failure_class='interrupted',summary='Stacks restarted before the deployment outcome was recorded',updated_at=unixepoch(),revision=revision+1 WHERE stage='deploying'", []).map_err(db_error)?;
+        connection.execute("UPDATE kanban_cards SET delivery_operation_stage='uncertain',delivery_error='Deployment outcome is uncertain after restart.' WHERE id IN (SELECT card_id FROM scripted_delivery_operations WHERE stage='uncertain')", []).map_err(db_error)?;
+    }
     connection.execute_batch("DROP TABLE IF EXISTS kanban_cleaned_cards; INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (66, unixepoch());").map_err(db_error)?;
     migrate_done_status(connection)?;
     migrate_refinement_statuses(connection)?;
@@ -830,6 +868,7 @@ pub(in crate::kanban) fn list_cards(
     load_environments_batched(connection, &mut cards)?;
     load_creation_operations_batched(connection, &mut cards)?;
     load_cleanup_operations_batched(connection, &mut cards)?;
+    load_scripted_deliveries(connection, &mut cards)?;
     provider_sync::load_summaries(connection, &mut cards)?;
     load_pull_requests_batched(connection, &mut cards)?;
     let work_agent_launch_retries = load_events_batched(connection, &mut cards)?;
@@ -855,6 +894,12 @@ pub(in crate::kanban) fn get_card(
         card.environment = load_environment(connection, id)?;
         card.creation_operation = load_creation_operation(connection, id)?;
         card.cleanup_operation = load_cleanup_operation(connection, id)?;
+        card.scripted_delivery = load_scripted_delivery(connection, id)?;
+        card.delivery_operation_stage = card
+            .scripted_delivery
+            .as_ref()
+            .map(|operation| operation.stage.clone())
+            .or(card.delivery_operation_stage.take());
         card.provider_sync = provider_sync::load_summary(connection, id)?;
         card.pull_request = load_pull_request(connection, card)?;
         card.events = load_events(connection, id)?;
@@ -1015,7 +1060,12 @@ pub(in crate::kanban) fn enrich_capabilities(
                 .as_ref()
                 .map(|value| value.blockers.clone())
                 .unwrap_or_default(),
-            resumable_operation: card.delivery_operation_stage.is_some(),
+            resumable_operation: card.delivery_operation_stage.is_some()
+                && card.scripted_delivery.is_none(),
+            scripted_delivery_stage: card
+                .scripted_delivery
+                .as_ref()
+                .map(|operation| operation.stage.clone()),
             creation_operation: card.creation_operation.is_some(),
             creation_cleanup_available: card
                 .creation_operation
@@ -1618,6 +1668,54 @@ pub(in crate::kanban) fn load_environment(
     }))
 }
 
+fn load_scripted_delivery(
+    connection: &Connection,
+    card_id: &str,
+) -> Result<Option<ScriptedDeliveryOperation>, String> {
+    connection.query_row(
+        "SELECT stage,source_revision,merge_revision,verified_push_revision,deployed_revision,attempt,failure_class,summary,started_at,updated_at,completed_at,revision FROM scripted_delivery_operations WHERE card_id=?1",
+        [card_id],
+        |row| Ok(ScriptedDeliveryOperation { stage: row.get(0)?, source_revision: row.get(1)?, merge_revision: row.get(2)?, verified_push_revision: row.get(3)?, deployed_revision: row.get(4)?, attempt: row.get(5)?, failure_class: row.get(6)?, summary: row.get(7)?, started_at: row.get(8)?, updated_at: row.get(9)?, completed_at: row.get(10)?, revision: row.get(11)? }),
+    ).optional().map_err(db_error)
+}
+
+fn load_scripted_deliveries(
+    connection: &Connection,
+    cards: &mut [KanbanCard],
+) -> Result<(), String> {
+    let mut statement = connection.prepare("SELECT card_id,stage,source_revision,merge_revision,verified_push_revision,deployed_revision,attempt,failure_class,summary,started_at,updated_at,completed_at,revision FROM scripted_delivery_operations").map_err(db_error)?;
+    let operations = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                ScriptedDeliveryOperation {
+                    stage: row.get(1)?,
+                    source_revision: row.get(2)?,
+                    merge_revision: row.get(3)?,
+                    verified_push_revision: row.get(4)?,
+                    deployed_revision: row.get(5)?,
+                    attempt: row.get(6)?,
+                    failure_class: row.get(7)?,
+                    summary: row.get(8)?,
+                    started_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                    completed_at: row.get(11)?,
+                    revision: row.get(12)?,
+                },
+            ))
+        })
+        .map_err(db_error)?
+        .collect::<Result<HashMap<_, _>, _>>()
+        .map_err(db_error)?;
+    for card in cards {
+        card.scripted_delivery = operations.get(&card.id).cloned();
+        if let Some(operation) = &card.scripted_delivery {
+            card.delivery_operation_stage = Some(operation.stage.clone());
+        }
+    }
+    Ok(())
+}
+
 pub(in crate::kanban) fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<KanbanCard> {
     let parent_id = row.get::<_, Option<String>>(25)?;
     let provider_parent_title = row.get::<_, Option<String>>(28)?;
@@ -1646,6 +1744,7 @@ pub(in crate::kanban) fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<K
         pull_request: None,
         delivery_operation_stage: row.get(14)?,
         delivery_error: row.get(15)?,
+        scripted_delivery: None,
         runtime_cleanup_status: row.get(16)?,
         runtime_cleanup_error: row.get(17)?,
         workflow_revision: row.get(18)?,

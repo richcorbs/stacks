@@ -1098,6 +1098,13 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piExtensionOptions { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .piExtensionOptions button { padding: 8px 10px; border: 1px solid #304357; border-radius: 6px; background: #15212d; color: #aebdcb; text-align: left; cursor: pointer; }
 .piExtensionOptions button:hover { border-color: #4e708e; background: #1a2a39; }
+.scriptedDeliveryStatus { display: flex; flex-direction: column; gap: 2px; margin-right: auto; color: #9fb4c7; font-size: 12px; }
+.scriptedDeliveryStatus small { color: #70879a; }
+.scriptedDeliveryStatus.stage-push_failed, .scriptedDeliveryStatus.stage-deployment_failed, .scriptedDeliveryStatus.stage-cancelled, .scriptedDeliveryStatus.stage-uncertain { color: #d6a06f; }
+.scriptedDeliveryOutput { position: absolute; z-index: 3; left: 16px; right: 16px; bottom: 12px; max-height: 45%; overflow: auto; border: 1px solid #2c4052; border-radius: 7px; background: #111b24; color: #aebdca; font-size: 12px; }
+.scriptedDeliveryOutput summary { cursor: pointer; padding: 8px 10px; color: #91a9bc; }
+.scriptedDeliveryOutput pre { margin: 0; padding: 10px; border-top: 1px solid #263746; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .piExtensionActions { margin-top: 14px; display: flex; justify-content: flex-end; gap: 7px; }
 .piExtensionActions button { padding: 6px 10px; border: 1px solid #33475a; border-radius: 6px; background: #17232f; color: #9dadbd; cursor: pointer; }
 .piExtensionActions button.primary { border-color: #49779e; background: #315f85; color: #eef6fc; }

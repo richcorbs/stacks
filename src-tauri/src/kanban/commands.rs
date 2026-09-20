@@ -1,7 +1,10 @@
 use super::repository::{board_snapshot, fresh_card_snapshot};
 use super::*;
 #[allow(unused_imports)]
-use super::{cards::*, cleanup::*, environment::*, github_delivery::*, local_delivery::*, sync::*};
+use super::{
+    cards::*, cleanup::*, environment::*, github_delivery::*, local_delivery::*,
+    scripted_delivery::*, sync::*,
+};
 use crate::superthread::SuperthreadService;
 
 #[tauri::command]
@@ -242,6 +245,29 @@ pub async fn kanban_approve_and_commit(
         expected_environment_revision,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn kanban_scripted_push(id: String) -> Result<ScriptedDeliveryResult, String> {
+    scripted_delivery::push(id).await
+}
+
+#[tauri::command]
+pub async fn kanban_scripted_deploy(
+    id: String,
+    rerun_uncertain: Option<bool>,
+) -> Result<ScriptedDeliveryResult, String> {
+    scripted_delivery::deploy(id, rerun_uncertain.unwrap_or(false)).await
+}
+
+#[tauri::command]
+pub fn kanban_cancel_scripted_deployment(id: String) -> Result<(), String> {
+    scripted_delivery::cancel(id)
+}
+
+#[tauri::command]
+pub fn kanban_confirm_scripted_deployed(id: String) -> Result<ScriptedDeliveryResult, String> {
+    scripted_delivery::confirm(id)
 }
 
 #[tauri::command]

@@ -12,6 +12,7 @@ export const KANBAN_STATUS_METADATA = [
 
 export const KANBAN_WORKFLOW_ACTIONS = [
   'open_refinement', 'finish_refinement', 'stop_refinement', 'start_work', 'return_to_refinement',
-  'request_changes', 'ship', 'merge_local', 'create_pr', 'create_pr_with_fe', 'open_pr', 'merge_pr',
+  'request_changes', 'ship', 'merge_local', 'push', 'deploy', 'retry_push', 'retry_deploy',
+  'confirm_deployed', 'run_deployment_again', 'cancel_deployment', 'create_pr', 'create_pr_with_fe', 'open_pr', 'merge_pr',
   'merge_target', 'cleanup', 'cleanup_creation', 'retry_runtime_cleanup', 'close', 'delete',
 ] as const;

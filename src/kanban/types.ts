@@ -94,6 +94,21 @@ export type CardEvent = {
   error_detail: string | null;
 };
 
+export type ScriptedDeliveryOperation = {
+  stage: 'merged' | 'pushing' | 'push_failed' | 'pushed' | 'deploying' | 'deployment_failed' | 'cancelled' | 'uncertain' | 'deployed';
+  source_revision: string;
+  merge_revision: string;
+  verified_push_revision: string | null;
+  deployed_revision: string | null;
+  attempt: number;
+  failure_class: string | null;
+  summary: string | null;
+  started_at: number;
+  updated_at: number;
+  completed_at: number | null;
+  revision: number;
+};
+
 export type CardRelationshipSummary = {
   id: string;
   external_id: string;
@@ -119,6 +134,7 @@ export type KanbanCard = {
   pull_request?: CardPullRequest | null;
   delivery_operation_stage?: string | null;
   delivery_error?: string | null;
+  scripted_delivery?: ScriptedDeliveryOperation | null;
   runtime_cleanup_status?: 'pending' | 'complete' | 'failed' | null;
   runtime_cleanup_error?: string | null;
   workflow_revision: number;
