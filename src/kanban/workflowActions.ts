@@ -71,9 +71,9 @@ function presentationFor(action: CardWorkflowActionKind, { card, project }: Card
     case 'confirm_deployed': return { confirmation: { title: 'Confirm deployed?', detail: 'Record that the uncertain deployment succeeded and complete this card without running the command again.' } };
     case 'cancel_deployment': return { destructive: true, appearance: 'neutral-ghost' };
     case 'cleanup_creation': return { destructive: true, appearance: 'regular', confirmation: { title: 'Clean up setup resources?', detail: 'Removes only the clean worktree and unchanged branch proven to have been created by this start operation.' } };
-    case 'cleanup': return card.cleanup_operation && card.cleanup_operation.status !== 'completed'
-      ? { destructive: true, appearance: 'regular' }
-      : { destructive: true, appearance: 'regular', confirmation: { title: 'Clean up environment?', detail: card.completion_outcome === 'closed' ? 'Removes only the clean registered worktree. The unmerged branch is retained.' : 'Removes the clean registered worktree and safely deletable source branch.' } };
+    // Cleanup owns a richer non-destructive preflight dialog; never substitute
+    // the generic yes/no workflow confirmation.
+    case 'cleanup': return { destructive: true, appearance: 'regular' };
     default: return {};
   }
 }

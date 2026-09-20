@@ -20,7 +20,7 @@ export type KanbanBoardProps = {
   terminalScrollback: number;
   copyOnSelect: boolean;
   onAddProject: () => void;
-  onCleanupCard: (card: KanbanCard) => Promise<boolean>;
+  onCleanupCard: (card: KanbanCard, evidence: import('../kanban/types').CleanupPreflight) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<boolean>;
   onPaletteCardsChange: (registration: CardPaletteRegistration | null) => void;
 };

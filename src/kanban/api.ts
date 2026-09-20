@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardEventCursor, CardEventPage, CardSnapshot, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
+import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardEventCursor, CardEventPage, CardSnapshot, CleanupInventory, CleanupPreflight, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
@@ -76,6 +76,14 @@ export type CardRuntimeCleanupResult = { card: KanbanCard; outcomes: RuntimeReso
 
 export function startKanbanEnvironment(id: string, expectedWorkflowRevision: number, setupCommand: string, customCommand: boolean, explicitRetry = false) {
   return invoke<KanbanCard>('kanban_start_environment', { id, expectedWorkflowRevision, setupCommand, customCommand, explicitRetry });
+}
+
+export function fetchCleanupPreflight(id: string) {
+  return invoke<CleanupPreflight>('kanban_cleanup_preflight', { id });
+}
+
+export function fetchCleanupInventory(projectId: string | null) {
+  return invoke<CleanupInventory>('kanban_cleanup_inventory', { projectId });
 }
 
 export function cleanupKanbanEnvironmentCreation(id: string) {
