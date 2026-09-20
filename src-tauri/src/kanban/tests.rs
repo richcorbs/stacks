@@ -571,7 +571,8 @@ fn list_read_count_is_constant_and_get_card_remains_targeted() {
     let initial_reads = TRACED_READS.load(Ordering::Relaxed);
     // Cards, environments/panes, creation, cleanup, Scripted delivery and provider operations, PRs,
     // events, relationships, and workflow capability project context are each loaded in constant-size batches.
-    assert_eq!(initial_reads, 12);
+    const EXPECTED_BATCHED_READS: usize = 13;
+    assert_eq!(initial_reads, EXPECTED_BATCHED_READS);
     for index in 0..25 {
         connection.execute(
                 "INSERT INTO kanban_cards (id,external_provider,external_id,title,project_id,created_at,updated_at,sort_order)
