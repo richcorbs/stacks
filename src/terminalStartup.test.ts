@@ -6,26 +6,12 @@ const { focusTerminalSession, getTerminalSession } = vi.hoisted(() => ({
 }));
 vi.mock('./terminalSessionManager', () => ({ focusTerminalSession, getTerminalSession }));
 
-const eventTarget = new EventTarget();
 Object.assign(globalThis, {
   window: {
-    addEventListener: eventTarget.addEventListener.bind(eventTarget),
-    removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
-    dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
     setTimeout: globalThis.setTimeout.bind(globalThis),
     clearTimeout: globalThis.clearTimeout.bind(globalThis),
   },
 });
-if (typeof globalThis.CustomEvent === 'undefined') {
-  class TestCustomEvent<T> extends Event {
-    detail: T;
-    constructor(type: string, init: CustomEventInit<T>) {
-      super(type);
-      this.detail = init.detail!;
-    }
-  }
-  Object.assign(globalThis, { CustomEvent: TestCustomEvent });
-}
 
 import { notifyTerminalStartup, waitForTerminalStartup } from './terminalStartup';
 

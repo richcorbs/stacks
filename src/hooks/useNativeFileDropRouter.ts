@@ -1,3 +1,4 @@
+import { showAppToast } from '../applicationEvents';
 import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -33,7 +34,7 @@ export function useNativeFileDropRouter() {
       highlighted = pane;
       highlighted?.classList.add('piFileDropTarget');
     };
-    const toast = (message: string) => window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } }));
+    const toast = (message: string) => showAppToast(message);
 
     window.addEventListener('dragover', preventBrowserDrop);
     window.addEventListener('drop', preventBrowserDrop);

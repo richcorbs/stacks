@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../../types';
@@ -10,7 +11,6 @@ import { composeDiffReviewPrompt } from '../../diffReview/prompt';
 import { sendTextToPiEditor } from '../../pi/editorTextEvent';
 import { deletePiSessionController } from '../../pi/sessionController';
 import { disposeAcceptedRuntimeOutcomes } from '../../kanban/runtimeCleanup';
-import { REFRESH_CARD_REPOSITORY_STATUS_EVENT } from '../../kanban/refreshCoordinator';
 import { runApproveAndCommit } from '../../kanban/approveAndCommit';
 import { runMergeTargetAndResolve } from '../../kanban/mergeTargetAndResolve';
 import { runWritePlanAndFinishRefinement } from '../../kanban/writePlanAndFinishRefinement';
@@ -215,13 +215,11 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   }, [activeView, editable, editing, pendingCloseShellPane, savingEdit, detail.begin, detail.cancel, detail.save, detail.mayLeave]);
 
   useEffect(() => {
-    const handleTabShortcut = (event: Event) => {
-      const shortcut = (event as CustomEvent<{ number?: number; direction?: -1 | 1 }>).detail;
-      if (shortcut?.number) detail.command({ type: 'number', number: shortcut.number });
-      else if (shortcut?.direction) detail.command({ type: 'cycle', direction: shortcut.direction });
+    const handleTabShortcut = (shortcut: { number?: number; direction?: -1 | 1 }) => {
+      if (shortcut.number) detail.command({ type: 'number', number: shortcut.number });
+      else if (shortcut.direction) detail.command({ type: 'cycle', direction: shortcut.direction });
     };
-    window.addEventListener('stacks:card-tab-shortcut', handleTabShortcut);
-    return () => window.removeEventListener('stacks:card-tab-shortcut', handleTabShortcut);
+    return applicationEvents.subscribe('card-tab-shortcut', handleTabShortcut);
   }, [detail.command]);
 
   const workflowDependencies: CardWorkflowExecutorDependencies = {
@@ -230,8 +228,8 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
     runExclusive: (kind, operation) => workflow.run(kind, operation),
     setError: setActionError,
     setView: setActiveView,
-    refreshRepository: () => window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT)),
-    toast: (message) => window.dispatchEvent(new CustomEvent('app-toast', { detail: { message } })),
+    refreshRepository: () => applicationEvents.publish('refresh-card-repository-status', undefined),
+    toast: showAppToast,
     openRefinement: async () => { if (!projectId) return false; await onOpenChat(projectId); return true; },
     finishRefinement: async () => { await runWritePlanAndFinishRefinement({
       showAgent: () => setActiveView('chat'),
@@ -285,7 +283,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   async function refreshAfterRepositoryChange() {
     await refreshCardSnapshot();
     setDiffRefreshNonce((nonce) => nonce + 1);
-    window.dispatchEvent(new Event(REFRESH_CARD_REPOSITORY_STATUS_EVENT));
+    applicationEvents.publish('refresh-card-repository-status', undefined);
   }
   function applyRuntimeResult(result: Awaited<ReturnType<typeof retryKanbanRuntimeCleanup>>) {
     disposeAcceptedRuntimeOutcomes(result.outcomes, deletePiSessionController, disposeTerminalSession);

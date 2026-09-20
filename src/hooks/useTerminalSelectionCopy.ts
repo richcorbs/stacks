@@ -1,6 +1,7 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Terminal } from '@xterm/xterm';
+import { applicationEvents } from '../applicationEvents';
 
 function trimTrailingHorizontalWhitespace(text: string) {
   return text.replace(/[^\S\r\n]+$/gm, '');
@@ -20,13 +21,11 @@ export function useTerminalSelectionCopy(termRef: MutableRefObject<Terminal | nu
           .then(() => {
             term.clearSelection();
             const rect = term.element?.closest('.terminal')?.getBoundingClientRect();
-            window.dispatchEvent(new CustomEvent('app-toast', {
-              detail: {
-                message: 'Copied to clipboard',
-                x: rect ? rect.left + rect.width / 2 : undefined,
-                y: rect ? rect.top + rect.height / 2 : undefined,
-              },
-            }));
+            applicationEvents.publish('toast', {
+              message: 'Copied to clipboard',
+              x: rect ? rect.left + rect.width / 2 : undefined,
+              y: rect ? rect.top + rect.height / 2 : undefined,
+            });
           })
           .catch(console.error);
       }, 0);

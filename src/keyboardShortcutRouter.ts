@@ -1,6 +1,7 @@
 import { runShortcutAction } from './shortcutActions';
 import type { ShortcutHandlers } from './shortcutTypes';
 import { registeredShortcutAction } from './shortcutRegistry';
+import { applicationEvents } from './applicationEvents';
 
 export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: ShortcutHandlers) {
   handlers.setMetaKeyDown(event.metaKey);
@@ -26,12 +27,12 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   if (key === 'p') return handled(event, () => runShortcutAction('command-palette', handlers));
 
   const globalTerminal = handlers.isGlobalTerminalVisible();
-  if (globalTerminal && /^[1-9]$/.test(event.key)) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:global-terminal-command', { detail: { type: 'select-tab', number: Number(event.key) } })));
-  if (globalTerminal && bracket && !event.shiftKey) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:global-terminal-command', { detail: { type: 'navigate-tab', direction: bracket } })));
+  if (globalTerminal && /^[1-9]$/.test(event.key)) return handled(event, () => applicationEvents.publish('global-terminal-command', { type: 'select-tab', number: Number(event.key) }));
+  if (globalTerminal && bracket && !event.shiftKey) return handled(event, () => applicationEvents.publish('global-terminal-command', { type: 'navigate-tab', direction: bracket }));
   const cardOpen = Boolean(typeof document !== 'undefined' && document.querySelector('.kanbanDetail'));
   const cardTerminal = Boolean(typeof document !== 'undefined' && document.querySelector('.kanbanDetail .cardTerminalView.active'));
-  if (cardOpen && /^[1-5]$/.test(event.key)) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', { detail: { number: Number(event.key) } })));
-  if (cardOpen && bracket && !event.shiftKey) return handled(event, () => window.dispatchEvent(new CustomEvent('stacks:card-tab-shortcut', { detail: { direction: bracket } })));
+  if (cardOpen && /^[1-5]$/.test(event.key)) return handled(event, () => applicationEvents.publish('card-tab-shortcut', { number: Number(event.key) }));
+  if (cardOpen && bracket && !event.shiftKey) return handled(event, () => applicationEvents.publish('card-tab-shortcut', { direction: bracket }));
   if (key === 'o' && !event.shiftKey) return handled(event, () => runShortcutAction('add-project', handlers));
   if (key === 'q') return handled(event, () => runShortcutAction('quit', handlers));
   if (!globalTerminal && !cardTerminal) return;

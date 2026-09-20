@@ -1,7 +1,8 @@
-const PI_EDITOR_TEXT_EVENT = 'stacks:pi-editor-text';
+import { applicationEvents } from '../applicationEvents';
+
 const DELIVERY_TIMEOUT_MS = 2_000;
 
-type PiEditorTextRequest = {
+export type PiEditorTextRequest = {
   terminalId: string;
   text: string;
   acknowledge: () => void;
@@ -35,18 +36,17 @@ export function sendTextToPiEditor(terminalId: string, text: string) {
 
 export function listenForPiEditorText(listener: (request: PiEditorTextRequest) => void) {
   let listening = true;
-  const handleEvent = (event: Event) => listener((event as CustomEvent<PiEditorTextRequest>).detail);
-  window.addEventListener(PI_EDITOR_TEXT_EVENT, handleEvent);
+  const unsubscribe = applicationEvents.subscribe('pi-editor-text', listener);
   queueMicrotask(() => {
     if (!listening) return;
     for (const { request } of pendingDeliveries.values()) listener(request);
   });
   return () => {
     listening = false;
-    window.removeEventListener(PI_EDITOR_TEXT_EVENT, handleEvent);
+    unsubscribe();
   };
 }
 
 function dispatchRequest(request: PiEditorTextRequest) {
-  window.dispatchEvent(new CustomEvent<PiEditorTextRequest>(PI_EDITOR_TEXT_EVENT, { detail: request }));
+  applicationEvents.publish('pi-editor-text', request);
 }

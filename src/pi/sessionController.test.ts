@@ -22,15 +22,16 @@ function harness() {
     eventSubscriber = subscriber;
     return stop;
   });
+  const publish = vi.fn();
   const dependencies: ControllerDependencies = {
     invoke: invokeMock as ControllerDependencies['invoke'],
     subscribe: subscribeMock,
     setTimeout: globalThis.setTimeout.bind(globalThis),
     clearTimeout: globalThis.clearTimeout.bind(globalThis),
-    dispatch: vi.fn(() => true),
+    events: { publish: publish as ControllerDependencies['events']['publish'] },
   };
   const controller = new PiSessionController(config, dependencies);
-  return { controller, commands, dependencies, emit: (event: PiRpcEnvelope) => eventSubscriber?.(event), stop, subscribeMock };
+  return { controller, commands, dependencies, publish, emit: (event: PiRpcEnvelope) => eventSubscriber?.(event), stop, subscribeMock };
 }
 
 function envelope(event: PiRpcEnvelope['event'], generation = 'generation-1'): PiRpcEnvelope {
@@ -113,14 +114,13 @@ describe('PiSessionController', () => {
       await begin(h);
       h.controller.setViewOpen(open);
       h.emit(envelope({ type: 'extension_ui_request', id: `request-${open}`, method: 'confirm' }));
-      const attention = vi.mocked(h.dependencies.dispatch).mock.calls
-        .map(([event]) => event as CustomEvent)
-        .find((event) => event.detail?.kind === 'pi-request');
-      expect(attention?.detail).toMatchObject({
+      const attention = h.publish.mock.calls
+        .find(([key, payload]) => key === 'attention' && payload.kind === 'pi-request')?.[1];
+      expect(attention).toMatchObject({
         owner: { kind: 'card', cardId: 'card-1' },
         target: { view: 'agent', agentThread: 'work', terminalId: config.paneId },
       });
-      expect(attention?.detail.lifecycleKey).toContain(`request-${open}`);
+      expect(attention?.lifecycleKey).toContain(`request-${open}`);
       h.controller.delete();
     }
   });
@@ -279,7 +279,7 @@ describe('PiSessionController', () => {
     respond(h, abortIndex, 'abort', {});
     await aborting;
     h.emit(envelope({ type: 'agent_settled' }));
-    expect(vi.mocked(h.dependencies.dispatch).mock.calls.some(([event]) => (event as CustomEvent).detail?.kind === 'pi-complete')).toBe(false);
+    expect(h.publish.mock.calls.some(([key, payload]) => key === 'attention' && payload.kind === 'pi-complete')).toBe(false);
     h.controller.delete();
   });
 
@@ -289,9 +289,8 @@ describe('PiSessionController', () => {
     h.emit(envelope({ type: 'agent_start' }));
     h.emit(envelope({ type: 'agent_settled' }));
     h.emit(envelope({ type: 'agent_settled' }));
-    const attentionEvents = vi.mocked(h.dependencies.dispatch).mock.calls
-      .map(([event]) => event as CustomEvent<{ kind?: string }>)
-      .filter((event) => event.type === 'app-attention' && event.detail?.kind === 'pi-complete');
+    const attentionEvents = h.publish.mock.calls
+      .filter(([key, payload]) => key === 'attention' && payload.kind === 'pi-complete');
     expect(attentionEvents).toHaveLength(1);
     h.controller.delete();
   });

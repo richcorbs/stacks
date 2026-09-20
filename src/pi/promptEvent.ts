@@ -1,6 +1,5 @@
-const PI_PROMPT_EVENT = 'stacks:pi-prompt';
-const PI_AGENT_SETTLED_EVENT = 'stacks:pi-agent-settled';
-const PI_PROMPT_FAILED_EVENT = 'stacks:pi-prompt-failed';
+import { applicationEvents } from '../applicationEvents';
+
 const DELIVERY_TIMEOUT_MS = 30 * 60 * 1_000;
 
 export type PiPromptRequest = {
@@ -30,8 +29,8 @@ export function sendPromptToPiAndWait(terminalId: string, text: string) {
       const pending = pendingDeliveries.get(terminalId);
       if (pending === delivery) pendingDeliveries.delete(terminalId);
       window.clearTimeout(timer);
-      window.removeEventListener(PI_AGENT_SETTLED_EVENT, handleSettled);
-      window.removeEventListener(PI_PROMPT_FAILED_EVENT, handleFailed);
+      unsubscribeSettled();
+      unsubscribeFailed();
       resolve(delivered);
     };
     const request: PiPromptRequest = {
@@ -50,19 +49,17 @@ export function sendPromptToPiAndWait(terminalId: string, text: string) {
       failed: () => finish(false),
     };
     const delivery: PendingDelivery = { request, state: 'queued', settled: false, finish };
-    const handleSettled = (event: Event) => {
-      const detail = (event as CustomEvent<{ terminalId?: string }>).detail;
-      if (detail?.terminalId !== terminalId || delivery.state === 'queued') return;
+    const handleSettled = (detail: { terminalId: string }) => {
+      if (detail.terminalId !== terminalId || delivery.state === 'queued') return;
       if (delivery.state === 'accepted') finish(true);
       else delivery.settled = true;
     };
-    const handleFailed = (event: Event) => {
-      const detail = (event as CustomEvent<{ terminalId?: string }>).detail;
-      if (detail?.terminalId === terminalId && delivery.state !== 'queued') finish(false);
+    const handleFailed = (detail: { terminalId: string }) => {
+      if (detail.terminalId === terminalId && delivery.state !== 'queued') finish(false);
     };
     const timer = window.setTimeout(() => finish(false), DELIVERY_TIMEOUT_MS);
-    window.addEventListener(PI_AGENT_SETTLED_EVENT, handleSettled);
-    window.addEventListener(PI_PROMPT_FAILED_EVENT, handleFailed);
+    const unsubscribeSettled = applicationEvents.subscribe('pi-agent-settled', handleSettled);
+    const unsubscribeFailed = applicationEvents.subscribe('pi-prompt-failed', handleFailed);
     pendingDeliveries.set(terminalId, delivery);
     dispatchRequest(request);
   });
@@ -70,8 +67,7 @@ export function sendPromptToPiAndWait(terminalId: string, text: string) {
 
 export function listenForPiPrompt(listener: (request: PiPromptRequest) => void) {
   let listening = true;
-  const handleEvent = (event: Event) => listener((event as CustomEvent<PiPromptRequest>).detail);
-  window.addEventListener(PI_PROMPT_EVENT, handleEvent);
+  const unsubscribe = applicationEvents.subscribe('pi-prompt', listener);
   queueMicrotask(() => {
     if (!listening) return;
     for (const { request, state } of pendingDeliveries.values()) {
@@ -80,18 +76,18 @@ export function listenForPiPrompt(listener: (request: PiPromptRequest) => void) 
   });
   return () => {
     listening = false;
-    window.removeEventListener(PI_PROMPT_EVENT, handleEvent);
+    unsubscribe();
   };
 }
 
 export function notifyPiAgentSettled(terminalId: string) {
-  window.dispatchEvent(new CustomEvent(PI_AGENT_SETTLED_EVENT, { detail: { terminalId } }));
+  applicationEvents.publish('pi-agent-settled', { terminalId });
 }
 
 export function notifyPiPromptFailed(terminalId: string) {
-  window.dispatchEvent(new CustomEvent(PI_PROMPT_FAILED_EVENT, { detail: { terminalId } }));
+  applicationEvents.publish('pi-prompt-failed', { terminalId });
 }
 
 function dispatchRequest(request: PiPromptRequest) {
-  window.dispatchEvent(new CustomEvent<PiPromptRequest>(PI_PROMPT_EVENT, { detail: request }));
+  applicationEvents.publish('pi-prompt', request);
 }

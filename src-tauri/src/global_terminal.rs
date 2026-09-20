@@ -148,7 +148,7 @@ fn load(connection: &Connection) -> Result<Option<GlobalTerminalState>, String> 
 
 #[tauri::command]
 pub fn global_terminal_load_or_create() -> Result<GlobalTerminalState, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         if let Some(state) = load(connection)? {
             return Ok(state);
         }
@@ -168,7 +168,7 @@ pub fn global_terminal_save(
     selected_tab_id: String,
     expected_revision: i64,
 ) -> Result<GlobalTerminalState, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         let (tabs, selected_tab_id) = normalize(tabs, selected_tab_id);
         let changed = connection.execute(
             "UPDATE global_terminal_state SET revision=revision+1,tabs=?1,selected_tab_id=?2,updated_at=?3 WHERE singleton=1 AND revision=?4",

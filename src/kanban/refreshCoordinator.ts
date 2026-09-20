@@ -1,7 +1,6 @@
 import type { Project } from '../types';
 import type { KanbanCard } from './types';
 
-export const REFRESH_CARD_REPOSITORY_STATUS_EVENT = 'stacks:refresh-card-repository-status';
 export const ENVIRONMENT_DEPENDENT_STATUSES = new Set<KanbanCard['status']>(['agent_working', 'needs_human', 'approved']);
 export const PR_REFRESH_STATUSES = new Set<KanbanCard['status']>(['agent_working', 'needs_human', 'approved']);
 
