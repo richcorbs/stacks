@@ -420,7 +420,7 @@ pub fn release_reconcile_preview(
 
 #[tauri::command]
 pub fn release_history(project_id: String) -> Result<Vec<ReleaseOperation>, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_read_connection(|connection| {
         let mut statement = connection.prepare("SELECT state_json FROM release_operations WHERE project_id=?1 ORDER BY created_at DESC LIMIT 25").map_err(db_error)?;
         let rows = statement
             .query_map([project_id], |row| row.get::<_, String>(0))
@@ -891,7 +891,7 @@ fn start_stage(
     }
     operation.status = "running".into();
     update_operation(operation, None)?;
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         connection.execute(
         "INSERT INTO release_attempts (token,operation_id,stage_id,kind,status,log_path,started_at) VALUES (?1,?2,?3,?4,'running',?5,?6)",
         params![token, operation.id, stage_config.id, if retry { "retry" } else { "run" }, log_path.to_string_lossy(), now],
@@ -1014,7 +1014,7 @@ fn run_pty(
     let pid = child.process_id();
     registry.insert(token.to_string(), child.clone_killer(), pid)?;
     if let Some(pid) = pid {
-        kanban::with_connection(|connection| {
+        kanban::with_write_connection(|connection| {
             connection
                 .execute(
                     "UPDATE release_attempts SET pid=?1 WHERE token=?2",
@@ -1151,7 +1151,7 @@ fn settle_attempt(
         }
     }
     let attempt_status = operation.stages[index].status.clone();
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         connection
             .execute(
                 "UPDATE release_attempts SET status=?1,completed_at=?2 WHERE token=?3",
@@ -1304,7 +1304,7 @@ struct ProjectReleaseSettings {
     config_path: String,
 }
 fn project(id: &str) -> Result<ProjectReleaseSettings, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_read_connection(|connection| {
         connection.query_row("SELECT path,target_branch,releases_enabled,release_config_path FROM projects WHERE id=?1", [id], |row| Ok(ProjectReleaseSettings { path: row.get(0)?, target_branch: row.get(1)?, enabled: row.get::<_, i64>(2)? != 0, config_path: row.get(3)? })).map_err(|error| match error { rusqlite::Error::QueryReturnedNoRows => "Project not found".into(), other => db_error(other) })
     })
 }
@@ -1559,7 +1559,7 @@ fn release_env(
 }
 
 fn persist_new(operation: &ReleaseOperation) -> Result<(), String> {
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         connection.execute("INSERT INTO release_operations (id,project_id,repository_identity,status,revision,state_json,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![operation.id,operation.project_id,operation.repository_identity,operation.status,operation.revision,serde_json::to_string(operation).unwrap(),operation.created_at,operation.updated_at]).map(|_| ()).map_err(db_error)
     })
 }
@@ -1567,7 +1567,7 @@ fn update_operation(
     operation: &mut ReleaseOperation,
     attempt_token: Option<&str>,
 ) -> Result<(), String> {
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
@@ -1606,7 +1606,7 @@ fn complete_operation(operation: &mut ReleaseOperation, status: &str) -> Result<
     update_operation(operation, None)
 }
 fn load_operation(id: &str) -> Result<ReleaseOperation, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_read_connection(|connection| {
         connection
             .query_row(
                 "SELECT state_json FROM release_operations WHERE id=?1",
@@ -1630,7 +1630,7 @@ fn decode_operation(json: &str) -> Result<ReleaseOperation, String> {
     Ok(operation)
 }
 fn ensure_no_active_release(identity: &str) -> Result<(), String> {
-    kanban::with_connection(|connection| {
+    kanban::with_read_connection(|connection| {
         let active: i64 = connection.query_row("SELECT COUNT(*) FROM release_operations WHERE repository_identity=?1 AND status IN ('running','awaitingApproval','failed','cancelled','interrupted')", [identity], |row| row.get(0)).map_err(db_error)?;
         if active > 0 {
             Err("This repository already has an active release. Resume or abandon it first.".into())

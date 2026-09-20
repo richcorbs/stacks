@@ -113,7 +113,7 @@ pub(in crate::kanban) fn update_creation_phase(
 ) -> Result<(), String> {
     with_connection(|connection| {
         let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .savepoint()
             .map_err(db_error)?;
         let changed = tx.execute("UPDATE environment_creation_operations SET phase=?1,error=?2,cleanup_available=?3,revision=revision+1,updated_at=?4 WHERE card_id=?5", params![phase,error,cleanup_available as i64,unix_timestamp(),card_id]).map_err(db_error)?;
         if changed != 1 {
@@ -132,8 +132,7 @@ pub(in crate::kanban) fn prepare_creation_operation(
     if setup_command.trim().is_empty() {
         return Err("Setup command cannot be empty".to_string());
     }
-    let (project_id, project_path, configured_branch) = with_connection(|connection| {
-        crate::store::migrate_store_schema(connection)?;
+    let (project_id, project_path, configured_branch) = with_read_connection(|connection| {
         connection.query_row("SELECT c.project_id,p.path,COALESCE(p.target_branch,'main') FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1", [id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?))).optional().map_err(db_error)?.ok_or_else(|| "The card or its owning project was not found".to_string())
     })?;
     let target = validate_checkout(&project_path, None)?;
@@ -150,7 +149,7 @@ pub(in crate::kanban) fn prepare_creation_operation(
     result_path.push(format!("{operation_id}.cwd"));
     with_connection(|connection| {
         let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .savepoint()
             .map_err(db_error)?;
         let (status, revision, current_project, provider, finalized, source, current_path): (String,i64,String,String,bool,String,String) = tx.query_row(
             "SELECT c.status,c.workflow_revision,c.project_id,c.external_provider,c.hierarchy_finalized,COALESCE(p.kanban_source,'local'),p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
@@ -185,7 +184,7 @@ pub(in crate::kanban) fn prepare_creation_operation(
         tx.execute("INSERT INTO environment_creation_operations (id,card_id,project_id,repository_id,expected_workflow_revision,target_checkout_path,target_branch,observed_target_revision,setup_command,custom_command,phase,result_path,pre_worktrees,pre_branches,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'prepared',?11,?12,?13,?14,?14)", params![operation_id,id,project_id,target.repository_id,expected_revision,target.target_checkout_path,target.target_branch,target.target_revision,setup_command.trim(),custom_command as i64,result_path.to_string_lossy(),worktrees,branches,unix_timestamp()]).map_err(db_error)?;
         tx.commit().map_err(db_error)
     })?;
-    with_connection(|connection| load_creation_operation_row(connection, id))?
+    with_read_connection(|connection| load_creation_operation_row(connection, id))?
         .ok_or_else(|| "Could not reload environment creation operation".to_string())
 }
 
@@ -208,7 +207,7 @@ pub(in crate::kanban) fn card_repository_identity(
     card_id: &str,
     require_environment: bool,
 ) -> Result<PathBuf, String> {
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         let snapshot: (String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) = connection
             .query_row(
                 "SELECT c.project_id,p.path,e.project_id,e.worktree_path,e.repository_id,e.target_checkout_path,o.repository_id,o.target_checkout_path,o.source_path
@@ -346,13 +345,13 @@ pub(in crate::kanban) fn persist_validated_source(
     let branch_new = !pre_branches.contains_key(&source.target_branch);
     with_connection(|connection| {
         let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .savepoint()
             .map_err(db_error)?;
         tx.execute("UPDATE environment_creation_operations SET phase='setup_complete',post_worktrees=?1,post_branches=?2,source_path=?3,source_branch=?4,source_revision=?5,source_worktree_new=?6,source_branch_new=?7,error=NULL,cleanup_available=?8,revision=revision+1,updated_at=?9 WHERE card_id=?10",
             params![serde_json::to_string(&post_worktrees).map_err(|e| e.to_string())?,serde_json::to_string(&post_branches).map_err(|e| e.to_string())?,source.target_checkout_path,source.target_branch,source.target_revision,worktree_new as i64,branch_new as i64,worktree_new as i64,unix_timestamp(),op.card_id]).map_err(db_error)?;
         tx.commit().map_err(db_error)
     })?;
-    with_connection(|connection| load_creation_operation_row(connection, &op.card_id))?
+    with_read_connection(|connection| load_creation_operation_row(connection, &op.card_id))?
         .ok_or_else(|| "Could not reload validated environment operation".to_string())
 }
 
@@ -478,7 +477,7 @@ pub(in crate::kanban) fn compensate_creation(
     }
     with_connection(|connection| {
         let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .savepoint()
             .map_err(db_error)?;
         tx.execute(
             "DELETE FROM environment_creation_operations WHERE card_id=?1",
@@ -518,13 +517,13 @@ pub(in crate::kanban) fn run_environment_creation(
     explicit_retry: bool,
     cancelled: &AtomicBool,
 ) -> Result<KanbanCard, String> {
-    if let Some(card) = with_connection(|connection| get_card(connection, &id))? {
+    if let Some(card) = with_read_connection(|connection| get_card(connection, &id))? {
         if card.environment.is_some() {
-            with_connection(|connection| validate_card_environment_project(connection, &id))?;
+            with_read_connection(|connection| validate_card_environment_project(connection, &id))?;
             return Ok(card);
         }
     }
-    let mut op = match with_connection(|connection| load_creation_operation_row(connection, &id))? {
+    let mut op = match with_read_connection(|connection| load_creation_operation_row(connection, &id))? {
         Some(existing) => existing,
         None => prepare_creation_operation(
             &id,
@@ -535,7 +534,7 @@ pub(in crate::kanban) fn run_environment_creation(
     };
     // Once prepared, the durable operation owns the expected revision. A later
     // card revision is reconciled during attachment and compensated safely.
-    let current_project = with_connection(|connection| {
+    let current_project = with_read_connection(|connection| {
         connection
             .query_row(
                 "SELECT project_id FROM kanban_cards WHERE id=?1",
@@ -553,7 +552,7 @@ pub(in crate::kanban) fn run_environment_creation(
             );
         }
         if op.phase == "recovery_required" {
-            return with_connection(|connection| get_card(connection, &id))?
+            return with_read_connection(|connection| get_card(connection, &id))?
                 .ok_or_else(|| "Kanban card was not found".to_string());
         }
     }
@@ -566,15 +565,15 @@ pub(in crate::kanban) fn run_environment_creation(
             with_connection(|connection| {
                 connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,error=NULL,revision=revision+1,updated_at=?2 WHERE card_id=?3", params![cwd,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
             })?;
-            op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+            op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
                 .unwrap();
         } else {
             if !explicit_retry {
-                return with_connection(|connection| get_card(connection, &id))?
+                return with_read_connection(|connection| get_card(connection, &id))?
                     .ok_or_else(|| "Kanban card was not found".to_string());
             }
             if setup_process_alive(&op.result_path) {
-                return with_connection(|connection| get_card(connection, &id))?
+                return with_read_connection(|connection| get_card(connection, &id))?
                     .ok_or_else(|| "Kanban card was not found".to_string());
             }
             let current_worktrees =
@@ -660,7 +659,7 @@ pub(in crate::kanban) fn run_environment_creation(
             }
             Err(error) => {
                 update_creation_phase(&id, "compensation_pending", Some(&error), false)?;
-                op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+                op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
                     .unwrap();
                 match persist_validated_source(&op, None) {
                     Ok(validated) => {
@@ -679,7 +678,7 @@ pub(in crate::kanban) fn run_environment_creation(
                 }
             }
         }
-        op = with_connection(|connection| load_creation_operation_row(connection, &id))?.unwrap();
+        op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?.unwrap();
     } else if op.phase == "setup_running" {
         if Path::new(&op.result_path).is_file() {
             let cwd = fs::read_to_string(&op.result_path)
@@ -689,7 +688,7 @@ pub(in crate::kanban) fn run_environment_creation(
             with_connection(|connection| {
                 connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,revision=revision+1,updated_at=?2 WHERE card_id=?3", params![cwd,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
             })?;
-            op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+            op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
                 .unwrap();
         } else if setup_process_alive(&op.result_path) {
             update_creation_phase(
@@ -698,7 +697,7 @@ pub(in crate::kanban) fn run_environment_creation(
                 Some("Setup is still running in the background. Resume after it finishes."),
                 false,
             )?;
-            return with_connection(|connection| get_card(connection, &id))?
+            return with_read_connection(|connection| get_card(connection, &id))?
                 .ok_or_else(|| "Kanban card was not found".to_string());
         } else {
             return creation_recovery(
@@ -764,7 +763,7 @@ pub(in crate::kanban) fn run_environment_creation(
         }
         Err(error) => {
             update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
-            op = with_connection(|connection| load_creation_operation_row(connection, &id))?
+            op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
                 .unwrap();
             compensate_creation(&op)
         }
@@ -806,7 +805,7 @@ pub(in crate::kanban) async fn kanban_cleanup_environment_creation_operation(
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
         coordinate_card_repository(&id, false, || {
-            let op = with_connection(|connection| {
+            let op = with_read_connection(|connection| {
                 require_structural_capability(connection, &id, WorkflowAction::CleanupCreation)?;
                 load_creation_operation_row(connection, &id)
             })?
@@ -836,7 +835,7 @@ pub(in crate::kanban) fn kanban_environment_start_preflight_operation(
     id: String,
     expected_workflow_revision: i64,
 ) -> Result<EnvironmentStartPreflight, String> {
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         let (status, revision, project_id, provider, finalized): (CardStatus, i64, String, String, bool) = connection
             .query_row(
                 "SELECT status, workflow_revision, project_id, external_provider, hierarchy_finalized FROM kanban_cards WHERE id = ?1",
@@ -851,7 +850,6 @@ pub(in crate::kanban) fn kanban_environment_start_preflight_operation(
         }
         let _ = (status, finalized);
         require_structural_capability(connection, &id, WorkflowAction::StartWork)?;
-        crate::store::migrate_store_schema(connection)?;
         let source: String = connection
             .query_row(
                 "SELECT COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
@@ -891,12 +889,11 @@ pub(in crate::kanban) fn kanban_create_environment(
     if worktree_path.trim().is_empty() {
         return Err("Worktree path is required".to_string());
     }
-    let project_path_snapshot = with_connection(|connection| {
+    let project_path_snapshot = with_read_connection(|connection| {
         let card = require_structural_capability(connection, &id, WorkflowAction::StartWork)?;
         if card.workflow_revision != expected_workflow_revision {
             return Err("Card changed; reload before creating its environment".to_string());
         }
-        crate::store::migrate_store_schema(connection)?;
         connection.query_row(
             "SELECT p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
             [&id],
@@ -924,7 +921,7 @@ pub(in crate::kanban) fn kanban_create_environment(
     ensure_registered_distinct_worktree(&target_checkout_path, &worktree_path)?;
     with_connection(|connection| {
         ensure_card_directory(&id)?;
-        let transaction = connection.transaction().map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         let (card_status, workflow_revision, project_id, provider, finalized): (CardStatus, i64, String, String, bool) = transaction
             .query_row(
                 "SELECT status, workflow_revision, project_id, external_provider, hierarchy_finalized FROM kanban_cards WHERE id = ?1",
@@ -1055,7 +1052,7 @@ pub(in crate::kanban) fn save_environment_layout(
     expected_layout_revision: i64,
 ) -> Result<(), String> {
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let environment_id: String = transaction
         .query_row(

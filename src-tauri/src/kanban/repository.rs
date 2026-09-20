@@ -83,48 +83,212 @@ pub(in crate::kanban) fn configure_connection(connection: &Connection) -> Result
         .map_err(|error| format!("Could not enable database foreign keys: {error}"))
 }
 
-pub(crate) fn with_connection<T>(
+fn open_connection(read_only: bool) -> Result<Connection, String> {
+    let path = app_data_file("workflow.sqlite3")?;
+    let connection = if read_only {
+        Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+    } else {
+        Connection::open(path)
+    }
+    .map_err(db_error)?;
+    configure_connection(&connection)?;
+    Ok(connection)
+}
+
+/// Run a query without taking the board mutation lock. WAL allows these readers
+/// to continue while a board transaction is being committed.
+pub(crate) fn with_read_connection<T>(
     work: impl FnOnce(&mut Connection) -> Result<T, String>,
 ) -> Result<T, String> {
-    // Serialize the complete read/mutate/revision cycle. SQLite serializes writes,
-    // but without this lock a second window could commit between a mutation and
-    // its revision bookkeeping, causing one logical operation to claim another's
-    // entity changes.
+    let mut connection = open_connection(true)?;
+    connection
+        .pragma_update(None, "query_only", "ON")
+        .map_err(db_error)?;
+    work(&mut connection)
+}
+
+/// Run persistence which cannot alter a hydrated card. Such writes use SQLite's
+/// normal locking and deliberately do not participate in board revisions.
+pub(crate) fn with_write_connection<T>(
+    work: impl FnOnce(&mut Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut connection = open_connection(false)?;
+    work(&mut connection)
+}
+
+fn install_mutation_tracking(connection: &Connection) -> Result<(), String> {
+    connection.execute_batch(
+        "CREATE TEMP TABLE IF NOT EXISTS kanban_affected(id TEXT PRIMARY KEY);
+         CREATE TEMP TABLE IF NOT EXISTS kanban_removed(id TEXT PRIMARY KEY);
+         DELETE FROM kanban_affected; DELETE FROM kanban_removed;
+         CREATE TEMP TRIGGER IF NOT EXISTS track_card_insert AFTER INSERT ON main.kanban_cards WHEN NEW.in_scope=1 BEGIN
+           INSERT OR IGNORE INTO kanban_affected VALUES(NEW.id);
+           INSERT OR IGNORE INTO kanban_affected SELECT NEW.parent_id WHERE NEW.parent_id IS NOT NULL;
+         END;
+         CREATE TEMP TRIGGER IF NOT EXISTS track_card_update AFTER UPDATE ON main.kanban_cards
+         WHEN OLD.external_provider IS NOT NEW.external_provider OR OLD.external_id IS NOT NEW.external_id
+           OR OLD.title IS NOT NEW.title OR OLD.content IS NOT NEW.content OR OLD.board_id IS NOT NEW.board_id
+           OR OLD.board_title IS NOT NEW.board_title OR OLD.list_id IS NOT NEW.list_id OR OLD.list_title IS NOT NEW.list_title
+           OR OLD.card_url IS NOT NEW.card_url OR OLD.assignee_names IS NOT NEW.assignee_names OR OLD.status IS NOT NEW.status
+           OR OLD.completion_outcome IS NOT NEW.completion_outcome OR OLD.feature_environment IS NOT NEW.feature_environment
+           OR OLD.delivery_operation_stage IS NOT NEW.delivery_operation_stage OR OLD.delivery_error IS NOT NEW.delivery_error
+           OR OLD.runtime_cleanup_status IS NOT NEW.runtime_cleanup_status OR OLD.runtime_cleanup_error IS NOT NEW.runtime_cleanup_error
+           OR OLD.workflow_revision IS NOT NEW.workflow_revision OR OLD.project_id IS NOT NEW.project_id
+           OR OLD.parent_id IS NOT NEW.parent_id OR OLD.hierarchy_finalized IS NOT NEW.hierarchy_finalized
+           OR OLD.provider_child_count IS NOT NEW.provider_child_count OR OLD.provider_parent_title IS NOT NEW.provider_parent_title
+           OR OLD.sort_order IS NOT NEW.sort_order OR OLD.in_scope IS NOT NEW.in_scope
+         BEGIN
+           INSERT OR IGNORE INTO kanban_affected SELECT NEW.id WHERE NEW.in_scope=1;
+           INSERT OR IGNORE INTO kanban_removed SELECT OLD.id WHERE OLD.in_scope=1 AND NEW.in_scope=0;
+           INSERT OR IGNORE INTO kanban_affected SELECT OLD.parent_id
+             WHERE OLD.parent_id IS NOT NULL AND (OLD.parent_id IS NOT NEW.parent_id OR OLD.external_id IS NOT NEW.external_id OR OLD.title IS NOT NEW.title OR OLD.status IS NOT NEW.status OR OLD.in_scope IS NOT NEW.in_scope);
+           INSERT OR IGNORE INTO kanban_affected SELECT NEW.parent_id
+             WHERE NEW.parent_id IS NOT NULL AND (OLD.parent_id IS NOT NEW.parent_id OR OLD.external_id IS NOT NEW.external_id OR OLD.title IS NOT NEW.title OR OLD.status IS NOT NEW.status OR OLD.in_scope IS NOT NEW.in_scope);
+           INSERT OR IGNORE INTO kanban_affected SELECT id FROM main.kanban_cards
+             WHERE parent_id=NEW.id AND in_scope=1 AND (OLD.external_id IS NOT NEW.external_id OR OLD.title IS NOT NEW.title OR OLD.status IS NOT NEW.status OR OLD.in_scope IS NOT NEW.in_scope);
+         END;
+         CREATE TEMP TRIGGER IF NOT EXISTS track_card_delete BEFORE DELETE ON main.kanban_cards WHEN OLD.in_scope=1 BEGIN
+           INSERT OR IGNORE INTO kanban_removed VALUES(OLD.id);
+           INSERT OR IGNORE INTO kanban_affected SELECT OLD.parent_id WHERE OLD.parent_id IS NOT NULL;
+         END;
+         CREATE TEMP TRIGGER IF NOT EXISTS track_project_cards AFTER UPDATE OF kanban_source,delivery_workflow,supports_feature_environments ON main.projects
+         WHEN OLD.kanban_source IS NOT NEW.kanban_source OR OLD.delivery_workflow IS NOT NEW.delivery_workflow
+           OR OLD.supports_feature_environments IS NOT NEW.supports_feature_environments
+         BEGIN INSERT OR IGNORE INTO kanban_affected SELECT id FROM main.kanban_cards WHERE project_id=NEW.id AND in_scope=1; END;"
+    ).map_err(db_error)?;
+    for table in [
+        "card_pull_requests",
+        "card_environments",
+        "environment_creation_operations",
+        "card_target_merge_operations",
+        "scripted_delivery_operations",
+        "card_cleanup_operations",
+        "card_events",
+        "provider_sync_operations",
+    ] {
+        connection.execute_batch(&format!(
+            "CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_insert AFTER INSERT ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(NEW.card_id); END;
+             CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_update AFTER UPDATE ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(NEW.card_id); END;
+             CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_delete BEFORE DELETE ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(OLD.card_id); END;"
+        )).map_err(db_error)?;
+    }
+    for table in ["card_panes", "card_layouts"] {
+        connection.execute_batch(&format!(
+            "CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_insert AFTER INSERT ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected SELECT card_id FROM main.card_environments WHERE id=NEW.environment_id; END;
+             CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_update AFTER UPDATE ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected SELECT card_id FROM main.card_environments WHERE id IN (OLD.environment_id,NEW.environment_id); END;
+             CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_delete BEFORE DELETE ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected SELECT card_id FROM main.card_environments WHERE id=OLD.environment_id; END;"
+        )).map_err(db_error)?;
+    }
+    Ok(())
+}
+
+fn tracked_ids(connection: &Connection, table: &str) -> Result<Vec<String>, String> {
+    let mut statement = connection
+        .prepare(&format!("SELECT id FROM temp.{table} ORDER BY id"))
+        .map_err(db_error)?;
+    let ids = statement
+        .query_map([], |row| row.get(0))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    Ok(ids)
+}
+
+/// Execute one card-visible transition. Domain changes and both revision levels
+/// share the same IMMEDIATE transaction. The lock remains held through targeted
+/// hydration and event construction so revisions are emitted in commit order.
+pub(crate) fn with_board_mutation<T>(
+    work: impl FnOnce(&mut Connection) -> Result<T, String>,
+) -> Result<T, String> {
     let _guard = BOARD_OPERATION_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .map_err(|_| "Kanban board operation lock failed".to_string())?;
-    let path = app_data_file("workflow.sqlite3")?;
-    let mut connection = Connection::open(path).map_err(db_error)?;
-    configure_connection(&connection)?;
-    let before = serialized_board_entities(&mut connection)?;
-    let result = work(&mut connection);
-    let after = serialized_board_entities(&mut connection)?;
-    if let Some(change) = commit_board_revision(&mut connection, &before, &after)? {
-        if let Some(app) = APP_HANDLE.get() {
-            if let Err(error) = app.emit("kanban-board-changed", &change) {
-                eprintln!("Kanban mutation committed at board revision {}, but event delivery failed: {error}", change.board_revision);
-            }
+    let mut connection = open_connection(false)?;
+    let (result, change) = execute_board_mutation(&mut connection, work)?;
+    if let (Some(app), Some(change)) = (APP_HANDLE.get(), change) {
+        if let Err(error) = app.emit("kanban-board-changed", &change) {
+            eprintln!("Kanban mutation committed at board revision {}, but event delivery failed: {error}", change.board_revision);
         }
     }
-    result
+    Ok(result)
 }
 
-pub(in crate::kanban) fn serialized_board_entities(
+pub(in crate::kanban) fn execute_board_mutation<T>(
     connection: &mut Connection,
-) -> Result<HashMap<String, String>, String> {
-    let mut cards = list_cards(connection)?;
-    cards
-        .iter_mut()
-        .map(|card| {
-            // A revision is metadata about freshness, not part of the serialized
-            // entity change being detected.
-            card.record_revision = 0;
-            serde_json::to_string(card)
-                .map(|serialized| (card.id.clone(), serialized))
-                .map_err(|error| error.to_string())
-        })
-        .collect()
+    work: impl FnOnce(&mut Connection) -> Result<T, String>,
+) -> Result<(T, Option<BoardChange>), String> {
+    install_mutation_tracking(connection)?;
+    connection
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(db_error)?;
+    let result = match work(connection) {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            return Err(error);
+        }
+    };
+    let removed_ids = tracked_ids(connection, "kanban_removed")?;
+    let mut affected_ids = tracked_ids(connection, "kanban_affected")?;
+    affected_ids.retain(|id| !removed_ids.contains(id));
+    let mut surviving = Vec::new();
+    for id in affected_ids {
+        if connection
+            .query_row(
+                "SELECT in_scope FROM kanban_cards WHERE id=?1",
+                [&id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(db_error)?
+            == Some(1)
+        {
+            connection
+                .execute(
+                    "UPDATE kanban_cards SET record_revision=record_revision+1 WHERE id=?1",
+                    [&id],
+                )
+                .map_err(db_error)?;
+            surviving.push(id);
+        }
+    }
+    let revision = if surviving.is_empty() && removed_ids.is_empty() {
+        board_revision(connection)?
+    } else {
+        connection.execute("UPDATE kanban_board_metadata SET board_revision=board_revision+1 WHERE singleton=1", []).map_err(db_error)?;
+        board_revision(connection)?
+    };
+    connection.execute_batch("COMMIT").map_err(db_error)?;
+    if surviving.is_empty() && removed_ids.is_empty() {
+        return Ok((result, None));
+    }
+    let mut upserts = Vec::with_capacity(surviving.len());
+    for id in surviving {
+        if let Some(card) = get_card(connection, &id)? {
+            upserts.push(card);
+        }
+    }
+    Ok((
+        result,
+        Some(BoardChange {
+            upserts,
+            removed_ids,
+            board_revision: revision,
+        }),
+    ))
+}
+
+// Kept as the board-write spelling inside the Kanban modules while call sites
+// are organized by operation. Reads and non-board persistence must use the
+// focused helpers above.
+pub(crate) fn with_connection<T>(
+    work: impl FnOnce(&mut Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    with_board_mutation(work)
 }
 
 pub(in crate::kanban) fn board_revision(connection: &Connection) -> Result<i64, String> {
@@ -147,7 +311,7 @@ pub(in crate::kanban) fn board_snapshot(
 }
 
 pub(in crate::kanban) fn fresh_card_snapshot(id: &str) -> Result<CardSnapshot, String> {
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         let card =
             get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
         Ok(CardSnapshot {
@@ -155,64 +319,6 @@ pub(in crate::kanban) fn fresh_card_snapshot(id: &str) -> Result<CardSnapshot, S
             board_revision: board_revision(connection)?,
         })
     })
-}
-
-pub(in crate::kanban) fn commit_board_revision(
-    connection: &mut Connection,
-    before: &HashMap<String, String>,
-    after: &HashMap<String, String>,
-) -> Result<Option<BoardChange>, String> {
-    let mut changed_ids = after
-        .iter()
-        .filter(|(id, value)| before.get(*id) != Some(*value))
-        .map(|(id, _)| id.clone())
-        .collect::<Vec<_>>();
-    let mut removed_ids = before
-        .keys()
-        .filter(|id| !after.contains_key(*id))
-        .cloned()
-        .collect::<Vec<_>>();
-    changed_ids.sort();
-    removed_ids.sort();
-    if changed_ids.is_empty() && removed_ids.is_empty() {
-        return Ok(None);
-    }
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(db_error)?;
-    transaction
-        .execute(
-            "UPDATE kanban_board_metadata SET board_revision=board_revision+1 WHERE singleton=1",
-            [],
-        )
-        .map_err(db_error)?;
-    for id in &changed_ids {
-        transaction
-            .execute(
-                "UPDATE kanban_cards SET record_revision=record_revision+1 WHERE id=?1",
-                [id],
-            )
-            .map_err(db_error)?;
-    }
-    let revision: i64 = transaction
-        .query_row(
-            "SELECT board_revision FROM kanban_board_metadata WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(db_error)?;
-    transaction.commit().map_err(db_error)?;
-    let mut upserts = Vec::with_capacity(changed_ids.len());
-    for id in changed_ids {
-        if let Some(card) = get_card(connection, &id)? {
-            upserts.push(card);
-        }
-    }
-    Ok(Some(BoardChange {
-        upserts,
-        removed_ids,
-        board_revision: revision,
-    }))
 }
 
 pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
@@ -1018,8 +1124,12 @@ pub(in crate::kanban) fn enrich_capabilities(
     cards: &mut [KanbanCard],
     work_agent_launch_retries: Option<&HashMap<String, bool>>,
 ) -> Result<(), String> {
-    crate::store::migrate_store_schema(connection)?;
-    let projects = {
+    let has_projects = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects')",
+        [],
+        |row| row.get::<_, i64>(0),
+    ).map_err(db_error)? != 0;
+    let projects = if has_projects {
         let mut statement = connection.prepare(
             "SELECT id, COALESCE(kanban_source, 'local'), delivery_workflow, supports_feature_environments FROM projects",
         ).map_err(db_error)?;
@@ -1035,8 +1145,9 @@ pub(in crate::kanban) fn enrich_capabilities(
                 ))
             })
             .map_err(db_error)?;
-        rows.collect::<Result<HashMap<_, _>, _>>()
-            .map_err(db_error)?
+        rows.collect::<Result<HashMap<_, _>, _>>().map_err(db_error)?
+    } else {
+        HashMap::new()
     };
     for card in cards {
         let project = card.project_id.as_ref().and_then(|id| projects.get(id));

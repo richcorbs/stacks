@@ -223,7 +223,7 @@ pub(in crate::kanban) async fn kanban_refresh_pull_request_operation(
         if let Some(detail) = &error {
             record_operation_failure(&id, "refresh_pr", "refresh_pr_failed", detail);
         }
-        let card = with_connection(|connection| {
+        let card = with_read_connection(|connection| {
             get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())
         })?;
         Ok(KanbanPullRequestRefreshResult { card, error })
@@ -314,7 +314,7 @@ pub(in crate::kanban) async fn kanban_merge_pull_request_operation(
             let number = pr.number.to_string();
             let flag = match settings.merge_strategy.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
             crate::github::run_gh(Some(Path::new(&settings.path)), &["pr", "merge", &number, "--repo", &pr.repository, flag])?;
-            let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_error)?;
+            let transaction=connection.savepoint().map_err(db_error)?;
             apply_workflow_transition(&transaction, &id, WorkflowActor::User, WorkflowAction::MergePr, Some(expected_workflow_revision), "merge_pr", Some("Merged pull request"))?;
             transaction.execute("UPDATE card_pull_requests SET state='merged', updated_at=?1 WHERE card_id=?2", params![unix_timestamp(), id]).map_err(db_error)?;
             transaction.execute("UPDATE kanban_cards SET delivery_operation_stage='deleting_remote_branch' WHERE id=?1", [&id]).map_err(db_error)?;

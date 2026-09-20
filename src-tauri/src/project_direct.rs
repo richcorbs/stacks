@@ -76,7 +76,7 @@ fn load(connection: &Connection, project_id: &str) -> Result<Option<ProjectDirec
 
 #[tauri::command]
 pub fn project_direct_load_or_create(project_id: String) -> Result<ProjectDirectWork, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         if !project_exists(connection, &project_id)? {
             return Err("The Project Workspace project was not found".into());
         }
@@ -108,7 +108,7 @@ pub fn project_direct_save_layout(
     pane_ids: Vec<String>,
     expected_revision: i64,
 ) -> Result<ProjectDirectWork, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         let transaction = connection.transaction().map_err(db_error)?;
         let changed = transaction.execute(
             "UPDATE project_direct_work SET revision=revision+1, split_layout=?1, focused_pane_id=?2, updated_at=?3 WHERE project_id=?4 AND revision=?5",
@@ -140,7 +140,7 @@ pub fn project_direct_delete(
     pi_registry: State<'_, Mutex<PiRpcRegistry>>,
     pty_registry: State<'_, Mutex<PtyRegistry>>,
 ) -> Result<Vec<String>, String> {
-    let pane_ids = kanban::with_connection(|connection| {
+    let pane_ids = kanban::with_write_connection(|connection| {
         let mut ids = load(connection, &project_id)?
             .map(|state| state.pane_ids)
             .unwrap_or_default();
@@ -156,7 +156,7 @@ pub fn project_direct_delete(
         pty_registry.inner(),
         &format!("project-direct:{project_id}:terminal:"),
     )?;
-    kanban::with_connection(|connection| delete_persistence(connection, &project_id))?;
+    kanban::with_write_connection(|connection| delete_persistence(connection, &project_id))?;
     Ok(pane_ids.into_iter().chain(live_pane_ids).collect())
 }
 

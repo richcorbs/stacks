@@ -338,56 +338,6 @@ fn revision_schema_migrates_existing_cards_and_initializes_board_metadata() {
 }
 
 #[test]
-fn revision_bookkeeping_touches_derived_relationships_once_per_transaction() {
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrate(&connection).unwrap();
-    crate::store::migrate_store_schema(&connection).unwrap();
-    connection
-        .execute_batch(
-            "INSERT INTO kanban_cards
-            (id,external_provider,external_id,title,status,created_at,updated_at,parent_id)
-            VALUES ('parent','local:p','1','Parent','needs_refinement',1,1,NULL),
-                   ('child','local:p','2','Child','needs_refinement',1,1,'parent');",
-        )
-        .unwrap();
-    let before = serialized_board_entities(&mut connection).unwrap();
-    connection
-        .execute(
-            "UPDATE kanban_cards SET title='Changed', status='ready' WHERE id='child'",
-            [],
-        )
-        .unwrap();
-    connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome) VALUES ('child',2,'user','test','success')", []).unwrap();
-    let after = serialized_board_entities(&mut connection).unwrap();
-    let change = commit_board_revision(&mut connection, &before, &after)
-        .unwrap()
-        .unwrap();
-    assert_eq!(change.board_revision, 1);
-    assert_eq!(
-        change
-            .upserts
-            .iter()
-            .map(|card| card.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["child", "parent"]
-    );
-    let revisions = connection
-        .prepare("SELECT id,record_revision FROM kanban_cards ORDER BY id")
-        .unwrap()
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })
-        .unwrap()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    assert_eq!(revisions, vec![("child".into(), 2), ("parent".into(), 2)]);
-    assert!(commit_board_revision(&mut connection, &after, &after)
-        .unwrap()
-        .is_none());
-    assert_eq!(board_revision(&connection).unwrap(), 1);
-}
-
-#[test]
 fn revisions_report_deletion_and_card_order_has_stable_id_tie_breaker() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
@@ -402,14 +352,11 @@ fn revisions_report_deletion_and_card_order_has_stable_id_tie_breaker() {
             .collect::<Vec<_>>(),
         vec!["a", "z"]
     );
-    let before = serialized_board_entities(&mut connection).unwrap();
-    connection
-        .execute("DELETE FROM kanban_cards WHERE id='a'", [])
-        .unwrap();
-    let after = serialized_board_entities(&mut connection).unwrap();
-    let change = commit_board_revision(&mut connection, &before, &after)
-        .unwrap()
-        .unwrap();
+    let (_, change) = execute_board_mutation(&mut connection, |connection| {
+        connection.execute("DELETE FROM kanban_cards WHERE id='a'", []).map_err(db_error)?;
+        Ok(())
+    }).unwrap();
+    let change = change.unwrap();
     assert_eq!(change.removed_ids, vec!["a"]);
     assert_eq!(change.board_revision, 1);
 }
@@ -3341,4 +3288,68 @@ fn makes_card_ids_safe_for_directories() {
         safe_card_key("superthread:42/../../oops"),
         "superthread_42_______oops"
     );
+}
+
+#[test]
+fn atomic_board_mutation_tracks_relationships_once_and_commits_revisions() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    initialize_connection(&mut connection, false).unwrap();
+    test_project(&connection, "project", "local", "/tmp/project");
+    for (id, parent) in [("parent", None), ("child", Some("parent"))] {
+        connection.execute(
+            "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,parent_id,created_at,updated_at,in_scope) VALUES(?1,'local:project',?1,?1,'needs_refinement','project',?2,1,1,1)",
+            params![id, parent],
+        ).unwrap();
+    }
+
+    let (_, change) = execute_board_mutation(&mut connection, |connection| {
+        connection.execute("UPDATE kanban_cards SET title='Changed' WHERE id='child'", []).map_err(db_error)?;
+        // Duplicate writes still produce one record revision increment.
+        connection.execute("UPDATE kanban_cards SET content='Description' WHERE id='child'", []).map_err(db_error)?;
+        Ok(())
+    }).unwrap();
+    let change = change.unwrap();
+    assert_eq!(change.board_revision, 1);
+    assert_eq!(change.upserts.iter().map(|card| card.id.as_str()).collect::<Vec<_>>(), vec!["child", "parent"]);
+    assert!(change.upserts.iter().all(|card| card.record_revision == 2));
+}
+
+#[test]
+fn failed_and_noop_board_mutations_leave_domain_and_revisions_unchanged() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    initialize_connection(&mut connection, false).unwrap();
+    connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,created_at,updated_at,in_scope) VALUES('card','local:p','1','Before','needs_refinement',1,1,1)", []).unwrap();
+
+    let error = execute_board_mutation(&mut connection, |connection| {
+        connection.execute("UPDATE kanban_cards SET title='After' WHERE id='card'", []).map_err(db_error)?;
+        Err::<(), _>("reject".into())
+    }).unwrap_err();
+    assert_eq!(error, "reject");
+    let row: (String, i64) = connection.query_row("SELECT title,record_revision FROM kanban_cards WHERE id='card'", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+    assert_eq!(row, ("Before".into(), 1));
+    assert_eq!(board_revision(&connection).unwrap(), 0);
+
+    let (_, change) = execute_board_mutation(&mut connection, |_| Ok(())).unwrap();
+    assert!(change.is_none());
+    assert_eq!(board_revision(&connection).unwrap(), 0);
+}
+
+#[test]
+fn board_mutation_reports_deletions_and_project_capability_dependencies() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    initialize_connection(&mut connection, false).unwrap();
+    test_project(&connection, "project", "local", "/tmp/project");
+    for id in ["one", "two"] {
+        connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,created_at,updated_at,in_scope) VALUES(?1,'local:project',?1,?1,'needs_refinement','project',1,1,1)", [id]).unwrap();
+    }
+    let (_, change) = execute_board_mutation(&mut connection, |connection| {
+        connection.execute("UPDATE projects SET supports_feature_environments=1 WHERE id='project'", []).map_err(db_error)?;
+        connection.execute("DELETE FROM kanban_cards WHERE id='two'", []).map_err(db_error)?;
+        Ok(())
+    }).unwrap();
+    let change = change.unwrap();
+    assert_eq!(change.removed_ids, vec!["two"]);
+    assert_eq!(change.upserts.iter().map(|card| card.id.as_str()).collect::<Vec<_>>(), vec!["one"]);
+    assert_eq!(change.upserts[0].record_revision, 2);
+    assert_eq!(change.board_revision, 1);
 }

@@ -327,7 +327,7 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
 
 #[tauri::command]
 pub fn load_store() -> Result<ProjectStore, String> {
-    kanban::with_connection(|connection| read_store(connection))
+    kanban::with_read_connection(|connection| read_store(connection))
 }
 
 pub(crate) fn migrate_legacy_data(
@@ -352,7 +352,7 @@ pub(crate) struct PiProjectScope {
 }
 
 pub(crate) fn pi_project_scope(project_id: &str) -> Result<PiProjectScope, String> {
-    kanban::with_connection(|connection| pi_project_scope_from_connection(connection, project_id))
+    kanban::with_read_connection(|connection| pi_project_scope_from_connection(connection, project_id))
 }
 
 fn pi_project_scope_from_connection(
@@ -388,7 +388,7 @@ pub struct ProjectNotes {
 
 #[tauri::command]
 pub fn load_project_notes(project_id: String) -> Result<ProjectNotes, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_read_connection(|connection| {
         load_project_notes_from_connection(connection, &project_id)
     })
 }
@@ -422,7 +422,7 @@ pub fn save_project_notes(
     notes: String,
     expected_revision: i64,
 ) -> Result<ProjectNotes, String> {
-    kanban::with_connection(|connection| {
+    kanban::with_write_connection(|connection| {
         save_project_notes_to_connection(connection, &project_id, &notes, expected_revision)
     })
 }
@@ -459,7 +459,7 @@ fn save_project_notes_to_connection(
 
 #[tauri::command]
 pub fn save_store(store: ProjectStore) -> Result<(), String> {
-    kanban::with_connection(|connection| write_store(connection, &store))?;
+    kanban::with_board_mutation(|connection| write_store(connection, &store))?;
     write_legacy_json_mirror(&store)
 }
 
@@ -587,7 +587,7 @@ pub async fn create_project(
 
 fn create_project_validated(input: ProjectConfigurationInput) -> Result<ProjectStore, String> {
     validate_project_input(&input)?;
-    let store = kanban::with_connection(|connection| {
+    let store = kanban::with_write_connection(|connection| {
         if connection
             .query_row(
                 "SELECT 1 FROM projects WHERE id=?1",
@@ -668,11 +668,11 @@ pub async fn update_project_configuration(
     mut input: ProjectConfigurationInput,
 ) -> Result<ProjectStore, String> {
     let provider = service.inner().clone();
-    let previous_token_env = kanban::with_connection(|connection| connection.query_row(
+    let previous_token_env = kanban::with_read_connection(|connection| connection.query_row(
         "SELECT CASE WHEN kanban_source='superthread' THEN superthread_api_token_env_var END FROM projects WHERE id=?1",
         [&input.id], |row| row.get::<_,Option<String>>(0)
     ).optional().map_err(db_error).map(|value| value.flatten()))?;
-    if kanban::with_connection(|connection| kanban::executing_for_project(connection, &input.id))? {
+    if kanban::with_read_connection(|connection| kanban::executing_for_project(connection, &input.id))? {
         return Err(
             "Project settings cannot be saved while provider synchronization is executing".into(),
         );
@@ -682,7 +682,7 @@ pub async fn update_project_configuration(
     let next_token_env = input.superthread_api_token_env_var.clone();
     let saved = update_project_configuration_validated(input)?;
     if previous_token_env != next_token_env && next_token_env.is_some() {
-        let card_ids = kanban::with_connection(|connection| {
+        let card_ids = kanban::with_read_connection(|connection| {
             let mut statement = connection.prepare("SELECT id FROM kanban_cards WHERE project_id=?1 AND binding_id IS NOT NULL").map_err(db_error)?;
             let rows = statement.query_map([&project_id], |row| row.get::<_,String>(0)).map_err(db_error)?
                 .collect::<Result<Vec<_>,_>>().map_err(db_error)?;
@@ -755,7 +755,7 @@ fn update_project_configuration_validated(
     input: ProjectConfigurationInput,
 ) -> Result<ProjectStore, String> {
     validate_project_input(&input)?;
-    let store = kanban::with_connection(|connection| {
+    let store = kanban::with_board_mutation(|connection| {
         let duplicate = connection
             .query_row(
                 "SELECT name FROM projects WHERE id != ?1 AND path = ?2 LIMIT 1",
@@ -804,7 +804,7 @@ fn update_project_configuration_validated(
                 return Err(format!("Superthread binding cannot change: finish {active} active card(s) and clean up {environments} environment(s) first."));
             }
         }
-        let transaction = connection.transaction().map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         if !update_project_configuration_row(&transaction, &input, next_source)? {
             return Err("Project configuration changed since it was loaded; review this draft before saving again".into());
         }
@@ -905,7 +905,7 @@ fn update_project_configuration_row(
 
 #[tauri::command]
 pub fn delete_project(project_id: String) -> Result<ProjectStore, String> {
-    let (store, removed_cards) = kanban::with_connection(|connection| {
+    let (store, removed_cards) = kanban::with_board_mutation(|connection| {
         let source = connection
             .query_row(
                 "SELECT COALESCE(kanban_source,'local') FROM projects WHERE id=?1",
@@ -928,9 +928,9 @@ pub fn delete_project(project_id: String) -> Result<ProjectStore, String> {
         }
         let removed_cards = connection.prepare("SELECT id FROM kanban_cards WHERE project_id=?1 AND external_provider != 'superthread'").map_err(db_error)?
             .query_map([&project_id], |row| row.get::<_, String>(0)).map_err(db_error)?.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
-        let transaction = connection.transaction().map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         if source == "superthread" {
-            transaction.execute("UPDATE kanban_cards SET project_id=NULL,in_scope=0 WHERE external_provider='superthread'", []).map_err(db_error)?;
+            transaction.execute("UPDATE kanban_cards SET project_id=NULL,in_scope=0 WHERE project_id=?1 AND external_provider='superthread'", [&project_id]).map_err(db_error)?;
         }
         transaction.execute("DELETE FROM kanban_cards WHERE project_id=?1 AND external_provider != 'superthread'", [&project_id]).map_err(db_error)?;
         transaction
@@ -1226,7 +1226,7 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
             }
         }
     }
-    let transaction = connection.transaction().map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     for project_id in &removed_projects {
         transaction
             .execute("DELETE FROM kanban_cards WHERE project_id=?1 AND external_provider != 'superthread'", [project_id])

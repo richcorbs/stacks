@@ -6,13 +6,13 @@ use super::{
 };
 
 pub(in crate::kanban) fn kanban_cards_operation() -> Result<BoardSnapshot, String> {
-    with_connection(board_snapshot)
+    with_read_connection(board_snapshot)
 }
 
 pub(in crate::kanban) fn kanban_card_snapshot_operation(
     id: String,
 ) -> Result<CardSnapshot, String> {
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         let card =
             get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
         Ok(CardSnapshot {
@@ -26,7 +26,7 @@ pub(in crate::kanban) async fn kanban_environment_health_operation(
     card_ids: Vec<String>,
 ) -> Result<Vec<CardEnvironmentHealth>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        with_connection(|connection| {
+        with_read_connection(|connection| {
             card_ids
                 .iter()
                 .map(|card_id| environment_health(connection, card_id))
@@ -82,7 +82,7 @@ pub(in crate::kanban) fn create_local_card(
     if title.is_empty() {
         return Err("Card title is required".to_string());
     }
-    let transaction = connection.transaction().map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     let next_number = next_local_card_number(&transaction, project_id)?;
     let id = format!("local:{}", uuid::Uuid::new_v4());
     let now = unix_timestamp();
@@ -101,7 +101,7 @@ pub(in crate::kanban) fn create_local_card(
 }
 
 pub(crate) fn card_project_id(id: &str) -> Result<Option<String>, String> {
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         connection
             .query_row(
                 "SELECT project_id FROM kanban_cards WHERE id = ?1",
@@ -188,7 +188,7 @@ pub(crate) fn finish_local_refinement(
         return Err("A final card description is required before finishing refinement".to_string());
     }
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let (source_status, project_id, parent_id, finalized, existing_child_count): (CardStatus, String, Option<String>, bool, i64) = transaction
         .query_row(
@@ -276,7 +276,7 @@ pub(in crate::kanban) fn set_card_parent(
 }
 
 pub(in crate::kanban) fn finalize_breakdown(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &Connection,
     parent_id: &str,
     project_id: &str,
     specs: &[ApprovedChildSpec],
@@ -384,7 +384,7 @@ pub(in crate::kanban) fn finalize_breakdown(
 }
 
 pub(in crate::kanban) fn kanban_open_card_operation(id: String) -> Result<String, String> {
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         if get_card(connection, &id)?.is_none() {
             return Err("Kanban card was not found".to_string());
         }
@@ -415,7 +415,7 @@ pub(crate) fn validate_card_pi_start(
     cwd: &str,
     supplied_project_id: &str,
 ) -> Result<(), String> {
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         let (project_id, provider, project_path): (String, String, String) = connection.query_row(
             "SELECT c.project_id, c.external_provider, p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
             [card_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -468,7 +468,7 @@ pub(crate) fn validate_card_terminal_start(
     let Some((card_id, role)) = scoped.rsplit_once(":terminal:") else {
         return Ok(requested_command);
     };
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         validate_card_environment_project(connection, card_id)?;
         let (project_id, worktree_path): (String, String) = connection.query_row(
             "SELECT c.project_id, e.worktree_path FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
@@ -587,7 +587,7 @@ pub(in crate::kanban) fn validate_project_deletion(
 pub(in crate::kanban) fn kanban_validate_project_deletion_operation(
     project_id: String,
 ) -> Result<(), String> {
-    with_connection(|connection| validate_project_deletion(connection, &project_id).map(|_| ()))
+    with_read_connection(|connection| validate_project_deletion(connection, &project_id).map(|_| ()))
 }
 
 pub(in crate::kanban) fn kanban_delete_project_records_operation(
@@ -595,7 +595,7 @@ pub(in crate::kanban) fn kanban_delete_project_records_operation(
 ) -> Result<(), String> {
     with_connection(|connection| {
         let card_ids = validate_project_deletion(connection, &project_id)?;
-        let transaction = connection.transaction().map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         transaction
             .execute(
                 "DELETE FROM kanban_cards WHERE project_id=?1",
@@ -643,13 +643,13 @@ pub(in crate::kanban) fn kanban_delete_card_operation(id: String) -> Result<Boar
             fs::remove_dir_all(&directory)
                 .map_err(|error| format!("Could not remove card directory: {error}"))?;
         }
-        let transaction = connection.transaction().map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         transaction
             .execute("DELETE FROM kanban_cards WHERE id = ?1", [&id])
             .map_err(db_error)?;
         transaction.commit().map_err(db_error)
     })?;
-    with_connection(|connection| {
+    with_read_connection(|connection| {
         Ok(BoardChange {
             upserts: Vec::new(),
             removed_ids: vec![id],
@@ -662,7 +662,6 @@ pub(in crate::kanban) fn workflow_context_for_card(
     connection: &Connection,
     card: &KanbanCard,
 ) -> Result<WorkflowContext, String> {
-    crate::store::migrate_store_schema(connection)?;
     let project = card.project_id.as_deref().and_then(|project_id| connection.query_row(
         "SELECT COALESCE(kanban_source, 'local'), delivery_workflow, supports_feature_environments FROM projects WHERE id=?1",
         [project_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)? != 0)),
@@ -777,8 +776,10 @@ pub(in crate::kanban) fn apply_workflow_transition(
         }
         _ => None,
     };
-    if let Some(kind) = provider_kind {
-        provider_sync::enqueue_transition(connection, id, kind, card.workflow_revision + 1)?;
+    if card.provider == "superthread" {
+        if let Some(kind) = provider_kind {
+            provider_sync::enqueue_transition(connection, id, kind, card.workflow_revision + 1)?;
+        }
     }
     Ok(true)
 }
@@ -798,7 +799,7 @@ pub(in crate::kanban) fn kanban_apply_workflow_action_operation(
     }
     with_connection(|connection| {
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .savepoint()
             .map_err(db_error)?;
         apply_workflow_transition(
             &transaction,
@@ -891,7 +892,7 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
     failure_detail: Option<&str>,
 ) -> Result<KanbanCard, String> {
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let state: Option<(String, i64, String)> = transaction.query_row(
             "SELECT generation,latest_event_order,latest_event_id FROM card_pi_lifecycle WHERE card_id=?1 AND thread=?2",
@@ -987,7 +988,7 @@ pub(in crate::kanban) fn record_agent_launch_failure(
     error_detail: &str,
 ) -> Result<(), String> {
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let card =
         get_card(&transaction, &id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
@@ -1066,7 +1067,7 @@ pub(in crate::kanban) fn commit_card_close(
     expected_revision: i64,
 ) -> Result<CardRuntimeTargets, String> {
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     require_structural_capability(&transaction, id, WorkflowAction::Close)?;
     let targets = persisted_runtime_targets(&transaction, id)?;
@@ -1302,7 +1303,7 @@ pub(in crate::kanban) fn reorder_cards(
     }
 
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let rows = {
         let mut statement = transaction.prepare(
@@ -1409,7 +1410,7 @@ pub(in crate::kanban) fn set_card_project(
     destination_name: &str,
 ) -> Result<KanbanCard, String> {
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .savepoint()
         .map_err(db_error)?;
     let (provider, status, current_project_id, current_number, has_environment, parent_id, has_children, hierarchy_finalized):
         (String, String, Option<String>, String, bool, Option<String>, bool, bool) = transaction.query_row(

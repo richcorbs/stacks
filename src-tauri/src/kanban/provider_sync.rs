@@ -349,7 +349,7 @@ pub(crate) fn run_pending_once(
         }
         Ok(())
     })?;
-    let ids = with_connection(|connection| {
+    let ids = with_read_connection(|connection| {
         let sql = if card_id.is_some() {
             "SELECT id FROM provider_sync_operations WHERE card_id=?1 AND state IN ('pending','failed') ORDER BY created_at,id"
         } else {
