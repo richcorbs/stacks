@@ -1,12 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { GitInfo, Project, SplitNode, TerminalEntry } from '../types';
-import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from '../utils';
-import { disposeTerminalSession, getTerminalSession, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
-import type { CardTerminalCommand } from '../cardTerminalCommands';
+import type { GitInfo, Project } from '../types';
 import { applicationEvents } from '../applicationEvents';
-import { directWorkInitialLayout, directWorkTabs, workAgentId, workOwnerId, workTerminalId, type WorkView } from '../directWork';
-import { loadOrCreateDirectWork, saveDirectWorkLayout } from '../directWorkApi';
+import { directWorkTabs, workAgentId, workTerminalId, type WorkView } from '../directWork';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { projectRemoteComparisonTarget } from '../git/comparisonTarget';
@@ -15,7 +11,7 @@ import { serviceStoppedMessage } from '../managedServices';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { DiffTab } from './DiffTab';
 import { DiffOverlay } from './DiffOverlay';
-import { SplitView } from './WorkspaceTerminalTree';
+import { WorkspaceShellView } from './WorkspaceShellView';
 import { TerminalView } from './TerminalView';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { DirectWorkGitMetadata, type DirectWorkGitState } from './DirectWorkGitMetadata';
@@ -24,6 +20,7 @@ import { ReleaseTab } from './ReleaseTab';
 import { ProjectNotesView } from './ProjectNotesView';
 import { flushProjectNotes } from '../projectNotes';
 import { publishWorkPresence } from '../appAttention';
+import { useDirectProjectShell } from '../hooks/useDirectProjectShell';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 const encoder = new TextEncoder();
@@ -38,30 +35,20 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   initialView?: WorkView;
   onClose: () => void;
 }) {
-  const owner = useMemo(() => ({ kind: 'project' as const, projectId: project.id }), [project.id]);
-  const workspaceId = workOwnerId(owner);
-  const agentId = workAgentId(owner);
-  const initialShellId = workTerminalId(owner, 'shell');
   const [activeView, setActiveView] = useState<WorkView>(initialView && (initialView !== 'release' || project.releases_enabled) ? initialView : 'agent');
-  const [shellTree, setShellTree] = useState<SplitNode>(() => directWorkInitialLayout(project.id));
-  const [focusedShellPane, setFocusedShellPane] = useState(initialShellId);
-  const [maximizedShellPane, setMaximizedShellPane] = useState<string | null>(null);
-  const [searchShellRequest, setSearchShellRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
-  const [restartShellRequest, setRestartShellRequest] = useState<{ terminalId: string; nonce: number } | null>(null);
-  const [revision, setRevision] = useState<number | null>(null);
-  const [savedSignature, setSavedSignature] = useState('');
-  const [loading, setLoading] = useState(true);
+  const directShell = useDirectProjectShell(project, activeView === 'terminal');
+  const { owner, workspaceId, controller: shellController, shell, loading } = directShell;
+  const agentId = workAgentId(owner);
+  const focusedShellPane = shell.focusedPaneId ?? '';
   const [actionError, setActionError] = useState<string | null>(null);
   const [gitState, setGitState] = useState<DirectWorkGitState>(null);
   const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
-  const [pendingCloseShellPane, setPendingCloseShellPane] = useState<string | null>(null);
   const serviceConfigs = useMemo(() => ({
     server: { terminalId: workTerminalId(owner, 'server'), command: project.server_command?.trim() ?? '', cwd: project.path },
     console: { terminalId: workTerminalId(owner, 'console'), command: project.console_command?.trim() ?? '', cwd: project.path },
   }), [owner, project.console_command, project.path, project.server_command]);
   const { serverActive, consoleActive, serverEnabled, consoleEnabled, serverRestartNonce, consoleRestartNonce, toggle: toggleService } = useManagedServices(serviceConfigs);
   const diffReview = useDiffReview(workspaceId);
-  const latestSaveRef = useRef(0);
   const isGit = gitState?.kind !== 'not-git';
   const tabs = useMemo(() => directWorkTabs(project, isGit), [isGit, project]);
   const displayedTabs = useMemo<WorkView[]>(() => [
@@ -70,25 +57,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
     ...(project.server_command?.trim() ? ['server' as const] : []),
     ...(project.console_command?.trim() ? ['console' as const] : []),
   ], [project.console_command, project.server_command]);
-  const shellTerminalIds = useMemo(() => collectLeafTerminalIds(shellTree), [shellTree]);
-  const shellTerminals = useMemo(() => Object.fromEntries(shellTerminalIds.map((id): [string, TerminalEntry] => [id, {
-    id, workspaceId, cwd: project.path,
-  }])), [project.path, shellTerminalIds, workspaceId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    loadOrCreateDirectWork(project.id).then((state) => {
-      if (cancelled) return;
-      const focused = state.focused_pane_id ?? collectLeafTerminalIds(state.split_layout)[0] ?? initialShellId;
-      setShellTree(state.split_layout);
-      setFocusedShellPane(focused);
-      setRevision(state.revision);
-      setSavedSignature(layoutSignature(state.split_layout, focused));
-    }).catch((error) => { if (!cancelled) setActionError(String(error)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [initialShellId, project.id]);
+  useEffect(() => { if (directShell.error) setActionError(directShell.error); }, [directShell.error]);
 
   const refreshGit = () => invoke<GitInfo | null>('git_info', { path: project.path })
     .then((info) => setGitState(info ? { kind: 'git', info } : { kind: 'not-git' }))
@@ -103,22 +72,6 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   useEffect(() => {
     if (gitState?.kind === 'not-git' && activeView === 'diff') setActiveView('agent');
   }, [activeView, gitState]);
-
-  useEffect(() => {
-    if (revision === null || loading) return;
-    const signature = layoutSignature(shellTree, focusedShellPane);
-    if (signature === savedSignature) return;
-    const generation = ++latestSaveRef.current;
-    const timer = window.setTimeout(() => {
-      saveDirectWorkLayout(project.id, shellTree, focusedShellPane || null, shellTerminalIds, revision)
-        .then((state) => {
-          setRevision(state.revision);
-          if (latestSaveRef.current === generation) setSavedSignature(signature);
-        })
-        .catch((error) => setActionError(String(error)));
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [focusedShellPane, loading, project.id, revision, savedSignature, shellTerminalIds, shellTree]);
 
   const requestClose = () => {
     void flushProjectNotes(project.id).then(onClose).catch(() => setActiveView('notes'));
@@ -154,47 +107,8 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         setActiveView(tabs[(index + detail.direction + tabs.length) % tabs.length]);
       }
     };
-    const handleSplit = (detail: { direction?: 'row' | 'column'; pane?: string }) => {
-      if (!detail?.direction) return;
-      const target = detail.pane && shellTerminalIds.includes(detail.pane) ? detail.pane : focusedShellPane;
-      if (!target) return;
-      const pane = workTerminalId(owner, `shell:${crypto.randomUUID()}`);
-      setShellTree((tree) => splitLeaf(tree, target, pane, detail.direction!));
-      setFocusedShellPane(pane);
-    };
-    const handleClose = (detail?: { pane?: string }) => {
-      const requested = detail?.pane;
-      setPendingCloseShellPane(requested && shellTerminalIds.includes(requested) ? requested : focusedShellPane);
-    };
-    const handleCommand = (command: CardTerminalCommand) => {
-      if (activeView !== 'terminal') return;
-      if (!command || !focusedShellPane) return;
-      if (command.type === 'split') handleSplit({ direction: command.direction });
-      else if (command.type === 'close') handleClose();
-      else if (command.type === 'search') setSearchShellRequest({ terminalId: focusedShellPane, nonce: Date.now() });
-      else if (command.type === 'clear') { const session = getTerminalSession(focusedShellPane); session?.term.clearSelection(); session?.term.clear(); session?.term.scrollToBottom(); }
-      else if (command.type === 'restart') { disposeTerminalSession(focusedShellPane); invoke('kill_pty', { terminalId: focusedShellPane }).catch(() => {}); setRestartShellRequest({ terminalId: focusedShellPane, nonce: Date.now() }); }
-      else if (command.type === 'stop') { disposeTerminalSession(focusedShellPane); invoke('kill_pty', { terminalId: focusedShellPane }).catch(console.error); }
-      else if (command.type === 'toggle-maximize' && shellTerminalIds.length > 1) { setMaximizedShellPane((current) => current ? null : focusedShellPane); requestTerminalSessionsScrollToBottomAfterFit([focusedShellPane]); }
-    };
-    const unsubscribes = [
-      applicationEvents.subscribe('card-tab-shortcut', handleTabs),
-      applicationEvents.subscribe('card-terminal-split', handleSplit),
-      applicationEvents.subscribe('card-terminal-close', handleClose),
-      applicationEvents.subscribe('card-terminal-command', handleCommand),
-    ];
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [activeView, focusedShellPane, owner, shellTerminalIds, tabs]);
-
-  function closeShellPane(id: string) {
-    disposeTerminalSession(id);
-    invoke('kill_pty', { terminalId: id, expectedCwd: project.path }).catch(console.error);
-    const remaining = shellTerminalIds.filter((pane) => pane !== id);
-    setShellTree((tree) => removeLeaf(tree, id) ?? { kind: 'empty' });
-    setFocusedShellPane(remaining.at(-1) ?? '');
-    setMaximizedShellPane(null);
-    setPendingCloseShellPane(null);
-  }
+    return applicationEvents.subscribe('card-tab-shortcut', handleTabs);
+  }, [activeView, tabs]);
 
   function submitDiffReview() {
     const prompt = composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments);
@@ -237,13 +151,13 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         </section>
         {project.releases_enabled && activeView === 'release' && <ReleaseTab project={project} />}
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>
-          {loading ? <div className="kanbanEmpty">Opening terminal layout…</div> : shellTree.kind === 'empty' ? <div className="kanbanEmpty">Terminal closed.</div> : <div className={`cardTerminalPane${shellTerminalIds.length > 1 ? ' multiple' : ''}`}><SplitView node={shellTree} terminalsById={shellTerminals} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} visible={activeView === 'terminal'} canEditTerminal={false} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activeTerminalId={focusedShellPane} displayedMaximizedTerminalId={maximizedShellPane} searchTerminalRequest={searchShellRequest} restartTerminalRequest={restartShellRequest} path="" onResizeSplit={(path, ratio) => setShellTree((tree) => setSplitRatio(tree, path, ratio))} onFocus={(pane) => { setFocusedShellPane(pane); setMaximizedShellPane((current) => current ? pane : null); }} onClose={setPendingCloseShellPane} onSplitTerminal={(direction, pane) => applicationEvents.publish('card-terminal-split', { direction, pane })} onEditTerminal={() => {}} onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)} canToggleMaximize={shellTerminalIds.length > 1} onToggleMaximize={(pane) => { setFocusedShellPane(pane); setMaximizedShellPane((current) => current ? null : pane); requestTerminalSessionsScrollToBottomAfterFit([pane]); }} /></div>}
+          {loading ? <div className="kanbanEmpty">Opening terminal layout…</div> : <WorkspaceShellView controller={shellController} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} visible={activeView === 'terminal'} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         </section>
         {serviceConfigs.server.command && <DirectServiceTerminal mode="server" command={serviceConfigs.server.command} enabled={serverEnabled} active={activeView === 'server'} restartRequestNonce={serverRestartNonce} project={project} workspaceId={workspaceId} terminalId={serviceConfigs.server.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {serviceConfigs.console.command && <DirectServiceTerminal mode="console" command={serviceConfigs.console.command} enabled={consoleEnabled} active={activeView === 'console'} restartRequestNonce={consoleRestartNonce} project={project} workspaceId={workspaceId} terminalId={serviceConfigs.console.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
       </article>
     </div>
-    {pendingCloseShellPane && <ConfirmCloseTerminalDialog onCancel={() => setPendingCloseShellPane(null)} onConfirm={() => closeShellPane(pendingCloseShellPane)} />}
+    {shell.pendingClosePaneId && <ConfirmCloseTerminalDialog onCancel={() => shellController.cancelClose()} onConfirm={() => shellController.close(shell.pendingClosePaneId!)} />}
   </>;
 }
 
@@ -255,5 +169,3 @@ function ServiceTab({ mode, active, commandActive, onSelect, onToggle }: { mode:
 function DirectServiceTerminal({ mode, command, enabled, active, restartRequestNonce, project, workspaceId, terminalId, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: { mode: ServiceMode; command: string; enabled: boolean; active: boolean; restartRequestNonce: number; project: Project; workspaceId: string; terminalId: string; terminalFontSize: number; terminalFontFamily: string; terminalScrollback: number; copyOnSelect: boolean }) {
   return <section className={`cardServiceView cardView${active ? ' active' : ''}`} aria-label={`${mode} terminal`}>{enabled ? <TerminalView terminal={{ id: terminalId, workspaceId, command, cwd: project.path, temporary: true }} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} active={active} visible={active} maximized={false} managedService terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} searchRequestNonce={0} restartRequestNonce={restartRequestNonce} onFocus={() => {}} onClose={() => {}} onSplitTerminal={() => {}} onEditTerminal={() => {}} onInput={(id, data) => invoke('write_pty', { terminalId: id, data: Array.from(encoder.encode(data)) }).catch(console.error)} canToggleMaximize={false} onToggleMaximize={() => {}} /> : <div className="kanbanEmpty">{serviceStoppedMessage(mode)}</div>}</section>;
 }
-
-function layoutSignature(tree: SplitNode, focusedPaneId: string | null) { return JSON.stringify([tree, focusedPaneId]); }
