@@ -850,14 +850,11 @@ fn update_project_configuration_validated(
         } else {
             "local"
         };
-        let scope_rebound = if previous_source == "superthread" && next_source == "superthread" {
-            connection.query_row("SELECT COALESCE(superthread_workspace_id,'')!=?1 OR COALESCE(superthread_space_id,'')!=?2 OR COALESCE(superthread_board_id,'')!=?3 FROM projects WHERE id=?4",
-                params![input.superthread_workspace_id.as_deref().unwrap_or_default(),input.superthread_space_id.as_deref().unwrap_or_default(),input.superthread_board_id.as_deref().unwrap_or_default(),input.id], |row| row.get::<_,i64>(0)).map_err(db_error)? != 0
-        } else { false };
-        if scope_rebound && kanban::unresolved_for_project(connection, &input.id)? > 0 {
+        let scope_change_requires_quiescence = superthread_scope_change_requires_quiescence(connection, &input, &previous_source, next_source)?;
+        if scope_change_requires_quiescence && kanban::unresolved_for_project(connection, &input.id)? > 0 {
             return Err("Superthread board cannot change while provider synchronization is pending or failed. Retry the synchronization first.".into());
         }
-        if previous_source != next_source || scope_rebound {
+        if previous_source != next_source || scope_change_requires_quiescence {
             let active: i64 = connection.query_row("SELECT COUNT(*) FROM kanban_cards WHERE project_id=?1 AND external_provider='superthread' AND (status != 'done' OR scope_suspended=1 OR delivery_operation_stage IS NOT NULL)", [&input.id], |row| row.get(0)).map_err(db_error)?;
             let environments: i64 = connection.query_row("SELECT COUNT(*) FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id WHERE c.project_id=?1 AND c.external_provider='superthread'", [&input.id], |row| row.get(0)).map_err(db_error)?;
             if active > 0 || environments > 0 {
@@ -893,6 +890,23 @@ fn update_project_configuration_validated(
         kanban::with_write_connection(persist)?
     };
     persist_targeted_store(store)
+}
+
+fn superthread_scope_change_requires_quiescence(connection: &Connection, input: &ProjectConfigurationInput, previous_source: &str, next_source: &str) -> Result<bool, String> {
+    if previous_source != "superthread" || next_source != "superthread" { return Ok(false); }
+    let scope_rebound = connection.query_row("SELECT COALESCE(superthread_workspace_id,'')!=?1 OR COALESCE(superthread_space_id,'')!=?2 OR COALESCE(superthread_board_id,'')!=?3 FROM projects WHERE id=?4",
+        params![input.superthread_workspace_id.as_deref().unwrap_or_default(),input.superthread_space_id.as_deref().unwrap_or_default(),input.superthread_board_id.as_deref().unwrap_or_default(),input.id], |row| row.get::<_,i64>(0)).map_err(db_error)? != 0;
+    if !scope_rebound { return Ok(false); }
+    let pending_legacy_validation = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM projects p JOIN superthread_bindings b ON b.id=p.superthread_binding_id
+         WHERE p.id=?1 AND b.id='legacy:' || p.id AND b.state='pending' AND b.validated_at IS NULL
+           AND TRIM(COALESCE(p.superthread_spaces,''))=TRIM(?2)
+           AND TRIM(COALESCE(p.superthread_board_id,''))=TRIM(?3)
+           AND (TRIM(COALESCE(b.board_id,''))='' OR TRIM(b.board_id)=TRIM(?3)))",
+        params![input.id,input.superthread_spaces.as_deref().unwrap_or_default(),input.superthread_board_id.as_deref().unwrap_or_default()],
+        |row| row.get::<_,i64>(0),
+    ).map_err(db_error)? != 0;
+    Ok(!pending_legacy_validation)
 }
 
 fn activate_superthread_binding(connection: &Connection, input: &ProjectConfigurationInput) -> Result<String, String> {
@@ -1558,6 +1572,38 @@ mod tests {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         ).unwrap();
         assert_eq!(untouched, ("new notes".into(), 7, 1, 9, "keep me".into()));
+    }
+
+    #[test]
+    fn validates_a_pending_legacy_binding_without_treating_it_as_a_rebind() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        write_store(&mut connection, &sample_store()).unwrap();
+        connection.execute("UPDATE projects SET kanban_source='superthread',superthread_spaces='Product & Engineering',superthread_board_id='6',superthread_board_name='Dev - Active',superthread_binding_id='legacy:p1' WHERE id='p1'", []).unwrap();
+        connection.execute("INSERT INTO superthread_bindings(id,project_id,board_name,token_env_var,state,created_at,updated_at) VALUES ('legacy:p1','p1','Dev - Active','ARCASA_SUPERTHREAD_TOKEN','pending',1,1)", []).unwrap();
+        connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,created_at,updated_at) VALUES ('superthread:active','superthread','active','Active card','needs_human','p1',1,1)", []).unwrap();
+        let input = ProjectConfigurationInput {
+            id: "p1".into(), name: "Project".into(), path: "/repo".into(), deployment_command: None,
+            kanban_source: Some("superthread".into()), start_work_command: None, superthread_spaces: Some("Product & Engineering".into()),
+            superthread_workspace_id: Some("workspace".into()), superthread_workspace_name: Some("Arcasa".into()), superthread_space_id: Some("3".into()), superthread_space_name: Some("Product & Engineering".into()),
+            superthread_binding_id: Some("legacy:p1".into()), superthread_workspace_slug: Some("arcasa".into()), superthread_api_token_env_var: Some("ARCASA_SUPERTHREAD_TOKEN".into()),
+            superthread_board_id: Some("6".into()), superthread_board_name: Some("Dev - Active".into()), superthread_incoming_columns: vec![SuperthreadColumnMapping { id: "63".into(), name: "To Do".into() }],
+            superthread_default_incoming_column_id: Some("63".into()), superthread_in_progress_column_id: Some("38".into()), superthread_in_progress_column_name: Some("Doing".into()),
+            superthread_done_column_id: Some("41".into()), superthread_done_column_name: Some("Done".into()), server_command: None, console_command: None,
+            delivery_workflow: default_delivery_workflow(), target_branch: default_target_branch(), supports_feature_environments: false, github_merge_strategy: default_merge_strategy(),
+            require_passing_ci: true, require_approval: false, releases_enabled: false, release_config_path: default_release_config_path(), expected_revision: 0,
+        };
+
+        assert!(!superthread_scope_change_requires_quiescence(&connection, &input, "superthread", "superthread").unwrap());
+        assert_eq!(activate_superthread_binding(&connection, &input).unwrap(), "legacy:p1");
+        let binding: (String, String, String, i64) = connection.query_row("SELECT state,workspace_id,space_id,validated_at IS NOT NULL FROM superthread_bindings WHERE id='legacy:p1'", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?))).unwrap();
+        assert_eq!(binding, ("active".into(), "workspace".into(), "3".into(), 1));
+        assert_eq!(connection.query_row("SELECT binding_id FROM kanban_cards WHERE id='superthread:active'", [], |row| row.get::<_,String>(0)).unwrap(), "legacy:p1");
+
+        let mut rebound = input.clone();
+        rebound.superthread_board_id = Some("different-board".into());
+        assert!(superthread_scope_change_requires_quiescence(&connection, &rebound, "superthread", "superthread").unwrap());
     }
 
     #[test]

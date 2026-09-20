@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { disambiguatedLabels } from './SuperthreadMappingFields';
+import { disambiguatedLabels, SUPERTHREAD_MAPPING_VALIDATED_MESSAGE } from './SuperthreadMappingFields';
 
 describe('Superthread mapping selectors', () => {
+  it('tells users that successful validation must still be saved', () => {
+    expect(SUPERTHREAD_MAPPING_VALIDATED_MESSAGE).toBe('Configuration validated. Save to activate Superthread synchronization.');
+  });
+
   it('disambiguates duplicate display names with stable IDs', () => {
     const labels = disambiguatedLabels([
       { id: 'one', title: 'Incoming', behavior: 'backlog' },

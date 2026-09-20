@@ -4,6 +4,8 @@ import type { DialogState } from '../types';
 import { fetchSuperthreadBoards, fetchSuperthreadBoardsForSpace, fetchSuperthreadLists, testSuperthreadConnection, testSuperthreadMapping } from '../superthread/api';
 import type { SuperthreadBoard, SuperthreadList, SuperthreadSpace } from '../superthread/types';
 
+export const SUPERTHREAD_MAPPING_VALIDATED_MESSAGE = 'Configuration validated. Save to activate Superthread synchronization.';
+
 export function SuperthreadMappingFields({ dialog, setDialog }: {
   dialog: DialogState;
   setDialog: React.Dispatch<React.SetStateAction<DialogState | null>>;
@@ -63,7 +65,7 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
         superthreadWorkspaceSlug: dialog.superthreadWorkspaceSlug || result.workspace_slug || undefined,
         superthreadBoardName: result.board_name, superthreadIncomingColumns: result.incoming_columns,
         superthreadInProgressColumnName: result.in_progress_column_name, superthreadDoneColumnName: result.done_column_name });
-      setMessage('Configuration is valid. Current board and column names were refreshed in this draft.');
+      setMessage(SUPERTHREAD_MAPPING_VALIDATED_MESSAGE);
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setState('idle'); }
   }
