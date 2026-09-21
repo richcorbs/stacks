@@ -62,7 +62,7 @@ pub(crate) use provider_sync::{
     executing_for_project, run_pending_once, supersede_for_mapping_change, unresolved_for_project,
 };
 #[cfg(test)]
-pub(crate) use repository::migrate;
+pub(crate) use repository::{initialize_connection, migrate};
 pub(crate) use repository::{
     affect_project_cards, initialize_database, with_board_mutation, with_read_connection,
     with_write_connection,

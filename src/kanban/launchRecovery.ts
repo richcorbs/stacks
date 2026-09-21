@@ -27,6 +27,10 @@ export type LaunchRecoveryDependencies = {
   launchWork: (cardId: string, projects: Project[]) => Promise<boolean>;
 };
 
+export function startupCardRecoveryAllowed() {
+  return invoke<boolean>('startup_card_recovery_allowed');
+}
+
 const defaultDependencies: LaunchRecoveryDependencies = {
   latestCard: async (cardId) => {
     try { return (await fetchKanbanCard(cardId)).card; }

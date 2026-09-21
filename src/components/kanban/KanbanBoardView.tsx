@@ -18,7 +18,7 @@ import { KanbanCardDetail, type CardDetailWorkflowController } from './KanbanCar
 import { NewCardDialog } from './NewCardDialog';
 import { KanbanLanes } from './KanbanLanes';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
-import { startLaunchCardRecovery } from '../../kanban/launchRecovery';
+import { startLaunchCardRecovery, startupCardRecoveryAllowed } from '../../kanban/launchRecovery';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
 import { flushProjectNotes } from '../../projectNotes';
 import type { NotificationRoute } from '../../appAttention';
@@ -95,7 +95,9 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   useEffect(() => {
     if (projectsHydrated && board.cardsHydrated && !launchRecoveryStartedRef.current) {
       launchRecoveryStartedRef.current = true;
-      startLaunchCardRecovery(board.cards, projects).catch(console.error);
+      startupCardRecoveryAllowed()
+        .then((allowed) => allowed ? startLaunchCardRecovery(board.cards, projects) : undefined)
+        .catch(console.error);
     }
   }, [board.cards, board.cardsHydrated, board.load, projects, projectsHydrated]);
 

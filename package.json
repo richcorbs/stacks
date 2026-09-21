@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "seed:dev": "cargo run --manifest-path src-tauri/Cargo.toml --example seed_dev_data",
     "build": "node scripts/check-kanban-contract.mjs && tsc && vite build",
     "test": "node scripts/check-kanban-contract.mjs && vitest run",
     "check:version": "node scripts/release.mjs check-version",

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::fs_paths::app_data_file;
+use crate::fs_paths::{automation_socket_path_for, current_app_profile};
 
 mod cli;
 mod protocol;
@@ -14,12 +14,7 @@ pub use state::AutomationState;
 const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 
 pub(crate) fn socket_path() -> Result<PathBuf, String> {
-    let name = if cfg!(debug_assertions) {
-        "automation-dev.sock"
-    } else {
-        "automation.sock"
-    };
-    app_data_file(name)
+    automation_socket_path_for(current_app_profile())
 }
 
 pub fn cleanup_server(state: &AutomationState) {

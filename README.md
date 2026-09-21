@@ -152,6 +152,14 @@ npm run tauri dev
 
 The frontend is React 19 + TypeScript + Vite + xterm.js. The Tauri/Rust backend owns PTYs, Pi RPC processes, persistence, native menus, automation, and external CLI integrations.
 
+Debug builds use `stacks-tauri-dev` in the OS application-support directory; installed builds use `stacks-tauri`. Their databases, settings, sessions, process state, and automation sockets are isolated. To replace dev data with a sanitized, consistent snapshot of installed-build board/project/UI data, quit the dev app and run:
+
+```bash
+npm run seed:dev
+```
+
+The command requires typing `seed dev`. It reads production SQLite through the online backup API and atomically swaps dev data only after validation. It does not copy Pi transcripts, active operations, runtime/service state, lifecycle generations, or card worktree ownership, and seeded profiles do not automatically resume active-looking cards.
+
 Validate changes with the same checks used by CI:
 
 ```bash

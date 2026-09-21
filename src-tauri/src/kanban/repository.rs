@@ -45,7 +45,7 @@ pub(in crate::kanban) fn initialize_once(
     state.get_or_init(initialize).clone()
 }
 
-pub(in crate::kanban) fn initialize_connection(
+pub(crate) fn initialize_connection(
     connection: &mut Connection,
     import_legacy_json: bool,
 ) -> Result<(), String> {
