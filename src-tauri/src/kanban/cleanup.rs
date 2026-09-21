@@ -723,6 +723,12 @@ pub(in crate::kanban) fn execute_cleanup_phase(
     pty_registry: &Mutex<PtyRegistry>,
     pi_registry: &Mutex<PiRpcRegistry>,
 ) -> Result<(), String> {
+    if matches!(
+        operation.phase.as_str(),
+        "validate_repository" | "remove_worktree" | "delete_local_branch" | "delete_remote_branch"
+    ) {
+        validate_cleanup_project_configuration(operation)?;
+    }
     match operation.phase.as_str() {
         "runtime_sessions" => cleanup_runtime_sessions(operation, pty_registry, pi_registry),
         "validate_repository" => validate_cleanup_repository(operation),
@@ -964,10 +970,10 @@ pub(in crate::kanban) fn delete_cleanup_remote_branch(
     }
 }
 
-pub(in crate::kanban) fn validate_cleanup_target(
+pub(in crate::kanban) fn validate_cleanup_project_configuration(
     operation: &CleanupSnapshot,
 ) -> Result<(), String> {
-    let configured: Option<(String,String)> = with_read_connection(|connection| {
+    let configured: Option<(String, String)> = with_read_connection(|connection| {
         connection.query_row("SELECT p.path,COALESCE(p.target_branch,'main') FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1", [&operation.card_id], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(db_error)
     })?;
     if let Some((configured_path, configured_branch)) = configured {
@@ -977,6 +983,12 @@ pub(in crate::kanban) fn validate_cleanup_target(
             return Err("Project primary checkout or target branch changed after cleanup evidence was captured".into());
         }
     }
+    Ok(())
+}
+
+pub(in crate::kanban) fn validate_cleanup_target(
+    operation: &CleanupSnapshot,
+) -> Result<(), String> {
     let target = validate_target_checkout(&operation.target_path, Some(&operation.repository_id))?;
     if target.target_branch != operation.target_branch {
         return Err(format!(
