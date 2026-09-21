@@ -35,6 +35,7 @@ export type OverlayLayoutProps = {
   confirmDeleteProject: Project | null;
   confirmQuitOpen: boolean;
   toast: ToastState | null;
+  interactionBlocked: boolean;
   setDialog: React.Dispatch<React.SetStateAction<import('../types').DialogState | null>>;
   closeCommandPalette: () => void;
   closeSettings: () => void;

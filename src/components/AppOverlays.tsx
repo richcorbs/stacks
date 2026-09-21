@@ -19,6 +19,7 @@ export function AppOverlays(props: OverlayLayoutProps) {
     {props.dialog && <Dialog dialog={props.dialog} setDialog={props.setDialog} onCancel={props.closeDialog} onSubmit={props.submitDialog} />}
     {props.confirmDeleteProject && <ConfirmDeleteProjectDialog projectName={props.confirmDeleteProject.name} onCancel={props.cancelDeleteProject} onConfirm={props.deleteProject} />}
     {props.confirmQuitOpen && <ConfirmQuitDialog onCancel={props.cancelQuit} onConfirm={props.quit} />}
+    {props.interactionBlocked && <div className="loadingInteractionBlocker" aria-hidden="true" />}
     {props.toast && <div className="toast" style={props.toast.x !== undefined && props.toast.y !== undefined ? { left: props.toast.x, top: props.toast.y } : undefined}>{props.toast.message}</div>}
   </>;
 }

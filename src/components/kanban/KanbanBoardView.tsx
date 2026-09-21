@@ -25,8 +25,10 @@ import type { NotificationRoute } from '../../appAttention';
 import { fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
 import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
 import { CleanupPreflightDialog } from './CleanupPreflightDialog';
+import { useLoadingCoordinator } from '../../loadingState';
 
 export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
+  const loading = useLoadingCoordinator();
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
   const syncAvailability = superthreadSyncAvailability(superthreadEnabled, projects, filterProjectId);
@@ -83,6 +85,12 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     openCard,
   });
   const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder });
+
+  useEffect(() => {
+    if (!board.loading) loading.settleStartup('cards');
+  }, [board.loading, loading]);
+
+  useEffect(() => () => { loading.remove('card-detail'); }, [loading]);
 
   useEffect(() => {
     if (projectsHydrated && board.cardsHydrated && !launchRecoveryStartedRef.current) {
@@ -174,13 +182,15 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   useEffect(() => {
     if (!selectedCardId || selectedCard) return;
     detailLoadRequestRef.current += 1;
+    loading.remove('card-detail');
     setDetailLoadError(null);
     clearSelection(selectedCardId);
     showAppToast('This card was removed');
-  }, [clearSelection, selectedCard, selectedCardId]);
+  }, [clearSelection, loading, selectedCard, selectedCardId]);
 
   async function hydrateCardDetails(card: KanbanCardSummary, recordInteraction = false) {
     const request = ++detailLoadRequestRef.current;
+    const loadingToken = loading.begin('card-detail', 'Loading card details…', 10);
     const observedRevision = board.cards.find((candidate) => candidate.id === card.id)?.record_revision;
     setDetailLoadError(null);
     try {
@@ -199,6 +209,8 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         setDetailLoadError({ cardId: card.id, message: error instanceof Error ? error.message : String(error) });
       }
       throw error;
+    } finally {
+      loading.complete('card-detail', loadingToken);
     }
   }
 
@@ -213,6 +225,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   function closeCardDetail(expectedCardId?: string) {
     if (expectedCardId === undefined || selectedCardIdRef.current === expectedCardId) {
       detailLoadRequestRef.current += 1;
+      loading.remove('card-detail');
       setDetailLoadError(null);
       setSelectedDetail(null);
       setEventCursor(null);
@@ -333,9 +346,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       </header>
       {board.error && <div className="kanbanNotice">{board.error}</div>}
       {board.providerError && <div className="kanbanNotice">{board.providerError}</div>}
-      {board.loading ? (
-        <div className="kanbanEmpty">Loading work…</div>
-      ) : (
+      {!board.loading && (
         <KanbanLanes
           cards={visibleCards}
           projects={projects}
@@ -399,13 +410,11 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           onClose={() => { void replaceDirectWork(null); }}
         />
       )}
-      {selectedCard && !selectedDetail && (
+      {selectedCard && !selectedDetail && detailLoadError?.cardId === selectedCard.id && (
         <div className="kanbanDetailOverlay"><div className="kanbanEmpty">
-          {detailLoadError?.cardId === selectedCard.id ? <>
-            <span>{detailLoadError.message}</span>
-            <button type="button" onClick={() => { void hydrateCardDetails(selectedCard).catch(() => {}); }}>Retry</button>
-            <button type="button" onClick={() => closeCardDetail(selectedCard.id)}>Close</button>
-          </> : 'Loading card details…'}
+          <span>{detailLoadError.message}</span>
+          <button type="button" onClick={() => { void hydrateCardDetails(selectedCard).catch(() => {}); }}>Retry</button>
+          <button type="button" onClick={() => closeCardDetail(selectedCard.id)}>Close</button>
         </div></div>
       )}
       {selectedCard && selectedDetail && (

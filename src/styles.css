@@ -575,6 +575,13 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   font-size: calc(12px + var(--ui-font-delta, 0px));
 }
 
+.loadingInteractionBlocker {
+  position: fixed;
+  inset: 0;
+  z-index: 299;
+  cursor: wait;
+}
+
 .toast {
   position: fixed;
   left: 50%;
