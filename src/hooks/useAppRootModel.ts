@@ -29,6 +29,7 @@ import { useActivityNotifications } from './useActivityNotifications';
 import type { GlobalTerminalCommand } from '../globalTerminalState';
 import type { AppEventMap, EventBroker } from '../applicationEvents';
 import type { GlobalSettingsSection, SettingsPageId } from '../components/SettingsDialog';
+import { presentedToast, useLoadingSnapshot, type LoadingCoordinator } from '../loadingState';
 
 function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, current: Project): Project {
   return { ...current, name: draft.name.trim(), path: draft.path.trim(), kanban_source: draft.kanbanSource ?? 'local',
@@ -72,7 +73,8 @@ function projectConfigurationInput(project: Project, expectedRevision: number) {
     release_config_path: project.release_config_path ?? '.stacks/release.json', expected_revision: expectedRevision };
 }
 
-export function useAppRootModel(events: EventBroker<AppEventMap>) {
+export function useAppRootModel(events: EventBroker<AppEventMap>, loading: LoadingCoordinator) {
+  const loadingSnapshot = useLoadingSnapshot(loading);
   const [loaded, setLoaded] = useState(false);
   const [store, setStore] = useState<Store>({ projects: [] });
   const [appSettings, setAppSettings] = useState<ResolvedAppSettings>(DEFAULT_APP_SETTINGS);
@@ -107,8 +109,8 @@ export function useAppRootModel(events: EventBroker<AppEventMap>) {
   useEffect(() => {
     Promise.all([invoke<Store>('load_store'), invoke<AppSettings>('load_settings').catch(() => null)])
       .then(([nextStore, settings]) => { setStore(nextStore); setAppSettings(resolveAppSettings(settings)); })
-      .catch(console.error).finally(() => setLoaded(true));
-  }, []);
+      .catch(console.error).finally(() => { setLoaded(true); loading.settleStartup('projects'); });
+  }, [loading]);
   const persistedSettingsRef = useRef<ResolvedAppSettings | null>(null);
   const pendingSettingsFieldsRef = useRef(new Set<keyof ResolvedAppSettings>());
   const settingsSaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -291,12 +293,14 @@ export function useAppRootModel(events: EventBroker<AppEventMap>) {
     openSettings: () => setSettingsOpen(true),
     runCardTerminalAction: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
   };
-  useKeyboardShortcuts(shortcutHandlers);
+  useKeyboardShortcuts(shortcutHandlers, loading.isInteractionBlocked);
   const shortcutRef = useRef(shortcutHandlers); shortcutRef.current = shortcutHandlers;
   useEffect(() => {
-    const listener = getCurrentWindow().listen<string>('menu-shortcut', (event) => runShortcutAction(event.payload as ShortcutAction, shortcutRef.current));
+    const listener = getCurrentWindow().listen<string>('menu-shortcut', (event) => {
+      if (!loading.isInteractionBlocked()) runShortcutAction(event.payload as ShortcutAction, shortcutRef.current);
+    });
     return () => { listener.then((unlisten) => unlisten()).catch(console.error); };
-  }, []);
+  }, [loading]);
 
   return {
     appStyle: useAppStyle(appSettings),
@@ -324,7 +328,8 @@ export function useAppRootModel(events: EventBroker<AppEventMap>) {
         if (appSettings.kanban_project_id === projectId) setAppSettings((current) => ({ ...current, kanban_project_id: null }));
       },
       commandPaletteOpen, commandPaletteItems: paletteItems, commandPaletteCardItems: paletteCardItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
-      dialog, confirmDeleteProject: store.projects.find((project) => project.id === confirmDeleteProjectId) ?? null, confirmQuitOpen, toast, setDialog,
+      dialog, confirmDeleteProject: store.projects.find((project) => project.id === confirmDeleteProjectId) ?? null, confirmQuitOpen,
+      toast: presentedToast(toast, loadingSnapshot.operation), interactionBlocked: loadingSnapshot.interactionBlocked, setDialog,
       closeCommandPalette: () => setCommandPaletteOpen(false), closeSettings: () => setSettingsOpen(false),
       notificationsUnavailable: (message: string) => { setAppSettings((current) => ({ ...current, activity_notifications: false })); showToast(message, 5000); },
       closeDialog: () => setDialog(null), submitDialog,

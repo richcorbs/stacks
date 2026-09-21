@@ -2,12 +2,19 @@ import { useEffect, useRef } from 'react';
 import { handleMetaShortcutKeyDown } from '../keyboardShortcutRouter';
 import type { ShortcutHandlers } from '../shortcutTypes';
 
-export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
+export function useKeyboardShortcuts(handlers: ShortcutHandlers, isInteractionBlocked: () => boolean = () => false) {
   const handlersRef = useRef(handlers);
+  const blockedRef = useRef(isInteractionBlocked);
   handlersRef.current = handlers;
+  blockedRef.current = isInteractionBlocked;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (blockedRef.current()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       handleMetaShortcutKeyDown(event, handlersRef.current);
     };
     const onKeyUp = (event: KeyboardEvent) => {
