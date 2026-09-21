@@ -20,13 +20,14 @@ static TRUST_FILE_LOCK: Mutex<()> = Mutex::new(());
 static LEGACY_EXTENSION_LOCK: Mutex<()> = Mutex::new(());
 
 pub struct PiRpcHandle {
-    stdin: ChildStdin,
+    stdin: Arc<Mutex<ChildStdin>>,
     generation: String,
     stop_tx: mpsc::Sender<mpsc::Sender<()>>,
     alive: Arc<AtomicBool>,
     cwd: String,
     project_id: String,
     approve_project: bool,
+    lifecycle: Arc<Mutex<PiLifecycleTracker>>,
 }
 
 impl PiRpcHandle {
@@ -82,6 +83,177 @@ struct PiRpcEvent {
     event_id: String,
     event_order: u64,
     event: Value,
+}
+
+const SETTLEMENT_WATCHDOG_DELAY: Duration = Duration::from_millis(1_000);
+const SETTLEMENT_PROBE_PREFIX: &str = "stacks-lifecycle-probe-";
+
+#[derive(Default)]
+struct PiLifecycleTracker {
+    epoch: u64,
+    active_run: bool,
+    retrying: bool,
+    compacting: bool,
+    active_tools: HashSet<String>,
+    pending_ui: HashSet<String>,
+    queued: bool,
+    armed: Option<u64>,
+    probe: Option<(String, u64)>,
+}
+
+impl PiLifecycleTracker {
+    fn cancel_recovery(&mut self) {
+        self.epoch = self.epoch.wrapping_add(1);
+        self.armed = None;
+        self.probe = None;
+    }
+
+    fn observe_command(&mut self, command: &Value) {
+        let kind = command.get("type").and_then(Value::as_str).unwrap_or("");
+        if matches!(
+            kind,
+            "prompt"
+                | "steer"
+                | "follow_up"
+                | "compact"
+                | "new_session"
+                | "abort"
+                | "clear_queue"
+                | "extension_ui_response"
+        ) {
+            self.cancel_recovery();
+        }
+        if kind == "compact" {
+            self.compacting = true;
+        }
+        if kind == "extension_ui_response" {
+            if let Some(id) = command.get("id").and_then(Value::as_str) {
+                self.pending_ui.remove(id);
+            }
+        }
+    }
+
+    fn observe_event(&mut self, event: &Value) -> Option<u64> {
+        let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
+        match kind {
+            "agent_start" => {
+                self.cancel_recovery();
+                self.active_run = true;
+                self.retrying = false;
+                self.active_tools.clear();
+            }
+            "agent_settled" => {
+                self.cancel_recovery();
+                self.active_run = false;
+                self.retrying = false;
+                self.compacting = false;
+                self.active_tools.clear();
+                self.pending_ui.clear();
+                self.queued = false;
+            }
+            "retry_scheduled" | "retry_start" => {
+                self.cancel_recovery();
+                self.retrying = true;
+            }
+            "retry_end" => {
+                self.cancel_recovery();
+                self.retrying = false;
+            }
+            "auto_compaction_start" | "compaction_start" => {
+                self.cancel_recovery();
+                self.compacting = true;
+            }
+            "auto_compaction_end" | "compaction_end" => {
+                self.cancel_recovery();
+                self.compacting = false;
+            }
+            "tool_execution_start" => {
+                self.cancel_recovery();
+                if let Some(id) = event.get("toolCallId").and_then(Value::as_str) {
+                    self.active_tools.insert(id.to_string());
+                }
+            }
+            "tool_execution_update" => self.cancel_recovery(),
+            "tool_execution_end" => {
+                self.cancel_recovery();
+                if let Some(id) = event.get("toolCallId").and_then(Value::as_str) {
+                    self.active_tools.remove(id);
+                }
+            }
+            "queue_update" => {
+                self.cancel_recovery();
+                self.queued = ["steering", "followUp"].iter().any(|key| {
+                    event
+                        .get(key)
+                        .and_then(Value::as_array)
+                        .is_some_and(|items| !items.is_empty())
+                });
+            }
+            "extension_ui_request" => {
+                let method = event.get("method").and_then(Value::as_str).unwrap_or("");
+                if matches!(method, "confirm" | "input" | "editor" | "select") {
+                    self.cancel_recovery();
+                    if let Some(id) = event.get("id").and_then(Value::as_str) {
+                        self.pending_ui.insert(id.to_string());
+                    }
+                }
+            }
+            "message_start" | "message_update" | "message_end" => self.cancel_recovery(),
+            "agent_end" => {
+                let terminal_run = self.active_run;
+                self.active_run = false;
+                if terminal_run && self.eligible() {
+                    self.epoch = self.epoch.wrapping_add(1);
+                    self.armed = Some(self.epoch);
+                    return self.armed;
+                }
+                self.cancel_recovery();
+            }
+            _ => {}
+        }
+        None
+    }
+
+    fn eligible(&self) -> bool {
+        !self.active_run
+            && !self.retrying
+            && !self.compacting
+            && self.active_tools.is_empty()
+            && self.pending_ui.is_empty()
+            && !self.queued
+    }
+
+    fn begin_probe(&mut self, token: u64, id: String) -> bool {
+        if self.armed != Some(token) || !self.eligible() {
+            return false;
+        }
+        self.probe = Some((id, token));
+        true
+    }
+
+    fn accept_probe(&mut self, event: &Value) -> bool {
+        let Some(id) = event.get("id").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some((expected, token)) = self.probe.as_ref() else {
+            return false;
+        };
+        if id != expected || self.armed != Some(*token) {
+            return false;
+        }
+        let idle = event.get("type").and_then(Value::as_str) == Some("response")
+            && event.get("success").and_then(Value::as_bool) == Some(true)
+            && event.pointer("/data/isStreaming").and_then(Value::as_bool) == Some(false)
+            && event.pointer("/data/isCompacting").and_then(Value::as_bool) != Some(true)
+            && event
+                .pointer("/data/pendingMessageCount")
+                .and_then(Value::as_u64)
+                == Some(0)
+            && self.eligible();
+        self.probe = None;
+        self.armed = None;
+        idle
+    }
 }
 
 #[tauri::command]
@@ -173,13 +345,6 @@ pub fn start_pi_session(
                 return Err("Pi session start was cancelled".to_string());
             }
             let generation = handle.generation.clone();
-            if let Err(error) =
-                crate::kanban::register_pi_lifecycle_generation(&pane_id, &generation)
-            {
-                drop(guard);
-                let _ = handle.stop();
-                return Err(error);
-            }
             guard.sessions.insert(pane_id, handle);
             Ok(generation)
         }
@@ -211,6 +376,7 @@ fn spawn_pi_session(
             "--mode",
             "rpc",
             trust_flag,
+            "--no-extensions",
             "--extension",
             extension_path
                 .to_str()
@@ -261,6 +427,17 @@ fn spawn_pi_session(
         }
     };
 
+    // Registration must precede every stdout/stderr/process projection. Pi may
+    // emit immediately after spawn, so registering after this function returns
+    // leaves a real race where the first lifecycle event is rejected.
+    if let Err(error) = crate::kanban::register_pi_lifecycle_generation(pane_id, &generation) {
+        process_group::terminate(&mut child, Duration::from_millis(500));
+        return Err(error);
+    }
+
+    let stdin = Arc::new(Mutex::new(stdin));
+    let lifecycle = Arc::new(Mutex::new(PiLifecycleTracker::default()));
+    let emission_lock = Arc::new(Mutex::new(()));
     let alive = Arc::new(AtomicBool::new(true));
     let event_order = Arc::new(AtomicU64::new(0));
     let (stop_tx, stop_rx) = mpsc::channel::<mpsc::Sender<()>>();
@@ -269,6 +446,10 @@ fn spawn_pi_session(
     let output_pane_id = pane_id.to_string();
     let output_generation = generation.clone();
     let output_event_order = event_order.clone();
+    let output_lifecycle = lifecycle.clone();
+    let output_stdin = stdin.clone();
+    let output_alive = alive.clone();
+    let output_emission_lock = emission_lock.clone();
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
         let mut bytes = Vec::new();
@@ -289,11 +470,15 @@ fn spawn_pi_session(
                     let event = serde_json::from_slice(&bytes).unwrap_or_else(
                         |error| json!({"type":"pi_protocol_error","message":error.to_string()}),
                     );
-                    emit_event(
+                    process_raw_event(
                         &output_window,
                         &output_pane_id,
                         &output_generation,
                         &output_event_order,
+                        &output_emission_lock,
+                        &output_lifecycle,
+                        &output_stdin,
+                        &output_alive,
                         event,
                     );
                 }
@@ -303,7 +488,9 @@ fn spawn_pi_session(
                         &output_pane_id,
                         &output_generation,
                         &output_event_order,
+                        &output_emission_lock,
                         json!({"type":"pi_protocol_error","message":error.to_string()}),
+                        "native",
                     );
                     break;
                 }
@@ -315,6 +502,7 @@ fn spawn_pi_session(
     let error_pane_id = pane_id.to_string();
     let error_generation = generation.clone();
     let error_event_order = event_order.clone();
+    let error_emission_lock = emission_lock.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             emit_event(
@@ -322,7 +510,9 @@ fn spawn_pi_session(
                 &error_pane_id,
                 &error_generation,
                 &error_event_order,
+                &error_emission_lock,
                 json!({"type":"pi_stderr","message":line}),
+                "native",
             );
         }
     });
@@ -332,9 +522,12 @@ fn spawn_pi_session(
     let process_generation = generation.clone();
     let process_alive = alive.clone();
     let process_event_order = event_order;
+    let process_emission_lock = emission_lock;
     std::thread::spawn(move || {
+        let mut expected_exit = false;
         loop {
             if let Ok(finished_tx) = stop_rx.try_recv() {
+                expected_exit = true;
                 process_group::terminate(&mut child, Duration::from_millis(750));
                 let _ = finished_tx.send(());
                 break;
@@ -358,7 +551,9 @@ fn spawn_pi_session(
             &process_pane_id,
             &process_generation,
             &process_event_order,
-            json!({"type":"pi_process_exit"}),
+            &process_emission_lock,
+            json!({"type":"pi_process_exit","expected":expected_exit}),
+            "native",
         );
     });
 
@@ -370,6 +565,7 @@ fn spawn_pi_session(
         cwd: cwd.to_string(),
         project_id: project.id.clone(),
         approve_project,
+        lifecycle,
     })
 }
 
@@ -389,7 +585,14 @@ pub fn send_pi_rpc(
     if !handle.alive.load(Ordering::Acquire) {
         return Err("Pi session has exited".to_string());
     }
-    send_json(&mut handle.stdin, &command)
+    if let Ok(mut lifecycle) = handle.lifecycle.lock() {
+        lifecycle.observe_command(&command);
+    }
+    let mut stdin = handle
+        .stdin
+        .lock()
+        .map_err(|_| "Pi stdin lock poisoned".to_string())?;
+    send_json(&mut stdin, &command)
 }
 
 #[tauri::command]
@@ -471,20 +674,158 @@ fn send_json(stdin: &mut ChildStdin, value: &Value) -> Result<(), String> {
     stdin.flush().map_err(|error| error.to_string())
 }
 
+fn process_raw_event(
+    window: &Window,
+    pane_id: &str,
+    generation: &str,
+    sequence: &Arc<AtomicU64>,
+    emission_lock: &Arc<Mutex<()>>,
+    lifecycle: &Arc<Mutex<PiLifecycleTracker>>,
+    stdin: &Arc<Mutex<ChildStdin>>,
+    alive: &Arc<AtomicBool>,
+    event: Value,
+) {
+    let (watchdog, synthetic) = lifecycle
+        .lock()
+        .map(|mut tracker| {
+            let synthetic = tracker.accept_probe(&event);
+            (tracker.observe_event(&event), synthetic)
+        })
+        .unwrap_or((None, false));
+    emit_event(
+        window,
+        pane_id,
+        generation,
+        sequence,
+        emission_lock,
+        event,
+        "native",
+    );
+    if synthetic {
+        emit_event(
+            window,
+            pane_id,
+            generation,
+            sequence,
+            emission_lock,
+            json!({"type":"agent_settled","source":"stacks_watchdog"}),
+            "synthetic",
+        );
+    }
+    if let Some(token) = watchdog {
+        schedule_settlement_probe(
+            pane_id.to_string(),
+            generation.to_string(),
+            lifecycle.clone(),
+            stdin.clone(),
+            alive.clone(),
+            token,
+        );
+    }
+}
+
+fn schedule_settlement_probe(
+    pane_id: String,
+    generation: String,
+    lifecycle: Arc<Mutex<PiLifecycleTracker>>,
+    stdin: Arc<Mutex<ChildStdin>>,
+    alive: Arc<AtomicBool>,
+    token: u64,
+) {
+    std::thread::spawn(move || {
+        std::thread::sleep(SETTLEMENT_WATCHDOG_DELAY);
+        if !alive.load(Ordering::Acquire) {
+            return;
+        }
+        let id = format!("{SETTLEMENT_PROBE_PREFIX}{generation}-{token}");
+        let armed = lifecycle
+            .lock()
+            .map(|mut tracker| tracker.begin_probe(token, id.clone()))
+            .unwrap_or(false);
+        if !armed {
+            return;
+        }
+        let sent = stdin
+            .lock()
+            .map_err(|_| ())
+            .and_then(|mut writer| {
+                send_json(&mut writer, &json!({"type":"get_state","id":id})).map_err(|_| ())
+            })
+            .is_ok();
+        if !sent {
+            if let Ok(mut tracker) = lifecycle.lock() {
+                tracker.cancel_recovery();
+            }
+            eprintln!(
+                "[pi-lifecycle] {}",
+                json!({"stage":"backend_recovery","pane":pane_id,"generation":generation,"source":"watchdog","result":"probe_write_failed"})
+            );
+        } else {
+            eprintln!(
+                "[pi-lifecycle] {}",
+                json!({"stage":"backend_recovery","pane":pane_id,"generation":generation,"source":"watchdog","result":"idle_probe_sent"})
+            );
+        }
+    });
+}
+
 fn emit_event(
     window: &Window,
     pane_id: &str,
     generation: &str,
     sequence: &AtomicU64,
+    emission_lock: &Mutex<()>,
     event: Value,
+    source: &str,
 ) {
+    let _guard = emission_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let event_order = sequence.fetch_add(1, Ordering::SeqCst);
+    let event_id = format!("{generation}:{event_order}");
+    let event_type = event
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    if matches!(
+        event_type,
+        "agent_start"
+            | "agent_end"
+            | "agent_settled"
+            | "pi_protocol_error"
+            | "pi_process_exit"
+            | "retry_scheduled"
+            | "retry_start"
+            | "retry_end"
+            | "auto_compaction_start"
+            | "auto_compaction_end"
+            | "compaction_start"
+            | "compaction_end"
+            | "queue_update"
+            | "extension_ui_request"
+    ) {
+        eprintln!(
+            "[pi-lifecycle] {}",
+            json!({"stage":"raw_event","pane":pane_id,"generation":generation,"event_id":event_id,"event_order":event_order,"event_type":event_type,"source":source})
+        );
+    }
+    if let Err(error) = crate::kanban::project_pi_lifecycle_event(
+        pane_id,
+        generation,
+        &event_id,
+        event_order,
+        &event,
+        source,
+    ) {
+        eprintln!(
+            "[pi-lifecycle] {}",
+            json!({"stage":"backend_projection","pane":pane_id,"generation":generation,"event_id":event_id,"event_order":event_order,"event_type":event_type,"source":source,"result":"error","reason":error})
+        );
+    }
     let _ = window.emit(
         "pi-rpc-event",
         PiRpcEvent {
             pane_id: pane_id.to_string(),
             generation: generation.to_string(),
-            event_id: format!("{generation}:{event_order}"),
+            event_id,
             event_order,
             event,
         },
@@ -781,8 +1122,9 @@ fn find_pi() -> Option<PathBuf> {
 mod tests {
     use super::{
         is_project_trusted, migrate_legacy_stacks_extension_at, project_trust_flag,
-        safe_session_key,
+        safe_session_key, PiLifecycleTracker,
     };
+    use serde_json::json;
     use std::{collections::HashSet, fs};
 
     #[test]
@@ -846,6 +1188,57 @@ mod tests {
         assert!(source.exists());
         assert_eq!(fs::read_to_string(&backup).unwrap(), "existing backup");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn settlement_watchdog_requires_a_terminal_end_and_confirmed_idle_state() {
+        let mut tracker = PiLifecycleTracker::default();
+        assert_eq!(tracker.observe_event(&json!({"type":"agent_start"})), None);
+        let token = tracker.observe_event(&json!({"type":"agent_end"})).unwrap();
+        assert!(tracker.begin_probe(token, "probe".into()));
+        assert!(!tracker.accept_probe(&json!({"type":"response","id":"probe","success":true,"data":{"isStreaming":true,"isCompacting":false,"pendingMessageCount":0}})));
+
+        tracker.observe_event(&json!({"type":"agent_start"}));
+        let token = tracker.observe_event(&json!({"type":"agent_end"})).unwrap();
+        assert!(tracker.begin_probe(token, "probe-2".into()));
+        assert!(tracker.accept_probe(&json!({"type":"response","id":"probe-2","success":true,"data":{"isStreaming":false,"isCompacting":false,"pendingMessageCount":0}})));
+        assert_eq!(tracker.observe_event(&json!({"type":"agent_end"})), None);
+    }
+
+    #[test]
+    fn recovery_is_cancelled_by_continuations_retry_compaction_tools_and_ui() {
+        let blockers = [
+            json!({"type":"queue_update","followUp":["continue"],"steering":[]}),
+            json!({"type":"retry_scheduled"}),
+            json!({"type":"auto_compaction_start"}),
+            json!({"type":"tool_execution_start","toolCallId":"tool"}),
+            json!({"type":"extension_ui_request","method":"confirm","id":"ui"}),
+            json!({"type":"message_update"}),
+        ];
+        for blocker in blockers {
+            let mut tracker = PiLifecycleTracker::default();
+            tracker.observe_event(&json!({"type":"agent_start"}));
+            let token = tracker.observe_event(&json!({"type":"agent_end"})).unwrap();
+            tracker.observe_event(&blocker);
+            assert!(
+                !tracker.begin_probe(token, "probe".into()),
+                "blocker: {blocker}"
+            );
+        }
+    }
+
+    #[test]
+    fn idle_probe_rejects_pending_follow_ups_and_late_native_settle_cancels_recovery() {
+        let mut tracker = PiLifecycleTracker::default();
+        tracker.observe_event(&json!({"type":"agent_start"}));
+        let token = tracker.observe_event(&json!({"type":"agent_end"})).unwrap();
+        assert!(tracker.begin_probe(token, "probe".into()));
+        assert!(!tracker.accept_probe(&json!({"type":"response","id":"probe","success":true,"data":{"isStreaming":false,"isCompacting":false,"pendingMessageCount":1}})));
+
+        tracker.observe_event(&json!({"type":"agent_start"}));
+        let token = tracker.observe_event(&json!({"type":"agent_end"})).unwrap();
+        tracker.observe_event(&json!({"type":"agent_settled"}));
+        assert!(!tracker.begin_probe(token, "late".into()));
     }
 
     #[test]

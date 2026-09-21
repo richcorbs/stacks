@@ -49,8 +49,8 @@ pub(crate) mod workflow;
 
 pub(crate) use cards::{
     card_directory, card_pi_owner, card_pi_session, card_project_id, card_terminal_owner,
-    create_local_card_for_project, register_pi_lifecycle_generation, validate_card_pi_start,
-    validate_card_terminal_start,
+    create_local_card_for_project, project_pi_lifecycle_event, register_pi_lifecycle_generation,
+    validate_card_pi_start, validate_card_terminal_start,
 };
 pub use commands::*;
 pub use domain::*;
