@@ -32,6 +32,8 @@ export type PiResponseEvent = {
   command?: string;
   success: boolean;
   error?: string;
+  source?: string;
+  expected?: boolean;
   data?: {
     messages?: PiMessage[];
     model?: PiModel | null;

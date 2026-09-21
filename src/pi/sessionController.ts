@@ -382,9 +382,16 @@ export class PiSessionController {
 
   private handleEnvelope = (payload: PiRpcEnvelope) => {
     if (this.deleted || payload.pane_id !== this.config.paneId) return;
-    if (this.generation && this.generation !== payload.generation) return;
+    const lifecycleDiagnostic = ['agent_start', 'agent_end', 'agent_settled', 'pi_protocol_error', 'pi_process_exit'].includes(payload.event.type);
+    if (this.generation && this.generation !== payload.generation) {
+      if (lifecycleDiagnostic) console.debug('[pi-lifecycle]', { stage: 'frontend_session', pane: payload.pane_id, generation: payload.generation,
+        acceptedGeneration: this.generation, eventId: payload.event_id, eventOrder: payload.event_order, eventType: payload.event.type, result: 'filtered', reason: 'stale_generation' });
+      return;
+    }
     if (!this.generation) this.generation = payload.generation;
     const event = payload.event;
+    if (lifecycleDiagnostic) console.debug('[pi-lifecycle]', { stage: 'frontend_session', pane: payload.pane_id, generation: payload.generation,
+      eventId: payload.event_id, eventOrder: payload.event_order, eventType: event.type, source: event.source ?? 'native', result: 'received' });
     if (event.type === 'response' && event.id) {
       const response = event as PiResponseEvent;
       const pending = this.pendingRequests.get(event.id);

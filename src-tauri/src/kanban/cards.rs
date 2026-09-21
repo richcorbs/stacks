@@ -187,9 +187,7 @@ pub(crate) fn finish_local_refinement(
     if content.is_empty() {
         return Err("A final card description is required before finishing refinement".to_string());
     }
-    let transaction = connection
-        .savepoint()
-        .map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     let (source_status, project_id, parent_id, finalized, existing_child_count): (CardStatus, String, Option<String>, bool, i64) = transaction
         .query_row(
             "SELECT status, project_id, parent_id, hierarchy_finalized, (SELECT COUNT(*) FROM kanban_cards child WHERE child.parent_id=kanban_cards.id) FROM kanban_cards WHERE id = ?1",
@@ -587,7 +585,9 @@ pub(in crate::kanban) fn validate_project_deletion(
 pub(in crate::kanban) fn kanban_validate_project_deletion_operation(
     project_id: String,
 ) -> Result<(), String> {
-    with_read_connection(|connection| validate_project_deletion(connection, &project_id).map(|_| ()))
+    with_read_connection(|connection| {
+        validate_project_deletion(connection, &project_id).map(|_| ())
+    })
 }
 
 pub(in crate::kanban) fn kanban_delete_project_records_operation(
@@ -799,9 +799,7 @@ pub(in crate::kanban) fn kanban_apply_workflow_action_operation(
         return Err("This workflow action requires its operation-specific command".to_string());
     }
     with_board_mutation(|connection| {
-        let transaction = connection
-            .savepoint()
-            .map_err(db_error)?;
+        let transaction = connection.savepoint().map_err(db_error)?;
         apply_workflow_transition(
             &transaction,
             &id,
@@ -833,6 +831,67 @@ pub(crate) fn register_pi_lifecycle_generation(
         params![session.card_id, session.thread, generation],
     ).map(|_| ()).map_err(db_error)
     })
+}
+
+pub(crate) fn project_pi_lifecycle_event(
+    pane_id: &str,
+    generation: &str,
+    event_id: &str,
+    event_order: u64,
+    event: &serde_json::Value,
+    source: &str,
+) -> Result<(), String> {
+    let event_type = event
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let intent = match event_type {
+        "agent_start" => PiLifecycleIntent::AgentStarted,
+        "agent_settled" => PiLifecycleIntent::AgentSettled,
+        "pi_protocol_error" => PiLifecycleIntent::ProtocolFailed,
+        "pi_process_exit"
+            if event.get("expected").and_then(serde_json::Value::as_bool) != Some(true) =>
+        {
+            PiLifecycleIntent::ProcessExited
+        }
+        _ => return Ok(()),
+    };
+    let Some(session) = card_pi_session(pane_id)? else {
+        return Ok(());
+    };
+    let thread = session.thread.parse::<PiThread>()?;
+    let failure_detail = match intent {
+        PiLifecycleIntent::ProtocolFailed => {
+            event.get("message").and_then(serde_json::Value::as_str)
+        }
+        PiLifecycleIntent::ProcessExited => Some("Pi process exited unexpectedly"),
+        _ => None,
+    };
+    let order = i64::try_from(event_order)
+        .map_err(|_| "Pi lifecycle event order overflowed".to_string())?;
+    let result = with_board_mutation(|connection| {
+        apply_pi_lifecycle_intent_with_detail(
+            connection,
+            &session.card_id,
+            thread,
+            intent,
+            generation,
+            event_id,
+            Some(order),
+            failure_detail,
+        )
+        .map(|_| ())
+    });
+    eprintln!(
+        "[pi-lifecycle] {}",
+        serde_json::json!({
+            "stage":"backend_projection","pane":pane_id,"card":session.card_id,"thread":session.thread,
+            "generation":generation,"event_id":event_id,"event_order":event_order,"event_type":event_type,
+            "source":source,"result":if result.is_ok() { "processed" } else { "error" },
+            "reason":result.as_ref().err(),
+        })
+    );
+    result
 }
 
 pub(in crate::kanban) fn kanban_apply_pi_lifecycle_intent_operation(
@@ -892,9 +951,7 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
     event_order: Option<i64>,
     failure_detail: Option<&str>,
 ) -> Result<KanbanCard, String> {
-    let transaction = connection
-        .savepoint()
-        .map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     let state: Option<(String, i64, String)> = transaction.query_row(
             "SELECT generation,latest_event_order,latest_event_id FROM card_pi_lifecycle WHERE card_id=?1 AND thread=?2",
             params![id, thread], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -903,6 +960,10 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
         return Err("Pi lifecycle generation has not been registered".to_string());
     };
     if accepted_generation != generation {
+        eprintln!(
+            "[pi-lifecycle] {}",
+            serde_json::json!({"stage":"transition","card":id,"thread":thread,"generation":generation,"event_id":event_id,"event_order":event_order,"result":"rejected","reason":"stale_generation","accepted_generation":accepted_generation})
+        );
         transaction.commit().map_err(db_error)?;
         return get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string());
     }
@@ -917,6 +978,10 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
     let stale_order = event_order.is_some_and(|order| order <= latest_order);
     let _ = latest_id;
     if stale_order || duplicate_unordered {
+        eprintln!(
+            "[pi-lifecycle] {}",
+            serde_json::json!({"stage":"transition","card":id,"thread":thread,"generation":generation,"event_id":event_id,"event_order":event_order,"result":"rejected","reason":if stale_order { "stale_or_duplicate_order" } else { "duplicate_event_id" },"latest_event_order":latest_order})
+        );
         transaction.commit().map_err(db_error)?;
         return get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string());
     }
@@ -959,6 +1024,10 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
                 params![event_order, event_id, id, thread, generation],
             ).map_err(db_error)?;
     }
+    eprintln!(
+        "[pi-lifecycle] {}",
+        serde_json::json!({"stage":"transition","card":id,"thread":thread,"generation":generation,"event_id":event_id,"event_order":event_order,"intent":intent,"result":if transition.is_some() || records_initial_work_launch { "accepted" } else { "no_op" }})
+    );
     transaction.commit().map_err(db_error)?;
     get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
 }
@@ -988,9 +1057,7 @@ pub(in crate::kanban) fn record_agent_launch_failure(
     expected_project_id: &str,
     error_detail: &str,
 ) -> Result<(), String> {
-    let transaction = connection
-        .savepoint()
-        .map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     let card =
         get_card(&transaction, &id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
     if card.workflow_revision != expected_workflow_revision
@@ -1067,9 +1134,7 @@ pub(in crate::kanban) fn commit_card_close(
     id: &str,
     expected_revision: i64,
 ) -> Result<CardRuntimeTargets, String> {
-    let transaction = connection
-        .savepoint()
-        .map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     require_structural_capability(&transaction, id, WorkflowAction::Close)?;
     let targets = persisted_runtime_targets(&transaction, id)?;
     apply_workflow_transition(
@@ -1304,9 +1369,7 @@ pub(in crate::kanban) fn reorder_cards(
         );
     }
 
-    let transaction = connection
-        .savepoint()
-        .map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     let rows = {
         let mut statement = transaction.prepare(
             "SELECT id, status, hierarchy_finalized, in_scope FROM kanban_cards ORDER BY sort_order ASC, created_at ASC, id ASC",
@@ -1411,9 +1474,7 @@ pub(in crate::kanban) fn set_card_project(
     destination_id: &str,
     destination_name: &str,
 ) -> Result<KanbanCard, String> {
-    let transaction = connection
-        .savepoint()
-        .map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     let (provider, status, current_project_id, current_number, has_environment, parent_id, has_children, hierarchy_finalized):
         (String, String, Option<String>, String, bool, Option<String>, bool, bool) = transaction.query_row(
         "SELECT external_provider, status, project_id, external_id, EXISTS(SELECT 1 FROM card_environments WHERE card_id=kanban_cards.id), parent_id, EXISTS(SELECT 1 FROM kanban_cards child WHERE child.parent_id=kanban_cards.id), hierarchy_finalized FROM kanban_cards WHERE id=?1",

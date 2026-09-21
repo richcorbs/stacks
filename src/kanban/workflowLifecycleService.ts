@@ -127,10 +127,27 @@ export class KanbanWorkflowLifecycleService {
     const eventType = typeof envelope.event?.type === 'string' ? envelope.event.type : '';
     const lifecycleError = eventType === 'pi_protocol_error' || eventType === 'pi_process_exit';
     if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled' && !lifecycleError)) return;
+    const diagnostic = { stage: 'frontend_projection', pane: envelope.pane_id, generation: envelope.generation,
+      eventId: envelope.event_id, eventOrder: envelope.event_order, eventType, source: envelope.event.source ?? 'native' };
+    if (eventType === 'pi_process_exit' && envelope.event.expected === true) {
+      console.debug('[pi-lifecycle]', { ...diagnostic, result: 'filtered', reason: 'expected_exit' });
+      return;
+    }
     const acceptedGeneration = this.dependencies.session(envelope.pane_id)?.lifecycleGeneration();
-    if ((acceptedGeneration && acceptedGeneration !== envelope.generation) || (lifecycleError && !acceptedGeneration)) return;
+    if (acceptedGeneration && acceptedGeneration !== envelope.generation) {
+      console.debug('[pi-lifecycle]', { ...diagnostic, result: 'filtered', reason: 'stale_generation', acceptedGeneration });
+      return;
+    }
+    if (lifecycleError && !acceptedGeneration) {
+      console.debug('[pi-lifecycle]', { ...diagnostic, result: 'filtered', reason: 'generation_unavailable' });
+      return;
+    }
     const card = this.dependencies.card(session.cardId);
-    if (!card) return;
+    if (!card) {
+      console.debug('[pi-lifecycle]', { ...diagnostic, result: 'filtered', reason: 'card_not_loaded' });
+      return;
+    }
+    console.debug('[pi-lifecycle]', { ...diagnostic, result: 'received' });
     const intent = piLifecycleIntent(eventType);
     const failureDetail = eventType === 'pi_protocol_error'
       ? (typeof (envelope.event as { message?: unknown }).message === 'string' ? String((envelope.event as { message: string }).message) : 'Pi protocol failed')
