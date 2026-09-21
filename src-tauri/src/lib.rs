@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 mod app_events;
 mod automation;
+pub mod dev_seed;
 mod fs_paths;
 mod git;
 mod github;
@@ -26,6 +27,7 @@ mod store;
 mod superthread;
 mod workspace_setup;
 use app_events::{handle_menu_event, setup_main_window};
+use dev_seed::startup_card_recovery_allowed;
 use automation::AutomationState;
 use git::{
     cleanup_git_worktree, git_change_summary, git_diff_files, git_file_diff, git_info,
@@ -136,6 +138,7 @@ pub fn run() {
             save_app_settings,
             patch_app_settings,
             reset_settings,
+            startup_card_recovery_allowed,
             new_id,
             quit_app,
             restart_app,
