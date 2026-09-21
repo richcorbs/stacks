@@ -61,19 +61,19 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
 }
 
 describe('KanbanCardContents', () => {
-  it('groups card and project metadata on the left and adjacent hierarchy badges on the right', () => {
+  it('groups card and project metadata on the left and a combined hierarchy badge on the right', () => {
     const markup = renderCardContents(card());
     const leftStart = markup.indexOf('class="kanbanCardSourceLeft"');
     const leftEnd = markup.indexOf('</span><span class="kanbanHierarchyGroup">');
-    const parentIndex = markup.indexOf('class="kanbanHierarchyBadge parent"');
-    const childrenIndex = markup.indexOf('class="kanbanHierarchyBadge children"');
+    const hierarchyIndex = markup.indexOf('class="kanbanHierarchyBadge parent combined"');
 
     expect(leftStart).toBeGreaterThan(-1);
     expect(markup.indexOf('#128')).toBeGreaterThan(leftStart);
     expect(markup.indexOf('class="kanbanProjectBadge"')).toBeGreaterThan(leftStart);
     expect(leftEnd).toBeGreaterThan(markup.indexOf('class="kanbanProjectBadge"'));
-    expect(parentIndex).toBeGreaterThan(leftEnd);
-    expect(childrenIndex).toBeGreaterThan(parentIndex);
+    expect(hierarchyIndex).toBeGreaterThan(leftEnd);
+    expect(markup).toContain('>(#12 / 2)</button>');
+    expect(markup).not.toContain('class="kanbanHierarchyBadge children"');
   });
 
   it('omits the hierarchy group when the card has no hierarchy metadata', () => {

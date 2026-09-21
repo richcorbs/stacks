@@ -139,7 +139,7 @@ describe('CardDetailTabs', () => {
 });
 
 describe('CardDetailHeader', () => {
-  it('groups workflow metadata and the edit button on the left and adjacent hierarchy badges on the right', () => {
+  it('groups workflow metadata and the edit button on the left and a combined hierarchy badge on the right', () => {
     const markup = renderHeader(card());
     const titleIndex = markup.indexOf('<h2>');
     const leftStart = classIndex(markup, 'kanbanDetailHeaderMetaLeft');
@@ -151,8 +151,9 @@ describe('CardDetailHeader', () => {
     expect(classIndex(markup, 'kanbanCardStatus')).toBeLessThan(classIndex(markup, 'kanbanCardEditButton'));
     expect(classIndex(markup, 'kanbanCardEditButton')).toBeLessThan(leftEnd);
     expect(classIndex(markup, 'kanbanHierarchyGroup')).toBeGreaterThan(leftEnd);
-    expect(classIndex(markup, 'kanbanHierarchyBadge parent')).toBeGreaterThan(classIndex(markup, 'kanbanHierarchyGroup'));
-    expect(classIndex(markup, 'kanbanHierarchyBadge parent')).toBeLessThan(classIndex(markup, 'kanbanHierarchyBadge children'));
+    expect(classIndex(markup, 'kanbanHierarchyBadge parent combined')).toBeGreaterThan(classIndex(markup, 'kanbanHierarchyGroup'));
+    expect(markup).toContain('>(#12 / 2)</button>');
+    expect(markup).not.toContain('class="kanbanHierarchyBadge children"');
 
     expect(classIndex(markup, 'kanbanCardGitSummary')).toBeGreaterThan(titleIndex);
     expect(classIndex(markup, 'kanbanCardPrLink')).toBeGreaterThan(titleIndex);

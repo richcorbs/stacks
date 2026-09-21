@@ -48,6 +48,19 @@ describe('CardHierarchyBadges', () => {
     expect(markup).toContain('>#2240</button>');
   });
 
+  it('combines parent ID and child count into one parent-colored badge', () => {
+    const nested = {
+      ...card(3),
+      parent: { id: 'local:p:12', external_id: '12', title: 'Parent card', status: 'ready' as const },
+    };
+    const markup = renderToStaticMarkup(<CardHierarchyBadges card={nested} onNavigateParent={() => undefined} />);
+
+    expect(markup).toContain('class="kanbanHierarchyBadge parent combined"');
+    expect(markup).toContain('title="Parent #12: Parent card; 3 children"');
+    expect(markup).toContain('>(#12 / 3)</button>');
+    expect(markup).not.toContain('class="kanbanHierarchyBadge children"');
+  });
+
   it('isolates parent pointer and click events before navigating', async () => {
     const child = {
       ...card(0),
