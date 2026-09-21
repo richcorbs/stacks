@@ -1276,15 +1276,43 @@ pub(in crate::kanban) fn enrich_relationships_batched(
             }
         }
     }
+    let stored = cards
+        .iter()
+        .map(|card| (card.id.clone(), (card.status, card.hierarchy_finalized)))
+        .collect::<HashMap<_, _>>();
+    let children = cards
+        .iter()
+        .map(|card| {
+            (
+                card.id.clone(),
+                card.children.iter().map(|child| child.id.clone()).collect::<Vec<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut effective = HashMap::new();
+    for card in cards.iter() {
+        effective_status_from_graph(
+            &card.id,
+            &stored,
+            &children,
+            &mut effective,
+            &mut HashSet::new(),
+        );
+    }
     for card in cards {
         card.child_count = card.child_count.max(card.children.len() as u64);
-        if card.hierarchy_finalized && !card.children.is_empty() {
-            card.status = card
-                .children
-                .iter()
-                .min_by_key(|child| workflow::status_index(child.status))
-                .map(|child| child.status.clone())
-                .unwrap_or(card.status.clone());
+        if let Some(status) = effective.get(&card.id) {
+            card.status = *status;
+        }
+        if let Some(parent) = card.parent.as_mut() {
+            if let Some(status) = effective.get(&parent.id) {
+                parent.status = *status;
+            }
+        }
+        for child in &mut card.children {
+            if let Some(status) = effective.get(&child.id) {
+                child.status = *status;
+            }
         }
     }
     Ok(())
@@ -1397,35 +1425,93 @@ pub(in crate::kanban) fn relationship_summary(
     connection: &Connection,
     id: &str,
 ) -> Result<Option<CardRelationshipSummary>, String> {
-    connection
+    let Some((id, external_id, title, stored_status, finalized)) = connection
         .query_row(
-            "SELECT id, external_id, title, status FROM kanban_cards WHERE id=?1 AND in_scope=1",
+            "SELECT id, external_id, title, status, hierarchy_finalized FROM kanban_cards WHERE id=?1 AND in_scope=1",
             [id],
             |row| {
-                Ok(CardRelationshipSummary {
-                    id: row.get(0)?,
-                    external_id: row.get(1)?,
-                    title: row.get(2)?,
-                    status: row.get(3)?,
-                })
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)? != 0,
+                ))
             },
         )
         .optional()
-        .map_err(db_error)
+        .map_err(db_error)? else { return Ok(None); };
+    let status = effective_card_status(connection, &id, &stored_status, finalized)?.parse()?;
+    Ok(Some(CardRelationshipSummary { id, external_id, title, status }))
 }
 
-pub(in crate::kanban) fn earliest_workflow_status<'a>(
-    statuses: impl IntoIterator<Item = &'a str>,
-) -> Option<String> {
-    statuses
+fn effective_status_from_graph(
+    id: &str,
+    stored: &HashMap<String, (CardStatus, bool)>,
+    children: &HashMap<String, Vec<String>>,
+    memo: &mut HashMap<String, CardStatus>,
+    visiting: &mut HashSet<String>,
+) -> CardStatus {
+    if let Some(status) = memo.get(id) {
+        return *status;
+    }
+    let Some((stored_status, finalized)) = stored.get(id).copied() else {
+        return CardStatus::NeedsRefinement;
+    };
+    if !finalized || !visiting.insert(id.to_string()) {
+        return stored_status;
+    }
+    let effective = children
+        .get(id)
         .into_iter()
-        .min_by_key(|status| {
-            status
-                .parse::<CardStatus>()
-                .map(workflow::status_index)
-                .unwrap_or(workflow::STATUS_METADATA.len())
+        .flatten()
+        .map(|child| effective_status_from_graph(child, stored, children, memo, visiting))
+        .min_by_key(|status| workflow::status_index(*status))
+        .unwrap_or(stored_status);
+    visiting.remove(id);
+    memo.insert(id.to_string(), effective);
+    effective
+}
+
+fn effective_card_status_inner(
+    connection: &Connection,
+    id: &str,
+    stored_status: CardStatus,
+    hierarchy_finalized: bool,
+    visiting: &mut HashSet<String>,
+) -> Result<CardStatus, String> {
+    if !hierarchy_finalized || !visiting.insert(id.to_string()) {
+        return Ok(stored_status);
+    }
+    let mut statement = connection
+        .prepare("SELECT id,status,hierarchy_finalized FROM kanban_cards WHERE parent_id=?1 AND in_scope=1")
+        .map_err(db_error)?;
+    let children = statement
+        .query_map([id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, CardStatus>(1)?,
+                row.get::<_, i64>(2)? != 0,
+            ))
         })
-        .map(str::to_string)
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    let mut effective = Vec::with_capacity(children.len());
+    for (child_id, child_status, child_finalized) in children {
+        effective.push(effective_card_status_inner(
+            connection,
+            &child_id,
+            child_status,
+            child_finalized,
+            visiting,
+        )?);
+    }
+    visiting.remove(id);
+    Ok(effective
+        .into_iter()
+        .min_by_key(|status| workflow::status_index(*status))
+        .unwrap_or(stored_status))
 }
 
 pub(in crate::kanban) fn effective_card_status(
@@ -1434,21 +1520,15 @@ pub(in crate::kanban) fn effective_card_status(
     stored_status: &str,
     hierarchy_finalized: bool,
 ) -> Result<String, String> {
-    if !hierarchy_finalized {
-        return Ok(stored_status.to_string());
-    }
-    let mut statement = connection
-        .prepare("SELECT status FROM kanban_cards WHERE parent_id=?1 AND in_scope=1")
-        .map_err(db_error)?;
-    let child_statuses = statement
-        .query_map([id], |row| row.get::<_, String>(0))
-        .map_err(db_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_error)?;
-    Ok(
-        earliest_workflow_status(child_statuses.iter().map(String::as_str))
-            .unwrap_or_else(|| stored_status.to_string()),
+    let stored_status = stored_status.parse::<CardStatus>()?;
+    effective_card_status_inner(
+        connection,
+        id,
+        stored_status,
+        hierarchy_finalized,
+        &mut HashSet::new(),
     )
+    .map(|status| status.to_string())
 }
 
 pub(in crate::kanban) fn enrich_relationships(
@@ -1476,13 +1556,28 @@ pub(in crate::kanban) fn enrich_relationships(
             .collect::<Result<Vec<_>, _>>()
             .map_err(db_error)?;
         card.child_count = card.child_count.max(card.children.len() as u64);
-        if card.hierarchy_finalized && !card.children.is_empty() {
-            card.status = card
-                .children
-                .iter()
-                .min_by_key(|child| workflow::status_index(child.status))
-                .map(|child| child.status)
-                .unwrap_or(card.status);
+        card.status = effective_card_status(
+            connection,
+            &card.id,
+            card.status.as_str(),
+            card.hierarchy_finalized,
+        )?
+        .parse()?;
+        for child in &mut card.children {
+            let finalized = connection
+                .query_row(
+                    "SELECT hierarchy_finalized FROM kanban_cards WHERE id=?1",
+                    [&child.id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(db_error)? != 0;
+            child.status = effective_card_status(
+                connection,
+                &child.id,
+                child.status.as_str(),
+                finalized,
+            )?
+            .parse()?;
         }
     }
     Ok(())

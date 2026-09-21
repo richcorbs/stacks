@@ -309,6 +309,54 @@ fn reorder_uses_aggregate_parents_effective_child_lane() {
 }
 
 #[test]
+fn aggregate_status_recurses_through_nested_children() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    crate::store::migrate_store_schema(&connection).unwrap();
+    for (id, status, order) in [
+        ("grandparent", "ready", 0),
+        ("middle", "ready", 1),
+        ("done-sibling", "done", 2),
+        ("approved-leaf", "approved", 3),
+        ("done-leaf", "done", 4),
+    ] {
+        insert_ordered_card(&connection, id, status, order, 1);
+    }
+    connection.execute(
+        "UPDATE kanban_cards SET hierarchy_finalized=1 WHERE id IN ('grandparent','middle')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "UPDATE kanban_cards SET parent_id='grandparent' WHERE id IN ('middle','done-sibling')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "UPDATE kanban_cards SET parent_id='middle' WHERE id IN ('approved-leaf','done-leaf')",
+        [],
+    ).unwrap();
+
+    assert_eq!(
+        effective_card_status(&connection, "grandparent", "ready", true).unwrap(),
+        "approved"
+    );
+    let cards = list_cards(&mut connection).unwrap();
+    let statuses = cards.iter().map(|card| (card.id.as_str(), card.status.as_str())).collect::<HashMap<_, _>>();
+    assert_eq!(statuses["middle"], "approved");
+    assert_eq!(statuses["grandparent"], "approved");
+    let grandparent = cards.iter().find(|card| card.id == "grandparent").unwrap();
+    assert_eq!(
+        grandparent.children.iter().find(|child| child.id == "middle").unwrap().status,
+        CardStatus::Approved
+    );
+    let targeted = get_card(&mut connection, "grandparent").unwrap().unwrap();
+    assert_eq!(targeted.status, CardStatus::Approved);
+    assert_eq!(
+        targeted.children.iter().find(|child| child.id == "middle").unwrap().status,
+        CardStatus::Approved
+    );
+}
+
+#[test]
 fn revision_schema_migrates_existing_cards_and_initializes_board_metadata() {
     let connection = Connection::open_in_memory().unwrap();
     connection.execute_batch("CREATE TABLE kanban_cards (
