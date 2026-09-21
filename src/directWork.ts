@@ -6,6 +6,11 @@ export type WorkOwner =
 
 export type WorkView = 'overview' | 'agent' | 'notes' | 'diff' | 'terminal' | 'release' | 'server' | 'console';
 
+export type WorkNavigationRequest = {
+  view: WorkView;
+  nonce: number;
+};
+
 export function workOwnerId(owner: WorkOwner) {
   return owner.kind === 'card' ? `kanban-card:${owner.cardId}` : `project-direct:${owner.projectId}`;
 }

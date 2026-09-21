@@ -267,6 +267,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>) {
     onRunOneTimeCommand: () => setOneTimeCommandOpen(true),
     onNewCard: (project) => events.publish('new-card', { projectId: project?.id }),
     onDirectProjectWork: (project) => events.publish('open-direct-work', { projectId: project?.id }),
+    onAddProjectNote: (project) => events.publish('open-direct-work', { projectId: project?.id, view: 'notes', chooseProject: true }),
     onRelease: (project) => events.publish('open-direct-work', { projectId: project?.id, view: 'release' }),
     onCardTerminalCommand: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
     onFocusCardTerminalPane: (paneId) => events.publish('card-terminal-command', { type: 'focus', paneId }),

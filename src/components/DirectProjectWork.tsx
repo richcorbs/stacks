@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GitInfo, Project } from '../types';
 import { applicationEvents } from '../applicationEvents';
-import { directWorkTabs, workAgentId, workTerminalId, type WorkView } from '../directWork';
+import { directWorkTabs, workAgentId, workTerminalId, type WorkNavigationRequest, type WorkView } from '../directWork';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { projectRemoteComparisonTarget } from '../git/comparisonTarget';
@@ -26,13 +26,14 @@ const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: 
 const encoder = new TextEncoder();
 type ServiceMode = 'server' | 'console';
 
-export function DirectProjectWork({ project, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, onClose }: {
+export function DirectProjectWork({ project, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, navigationRequest, onClose }: {
   project: Project;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
   copyOnSelect: boolean;
   initialView?: WorkView;
+  navigationRequest?: WorkNavigationRequest | null;
   onClose: () => void;
 }) {
   const [activeView, setActiveView] = useState<WorkView>(initialView && (initialView !== 'release' || project.releases_enabled) ? initialView : 'agent');
@@ -58,6 +59,11 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
     ...(project.console_command?.trim() ? ['console' as const] : []),
   ], [project.console_command, project.server_command]);
   useEffect(() => { if (directShell.error) setActionError(directShell.error); }, [directShell.error]);
+
+  useEffect(() => {
+    if (!navigationRequest || (navigationRequest.view === 'release' && !project.releases_enabled)) return;
+    setActiveView(navigationRequest.view);
+  }, [navigationRequest, project.releases_enabled]);
 
   const refreshGit = () => invoke<GitInfo | null>('git_info', { path: project.path })
     .then((info) => setGitState(info ? { kind: 'git', info } : { kind: 'not-git' }))
@@ -144,7 +150,12 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
             <PiGuiView terminal={{ id: agentId, workspaceId, kind: 'pi', cwd: project.path }} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} active={showAgent} visible={showAgent} maximized={false} canToggleMaximize={false} restartRequestNonce={0} fontSize={13} onFocus={() => {}} onClose={() => {}} onSplitTerminal={() => {}} onEditTerminal={() => {}} onToggleMaximize={() => {}} />
           </Suspense></div>
         </section>
-        <ProjectNotesView key={project.id} projectId={project.id} active={activeView === 'notes'} />
+        <ProjectNotesView
+          key={project.id}
+          projectId={project.id}
+          active={activeView === 'notes'}
+          focusRequest={navigationRequest?.view === 'notes' ? navigationRequest.nonce : undefined}
+        />
         <section className={`cardDiffView cardView${activeView === 'diff' ? ' active' : ''}`}>
           <aside className="cardDiffExplorer"><DiffTab activePath={gitState?.kind === 'git' ? project.path : null} comparisonTarget={projectRemoteComparisonTarget(project)} refreshNonce={diffRefreshNonce} review={diffReview} /></aside>
           <div className="cardDiffContent">{diffReview.openDiff ? <DiffOverlay review={diffReview} fontSize={13} canSubmit onSubmit={submitDiffReview} onClose={() => diffReview.setOpenDiff(null)} /> : <div className="kanbanEmpty">Select a changed file to view its diff.</div>}</div>

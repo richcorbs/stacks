@@ -14,7 +14,7 @@ export type { EventBroker } from './eventBroker';
 export type AppEventMap = {
   toast: ToastDetail & { duration?: number };
   'new-card': { projectId?: string };
-  'open-direct-work': { projectId?: string; view?: WorkView };
+  'open-direct-work': { projectId?: string; view?: WorkView; chooseProject?: boolean };
   'open-project-switcher': undefined;
   'card-tab-shortcut': { number?: number; direction?: -1 | 1 };
   'card-workflow-action': { cardId?: string; action?: string };

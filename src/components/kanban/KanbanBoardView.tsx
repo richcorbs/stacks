@@ -8,7 +8,7 @@ import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { DirectProjectWork } from '../DirectProjectWork';
-import type { WorkView } from '../../directWork';
+import type { WorkNavigationRequest, WorkView } from '../../directWork';
 import { inspectRelease } from '../../releaseApi';
 import { useBoardKeyboardNavigation } from '../../kanban/useBoardKeyboardNavigation';
 import { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
@@ -31,7 +31,8 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
   const syncAvailability = superthreadSyncAvailability(superthreadEnabled, projects, filterProjectId);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
-  const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct' | 'release'>('filter');
+  const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct' | 'notes' | 'release'>('filter');
+  const [projectPickerCurrentProjectId, setProjectPickerCurrentProjectId] = useState<string | null>(null);
   const [releasePickerProjects, setReleasePickerProjects] = useState<Project[]>([]);
   const visibleCards = useMemo(() => filterKanbanCards(board.cards, filterProjectId), [board.cards, filterProjectId]);
   const creationAvailability = useMemo(
@@ -61,6 +62,8 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   const directWorkProjectIdRef = useRef<string | null>(null);
   directWorkProjectIdRef.current = directWorkProjectId;
   const [directWorkInitialView, setDirectWorkInitialView] = useState<WorkView | undefined>();
+  const [directWorkNavigationRequest, setDirectWorkNavigationRequest] = useState<WorkNavigationRequest | null>(null);
+  const directWorkNavigationNonceRef = useRef(0);
   const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
   const doneToggleRef = useRef<HTMLButtonElement | null>(null);
   const [openLaneMenu, setOpenLaneMenu] = useState<KanbanStatus | null>(null);
@@ -92,12 +95,15 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     if (selectedProjectId && !filterProjectId) onSelectProject(null);
   }, [filterProjectId, onSelectProject, selectedProjectId]);
 
-  const replaceDirectWork = useCallback(async (projectId: string | null, view?: WorkView) => {
+  const replaceDirectWork = useCallback(async (projectId: string | null, view?: WorkView, requestNavigation = false) => {
     const current = directWorkProjectIdRef.current;
     if (current && current !== projectId) {
       try { await flushProjectNotes(current); } catch { return false; }
     }
     setDirectWorkInitialView(view);
+    setDirectWorkNavigationRequest(requestNavigation && view
+      ? { view, nonce: ++directWorkNavigationNonceRef.current }
+      : null);
     setDirectWorkProjectId(projectId);
     return true;
   }, []);
@@ -136,9 +142,13 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   }, [board.cardsHydrated, projectsHydrated]);
 
   useEffect(() => {
-    const openDirectWork = (detail: { projectId?: string; view?: WorkView }) => {
+    const openDirectWork = (detail: { projectId?: string; view?: WorkView; chooseProject?: boolean }) => {
       const project = projects.find((candidate) => candidate.id === detail.projectId);
-      if (project && (detail?.view !== 'release' || project.releases_enabled)) {
+      if (detail.chooseProject && detail.view === 'notes') {
+        setProjectPickerCurrentProjectId(project?.id ?? null);
+        setProjectPickerPurpose('notes');
+        setProjectSwitcherOpen(true);
+      } else if (project && (detail?.view !== 'release' || project.releases_enabled)) {
         void replaceDirectWork(project.id, detail?.view);
       } else if (detail?.view === 'release') {
         void Promise.all(projects.filter((candidate) => candidate.releases_enabled).map(async (candidate) => (await inspectRelease(candidate.id)).valid ? candidate : null)).then((items) => {
@@ -356,13 +366,14 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       <ProjectSwitcherDialog
         open={projectSwitcherOpen}
         projects={projectPickerPurpose === 'release' ? releasePickerProjects : projects}
-        currentProjectId={projectPickerPurpose === 'filter' ? filterProjectId : null}
+        currentProjectId={projectPickerPurpose === 'filter' ? filterProjectId : projectPickerPurpose === 'notes' ? projectPickerCurrentProjectId : null}
         includeAllProjects={projectPickerPurpose === 'filter'}
         onCancel={() => setProjectSwitcherOpen(false)}
         onSelect={(project) => {
-          if (projectPickerPurpose === 'direct' || projectPickerPurpose === 'release') {
+          if (projectPickerPurpose === 'direct' || projectPickerPurpose === 'notes' || projectPickerPurpose === 'release') {
             if (!project) return;
-            void replaceDirectWork(project.id, projectPickerPurpose === 'release' ? 'release' : undefined);
+            const view = projectPickerPurpose === 'release' ? 'release' : projectPickerPurpose === 'notes' ? 'notes' : undefined;
+            void replaceDirectWork(project.id, view, projectPickerPurpose === 'notes');
           } else {
             onSelectProject(project?.id ?? null);
             setKeyboardFocusedCardId(null);
@@ -384,6 +395,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           terminalScrollback={terminalScrollback}
           copyOnSelect={copyOnSelect}
           initialView={directWorkInitialView}
+          navigationRequest={directWorkNavigationRequest}
           onClose={() => { void replaceDirectWork(null); }}
         />
       )}
