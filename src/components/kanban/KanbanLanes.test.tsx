@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
-import { DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import { DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
 
 const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
 
@@ -59,6 +59,22 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
     />,
   );
 }
+
+describe('kanbanCardClassName', () => {
+  it('classifies cards as parents only when they have children', () => {
+    expect(kanbanCardClassName(card({ parent: null, child_count: 1 }))).toBe('kanbanCard kanbanParentCard');
+    expect(kanbanCardClassName(card({ child_count: 2 }))).toBe('kanbanCard kanbanParentCard');
+    expect(kanbanCardClassName(card({ child_count: 0 }))).toBe('kanbanCard');
+    expect(kanbanCardClassName(card({ parent: null, child_count: 0 }))).toBe('kanbanCard');
+  });
+
+  it('provides the same parent class for lane cards and drag previews without losing keyboard focus', () => {
+    const parentCard = card({ child_count: 1 });
+
+    expect(kanbanCardClassName(parentCard, true)).toBe('kanbanCard kanbanParentCard keyboardFocused');
+    expect(kanbanCardClassName(parentCard)).toBe('kanbanCard kanbanParentCard');
+  });
+});
 
 describe('KanbanCardContents', () => {
   it('groups card and project metadata on the left and a combined hierarchy badge on the right', () => {
