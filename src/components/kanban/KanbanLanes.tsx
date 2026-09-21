@@ -97,6 +97,10 @@ export function DoneLaneMenu({ cardsCount, collapsed, triggerRef, open, cleaning
   );
 }
 
+export function kanbanCardClassName(card: Pick<KanbanCardSummary, 'child_count'>, keyboardFocused = false) {
+  return `kanbanCard${card.child_count > 0 ? ' kanbanParentCard' : ''}${keyboardFocused ? ' keyboardFocused' : ''}`;
+}
+
 export function KanbanCardContents({
   card,
   projects,
@@ -276,7 +280,7 @@ export function KanbanLanes({
                   }}
                 >
                   <div
-                    className={`kanbanCard${keyboardFocusedCardId === card.id ? ' keyboardFocused' : ''}`}
+                    className={kanbanCardClassName(card, keyboardFocusedCardId === card.id)}
                     onPointerDown={(event) => pointer.beginPointerDrag(event, card)}
                     onPointerMove={pointer.updatePointerDrag}
                     onPointerUp={pointer.finishPointerDrag}
@@ -321,7 +325,7 @@ export function KanbanLanes({
           transformOrigin: `${preview.pointerOffsetX}px ${preview.pointerOffsetY}px`,
         }}
       >
-        <div className="kanbanCard">
+        <div className={kanbanCardClassName(draggedCard)}>
           <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatus} onNavigateParent={() => {}} />
         </div>
         {showEnvironmentWarning && environmentHealth && (
