@@ -332,9 +332,13 @@ fn persist_validated_refinement(
             current.3
         ));
     }
+    // Completing refinement only creates an aggregate parent when the
+    // authoritative hierarchy actually contains children. A zero-child card
+    // remains a workflow leaf and must retain actions such as Start work.
+    let hierarchy_finalized = !snapshot.hierarchy.child_ids.is_empty();
     transaction.execute(
-        "UPDATE kanban_cards SET provider_child_count=?1,hierarchy_finalized=1,in_scope=1,updated_at=?2 WHERE id=?3",
-        params![snapshot.hierarchy.child_count as i64, now, snapshot.context.local_id],
+        "UPDATE kanban_cards SET provider_child_count=?1,hierarchy_finalized=?2,in_scope=1,updated_at=?3 WHERE id=?4",
+        params![snapshot.hierarchy.child_count as i64, i64::from(hierarchy_finalized), now, snapshot.context.local_id],
     ).map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     get_card(connection, &snapshot.context.local_id)?
@@ -622,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_children_finalizes_parent_and_valid_snapshot_reconciles_stale_links() {
+    fn zero_children_keeps_workflow_leaf_and_reconciles_stale_links() {
         let mut connection = database();
         connection.execute(
             "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,parent_id,created_at,updated_at) VALUES ('superthread:stale','superthread','stale','Stale','approved','owner','superthread:parent',1,1)",
@@ -630,8 +634,11 @@ mod tests {
         ).unwrap();
         let value = snapshot(parent(None, Some(0)), Vec::new());
         let result = persist_validated_refinement(&mut connection, &value).unwrap();
-        assert!(result.hierarchy_finalized);
+        assert!(!result.hierarchy_finalized);
         assert_eq!(result.child_count, 0);
+        assert!(result.capabilities.iter().any(|capability| {
+            capability.action == WorkflowAction::StartWork && capability.available
+        }));
         assert_eq!(
             connection
                 .query_row(
@@ -641,6 +648,18 @@ mod tests {
                 )
                 .unwrap(),
             None
+        );
+
+        let mut retry = value.clone();
+        retry.context.status = CardStatus::Ready;
+        retry.context.workflow_revision = result.workflow_revision;
+        let retried = persist_validated_refinement(&mut connection, &retry).unwrap();
+        assert!(!retried.hierarchy_finalized);
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM card_events", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
         );
     }
 }

@@ -955,6 +955,15 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
         connection.execute("ALTER TABLE card_cleanup_operations ADD COLUMN override_authorized INTEGER NOT NULL DEFAULT 0", []).map_err(db_error)?;
     }
     connection.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (76,unixepoch())", []).map_err(db_error)?;
+    connection.execute_batch(
+        "UPDATE kanban_cards AS card
+         SET hierarchy_finalized=0, updated_at=unixepoch()
+         WHERE external_provider='superthread'
+           AND hierarchy_finalized=1
+           AND provider_child_count=0
+           AND NOT EXISTS (SELECT 1 FROM kanban_cards AS child WHERE child.parent_id=card.id);
+         INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (77,unixepoch());"
+    ).map_err(db_error)?;
     provider_sync::recover_interrupted(connection)?;
     Ok(())
 }
