@@ -510,6 +510,47 @@ fn batched_list_preserves_aggregate_ownership_order_limits_and_defaults() {
 }
 
 #[test]
+fn pull_request_remains_visible_and_blocks_merge_when_its_head_advances() {
+    let mut connection = aggregate_test_connection();
+    connection.execute(
+        "UPDATE projects SET delivery_workflow='github_pull_request',require_passing_ci=0,require_approval=0 WHERE id='one'",
+        [],
+    ).unwrap();
+    connection.execute("UPDATE kanban_cards SET status='approved' WHERE id='local:child'", []).unwrap();
+    connection.execute(
+        "UPDATE card_environments SET source_revision='approved' WHERE card_id='local:child'",
+        [],
+    ).unwrap();
+    connection.execute(
+        "UPDATE card_pull_requests SET state='open',draft=0,ci_status='no_ci',review_state='pending',has_conflicts=0,mergeable=1,head_revision='advanced' WHERE card_id='local:child'",
+        [],
+    ).unwrap();
+
+    let card = get_card(&mut connection, "local:child").unwrap().unwrap();
+    let pull_request = card.pull_request.as_ref().unwrap();
+    assert_eq!(pull_request.number, 7);
+    assert_eq!(pull_request.state, PullRequestState::Open);
+    assert_eq!(
+        pull_request.blockers,
+        vec!["Pull request has changes that have not been approved; commit updates before merging"]
+    );
+    let merge = card
+        .capabilities
+        .iter()
+        .find(|capability| capability.action == WorkflowAction::MergePr)
+        .unwrap();
+    assert!(!merge.available);
+    assert!(merge.disabled_reason.as_deref().unwrap().contains("not been approved"));
+
+    connection.execute(
+        "UPDATE card_pull_requests SET head_revision='approved' WHERE card_id='local:child'",
+        [],
+    ).unwrap();
+    let approved = get_card(&mut connection, "local:child").unwrap().unwrap();
+    assert!(approved.pull_request.unwrap().blockers.is_empty());
+}
+
+#[test]
 fn list_read_count_is_constant_and_get_card_remains_targeted() {
     let mut connection = aggregate_test_connection();
     connection.trace(Some(count_traced_reads));

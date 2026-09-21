@@ -1667,9 +1667,10 @@ pub(in crate::kanban) fn load_pull_requests_batched(
         .prepare(
             "SELECT pr.card_id, pr.repository, pr.number, pr.title, pr.url, pr.state, pr.draft,
                 pr.ci_status, pr.review_state, pr.has_conflicts, pr.mergeable,
-                p.require_passing_ci, p.require_approval
+                p.require_passing_ci, p.require_approval, pr.head_revision, e.source_revision
          FROM card_pull_requests pr JOIN kanban_cards c ON c.id=pr.card_id
-         LEFT JOIN projects p ON p.id=c.project_id WHERE c.in_scope=1",
+         LEFT JOIN projects p ON p.id=c.project_id
+         LEFT JOIN card_environments e ON e.card_id=c.id WHERE c.in_scope=1",
         )
         .map_err(db_error)?;
     let rows = statement
@@ -1698,11 +1699,18 @@ pub(in crate::kanban) fn load_pull_requests_batched(
                     blockers: Vec::new(),
                 },
                 policies,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, Option<String>>(14)?,
             ))
         })
         .map_err(db_error)?;
     for row in rows {
-        let (card_id, mut pull_request, policies) = row.map_err(db_error)?;
+        let (card_id, mut pull_request, policies, head_revision, approved_revision) = row.map_err(db_error)?;
+        apply_pull_request_revision_policy(
+            &mut pull_request,
+            head_revision.as_deref(),
+            approved_revision.as_deref(),
+        );
         apply_pull_request_policy(&mut pull_request, policies);
         if let Some(index) = indexes.get(&card_id) {
             cards[*index].pull_request = Some(pull_request);
@@ -1796,14 +1804,23 @@ pub(in crate::kanban) fn load_pull_request(
     connection: &Connection,
     card: &KanbanCard,
 ) -> Result<Option<CardPullRequest>, String> {
-    let Some(mut pull_request) = connection.query_row(
-        "SELECT repository, number, title, url, state, draft, ci_status, review_state, has_conflicts, mergeable
-         FROM card_pull_requests WHERE card_id=?1", [&card.id], |row| Ok(CardPullRequest {
+    let Some((mut pull_request, head_revision)) = connection.query_row(
+        "SELECT repository, number, title, url, state, draft, ci_status, review_state, has_conflicts, mergeable, head_revision
+         FROM card_pull_requests WHERE card_id=?1", [&card.id], |row| Ok((CardPullRequest {
             repository: row.get(0)?, number: row.get::<_, i64>(1)? as u64, title: row.get(2)?, url: row.get(3)?,
             state: row.get(4)?, draft: row.get::<_, i64>(5)? != 0, ci_status: row.get(6)?, review_state: row.get(7)?,
             has_conflicts: row.get::<_, i64>(8)? != 0, mergeable: row.get::<_, i64>(9)? != 0, blockers: Vec::new(),
-        })
+        }, row.get::<_, Option<String>>(10)?))
     ).optional().map_err(db_error)? else { return Ok(None); };
+    let approved_revision = card
+        .environment
+        .as_ref()
+        .and_then(|environment| environment.source_revision.as_deref());
+    apply_pull_request_revision_policy(
+        &mut pull_request,
+        head_revision.as_deref(),
+        approved_revision,
+    );
     let policies = card
         .project_id
         .as_deref()
@@ -1821,6 +1838,18 @@ pub(in crate::kanban) fn load_pull_request(
         .unwrap_or((true, false));
     apply_pull_request_policy(&mut pull_request, policies);
     Ok(Some(pull_request))
+}
+
+pub(in crate::kanban) fn apply_pull_request_revision_policy(
+    pull_request: &mut CardPullRequest,
+    head_revision: Option<&str>,
+    approved_revision: Option<&str>,
+) {
+    if pull_request.state == PullRequestState::Open && head_revision != approved_revision {
+        pull_request
+            .blockers
+            .push("Pull request has changes that have not been approved; commit updates before merging".to_string());
+    }
 }
 
 pub(in crate::kanban) fn apply_pull_request_policy(

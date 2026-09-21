@@ -40,9 +40,9 @@ pub(in crate::kanban) fn refresh_pull_request(
     if settings.workflow != DeliveryWorkflow::GithubPullRequest {
         return Ok(None);
     }
-    let (branch, feature_environment, source_revision): (String, bool, Option<String>) = connection.query_row(
-        "SELECT e.branch, c.feature_environment, e.source_revision FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
-        [id], |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0, row.get(2)?)),
+    let (branch, feature_environment): (String, bool) = connection.query_row(
+        "SELECT e.branch, c.feature_environment FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
+        [id], |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
     ).map_err(db_error)?;
     let repository = crate::github::repository_name(&settings.path)?;
     let output = crate::github::run_gh(Some(Path::new(&settings.path)), &[
@@ -51,29 +51,29 @@ pub(in crate::kanban) fn refresh_pull_request(
     ])?;
     let values: Vec<serde_json::Value> = serde_json::from_str(&output)
         .map_err(|error| format!("Invalid GitHub pull request response: {error}"))?;
-    let matches_identity = |value: &&serde_json::Value| {
+    // Branch and target identify the pull request. Its head revision is mutable:
+    // retain the association when new commits arrive, then let card policy block
+    // merging until that exact revision has been approved.
+    let matches_target = |value: &&serde_json::Value| {
         value["baseRefName"].as_str() == Some(settings.target_branch.as_str())
-            && value["headRefOid"]
-                .as_str()
-                .is_none_or(|head| source_revision.as_deref().is_none_or(|tip| head == tip))
     };
     let value = values
         .iter()
-        .filter(matches_identity)
+        .filter(matches_target)
         .find(|value| value["state"].as_str() == Some("OPEN"))
         .or_else(|| {
             values
                 .iter()
-                .filter(matches_identity)
+                .filter(matches_target)
                 .find(|value| !value["mergedAt"].is_null())
         })
-        .or_else(|| values.iter().filter(matches_identity).next());
+        .or_else(|| values.iter().filter(matches_target).next());
     let Some(value) = value else {
         connection
             .execute("DELETE FROM card_pull_requests WHERE card_id=?1", [id])
             .map_err(db_error)?;
         if !values.is_empty() {
-            connection.execute("UPDATE kanban_cards SET delivery_error='No pull request matches the configured target branch and unchanged shipped source revision.' WHERE id=?1", [id]).map_err(db_error)?;
+            connection.execute("UPDATE kanban_cards SET delivery_error='No pull request matches the configured target branch.' WHERE id=?1", [id]).map_err(db_error)?;
         }
         return Ok(None);
     };
@@ -187,7 +187,7 @@ pub(in crate::kanban) fn refresh_pull_request(
             ci_status, review_state, has_conflicts as i64, mergeable as i64, value["headRefOid"].as_str(), unix_timestamp()],
     ).map_err(db_error)?;
     if state == "open" {
-        connection.execute("UPDATE kanban_cards SET delivery_error=NULL WHERE id=?1 AND delivery_operation_stage IS NULL", [id]).map_err(db_error)?;
+        connection.execute("UPDATE kanban_cards SET delivery_error=NULL WHERE id=?1", [id]).map_err(db_error)?;
     } else if state == "merged" {
         let current =
             get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
@@ -270,6 +270,7 @@ pub(in crate::kanban) async fn kanban_create_pull_request_operation(
             let source = validate_checkout(&source_path, None)?;
             if source.target_branch != branch || source_revision.as_deref() != Some(source.target_revision.as_str()) { return Err("The source branch changed after Commit; commit updates before creating a PR".to_string()); }
             if refresh_pull_request(connection, &id)?.is_some_and(|pr| pr.state == PullRequestState::Open) {
+                connection.execute("UPDATE kanban_cards SET delivery_operation_stage=NULL,delivery_error=NULL WHERE id=?1", [&id]).map_err(db_error)?;
                 return get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string());
             }
             let repository = crate::github::repository_name(&settings.path)?;
