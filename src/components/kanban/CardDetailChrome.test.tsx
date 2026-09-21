@@ -152,7 +152,7 @@ describe('CardDetailHeader', () => {
     expect(classIndex(markup, 'kanbanCardEditButton')).toBeLessThan(leftEnd);
     expect(classIndex(markup, 'kanbanHierarchyGroup')).toBeGreaterThan(leftEnd);
     expect(classIndex(markup, 'kanbanHierarchyBadge parent combined')).toBeGreaterThan(classIndex(markup, 'kanbanHierarchyGroup'));
-    expect(markup).toContain('>(#12 / 2)</button>');
+    expect(markup).toContain('>#12 / 2</button>');
     expect(markup).not.toContain('class="kanbanHierarchyBadge children"');
 
     expect(classIndex(markup, 'kanbanCardGitSummary')).toBeGreaterThan(titleIndex);

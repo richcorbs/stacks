@@ -15,7 +15,7 @@ export function CardHierarchyBadges({ card, onNavigateParent }: { card: KanbanCa
     onPointerUp={stopPointerPropagation}
     onPointerCancel={stopPointerPropagation}
     onClick={(event) => { event.stopPropagation(); onNavigateParent(card.parent!.id); }}
-  >{card.child_count > 0 ? `(#${card.parent.external_id} / ${card.child_count})` : `#${card.parent.external_id}`}</button>;
+  >{card.child_count > 0 ? `#${card.parent.external_id} / ${card.child_count}` : `#${card.parent.external_id}`}</button>;
 
   if (parentButton) return parentButton;
   if (card.child_count === 0) return null;

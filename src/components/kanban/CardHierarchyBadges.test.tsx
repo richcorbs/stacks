@@ -57,7 +57,7 @@ describe('CardHierarchyBadges', () => {
 
     expect(markup).toContain('class="kanbanHierarchyBadge parent combined"');
     expect(markup).toContain('title="Parent #12: Parent card; 3 children"');
-    expect(markup).toContain('>(#12 / 3)</button>');
+    expect(markup).toContain('>#12 / 3</button>');
     expect(markup).not.toContain('class="kanbanHierarchyBadge children"');
   });
 

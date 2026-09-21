@@ -72,7 +72,7 @@ describe('KanbanCardContents', () => {
     expect(markup.indexOf('class="kanbanProjectBadge"')).toBeGreaterThan(leftStart);
     expect(leftEnd).toBeGreaterThan(markup.indexOf('class="kanbanProjectBadge"'));
     expect(hierarchyIndex).toBeGreaterThan(leftEnd);
-    expect(markup).toContain('>(#12 / 2)</button>');
+    expect(markup).toContain('>#12 / 2</button>');
     expect(markup).not.toContain('class="kanbanHierarchyBadge children"');
   });
 
