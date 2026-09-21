@@ -7,14 +7,14 @@ function options(overrides: Partial<CommandPaletteItemOptions> = {}): CommandPal
     store: { projects: [project] }, selectedKanbanProject: project, superthreadEnabled: true, cardTerminal: null,
     onNewProject: vi.fn(), onEditProject: vi.fn(), onDeleteProject: vi.fn(), onOpenSettings: vi.fn(), onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(), onRunOneTimeCommand: vi.fn(), onNewCard: vi.fn(), onDirectProjectWork: vi.fn(),
-    onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), ...overrides,
+    onAddProjectNote: vi.fn(), onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), ...overrides,
   };
 }
 
 describe('command palette items', () => {
   it('contains only board/project commands without a card terminal', () => {
     expect(buildCommandPaletteItems(options()).map((item) => item.id)).toEqual([
-      'new-card', 'direct-project-work', 'release-project', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks',
+      'new-card', 'direct-project-work', 'add-project-note', 'release-project', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks',
     ]);
   });
 
@@ -26,6 +26,24 @@ describe('command palette items', () => {
       keywords: 'project workspace primary checkout agent terminal diff',
     });
     expect(item?.keywords).not.toMatch(/direct/i);
+  });
+
+  it('always offers Add project note and forwards the selected project only as a picker preference', () => {
+    const withProject = vi.fn();
+    const selectedItem = buildCommandPaletteItems(options({ onAddProjectNote: withProject }))
+      .find((item) => item.id === 'add-project-note');
+    selectedItem?.action();
+
+    expect(selectedItem).toMatchObject({ title: 'Add project note', subtitle: 'Choose a project (Stacks selected)' });
+    expect(withProject).toHaveBeenCalledWith(project);
+
+    const withoutProject = vi.fn();
+    const unselectedItem = buildCommandPaletteItems(options({ selectedKanbanProject: null, onAddProjectNote: withoutProject }))
+      .find((item) => item.id === 'add-project-note');
+    unselectedItem?.action();
+
+    expect(unselectedItem).toMatchObject({ title: 'Add project note', subtitle: 'Choose a project' });
+    expect(withoutProject).toHaveBeenCalledWith(null);
   });
 
   it('routes Release only to an enabled project', () => {
