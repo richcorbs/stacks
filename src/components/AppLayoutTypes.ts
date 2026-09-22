@@ -12,7 +12,7 @@ export type MainLayoutProps = {
   setKanbanDoneCollapsed: (collapsed: boolean) => void;
   openProjectDialog: () => void;
   cleanupCard: (card: import('../kanban/types').KanbanCard, evidence: import('../kanban/types').CleanupPreflight) => Promise<boolean>;
-  startWork: (cardId: string) => Promise<boolean>;
+  startWork: (cardId: string) => Promise<import('../kanban/types').KanbanCard | null>;
   onPaletteCardsChange: (registration: CardPaletteRegistration | null) => void;
 };
 

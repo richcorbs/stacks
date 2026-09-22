@@ -17,7 +17,7 @@ type MainWorkspaceProps = {
   onDoneCollapsedChange: (collapsed: boolean) => void;
   onAddProject: () => void;
   onCleanupCard: (card: KanbanCard, evidence: import('../kanban/types').CleanupPreflight) => Promise<boolean>;
-  onStartWork: (cardId: string) => Promise<boolean>;
+  onStartWork: (cardId: string) => Promise<KanbanCard | null>;
   onPaletteCardsChange: (registration: CardPaletteRegistration | null) => void;
 };
 

@@ -1,6 +1,6 @@
 import type { PiRpcEnvelope } from '../pi/types';
 import type { PiUiRequestWorkflowHandler } from '../pi/uiRequestWorkflow';
-import type { CardSnapshot, KanbanCardDetail, KanbanCardSummary, PiLifecycleIntent } from './types';
+import type { CardSnapshot, KanbanCardSummary, PiLifecycleIntent } from './types';
 
 type CardThread = 'planning' | 'work';
 export type LifecycleSession = { lifecycleGeneration(): string | null; stopRefinement(): Promise<void> };
@@ -14,7 +14,6 @@ export type WorkflowLifecycleDependencies = {
   registerUiRequests: (handler: PiUiRequestWorkflowHandler) => () => void;
   session: (paneId: string) => LifecycleSession | undefined;
   load: () => Promise<void>;
-  loadDetails: (card: KanbanCardSummary) => Promise<KanbanCardDetail | KanbanCardSummary>;
   reportError: (message: string) => void;
 };
 
@@ -152,11 +151,7 @@ export class KanbanWorkflowLifecycleService {
     const failureDetail = eventType === 'pi_protocol_error'
       ? (typeof (envelope.event as { message?: unknown }).message === 'string' ? String((envelope.event as { message: string }).message) : 'Pi protocol failed')
       : eventType === 'pi_process_exit' ? 'Pi process exited unexpectedly' : undefined;
-    const transition = intent ? this.enqueue(session.cardId, session.thread, intent, envelope.generation, envelope.event_id, envelope.event_order, undefined, undefined, failureDetail) : Promise.resolve(null);
-    if (eventType === 'agent_settled' || lifecycleError) transition.finally(() => {
-      const current = this.dependencies.card(session.cardId);
-      if (current && !this.disposed) this.dependencies.loadDetails(current).catch(() => {});
-    });
+    if (intent) this.enqueue(session.cardId, session.thread, intent, envelope.generation, envelope.event_id, envelope.event_order, undefined, undefined, failureDetail);
   };
 }
 
