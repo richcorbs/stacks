@@ -583,7 +583,7 @@ fn validate_superthread_mapping(input: &ProjectConfigurationInput) -> Result<(),
         .unwrap_or_default()
         .trim();
     if !incoming.contains(default) {
-        return Err("Default incoming column must be one of the Incoming columns".into());
+        return Err("New card column must be one of the Incoming columns".into());
     }
     let progress = input
         .superthread_in_progress_column_id

@@ -21,10 +21,16 @@ struct FinishContext {
     project_id: String,
     workspace_slug: Option<String>,
     board_id: String,
-    default_incoming_column_id: String,
+    incoming_column_ids: HashSet<String>,
     api_token_env_var: String,
     status: CardStatus,
     workflow_revision: i64,
+}
+
+#[derive(serde::Deserialize)]
+struct IncomingColumnMapping {
+    id: String,
+    name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -75,7 +81,7 @@ fn load_finish_context(connection: &Connection, id: &str) -> Result<FinishContex
     connection.query_row(
         "SELECT c.id,c.external_id,c.project_id,c.status,c.workflow_revision,
                 COALESCE(p.kanban_source,'local'),p.superthread_workspace_slug,c.external_provider,
-                COALESCE(p.superthread_board_id,''),COALESCE(p.superthread_default_incoming_column_id,''),COALESCE(p.superthread_api_token_env_var,'ST_TOKEN')
+                COALESCE(p.superthread_board_id,''),COALESCE(p.superthread_incoming_columns,''),COALESCE(p.superthread_api_token_env_var,'ST_TOKEN')
          FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
         [id],
         |row| Ok((
@@ -83,12 +89,28 @@ fn load_finish_context(connection: &Connection, id: &str) -> Result<FinishContex
             row.get::<_, CardStatus>(3)?, row.get::<_, i64>(4)?, row.get::<_, String>(5)?,
             row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, String>(9)?, row.get::<_, String>(10)?,
         )),
-    ).optional().map_err(db_error)?.map(|(local_id, external_id, project_id, status, workflow_revision, source, workspace_slug, provider, board_id, default_incoming_column_id, api_token_env_var)| {
+    ).optional().map_err(db_error)?.map(|(local_id, external_id, project_id, status, workflow_revision, source, workspace_slug, provider, board_id, incoming_columns, api_token_env_var)| {
         if provider != "superthread" || source != "superthread" {
             return Err("Only a Superthread card owned by the configured Superthread project can use this refinement action".to_string());
         }
-        if board_id.is_empty() || default_incoming_column_id.is_empty() { return Err("Configure the Superthread board and default incoming column before finishing refinement".to_string()); }
-        Ok(FinishContext { local_id, external_id, project_id, workspace_slug, board_id, default_incoming_column_id, api_token_env_var, status, workflow_revision })
+        let board_id = board_id.trim().to_string();
+        if board_id.is_empty() {
+            return Err("Configure the Superthread board before finishing refinement".to_string());
+        }
+        let mappings: Vec<IncomingColumnMapping> = serde_json::from_str(&incoming_columns)
+            .map_err(|_| "The configured Superthread Incoming columns are malformed; test and save the configuration before finishing refinement".to_string())?;
+        let incoming_column_ids = mappings
+            .iter()
+            .map(|column| column.id.trim().to_string())
+            .collect::<HashSet<_>>();
+        if mappings.is_empty()
+            || incoming_column_ids.len() != mappings.len()
+            || incoming_column_ids.contains("")
+            || mappings.iter().any(|column| column.name.trim().is_empty())
+        {
+            return Err("Configure at least one valid, unique Superthread Incoming column before finishing refinement".to_string());
+        }
+        Ok(FinishContext { local_id, external_id, project_id, workspace_slug, board_id, incoming_column_ids, api_token_env_var, status, workflow_revision })
     }).transpose()?.ok_or_else(|| "Kanban card was not found".to_string())
 }
 
@@ -96,11 +118,15 @@ fn validate_refinement_destination(
     card: &SuperthreadCard,
     context: &FinishContext,
 ) -> Result<(), String> {
-    if card.board_id.trim() != context.board_id
-        || card.list_id.trim() != context.default_incoming_column_id
-    {
+    if card.board_id.trim() != context.board_id {
         return Err(format!(
-            "Superthread card {} is not on the configured board and default incoming column",
+            "Superthread card {} is not on the configured board",
+            card.id
+        ));
+    }
+    if !context.incoming_column_ids.contains(card.list_id.trim()) {
+        return Err(format!(
+            "Superthread card {} is not in a configured Incoming column",
             card.id
         ));
     }
@@ -449,7 +475,7 @@ mod tests {
                 project_id: "owner".into(),
                 workspace_slug: None,
                 board_id: "board".into(),
-                default_incoming_column_id: "ready-list".into(),
+                incoming_column_ids: HashSet::from(["ready-list".into(), "triage-list".into()]),
                 api_token_env_var: "ST_TOKEN".into(),
                 status: CardStatus::NeedsRefinement,
                 workflow_revision: 4,
@@ -508,6 +534,82 @@ mod tests {
                 .unwrap_err()
                 .contains("does not identify parent")
         );
+    }
+
+    #[test]
+    fn refinement_destination_accepts_every_configured_incoming_column_only_on_the_configured_board() {
+        let context = snapshot(parent(None, Some(0)), Vec::new()).context;
+        let default_card = parent(None, Some(0));
+        validate_refinement_destination(&default_card, &context).unwrap();
+
+        let mut alternate = parent(None, Some(0));
+        alternate.list_id = "triage-list".into();
+        validate_refinement_destination(&alternate, &context).unwrap();
+
+        let mut outside = parent(None, Some(0));
+        outside.list_id = "other-list".into();
+        assert!(validate_refinement_destination(&outside, &context)
+            .unwrap_err()
+            .contains("configured Incoming column"));
+
+        let mut wrong_board = alternate;
+        wrong_board.board_id = "other-board".into();
+        assert!(validate_refinement_destination(&wrong_board, &context)
+            .unwrap_err()
+            .contains("configured board"));
+    }
+
+    #[test]
+    fn finish_context_loads_the_complete_incoming_mapping_and_rejects_malformed_configuration() {
+        let connection = database();
+        connection.execute(
+            "UPDATE projects SET superthread_board_id='board',superthread_incoming_columns=?1 WHERE id='owner'",
+            [r#"[{"id":"ready-list","name":"Ready"},{"id":"triage-list","name":"Triage"}]"#],
+        ).unwrap();
+        let context = load_finish_context(&connection, "superthread:parent").unwrap();
+        assert_eq!(
+            context.incoming_column_ids,
+            HashSet::from(["ready-list".into(), "triage-list".into()])
+        );
+
+        for malformed in ["not-json", "[]", r#"[{"id":"","name":"Incoming"}]"#, r#"[{"id":"ready-list"}]"#] {
+            connection.execute(
+                "UPDATE projects SET superthread_incoming_columns=?1 WHERE id='owner'",
+                [malformed],
+            ).unwrap();
+            assert!(load_finish_context(&connection, "superthread:parent")
+                .unwrap_err()
+                .contains("Incoming column"));
+        }
+    }
+
+    #[test]
+    fn authoritative_parent_movement_aborts_before_local_persistence() {
+        let connection = database();
+        let value = snapshot(parent(None, Some(0)), Vec::new());
+        validate_refinement_destination(&value.parent, &value.context).unwrap();
+
+        let mut moved = value.parent.clone();
+        moved.list_id = "in-progress".into();
+        assert!(validate_refinement_destination(&moved, &value.context).is_err());
+        let stored: (String, CardStatus, i64) = connection.query_row(
+            "SELECT title,status,workflow_revision FROM kanban_cards WHERE id='superthread:parent'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(stored, ("Old parent".into(), CardStatus::NeedsRefinement, 4));
+    }
+
+    #[test]
+    fn children_use_the_complete_incoming_column_set() {
+        let value = snapshot(parent(Some(vec!["one"]), Some(1)), vec![child("one")]);
+        let mut alternate = child("one");
+        alternate.list_id = "triage-list".into();
+        validate_children(&[alternate.clone()], &["one".into()], "parent").unwrap();
+        validate_refinement_destination(&alternate, &value.context).unwrap();
+
+        alternate.list_id = "outside".into();
+        assert!(validate_refinement_destination(&alternate, &value.context).is_err());
     }
 
     #[test]
@@ -626,13 +728,16 @@ mod tests {
     }
 
     #[test]
-    fn zero_children_keeps_workflow_leaf_and_reconciles_stale_links() {
+    fn non_default_incoming_leaf_exposes_start_work_and_reconciles_stale_links() {
         let mut connection = database();
         connection.execute(
             "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,parent_id,created_at,updated_at) VALUES ('superthread:stale','superthread','stale','Stale','approved','owner','superthread:parent',1,1)",
             [],
         ).unwrap();
-        let value = snapshot(parent(None, Some(0)), Vec::new());
+        let mut non_default_parent = parent(None, Some(0));
+        non_default_parent.list_id = "triage-list".into();
+        let value = snapshot(non_default_parent, Vec::new());
+        validate_refinement_destination(&value.parent, &value.context).unwrap();
         let result = persist_validated_refinement(&mut connection, &value).unwrap();
         assert!(!result.hierarchy_finalized);
         assert_eq!(result.child_count, 0);
