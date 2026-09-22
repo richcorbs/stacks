@@ -525,13 +525,12 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           request={pi.uiRequest}
           onRespond={(requestId, response) => { pi.respondToUiRequest(requestId, response).catch(() => {}); }}
         />}
-        {pi.queuedSteering.map((message, index) => <PiQueuedMessage key={`steer:${message}:${index}`} kind="steering">{message}</PiQueuedMessage>)}
-        {pi.queuedFollowUps.map((message, index) => <PiQueuedMessage key={`follow-up:${message}:${index}`} kind="follow-up">{message}</PiQueuedMessage>)}
-        {pi.isStreaming && !hasActiveStreamingText && (
-          <div className="piWorkingIndicator" role="status" aria-label="Pi is thinking" aria-live="polite">
-            <span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
-          </div>
-        )}
+        <PiPendingOutput
+          isStreaming={pi.isStreaming}
+          hasActiveStreamingText={hasActiveStreamingText}
+          queuedSteering={pi.queuedSteering}
+          queuedFollowUps={pi.queuedFollowUps}
+        />
       </div>
 
       {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => pi.restart().catch(() => {})}>Restart Pi</button></div>}
@@ -778,6 +777,23 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       )}
     </div>
   );
+}
+
+export function PiPendingOutput({ isStreaming, hasActiveStreamingText, queuedSteering, queuedFollowUps }: {
+  isStreaming: boolean;
+  hasActiveStreamingText: boolean;
+  queuedSteering: string[];
+  queuedFollowUps: string[];
+}) {
+  return <>
+    {isStreaming && !hasActiveStreamingText && (
+      <div className="piWorkingIndicator" role="status" aria-label="Pi is thinking" aria-live="polite">
+        <span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
+      </div>
+    )}
+    {queuedSteering.map((message, index) => <PiQueuedMessage key={`steer:${message}:${index}`} kind="steering">{message}</PiQueuedMessage>)}
+    {queuedFollowUps.map((message, index) => <PiQueuedMessage key={`follow-up:${message}:${index}`} kind="follow-up">{message}</PiQueuedMessage>)}
+  </>;
 }
 
 export function PiQueuedMessage({ children, kind }: { children: string; kind: 'steering' | 'follow-up' }) {
