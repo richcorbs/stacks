@@ -5,6 +5,8 @@ import { fetchSuperthreadBoards, fetchSuperthreadBoardsForSpace, fetchSuperthrea
 import type { SuperthreadBoard, SuperthreadList, SuperthreadSpace } from '../superthread/types';
 
 export const SUPERTHREAD_MAPPING_VALIDATED_MESSAGE = 'Configuration validated. Save to activate Superthread synchronization.';
+export const SUPERTHREAD_INCOMING_COLUMNS_HELP = 'accepted sources for Stacks workflows';
+export const SUPERTHREAD_NEW_CARD_COLUMN_HELP = 'destination for cards created by Stacks';
 
 export function SuperthreadMappingFields({ dialog, setDialog }: {
   dialog: DialogState;
@@ -82,12 +84,12 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
       const board = boards.find((item) => item.id === event.target.value);
       setDialog({ ...dialog, superthreadBoardId: event.target.value, superthreadBoardName: board?.title, superthreadIncomingColumns: [], superthreadDefaultIncomingColumnId: undefined, superthreadInProgressColumnId: undefined, superthreadDoneColumnId: undefined });
     }}><option value="">Select a board…</option>{boards.map((board) => <option key={board.id} value={board.id}>{board.title} · {board.id}</option>)}</select></label>
-    <label>Incoming columns <span>(one or more)</span><select multiple value={incomingIds} size={Math.min(5, Math.max(2, lists.length))} onChange={(event) => {
+    <label>Incoming columns <span>({SUPERTHREAD_INCOMING_COLUMNS_HELP})</span><select multiple value={incomingIds} size={Math.min(5, Math.max(2, lists.length))} onChange={(event) => {
       const ids = [...event.currentTarget.selectedOptions].map((item) => item.value);
       setDialog({ ...dialog, superthreadIncomingColumns: ids.map((id) => ({ id, name: lists.find((list) => list.id === id)?.title ?? id })),
         superthreadDefaultIncomingColumnId: ids.includes(dialog.superthreadDefaultIncomingColumnId ?? '') ? dialog.superthreadDefaultIncomingColumnId : ids[0] });
     }}>{lists.map(option)}</select></label>
-    <label>Default incoming column<select value={dialog.superthreadDefaultIncomingColumnId ?? ''} onChange={(event) => setDialog({ ...dialog, superthreadDefaultIncomingColumnId: event.target.value })}><option value="">Select…</option>{lists.filter((list) => incomingIds.includes(list.id)).map(option)}</select></label>
+    <label>New card column <span>({SUPERTHREAD_NEW_CARD_COLUMN_HELP})</span><select value={dialog.superthreadDefaultIncomingColumnId ?? ''} onChange={(event) => setDialog({ ...dialog, superthreadDefaultIncomingColumnId: event.target.value })}><option value="">Select…</option>{lists.filter((list) => incomingIds.includes(list.id)).map(option)}</select></label>
     <label>In progress column<select value={dialog.superthreadInProgressColumnId ?? ''} onChange={(event) => setDialog({ ...dialog, superthreadInProgressColumnId: event.target.value, superthreadInProgressColumnName: lists.find((list) => list.id === event.target.value)?.title })}><option value="">Select…</option>{lists.map(option)}</select></label>
     <label>Stacks is done column<select value={dialog.superthreadDoneColumnId ?? ''} onChange={(event) => setDialog({ ...dialog, superthreadDoneColumnId: event.target.value, superthreadDoneColumnName: lists.find((list) => list.id === event.target.value)?.title })}><option value="">Select…</option>{lists.map(option)}</select></label>
     <div className="settingsInlineAction"><button type="button" disabled={state !== 'idle'} onClick={() => void test()}>{state === 'testing' ? 'Testing…' : 'Test configuration'}</button>{message && <span role="status">{message}</span>}</div>

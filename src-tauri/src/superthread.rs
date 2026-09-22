@@ -625,7 +625,7 @@ impl SuperthreadService {
             .iter()
             .any(|id| id == &configuration.default_incoming_column_id)
         {
-            return Err("Default incoming column must be one of the Incoming columns".into());
+            return Err("New card column must be one of the Incoming columns".into());
         }
         for id in &all {
             if !by_id.contains_key(id.trim()) {

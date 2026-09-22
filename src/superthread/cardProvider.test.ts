@@ -35,7 +35,7 @@ describe('Superthread card provider creation', () => {
       card_url: 'https://app.superthread.com/example/card-48',
     });
 
-    await expect(superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product, Engineering', workspaceSlug: 'example', boardId: 'board-1', boardName: 'Dev - Active', incomingColumnIds: ['list-1'], defaultIncomingColumnId: 'list-1' }).create('New card', 'Detailed brief')).resolves.toEqual({
+    await expect(superthreadIntegration({ ownerProjectId: 'owner', spaces: 'Product, Engineering', workspaceSlug: 'example', boardId: 'board-1', boardName: 'Dev - Active', incomingColumnIds: ['triage', 'list-1'], defaultIncomingColumnId: 'list-1' }).create('New card', 'Detailed brief')).resolves.toEqual({
       id: '48',
       title: 'New card',
       content: 'Detailed brief',
