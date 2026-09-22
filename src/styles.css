@@ -1170,7 +1170,6 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseStageDisclosure:hover { background: #152330; }
 .releaseStageDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: #152330; }
 .releaseStageIcon { width: 18px; flex: 0 0 18px; color: #708598; text-align: center; }
-.releaseStage.running .releaseStageIcon { color: #72aee0; animation: release-spin 1s linear infinite; }
 .releaseStage.completed .releaseStageIcon { color: #70bd8d; }
 .releaseStageDisclosureIndicator { margin-left: 0; color: #708598; font-size: 18px; line-height: 1; transition: transform 120ms ease; }
 .releaseStageStatus + .releaseStageDisclosureIndicator { margin-left: auto; }
@@ -1182,8 +1181,6 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseActions { margin-top: 14px; }
 .releaseHistory { margin-top: 14px; }
 .releaseHistory > div { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 7px 0; border-top: 1px solid #223142; color: #8094a6; font-size: 12px; }
-@keyframes release-spin { to { transform: rotate(360deg); } }
-
 .cleanupPreflightModal { width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
 .cleanupPreflightList { overflow: auto; display: grid; gap: 10px; }
 .cleanupPreflightEntry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; align-items: center; border: 1px solid #2d3d4f; border-radius: 8px; padding: 12px; background: rgba(8, 14, 24, .55); }
