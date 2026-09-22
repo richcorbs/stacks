@@ -322,7 +322,10 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
         const current = store.projects.find((project) => project.id === projectId); if (!current) throw new Error('Project not found');
         const candidate = dialogProject(draft, current);
         const saved = await invoke<Store>('update_project_configuration', { input: projectConfigurationInput(candidate, expectedRevision) });
+        const canonical = saved.projects.find((project) => project.id === projectId);
+        if (!canonical) throw new Error('Saved project was not returned');
         setStore(saved);
+        return canonical;
       },
       deleteSettingsProject: async (projectId: string) => {
         const saved = await invoke<Store>('delete_project', { projectId }); setStore(saved);

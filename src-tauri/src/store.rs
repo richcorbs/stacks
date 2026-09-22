@@ -612,6 +612,108 @@ fn non_empty(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn normalize_incoming_columns(columns: &mut Vec<SuperthreadColumnMapping>) {
+    let mut unique = std::collections::BTreeMap::new();
+    for column in std::mem::take(columns) {
+        let id = column.id.trim().to_string();
+        if !id.is_empty() {
+            unique.entry(id).or_insert_with(|| column.name.trim().to_string());
+        }
+    }
+    *columns = unique.into_iter().map(|(id, name)| SuperthreadColumnMapping { id, name }).collect();
+}
+
+fn normalize_project_configuration(input: &mut ProjectConfigurationInput) {
+    input.name = input.name.trim().to_string();
+    input.path = input.path.trim().to_string();
+    input.kanban_source = Some(if input.kanban_source.as_deref() == Some("superthread") { "superthread" } else { "local" }.into());
+    input.start_work_command = non_empty(input.start_work_command.take());
+    input.server_command = non_empty(input.server_command.take());
+    input.console_command = non_empty(input.console_command.take());
+    input.deployment_command = non_empty(input.deployment_command.take());
+    input.delivery_workflow = normalize_delivery_workflow(&input.delivery_workflow).to_string();
+    input.target_branch = normalize_target_branch(&input.target_branch).to_string();
+    input.github_merge_strategy = normalize_merge_strategy(&input.github_merge_strategy).to_string();
+    input.release_config_path = non_empty(Some(std::mem::take(&mut input.release_config_path))).unwrap_or_else(default_release_config_path);
+    input.superthread_spaces = non_empty(input.superthread_spaces.take());
+    input.superthread_workspace_id = non_empty(input.superthread_workspace_id.take());
+    input.superthread_workspace_name = non_empty(input.superthread_workspace_name.take());
+    input.superthread_space_id = non_empty(input.superthread_space_id.take());
+    input.superthread_space_name = non_empty(input.superthread_space_name.take());
+    input.superthread_binding_id = non_empty(input.superthread_binding_id.take());
+    input.superthread_workspace_slug = non_empty(input.superthread_workspace_slug.take());
+    input.superthread_api_token_env_var = Some(non_empty(input.superthread_api_token_env_var.take()).unwrap_or_else(|| "ST_TOKEN".into()));
+    input.superthread_board_id = non_empty(input.superthread_board_id.take());
+    input.superthread_board_name = non_empty(input.superthread_board_name.take());
+    input.superthread_default_incoming_column_id = non_empty(input.superthread_default_incoming_column_id.take());
+    input.superthread_in_progress_column_id = non_empty(input.superthread_in_progress_column_id.take());
+    input.superthread_in_progress_column_name = non_empty(input.superthread_in_progress_column_name.take());
+    input.superthread_done_column_id = non_empty(input.superthread_done_column_id.take());
+    input.superthread_done_column_name = non_empty(input.superthread_done_column_name.take());
+    normalize_incoming_columns(&mut input.superthread_incoming_columns);
+}
+
+fn project_configuration(project: &Project) -> ProjectConfigurationInput {
+    ProjectConfigurationInput {
+        id: project.id.clone(), name: project.name.clone(), path: project.path.clone(), deployment_command: project.deployment_command.clone(),
+        kanban_source: project.kanban_source.clone(), start_work_command: project.start_work_command.clone(), superthread_spaces: project.superthread_spaces.clone(),
+        superthread_workspace_id: project.superthread_workspace_id.clone(), superthread_workspace_name: project.superthread_workspace_name.clone(),
+        superthread_space_id: project.superthread_space_id.clone(), superthread_space_name: project.superthread_space_name.clone(), superthread_binding_id: project.superthread_binding_id.clone(),
+        superthread_workspace_slug: project.superthread_workspace_slug.clone(), superthread_api_token_env_var: project.superthread_api_token_env_var.clone(),
+        superthread_board_id: project.superthread_board_id.clone(), superthread_board_name: project.superthread_board_name.clone(),
+        superthread_incoming_columns: project.superthread_incoming_columns.clone(), superthread_default_incoming_column_id: project.superthread_default_incoming_column_id.clone(),
+        superthread_in_progress_column_id: project.superthread_in_progress_column_id.clone(), superthread_in_progress_column_name: project.superthread_in_progress_column_name.clone(),
+        superthread_done_column_id: project.superthread_done_column_id.clone(), superthread_done_column_name: project.superthread_done_column_name.clone(),
+        server_command: project.server_command.clone(), console_command: project.console_command.clone(), delivery_workflow: project.delivery_workflow.clone(),
+        target_branch: project.target_branch.clone(), supports_feature_environments: project.supports_feature_environments, github_merge_strategy: project.github_merge_strategy.clone(),
+        require_passing_ci: project.require_passing_ci, require_approval: project.require_approval, releases_enabled: project.releases_enabled,
+        release_config_path: project.release_config_path.clone(), expected_revision: project.config_revision,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ProjectConfigurationChanges {
+    ordinary: bool,
+    provider_workflow: bool,
+    routing: bool,
+    slug: bool,
+    credentials: bool,
+}
+
+impl ProjectConfigurationChanges {
+    fn any(self) -> bool { self.ordinary || self.provider_workflow || self.routing || self.slug }
+    fn requires_validation(self, next_source: &str) -> bool { next_source == "superthread" && self.routing }
+    fn requires_provider_guard(self) -> bool { self.provider_workflow || self.routing }
+    fn schedules_provider_work(self) -> bool { self.provider_workflow || self.routing }
+}
+
+fn project_configuration_changes(current: &ProjectConfigurationInput, next: &ProjectConfigurationInput) -> ProjectConfigurationChanges {
+    let current_source = current.kanban_source.as_deref().unwrap_or("local");
+    let next_source = next.kanban_source.as_deref().unwrap_or("local");
+    let source_changed = current_source != next_source;
+    let credentials = current_source == "superthread" && next_source == "superthread"
+        && current.superthread_api_token_env_var != next.superthread_api_token_env_var;
+    let mapping = current.superthread_board_id != next.superthread_board_id
+        || current.superthread_incoming_columns.iter().map(|column| &column.id).collect::<Vec<_>>() != next.superthread_incoming_columns.iter().map(|column| &column.id).collect::<Vec<_>>()
+        || current.superthread_default_incoming_column_id != next.superthread_default_incoming_column_id
+        || current.superthread_in_progress_column_id != next.superthread_in_progress_column_id
+        || current.superthread_done_column_id != next.superthread_done_column_id;
+    let scope = current.superthread_spaces != next.superthread_spaces || current.superthread_space_id != next.superthread_space_id;
+    ProjectConfigurationChanges {
+        ordinary: current.name != next.name || current.path != next.path || current.start_work_command != next.start_work_command
+            || current.server_command != next.server_command || current.console_command != next.console_command
+            || current.deployment_command != next.deployment_command || current.target_branch != next.target_branch
+            || current.github_merge_strategy != next.github_merge_strategy || current.releases_enabled != next.releases_enabled
+            || current.release_config_path != next.release_config_path,
+        provider_workflow: current.delivery_workflow != next.delivery_workflow
+            || current.supports_feature_environments != next.supports_feature_environments
+            || current.require_passing_ci != next.require_passing_ci || current.require_approval != next.require_approval,
+        routing: source_changed || (next_source == "superthread" && (credentials || scope || mapping)),
+        slug: next_source == "superthread" && current.superthread_workspace_slug != next.superthread_workspace_slug,
+        credentials,
+    }
+}
+
 fn persist_targeted_store(store: ProjectStore) -> Result<ProjectStore, String> {
     write_legacy_json_mirror(&store)?;
     Ok(store)
@@ -622,7 +724,9 @@ pub async fn create_project(
     service: State<'_, SuperthreadService>,
     mut input: ProjectConfigurationInput,
 ) -> Result<ProjectStore, String> {
+    normalize_project_configuration(&mut input);
     validate_live_superthread_configuration(service.inner().clone(), &mut input).await?;
+    normalize_project_configuration(&mut input);
     create_project_validated(input)
 }
 
@@ -709,20 +813,43 @@ pub async fn update_project_configuration(
     mut input: ProjectConfigurationInput,
 ) -> Result<ProjectStore, String> {
     let provider = service.inner().clone();
-    let previous_token_env = kanban::with_read_connection(|connection| connection.query_row(
-        "SELECT CASE WHEN kanban_source='superthread' THEN superthread_api_token_env_var END FROM projects WHERE id=?1",
-        [&input.id], |row| row.get::<_,Option<String>>(0)
-    ).optional().map_err(db_error).map(|value| value.flatten()))?;
-    if kanban::with_read_connection(|connection| kanban::executing_for_project(connection, &input.id))? {
-        return Err(
-            "Project settings cannot be saved while provider synchronization is executing".into(),
-        );
+    normalize_project_configuration(&mut input);
+    let current_store = kanban::with_read_connection(|connection| read_store(connection))?;
+    let current_project = current_store.projects.iter().find(|project| project.id == input.id)
+        .ok_or_else(|| "Project configuration could not be saved because the project was not found".to_string())?;
+    let mut current = project_configuration(current_project);
+    normalize_project_configuration(&mut current);
+    let changes = project_configuration_changes(&current, &input);
+    if !changes.any() {
+        return Ok(current_store);
     }
-    validate_live_superthread_configuration(provider.clone(), &mut input).await?;
+    if current.expected_revision != input.expected_revision {
+        return Err("Project configuration changed since it was loaded; review this draft before saving again".into());
+    }
+    if changes.requires_provider_guard() && kanban::with_read_connection(|connection| kanban::executing_for_project(connection, &input.id))? {
+        return Err("Project settings cannot be saved while provider synchronization is executing".into());
+    }
+    let requires_validation = changes.requires_validation(input.kanban_source.as_deref().unwrap_or("local"));
+    if requires_validation {
+        validate_live_superthread_configuration(provider.clone(), &mut input).await?;
+        normalize_project_configuration(&mut input);
+    } else {
+        // Provider responses are enrichment, not editable intent. Only validated saves may refresh them.
+        input.superthread_workspace_id = current.superthread_workspace_id.clone();
+        input.superthread_workspace_name = current.superthread_workspace_name.clone();
+        input.superthread_space_name = current.superthread_space_name.clone();
+        input.superthread_board_name = current.superthread_board_name.clone();
+        for column in &mut input.superthread_incoming_columns {
+            if let Some(saved) = current.superthread_incoming_columns.iter().find(|saved| saved.id == column.id) { column.name = saved.name.clone(); }
+        }
+        input.superthread_in_progress_column_name = current.superthread_in_progress_column_name.clone();
+        input.superthread_done_column_name = current.superthread_done_column_name.clone();
+    }
+    validate_project_input(&input)?;
     let project_id = input.id.clone();
     let next_token_env = input.superthread_api_token_env_var.clone();
-    let saved = update_project_configuration_validated(input)?;
-    if previous_token_env != next_token_env && next_token_env.is_some() {
+    let saved = update_project_configuration_validated(input, changes, requires_validation)?;
+    if changes.credentials && next_token_env.is_some() {
         let card_ids = kanban::with_read_connection(|connection| {
             let mut statement = connection.prepare("SELECT id FROM kanban_cards WHERE project_id=?1 AND binding_id IS NOT NULL").map_err(db_error)?;
             let rows = statement.query_map([&project_id], |row| row.get::<_,String>(0)).map_err(db_error)?
@@ -734,7 +861,9 @@ pub async fn update_project_configuration(
         for pane in panes { crate::pi_rpc::stop_pi_session_impl(pi_registry.inner(), &pane)?; }
         let _ = app.emit("superthread-credential-rotated", &project_id);
     }
-    let _ = tauri::async_runtime::spawn_blocking(move || kanban::run_pending_once(provider, None)).await;
+    if changes.schedules_provider_work() {
+        let _ = tauri::async_runtime::spawn_blocking(move || kanban::run_pending_once(provider, None)).await;
+    }
     Ok(saved)
 }
 
@@ -792,29 +921,13 @@ async fn validate_live_superthread_configuration(
     Ok(())
 }
 
-fn project_configuration_affects_board(input: &ProjectConfigurationInput) -> Result<bool, String> {
-    let source = if input.kanban_source.as_deref() == Some("superthread") { "superthread" } else { "local" };
-    let incoming = serde_json::to_string(&input.superthread_incoming_columns).map_err(|error| error.to_string())?;
-    kanban::with_read_connection(|connection| connection.query_row(
-        "SELECT COALESCE(kanban_source,'local') IS NOT ?2 OR delivery_workflow IS NOT ?3
-             OR supports_feature_environments IS NOT ?4 OR require_passing_ci IS NOT ?5 OR require_approval IS NOT ?6
-             OR superthread_board_id IS NOT ?7 OR superthread_incoming_columns IS NOT ?8
-             OR superthread_default_incoming_column_id IS NOT ?9 OR superthread_in_progress_column_id IS NOT ?10
-             OR superthread_done_column_id IS NOT ?11 OR superthread_api_token_env_var IS NOT ?12
-         FROM projects WHERE id=?1",
-        params![input.id, source, normalize_delivery_workflow(&input.delivery_workflow), input.supports_feature_environments as i64,
-            input.require_passing_ci as i64, input.require_approval as i64, input.superthread_board_id, incoming,
-            input.superthread_default_incoming_column_id, input.superthread_in_progress_column_id,
-            input.superthread_done_column_id, input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN")],
-        |row| row.get::<_, i64>(0),
-    ).optional().map_err(db_error).map(|changed| changed.unwrap_or(0) != 0))
-}
-
 fn update_project_configuration_validated(
     input: ProjectConfigurationInput,
+    changes: ProjectConfigurationChanges,
+    validated_superthread: bool,
 ) -> Result<ProjectStore, String> {
     validate_project_input(&input)?;
-    let affects_board = project_configuration_affects_board(&input)?;
+    let affects_board = changes.provider_workflow || changes.routing;
     let persist = |connection: &mut Connection| {
         let duplicate = connection
             .query_row(
@@ -865,8 +978,13 @@ fn update_project_configuration_validated(
         if !update_project_configuration_row(&transaction, &input, next_source)? {
             return Err("Project configuration changed since it was loaded; review this draft before saving again".into());
         }
-        if next_source == "superthread" {
+        if next_source == "superthread" && validated_superthread {
             activate_superthread_binding(&transaction, &input)?;
+        } else if next_source == "superthread" && changes.slug {
+            transaction.execute(
+                "UPDATE superthread_bindings SET app_slug=?1,updated_at=unixepoch() WHERE id=(SELECT superthread_binding_id FROM projects WHERE id=?2)",
+                params![input.superthread_workspace_slug, input.id],
+            ).map_err(db_error)?;
         } else if previous_source == "superthread" {
             let history: i64 = transaction.query_row("SELECT COUNT(*) FROM kanban_cards WHERE project_id=?1 AND binding_id IS NOT NULL", [&input.id], |row| row.get(0)).map_err(db_error)?;
             if history > 0 { return Err("A project with Superthread card history cannot switch to Local until an explicit archive flow is available".into()); }
@@ -970,7 +1088,7 @@ fn update_project_configuration_row(
         "UPDATE projects SET name=?1,path=?2,kanban_source=?3,start_work_command=?4,superthread_spaces=?5,superthread_workspace_slug=?6,superthread_api_token_env_var=?27,
          superthread_board_id=?7,superthread_board_name=?8,superthread_incoming_columns=?9,superthread_default_incoming_column_id=?10,
          superthread_in_progress_column_id=?11,superthread_in_progress_column_name=?12,superthread_done_column_id=?13,superthread_done_column_name=?14,
-         superthread_mapping_revision=superthread_mapping_revision + CASE WHEN COALESCE(superthread_board_id,'')!=COALESCE(?7,'') OR COALESCE((SELECT group_concat(json_extract(value,'$.id'),'|') FROM json_each(superthread_incoming_columns)),'')!=COALESCE((SELECT group_concat(json_extract(value,'$.id'),'|') FROM json_each(?9)),'') OR COALESCE(superthread_default_incoming_column_id,'')!=COALESCE(?10,'') OR COALESCE(superthread_in_progress_column_id,'')!=COALESCE(?11,'') OR COALESCE(superthread_done_column_id,'')!=COALESCE(?13,'') THEN 1 ELSE 0 END,
+         superthread_mapping_revision=superthread_mapping_revision + CASE WHEN COALESCE(superthread_board_id,'')!=COALESCE(?7,'') OR COALESCE((SELECT group_concat(id,'|') FROM (SELECT json_extract(value,'$.id') AS id FROM json_each(superthread_incoming_columns) ORDER BY id)),'')!=COALESCE((SELECT group_concat(id,'|') FROM (SELECT json_extract(value,'$.id') AS id FROM json_each(?9) ORDER BY id)),'') OR COALESCE(superthread_default_incoming_column_id,'')!=COALESCE(?10,'') OR COALESCE(superthread_in_progress_column_id,'')!=COALESCE(?11,'') OR COALESCE(superthread_done_column_id,'')!=COALESCE(?13,'') THEN 1 ELSE 0 END,
          server_command=?15,console_command=?16,delivery_workflow=?17,deployment_command=?28,target_branch=?18,supports_feature_environments=?19,github_merge_strategy=?20,require_passing_ci=?21,require_approval=?22,releases_enabled=?23,release_config_path=?24,config_revision=config_revision+1 WHERE id=?25 AND config_revision=?26",
         params![input.name.trim(), input.path.trim(), source, non_empty(input.start_work_command.clone()), superthread_spaces, superthread_slug,
             input.superthread_board_id, input.superthread_board_name, incoming, input.superthread_default_incoming_column_id,
@@ -1491,6 +1609,99 @@ mod tests {
                 config_revision: 0,
             }],
         }
+    }
+
+    fn sample_input() -> ProjectConfigurationInput {
+        project_configuration(&sample_store().projects[0])
+    }
+
+    #[test]
+    fn canonical_project_changes_ignore_provider_enrichment_and_incoming_order() {
+        let mut current = sample_input();
+        current.kanban_source = Some("superthread".into());
+        current.superthread_spaces = Some(" Product ".into());
+        current.superthread_space_id = Some("space".into());
+        current.superthread_board_id = Some("board".into());
+        current.superthread_incoming_columns = vec![
+            SuperthreadColumnMapping { id: "second".into(), name: "Old second".into() },
+            SuperthreadColumnMapping { id: "first".into(), name: "Old first".into() },
+        ];
+        current.superthread_default_incoming_column_id = Some("first".into());
+        current.superthread_in_progress_column_id = Some("progress".into());
+        current.superthread_done_column_id = Some("done".into());
+        let mut enriched = current.clone();
+        enriched.name = " Project ".into();
+        enriched.superthread_workspace_id = Some("workspace".into());
+        enriched.superthread_workspace_name = Some("Canonical workspace".into());
+        enriched.superthread_space_name = Some("Canonical space".into());
+        enriched.superthread_board_name = Some("Canonical board".into());
+        enriched.superthread_incoming_columns.reverse();
+        enriched.superthread_incoming_columns[0].name = "Canonical first".into();
+        enriched.superthread_incoming_columns.push(SuperthreadColumnMapping { id: " first ".into(), name: "duplicate".into() });
+        normalize_project_configuration(&mut current);
+        normalize_project_configuration(&mut enriched);
+
+        let changes = project_configuration_changes(&current, &enriched);
+        assert!(!changes.any());
+        assert_eq!(enriched.superthread_incoming_columns.iter().map(|column| column.id.as_str()).collect::<Vec<_>>(), vec!["first", "second"]);
+    }
+
+    #[test]
+    fn classifies_ordinary_slug_mapping_and_source_changes() {
+        let mut current = sample_input();
+        normalize_project_configuration(&mut current);
+
+        let mut renamed = current.clone();
+        renamed.name = "Renamed".into();
+        let ordinary = project_configuration_changes(&current, &renamed);
+        assert!(ordinary.ordinary && !ordinary.requires_provider_guard() && !ordinary.schedules_provider_work());
+
+        let mut remote = current.clone();
+        remote.kanban_source = Some("superthread".into());
+        remote.superthread_spaces = Some("Product".into());
+        remote.superthread_board_id = Some("board".into());
+        remote.superthread_incoming_columns = vec![SuperthreadColumnMapping { id: "incoming".into(), name: "Incoming".into() }];
+        remote.superthread_default_incoming_column_id = Some("incoming".into());
+        remote.superthread_in_progress_column_id = Some("progress".into());
+        remote.superthread_done_column_id = Some("done".into());
+        let switched = project_configuration_changes(&current, &remote);
+        assert!(switched.requires_validation("superthread"));
+
+        let mut slug = remote.clone();
+        slug.superthread_workspace_slug = Some(" arcasa ".into());
+        normalize_project_configuration(&mut slug);
+        let slug_only = project_configuration_changes(&remote, &slug);
+        assert!(slug_only.slug && !slug_only.requires_validation("superthread") && !slug_only.schedules_provider_work());
+
+        let away = project_configuration_changes(&remote, &current);
+        assert!(away.routing && !away.requires_validation("local") && away.schedules_provider_work());
+    }
+
+    #[test]
+    fn incoming_column_reordering_does_not_increment_mapping_revision() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        write_store(&mut connection, &sample_store()).unwrap();
+        connection.execute(
+            "UPDATE projects SET kanban_source='superthread',superthread_spaces='Product',superthread_board_id='board',superthread_incoming_columns='[{\"id\":\"second\",\"name\":\"Second\"},{\"id\":\"first\",\"name\":\"First\"}]',superthread_default_incoming_column_id='first',superthread_in_progress_column_id='progress',superthread_done_column_id='done',superthread_mapping_revision=4,superthread_binding_id='binding'",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO superthread_bindings(id,project_id,workspace_id,space_id,board_id,token_env_var,validation_revision,state,created_at,updated_at) VALUES ('binding','p1','workspace','space','board','ST_TOKEN',7,'active',1,1)",
+            [],
+        ).unwrap();
+        let project = read_store(&connection).unwrap().projects.remove(0);
+        let mut input = project_configuration(&project);
+        input.name = "Renamed".into();
+        input.superthread_incoming_columns.reverse();
+        normalize_project_configuration(&mut input);
+        assert!(update_project_configuration_row(&connection, &input, "superthread").unwrap());
+        let revisions: (i64, i64) = connection.query_row(
+            "SELECT config_revision,superthread_mapping_revision FROM projects WHERE id='p1'", [], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(revisions, (1, 4));
+        assert_eq!(connection.query_row("SELECT validation_revision FROM superthread_bindings WHERE id='binding'", [], |row| row.get::<_, i64>(0)).unwrap(), 7);
     }
 
     #[test]
