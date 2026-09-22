@@ -1520,7 +1520,7 @@ fn validate_recovery_evidence(
         }
     }
     let expected_draft = evidence.disposition != "published";
-    if identity.get("draft").and_then(serde_json::Value::as_bool) != Some(expected_draft)
+    if identity.get("draft").and_then(serde_json::Value::as_bool) != Some(true)
         || identity
             .get("prerelease")
             .and_then(serde_json::Value::as_bool)
@@ -2611,7 +2611,6 @@ mod tests {
         );
         let mut published = test_evidence();
         published.disposition = "published".into();
-        published.identity["draft"] = serde_json::json!(false);
         published.release.as_mut().unwrap().draft = false;
         published.proven_stages.push("publish".into());
         validate_recovery_evidence(&published_operation, &published).unwrap();
@@ -2619,6 +2618,10 @@ mod tests {
         let mut inconsistent_publication = published.clone();
         inconsistent_publication.release.as_mut().unwrap().draft = true;
         assert!(validate_recovery_evidence(&published_operation, &inconsistent_publication).is_err());
+
+        let mut conflicting_identity = published;
+        conflicting_identity.identity["draft"] = serde_json::json!(false);
+        assert!(validate_recovery_evidence(&published_operation, &conflicting_identity).is_err());
 
         for (name, mutate) in [
             // Non-capturing closures intentionally coerce to function pointers.
