@@ -207,6 +207,21 @@ describe('release reconciliation summary', () => {
 });
 
 describe('ReleaseStage', () => {
+  it('uses the shared GitHub in-progress spinner for running stages', () => {
+    const markup = renderToStaticMarkup(<ReleaseStage stage={stage({ status: 'running' })} index={0} />);
+
+    expect(markup).toContain('class="githubCiIcon githubCiRunning"');
+    expect(markup).toContain('aria-label="Publish artifacts in progress"');
+    expect(markup).toContain('<span class="releaseStageIcon"><span');
+    expect(markup).not.toContain('◌');
+  });
+
+  it('leaves non-running stage icons unchanged', () => {
+    expect(renderToStaticMarkup(<ReleaseStage stage={stage()} index={0} />)).toContain('<span class="releaseStageIcon">✓</span>');
+    expect(renderToStaticMarkup(<ReleaseStage stage={stage({ status: 'pending' })} index={0} />)).toContain('<span class="releaseStageIcon">·</span>');
+    expect(renderToStaticMarkup(<ReleaseStage stage={stage({ status: 'failed' })} index={0} />)).toContain('<span class="releaseStageIcon">!</span>');
+  });
+
   it('renders compact lowercase durations in interactive step headings', () => {
     const minuteMarkup = renderToStaticMarkup(<ReleaseStage stage={stage({ completedAt: 163 })} index={0} />);
     const secondsMarkup = renderToStaticMarkup(<ReleaseStage stage={stage()} index={0} />);

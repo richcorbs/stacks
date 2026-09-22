@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../types';
+import { GithubStatusIcon } from './GithubStatusIcon';
 import { abandonRelease, approveRelease, cancelRelease, inspectRelease, reconcileReleasePreview, recoverPreparedRelease, refreshRelease, releaseHistory, retryRelease, startRelease, type ReleaseConfig, type ReleaseDraft, type ReleaseOperation, type ReleaseReconciliation, type ReleaseStageState } from '../releaseApi';
 
 export function ReleaseTab({ project }: { project: Project }) {
@@ -104,7 +105,9 @@ export function ReleaseStage({ stage, index, approvalInstructions }: { stage: Re
   const hasOutput = Boolean(stage.log);
   const outputId = `release-stage-output-${stage.id}`;
   const headingContents = <>
-    <span className="releaseStageIcon">{stage.status === 'running' ? '◌' : stage.status === 'completed' ? '✓' : stage.status === 'pending' ? '·' : '!'}</span>
+    <span className="releaseStageIcon">{stage.status === 'running'
+      ? <GithubStatusIcon status="pending" context="Action" label={`${stage.name} in progress`} />
+      : stage.status === 'completed' ? '✓' : stage.status === 'pending' ? '·' : '!'}</span>
     <strong>{index + 1}. {stage.name}</strong>
     <span className="releaseStageStatus">{statusLabel(stage.status)}</span>
     {stage.startedAt && <small className="releaseDuration">{formatDuration((stage.completedAt ?? Math.floor(Date.now() / 1000)) - stage.startedAt)}</small>}
