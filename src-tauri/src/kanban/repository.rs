@@ -130,9 +130,12 @@ pub(crate) fn with_write_connection<T>(
 }
 
 fn install_mutation_tracking(connection: &Connection) -> Result<(), String> {
+    // Keep these as append-only bags and deduplicate in MutationContext. SQLite
+    // propagates an outer UPSERT's conflict policy into trigger statements, so
+    // a primary key here can turn trigger-level OR IGNORE into a uniqueness error.
     connection.execute_batch(
-        "CREATE TEMP TABLE IF NOT EXISTS kanban_affected(id TEXT PRIMARY KEY);
-         CREATE TEMP TABLE IF NOT EXISTS kanban_removed(id TEXT PRIMARY KEY);
+        "CREATE TEMP TABLE IF NOT EXISTS kanban_affected(id TEXT);
+         CREATE TEMP TABLE IF NOT EXISTS kanban_removed(id TEXT);
          DELETE FROM kanban_affected; DELETE FROM kanban_removed;
          CREATE TEMP TRIGGER IF NOT EXISTS track_card_insert AFTER INSERT ON main.kanban_cards WHEN NEW.in_scope=1 BEGIN
            INSERT OR IGNORE INTO kanban_affected VALUES(NEW.id);

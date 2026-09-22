@@ -3484,6 +3484,29 @@ fn atomic_board_mutation_tracks_relationships_once_and_commits_revisions() {
 }
 
 #[test]
+fn board_mutation_tracking_tolerates_repeated_upserts_for_the_same_card() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    initialize_connection(&mut connection, false).unwrap();
+    connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,created_at,updated_at,in_scope) VALUES('card','local:p','1','Before','needs_refinement',1,1,1)", []).unwrap();
+
+    let (_, change) = execute_board_mutation(&mut connection, |connection| {
+        for title in ["First", "Second"] {
+            connection.execute(
+                "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,created_at,updated_at,in_scope) VALUES('card','local:p','1',?1,'needs_refinement',1,1,1) ON CONFLICT(id) DO UPDATE SET title=excluded.title",
+                [title],
+            ).map_err(db_error)?;
+        }
+        Ok(())
+    }).unwrap();
+
+    let change = change.unwrap();
+    assert_eq!(change.board_revision, 1);
+    assert_eq!(change.upserts.len(), 1);
+    assert_eq!(change.upserts[0].title, "Second");
+    assert_eq!(change.upserts[0].record_revision, 2);
+}
+
+#[test]
 fn failed_and_noop_board_mutations_leave_domain_and_revisions_unchanged() {
     let mut connection = Connection::open_in_memory().unwrap();
     initialize_connection(&mut connection, false).unwrap();
