@@ -1519,7 +1519,8 @@ fn validate_recovery_evidence(
             ));
         }
     }
-    if identity.get("draft").and_then(serde_json::Value::as_bool) != Some(true)
+    let expected_draft = evidence.disposition != "published";
+    if identity.get("draft").and_then(serde_json::Value::as_bool) != Some(expected_draft)
         || identity
             .get("prerelease")
             .and_then(serde_json::Value::as_bool)
@@ -1533,7 +1534,7 @@ fn validate_recovery_evidence(
         if release.tag != expected_tag
             || release.title != expected_title
             || release.notes != operation.notes
-            || !release.draft
+            || release.draft != expected_draft
             || release.prerelease
         {
             return Err("Existing release identity conflicts with the captured release".into());
@@ -2103,7 +2104,6 @@ fn identity_fingerprint(config: &ReleaseConfig, evidence: &ReleaseReconciliation
         "title": identity.get("title"),
         "notes": identity.get("notes"),
         "targetBranch": identity.get("targetBranch"),
-        "draft": identity.get("draft"),
         "prerelease": identity.get("prerelease"),
         "expectedAssets": evidence.expected_assets,
     }))
@@ -2603,6 +2603,22 @@ mod tests {
         assert_eq!(operation.stages[0].status, "completed");
         assert_eq!(operation.stages[1].status, "awaitingApproval");
         assert_eq!(operation.stages[2].status, "pending");
+
+        let mut published_operation = test_operation();
+        published_operation.identity_fingerprint = identity_fingerprint(
+            &published_operation.config,
+            published_operation.reconciliation.as_ref().unwrap(),
+        );
+        let mut published = test_evidence();
+        published.disposition = "published".into();
+        published.identity["draft"] = serde_json::json!(false);
+        published.release.as_mut().unwrap().draft = false;
+        published.proven_stages.push("publish".into());
+        validate_recovery_evidence(&published_operation, &published).unwrap();
+
+        let mut inconsistent_publication = published.clone();
+        inconsistent_publication.release.as_mut().unwrap().draft = true;
+        assert!(validate_recovery_evidence(&published_operation, &inconsistent_publication).is_err());
 
         for (name, mutate) in [
             // Non-capturing closures intentionally coerce to function pointers.
