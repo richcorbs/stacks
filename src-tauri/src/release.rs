@@ -234,52 +234,162 @@ struct LiveReleaseProcess {
     pid: Option<u32>,
 }
 
+#[derive(Clone)]
+struct ExecutionOutcome {
+    head: Option<String>,
+    error: Option<String>,
+}
+
+enum AttemptPhase {
+    Executing(Option<LiveReleaseProcess>),
+    Settling(ExecutionOutcome),
+    SettlementFailed(ExecutionOutcome, String),
+    Recovering,
+}
+
 #[derive(Default)]
 pub struct ReleaseRegistry {
-    processes: Mutex<HashMap<String, LiveReleaseProcess>>,
+    attempts: Mutex<HashMap<String, AttemptPhase>>,
     cancelled: Mutex<HashSet<String>>,
 }
 
 impl ReleaseRegistry {
-    fn insert(
-        &self,
-        token: String,
-        killer: Box<dyn ChildKiller + Send + Sync>,
-        pid: Option<u32>,
-    ) -> Result<(), String> {
-        self.processes
+    fn begin(&self, token: String) -> Result<(), String> {
+        self.attempts
             .lock()
             .map_err(|_| "Release process registry failed".to_string())?
-            .insert(token, LiveReleaseProcess { killer, pid });
+            .insert(token, AttemptPhase::Executing(None));
         Ok(())
     }
+    fn attach_process(&self, token: &str, mut process: LiveReleaseProcess) -> Result<(), String> {
+        let mut attempts = self
+            .attempts
+            .lock()
+            .map_err(|_| "Release process registry failed".to_string())?;
+        match attempts.get_mut(token) {
+            Some(AttemptPhase::Executing(slot)) => {
+                if self
+                    .cancelled
+                    .lock()
+                    .map_err(|_| "Release process registry failed".to_string())?
+                    .contains(token)
+                {
+                    let _ = terminate_release_process(&mut process);
+                    return Err("Release attempt was cancelled before process launch".into());
+                }
+                *slot = Some(process);
+                Ok(())
+            }
+            _ => Err("Release attempt ownership changed before process launch".into()),
+        }
+    }
+    fn detach_process(&self, token: &str) {
+        if let Ok(mut attempts) = self.attempts.lock() {
+            if let Some(AttemptPhase::Executing(process)) = attempts.get_mut(token) {
+                *process = None;
+            }
+        }
+    }
+    fn execution_finished(&self, token: &str, outcome: ExecutionOutcome) {
+        if let Ok(mut attempts) = self.attempts.lock() {
+            if matches!(attempts.get(token), Some(AttemptPhase::Executing(_))) {
+                attempts.insert(token.to_string(), AttemptPhase::Settling(outcome));
+            }
+        }
+    }
+    fn settlement_failed(&self, token: &str, error: String) {
+        if let Ok(mut attempts) = self.attempts.lock() {
+            let outcome = match attempts.remove(token) {
+                Some(AttemptPhase::Settling(outcome))
+                | Some(AttemptPhase::SettlementFailed(outcome, _)) => outcome,
+                _ => ExecutionOutcome {
+                    head: None,
+                    error: Some(
+                        "Execution outcome was unavailable during settlement recovery".into(),
+                    ),
+                },
+            };
+            attempts.insert(
+                token.to_string(),
+                AttemptPhase::SettlementFailed(outcome, error),
+            );
+        }
+    }
     fn remove(&self, token: &str) {
-        if let Ok(mut guard) = self.processes.lock() {
+        if let Ok(mut guard) = self.attempts.lock() {
             guard.remove(token);
         }
     }
-    fn kill(&self, token: &str) -> Result<(), String> {
-        let mut guard = self
-            .processes
+    fn actively_owned(&self, token: &str) -> bool {
+        self.attempts
+            .lock()
+            .map(|attempts| {
+                matches!(
+                    attempts.get(token),
+                    Some(AttemptPhase::Executing(_)) | Some(AttemptPhase::Settling(_))
+                )
+            })
+            .unwrap_or(false)
+    }
+    fn claim_recovery(
+        &self,
+        token: &str,
+    ) -> Result<Option<(Option<ExecutionOutcome>, Option<String>)>, String> {
+        let mut attempts = self
+            .attempts
             .lock()
             .map_err(|_| "Release process registry failed".to_string())?;
-        let process = guard
-            .get_mut(token)
-            .ok_or_else(|| "The release process is no longer running".to_string())?;
-        terminate_release_process(process)
-            .map_err(|error| format!("Could not cancel release process: {error}"))?;
-        self.cancelled
+        match attempts.remove(token) {
+            Some(AttemptPhase::Executing(process)) => {
+                attempts.insert(token.into(), AttemptPhase::Executing(process));
+                Ok(None)
+            }
+            Some(AttemptPhase::Settling(outcome)) => {
+                attempts.insert(token.into(), AttemptPhase::Settling(outcome));
+                Ok(None)
+            }
+            Some(AttemptPhase::Recovering) => {
+                attempts.insert(token.into(), AttemptPhase::Recovering);
+                Ok(None)
+            }
+            Some(AttemptPhase::SettlementFailed(outcome, error)) => {
+                attempts.insert(token.into(), AttemptPhase::Recovering);
+                Ok(Some((Some(outcome), Some(error))))
+            }
+            None => {
+                attempts.insert(token.into(), AttemptPhase::Recovering);
+                Ok(Some((None, None)))
+            }
+        }
+    }
+    fn kill(&self, token: &str) -> Result<bool, String> {
+        let mut attempts = self
+            .attempts
             .lock()
-            .map_err(|_| "Release process registry failed".to_string())?
-            .insert(token.to_string());
-        Ok(())
+            .map_err(|_| "Release process registry failed".to_string())?;
+        match attempts.get_mut(token) {
+            Some(AttemptPhase::Executing(process)) => {
+                if let Some(process) = process.as_mut() {
+                    terminate_release_process(process)
+                        .map_err(|error| format!("Could not cancel release process: {error}"))?;
+                }
+                self.cancelled
+                    .lock()
+                    .map_err(|_| "Release process registry failed".to_string())?
+                    .insert(token.to_string());
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
     pub fn shutdown(&self) {
-        if let Ok(mut guard) = self.processes.lock() {
-            for process in guard.values_mut() {
-                let _ = terminate_release_process(process);
+        if let Ok(mut attempts) = self.attempts.lock() {
+            for attempt in attempts.values_mut() {
+                if let AttemptPhase::Executing(Some(process)) = attempt {
+                    let _ = terminate_release_process(process);
+                }
             }
-            guard.clear();
+            attempts.clear();
         }
     }
 }
@@ -335,6 +445,25 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             completed_at INTEGER
          );"
     ).map_err(db_error)?;
+    // SQLite has no `ADD COLUMN IF NOT EXISTS`; duplicate-column errors mean the
+    // journal is already current, while every other migration error is fatal.
+    for column in [
+        "execution_status TEXT NOT NULL DEFAULT 'executing'",
+        "execution_head TEXT",
+        "execution_error TEXT",
+        "settlement_error TEXT",
+        "recovery_error TEXT",
+    ] {
+        if let Err(error) = connection.execute(
+            &format!("ALTER TABLE release_attempts ADD COLUMN {column}"),
+            [],
+        ) {
+            if !error.to_string().contains("duplicate column name") {
+                return Err(db_error(error));
+            }
+        }
+    }
+    connection.execute("UPDATE release_attempts SET execution_status=CASE WHEN status='running' THEN 'executing' ELSE 'settled' END WHERE execution_status IS NULL OR execution_status='' OR (execution_status='executing' AND status!='running')", []).map_err(db_error)?;
     let now = now();
     let mut statement = connection
         .prepare("SELECT id, state_json FROM release_operations WHERE status='running'")
@@ -419,7 +548,12 @@ pub fn release_reconcile_preview(
 }
 
 #[tauri::command]
-pub fn release_history(project_id: String) -> Result<Vec<ReleaseOperation>, String> {
+pub fn release_history(
+    app: AppHandle,
+    registry: State<'_, Arc<ReleaseRegistry>>,
+    project_id: String,
+) -> Result<Vec<ReleaseOperation>, String> {
+    recover_project_orphans(&app, registry.inner(), &project_id)?;
     kanban::with_read_connection(|connection| {
         let mut statement = connection.prepare("SELECT state_json FROM release_operations WHERE project_id=?1 ORDER BY created_at DESC LIMIT 25").map_err(db_error)?;
         let rows = statement
@@ -600,6 +734,7 @@ pub fn release_start(
 
 #[tauri::command]
 pub fn release_cancel(
+    app: AppHandle,
     registry: State<'_, Arc<ReleaseRegistry>>,
     operation_id: String,
 ) -> Result<ReleaseOperation, String> {
@@ -609,13 +744,15 @@ pub fn release_cancel(
         .iter()
         .find(|stage| stage.status == "running")
         .ok_or_else(|| "No release process is running".to_string())?;
-    registry.kill(
-        stage
-            .attempt_token
-            .as_deref()
-            .ok_or_else(|| "Running attempt has no token".to_string())?,
-    )?;
-    Ok(operation)
+    let token = stage
+        .attempt_token
+        .as_deref()
+        .ok_or_else(|| "Running attempt has no token".to_string())?;
+    if registry.kill(token)? {
+        return Ok(operation);
+    }
+    recover_orphan(&app, registry.inner(), &operation_id)?;
+    load_operation(&operation_id)
 }
 
 #[tauri::command]
@@ -632,13 +769,11 @@ pub fn release_retry(
     {
         return Err("A release process is already running".into());
     }
-    if !operation.stages.iter().any(|stage| {
-        matches!(
-            stage.status.as_str(),
-            "failed" | "cancelled" | "interrupted"
-        )
-    }) {
-        return Err("There is no failed, cancelled, or interrupted stage to retry".into());
+    if !matches!(
+        operation.status.as_str(),
+        "failed" | "cancelled" | "interrupted"
+    ) {
+        return Err("There is no failed, cancelled, or interrupted release to retry".into());
     }
     let root = Path::new(&operation.project_path);
     repository_preflight(root, &operation.target_branch, None)?;
@@ -655,33 +790,8 @@ pub fn release_retry(
     let evidence = reconcile(&operation.config, root, &env)?;
     require_action(&evidence, &["retry", "resume", "approve", "complete"])?;
     if let Some(evidence) = evidence {
-        operation.prepared_revision = evidence.prepared_revision.clone();
-        operation.prepared_parent = evidence.prepared_parent.clone();
-        operation.approved_paths = evidence.approved_paths.clone();
-        operation.release_url = evidence
-            .release
-            .as_ref()
-            .and_then(|release| release.url.clone());
-        operation.artifact_evidence = evidence.artifact.clone();
-        operation.identity_fingerprint = identity_fingerprint(&operation.config, &evidence);
-        for stage in &mut operation.stages {
-            if evidence.proven_stages.iter().any(|id| id == &stage.id) {
-                stage.status = if operation
-                    .config
-                    .stages
-                    .iter()
-                    .find(|item| item.id == stage.id)
-                    .and_then(|item| item.approval.as_ref())
-                    .is_some()
-                    && evidence.disposition != "published"
-                {
-                    "awaitingApproval"
-                } else {
-                    "completed"
-                }
-                .into();
-            }
-        }
+        validate_recovery_evidence(&operation, &evidence)?;
+        apply_proven_evidence(&mut operation, &evidence);
         if evidence.disposition == "published" {
             operation.reconciliation = Some(evidence);
             complete_operation(&mut operation, "completed")?;
@@ -876,6 +986,9 @@ fn start_stage(
         &stage_config.id,
         operation.stages[index].attempt + 1,
     )?;
+    // Publish ownership before exposing a persisted running stage so history
+    // polling cannot claim an attempt while its worker is being launched.
+    registry.begin(token.clone())?;
     let now = now();
     {
         let stage = &mut operation.stages[index];
@@ -890,13 +1003,19 @@ fn start_stage(
         stage.truncated = false;
     }
     operation.status = "running".into();
-    update_operation(operation, None)?;
-    kanban::with_write_connection(|connection| {
+    if let Err(error) = update_operation(operation, None) {
+        registry.remove(&token);
+        return Err(error);
+    }
+    if let Err(error) = kanban::with_write_connection(|connection| {
         connection.execute(
-        "INSERT INTO release_attempts (token,operation_id,stage_id,kind,status,log_path,started_at) VALUES (?1,?2,?3,?4,'running',?5,?6)",
+        "INSERT INTO release_attempts (token,operation_id,stage_id,kind,status,execution_status,log_path,started_at) VALUES (?1,?2,?3,?4,'running','executing',?5,?6)",
         params![token, operation.id, stage_config.id, if retry { "retry" } else { "run" }, log_path.to_string_lossy(), now],
     ).map(|_| ()).map_err(db_error)
-    })?;
+    }) {
+        registry.remove(&token);
+        return Err(error);
+    }
     let op = operation.clone();
     let app = app.clone();
     let notes_path = notes_path.to_string_lossy().to_string();
@@ -910,8 +1029,41 @@ fn start_stage(
             &notes_path,
             registry.clone(),
         );
-        registry.remove(&token);
-        let _ = settle_attempt(&app, registry, &op.id, index, &token, result, &notes_path);
+        let outcome = match &result {
+            Ok(head) => ExecutionOutcome {
+                head: Some(head.clone()),
+                error: None,
+            },
+            Err(error) => ExecutionOutcome {
+                head: None,
+                error: Some(error.clone()),
+            },
+        };
+        registry.execution_finished(&token, outcome.clone());
+        let checkpoint_error = checkpoint_execution(&token, &outcome).err();
+        if let Err(error) = settle_attempt(
+            &app,
+            registry.clone(),
+            &op.id,
+            index,
+            &token,
+            result,
+            &notes_path,
+        ) {
+            let diagnostic = match checkpoint_error {
+                Some(checkpoint) => format!("Persistence failed while checkpointing execution: {checkpoint}; settlement failed: {error}"),
+                None => format!("Settlement failed: {error}"),
+            };
+            let _ = append_log(
+                &log_path,
+                format!("\r\n[Stacks: {diagnostic}]\r\n").as_bytes(),
+            );
+            registry.settlement_failed(&token, diagnostic.clone());
+            let _ = record_settlement_failure(&token, &diagnostic);
+            let _ = app.emit("release-operation-changed", &op.id);
+        } else {
+            registry.remove(&token);
+        }
     });
     Ok(())
 }
@@ -1012,7 +1164,13 @@ fn run_pty(
         .map_err(|error| error.to_string())?;
     drop(pair.slave);
     let pid = child.process_id();
-    registry.insert(token.to_string(), child.clone_killer(), pid)?;
+    registry.attach_process(
+        token,
+        LiveReleaseProcess {
+            killer: child.clone_killer(),
+            pid,
+        },
+    )?;
     if let Some(pid) = pid {
         kanban::with_write_connection(|connection| {
             connection
@@ -1038,7 +1196,9 @@ fn run_pty(
             let _ = append_log(&path, &buffer[..count]);
         }
     });
-    let status = child.wait().map_err(|error| error.to_string())?;
+    let waited = child.wait().map_err(|error| error.to_string());
+    registry.detach_process(token);
+    let status = waited?;
     let _ = output.join();
     if status.success() {
         Ok(())
@@ -1085,15 +1245,9 @@ fn settle_attempt(
         let evidence = reconcile(&operation.config, root, &env)
             .map_err(|error| format!("Post-stage reconciliation failed: {error}"))?
             .ok_or_else(|| "Post-stage reconciliation returned no evidence".to_string())?;
-        operation.prepared_revision = evidence.prepared_revision.clone();
-        operation.prepared_parent = evidence.prepared_parent.clone();
-        operation.approved_paths = evidence.approved_paths.clone();
-        operation.release_url = evidence
-            .release
-            .as_ref()
-            .and_then(|release| release.url.clone());
-        operation.artifact_evidence = evidence.artifact.clone();
-        operation.identity_fingerprint = identity_fingerprint(&operation.config, &evidence);
+        validate_recovery_evidence(&operation, &evidence)
+            .map_err(|error| format!("Post-stage verification failed: {error}"))?;
+        apply_proven_evidence(&mut operation, &evidence);
         operation.reconciliation = Some(evidence);
         Ok(head)
     });
@@ -1103,13 +1257,15 @@ fn settle_attempt(
             if operation.config.stages[index].approval.is_some() {
                 operation.stages[index].status = "awaitingApproval".into();
                 operation.status = "awaitingApproval".into();
-                update_operation(&mut operation, Some(token))?;
+                persist_attempt_settlement(&mut operation, token, "awaitingApproval")?;
             } else {
                 operation.stages[index].status = "completed".into();
                 if index + 1 == operation.stages.len() {
-                    complete_operation(&mut operation, "completed")?;
+                    operation.status = "completed".into();
+                    operation.completed_at = Some(now());
+                    persist_attempt_settlement(&mut operation, token, "completed")?;
                 } else {
-                    update_operation(&mut operation, Some(token))?;
+                    persist_attempt_settlement(&mut operation, token, "completed")?;
                     start_stage(
                         app,
                         registry,
@@ -1132,12 +1288,24 @@ fn settle_attempt(
                 &operation.id,
                 notes_path,
             );
-            if let Ok(Some(evidence)) = reconcile(&operation.config, root, &env) {
-                operation.release_url = evidence
-                    .release
-                    .as_ref()
-                    .and_then(|release| release.url.clone());
-                operation.reconciliation = Some(evidence);
+            let mut diagnostic = if error.starts_with("Post-stage") {
+                error.clone()
+            } else {
+                format!("Command execution failed: {error}")
+            };
+            match reconcile(&operation.config, root, &env) {
+                Ok(Some(evidence)) => match validate_recovery_evidence(&operation, &evidence) {
+                    Ok(()) => {
+                        apply_proven_evidence(&mut operation, &evidence);
+                        operation.reconciliation = Some(evidence);
+                    }
+                    Err(recovery) => diagnostic
+                        .push_str(&format!("\nPost-stage verification failed: {recovery}")),
+                },
+                Ok(None) => diagnostic.push_str("\nPost-stage reconciliation returned no evidence"),
+                Err(recovery) => {
+                    diagnostic.push_str(&format!("\nPost-stage reconciliation failed: {recovery}"))
+                }
             }
             let cancelled = registry
                 .cancelled
@@ -1145,21 +1313,430 @@ fn settle_attempt(
                 .map(|mut tokens| tokens.remove(token))
                 .unwrap_or(false);
             operation.stages[index].status = if cancelled { "cancelled" } else { "failed" }.into();
-            operation.stages[index].error = Some(error);
+            operation.stages[index].error = Some(diagnostic);
             operation.status = operation.stages[index].status.clone();
-            update_operation(&mut operation, Some(token))?;
+            let status = operation.status.clone();
+            persist_attempt_settlement(&mut operation, token, &status)?;
         }
     }
-    let attempt_status = operation.stages[index].status.clone();
+    let _ = app.emit("release-operation-changed", operation_id);
+    Ok(())
+}
+
+fn checkpoint_execution(token: &str, outcome: &ExecutionOutcome) -> Result<(), String> {
     kanban::with_write_connection(|connection| {
-        connection
-            .execute(
-                "UPDATE release_attempts SET status=?1,completed_at=?2 WHERE token=?3",
-                params![attempt_status, now(), token],
+        connection.execute(
+        "UPDATE release_attempts SET execution_status='completed',execution_head=?1,execution_error=?2 WHERE token=?3 AND status='running'",
+        params![outcome.head, outcome.error, token],
+    ).map(|_| ()).map_err(db_error)
+    })
+}
+
+fn record_settlement_failure(token: &str, error: &str) -> Result<(), String> {
+    kanban::with_write_connection(|connection| {
+        connection.execute(
+        "UPDATE release_attempts SET status='settlementFailed',execution_status='completed',settlement_error=?1 WHERE token=?2",
+        params![error, token],
+    ).map(|_| ()).map_err(db_error)
+    })
+}
+
+fn persist_attempt_settlement(
+    operation: &mut ReleaseOperation,
+    token: &str,
+    attempt_status: &str,
+) -> Result<(), String> {
+    persist_attempt_state(operation, token, attempt_status, None, true)
+}
+
+fn persist_attempt_state(
+    operation: &mut ReleaseOperation,
+    token: &str,
+    attempt_status: &str,
+    recovery_error: Option<&str>,
+    clear_settlement_error: bool,
+) -> Result<(), String> {
+    kanban::with_write_connection(|connection| {
+        let transaction = connection.unchecked_transaction().map_err(db_error)?;
+        let revision: i64 = transaction
+            .query_row(
+                "SELECT revision FROM release_operations WHERE id=?1",
+                [&operation.id],
+                |row| row.get(0),
             )
-            .map(|_| ())
-            .map_err(db_error)
+            .map_err(db_error)?;
+        if revision != operation.revision {
+            return Err(
+                "Persistence failed: release operation changed before attempt settlement".into(),
+            );
+        }
+        operation.revision += 1;
+        operation.updated_at = now();
+        let changed = transaction.execute(
+            "UPDATE release_operations SET status=?1,revision=?2,state_json=?3,updated_at=?4 WHERE id=?5 AND revision=?6",
+            params![operation.status, operation.revision, serde_json::to_string(operation).map_err(|error| error.to_string())?, operation.updated_at, operation.id, revision],
+        ).map_err(db_error)?;
+        if changed != 1 {
+            return Err("Persistence failed: attempt settlement lost its revision claim".into());
+        }
+        transaction.execute(
+            "UPDATE release_attempts SET status=?1,execution_status='settled',completed_at=?2,recovery_error=?4,settlement_error=CASE WHEN ?5 THEN NULL ELSE settlement_error END WHERE token=?3",
+            params![attempt_status, now(), token, recovery_error, clear_settlement_error],
+        ).map_err(db_error)?;
+        transaction.commit().map_err(db_error)
+    })
+}
+
+fn persist_recovery_settlement(
+    registry: &ReleaseRegistry,
+    operation: &mut ReleaseOperation,
+    token: &str,
+    status: &str,
+) -> Result<(), String> {
+    let recovery_error = operation
+        .stages
+        .iter()
+        .find(|stage| stage.attempt_token.as_deref() == Some(token))
+        .and_then(|stage| stage.error.clone());
+    persist_attempt_state(operation, token, status, recovery_error.as_deref(), false).map_err(
+        |error| {
+            let diagnostic = format!("Persistence failed during recovery settlement: {error}");
+            registry.settlement_failed(token, diagnostic.clone());
+            let _ = record_settlement_failure(token, &diagnostic);
+            diagnostic
+        },
+    )
+}
+
+fn apply_proven_evidence(operation: &mut ReleaseOperation, evidence: &ReleaseReconciliation) {
+    operation.prepared_revision = evidence
+        .prepared_revision
+        .clone()
+        .or_else(|| operation.prepared_revision.clone());
+    operation.prepared_parent = evidence
+        .prepared_parent
+        .clone()
+        .or_else(|| operation.prepared_parent.clone());
+    if operation.approved_paths.is_empty() {
+        operation.approved_paths = evidence.approved_paths.clone();
+    }
+    if operation
+        .artifact_evidence
+        .get("valid")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+        && evidence
+            .artifact
+            .get("valid")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    {
+        // Capture the first proven artifact set; later reconciliation may only
+        // validate it, never replace it.
+        operation.artifact_evidence = evidence.artifact.clone();
+    }
+    operation.release_url = evidence
+        .release
+        .as_ref()
+        .and_then(|release| release.url.clone())
+        .or_else(|| operation.release_url.clone());
+    for stage in &mut operation.stages {
+        if evidence.proven_stages.iter().any(|id| id == &stage.id) {
+            let approval = operation
+                .config
+                .stages
+                .iter()
+                .find(|item| item.id == stage.id)
+                .is_some_and(|item| item.approval.is_some());
+            stage.status = if approval && evidence.disposition != "published" {
+                "awaitingApproval"
+            } else {
+                "completed"
+            }
+            .into();
+            stage.completed_at.get_or_insert_with(now);
+        }
+    }
+}
+
+fn validate_recovery_evidence(
+    operation: &ReleaseOperation,
+    evidence: &ReleaseReconciliation,
+) -> Result<(), String> {
+    if evidence.requested_version != operation.version {
+        return Err("Reconciliation version conflicts with the captured release".into());
+    }
+    if evidence
+        .source_revision
+        .as_deref()
+        .is_some_and(|source| source != operation.initial_revision)
+    {
+        return Err(
+            "Reconciliation source revision conflicts with the captured source revision".into(),
+        );
+    }
+    if evidence
+        .prepared_parent
+        .as_deref()
+        .is_some_and(|parent| parent != operation.initial_revision)
+    {
+        return Err(
+            "Prepared revision does not directly follow the captured source revision".into(),
+        );
+    }
+    let expected_tag = format!("v{}", operation.version);
+    let expected_title = format!("Stacks {expected_tag}");
+    let identity = &evidence.identity;
+    for (field, expected) in [
+        ("tag", expected_tag.as_str()),
+        ("title", expected_title.as_str()),
+        ("notes", operation.notes.as_str()),
+        ("targetBranch", operation.target_branch.as_str()),
+    ] {
+        if identity.get(field).and_then(serde_json::Value::as_str) != Some(expected) {
+            return Err(format!(
+                "Reconciliation identity {field} conflicts with the captured release"
+            ));
+        }
+    }
+    if identity.get("draft").and_then(serde_json::Value::as_bool) != Some(true)
+        || identity
+            .get("prerelease")
+            .and_then(serde_json::Value::as_bool)
+            != Some(false)
+    {
+        return Err(
+            "Reconciliation draft/prerelease properties conflict with the captured release".into(),
+        );
+    }
+    if let Some(release) = evidence.release.as_ref() {
+        if release.tag != expected_tag
+            || release.title != expected_title
+            || release.notes != operation.notes
+            || !release.draft
+            || release.prerelease
+        {
+            return Err("Existing release identity conflicts with the captured release".into());
+        }
+        let intended = evidence
+            .prepared_revision
+            .as_deref()
+            .unwrap_or(&operation.initial_revision);
+        if release
+            .revision
+            .as_deref()
+            .is_some_and(|revision| revision != intended)
+            || (!release.target.is_empty() && release.target != intended)
+        {
+            return Err("Existing release revision conflicts with the captured release".into());
+        }
+    }
+    if let Some(captured) = operation.reconciliation.as_ref() {
+        let expected: HashSet<&str> = captured
+            .expected_assets
+            .iter()
+            .map(String::as_str)
+            .collect();
+        let fresh: HashSet<&str> = evidence
+            .expected_assets
+            .iter()
+            .map(String::as_str)
+            .collect();
+        if expected != fresh {
+            return Err("Expected artifact set changed since the release was captured".into());
+        }
+        // Fingerprints created by this lifecycle use stable identity properties;
+        // legacy fingerprints are deliberately tolerated and then constrained by
+        // the explicit comparisons above.
+        let captured_fingerprint = identity_fingerprint(&operation.config, captured);
+        if operation.identity_fingerprint == captured_fingerprint
+            && identity_fingerprint(&operation.config, evidence) != captured_fingerprint
+        {
+            return Err("Release identity fingerprint changed during reconciliation".into());
+        }
+    }
+    if operation
+        .artifact_evidence
+        .get("valid")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+        && operation.artifact_evidence.get("assets") != evidence.artifact.get("assets")
+    {
+        return Err("Captured artifact evidence conflicts with fresh reconciliation".into());
+    }
+    let intended = evidence
+        .prepared_revision
+        .as_deref()
+        .unwrap_or(&operation.initial_revision);
+    if evidence
+        .local_tag_revision
+        .as_deref()
+        .is_some_and(|revision| revision != intended)
+        || evidence
+            .remote_tag_revision
+            .as_deref()
+            .is_some_and(|revision| revision != intended)
+    {
+        return Err(
+            "A release tag points to a revision other than the captured release revision".into(),
+        );
+    }
+    if evidence.proven_stages.iter().any(|id| {
+        operation
+            .config
+            .stages
+            .iter()
+            .find(|stage| &stage.id == id)
+            .is_none()
+    }) {
+        return Err("Reconciliation claimed an unknown release stage".into());
+    }
+    Ok(())
+}
+
+fn recover_project_orphans(
+    app: &AppHandle,
+    registry: &Arc<ReleaseRegistry>,
+    project_id: &str,
+) -> Result<(), String> {
+    let ids = kanban::with_read_connection(|connection| {
+        let mut statement = connection
+            .prepare("SELECT id FROM release_operations WHERE project_id=?1 AND status='running'")
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([project_id], |row| row.get::<_, String>(0))
+            .map_err(db_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        Ok(rows)
     })?;
+    for id in ids {
+        recover_orphan(app, registry, &id)?;
+    }
+    Ok(())
+}
+
+fn recover_orphan(
+    app: &AppHandle,
+    registry: &Arc<ReleaseRegistry>,
+    operation_id: &str,
+) -> Result<(), String> {
+    let mut operation = load_operation(operation_id)?;
+    let Some(index) = operation
+        .stages
+        .iter()
+        .position(|stage| stage.status == "running")
+    else {
+        return Ok(());
+    };
+    let token = operation.stages[index]
+        .attempt_token
+        .clone()
+        .ok_or_else(|| "Running attempt has no token".to_string())?;
+    if registry.actively_owned(&token) {
+        return Ok(());
+    }
+    let Some((outcome, registry_error)) = registry.claim_recovery(&token)? else {
+        return Ok(());
+    };
+    let journal = kanban::with_read_connection(|connection| {
+        connection.query_row(
+        "SELECT execution_head,execution_error,settlement_error FROM release_attempts WHERE token=?1", [&token],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?)),
+    ).optional().map_err(db_error)
+    })?;
+    let mut diagnostics = Vec::new();
+    if let Some(error) = registry_error {
+        diagnostics.push(error);
+    }
+    if let Some(outcome) = outcome {
+        if let Some(error) = outcome.error {
+            diagnostics.push(format!("Command execution failed: {error}"));
+        }
+    }
+    if let Some((_, execution_error, settlement_error)) = journal {
+        if let Some(error) = execution_error {
+            diagnostics.push(format!("Command execution failed: {error}"));
+        }
+        if let Some(error) = settlement_error {
+            diagnostics.push(error);
+        }
+    }
+    let notes_path = write_notes(&operation.id, &operation.notes)?;
+    let env = release_env(
+        &operation.version,
+        &operation.previous_version,
+        Path::new(&operation.project_path),
+        &operation.target_branch,
+        &operation.initial_revision,
+        &operation.id,
+        notes_path.to_string_lossy().as_ref(),
+    );
+    let recovered = reconcile(&operation.config, Path::new(&operation.project_path), &env)
+        .map_err(|error| format!("Recovery reconciliation failed: {error}"))
+        .and_then(|evidence| {
+            evidence.ok_or_else(|| "Recovery reconciliation returned no evidence".into())
+        })
+        .and_then(|evidence| {
+            validate_recovery_evidence(&operation, &evidence)?;
+            Ok(evidence)
+        });
+    match recovered {
+        Ok(evidence) => {
+            apply_proven_evidence(&mut operation, &evidence);
+            operation.reconciliation = Some(evidence.clone());
+            let approval_proven = operation
+                .config
+                .stages
+                .iter()
+                .filter(|stage| stage.approval.is_some())
+                .any(|stage| evidence.proven_stages.contains(&stage.id));
+            let expected_assets: HashSet<&str> = evidence
+                .expected_assets
+                .iter()
+                .map(String::as_str)
+                .collect();
+            let existing_assets: HashSet<&str> = evidence
+                .existing_assets
+                .iter()
+                .map(|asset| asset.name.as_str())
+                .collect();
+            let exact_assets = evidence.missing_assets.is_empty()
+                && evidence.extra_assets.is_empty()
+                && evidence.conflicting_assets.is_empty()
+                && expected_assets == existing_assets
+                && evidence.expected_assets.len() == evidence.existing_assets.len();
+            if evidence.disposition == "resumableDraft" && approval_proven && exact_assets {
+                operation.status = "awaitingApproval".into();
+                operation.stages[index].error = if diagnostics.is_empty() {
+                    None
+                } else {
+                    Some(diagnostics.join("\n"))
+                };
+                persist_recovery_settlement(registry, &mut operation, &token, "recovered")?;
+            } else {
+                diagnostics.push(format!(
+                    "Recovery reconciliation was inconclusive (disposition {})",
+                    evidence.disposition
+                ));
+                operation.status = "failed".into();
+                if operation.stages[index].status == "running" {
+                    operation.stages[index].status = "failed".into();
+                }
+                operation.stages[index].error = Some(diagnostics.join("\n"));
+                persist_recovery_settlement(registry, &mut operation, &token, "failed")?;
+            }
+        }
+        Err(error) => {
+            diagnostics.push(error);
+            operation.status = "failed".into();
+            operation.stages[index].status = "failed".into();
+            operation.stages[index].completed_at = Some(now());
+            operation.stages[index].error = Some(diagnostics.join("\n"));
+            persist_recovery_settlement(registry, &mut operation, &token, "failed")?;
+        }
+    }
+    registry.remove(&token);
     let _ = app.emit("release-operation-changed", operation_id);
     Ok(())
 }
@@ -1499,9 +2076,17 @@ fn require_action(
 }
 
 fn identity_fingerprint(config: &ReleaseConfig, evidence: &ReleaseReconciliation) -> String {
-    fingerprint(
-        &serde_json::json!({ "config": config, "identity": evidence.identity, "expectedAssets": evidence.expected_assets }),
-    )
+    let identity = &evidence.identity;
+    fingerprint(&serde_json::json!({
+        "config": config,
+        "tag": identity.get("tag"),
+        "title": identity.get("title"),
+        "notes": identity.get("notes"),
+        "targetBranch": identity.get("targetBranch"),
+        "draft": identity.get("draft"),
+        "prerelease": identity.get("prerelease"),
+        "expectedAssets": evidence.expected_assets,
+    }))
 }
 fn fingerprint(value: &serde_json::Value) -> String {
     let mut hash = 0xcbf29ce484222325u64;
@@ -1958,6 +2543,184 @@ mod tests {
         assert_eq!(refreshed.notes, "supplied notes");
         assert_eq!(fs::read_to_string(&notes_path).unwrap(), refreshed.notes);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_ownership_and_recovery_claims_are_token_exact_and_idempotent() {
+        let registry = ReleaseRegistry::default();
+        registry.begin("owned".into()).unwrap();
+        assert!(registry.actively_owned("owned"));
+        assert!(registry.claim_recovery("owned").unwrap().is_none());
+        assert!(!registry.kill("unrelated").unwrap());
+
+        registry.execution_finished(
+            "owned",
+            ExecutionOutcome {
+                head: Some("abc".into()),
+                error: None,
+            },
+        );
+        assert!(registry.claim_recovery("owned").unwrap().is_none());
+        registry.settlement_failed("owned", "database unavailable".into());
+        assert!(registry.claim_recovery("owned").unwrap().is_some());
+        assert!(registry.claim_recovery("owned").unwrap().is_none());
+        assert!(registry
+            .claim_recovery("orphan-with-persisted-pid-only")
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn recovery_evidence_preserves_identity_and_marks_only_proven_stages() {
+        let mut operation = test_operation();
+        let evidence = test_evidence();
+        operation.identity_fingerprint = identity_fingerprint(
+            &operation.config,
+            operation.reconciliation.as_ref().unwrap(),
+        );
+        validate_recovery_evidence(&operation, &evidence).unwrap();
+        apply_proven_evidence(&mut operation, &evidence);
+        assert_eq!(operation.stages[0].status, "completed");
+        assert_eq!(operation.stages[1].status, "awaitingApproval");
+        assert_eq!(operation.stages[2].status, "pending");
+
+        for (name, mutate) in [
+            // Non-capturing closures intentionally coerce to function pointers.
+            ("notes", |item: &mut ReleaseReconciliation| {
+                item.identity["notes"] = serde_json::json!("changed")
+            }),
+            ("revision", |item: &mut ReleaseReconciliation| {
+                item.remote_tag_revision = Some("wrong".into())
+            }),
+            ("artifacts", |item: &mut ReleaseReconciliation| {
+                item.expected_assets.push("extra".into())
+            }),
+        ] as [(&str, fn(&mut ReleaseReconciliation)); 3]
+        {
+            let mut conflicting = test_evidence();
+            mutate(&mut conflicting);
+            assert!(
+                validate_recovery_evidence(&test_operation(), &conflicting).is_err(),
+                "{name} conflict was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn migrates_legacy_attempt_journal_rows_conservatively() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE release_operations (id TEXT PRIMARY KEY,project_id TEXT NOT NULL,repository_identity TEXT NOT NULL,status TEXT NOT NULL,revision INTEGER NOT NULL,state_json TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL); CREATE TABLE release_attempts (token TEXT PRIMARY KEY,operation_id TEXT NOT NULL,stage_id TEXT NOT NULL,kind TEXT NOT NULL,status TEXT NOT NULL,pid INTEGER,log_path TEXT NOT NULL,started_at INTEGER NOT NULL,completed_at INTEGER); INSERT INTO release_attempts VALUES ('old','op','draft','run','failed',4242,'/tmp/log',1,2);").unwrap();
+        migrate(&connection).unwrap();
+        let state: String = connection
+            .query_row(
+                "SELECT execution_status FROM release_attempts WHERE token='old'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "settled");
+        let columns: HashSet<String> = connection
+            .prepare("PRAGMA table_info(release_attempts)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(
+            columns.contains("execution_head")
+                && columns.contains("settlement_error")
+                && columns.contains("recovery_error")
+        );
+    }
+
+    fn test_operation() -> ReleaseOperation {
+        let mut config = test_config();
+        config.stages = vec![
+            stage("prepare"),
+            ReleaseStageConfig {
+                approval: Some(ReleaseApproval { instructions: None }),
+                ..stage("draft")
+            },
+            stage("publish"),
+        ];
+        let evidence = test_evidence();
+        ReleaseOperation {
+            id: "operation".into(),
+            project_id: "project".into(),
+            project_path: "/repo".into(),
+            repository_identity: "/repo/.git".into(),
+            config_path: ".stacks/release.json".into(),
+            config,
+            previous_version: "1.0.0".into(),
+            version: "1.1.0".into(),
+            notes: "approved notes".into(),
+            target_branch: "main".into(),
+            initial_revision: "source".into(),
+            expected_revision: "source".into(),
+            prepared_revision: None,
+            prepared_parent: None,
+            approved_paths: vec![],
+            reconciliation: Some(evidence.clone()),
+            identity_fingerprint: String::new(),
+            artifact_evidence: serde_json::Value::Null,
+            release_url: None,
+            adopted: false,
+            status: "running".into(),
+            stages: ["prepare", "draft", "publish"]
+                .into_iter()
+                .map(|id| ReleaseStageState {
+                    id: id.into(),
+                    name: id.into(),
+                    status: "pending".into(),
+                    attempt: 0,
+                    attempt_token: None,
+                    started_at: None,
+                    completed_at: None,
+                    error: None,
+                    log_path: None,
+                    log: String::new(),
+                    truncated: false,
+                })
+                .collect(),
+            created_at: 1,
+            updated_at: 1,
+            completed_at: None,
+            revision: 1,
+        }
+    }
+
+    fn test_evidence() -> ReleaseReconciliation {
+        ReleaseReconciliation {
+            protocol_version: 1,
+            disposition: "resumableDraft".into(),
+            requested_version: "1.1.0".into(),
+            source_revision: Some("source".into()),
+            prepared_revision: Some("prepared".into()),
+            prepared_parent: Some("source".into()),
+            remote_tag_revision: Some("prepared".into()),
+            expected_assets: vec!["app.zip".into()],
+            existing_assets: vec![ArtifactEvidence {
+                name: "app.zip".into(),
+                size: Some(1),
+                digest: Some("sha256:x".into()),
+            }],
+            release: Some(ReleaseIdentity {
+                id: serde_json::json!(1),
+                tag: "v1.1.0".into(),
+                revision: Some("prepared".into()),
+                title: "Stacks v1.1.0".into(),
+                notes: "approved notes".into(),
+                target: "prepared".into(),
+                draft: true,
+                prerelease: false,
+                url: None,
+            }),
+            identity: serde_json::json!({ "tag": "v1.1.0", "revision": "prepared", "title": "Stacks v1.1.0", "notes": "approved notes", "targetBranch": "main", "draft": true, "prerelease": false }),
+            proven_stages: vec!["prepare".into(), "draft".into()],
+            permitted_actions: vec!["approve".into()],
+            artifact: serde_json::json!({ "valid": true, "assets": [{ "name": "app.zip", "size": 1, "digest": "sha256:x" }] }),
+            ..ReleaseReconciliation::default()
+        }
     }
 
     fn test_config() -> ReleaseConfig {
