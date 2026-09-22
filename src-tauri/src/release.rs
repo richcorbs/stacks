@@ -1357,34 +1357,54 @@ fn persist_attempt_state(
     clear_settlement_error: bool,
 ) -> Result<(), String> {
     kanban::with_write_connection(|connection| {
-        let transaction = connection.unchecked_transaction().map_err(db_error)?;
-        let revision: i64 = transaction
-            .query_row(
-                "SELECT revision FROM release_operations WHERE id=?1",
-                [&operation.id],
-                |row| row.get(0),
-            )
-            .map_err(db_error)?;
-        if revision != operation.revision {
-            return Err(
-                "Persistence failed: release operation changed before attempt settlement".into(),
-            );
-        }
-        operation.revision += 1;
-        operation.updated_at = now();
-        let changed = transaction.execute(
+        persist_attempt_state_in_transaction(
+            connection,
+            operation,
+            token,
+            attempt_status,
+            recovery_error,
+            clear_settlement_error,
+        )
+    })
+}
+
+fn persist_attempt_state_in_transaction(
+    connection: &Connection,
+    operation: &mut ReleaseOperation,
+    token: &str,
+    attempt_status: &str,
+    recovery_error: Option<&str>,
+    clear_settlement_error: bool,
+) -> Result<(), String> {
+    let revision: i64 = connection
+        .query_row(
+            "SELECT revision FROM release_operations WHERE id=?1",
+            [&operation.id],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if revision != operation.revision {
+        return Err(
+            "Persistence failed: release operation changed before attempt settlement".into(),
+        );
+    }
+    operation.revision += 1;
+    operation.updated_at = now();
+    let changed = connection.execute(
             "UPDATE release_operations SET status=?1,revision=?2,state_json=?3,updated_at=?4 WHERE id=?5 AND revision=?6",
             params![operation.status, operation.revision, serde_json::to_string(operation).map_err(|error| error.to_string())?, operation.updated_at, operation.id, revision],
         ).map_err(db_error)?;
-        if changed != 1 {
-            return Err("Persistence failed: attempt settlement lost its revision claim".into());
-        }
-        transaction.execute(
+    if changed != 1 {
+        return Err("Persistence failed: attempt settlement lost its revision claim".into());
+    }
+    let changed = connection.execute(
             "UPDATE release_attempts SET status=?1,execution_status='settled',completed_at=?2,recovery_error=?4,settlement_error=CASE WHEN ?5 THEN NULL ELSE settlement_error END WHERE token=?3",
             params![attempt_status, now(), token, recovery_error, clear_settlement_error],
         ).map_err(db_error)?;
-        transaction.commit().map_err(db_error)
-    })
+    if changed != 1 {
+        return Err("Persistence failed: release attempt was not found during settlement".into());
+    }
+    Ok(())
 }
 
 fn persist_recovery_settlement(
@@ -2630,6 +2650,44 @@ mod tests {
             columns.contains("execution_head")
                 && columns.contains("settlement_error")
                 && columns.contains("recovery_error")
+        );
+    }
+
+    #[test]
+    fn attempt_settlement_uses_the_callers_existing_transaction() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let mut operation = test_operation();
+        let state = serde_json::to_string(&operation).unwrap();
+        connection.execute(
+            "INSERT INTO release_operations(id,project_id,repository_identity,status,revision,state_json,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,1,1)",
+            params![operation.id, operation.project_id, operation.repository_identity, operation.status, operation.revision, state],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO release_attempts(token,operation_id,stage_id,kind,status,execution_status,log_path,started_at) VALUES ('attempt',?1,'prepare','run','running','completed','/tmp/log',1)",
+            [&operation.id],
+        ).unwrap();
+
+        connection.execute_batch("BEGIN").unwrap();
+        persist_attempt_state_in_transaction(
+            &connection,
+            &mut operation,
+            "attempt",
+            "completed",
+            None,
+            true,
+        )
+        .unwrap();
+        connection.execute_batch("COMMIT").unwrap();
+
+        let stored: (String, i64, String, String) = connection.query_row(
+            "SELECT o.status,o.revision,a.status,a.execution_status FROM release_operations o JOIN release_attempts a ON a.operation_id=o.id WHERE o.id=?1",
+            [&operation.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(
+            stored,
+            ("running".into(), 2, "completed".into(), "settled".into())
         );
     }
 
