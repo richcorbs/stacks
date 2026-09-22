@@ -23,7 +23,7 @@ describe('KanbanWorkflowLifecycleService', () => {
       applyIntent: async (_id, _thread, intent) => { calls.push(intent); return calls.length === 1 ? first.promise : { card: card(3), board_revision: 3 }; },
       applyAction: async () => ({ card: card(current.workflow_revision, current.status), board_revision: 1 }), subscribePi: async (next) => { listener = next; return () => {}; },
       registerUiRequests: () => () => {}, session: () => ({ lifecycleGeneration: () => 'g', stopRefinement: async () => {} }),
-      load: async () => {}, loadDetails: async (value) => value, reportError: () => {},
+      load: async () => {}, reportError: () => {},
     });
     service.start(); await Promise.resolve();
     listener(envelope('agent_start', 'g', 1));
@@ -41,7 +41,7 @@ describe('KanbanWorkflowLifecycleService', () => {
     const service = new KanbanWorkflowLifecycleService({
       card: () => card(), applyCard: (next) => next, applyIntent, applyAction: async () => ({ card: card(), board_revision: 1 }),
       subscribePi: async (next) => { listener = next; return () => {}; }, registerUiRequests: () => () => {},
-      session: () => ({ lifecycleGeneration: () => 'new', stopRefinement: async () => {} }), load: async () => {}, loadDetails: async (value) => value, reportError: () => {},
+      session: () => ({ lifecycleGeneration: () => 'new', stopRefinement: async () => {} }), load: async () => {}, reportError: () => {},
     });
     service.start(); await Promise.resolve();
     listener(envelope('pi_process_exit', 'old'));
@@ -60,7 +60,7 @@ describe('KanbanWorkflowLifecycleService', () => {
       applyIntent: async (_id, _thread, intent) => { intents.push(intent); return intent === 'ui_input_requested' ? requested.promise : { card: card(3), board_revision: 3 }; },
       applyAction: async () => ({ card: card(current.workflow_revision, current.status), board_revision: 1 }), subscribePi: async () => () => {},
       registerUiRequests: (next) => { handler = next; return () => {}; }, session: () => ({ lifecycleGeneration: () => 'g', stopRefinement: async () => {} }),
-      load: async () => {}, loadDetails: async (value) => value, reportError: () => {},
+      load: async () => {}, reportError: () => {},
     });
     service.start();
     await handler.received('kanban-card:c:work', 'r', false);

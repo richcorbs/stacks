@@ -201,8 +201,8 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     } catch (error) { showToast(error instanceof Error ? error.message : String(error)); }
   }
 
-  async function startCardWork(cardId: string) {
-    if (startingCardIds.current.has(cardId)) return false;
+  async function startCardWork(cardId: string): Promise<KanbanCard | null> {
+    if (startingCardIds.current.has(cardId)) return null;
     startingCardIds.current.add(cardId);
     try {
       const card = (await fetchKanbanCard(cardId)).card;
@@ -227,12 +227,13 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
         );
         if (!updated.environment) {
           showToast(updated.creation_operation?.error || 'Environment creation needs attention');
-          return false;
+          return null;
         }
       }
       if (!await launchWorkAgent(cardId, store.projects)) throw new Error('The card changed before its work agent could start');
-      showToast(`Started work on #${updated.external_id}`); return true;
-    } catch (error) { showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`); return false; }
+      const current = (await fetchKanbanCard(cardId)).card;
+      showToast(`Started work on #${current.external_id}`); return current;
+    } catch (error) { showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`); return null; }
     finally { startingCardIds.current.delete(cardId); }
   }
   async function cleanupCard(card: KanbanCard, evidence: import('../kanban/types').CleanupPreflight) {

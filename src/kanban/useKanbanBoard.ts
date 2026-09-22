@@ -36,7 +36,8 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     load: controller.load, sync: controller.sync, create: controller.create, update: controller.update,
     interact: controller.interact, remove: controller.remove, reorder: controller.reorder, act: controller.act,
     stopRefinement: controller.stopRefinement, assignProject: controller.assignProject,
-    loadDetails: controller.loadDetails, applyCardSnapshot: controller.applyCardSnapshot, patchCard: controller.patchCard,
+    hydrateProviderDetails: controller.hydrateProviderDetails, loadPersistedDetails: controller.loadPersistedDetails,
+    applyCardSnapshot: controller.applyCardSnapshot, patchCard: controller.patchCard,
   };
 }
 

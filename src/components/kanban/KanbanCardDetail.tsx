@@ -45,7 +45,7 @@ function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery'
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
-export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onCardUpdated, onNavigate, onWorkflowControllerChange }: {
+export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onWorkflowControllerChange }: {
   card: KanbanCard;
   cards: KanbanCardSummary[];
   projects: Project[];
@@ -57,6 +57,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   environmentHealth?: CardEnvironmentHealth;
   gitChangeSummary: import('../../types').GitChangeSummary | null;
   detailLoadError: string | null;
+  detailRefreshError: string | null;
   hasOlderEvents: boolean;
   onLoadOlderEvents: () => Promise<void>;
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
@@ -69,6 +70,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   onCleanup: (evidence: CleanupPreflight) => Promise<void>;
   onDelete: () => Promise<void>;
   onReload: () => Promise<KanbanCard>;
+  onRetryRefresh: () => Promise<void>;
   onCardUpdated: (card: KanbanCard) => void;
   onNavigate: (id: string, initialView?: CardView) => void;
   onWorkflowControllerChange?: (controller: CardDetailWorkflowController | null) => void;
@@ -111,7 +113,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const latestAgentRunEvent = (card.events ?? []).find((event) => ['agent_launch_failed', 'protocol_failed', 'process_exited', 'agent_started', 'agent_settled'].includes(event.event_type));
   const agentFailure = latestAgentRunEvent?.outcome === 'failure' ? latestAgentRunEvent.error_detail : null;
-  const cardLevelErrors = useMemo(() => collectCardLevelErrors({ actionError, detailLoadError, recoveryError: card.creation_operation?.error, agentFailure }), [actionError, agentFailure, card.creation_operation?.error, detailLoadError]);
+  const cardLevelErrors = useMemo(() => collectCardLevelErrors({ actionError, detailLoadError, detailRefreshError, recoveryError: card.creation_operation?.error, agentFailure }), [actionError, agentFailure, card.creation_operation?.error, detailLoadError, detailRefreshError]);
 
   async function recheckEnvironmentHealth() {
     if (recheckingEnvironment) return;
@@ -354,7 +356,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
           onActionError={setActionError}
           onNavigateParent={navigateToParent}
         />
-        <CardLevelErrorBanner errors={cardLevelErrors} reloading={reloadingCard} onReload={reloadCard} />
+        <CardLevelErrorBanner errors={cardLevelErrors} reloading={reloadingCard} onReload={reloadCard} onRetryRefresh={() => { void onRetryRefresh().catch(() => {}); }} />
         <CardDetailTabs
           activeView={activeView}
           hierarchyFinalized={card.hierarchy_finalized}

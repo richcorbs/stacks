@@ -77,7 +77,7 @@ export class KanbanController {
       card: (id) => this.store.card(id), applyCard: this.applyCardSnapshot,
       applyIntent: dependencies.applyLifecycleIntent, applyAction: dependencies.applyWorkflowAction,
       subscribePi: dependencies.subscribePiEvents, registerUiRequests: dependencies.registerUiRequestHandler,
-      session: dependencies.retainedPiSession, load: this.load, loadDetails: (card) => this.crud.loadDetails(card),
+      session: dependencies.retainedPiSession, load: this.load,
       reportError: this.reportError,
     });
   }
@@ -141,7 +141,8 @@ export class KanbanController {
   interact = (id: string) => this.crud.interact(id);
   remove = (id: string) => this.crud.remove(id);
   assignProject = (id: string, projectId: string) => this.crud.assignProject(id, projectId);
-  loadDetails = (card: KanbanCardSummary) => this.crud.loadDetails(card);
+  hydrateProviderDetails = (card: KanbanCardSummary) => this.crud.hydrateProviderDetails(card);
+  loadPersistedDetails = (cardOrId: KanbanCardSummary | string) => this.crud.loadPersistedDetails(cardOrId);
   act = (id: string, action: 'return_to_refinement' | 'request_changes') => this.workflow.act(id, action);
   stopRefinement = (id: string) => this.workflow.stopRefinement(id);
 

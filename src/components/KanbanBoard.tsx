@@ -21,7 +21,7 @@ export type KanbanBoardProps = {
   copyOnSelect: boolean;
   onAddProject: () => void;
   onCleanupCard: (card: KanbanCard, evidence: import('../kanban/types').CleanupPreflight) => Promise<boolean>;
-  onStartWork: (cardId: string) => Promise<boolean>;
+  onStartWork: (cardId: string) => Promise<KanbanCard | null>;
   onPaletteCardsChange: (registration: CardPaletteRegistration | null) => void;
 };
 

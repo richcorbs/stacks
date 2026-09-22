@@ -52,7 +52,8 @@ export class KanbanCrudService {
     return updated;
   }
 
-  async loadDetails(card: KanbanCardSummary): Promise<KanbanCardDetail> {
+  /** Reads the authoritative provider first, then projects the persisted card. */
+  async hydrateProviderDetails(card: KanbanCardSummary): Promise<KanbanCardDetail> {
     if (card.provider === 'superthread') {
       const provider = this.dependencies.provider(card.project_id);
       if (provider) {
@@ -60,7 +61,12 @@ export class KanbanCrudService {
         if (change) this.dependencies.applyChange(change);
       }
     }
-    const snapshot = await this.dependencies.fetchCard(card.id);
+    return this.loadPersistedDetails(card.id);
+  }
+
+  /** Projects local persistence only. This operation must never contact a provider. */
+  async loadPersistedDetails(cardOrId: KanbanCardSummary | string): Promise<KanbanCardDetail> {
+    const snapshot = await this.dependencies.fetchCard(typeof cardOrId === 'string' ? cardOrId : cardOrId.id);
     this.dependencies.applyCard(snapshot.card, snapshot.board_revision);
     return snapshot.card;
   }
