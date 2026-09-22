@@ -5,10 +5,21 @@ import type { ReleaseConfig, ReleaseDraft, ReleaseOperation, ReleaseReconciliati
 import { CommandPreview, ReconciliationSummary, ReleaseStage, ReleaseTab } from './ReleaseTab';
 
 const invoke = vi.hoisted(() => vi.fn());
+const eventListeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
+const polling = vi.hoisted(() => ({ callback: null as null | (() => void) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn((name: string, listener: (event: { payload: unknown }) => void) => {
+  eventListeners.set(name, listener);
+  return Promise.resolve(() => eventListeners.delete(name));
+}) }));
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-beforeEach(() => invoke.mockReset());
+vi.stubGlobal('window', {
+  setInterval: vi.fn((callback: () => void) => { polling.callback = callback; return 1; }),
+  clearInterval: vi.fn(),
+  confirm: vi.fn(() => true),
+});
+beforeEach(() => { invoke.mockReset(); eventListeners.clear(); polling.callback = null; });
 
 function stage(overrides: Partial<ReleaseStageState> = {}): ReleaseStageState {
   return {
@@ -112,6 +123,33 @@ describe('release durations', () => {
 });
 
 describe('release status refresh', () => {
+  it('refreshes history immediately when the backend reports an operation change', async () => {
+    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
+    const recovered = operation({ status: 'awaitingApproval', stages: [stage({ status: 'awaitingApproval' })], config: config({ stages: [{ id: 'publish', name: 'Publish artifacts', run: 'publish', repositoryAccess: 'read', approval: { instructions: 'Smoke test' } }] }) });
+    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([recovered]) : Promise.resolve(draft()));
+
+    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: 'operation' }); await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' }).children.join('')).toBe('Awaiting smoke-test approval');
+  });
+
+  it('retains polling as a fallback while an operation is active', async () => {
+    await renderReleaseTab([operation({ status: 'running' })]);
+    const callsBeforePoll = invoke.mock.calls.filter(([command]) => command === 'release_history').length;
+
+    await act(async () => { polling.callback?.(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    expect(invoke.mock.calls.filter(([command]) => command === 'release_history').length).toBe(callsBeforePoll + 1);
+  });
+
+  it('shows recovery diagnostics and keeps Retry release available after inconclusive recovery', async () => {
+    const failed = operation({ reconciliation: reconciliation({ disposition: 'conflict', permittedActions: ['refresh'] }), stages: [stage({ status: 'failed', error: 'Settlement failed\nRecovery reconciliation conflicted' })], config: config({ stages: [{ id: 'publish', name: 'Publish artifacts', run: 'publish', repositoryAccess: 'read' }] }) });
+    const renderer = await renderReleaseTab([failed]);
+
+    expect(renderer.root.findByProps({ className: 'releaseStageError' }).children.join('')).toContain('Recovery reconciliation conflicted');
+    expect(renderer.root.findAllByType('button').some((button) => button.children.join('') === 'Retry release')).toBe(true);
+  });
+
   it('atomically replaces edited notes with regenerated notes and matching evidence', async () => {
     const renderer = await renderReleaseTab();
     act(() => renderer.root.findByType('textarea').props.onChange({ target: { value: 'edited notes' } }));

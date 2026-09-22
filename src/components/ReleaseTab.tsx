@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../types';
 import { abandonRelease, approveRelease, cancelRelease, inspectRelease, reconcileReleasePreview, recoverPreparedRelease, refreshRelease, releaseHistory, retryRelease, startRelease, type ReleaseConfig, type ReleaseDraft, type ReleaseOperation, type ReleaseReconciliation, type ReleaseStageState } from '../releaseApi';
 
@@ -22,6 +23,10 @@ export function ReleaseTab({ project }: { project: Project }) {
   }, [project.id]);
 
   useEffect(() => { void Promise.all([refreshDraft(), refreshHistory()]); }, [refreshDraft, refreshHistory]);
+  useEffect(() => {
+    const unlisten = listen<string>('release-operation-changed', () => { void refreshHistory(); });
+    return () => { unlisten.then((remove) => remove()).catch(console.error); };
+  }, [refreshHistory]);
   useEffect(() => {
     if (!active || !['running', 'awaitingApproval'].includes(active.status)) return;
     const timer = window.setInterval(refreshHistory, 800);
@@ -58,7 +63,7 @@ export function ReleaseTab({ project }: { project: Project }) {
         <div className="releaseActions">
           {displayed.status === 'running' && <button type="button" disabled={busy} onClick={() => void action(() => cancelRelease(displayed.id))}>Cancel process</button>}
           {displayed.status === 'awaitingApproval' && displayed.reconciliation?.permittedActions.includes('approve') && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action(() => approveRelease(displayed.id))}>Approve and publish</button>}
-          {['failed', 'cancelled', 'interrupted'].includes(displayed.status) && displayed.reconciliation?.permittedActions.some((item) => ['retry', 'resume', 'approve', 'complete'].includes(item)) && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action(() => retryRelease(displayed.id))}>Retry release</button>}
+          {['failed', 'cancelled', 'interrupted'].includes(displayed.status) && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action(() => retryRelease(displayed.id))}>Retry release</button>}
           {displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => void action(() => refreshRelease(displayed.id))}>Refresh release status</button>}
           {displayed.status !== 'running' && displayed.reconciliation?.permittedActions.includes('recover') && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Recover this prepared checkout? Stacks will re-prove every safety condition, remove only the exact local release tag and artifact directory, and reset to the captured source revision.')) void action(() => recoverPreparedRelease(displayed.id)); }}>Recover prepared checkout</button>}
           {!['completed', 'abandoned'].includes(displayed.status) && displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Abandon this release? Repository commits, tags, drafts, and artifacts remain and are not automatically undone.')) void action(() => abandonRelease(displayed.id)); }}>Abandon release</button>}
@@ -136,7 +141,7 @@ export function ReconciliationSummary({ reconciliation }: { reconciliation: Rele
 
 function Fact({ label, value, mono = false }: { label: string; value: string | null; mono?: boolean }) { return <div><span>{label}</span><strong className={mono ? 'mono' : ''}>{value || '—'}</strong></div>; }
 function Command({ label, value }: { label: string; value: string }) { return <div className="releaseCommand"><span>{label}</span><code>{value}</code></div>; }
-function statusLabel(value: string) { return value.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase()); }
+function statusLabel(value: string) { return value === 'awaitingApproval' ? 'Awaiting smoke-test approval' : value.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase()); }
 function formatDuration(seconds: number) { const safe = Math.max(0, seconds); return safe < 60 ? `${safe}s` : `${Math.floor(safe / 60)}m${safe % 60}s`; }
 function LinkedLog({ text }: { text: string }) {
   const parts = useMemo(() => text.split(/(https?:\/\/[^\s]+)/g), [text]);
