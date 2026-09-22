@@ -47,7 +47,6 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
       const result = await testSuperthreadConnection(dialog.superthreadApiTokenEnvVar ?? 'ST_TOKEN');
       setSpaces(result.spaces);
       setDialog({ ...dialog, superthreadWorkspaceId: result.workspace_id, superthreadWorkspaceName: result.workspace_name,
-        superthreadWorkspaceSlug: dialog.superthreadWorkspaceSlug || result.workspace_slug || undefined,
         superthreadSpaceId: undefined, superthreadSpaceName: undefined, superthreadBoardId: undefined, superthreadBoardName: undefined });
       setMessage('Connection authenticated. Select one space and board.');
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
@@ -63,8 +62,7 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
         done_column_id: dialog.superthreadDoneColumnId ?? '',
       });
       setDialog({ ...dialog, superthreadWorkspaceId: result.workspace_id, superthreadWorkspaceName: result.workspace_name,
-        superthreadSpaceId: result.space_id, superthreadSpaceName: result.space_name,
-        superthreadWorkspaceSlug: dialog.superthreadWorkspaceSlug || result.workspace_slug || undefined,
+        superthreadSpaceName: result.space_name,
         superthreadBoardName: result.board_name, superthreadIncomingColumns: result.incoming_columns,
         superthreadInProgressColumnName: result.in_progress_column_name, superthreadDoneColumnName: result.done_column_name });
       setMessage(SUPERTHREAD_MAPPING_VALIDATED_MESSAGE);

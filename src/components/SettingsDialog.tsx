@@ -20,6 +20,7 @@ import {
 } from './SettingsSections';
 import { NotificationsSettingsSection } from './NotificationsSettingsSection';
 import { DialogFields } from './DialogFields';
+import { projectSettingsDraft, projectSettingsEqual } from '../projectSettings';
 
 export type GlobalSettingsSection = 'interface' | 'terminal' | 'confirmations' | 'notifications' | 'editor' | 'superthread';
 export type SettingsPageId = `global:${GlobalSettingsSection}` | `project:${string}`;
@@ -41,26 +42,6 @@ const SECTION_FIELDS: Record<GlobalSettingsSection, Array<keyof ResolvedAppSetti
   editor: ['editor_app'],
   superthread: ['superthread_enabled'],
 };
-
-function projectDraft(project: Project): DialogState {
-  return {
-    kind: 'editProject', projectId: project.id, name: project.name, path: project.path,
-    kanbanSource: project.kanban_source ?? 'local', startWorkCommand: project.start_work_command,
-    superthreadSpaces: project.superthread_spaces, superthreadWorkspaceId: project.superthread_workspace_id, superthreadWorkspaceName: project.superthread_workspace_name,
-    superthreadSpaceId: project.superthread_space_id, superthreadSpaceName: project.superthread_space_name, superthreadBindingId: project.superthread_binding_id,
-    superthreadWorkspaceSlug: project.superthread_workspace_slug,
-    superthreadApiTokenEnvVar: project.superthread_api_token_env_var ?? 'ST_TOKEN', superthreadBoardId: project.superthread_board_id, superthreadBoardName: project.superthread_board_name,
-    superthreadIncomingColumns: project.superthread_incoming_columns, superthreadDefaultIncomingColumnId: project.superthread_default_incoming_column_id,
-    superthreadInProgressColumnId: project.superthread_in_progress_column_id, superthreadInProgressColumnName: project.superthread_in_progress_column_name,
-    superthreadDoneColumnId: project.superthread_done_column_id, superthreadDoneColumnName: project.superthread_done_column_name,
-    serverCommand: project.server_command, consoleCommand: project.console_command,
-    deliveryWorkflow: project.delivery_workflow ?? 'local_merge', deploymentCommand: project.deployment_command, deliveryWorkflowLocked: project.delivery_workflow_locked, targetBranch: project.target_branch ?? 'main',
-    supportsFeatureEnvironments: project.supports_feature_environments ?? false,
-    githubMergeStrategy: project.github_merge_strategy ?? 'merge', requirePassingCi: project.require_passing_ci ?? true,
-    requireApproval: project.require_approval ?? false, releasesEnabled: project.releases_enabled ?? false,
-    releaseConfigPath: project.release_config_path ?? '.stacks/release.json',
-  };
-}
 
 function normalizeGlobal(draft: ResolvedAppSettings): ResolvedAppSettings {
   return {
@@ -85,7 +66,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
   initialPage: SettingsPageId;
   onPageChange: (page: SettingsPageId) => void;
   onSaveSettings: (section: GlobalSettingsSection, patch: Partial<ResolvedAppSettings>) => Promise<void>;
-  onSaveProject: (projectId: string, draft: DialogState, expectedRevision: number) => Promise<void>;
+  onSaveProject: (projectId: string, draft: DialogState, expectedRevision: number) => Promise<Project>;
   onDeleteProject: (projectId: string) => Promise<void>;
   onNotificationsUnavailable: (message: string) => void;
   onClose: () => void;
@@ -125,7 +106,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
       setProjectBaseline(null);
     } else {
       const selected = projects.find((candidate) => `project:${candidate.id}` === activePage);
-      const draft = selected ? projectDraft(selected) : null;
+      const draft = selected ? projectSettingsDraft(selected) : null;
       setProjectPageDraft(draft);
       setProjectBaseline(draft);
       setProjectRevision(selected?.config_revision ?? 0);
@@ -134,7 +115,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
 
   const dirty = useMemo(() => {
     if (section) return JSON.stringify(selectedValues(globalDraft, section)) !== JSON.stringify(selectedValues(globalBaseline, section));
-    return JSON.stringify(projectPageDraft) !== JSON.stringify(projectBaseline);
+    return !projectSettingsEqual(projectPageDraft, projectBaseline);
   }, [section, globalDraft, globalBaseline, projectPageDraft, projectBaseline]);
 
   function activate(page: SettingsPageId) {
@@ -179,9 +160,11 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
         setGlobalDraft(normalized);
         setGlobalBaseline(normalized);
       } else if (project && projectPageDraft) {
-        await onSaveProject(project.id, projectPageDraft, projectRevision);
-        setProjectRevision((revision) => revision + 1);
-        setProjectBaseline(projectPageDraft);
+        const canonical = await onSaveProject(project.id, projectPageDraft, projectRevision);
+        const canonicalDraft = projectSettingsDraft(canonical);
+        setProjectRevision(canonical.config_revision ?? 0);
+        setProjectPageDraft(canonicalDraft);
+        setProjectBaseline(canonicalDraft);
       }
       return true;
     } catch (error) {

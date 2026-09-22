@@ -23,7 +23,7 @@ export type OverlayLayoutProps = {
   settingsPage: import('./SettingsDialog').SettingsPageId;
   setSettingsPage: (page: import('./SettingsDialog').SettingsPageId) => void;
   saveSettingsSection: (section: import('./SettingsDialog').GlobalSettingsSection, patch: Partial<ResolvedAppSettings>) => Promise<void>;
-  saveProjectConfiguration: (projectId: string, draft: import('../types').DialogState, expectedRevision: number) => Promise<void>;
+  saveProjectConfiguration: (projectId: string, draft: import('../types').DialogState, expectedRevision: number) => Promise<Project>;
   deleteSettingsProject: (projectId: string) => Promise<void>;
   commandPaletteOpen: boolean;
   commandPaletteItems: PaletteItem[];
