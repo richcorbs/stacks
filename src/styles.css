@@ -979,7 +979,11 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piGuiEmptyMark { width: 42px; height: 42px; margin-bottom: 5px; border: 1px solid #2a3d51; border-radius: 12px; background: #142130; color: #82afd3; display: grid; place-items: center; font: calc(25px + var(--ui-font-delta, 0px)) Georgia, serif; }
 .piGuiEmpty strong { color: #9dadbd; font-size: calc(var(--pi-font-size, 13px) + 1px); font-weight: 500; }
 .piGuiEmpty small { font-size: max(8px, calc(var(--pi-font-size, 13px) - 2px)); }
-.piHistoryLimit { width: 100%; margin: 0 0 18px; padding: 7px 10px; border: 1px solid #263646; border-radius: 6px; color: #65798d; text-align: center; font-size: max(8px, calc(var(--pi-font-size, 13px) - 3px)); }
+.piHistoryLimit { width: 100%; margin: 0 0 18px; display: flex; flex-direction: column; align-items: center; gap: 4px; color: #65798d; text-align: center; font-size: max(8px, calc(var(--pi-font-size, 13px) - 3px)); }
+.piHistoryLimit button { padding: 7px 12px; border: 1px solid #31475c; border-radius: 6px; background: #15212c; color: #aebdca; font: inherit; cursor: pointer; }
+.piHistoryLimit button:hover { border-color: #49657d; background: #1a2936; color: #d2dde6; }
+.piHistoryLimit button:focus-visible { outline: 2px solid #6d9dc5; outline-offset: 2px; }
+.piHistoryLimit span { color: #65798d; }
 .piMessage { width: 100%; margin: 0 0 24px; padding-left: 10px; }
 .piMessageText { color: #b7c3d1; font-size: var(--pi-font-size, 13px); line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; }
 .piMessageUser { display: flex; flex-direction: column; align-items: flex-start; }

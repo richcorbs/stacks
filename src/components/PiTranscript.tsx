@@ -3,7 +3,28 @@ import type { PiContentBlock, PiMessage as PiMessageData, PiPromptImage } from '
 import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentation';
 import { PiMarkdown } from './PiMarkdown';
 
-export const PiMessage = memo(function PiMessage({ message, toolArgs }: { message: PiMessageData; toolArgs: Map<string, unknown> }) {
+const messageIdentity = new WeakMap<PiMessageData, number>();
+let nextMessageIdentity = 1;
+
+export function piMessageKey(message: PiMessageData) {
+  let identity = messageIdentity.get(message);
+  if (!identity) {
+    identity = nextMessageIdentity;
+    nextMessageIdentity += 1;
+    messageIdentity.set(message, identity);
+  }
+  return `pi-message:${identity}`;
+}
+
+export const PiSettledMessages = memo(function PiSettledMessages({ messages, toolArgs }: { messages: PiMessageData[]; toolArgs: Map<string, unknown> }) {
+  return <>{messages.map((message) => <PiMessage
+    key={piMessageKey(message)}
+    message={message}
+    toolArg={message.toolCallId ? toolArgs.get(message.toolCallId) : undefined}
+  />)}</>;
+});
+
+export const PiMessage = memo(function PiMessage({ message, toolArg }: { message: PiMessageData; toolArg?: unknown }) {
   if (message.role === 'user') {
     const imageBlocks = Array.isArray(message.content)
       ? message.content.filter((block): block is PiContentBlock & PiPromptImage => block.type === 'image')
@@ -37,7 +58,7 @@ export const PiMessage = memo(function PiMessage({ message, toolArgs }: { messag
   if (message.role === 'toolResult') {
     return <PiToolCard
       name={message.toolName || 'tool'}
-      args={message.toolCallId ? toolArgs.get(message.toolCallId) : null}
+      args={toolArg ?? null}
       output={messageText(message.content)}
       status={message.isError ? 'error' : 'complete'}
       details={message.details}

@@ -1,5 +1,5 @@
 import { applicationEvents, showAppToast } from '../applicationEvents';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -8,14 +8,14 @@ import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand,
 import { subscribePiFileDrops } from '../pi/fileDropBroker';
 import { activePathToken, applyPathCompletion, formatDroppedPathReference, insertPathReferences } from '../pi/pathReferences';
 import type { PiCommand, PiModel, PiSessionContext } from '../pi/types';
-import { hasVisiblePiStreamingText, visiblePiMessages } from '../pi/transcript';
+import { hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, visiblePiMessages } from '../pi/transcript';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { listenForPiPrompt } from '../pi/promptEvent';
 import { canSendPiQuickResponse, sendPiQuickResponse, type PiQuickResponse } from '../pi/quickResponse';
 import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
 import { PiMarkdown } from './PiMarkdown';
-import { collectToolArgs, messageText, PiMessage, PiToolCard } from './PiTranscript';
+import { collectToolArgs, messageText, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
 
 export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, initialPrompt, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
@@ -56,6 +56,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [contextPicker, setContextPicker] = useState<'model' | 'thinking' | null>(null);
   const [contextPickerBusy, setContextPickerBusy] = useState(false);
   const [quickResponseSubmitting, setQuickResponseSubmitting] = useState(false);
+  const [revealedMessageCount, setRevealedMessageCount] = useState(INITIAL_RENDERED_PI_MESSAGES);
   const paneRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -71,6 +72,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const quickResponseInFlightRef = useRef(false);
   const selectionRef = useRef({ start: 0, end: 0 });
   const pathRequestRef = useRef(0);
+  const knownSessionIdRef = useRef('');
+  const pendingPrependAnchorRef = useRef<{ height: number; top: number } | null>(null);
   const quickResponseSessionEligible = canSendPiQuickResponse(pi);
   const quickResponseSessionEligibleRef = useRef(quickResponseSessionEligible);
   quickResponseSessionEligibleRef.current = quickResponseSessionEligible;
@@ -79,6 +82,30 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     pi.setViewOpen(active && visible);
     return () => pi.setViewOpen(false);
   }, [active, pi.setViewOpen, visible]);
+
+  useEffect(() => {
+    setRevealedMessageCount(INITIAL_RENDERED_PI_MESSAGES);
+    pendingPrependAnchorRef.current = null;
+    knownSessionIdRef.current = '';
+  }, [terminal.id]);
+
+  useEffect(() => {
+    const sessionId = pi.context.sessionId;
+    if (!sessionId) return;
+    if (knownSessionIdRef.current && knownSessionIdRef.current !== sessionId) {
+      setRevealedMessageCount(INITIAL_RENDERED_PI_MESSAGES);
+      pendingPrependAnchorRef.current = null;
+    }
+    knownSessionIdRef.current = sessionId;
+  }, [pi.context.sessionId]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingPrependAnchorRef.current;
+    const element = scrollRef.current;
+    if (!anchor || !element) return;
+    element.scrollTop = prependAnchoredScrollTop(anchor.height, anchor.top, element.scrollHeight);
+    pendingPrependAnchorRef.current = null;
+  }, [revealedMessageCount]);
 
   useEffect(() => {
     const becameVisible = visible && !previousVisibleRef.current;
@@ -459,8 +486,16 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     }
   }
 
-  const { hiddenCount: hiddenMessageCount, messages: visibleMessages } = visiblePiMessages(pi.messages);
+  const { hiddenCount: hiddenMessageCount, messages: visibleMessages } = visiblePiMessages(pi.messages, revealedMessageCount);
   const historicalToolArgs = useMemo(() => collectToolArgs(pi.messages), [pi.messages]);
+
+  function loadOlderMessages() {
+    const element = scrollRef.current;
+    if (!element || hiddenMessageCount === 0) return;
+    pendingPrependAnchorRef.current = { height: element.scrollHeight, top: element.scrollTop };
+    shouldStickToBottomRef.current = false;
+    setRevealedMessageCount((current) => nextPiMessageLimit(current, pi.messages.length));
+  }
 
   return (
     <div
@@ -504,8 +539,11 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             <small>Pi can read, edit, and run commands in this workspace.</small>
           </div>
         )}
-        {hiddenMessageCount > 0 && <div className="piHistoryLimit">{hiddenMessageCount} older messages are hidden to keep this pane responsive.</div>}
-        {visibleMessages.map((message, index) => <PiMessage key={`${message.timestamp || index}:${index}`} message={message} toolArgs={historicalToolArgs} />)}
+        {hiddenMessageCount > 0 && <div className="piHistoryLimit">
+          <button type="button" onClick={loadOlderMessages}>Load older messages</button>
+          <span>{hiddenMessageCount} earlier {hiddenMessageCount === 1 ? 'message' : 'messages'}</span>
+        </div>}
+        <PiSettledMessages messages={visibleMessages} toolArgs={historicalToolArgs} />
         {hasStreamingText && (
           <div className="piMessage piMessageAssistant">
             <div className="piMessageText piMarkdown"><PiMarkdown>{pi.streamingText}</PiMarkdown>{hasActiveStreamingText && <span className="piStreamingCursor" />}</div>
