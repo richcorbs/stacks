@@ -47,10 +47,12 @@ use kanban::{
     kanban_create_pull_request, kanban_delete_card, kanban_delete_project_records,
     kanban_environment_health, kanban_environment_start_preflight, kanban_finalize_target_merge,
     kanban_finish_local_refinement, kanban_merge_card, kanban_merge_pull_request, kanban_open_card,
-    kanban_prepare_target_merge, kanban_record_agent_launch_failure, kanban_refresh_pull_request,
+    kanban_prepare_target_merge, kanban_record_agent_launch_failure,
+    kanban_record_refinement_launch_failure, kanban_refresh_pull_request,
     kanban_reorder_cards, kanban_retry_provider_sync, kanban_retry_runtime_cleanup,
     kanban_save_environment_layout, kanban_scripted_deploy, kanban_scripted_push,
-    kanban_set_merge_target, kanban_set_project, kanban_start_environment, kanban_status_metadata,
+    kanban_set_merge_target, kanban_set_project, kanban_start_environment,
+    kanban_start_refinement_launch, kanban_status_metadata,
     kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
 };
 use menu::app_menu;
@@ -182,6 +184,8 @@ pub fn run() {
             kanban_sync_superthread_cards,
             kanban_apply_workflow_action,
             kanban_apply_pi_lifecycle_intent,
+            kanban_start_refinement_launch,
+            kanban_record_refinement_launch_failure,
             kanban_record_agent_launch_failure,
             kanban_status_metadata,
             kanban_reorder_cards,

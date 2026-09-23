@@ -19,7 +19,7 @@ export function NewCardDialog({
     <div className="modalBackdrop" onMouseDown={() => { if (!model.creating) model.setOpen(false); }}>
       <form className="modal kanbanNewCardDialog" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => {
         event.preventDefault();
-        model.submit('open');
+        model.submit('refining');
       }}>
         <h2>Add card</h2>
         <label>Project<select autoFocus={!model.projectId} value={model.projectId} disabled={model.creating} required onChange={(event) => {
@@ -39,11 +39,11 @@ export function NewCardDialog({
         <label>Title<input ref={model.titleRef} autoFocus={Boolean(model.projectId)} disabled={model.creating} value={model.title} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setTitle(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setTitle)} /></label>
         <label>Description<textarea rows={8} disabled={model.creating} value={model.description} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setDescription(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setDescription)} /></label>
         {model.error && <div className="kanbanEditError" role="alert">{model.error}</div>}
+        <label className="checkboxLabel"><input type="checkbox" checked={model.addMore} disabled={model.creating} onChange={(event) => model.setAddMore(event.target.checked)} />Add more</label>
         <div className="modalActions">
           <button type="button" disabled={model.creating} onClick={() => model.setOpen(false)}>Cancel</button>
-          <button type="button" disabled={model.creating || !model.projectId || !model.title.trim()} onClick={() => model.submit('close')}>Add card</button>
-          <button type="button" disabled={model.creating || !model.projectId || !model.title.trim()} onClick={() => model.submit('continue')}>Add card &amp; more</button>
-          <button className="primaryAction" type="submit" disabled={model.creating || !model.projectId || !model.title.trim()}>Add &amp; open</button>
+          <button type="button" disabled={model.creating || !model.projectId || !model.title.trim()} onClick={() => model.submit('queued')}>Add card</button>
+          <button className="primaryAction" type="submit" disabled={model.creating || !model.projectId || !model.title.trim()}>Add &amp; refine</button>
         </div>
       </form>
     </div>

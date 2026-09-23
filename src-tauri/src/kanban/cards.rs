@@ -1032,6 +1032,93 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
     get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
 }
 
+pub(in crate::kanban) fn kanban_start_refinement_launch_operation(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_project_id: String,
+) -> Result<CardSnapshot, String> {
+    with_board_mutation(|connection| start_refinement_launch(
+        connection, &id, expected_workflow_revision, &expected_project_id,
+    ))?;
+    fresh_card_snapshot(&id)
+}
+
+pub(in crate::kanban) fn start_refinement_launch(
+    connection: &mut Connection,
+    id: &str,
+    expected_workflow_revision: i64,
+    expected_project_id: &str,
+) -> Result<(), String> {
+    let transaction = connection.savepoint().map_err(db_error)?;
+    let card = get_card(&transaction, id)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    if card.workflow_revision != expected_workflow_revision
+        || card.project_id.as_deref() != Some(expected_project_id)
+    {
+        return Err("Card changed; refinement was not started".to_string());
+    }
+    require_structural_capability(&transaction, id, WorkflowAction::OpenRefinement)?;
+    apply_workflow_transition(
+        &transaction,
+        id,
+        WorkflowActor::User,
+        WorkflowAction::OpenRefinement,
+        Some(expected_workflow_revision),
+        "open_refinement",
+        Some("Started refinement in the background"),
+    )?;
+    transaction.commit().map_err(db_error)
+}
+
+pub(in crate::kanban) fn kanban_record_refinement_launch_failure_operation(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_project_id: String,
+    error_detail: String,
+) -> Result<CardSnapshot, String> {
+    with_board_mutation(|connection| record_refinement_launch_failure(
+        connection, &id, expected_workflow_revision, &expected_project_id, &error_detail,
+    ))?;
+    fresh_card_snapshot(&id)
+}
+
+pub(in crate::kanban) fn record_refinement_launch_failure(
+    connection: &mut Connection,
+    id: &str,
+    expected_workflow_revision: i64,
+    expected_project_id: &str,
+    error_detail: &str,
+) -> Result<(), String> {
+    let transaction = connection.savepoint().map_err(db_error)?;
+    let card = get_card(&transaction, id)?
+        .ok_or_else(|| "Kanban card was not found".to_string())?;
+    if card.workflow_revision != expected_workflow_revision
+        || card.project_id.as_deref() != Some(expected_project_id)
+    {
+        return Err("Card changed; refinement launch failure was not recorded".to_string());
+    }
+    if card.status != CardStatus::Refining {
+        return Err("Card is no longer eligible for refinement launch".to_string());
+    }
+    let now = unix_timestamp();
+    let to = CardStatus::NeedsRefinementInput;
+    let changed = transaction.execute(
+        "UPDATE kanban_cards SET status=?1,workflow_revision=workflow_revision+1,updated_at=?2,
+         sort_order=(SELECT COALESCE(MAX(sort_order),-1)+1 FROM kanban_cards destination WHERE destination.status=?1)
+         WHERE id=?3 AND workflow_revision=?4 AND project_id=?5 AND status=?6",
+        params![to, now, id, card.workflow_revision, expected_project_id, CardStatus::Refining],
+    ).map_err(db_error)?;
+    if changed != 1 {
+        return Err("Card changed; refinement launch failure was not recorded".to_string());
+    }
+    transaction.execute(
+        "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail)
+         VALUES (?1,?2,'system','refinement_launch_failed','failure',?3,?4,'Refinement launch failed','refinement_launch_failed',?5)",
+        params![id, now, card.status, to, error_detail],
+    ).map_err(db_error)?;
+    transaction.commit().map_err(db_error)
+}
+
 pub(in crate::kanban) fn kanban_record_agent_launch_failure_operation(
     id: String,
     expected_workflow_revision: i64,

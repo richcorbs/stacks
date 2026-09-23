@@ -111,6 +111,30 @@ pub fn kanban_apply_pi_lifecycle_intent(
 }
 
 #[tauri::command]
+pub fn kanban_start_refinement_launch(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_project_id: String,
+) -> Result<CardSnapshot, String> {
+    kanban_start_refinement_launch_operation(id, expected_workflow_revision, expected_project_id)
+}
+
+#[tauri::command]
+pub fn kanban_record_refinement_launch_failure(
+    id: String,
+    expected_workflow_revision: i64,
+    expected_project_id: String,
+    error_detail: String,
+) -> Result<CardSnapshot, String> {
+    kanban_record_refinement_launch_failure_operation(
+        id,
+        expected_workflow_revision,
+        expected_project_id,
+        error_detail,
+    )
+}
+
+#[tauri::command]
 pub fn kanban_record_agent_launch_failure(
     id: String,
     expected_workflow_revision: i64,

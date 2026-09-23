@@ -868,6 +868,34 @@ fn pre_generation_launch_failure_is_recorded_and_retryable() {
 }
 
 #[test]
+fn guarded_refinement_launch_and_exhausted_failure_preserve_diagnostics() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "project", "local", "/tmp/project");
+    local_card(&mut connection);
+
+    assert!(start_refinement_launch(&mut connection, "local:test", 2, "project").is_err());
+    assert!(start_refinement_launch(&mut connection, "local:test", 1, "other").is_err());
+    start_refinement_launch(&mut connection, "local:test", 1, "project").unwrap();
+    let refining = get_card(&connection, "local:test").unwrap().unwrap();
+    assert_eq!(refining.status, CardStatus::Refining);
+    assert_eq!(refining.workflow_revision, 2);
+
+    assert!(record_refinement_launch_failure(&mut connection, "local:test", 1, "project", "stale").is_err());
+    assert!(record_refinement_launch_failure(&mut connection, "local:test", 2, "other", "reassigned").is_err());
+    record_refinement_launch_failure(&mut connection, "local:test", 2, "project", "Pi CLI was not found").unwrap();
+    let failed = get_card(&connection, "local:test").unwrap().unwrap();
+    assert_eq!(failed.status, CardStatus::NeedsRefinementInput);
+    assert_eq!(failed.workflow_revision, 3);
+    let event: (String, String, String) = connection.query_row(
+        "SELECT event_type,outcome,error_detail FROM card_events WHERE card_id='local:test' ORDER BY id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(event, ("refinement_launch_failed".into(), "failure".into(), "Pi CLI was not found".into()));
+}
+
+#[test]
 fn successful_work_launch_suppresses_retry_after_settling_and_later_failure_restores_it() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
