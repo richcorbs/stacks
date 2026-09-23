@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../../types';
 import { canonicalCardById } from '../../kanban/boardStore';
 import type { CardEventCursor, CardEventPage, CleanupInventory, CleanupPreflight, KanbanCard, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
-import { detailIsCurrent, mergeCardEvents, SelectedDetailRequestCoordinator, type DetailRequestKind } from '../../kanban/selectedDetailRequestCoordinator';
+import { canProjectSelectedDetail, detailIsCurrent, mergeCardEvents, SelectedDetailRequestCoordinator, type DetailRequestKind } from '../../kanban/selectedDetailRequestCoordinator';
 import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
 import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, superthreadSyncAvailability } from '../../kanban/projectScope';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
@@ -222,6 +222,19 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     showAppToast('This card was removed');
   }, [clearSelection, loading, selectedCard, selectedCardId]);
 
+  function projectSelectedDetail(updated: KanbanCard, incomingEvents = updated.events) {
+    const current = selectedDetailRef.current;
+    if (!canProjectSelectedDetail(selectedCardIdRef.current, updated.id, current)) return false;
+    const canonical = boardCardsRef.current.find((candidate) => candidate.id === updated.id);
+    if (!detailIsCurrent(updated, canonical, current)) return false;
+    const detail = { ...updated, events: mergeCardEvents(current?.events, incomingEvents) };
+    selectedDetailRef.current = detail;
+    setSelectedDetail(detail);
+    setDetailLoadError((error) => error?.cardId === updated.id ? null : error);
+    setDetailRefreshError((error) => error?.cardId === updated.id ? null : error);
+    return true;
+  }
+
   const coordinatorConfiguration = {
     run: async (cardId: string, kind: DetailRequestKind) => {
       if (kind === 'local') return { card: await board.loadPersistedDetails(cardId) };
@@ -234,21 +247,14 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         return { card, eventPage };
       } finally { loading.complete('card-detail', loadingToken); }
     },
-    success: (result: { card: KanbanCard; eventPage?: CardEventPage }, kind: DetailRequestKind) => {
-      const canonical = boardCardsRef.current.find((candidate) => candidate.id === result.card.id);
-      if (!detailIsCurrent(result.card, canonical, selectedDetailRef.current)) return false;
+    success: (result: { card: KanbanCard; eventPage?: CardEventPage }, kind: DetailRequestKind, cardId: string) => {
       board.applyCardSnapshot(result.card);
-      const detail = { ...result.card, events: mergeCardEvents(selectedDetailRef.current?.id === result.card.id ? selectedDetailRef.current.events : [], result.eventPage?.events ?? result.card.events) };
-      selectedDetailRef.current = detail;
-      setSelectedDetail(detail);
-      if (kind === 'authoritative' && result.eventPage) setEventCursor(result.eventPage.next_cursor);
-      setDetailLoadError((current) => current?.cardId === result.card.id ? null : current);
-      setDetailRefreshError((current) => current?.cardId === result.card.id ? null : current);
+      if (result.card.id !== cardId || !projectSelectedDetail(result.card, result.eventPage?.events ?? result.card.events)) return false;
+      if (kind === 'authoritative' && result.eventPage && selectedCardIdRef.current === cardId) setEventCursor(result.eventPage.next_cursor);
       return true;
     },
-    failure: (error: unknown, kind: DetailRequestKind) => {
-      const cardId = selectedCardIdRef.current;
-      if (!cardId) return;
+    failure: (error: unknown, kind: DetailRequestKind, cardId: string) => {
+      if (!canProjectSelectedDetail(selectedCardIdRef.current, cardId, selectedDetailRef.current)) return;
       const next = { cardId, message: error instanceof Error ? error.message : String(error) };
       if (kind === 'local' && selectedDetailRef.current) setDetailRefreshError(next);
       else setDetailLoadError(next);
@@ -272,6 +278,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
 
   async function openCard(card: KanbanCardSummary, initialView?: CardView) {
     setSelectedCardInitialView(initialView);
+    selectedDetailRef.current = null;
     setSelectedDetail(null);
     setEventCursor(null);
     setDetailRefreshError(null);
@@ -292,6 +299,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       loading.remove('card-detail');
       setDetailLoadError(null);
       setDetailRefreshError(null);
+      selectedDetailRef.current = null;
       setSelectedDetail(null);
       setEventCursor(null);
     }
@@ -510,7 +518,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           detailLoadError={detailLoadError?.cardId === selectedDetail.id ? detailLoadError.message : null}
           detailRefreshError={detailRefreshError?.cardId === selectedDetail.id ? detailRefreshError.message : null}
           onRetryRefresh={() => refreshCardDetailsLocally(selectedDetail.id).then(() => undefined)}
-          onClose={closeCardDetail}
+          onClose={() => closeCardDetail(selectedDetail.id)}
           onUpdate={(title, content, parentId) => board.update(selectedDetail.id, title, content, parentId)}
           onAction={(action) => board.act(selectedDetail.id, action)}
           onStopRefinement={() => board.stopRefinement(selectedDetail.id)}
@@ -519,18 +527,15 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
             await board.assignProject(selectedDetail.id, projectId);
           }}
           onStartWork={async () => {
-            const updated = await onStartWork(selectedDetail.id);
+            const cardId = selectedDetail.id;
+            const updated = await onStartWork(cardId);
             if (!updated) return false;
-            if (detailIsCurrent(updated, boardCardsRef.current.find((card) => card.id === updated.id), selectedDetailRef.current)) {
-              board.applyCardSnapshot(updated);
-              const detail = { ...updated, events: mergeCardEvents(selectedDetailRef.current?.events, updated.events) };
-              selectedDetailRef.current = detail;
-              setSelectedDetail(detail);
-              setDetailRefreshError(null);
-            }
+            board.applyCardSnapshot(updated);
+            if (updated.id === cardId) projectSelectedDetail(updated);
             return true;
           }}
           onCleanup={async (evidence) => {
+            const cardId = selectedDetail.id;
             const current = selectedDetail.environment
               ? { ...selectedDetail, environment: { ...selectedDetail.environment, revision: evidence.environment_revision } }
               : selectedDetail;
@@ -539,15 +544,16 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
             } finally {
               const refreshed = await board.loadPersistedDetails(current);
               board.applyCardSnapshot(refreshed);
-              setSelectedDetail((detail) => ({ ...refreshed, events: mergeCardEvents(detail?.events, refreshed.events) }));
+              if (refreshed.id === cardId) projectSelectedDetail(refreshed);
             }
           }}
           onCardUpdated={(updated) => {
             board.applyCardSnapshot(updated);
-            setSelectedDetail((current) => ({ ...updated, events: current?.id === updated.id ? current.events : [] }));
+            projectSelectedDetail(updated);
           }}
           onWorkflowControllerChange={setCardDetailWorkflow}
           onNavigate={(id, initialView) => {
+            if (selectedCardIdRef.current !== selectedDetail.id) return;
             const target = board.cards.find((candidate) => candidate.id === id);
             if (target) openCard(target, initialView);
           }}
@@ -559,12 +565,14 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           hasOlderEvents={eventCursor !== null}
           onLoadOlderEvents={async () => {
             if (!eventCursor) return;
-            const page = await fetchKanbanCardEvents(selectedDetail.id, eventCursor);
-            setSelectedDetail((current) => current && current.id === selectedDetail.id ? {
-              ...current,
-              events: [...current.events, ...page.events.filter((event) => !current.events.some((existing) => existing.id === event.id))],
-            } : current);
-            setEventCursor(page.next_cursor);
+            const cardId = selectedDetail.id;
+            const page = await fetchKanbanCardEvents(cardId, eventCursor);
+            const current = selectedDetailRef.current;
+            if (!canProjectSelectedDetail(selectedCardIdRef.current, cardId, current) || !current) return;
+            const detail = { ...current, events: mergeCardEvents(current.events, page.events) };
+            selectedDetailRef.current = detail;
+            setSelectedDetail(detail);
+            if (selectedCardIdRef.current === cardId) setEventCursor(page.next_cursor);
           }}
           onReload={async () => {
             const detail = await hydrateCardDetails(selectedCard);

@@ -4,8 +4,8 @@ export type DetailRequestKind = 'authoritative' | 'local';
 
 type Configuration<T> = {
   run: (cardId: string, kind: DetailRequestKind) => Promise<T>;
-  success: (value: T, kind: DetailRequestKind) => boolean;
-  failure: (error: unknown, kind: DetailRequestKind) => void;
+  success: (value: T, kind: DetailRequestKind, cardId: string) => boolean;
+  failure: (error: unknown, kind: DetailRequestKind, cardId: string) => void;
 };
 
 type Waiter<T> = { resolve: (value: T | undefined) => void; reject: (error: unknown) => void };
@@ -56,12 +56,12 @@ export class SelectedDetailRequestCoordinator<T> {
     try {
       const value = await this.configuration.run(cardId, kind);
       const current = this.selectedId === cardId && this.generation === generation;
-      const accepted = current && this.configuration.success(value, kind);
+      const accepted = current && this.configuration.success(value, kind, cardId);
       for (const waiter of waiters) waiter.resolve(accepted ? value : undefined);
       return accepted ? value : undefined;
     } catch (error) {
       const current = this.selectedId === cardId && this.generation === generation;
-      if (current) this.configuration.failure(error, kind);
+      if (current) this.configuration.failure(error, kind, cardId);
       for (const waiter of waiters) current ? waiter.reject(error) : waiter.resolve(undefined);
       if (current) throw error;
       return undefined;
@@ -80,10 +80,16 @@ export class SelectedDetailRequestCoordinator<T> {
   }
 }
 
-/** Detail responses may be fuller than summaries, but may never regress revision-bearing state. */
+/** A detail mutation belongs only to the card that is still selected and displayed. */
+export function canProjectSelectedDetail(selectedCardId: string | null, cardId: string, displayed?: KanbanCardDetail | null) {
+  return selectedCardId === cardId && (!displayed || displayed.id === cardId);
+}
+
+/** Detail responses may be fuller than summaries, but may never regress revision-bearing state or cross card identities. */
 export function detailIsCurrent(candidate: KanbanCardDetail, canonical?: KanbanCardSummary, displayed?: KanbanCardDetail | null) {
   return [canonical, displayed].filter((card): card is KanbanCardSummary | KanbanCardDetail => Boolean(card)).every((card) => (
-    candidate.record_revision >= card.record_revision
+    candidate.id === card.id
+    && candidate.record_revision >= card.record_revision
     && candidate.workflow_revision >= card.workflow_revision
     && (candidate.workflow_revision > card.workflow_revision || candidate.status === card.status)
     && candidate.updated_at >= card.updated_at
