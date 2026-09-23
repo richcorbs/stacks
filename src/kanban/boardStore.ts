@@ -3,6 +3,12 @@ import type { BoardChange, BoardSnapshot, KanbanCardSummary } from './types';
 type OptimisticField = 'status' | 'sort_order';
 type Overlay = { generation: number; value: KanbanCardSummary[OptimisticField] };
 type EntityMeta = { observedAtBoardRevision: number };
+type VisibleProjection = {
+  entity: KanbanCardSummary;
+  status: KanbanCardSummary['status'];
+  sortOrder: number;
+  card: KanbanCardSummary;
+};
 
 export type KanbanStoreOptions = {
   onGap?: () => void;
@@ -21,6 +27,8 @@ export class KanbanEntityStore {
   private removedAt = new Map<string, number>();
   private pending = new Map<number, BoardChange>();
   private overlays = new Map<string, Map<OptimisticField, Overlay>>();
+  private visibleProjections = new Map<string, VisibleProjection>();
+  private boardProjection: readonly KanbanCardSummary[] | null = null;
   private generation = 0;
   private gapTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onGap?: () => void;
@@ -41,58 +49,51 @@ export class KanbanEntityStore {
     this.gapTimer = null;
   }
 
-  cards(): KanbanCardSummary[] {
-    return [...this.entities.values()]
-      .map((card) => {
-        const overlay = this.overlays.get(card.id);
-        if (!overlay?.size) return card;
-        const visible = { ...card };
-        for (const [field, entry] of overlay) {
-          if (field === 'status') visible.status = entry.value as KanbanCardSummary['status'];
-          else visible.sort_order = entry.value as number;
-        }
-        return visible;
-      })
-      .sort(compareCards);
+  cards(): readonly KanbanCardSummary[] {
+    if (!this.boardProjection) {
+      this.boardProjection = Object.freeze([...this.entities.values()]
+        .map((card) => this.visibleCard(card))
+        .sort(compareCards));
+    }
+    return this.boardProjection;
   }
 
   card(id: string) {
-    return this.cards().find((card) => card.id === id);
+    const card = this.entities.get(id);
+    return card ? this.visibleCard(card) : undefined;
   }
 
   applyCard(card: KanbanCardSummary, observedAtBoardRevision = 0) {
-    const removedRevision = this.removedAt.get(card.id) ?? 0;
-    if (observedAtBoardRevision && removedRevision >= observedAtBoardRevision) return false;
-    const current = this.entities.get(card.id);
-    if (current && card.record_revision <= current.record_revision) return false;
-    this.entities.set(card.id, card);
-    this.entityMeta.set(card.id, {
-      observedAtBoardRevision: Math.max(observedAtBoardRevision, this.entityMeta.get(card.id)?.observedAtBoardRevision ?? 0),
-    });
-    if (observedAtBoardRevision > removedRevision) this.removedAt.delete(card.id);
-    return true;
+    const changed = this.applyCardEntity(card, observedAtBoardRevision);
+    if (changed) this.invalidateBoardProjection();
+    return changed;
   }
 
   /** Applies an affected-entity command response without claiming completeness. */
   applyPartialChange(change: BoardChange) {
-    return this.mergeChangeEntities(change);
+    const changed = this.mergeChangeEntities(change);
+    if (changed) this.invalidateBoardProjection();
+    return changed;
   }
 
   /** Applies broadcast deltas only when every preceding revision is present. */
   applyBoardChange(change: BoardChange) {
+    let changed: boolean;
     if (change.board_revision <= this.contiguousBoardRevision) {
       // Duplicate event delivery may still carry a newer record than a command
       // response observed for the same board revision.
-      return this.mergeChangeEntities(change);
-    }
-    if (change.board_revision !== this.contiguousBoardRevision + 1) {
+      changed = this.mergeChangeEntities(change);
+    } else if (change.board_revision !== this.contiguousBoardRevision + 1) {
       this.pending.set(change.board_revision, change);
       if (this.pending.size > this.maxPendingDeltas) this.requestGapRecovery();
       else this.armGapTimer();
       return false;
+    } else {
+      changed = this.applyContiguous(change);
+      changed = this.drainPending() || changed;
     }
-    const changed = this.applyContiguous(change);
-    return this.drainPending() || changed;
+    if (changed) this.invalidateBoardProjection();
+    return changed;
   }
 
   applyBoardSnapshot(snapshot: BoardSnapshot) {
@@ -106,51 +107,91 @@ export class KanbanEntityStore {
         this.entityMeta.delete(id);
         this.removedAt.set(id, snapshot.board_revision);
         this.overlays.delete(id);
+        this.visibleProjections.delete(id);
         changed = true;
       }
     }
-    for (const card of snapshot.cards) changed = this.applyCard(card, snapshot.board_revision) || changed;
+    for (const card of snapshot.cards) changed = this.applyCardEntity(card, snapshot.board_revision) || changed;
     this.completeBoardRevision = snapshot.board_revision;
     this.contiguousBoardRevision = snapshot.board_revision;
     for (const revision of this.pending.keys()) {
       if (revision <= snapshot.board_revision) this.pending.delete(revision);
     }
     this.clearGapTimer();
-    return this.drainPending() || changed;
+    changed = this.drainPending() || changed;
+    if (changed) this.invalidateBoardProjection();
+    return changed;
   }
 
   beginOptimistic(fieldsByCard: Map<string, Partial<Pick<KanbanCardSummary, OptimisticField>>>) {
     const generation = ++this.generation;
+    let changed = false;
     for (const [id, fields] of fieldsByCard) {
       const card = this.entities.get(id);
       if (!card) continue;
+      const before = this.effectiveOverlayValues(card);
       const entityOverlays = this.overlays.get(id) ?? new Map<OptimisticField, Overlay>();
       if (fields.status !== undefined) entityOverlays.set('status', { generation, value: fields.status });
       if (fields.sort_order !== undefined) entityOverlays.set('sort_order', { generation, value: fields.sort_order });
       this.overlays.set(id, entityOverlays);
+      const after = this.effectiveOverlayValues(card);
+      if (before.status !== after.status || before.sortOrder !== after.sortOrder) {
+        this.visibleProjections.delete(id);
+        changed = true;
+      }
     }
+    if (changed) this.invalidateBoardProjection();
     return generation;
   }
 
   finishOptimistic(generation: number) {
+    let changed = false;
     for (const [id, fields] of this.overlays) {
+      const card = this.entities.get(id);
+      const before = card ? this.effectiveOverlayValues(card) : null;
       for (const [field, overlay] of fields) {
         if (overlay.generation === generation) fields.delete(field);
       }
       if (!fields.size) this.overlays.delete(id);
+      if (card && before) {
+        const after = this.effectiveOverlayValues(card);
+        if (before.status !== after.status || before.sortOrder !== after.sortOrder) {
+          this.visibleProjections.delete(id);
+          changed = true;
+        }
+      }
     }
+    if (changed) this.invalidateBoardProjection();
+  }
+
+  private applyCardEntity(card: KanbanCardSummary, observedAtBoardRevision = 0) {
+    const removedRevision = this.removedAt.get(card.id) ?? 0;
+    if (observedAtBoardRevision && removedRevision >= observedAtBoardRevision) return false;
+    const current = this.entities.get(card.id);
+    if (current && card.record_revision <= current.record_revision) return false;
+    this.entities.set(card.id, card);
+    this.entityMeta.set(card.id, {
+      observedAtBoardRevision: Math.max(observedAtBoardRevision, this.entityMeta.get(card.id)?.observedAtBoardRevision ?? 0),
+    });
+    if (observedAtBoardRevision > removedRevision) this.removedAt.delete(card.id);
+    this.visibleProjections.delete(card.id);
+    return true;
   }
 
   private mergeChangeEntities(change: BoardChange) {
     let changed = false;
     for (const id of change.removed_ids) {
       if ((this.entityMeta.get(id)?.observedAtBoardRevision ?? 0) > change.board_revision) continue;
-      changed = this.entities.delete(id) || changed;
+      const removed = this.entities.delete(id);
       this.entityMeta.delete(id);
       this.overlays.delete(id);
       this.removedAt.set(id, Math.max(change.board_revision, this.removedAt.get(id) ?? 0));
+      if (removed) {
+        this.visibleProjections.delete(id);
+        changed = true;
+      }
     }
-    for (const card of change.upserts) changed = this.applyCard(card, change.board_revision) || changed;
+    for (const card of change.upserts) changed = this.applyCardEntity(card, change.board_revision) || changed;
     return changed;
   }
 
@@ -172,6 +213,29 @@ export class KanbanEntityStore {
     return changed;
   }
 
+  private visibleCard(card: KanbanCardSummary) {
+    const { status, sortOrder } = this.effectiveOverlayValues(card);
+    const cached = this.visibleProjections.get(card.id);
+    if (cached?.entity === card && cached.status === status && cached.sortOrder === sortOrder) return cached.card;
+    const visible = status === card.status && sortOrder === card.sort_order
+      ? card
+      : { ...card, status, sort_order: sortOrder };
+    this.visibleProjections.set(card.id, { entity: card, status, sortOrder, card: visible });
+    return visible;
+  }
+
+  private effectiveOverlayValues(card: KanbanCardSummary) {
+    const overlay = this.overlays.get(card.id);
+    return {
+      status: (overlay?.get('status')?.value ?? card.status) as KanbanCardSummary['status'],
+      sortOrder: (overlay?.get('sort_order')?.value ?? card.sort_order) as number,
+    };
+  }
+
+  private invalidateBoardProjection() {
+    this.boardProjection = null;
+  }
+
   private armGapTimer() {
     if (this.gapTimer || !this.onGap) return;
     this.gapTimer = setTimeout(() => {
@@ -191,7 +255,7 @@ export class KanbanEntityStore {
   }
 }
 
-export function canonicalCardById(cards: KanbanCardSummary[], id: string) {
+export function canonicalCardById(cards: readonly KanbanCardSummary[], id: string) {
   return cards.find((card) => card.id === id) ?? null;
 }
 
