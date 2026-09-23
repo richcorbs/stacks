@@ -39,11 +39,13 @@ export function NewCardDialog({
         <label>Title<input ref={model.titleRef} autoFocus={Boolean(model.projectId)} disabled={model.creating} value={model.title} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setTitle(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setTitle)} /></label>
         <label>Description<textarea rows={8} disabled={model.creating} value={model.description} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setDescription(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setDescription)} /></label>
         {model.error && <div className="kanbanEditError" role="alert">{model.error}</div>}
-        <label className="checkboxLabel"><input type="checkbox" checked={model.addMore} disabled={model.creating} onChange={(event) => model.setAddMore(event.target.checked)} />Add more</label>
-        <div className="modalActions">
-          <button type="button" disabled={model.creating} onClick={() => model.setOpen(false)}>Cancel</button>
-          <button type="button" disabled={model.creating || !model.projectId || !model.title.trim()} onClick={() => model.submit('queued')}>Add card</button>
-          <button className="primaryAction" type="submit" disabled={model.creating || !model.projectId || !model.title.trim()}>Add &amp; refine</button>
+        <div className="modalActions kanbanNewCardActions">
+          <label className="checkboxLabel"><input type="checkbox" checked={model.addMore} disabled={model.creating} onChange={(event) => model.setAddMore(event.target.checked)} />Add more</label>
+          <div className="kanbanNewCardActionButtons">
+            <button type="button" disabled={model.creating} onClick={() => model.setOpen(false)}>Cancel</button>
+            <button type="button" disabled={model.creating || !model.projectId || !model.title.trim()} onClick={() => model.submit('queued')}>Add card</button>
+            <button className="primaryAction" type="submit" disabled={model.creating || !model.projectId || !model.title.trim()}>Add &amp; refine</button>
+          </div>
         </div>
       </form>
     </div>

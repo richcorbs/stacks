@@ -107,11 +107,13 @@ describe('NewCardDialog', () => {
   it('shows queued/refine actions and an unchecked Add more option', () => {
     const model = dialogModel({ projectId: 'alpha', title: 'Next card' });
     const renderer = renderModel(model);
-    const labels = renderer.root.findAllByType('button').flatMap((button) => button.children).join(' ');
-    const checkbox = renderer.root.findByProps({ type: 'checkbox' });
+    const footer = renderer.root.findByProps({ className: 'modalActions kanbanNewCardActions' });
+    const buttonGroup = footer.findByProps({ className: 'kanbanNewCardActionButtons' });
+    const buttons = buttonGroup.findAllByType('button');
+    const labels = buttons.flatMap((button) => button.children).join(' ');
+    const checkbox = footer.findByProps({ type: 'checkbox' });
 
-    expect(labels).toContain('Add card');
-    expect(labels).toContain('Add & refine');
+    expect(buttons.map((button) => button.children.join(''))).toEqual(['Cancel', 'Add card', 'Add & refine']);
     expect(labels).not.toContain('Add card & more');
     expect(labels).not.toContain('Add & open');
     expect(checkbox.props.checked).toBe(false);
