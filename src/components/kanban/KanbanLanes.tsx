@@ -1,9 +1,10 @@
-import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project } from '../../types';
 import type { CardPullRequestIndicator, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import type { CardView } from '../../kanban/cardView';
+import type { CardServices } from '../../kanban/useCardServices';
 import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import { KANBAN_LANES } from '../../kanban/workflow';
 import { owningProject } from '../../kanban/projectScope';
@@ -12,6 +13,7 @@ import { environmentHealthTooltip, hasGitChanges, shouldShowEnvironmentWarning }
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { GithubStatusIcon } from '../GithubStatusIcon';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
+import { cardServerAvailability } from './BoardCardServerServices';
 
 type PointerOrdering = ReturnType<typeof usePointerCardOrdering>;
 
@@ -101,15 +103,33 @@ export function kanbanCardClassName(card: Pick<KanbanCardSummary, 'child_count'>
   return `kanbanCard${card.child_count > 0 ? ' kanbanParentCard' : ''}${keyboardFocused ? ' keyboardFocused' : ''}`;
 }
 
+export function KanbanServerControl({ services }: { services: CardServices }) {
+  const active = services.serverActive;
+  const stopPropagation = (event: SyntheticEvent) => event.stopPropagation();
+  return <button
+    className={`kanbanServerToggle${active ? ' running' : ''}`}
+    type="button"
+    aria-label={active ? 'Stop server' : 'Start server'}
+    aria-pressed={active}
+    title={active ? 'Stop server' : 'Start server'}
+    onPointerDown={stopPropagation}
+    onPointerUp={stopPropagation}
+    onPointerCancel={stopPropagation}
+    onClick={(event) => { event.stopPropagation(); void services.toggle('server'); }}
+  ><span className={active ? 'serviceStopIcon' : 'servicePlayIcon'} aria-hidden="true" /></button>;
+}
+
 export function KanbanCardContents({
   card,
   projects,
   repositoryStatus,
+  serverServices,
   onNavigateParent,
 }: {
   card: KanbanCardSummary;
   projects: Project[];
   repositoryStatus: CardRepositoryStatus | undefined;
+  serverServices?: CardServices;
   onNavigateParent: (parentId: string) => void;
 }) {
   const hasHierarchy = Boolean(card.parent) || card.child_count > 0;
@@ -129,8 +149,11 @@ export function KanbanCardContents({
     </span>
     <strong>{card.title}</strong>
     <span className="kanbanCardMeta">
-      {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
+      <span className="kanbanCardAttribution">
+        {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
+      </span>
       <span className="kanbanCardIndicators">
+        {serverServices && <KanbanServerControl services={serverServices} />}
         {hasGitChanges(repositoryStatus?.git) && (
           <span className="kanbanGitBadge" title={`${repositoryStatus?.git?.branch} working tree changes`}>
             {repositoryStatus!.git!.created > 0 && <span className="gitAdded">+{repositoryStatus!.git!.created}</span>}
@@ -148,6 +171,7 @@ export function KanbanLanes({
   cards: visibleCards,
   projects,
   repositoryStatuses,
+  serverServices,
   doneCollapsed,
   doneToggleRef,
   openLaneMenu,
@@ -164,6 +188,7 @@ export function KanbanLanes({
   cards: KanbanCardSummary[];
   projects: Project[];
   repositoryStatuses: Record<string, CardRepositoryStatus>;
+  serverServices: Record<string, CardServices>;
   doneCollapsed: boolean;
   doneToggleRef: RefObject<HTMLButtonElement | null>;
   openLaneMenu: KanbanStatus | null;
@@ -259,7 +284,7 @@ export function KanbanLanes({
                       onFocus={() => setKeyboardFocusedCardId(card.id)}
                       onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                     />
-                    <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} onNavigateParent={onNavigateParent} />
+                    <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} />
                   </div>
                   {showEnvironmentWarning && environmentHealth && (
                     <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>
@@ -292,7 +317,7 @@ export function KanbanLanes({
         }}
       >
         <div className={kanbanCardClassName(draggedCard)}>
-          <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatus} onNavigateParent={() => {}} />
+          <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(draggedCard, projects).eligible ? serverServices[draggedCard.id] : undefined} onNavigateParent={() => {}} />
         </div>
         {showEnvironmentWarning && environmentHealth && (
           <span className="kanbanEnvironmentWarning" title={healthTooltip}><span aria-hidden="true">!</span></span>

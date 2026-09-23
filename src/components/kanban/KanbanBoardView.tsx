@@ -18,6 +18,8 @@ import type { KanbanBoardModel, KanbanBoardProps } from '../KanbanBoard';
 import { KanbanCardDetail, type CardDetailWorkflowController } from './KanbanCardDetail';
 import { NewCardDialog } from './NewCardDialog';
 import { KanbanLanes } from './KanbanLanes';
+import { BoardCardServerServices } from './BoardCardServerServices';
+import type { CardServices } from '../../kanban/useCardServices';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { startLaunchCardRecovery, startupCardRecoveryAllowed } from '../../kanban/launchRecovery';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
@@ -75,6 +77,26 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   const [directWorkNavigationRequest, setDirectWorkNavigationRequest] = useState<WorkNavigationRequest | null>(null);
   const directWorkNavigationNonceRef = useRef(0);
   const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
+  const [cardServices, setCardServices] = useState<Record<string, CardServices>>({});
+  const updateCardServices = useCallback((cardId: string, services: CardServices | null) => {
+    setCardServices((current) => {
+      if (!services) {
+        if (!current[cardId]) return current;
+        const next = { ...current };
+        delete next[cardId];
+        return next;
+      }
+      const existing = current[cardId];
+      if (existing && existing.toggle === services.toggle
+        && existing.serverActive === services.serverActive && existing.serverEnabled === services.serverEnabled
+        && existing.serverStarting === services.serverStarting && existing.serverRunning === services.serverRunning
+        && existing.serverRestartNonce === services.serverRestartNonce
+        && existing.consoleActive === services.consoleActive && existing.consoleEnabled === services.consoleEnabled
+        && existing.consoleStarting === services.consoleStarting && existing.consoleRunning === services.consoleRunning
+        && existing.consoleRestartNonce === services.consoleRestartNonce) return current;
+      return { ...current, [cardId]: services };
+    });
+  }, []);
   const doneToggleRef = useRef<HTMLButtonElement | null>(null);
   const [openLaneMenu, setOpenLaneMenu] = useState<KanbanStatus | null>(null);
   const [cleaningMerged, setCleaningMerged] = useState(false);
@@ -384,11 +406,22 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       </header>
       {board.error && <div className="kanbanNotice">{board.error}</div>}
       {board.providerError && <div className="kanbanNotice">{board.providerError}</div>}
+      <BoardCardServerServices
+        cards={board.cards}
+        projects={projects}
+        detailCardId={selectedCardId}
+        terminalFontSize={terminalFontSize}
+        terminalFontFamily={terminalFontFamily}
+        terminalScrollback={terminalScrollback}
+        copyOnSelect={copyOnSelect}
+        onServices={updateCardServices}
+      />
       {!board.loading && (
         <KanbanLanes
           cards={visibleCards}
           projects={projects}
           repositoryStatuses={repositoryStatuses}
+          serverServices={cardServices}
           doneCollapsed={doneCollapsed}
           doneToggleRef={doneToggleRef}
           openLaneMenu={openLaneMenu}
@@ -455,11 +488,12 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           <button type="button" onClick={() => closeCardDetail(selectedCard.id)}>Close</button>
         </div></div>
       )}
-      {selectedCard && selectedDetail && (
+      {selectedCard && selectedDetail && cardServices[selectedDetail.id] && (
         <KanbanCardDetail
           key={selectedDetail.id}
           card={selectedDetail}
           cards={board.cards}
+          cardServices={cardServices[selectedDetail.id]}
           projects={projects}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}

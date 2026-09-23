@@ -9,13 +9,14 @@ import { TerminalView } from '../TerminalView';
 
 const encoder = new TextEncoder();
 
-export function CardServiceTerminal({ mode, command, enabled, active, restartRequestNonce, card, project, cardPath, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
+export function CardServiceTerminal({ mode, command, enabled, active, background = false, restartRequestNonce, card, project, cardPath, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
   mode: CardServiceMode;
   command: string;
   enabled: boolean;
   active: boolean;
+  background?: boolean;
   restartRequestNonce: number;
-  card: KanbanCard;
+  card: Pick<KanbanCard, 'id' | 'external_id'>;
   project: Project;
   cardPath: string;
   terminalFontSize: number;
@@ -23,7 +24,7 @@ export function CardServiceTerminal({ mode, command, enabled, active, restartReq
   terminalScrollback: number;
   copyOnSelect: boolean;
 }) {
-  return <section className={`cardServiceView cardView${active ? ' active' : ''}`} aria-label={`${mode} terminal`}>
+  return <section className={`cardServiceView cardView${active ? ' active' : ''}${background ? ' background' : ''}`} aria-label={`${mode} terminal`}>
     {enabled ? <Suspense fallback={<div className="kanbanEmpty">Starting {mode}…</div>}>
       <TerminalView
         terminal={{ id: cardTerminalId(card.id, mode), workspaceId: cardWorkspaceId(card.id), command, cwd: cardPath, temporary: true }}
