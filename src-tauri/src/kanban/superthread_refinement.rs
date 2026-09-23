@@ -3,6 +3,9 @@ use super::{
     cards::apply_workflow_transition,
     health::{db_error, unix_timestamp},
     repository::get_card,
+    superthread_identity::{
+        active_superthread_binding, adopt_legacy_superthread_rows, resolve_superthread_local_id,
+    },
 };
 use crate::superthread::{SuperthreadCard, SuperthreadService};
 
@@ -81,18 +84,19 @@ fn load_finish_context(connection: &Connection, id: &str) -> Result<FinishContex
     connection.query_row(
         "SELECT c.id,c.external_id,c.project_id,c.status,c.workflow_revision,
                 COALESCE(p.kanban_source,'local'),p.superthread_workspace_slug,c.external_provider,
-                COALESCE(p.superthread_board_id,''),COALESCE(p.superthread_incoming_columns,''),COALESCE(p.superthread_api_token_env_var,'ST_TOKEN')
+                COALESCE(p.superthread_board_id,''),COALESCE(p.superthread_incoming_columns,''),COALESCE(p.superthread_api_token_env_var,'ST_TOKEN'),p.superthread_binding_id
          FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
         [id],
         |row| Ok((
             row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
             row.get::<_, CardStatus>(3)?, row.get::<_, i64>(4)?, row.get::<_, String>(5)?,
-            row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, String>(9)?, row.get::<_, String>(10)?,
+            row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, String>(9)?, row.get::<_, String>(10)?, row.get::<_, Option<String>>(11)?,
         )),
-    ).optional().map_err(db_error)?.map(|(local_id, external_id, project_id, status, workflow_revision, source, workspace_slug, provider, board_id, incoming_columns, api_token_env_var)| {
+    ).optional().map_err(db_error)?.map(|(local_id, external_id, project_id, status, workflow_revision, source, workspace_slug, provider, board_id, incoming_columns, api_token_env_var, _binding_id)| {
         if provider != "superthread" || source != "superthread" {
             return Err("Only a Superthread card owned by the configured Superthread project can use this refinement action".to_string());
         }
+        active_superthread_binding(connection, &project_id)?;
         let board_id = board_id.trim().to_string();
         if board_id.is_empty() {
             return Err("Configure the Superthread board before finishing refinement".to_string());
@@ -236,9 +240,7 @@ fn persist_validated_refinement(
     connection: &mut Connection,
     snapshot: &ValidatedSuperthreadRefinement,
 ) -> Result<KanbanCard, String> {
-    let transaction = connection
-        .savepoint()
-        .map_err(db_error)?;
+    let transaction = connection.savepoint().map_err(db_error)?;
     let current: (String, String, Option<String>, CardStatus, i64, bool, i64) = transaction.query_row(
         "SELECT external_provider,external_id,project_id,status,workflow_revision,hierarchy_finalized,provider_child_count FROM kanban_cards WHERE id=?1",
         [&snapshot.context.local_id],
@@ -270,20 +272,37 @@ fn persist_validated_refinement(
     }
 
     let now = unix_timestamp();
-    upsert_provider_card(
+    let binding_id = active_superthread_binding(&transaction, &snapshot.context.project_id)?;
+    adopt_legacy_superthread_rows(&transaction, &snapshot.context.project_id, &binding_id)?;
+    let resolved_parent_id = upsert_provider_card(
         &transaction,
         &snapshot.parent,
         &snapshot.context.project_id,
+        &binding_id,
         now,
         true,
     )?;
+    if resolved_parent_id != snapshot.context.local_id {
+        return Err(format!("Superthread parent identity resolved to {resolved_parent_id}, not the captured local identity {}", snapshot.context.local_id));
+    }
+    let mut child_local_ids = HashMap::new();
     for child in &snapshot.children {
-        upsert_provider_card(&transaction, child, &snapshot.context.project_id, now, true)?;
+        let local_id = upsert_provider_card(
+            &transaction,
+            child,
+            &snapshot.context.project_id,
+            &binding_id,
+            now,
+            true,
+        )?;
+        child_local_ids.insert(child.id.trim().to_string(), local_id);
     }
 
     // Validate every local child state before touching relationships or emitting transitions.
     for child in &snapshot.children {
-        let local_id = format!("superthread:{}", child.id.trim());
+        let local_id = child_local_ids
+            .get(child.id.trim())
+            .expect("every validated child was resolved");
         let status: CardStatus = transaction
             .query_row(
                 "SELECT status FROM kanban_cards WHERE id=?1",
@@ -300,15 +319,17 @@ fn persist_validated_refinement(
     }
 
     transaction.execute(
-        "UPDATE kanban_cards SET parent_id=NULL,provider_parent_title=NULL,updated_at=?1 WHERE external_provider='superthread' AND parent_id=?2",
-        params![now, snapshot.context.local_id],
+        "UPDATE kanban_cards SET parent_id=NULL,provider_parent_title=NULL,updated_at=?1 WHERE binding_id=?2 AND parent_id=?3",
+        params![now, binding_id, snapshot.context.local_id],
     ).map_err(db_error)?;
     for child in &snapshot.children {
+        let local_id = child_local_ids
+            .get(child.id.trim())
+            .expect("every validated child was resolved");
         transaction.execute(
-            "UPDATE kanban_cards SET parent_id=?1,provider_parent_title=?2,project_id=?3,in_scope=1,updated_at=?4 WHERE external_provider='superthread' AND external_id=?5",
-            params![snapshot.context.local_id, snapshot.parent.title.trim(), snapshot.context.project_id, now, child.id.trim()],
+            "UPDATE kanban_cards SET parent_id=?1,provider_parent_title=?2,project_id=?3,in_scope=1,updated_at=?4 WHERE id=?5 AND binding_id=?6 AND external_id=?7",
+            params![snapshot.context.local_id, snapshot.parent.title.trim(), snapshot.context.project_id, now, local_id, binding_id, child.id.trim()],
         ).map_err(db_error)?;
-        let local_id = format!("superthread:{}", child.id.trim());
         let status: CardStatus = transaction
             .query_row(
                 "SELECT status FROM kanban_cards WHERE id=?1",
@@ -375,7 +396,7 @@ fn linked_external_child_ids(
     connection: &Connection,
     parent_id: &str,
 ) -> Result<Vec<String>, String> {
-    let mut ids = connection.prepare("SELECT external_id FROM kanban_cards WHERE external_provider='superthread' AND parent_id=?1 ORDER BY external_id").map_err(db_error)?
+    let mut ids = connection.prepare("SELECT external_id FROM kanban_cards WHERE binding_id=(SELECT binding_id FROM kanban_cards WHERE id=?1) AND parent_id=?1 ORDER BY external_id").map_err(db_error)?
         .query_map([parent_id], |row| row.get::<_, String>(0)).map_err(db_error)?
         .collect::<Result<Vec<_>, _>>().map_err(db_error)?;
     ids.sort();
@@ -386,23 +407,24 @@ fn upsert_provider_card(
     transaction: &Connection,
     card: &SuperthreadCard,
     project_id: &str,
+    binding_id: &str,
     now: i64,
     in_scope: bool,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let external_id = card.id.trim();
     if external_id.is_empty() || card.title.trim().is_empty() {
         return Err("Superthread returned a card without an ID or title".to_string());
     }
-    let binding_id: Option<String> = transaction.query_row("SELECT superthread_binding_id FROM projects WHERE id=?1", [project_id], |row| row.get(0)).optional().map_err(db_error)?.flatten();
-    let existing_id = if let Some(binding) = binding_id.as_deref() {
-        transaction.query_row("SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2", params![binding,external_id], |row| row.get::<_,String>(0)).optional().map_err(db_error)?
-    } else { None };
-    let local_id = existing_id.unwrap_or_else(|| binding_id.as_ref().map(|binding| format!("superthread:{binding}:{external_id}")).unwrap_or_else(|| format!("superthread:{external_id}")));
+    let local_id = resolve_superthread_local_id(transaction, binding_id, external_id)?;
     let parent_id = if let Some(parent) = card.task_parent.as_ref() {
-        if let Some(binding) = binding_id.as_deref() {
-            transaction.query_row("SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2", params![binding,parent.id.trim()], |row| row.get::<_,String>(0)).optional().map_err(db_error)?
-        } else { Some(format!("superthread:{}", parent.id.trim())) }
-    } else { None };
+        Some(resolve_superthread_local_id(
+            transaction,
+            binding_id,
+            parent.id.trim(),
+        )?)
+    } else {
+        None
+    };
     let parent_title = card
         .task_parent
         .as_ref()
@@ -414,7 +436,7 @@ fn upsert_provider_card(
          ON CONFLICT(id) DO UPDATE SET title=excluded.title,content=CASE WHEN ?4 IS NULL THEN kanban_cards.content ELSE ?4 END,board_id=excluded.board_id,board_title=excluded.board_title,list_id=excluded.list_id,list_title=excluded.list_title,card_url=excluded.card_url,assignee_names=excluded.assignee_names,project_id=excluded.project_id,provider_child_count=excluded.provider_child_count,in_scope=MAX(kanban_cards.in_scope,excluded.in_scope),updated_at=excluded.updated_at",
         params![local_id, external_id, card.title.trim(), card.content, card.board_id, card.board_title, card.list_id, card.list_title, card.card_url, serde_json::to_string(&card.assignee_names).map_err(|error| error.to_string())?, project_id, parent_id, parent_title, child_count, now, i64::from(in_scope), binding_id],
     ).map_err(db_error)?;
-    Ok(())
+    Ok(local_id)
 }
 
 #[cfg(test)]
@@ -455,8 +477,10 @@ mod tests {
             "INSERT INTO projects(id,name,path,kanban_source,superthread_spaces,sort_order) VALUES ('owner','Owner','/tmp/owner','superthread','Product',0)",
             [],
         ).unwrap();
+        connection.execute("UPDATE projects SET superthread_binding_id='binding',superthread_board_id='board',superthread_incoming_columns='[{\"id\":\"ready-list\",\"name\":\"Ready\"}]' WHERE id='owner'", []).unwrap();
+        connection.execute("INSERT INTO superthread_bindings(id,project_id,token_env_var,validation_revision,validated_at,state,created_at,updated_at) VALUES ('binding','owner','ST_TOKEN',1,1,'active',1,1)", []).unwrap();
         connection.execute(
-            "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,workflow_revision,project_id,created_at,updated_at,in_scope) VALUES ('superthread:parent','superthread','parent','Old parent','needs_refinement',4,'owner',1,1,1)",
+            "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,workflow_revision,project_id,created_at,updated_at,in_scope,binding_id) VALUES ('superthread:parent','superthread','parent','Old parent','needs_refinement',4,'owner',1,1,1,'binding')",
             [],
         ).unwrap();
         connection
@@ -537,7 +561,8 @@ mod tests {
     }
 
     #[test]
-    fn refinement_destination_accepts_every_configured_incoming_column_only_on_the_configured_board() {
+    fn refinement_destination_accepts_every_configured_incoming_column_only_on_the_configured_board(
+    ) {
         let context = snapshot(parent(None, Some(0)), Vec::new()).context;
         let default_card = parent(None, Some(0));
         validate_refinement_destination(&default_card, &context).unwrap();
@@ -572,11 +597,18 @@ mod tests {
             HashSet::from(["ready-list".into(), "triage-list".into()])
         );
 
-        for malformed in ["not-json", "[]", r#"[{"id":"","name":"Incoming"}]"#, r#"[{"id":"ready-list"}]"#] {
-            connection.execute(
-                "UPDATE projects SET superthread_incoming_columns=?1 WHERE id='owner'",
-                [malformed],
-            ).unwrap();
+        for malformed in [
+            "not-json",
+            "[]",
+            r#"[{"id":"","name":"Incoming"}]"#,
+            r#"[{"id":"ready-list"}]"#,
+        ] {
+            connection
+                .execute(
+                    "UPDATE projects SET superthread_incoming_columns=?1 WHERE id='owner'",
+                    [malformed],
+                )
+                .unwrap();
             assert!(load_finish_context(&connection, "superthread:parent")
                 .unwrap_err()
                 .contains("Incoming column"));
@@ -597,7 +629,10 @@ mod tests {
             [],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).unwrap();
-        assert_eq!(stored, ("Old parent".into(), CardStatus::NeedsRefinement, 4));
+        assert_eq!(
+            stored,
+            ("Old parent".into(), CardStatus::NeedsRefinement, 4)
+        );
     }
 
     #[test]
@@ -762,7 +797,8 @@ mod tests {
         assert!(!retried.hierarchy_finalized);
         assert_eq!(
             connection
-                .query_row("SELECT COUNT(*) FROM card_events", [], |row| row.get::<_, i64>(0))
+                .query_row("SELECT COUNT(*) FROM card_events", [], |row| row
+                    .get::<_, i64>(0))
                 .unwrap(),
             1
         );
