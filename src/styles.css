@@ -167,7 +167,12 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanCardNumber { color: #96aabd; font-size: calc(12px + var(--ui-font-delta, 0px)); font-weight: 700; }
 .kanbanCard > strong { min-width: 0; max-width: 100%; font-size: calc(12px + var(--ui-font-delta, 0px)); line-height: 1.35; font-weight: 580; overflow-wrap: anywhere; }
 .kanbanCardMeta { display: flex; align-items: center; justify-content: space-between; gap: 7px; color: #73869a; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.kanbanCardAttribution { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kanbanCardIndicators { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; flex: 0 0 auto; }
+.kanbanServerToggle { position: relative; z-index: 3; width: 20px; height: 20px; padding: 0; display: inline-grid; place-items: center; pointer-events: auto; border: 1px solid #304256; border-radius: 5px; background: #101923; color: #73879a; cursor: pointer; }
+.kanbanServerToggle:hover, .kanbanServerToggle:focus-visible { border-color: #4a6278; color: #aabac8; outline: none; }
+.kanbanServerToggle:focus-visible { box-shadow: 0 0 0 2px #416b8f; }
+.kanbanServerToggle.running { border-color: #416b55; background: #15271e; color: #70bd8d; }
 .kanbanCardWrapper.hasEnvironmentWarning .kanbanCardIndicators { padding-right: 22px; }
 .kanbanGitBadge, .kanbanPrBadge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border: 1px solid #304256; border-radius: 5px; background: #101923; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .kanbanPrBadge { color: #91aeca; }
@@ -344,7 +349,9 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .diffRefreshIcon::before { content: ''; position: absolute; inset: 1px; border: 1.5px solid currentColor; border-left-color: transparent; border-radius: 50%; }
 .diffRefreshIcon::after { content: ''; position: absolute; left: 0; top: 1px; width: 0; height: 0; border-top: 2.5px solid transparent; border-bottom: 2.5px solid transparent; border-right: 4px solid currentColor; transform: rotate(-25deg); }
 .cardView { display: none !important; }
-.cardView.active { display: flex !important; }
+.cardView.active, .cardView.background { display: flex !important; }
+.cardServiceView.background { position: fixed; left: -10000px; top: 0; width: 800px; height: 500px; opacity: 0; pointer-events: none; }
+.boardCardServerHost { pointer-events: none; }
 .kanbanDetailContent.cardView.active { display: block !important; }
 .cardChatView { flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 0; overflow: hidden; }
 .cardDiffView { flex: 1; min-width: 0; min-height: 0; position: relative; flex-direction: row; overflow: hidden; }

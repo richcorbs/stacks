@@ -1,9 +1,12 @@
 import { createRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import TestRenderer, { act } from 'react-test-renderer';
+import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
-import { DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import type { CardServices } from '../../kanban/useCardServices';
+import { DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import { cardServerAvailability } from './BoardCardServerServices';
 
 const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
 
@@ -19,11 +22,26 @@ function card(overrides: Partial<KanbanCard> = {}): KanbanCard {
   };
 }
 
-function renderCardContents(currentCard: KanbanCard) {
+function services(active = false, toggle = vi.fn()): CardServices {
+  return {
+    serverEnabled: active, consoleEnabled: false,
+    serverStarting: active, consoleStarting: false,
+    serverRunning: false, consoleRunning: false,
+    serverActive: active, consoleActive: false,
+    serverRestartNonce: 0, consoleRestartNonce: 0,
+    toggle,
+  };
+}
+
+function renderCardContents(currentCard: KanbanCard, serverServices?: CardServices) {
   return renderToStaticMarkup(<KanbanCardContents
     card={currentCard}
     projects={[project]}
-    repositoryStatus={undefined}
+    repositoryStatus={serverServices ? {
+      git: { branch: 'card-177', created: 1, changed: 0, deleted: 0 },
+      environmentHealth: { card_id: currentCard.id, issues: [] },
+    } : undefined}
+    serverServices={serverServices}
     onNavigateParent={() => undefined}
   />);
 }
@@ -106,6 +124,60 @@ describe('KanbanCardContents', () => {
     expect(suppressed).not.toContain('kanbanProviderBoardTitle');
     expect(visible).toContain('<span class="kanbanProviderBoardTitle">Roadmap</span>');
     expect(visible.indexOf('kanbanProviderBoardTitle')).toBeLessThan(visible.indexOf('kanbanHierarchyGroup'));
+  });
+
+  it('keeps attribution left and orders server, Git, and pull-request indicators on the right', () => {
+    const markup = renderCardContents(card({
+      provider: 'superthread',
+      assignee_names: ['Rich'],
+      pull_request: pullRequest(),
+    }), services());
+
+    expect(markup.indexOf('Rich')).toBeLessThan(markup.indexOf('kanbanCardIndicators'));
+    expect(markup.indexOf('kanbanServerToggle')).toBeLessThan(markup.indexOf('kanbanGitBadge'));
+    expect(markup.indexOf('kanbanGitBadge')).toBeLessThan(markup.indexOf('kanbanPrBadge'));
+  });
+});
+
+describe('board server control', () => {
+  const environment = { worktree_path: '/tmp/card-177' } as KanbanCard['environment'];
+  const serverProject = { ...project, server_command: ' npm run dev ' };
+
+  it('is available only with a non-finalized card environment and owning project server command', () => {
+    expect(cardServerAvailability(card({ environment }), [serverProject])).toMatchObject({ eligible: true, command: 'npm run dev', cardPath: '/tmp/card-177' });
+    expect(cardServerAvailability(card({ environment, hierarchy_finalized: true }), [serverProject]).eligible).toBe(false);
+    expect(cardServerAvailability(card(), [serverProject]).eligible).toBe(false);
+    expect(cardServerAvailability(card({ environment }), []).eligible).toBe(false);
+    expect(cardServerAvailability(card({ environment }), [project]).eligible).toBe(false);
+    expect(cardServerAvailability(card({ environment }), [{ ...project, console_command: 'bin/console' }]).eligible).toBe(false);
+  });
+
+  it.each([
+    [false, 'Start server', 'servicePlayIcon'],
+    [true, 'Stop server', 'serviceStopIcon'],
+  ])('renders active=%s with the accessible %s state', (active, label, icon) => {
+    const markup = renderToStaticMarkup(<KanbanServerControl services={services(active)} />);
+    expect(markup).toContain(`aria-label="${label}"`);
+    expect(markup).toContain(`aria-pressed="${active}"`);
+    expect(markup).toContain(icon);
+  });
+
+  it('handles pointer and click interaction without propagating to card open or drag handlers', async () => {
+    const toggle = vi.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<KanbanServerControl services={services(false, toggle)} />); });
+    const button = renderer.root.findByType('button');
+    const pointerStop = vi.fn();
+    const clickStop = vi.fn();
+
+    button.props.onPointerDown({ stopPropagation: pointerStop });
+    button.props.onPointerUp({ stopPropagation: pointerStop });
+    button.props.onClick({ stopPropagation: clickStop });
+
+    expect(pointerStop).toHaveBeenCalledTimes(2);
+    expect(clickStop).toHaveBeenCalledOnce();
+    expect(toggle).toHaveBeenCalledOnce();
+    expect(toggle).toHaveBeenCalledWith('server');
   });
 });
 

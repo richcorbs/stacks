@@ -25,7 +25,7 @@ import { isEditableElement } from '../../kanban/boardInteractions';
 import { hierarchyStatusLabel } from '../../kanban/hierarchy';
 import { useWorkflowOperation } from '../../kanban/useWorkflowOperation';
 import { cardPaneId, cardTerminalId, type CardChatThread } from '../../kanban/cardWorkspace';
-import { useCardServices } from '../../kanban/useCardServices';
+import type { CardServices } from '../../kanban/useCardServices';
 import { useCardTerminalWorkspace } from '../../kanban/useCardTerminalWorkspace';
 import { CardServiceTerminal } from './CardServiceTerminal';
 import { CardChatView } from './CardChatView';
@@ -45,9 +45,10 @@ function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery'
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
-export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onWorkflowControllerChange }: {
+export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onWorkflowControllerChange }: {
   card: KanbanCard;
   cards: KanbanCardSummary[];
+  cardServices: CardServices;
   projects: Project[];
   terminalFontSize: number;
   terminalFontFamily: string;
@@ -145,7 +146,6 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
     environmentRevisionRef,
     layoutRevisionRef,
   });
-  const cardServices = useCardServices(card.id, cardPath, serverCommand, consoleCommand, terminalWorkspace.handleTerminalStopped);
   const {
     focusedShellPane,
     pendingCloseShellPane,
@@ -392,8 +392,8 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
         <CardDiffView active={activeView === 'diff'} card={card} cardPath={cardPath} refreshNonce={diffRefreshNonce} review={diffReview} canSubmit={Boolean(project)} onSubmit={submitDiffReview} />
         <CardTerminalView active={activeView === 'terminal'} card={card} project={project} cardPath={cardPath} controller={terminalWorkspace} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />
 
-        {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={cardServices.serverEnabled} active={activeView === 'server'} restartRequestNonce={cardServices.serverRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={cardServices.consoleEnabled} active={activeView === 'console'} restartRequestNonce={cardServices.consoleRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
+        {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={cardServices.serverEnabled} active={activeView === 'server'} background={cardServices.serverEnabled && activeView !== 'server'} restartRequestNonce={cardServices.serverRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
+        {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={cardServices.consoleEnabled} active={activeView === 'console'} background={cardServices.consoleEnabled && activeView !== 'console'} restartRequestNonce={cardServices.consoleRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
           {editing ? (
             <div className="kanbanEditActions">

@@ -7,7 +7,7 @@ export function useCardServices(
   cardPath: string | null,
   serverCommand: string,
   consoleCommand: string,
-  onTemporaryTerminalStopped: (terminalId: string) => void,
+  onTemporaryTerminalStopped?: (terminalId: string) => void,
 ) {
   const configs = useMemo(() => ({
     server: { terminalId: cardTerminalId(cardId, 'server'), command: serverCommand.trim(), cwd: cardPath },
@@ -15,3 +15,5 @@ export function useCardServices(
   }), [cardId, cardPath, consoleCommand, serverCommand]);
   return useManagedServices(configs, onTemporaryTerminalStopped);
 }
+
+export type CardServices = ReturnType<typeof useCardServices>;
