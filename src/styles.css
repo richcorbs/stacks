@@ -181,6 +181,9 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanWelcome span { font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanNewCardDialog { width: min(560px, calc(100vw - 32px)); }
 .kanbanNewCardDialog textarea { box-sizing: border-box; width: 100%; resize: vertical; }
+.modalActions.kanbanNewCardActions { align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.modal .kanbanNewCardActions .checkboxLabel { margin-bottom: 0; }
+.kanbanNewCardActionButtons { display: flex; flex: 0 0 auto; gap: 8px; margin-left: auto; }
 .projectSwitcherDialog { width: min(460px, calc(100vw - 32px)); outline: none; }
 .projectSwitcherList { max-height: min(440px, 60vh); padding: 4px; overflow-y: auto; border: 1px solid #27394b; border-radius: 9px; background: #0d141c; }
 .projectSwitcherList button { box-sizing: border-box; width: 100%; padding: 10px 11px; border: 0; border-radius: 6px; background: transparent; color: #aab9c8; display: flex; text-align: left; cursor: pointer; }
