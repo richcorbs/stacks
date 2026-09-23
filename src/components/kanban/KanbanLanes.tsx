@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project } from '../../types';
 import type { CardPullRequestIndicator, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import type { CardView } from '../../kanban/cardView';
-import type { PreviewOrderTransition, usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
+import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import { KANBAN_LANES } from '../../kanban/workflow';
 import { owningProject } from '../../kanban/projectScope';
 import { pullRequestPresentation } from '../../kanban/pullRequestPresentation';
@@ -101,99 +101,6 @@ export function kanbanCardClassName(card: Pick<KanbanCardSummary, 'child_count'>
   return `kanbanCard${card.child_count > 0 ? ' kanbanParentCard' : ''}${keyboardFocused ? ' keyboardFocused' : ''}`;
 }
 
-type CardWrapperElement = Pick<HTMLDivElement, 'getBoundingClientRect' | 'animate' | 'style'>;
-
-type PendingFlip = {
-  revision: number;
-  draggedCardId: string;
-  rectangles: Map<string, DOMRect>;
-};
-
-/** Ref-backed FLIP state. Exported as a focused test seam. */
-export function createKanbanFlipCoordinator() {
-  const elements = new Map<string, CardWrapperElement>();
-  const refCallbacks = new Map<string, (element: HTMLDivElement | null) => void>();
-  const animations = new Map<string, Animation>();
-  let pending: PendingFlip | null = null;
-
-  const cancelAnimation = (id: string) => {
-    const animation = animations.get(id);
-    if (!animation) return;
-    animations.delete(id);
-    animation.onfinish = null;
-    animation.cancel();
-    const element = elements.get(id);
-    if (element) element.style.transform = '';
-  };
-
-  const cancelAnimations = () => [...animations.keys()].forEach(cancelAnimation);
-
-  const register = (id: string, element: HTMLDivElement | null) => {
-    if (element) {
-      elements.set(id, element);
-      return;
-    }
-    cancelAnimation(id);
-    elements.delete(id);
-    pending?.rectangles.delete(id);
-  };
-
-  return {
-    cardRef(id: string) {
-      let callback = refCallbacks.get(id);
-      if (!callback) {
-        callback = (element) => register(id, element);
-        refCallbacks.set(id, callback);
-      }
-      return callback;
-    },
-    beforeOrderChange({ revision, draggedCardId, affectedCardIds }: PreviewOrderTransition) {
-      cancelAnimations();
-      const rectangles = pending?.rectangles ?? new Map<string, DOMRect>();
-      for (const id of affectedCardIds) {
-        if (id === draggedCardId || rectangles.has(id)) continue;
-        const element = elements.get(id);
-        if (element) rectangles.set(id, element.getBoundingClientRect());
-      }
-      pending = { revision, draggedCardId, rectangles };
-    },
-    commit(revision: number | undefined) {
-      if (!pending || revision !== pending.revision) return;
-      const transition = pending;
-      pending = null;
-      transition.rectangles.forEach((previous, id) => {
-        if (id === transition.draggedCardId) return;
-        const element = elements.get(id);
-        if (!element) return;
-        const next = element.getBoundingClientRect();
-        const x = previous.left - next.left;
-        const y = previous.top - next.top;
-        if (x === 0 && y === 0) return;
-        const animation = element.animate(
-          [{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }],
-          { duration: 160, easing: 'cubic-bezier(.2, .8, .2, 1)' },
-        );
-        animations.set(id, animation);
-        animation.onfinish = () => {
-          if (animations.get(id) !== animation) return;
-          animations.delete(id);
-          element.style.transform = '';
-        };
-      });
-    },
-    clear() {
-      pending = null;
-      cancelAnimations();
-    },
-    dispose() {
-      pending = null;
-      cancelAnimations();
-      elements.clear();
-      refCallbacks.clear();
-    },
-  };
-}
-
 export function KanbanCardContents({
   card,
   projects,
@@ -270,28 +177,7 @@ export function KanbanLanes({
   onOpenCard: (card: KanbanCardSummary, initialView?: CardView) => void;
   onNavigateParent: (parentId: string) => void;
 }) {
-  const flipCoordinatorRef = useRef<ReturnType<typeof createKanbanFlipCoordinator> | null>(null);
-  if (!flipCoordinatorRef.current) flipCoordinatorRef.current = createKanbanFlipCoordinator();
-  const flipCoordinator = flipCoordinatorRef.current;
-  const orderRevision = pointer.dragPreview?.orderRevision;
   const dragging = Boolean(pointer.dragPreview);
-
-  useLayoutEffect(() => {
-    pointer.setPreviewLifecycle({
-      beforeOrderChange: flipCoordinator.beforeOrderChange,
-      clear: flipCoordinator.clear,
-    });
-    return () => {
-      pointer.setPreviewLifecycle(null);
-      flipCoordinator.clear();
-    };
-  }, [flipCoordinator, pointer.setPreviewLifecycle]);
-
-  useLayoutEffect(() => {
-    flipCoordinator.commit(orderRevision);
-  }, [flipCoordinator, orderRevision]);
-
-  useEffect(() => () => flipCoordinator.dispose(), [flipCoordinator]);
   useEffect(() => {
     document.documentElement.classList.toggle('kanbanDragging', dragging);
     return () => document.documentElement.classList.remove('kanbanDragging');
@@ -358,12 +244,10 @@ export function KanbanLanes({
                 return <div
                   className={`kanbanCardWrapper${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}${placeholder ? ' kanbanCardPlaceholder' : ''}`}
                   key={card.id}
-                  ref={flipCoordinator.cardRef(card.id)}
                 >
                   <div
                     className={kanbanCardClassName(card, keyboardFocusedCardId === card.id)}
                     onPointerDown={(event) => pointer.beginPointerDrag(event, card)}
-                    onPointerMove={pointer.updatePointerDrag}
                     onPointerUp={pointer.finishPointerDrag}
                     onPointerCancel={pointer.cancelPointerDrag}
                   >
@@ -396,6 +280,7 @@ export function KanbanLanes({
       const healthTooltip = environmentHealthTooltip(environmentHealth);
       const showEnvironmentWarning = shouldShowEnvironmentWarning(draggedCard, environmentHealth);
       return <div
+        ref={pointer.setDragOverlayElement}
         className={`kanbanCardDragOverlay${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}`}
         aria-hidden="true"
         style={{

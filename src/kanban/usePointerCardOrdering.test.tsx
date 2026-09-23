@@ -1,7 +1,7 @@
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KanbanCard } from './types';
-import { affectedPreviewCardIds, usePointerCardOrdering } from './usePointerCardOrdering';
+import { usePointerCardOrdering } from './usePointerCardOrdering';
 
 type Ordering = ReturnType<typeof usePointerCardOrdering>;
 type PointerHandlerEvent = Parameters<Ordering['beginPointerDrag']>[0];
@@ -17,7 +17,9 @@ function card(id: string, overrides: Partial<KanbanCard> = {}): KanbanCard {
 }
 
 let ordering: Ordering;
+let renderCount = 0;
 function Harness({ cards, reorder }: { cards: KanbanCard[]; reorder: Parameters<typeof usePointerCardOrdering>[0]['reorder'] }) {
+  renderCount += 1;
   ordering = usePointerCardOrdering({ allCards: cards, visibleCards: cards, reorder });
   return null;
 }
@@ -42,7 +44,7 @@ function pointerEvent(overrides: Partial<PointerHandlerEvent> = {}) {
 
 function windowPointerEvent(type: string, overrides: Record<string, unknown> = {}) {
   const event = new Event(type, { cancelable: true });
-  Object.assign(event, { pointerId: 7, clientX: 10, clientY: 10, ...overrides });
+  Object.assign(event, { pointerId: 7, clientX: 10, clientY: 10, isPrimary: true, buttons: 1, ...overrides });
   return event;
 }
 
@@ -58,18 +60,17 @@ function laneElement(status = 'needs_refinement') {
   return { closest: () => lane };
 }
 
-describe('affectedPreviewCardIds', () => {
-  it('returns only cards whose indexes changed', () => {
-    expect(affectedPreviewCardIds(['a', 'b', 'c', 'd'], ['a', 'c', 'b', 'd'])).toEqual(['b', 'c']);
-  });
-});
-
 describe('usePointerCardOrdering pointer lifecycle', () => {
   let fakeWindow: EventTarget & Pick<Window, 'setTimeout' | 'clearTimeout'>;
   let pointElement: ReturnType<typeof laneElement> | null;
   let renderer: TestRenderer.ReactTestRenderer;
+  let nextFrameId: number;
+  let frames: Map<number, FrameRequestCallback>;
 
   beforeEach(() => {
+    renderCount = 0;
+    nextFrameId = 1;
+    frames = new Map();
     fakeWindow = Object.assign(new EventTarget(), {
       setTimeout: globalThis.setTimeout.bind(globalThis),
       clearTimeout: globalThis.clearTimeout.bind(globalThis),
@@ -77,11 +78,15 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     pointElement = laneElement();
     vi.stubGlobal('window', fakeWindow);
     vi.stubGlobal('document', {
-      elementFromPoint: () => pointElement,
-      querySelectorAll: () => [],
+      elementFromPoint: vi.fn(() => pointElement),
+      querySelectorAll: vi.fn(() => []),
     });
-    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
-    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      const id = nextFrameId++;
+      frames.set(id, callback);
+      return id;
+    }));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn((id: number) => frames.delete(id)));
   });
 
   afterEach(async () => {
@@ -92,6 +97,18 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
   async function render(cards = [card('a'), card('b')], reorder = vi.fn(async () => {})) {
     await act(async () => { renderer = TestRenderer.create(<Harness cards={cards} reorder={reorder} />); });
     return reorder;
+  }
+
+  function runNextFrame() {
+    const next = frames.entries().next().value as [number, FrameRequestCallback] | undefined;
+    if (!next) return;
+    frames.delete(next[0]);
+    next[1](0);
+  }
+
+  function flushFrames() {
+    let safety = 10;
+    while (frames.size > 0 && safety-- > 0) runNextFrame();
   }
 
   it('clears a click below threshold so later movement cannot activate dragging', async () => {
@@ -117,36 +134,36 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     expect(ordering.dragPreview).toBeNull();
   });
 
-  it('announces geometry capture only before actual preview-order changes', async () => {
+  it('uses coalesced window movement and does not rerender for an unchanged insertion target', async () => {
     await render();
-    const beforeOrderChange = vi.fn();
-    const clear = vi.fn();
-    ordering.setPreviewLifecycle({ beforeOrderChange, clear });
     act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
 
-    act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30, clientY: 10 })));
-    expect(beforeOrderChange).not.toHaveBeenCalled();
-    expect(ordering.dragPreview?.orderRevision).toBe(0);
-
-    act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 31, clientY: 100 })));
-    expect(beforeOrderChange).toHaveBeenCalledWith({
-      revision: 1,
-      draggedCardId: 'a',
-      affectedCardIds: ['a', 'b'],
+    act(() => {
+      fakeWindow.dispatchEvent(windowPointerEvent('pointermove', { clientX: 30, clientY: 100 }));
+      fakeWindow.dispatchEvent(windowPointerEvent('pointermove', { clientX: 31, clientY: 100 }));
     });
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(ordering.dragPreview).toBeNull();
+    act(flushFrames);
+    expect(ordering.dragPreview?.cardIds).toEqual(['b', 'a']);
+    const rendersAfterInsertion = renderCount;
 
-    act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 32, clientY: 100 })));
-    expect(beforeOrderChange).toHaveBeenCalledTimes(1);
-    expect(ordering.dragPreview?.orderRevision).toBe(1);
-    act(() => ordering.cancelPointerDrag());
-    expect(clear).toHaveBeenCalledTimes(1);
+    const overlay = { style: { left: '', top: '' } } as unknown as HTMLDivElement;
+    act(() => ordering.setDragOverlayElement(overlay));
+    act(() => { fakeWindow.dispatchEvent(windowPointerEvent('lostpointercapture')); });
+    act(() => { fakeWindow.dispatchEvent(windowPointerEvent('pointermove', { clientX: 45, clientY: 100 })); });
+    act(flushFrames);
+
+    expect(overlay.style.left).toBe('35px');
+    expect(overlay.style.top).toBe('90px');
+    expect(renderCount).toBe(rendersAfterInsertion);
   });
 
-  it('commits a valid threshold-crossing reorder once within the source column', async () => {
+  it('flushes the latest queued coordinates before committing a valid reorder', async () => {
     const reorder = await render();
     act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30, clientY: 100 })));
-    expect(ordering.draggingId).toBe('a');
+    expect(ordering.draggingId).toBeNull();
 
     await act(async () => { fakeWindow.dispatchEvent(windowPointerEvent('pointerup', { clientX: 30, clientY: 100 })); });
     await act(async () => ordering.finishPointerDrag(pointerEvent({ clientX: 30, clientY: 100 })));
@@ -165,6 +182,7 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
 
     act(() => ordering.beginPointerDrag(pointerEvent(), parent));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30, clientY: 100 })));
+    act(flushFrames);
     expect(ordering.dragPreview?.cardIds).toEqual(['b', 'a']);
 
     await act(async () => ordering.finishPointerDrag(pointerEvent({ clientX: 30, clientY: 100 })));
@@ -176,6 +194,7 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     const reorder = await render();
     act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30 })));
+    act(flushFrames);
     pointElement = laneElement('ready');
     await act(async () => ordering.finishPointerDrag(pointerEvent({ clientX: 30 })));
 
@@ -183,10 +202,34 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     expect(ordering.dragPreview).toBeNull();
   });
 
+  it('recalculates the insertion target while auto-scrolling with a stationary pointer', async () => {
+    await render();
+    const scroller = {
+      scrollTop: 0,
+      getBoundingClientRect: () => ({ top: 0, bottom: 110, height: 110 }),
+    };
+    const lane = {
+      dataset: { kanbanLaneStatus: 'needs_refinement' },
+      querySelector: () => scroller,
+    };
+    vi.mocked(document.querySelectorAll).mockReturnValue([lane] as unknown as NodeListOf<Element>);
+
+    act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
+    act(() => { fakeWindow.dispatchEvent(windowPointerEvent('pointermove', { clientX: 30, clientY: 100 })); });
+    act(runNextFrame); // coalesced pointer movement
+    const targetReadsBeforeScroll = vi.mocked(document.elementFromPoint).mock.calls.length;
+    act(runNextFrame); // auto-scroll
+
+    expect(scroller.scrollTop).toBeGreaterThan(0);
+    expect(document.elementFromPoint).toHaveBeenCalledTimes(targetReadsBeforeScroll + 1);
+    act(() => ordering.cancelPointerDrag());
+  });
+
   it.each(['pointercancel', 'blur'])('clears active state on %s', async (type) => {
     const reorder = await render();
     act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30 })));
+    act(flushFrames);
     act(() => { fakeWindow.dispatchEvent(type === 'blur' ? new Event('blur') : windowPointerEvent(type)); });
 
     expect(ordering.dragPreview).toBeNull();
@@ -203,6 +246,7 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
 
     act(() => ordering.beginPointerDrag(pointerEvent(), card('b')));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30 })));
+    act(flushFrames);
     expect(ordering.draggingId).toBe('b');
     await act(async () => renderer.update(<Harness cards={[card('a', { status: 'ready' })]} reorder={reorder} />));
     expect(ordering.dragPreview).toBeNull();
@@ -213,6 +257,8 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     const reorder = await render();
     act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30 })));
+    act(flushFrames);
+    act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 40 })));
     await act(async () => renderer.unmount());
     act(() => { fakeWindow.dispatchEvent(windowPointerEvent('pointerup', { clientX: 30 })); });
 
