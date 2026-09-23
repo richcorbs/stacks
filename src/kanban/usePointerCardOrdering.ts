@@ -25,6 +25,15 @@ type PointerDrag = {
   dragging: boolean;
 };
 
+type PointerSample = {
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+  isPrimary: boolean;
+  buttons: number;
+  preventDefault: () => void;
+};
+
 export type CardDragPreview = {
   cardId: string;
   sourceStatus: KanbanStatus;
@@ -35,28 +44,10 @@ export type CardDragPreview = {
   clientY: number;
   beforeId: string | null;
   cardIds: string[];
-  orderRevision: number;
-};
-
-export type PreviewOrderTransition = {
-  revision: number;
-  draggedCardId: string;
-  affectedCardIds: string[];
-};
-
-type PreviewLifecycle = {
-  beforeOrderChange: (transition: PreviewOrderTransition) => void;
-  clear: () => void;
 };
 
 function sameOrder(left: string[], right: string[]) {
   return left.length === right.length && left.every((id, index) => id === right[index]);
-}
-
-export function affectedPreviewCardIds(current: string[], proposed: string[]) {
-  const currentIndexes = new Map(current.map((id, index) => [id, index]));
-  const proposedIndexes = new Map(proposed.map((id, index) => [id, index]));
-  return [...new Set([...current, ...proposed])].filter((id) => currentIndexes.get(id) !== proposedIndexes.get(id));
 }
 
 export function usePointerCardOrdering({
@@ -70,15 +61,15 @@ export function usePointerCardOrdering({
 }) {
   const [dragPreview, setDragPreview] = useState<CardDragPreview | null>(null);
   const pointerDragRef = useRef<PointerDrag | null>(null);
+  const pointerMoveFrameRef = useRef<number | null>(null);
   const dragScrollFrameRef = useRef<number | null>(null);
+  const dragOverlayRef = useRef<HTMLElement | null>(null);
   const suppressCardClickRef = useRef(false);
   const suppressCardClickTimerRef = useRef<number | null>(null);
   const allCardsRef = useRef(allCards);
   const visibleCardsRef = useRef(visibleCards);
   const reorderRef = useRef(reorder);
   const dragPreviewRef = useRef<CardDragPreview | null>(null);
-  const orderRevisionRef = useRef(0);
-  const previewLifecycleRef = useRef<PreviewLifecycle | null>(null);
   allCardsRef.current = allCards;
   visibleCardsRef.current = visibleCards;
   reorderRef.current = reorder;
@@ -93,11 +84,17 @@ export function usePointerCardOrdering({
       && visibleCardsRef.current.some((card) => card.id === drag.cardId && card.status === drag.status);
   }
 
+  function positionOverlay(drag: PointerDrag) {
+    const overlay = dragOverlayRef.current;
+    if (!overlay) return;
+    overlay.style.left = `${drag.clientX - drag.pointerOffsetX}px`;
+    overlay.style.top = `${drag.clientY - drag.pointerOffsetY}px`;
+  }
+
   function updatePreview(drag: PointerDrag, beforeId: string | null | undefined) {
     const current = dragPreviewRef.current;
-    // Moving outside the source column keeps the last valid gap. A release there
-    // is still rejected by finishPointerDragAt. If the threshold is crossed after
-    // leaving the lane, begin with a gap at the source's canonical position.
+    // Outside the source column, retain the last valid gap for live feedback. A
+    // release there is still rejected by finishPointerDragAt.
     const canonicalIds = laneCardIds(drag.status);
     const sourceIndex = canonicalIds.indexOf(drag.cardId);
     const sourceBeforeId = canonicalIds[sourceIndex + 1] ?? null;
@@ -105,16 +102,11 @@ export function usePointerCardOrdering({
     const cardIds = beforeId === undefined && current
       ? current.cardIds
       : dragPreviewOrder(canonicalIds, drag.cardId, validBeforeId);
-    const currentOrder = current?.cardIds ?? canonicalIds;
-    let orderRevision = current?.orderRevision ?? orderRevisionRef.current;
-    if (!sameOrder(currentOrder, cardIds)) {
-      orderRevision = ++orderRevisionRef.current;
-      previewLifecycleRef.current?.beforeOrderChange({
-        revision: orderRevision,
-        draggedCardId: drag.cardId,
-        affectedCardIds: affectedPreviewCardIds(currentOrder, cardIds),
-      });
-    }
+
+    // Pointer coordinates are intentionally not React state after the preview
+    // mounts. Re-render the board only when its effective insertion gap changes.
+    if (current && current.beforeId === validBeforeId && sameOrder(current.cardIds, cardIds)) return;
+
     const next = {
       cardId: drag.cardId,
       sourceStatus: drag.status,
@@ -125,7 +117,6 @@ export function usePointerCardOrdering({
       clientY: drag.clientY,
       beforeId: validBeforeId ?? null,
       cardIds,
-      orderRevision,
     };
     dragPreviewRef.current = next;
     setDragPreview(next);
@@ -147,10 +138,31 @@ export function usePointerCardOrdering({
       sourceBounds: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height },
       dragging: false,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // Capture is useful where it is reliable, but the window event stream below
+    // remains authoritative if WebKit drops capture while cards reorder.
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // A global stream is sufficient when capture is unavailable.
+    }
   }
 
-  function updatePointerDrag(event: ReactPointerEvent) {
+  function processLatestPointer() {
+    pointerMoveFrameRef.current = null;
+    const drag = pointerDragRef.current;
+    if (!drag) return;
+    if (!sourceIsValid(drag)) {
+      cancelPointerDrag();
+      return;
+    }
+    if (!drag.dragging && Math.hypot(drag.clientX - drag.startX, drag.clientY - drag.startY) < 5) return;
+    drag.dragging = true;
+    positionOverlay(drag);
+    updatePreview(drag, dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY));
+    startDragAutoScroll();
+  }
+
+  function queuePointerMove(event: PointerSample) {
     const drag = pointerDragRef.current;
     if (!drag || event.pointerId !== drag.pointerId) return;
     if (!event.isPrimary || (event.buttons & 1) === 0 || !sourceIsValid(drag)) {
@@ -159,11 +171,20 @@ export function usePointerCardOrdering({
     }
     drag.clientX = event.clientX;
     drag.clientY = event.clientY;
-    if (!drag.dragging && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
-    drag.dragging = true;
-    updatePreview(drag, dropTargetAtPoint(drag.cardId, drag.status, event.clientX, event.clientY));
-    startDragAutoScroll();
-    event.preventDefault();
+    if (drag.dragging || Math.hypot(drag.clientX - drag.startX, drag.clientY - drag.startY) >= 5) event.preventDefault();
+    if (pointerMoveFrameRef.current === null) {
+      pointerMoveFrameRef.current = requestAnimationFrame(processLatestPointer);
+    }
+  }
+
+  function flushPointerMove(clientX: number, clientY: number) {
+    const drag = pointerDragRef.current;
+    if (!drag) return;
+    drag.clientX = clientX;
+    drag.clientY = clientY;
+    if (pointerMoveFrameRef.current !== null) cancelAnimationFrame(pointerMoveFrameRef.current);
+    pointerMoveFrameRef.current = null;
+    processLatestPointer();
   }
 
   function startDragAutoScroll() {
@@ -196,8 +217,10 @@ export function usePointerCardOrdering({
     dragScrollFrameRef.current = requestAnimationFrame(scroll);
   }
 
-  function stopDragAutoScroll() {
+  function stopAnimationFrames() {
+    if (pointerMoveFrameRef.current !== null) cancelAnimationFrame(pointerMoveFrameRef.current);
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
+    pointerMoveFrameRef.current = null;
     dragScrollFrameRef.current = null;
   }
 
@@ -205,8 +228,8 @@ export function usePointerCardOrdering({
     const drag = pointerDragRef.current;
     pointerDragRef.current = null;
     dragPreviewRef.current = null;
-    stopDragAutoScroll();
-    previewLifecycleRef.current?.clear();
+    dragOverlayRef.current = null;
+    stopAnimationFrames();
     if (updateState) setDragPreview(null);
     return drag;
   }
@@ -227,11 +250,12 @@ export function usePointerCardOrdering({
   }
 
   async function finishPointerDragAt(clientX: number, clientY: number) {
+    flushPointerMove(clientX, clientY);
     const drag = clearPointerDrag();
     if (!drag?.dragging) return;
     suppressNextCardClick();
     if (!sourceIsValid(drag)) return;
-    const beforeId = dropTargetAtPoint(drag.cardId, drag.status, clientX, clientY);
+    const beforeId = dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY);
     if (beforeId === undefined) return;
     const currentIds = laneCardIds(drag.status);
     const visibleOrder = reorderKanbanCardIds(currentIds, drag.cardId, beforeId);
@@ -242,6 +266,7 @@ export function usePointerCardOrdering({
   async function finishPointerDrag(event: ReactPointerEvent) {
     const drag = pointerDragRef.current;
     if (!drag || event.pointerId !== drag.pointerId) return;
+    flushPointerMove(event.clientX, event.clientY);
     if (drag.dragging) {
       event.preventDefault();
       event.stopPropagation();
@@ -254,16 +279,18 @@ export function usePointerCardOrdering({
     if (drag && !sourceIsValid(drag)) cancelPointerDrag();
   }, [allCards, visibleCards]);
 
-  const setPreviewLifecycle = useCallback((lifecycle: PreviewLifecycle | null) => {
-    previewLifecycleRef.current = lifecycle;
+  const setDragOverlayElement = useCallback((element: HTMLDivElement | null) => {
+    dragOverlayRef.current = element;
+    const drag = pointerDragRef.current;
+    if (element && drag?.dragging) positionOverlay(drag);
   }, []);
 
   useEffect(() => {
-    // Reordering the captured card in the transient DOM can cause WebKit to drop
-    // pointer capture. Observe the pointer for the entire pending/active gesture.
+    const move = (event: PointerEvent) => queuePointerMove(event);
     const finish = (event: PointerEvent) => {
       const drag = pointerDragRef.current;
       if (!drag || event.pointerId !== drag.pointerId) return;
+      flushPointerMove(event.clientX, event.clientY);
       if (drag.dragging) {
         event.preventDefault();
         event.stopPropagation();
@@ -275,15 +302,18 @@ export function usePointerCardOrdering({
       if (drag && event.pointerId === drag.pointerId) cancelPointerDrag();
     };
     const cancelOnBlur = () => cancelPointerDrag();
+    window.addEventListener('pointermove', move, true);
     window.addEventListener('pointerup', finish, true);
     window.addEventListener('pointercancel', cancel, true);
     window.addEventListener('blur', cancelOnBlur);
     return () => {
+      window.removeEventListener('pointermove', move, true);
       window.removeEventListener('pointerup', finish, true);
       window.removeEventListener('pointercancel', cancel, true);
       window.removeEventListener('blur', cancelOnBlur);
       clearPointerDrag(false);
       if (suppressCardClickTimerRef.current !== null) window.clearTimeout(suppressCardClickTimerRef.current);
+      suppressCardClickRef.current = false;
     };
   }, []);
 
@@ -291,9 +321,9 @@ export function usePointerCardOrdering({
     draggingId: dragPreview?.cardId ?? null,
     dropBeforeId: dragPreview?.beforeId ?? null,
     dragPreview,
-    setPreviewLifecycle,
+    setDragOverlayElement,
     beginPointerDrag,
-    updatePointerDrag,
+    updatePointerDrag: queuePointerMove,
     finishPointerDrag,
     cancelPointerDrag,
     shouldSuppressCardClick: () => suppressCardClickRef.current,
