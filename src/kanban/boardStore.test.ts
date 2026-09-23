@@ -69,6 +69,110 @@ describe('KanbanEntityStore revision ordering', () => {
   });
 });
 
+describe('KanbanEntityStore projection caching', () => {
+  it('reuses a frozen board and the same card projections until visible output changes', () => {
+    const store = new KanbanEntityStore();
+    store.applyBoardSnapshot({ board_revision: 1, cards: [card('b', 1, { sort_order: 1 }), card('a')] });
+
+    const first = store.cards();
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(store.cards()).toBe(first);
+    expect(store.card('a')).toBe(first[0]);
+    expect(() => (first as KanbanCard[]).push(card('c'))).toThrow();
+
+    store.applyPartialChange(change(2, [card('b', 1, { title: 'stale' })]));
+    expect(store.cards()).toBe(first);
+    store.applyPartialChange(change(2, [card('b', 2, { title: 'new', sort_order: 1 })]));
+    const second = store.cards();
+    expect(second).not.toBe(first);
+    expect(second[0]).toBe(first[0]);
+    expect(store.card('b')).toBe(second[1]);
+  });
+
+  it('preserves projections for stale snapshots, duplicate events, and ignored removals', () => {
+    const store = new KanbanEntityStore();
+    store.applyBoardSnapshot({ board_revision: 2, cards: [card('a', 2)] });
+    const initial = store.cards();
+
+    expect(store.applyBoardSnapshot({ board_revision: 1, cards: [] })).toBe(false);
+    expect(store.applyBoardChange(change(2, [card('a', 2)]))).toBe(false);
+    expect(store.applyPartialChange(change(1, [], ['missing']))).toBe(false);
+    expect(store.cards()).toBe(initial);
+  });
+
+  it('invalidates once for a snapshot plus drained deltas and shares resulting card references', () => {
+    const store = new KanbanEntityStore();
+    store.applyBoardSnapshot({ board_revision: 1, cards: [card('a')] });
+    const initial = store.cards();
+    store.applyBoardChange(change(3, [card('c')]));
+
+    expect(store.applyBoardSnapshot({ board_revision: 2, cards: [card('a', 2), card('b')] })).toBe(true);
+    const projected = store.cards();
+    expect(projected).not.toBe(initial);
+    expect(projected.map(({ id }) => id)).toEqual(['a', 'b', 'c']);
+    for (const projectedCard of projected) expect(store.card(projectedCard.id)).toBe(projectedCard);
+    expect(store.cards()).toBe(projected);
+  });
+
+  it('invalidates only for effective optimistic output while retaining generation precedence', () => {
+    const store = new KanbanEntityStore();
+    store.applyBoardSnapshot({ board_revision: 1, cards: [card('a')] });
+    const canonical = store.cards();
+    const same = store.beginOptimistic(new Map([['a', { status: 'needs_refinement' as const, sort_order: 0 }]]));
+    expect(store.cards()).toBe(canonical);
+    expect(store.card('a')).toBe(canonical[0]);
+
+    const first = store.beginOptimistic(new Map([['a', { status: 'ready' as const }]]));
+    const ready = store.cards();
+    expect(ready).not.toBe(canonical);
+    expect(store.card('a')).toBe(ready[0]);
+    const second = store.beginOptimistic(new Map([['a', { status: 'ready' as const }]]));
+    expect(store.cards()).toBe(ready);
+    store.finishOptimistic(first);
+    store.finishOptimistic(same);
+    expect(store.cards()).toBe(ready);
+    store.finishOptimistic(second);
+    expect(store.cards()).not.toBe(ready);
+    expect(store.card('a')?.status).toBe('needs_refinement');
+  });
+
+  it('does constant per-card projection work and no work for unchanged board reads', () => {
+    const measuredStore = (size: number) => {
+      let reads = 0;
+      const cards = Array.from({ length: size }, (_, index) => {
+        const value = card(`card-${index}`, 1, { sort_order: index, created_at: index });
+        for (const field of ['status', 'sort_order', 'created_at'] as const) {
+          let fieldValue = value[field];
+          Object.defineProperty(value, field, {
+            configurable: true,
+            enumerable: true,
+            get: () => { reads += 1; return fieldValue; },
+            set: (next) => { fieldValue = next; },
+          });
+        }
+        return value;
+      });
+      const store = new KanbanEntityStore();
+      store.applyBoardSnapshot({ board_revision: 1, cards });
+      reads = 0;
+      return { store, reads: () => reads, reset: () => { reads = 0; } };
+    };
+
+    const small = measuredStore(2);
+    const large = measuredStore(200);
+    small.store.card('card-1');
+    large.store.card('card-199');
+    expect(large.reads()).toBe(small.reads());
+
+    large.reset();
+    const projection = large.store.cards();
+    expect(large.reads()).toBeGreaterThan(0);
+    large.reset();
+    expect(large.store.cards()).toBe(projection);
+    expect(large.reads()).toBe(0);
+  });
+});
+
 describe('KanbanEntityStore optimistic operation isolation', () => {
   it('a failed move removes only its field and preserves another card update', () => {
     const store = new KanbanEntityStore();

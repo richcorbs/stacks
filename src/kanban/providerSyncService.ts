@@ -5,7 +5,7 @@ export type ProviderSyncState = { syncing: boolean; providerError: string | null
 
 export type ProviderSyncDependencies = {
   persist: (ownerProjectId: string, snapshot: Awaited<ReturnType<SuperthreadIntegration['sync']>>) => Promise<BoardChange>;
-  cards: () => KanbanCardSummary[];
+  cards: () => readonly KanbanCardSummary[];
   applyChange: (change: BoardChange) => void;
   setState: (state: Partial<ProviderSyncState>) => void;
   notify: (message: string) => void;

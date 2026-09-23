@@ -41,8 +41,12 @@ describe('KanbanController', () => {
     expect(Object.isFrozen(controller.getSnapshot())).toBe(true);
     expect(Object.isFrozen(controller.getSnapshot().cards)).toBe(true);
     const count = snapshots.length;
+    const snapshot = controller.getSnapshot();
+    const cards = snapshot.cards;
     controller.applyCardSnapshot(card('a')); // same record revision is stale
     expect(snapshots).toHaveLength(count);
+    expect(controller.getSnapshot()).toBe(snapshot);
+    expect(controller.getSnapshot().cards).toBe(cards);
   });
 
   it('rejects an obsolete repeated load response', async () => {
