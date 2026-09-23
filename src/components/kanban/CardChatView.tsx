@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import type { Project } from '../../types';
 import type { KanbanCard } from '../../kanban/types';
-import { cardChatPrompt, cardPaneId, cardWorkspaceId, type CardChatThread } from '../../kanban/cardWorkspace';
+import { cardPaneId, cardWorkspaceId, type CardChatThread } from '../../kanban/cardWorkspace';
 
 const PiGuiView = lazy(() => import('../PiGuiView').then((module) => ({ default: module.PiGuiView })));
 
@@ -14,7 +14,7 @@ export function CardChatView({ card, project, cardPath, thread, active, deployme
       <PiGuiView key={thread} terminal={{ id: cardPaneId(card.id, thread), workspaceId: cardWorkspaceId(card.id), kind: 'pi' }}
         workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: thread === 'work' ? cardPath! : project.path }}
         project={project} active={active} visible={active} maximized={false} canToggleMaximize={false} restartRequestNonce={0}
-        initialPrompt={thread === 'planning' ? cardChatPrompt(card, thread) : undefined} fontSize={13}
+        fontSize={13}
         onFocus={() => {}} onClose={() => {}} onSplitTerminal={() => {}} onEditTerminal={() => {}} onToggleMaximize={() => {}} />
     </Suspense>
   </div></section>;

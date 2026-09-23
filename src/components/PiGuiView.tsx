@@ -18,7 +18,7 @@ import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
 
-export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, initialPrompt, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
+export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -27,7 +27,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   maximized: boolean;
   canToggleMaximize: boolean;
   restartRequestNonce: number;
-  initialPrompt?: string;
   fontSize: number;
   onFocus: () => void;
   onClose: () => void;
@@ -68,7 +67,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const preventSummaryToggleRef = useRef(false);
   const historyIndexRef = useRef<number | null>(null);
   const historyDraftRef = useRef('');
-  const initialPromptSentRef = useRef(false);
   const quickResponseInFlightRef = useRef(false);
   const selectionRef = useRef({ start: 0, end: 0 });
   const pathRequestRef = useRef(0);
@@ -112,15 +110,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     previousVisibleRef.current = visible;
     if (becameVisible && pi.stopped) pi.restart().catch(() => {});
   }, [pi.restart, pi.stopped, visible]);
-
-  useEffect(() => {
-    if (!visible || !initialPrompt || initialPromptSentRef.current || pi.starting || pi.stopped || pi.isStreaming || pi.messages.length > 0) return;
-    initialPromptSentRef.current = true;
-    pi.prompt(initialPrompt, []).catch((error) => {
-      initialPromptSentRef.current = false;
-      console.error('Could not start the Pi conversation', error);
-    });
-  }, [initialPrompt, pi.isStreaming, pi.messages.length, pi.prompt, pi.starting, pi.stopped, visible]);
 
   useEffect(() => {
     if (!restartRequestNonce || handledRestartNonceRef.current === restartRequestNonce) return;

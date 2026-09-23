@@ -279,6 +279,10 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     selectCard(card.id);
     detailCoordinatorRef.current?.select(card.id);
     void hydrateCardDetails(card, true).catch(() => {});
+    if (card.status === 'needs_refinement') {
+      void launchPlanningAgent(card.id, projects, board.applyCardSnapshot)
+        .catch((error) => showAppToast(error instanceof Error ? error.message : String(error)));
+    }
   }
 
   function closeCardDetail(expectedCardId?: string) {

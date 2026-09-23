@@ -322,6 +322,41 @@ describe('PiSessionController', () => {
     h.controller.delete();
   });
 
+  it('treats an already active hydrated turn as launched without another prompt', async () => {
+    const h = harness();
+    const launch = h.controller.submitWorkLaunch('full card task');
+    await vi.waitFor(() => expect(h.commands.length).toBeGreaterThanOrEqual(2));
+    respond(h, 0, 'get_state', { isStreaming: true });
+    respond(h, 1, 'get_messages', { messages: [{ role: 'user', content: 'full card task', timestamp: 1 }] });
+    await expect(launch).resolves.toBe(true);
+    expect(h.commands.filter((command) => command.type === 'prompt')).toHaveLength(0);
+    h.controller.delete();
+  });
+
+  it('rehydrates an ambiguous failed prompt and does not replay one Pi accepted', async () => {
+    const h = harness();
+    const launch = h.controller.submitWorkLaunch('full card task');
+    await vi.waitFor(() => expect(h.commands.length).toBeGreaterThanOrEqual(2));
+    respond(h, 0, 'get_state', { isStreaming: false });
+    respond(h, 1, 'get_messages', { messages: [] });
+    await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'prompt')).toBe(true));
+    const promptIndex = h.commands.findIndex((command) => command.type === 'prompt');
+    h.emit(envelope({ type: 'message_end', message: { role: 'user', content: 'full card task', timestamp: 99 } }));
+    h.controller.project(envelope({ type: 'response', id: h.commands[promptIndex].id as string, command: 'prompt', success: false, error: 'transport lost reply' }));
+
+    await vi.waitFor(() => expect(h.commands.filter((command) => command.type === 'get_state')).toHaveLength(2));
+    const stateIndex = h.commands.map((command) => command.type).lastIndexOf('get_state');
+    const messagesIndex = h.commands.map((command) => command.type).lastIndexOf('get_messages');
+    respond(h, stateIndex, 'get_state', { isStreaming: true });
+    respond(h, messagesIndex, 'get_messages', { messages: [{ role: 'user', content: 'full card task', timestamp: 99 }] });
+
+    await expect(launch).resolves.toBe(true);
+    expect(h.commands.filter((command) => command.type === 'prompt')).toHaveLength(1);
+    expect(h.controller.getSnapshot().messages).toHaveLength(1);
+    expect(h.controller.getSnapshot().error).toBeNull();
+    h.controller.delete();
+  });
+
   it('continues a persisted work transcript instead of resending the original task', async () => {
     const h = harness();
     const launch = h.controller.submitWorkLaunch('full card task');
