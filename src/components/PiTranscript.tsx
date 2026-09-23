@@ -38,9 +38,7 @@ export const PiMessage = memo(function PiMessage({ message, toolArg }: { message
   }
   if (message.role === 'assistant') {
     const blocks = Array.isArray(message.content) ? message.content : [];
-    const visibleBlocks = blocks.filter((block) =>
-      (block.type === 'text' && typeof block.text === 'string' && block.text.trim())
-      || (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()));
+    const visibleBlocks = projectAssistantContent(blocks);
     if (visibleBlocks.length === 0) return null;
     return <div className="piMessage piMessageAssistant">
       {visibleBlocks.map((block, index) => {
@@ -66,6 +64,59 @@ export const PiMessage = memo(function PiMessage({ message, toolArg }: { message
   }
   return null;
 });
+
+const MIN_NEAR_DUPLICATE_TOKENS = 12;
+const NEAR_DUPLICATE_TOKEN_SIMILARITY = 0.97;
+const NEAR_DUPLICATE_TRIGRAM_SIMILARITY = 0.94;
+
+/**
+ * Produces a display-only view of one settled assistant turn. Pi can persist
+ * substantially equivalent commentary and final text as separate blocks; in
+ * that case the later wording wins without changing the raw transcript.
+ */
+export function projectAssistantContent(blocks: PiContentBlock[]) {
+  const visibleBlocks = blocks.filter((block) =>
+    (block.type === 'text' && typeof block.text === 'string' && block.text.trim())
+    || (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()));
+  return visibleBlocks.filter((block, index) => {
+    if (block.type !== 'text' || typeof block.text !== 'string') return true;
+    const earlierText = block.text;
+    return !visibleBlocks.slice(index + 1).some((later) =>
+      later.type === 'text'
+      && typeof later.text === 'string'
+      && substantiallyEquivalentText(earlierText, later.text));
+  });
+}
+
+function substantiallyEquivalentText(left: string, right: string) {
+  const leftTokens = normalizedTextTokens(left);
+  const rightTokens = normalizedTextTokens(right);
+  if (leftTokens.join(' ') === rightTokens.join(' ')) return true;
+  if (leftTokens.length < MIN_NEAR_DUPLICATE_TOKENS || rightTokens.length < MIN_NEAR_DUPLICATE_TOKENS) return false;
+  return diceSimilarity(leftTokens, rightTokens) >= NEAR_DUPLICATE_TOKEN_SIMILARITY
+    && diceSimilarity(tokenTrigrams(leftTokens), tokenTrigrams(rightTokens)) >= NEAR_DUPLICATE_TRIGRAM_SIMILARITY;
+}
+
+function normalizedTextTokens(text: string) {
+  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+function tokenTrigrams(tokens: string[]) {
+  return tokens.slice(0, -2).map((_, index) => tokens.slice(index, index + 3).join('\u0000'));
+}
+
+function diceSimilarity(left: string[], right: string[]) {
+  const available = new Map<string, number>();
+  for (const token of left) available.set(token, (available.get(token) ?? 0) + 1);
+  let shared = 0;
+  for (const token of right) {
+    const count = available.get(token) ?? 0;
+    if (count === 0) continue;
+    shared += 1;
+    available.set(token, count - 1);
+  }
+  return (2 * shared) / (left.length + right.length);
+}
 
 function MessageTimestamp({ timestamp }: { timestamp?: number }) {
   if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return null;
