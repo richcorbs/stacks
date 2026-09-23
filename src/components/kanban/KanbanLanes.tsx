@@ -4,7 +4,7 @@ import type { Project } from '../../types';
 import type { CardPullRequestIndicator, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import type { CardView } from '../../kanban/cardView';
-import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
+import type { PreviewOrderTransition, usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import { KANBAN_LANES } from '../../kanban/workflow';
 import { owningProject } from '../../kanban/projectScope';
 import { pullRequestPresentation } from '../../kanban/pullRequestPresentation';
@@ -101,6 +101,99 @@ export function kanbanCardClassName(card: Pick<KanbanCardSummary, 'child_count'>
   return `kanbanCard${card.child_count > 0 ? ' kanbanParentCard' : ''}${keyboardFocused ? ' keyboardFocused' : ''}`;
 }
 
+type CardWrapperElement = Pick<HTMLDivElement, 'getBoundingClientRect' | 'animate' | 'style'>;
+
+type PendingFlip = {
+  revision: number;
+  draggedCardId: string;
+  rectangles: Map<string, DOMRect>;
+};
+
+/** Ref-backed FLIP state. Exported as a focused test seam. */
+export function createKanbanFlipCoordinator() {
+  const elements = new Map<string, CardWrapperElement>();
+  const refCallbacks = new Map<string, (element: HTMLDivElement | null) => void>();
+  const animations = new Map<string, Animation>();
+  let pending: PendingFlip | null = null;
+
+  const cancelAnimation = (id: string) => {
+    const animation = animations.get(id);
+    if (!animation) return;
+    animations.delete(id);
+    animation.onfinish = null;
+    animation.cancel();
+    const element = elements.get(id);
+    if (element) element.style.transform = '';
+  };
+
+  const cancelAnimations = () => [...animations.keys()].forEach(cancelAnimation);
+
+  const register = (id: string, element: HTMLDivElement | null) => {
+    if (element) {
+      elements.set(id, element);
+      return;
+    }
+    cancelAnimation(id);
+    elements.delete(id);
+    pending?.rectangles.delete(id);
+  };
+
+  return {
+    cardRef(id: string) {
+      let callback = refCallbacks.get(id);
+      if (!callback) {
+        callback = (element) => register(id, element);
+        refCallbacks.set(id, callback);
+      }
+      return callback;
+    },
+    beforeOrderChange({ revision, draggedCardId, affectedCardIds }: PreviewOrderTransition) {
+      cancelAnimations();
+      const rectangles = pending?.rectangles ?? new Map<string, DOMRect>();
+      for (const id of affectedCardIds) {
+        if (id === draggedCardId || rectangles.has(id)) continue;
+        const element = elements.get(id);
+        if (element) rectangles.set(id, element.getBoundingClientRect());
+      }
+      pending = { revision, draggedCardId, rectangles };
+    },
+    commit(revision: number | undefined) {
+      if (!pending || revision !== pending.revision) return;
+      const transition = pending;
+      pending = null;
+      transition.rectangles.forEach((previous, id) => {
+        if (id === transition.draggedCardId) return;
+        const element = elements.get(id);
+        if (!element) return;
+        const next = element.getBoundingClientRect();
+        const x = previous.left - next.left;
+        const y = previous.top - next.top;
+        if (x === 0 && y === 0) return;
+        const animation = element.animate(
+          [{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }],
+          { duration: 160, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+        );
+        animations.set(id, animation);
+        animation.onfinish = () => {
+          if (animations.get(id) !== animation) return;
+          animations.delete(id);
+          element.style.transform = '';
+        };
+      });
+    },
+    clear() {
+      pending = null;
+      cancelAnimations();
+    },
+    dispose() {
+      pending = null;
+      cancelAnimations();
+      elements.clear();
+      refCallbacks.clear();
+    },
+  };
+}
+
 export function KanbanCardContents({
   card,
   projects,
@@ -177,41 +270,32 @@ export function KanbanLanes({
   onOpenCard: (card: KanbanCardSummary, initialView?: CardView) => void;
   onNavigateParent: (parentId: string) => void;
 }) {
-  const cardWrapperRefs = useRef(new Map<string, HTMLDivElement>());
-  const previousCardRects = useRef(new Map<string, DOMRect>());
-  const previousPreviewOrder = useRef<string | null>(null);
-  const movementAnimations = useRef(new Map<string, Animation>());
+  const flipCoordinatorRef = useRef<ReturnType<typeof createKanbanFlipCoordinator> | null>(null);
+  if (!flipCoordinatorRef.current) flipCoordinatorRef.current = createKanbanFlipCoordinator();
+  const flipCoordinator = flipCoordinatorRef.current;
+  const orderRevision = pointer.dragPreview?.orderRevision;
+  const dragging = Boolean(pointer.dragPreview);
 
   useLayoutEffect(() => {
-    movementAnimations.current.forEach((animation) => animation.cancel());
-    movementAnimations.current.clear();
-    const nextOrder = pointer.dragPreview?.cardIds.join('|') ?? '';
-    const shouldAnimate = previousPreviewOrder.current !== null && previousPreviewOrder.current !== nextOrder;
-    const nextRects = new Map<string, DOMRect>();
-    cardWrapperRefs.current.forEach((element, id) => {
-      const next = element.getBoundingClientRect();
-      nextRects.set(id, next);
-      const previous = previousCardRects.current.get(id);
-      if (!shouldAnimate || !previous || id === pointer.draggingId) return;
-      const x = previous.left - next.left;
-      const y = previous.top - next.top;
-      if (x === 0 && y === 0) return;
-      const animation = element.animate(
-        [{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }],
-        { duration: 160, easing: 'cubic-bezier(.2, .8, .2, 1)' },
-      );
-      movementAnimations.current.set(id, animation);
-      animation.onfinish = () => movementAnimations.current.delete(id);
+    pointer.setPreviewLifecycle({
+      beforeOrderChange: flipCoordinator.beforeOrderChange,
+      clear: flipCoordinator.clear,
     });
-    previousCardRects.current = nextRects;
-    previousPreviewOrder.current = nextOrder;
-  });
+    return () => {
+      pointer.setPreviewLifecycle(null);
+      flipCoordinator.clear();
+    };
+  }, [flipCoordinator, pointer.setPreviewLifecycle]);
 
-  useEffect(() => () => movementAnimations.current.forEach((animation) => animation.cancel()), []);
+  useLayoutEffect(() => {
+    flipCoordinator.commit(orderRevision);
+  }, [flipCoordinator, orderRevision]);
+
+  useEffect(() => () => flipCoordinator.dispose(), [flipCoordinator]);
   useEffect(() => {
-    document.documentElement.classList.toggle('kanbanDragging', Boolean(pointer.dragPreview));
+    document.documentElement.classList.toggle('kanbanDragging', dragging);
     return () => document.documentElement.classList.remove('kanbanDragging');
-  }, [pointer.dragPreview]);
+  }, [dragging]);
 
   const draggedCard = pointer.dragPreview
     ? visibleCards.find((card) => card.id === pointer.dragPreview?.cardId) ?? null
@@ -274,10 +358,7 @@ export function KanbanLanes({
                 return <div
                   className={`kanbanCardWrapper${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}${placeholder ? ' kanbanCardPlaceholder' : ''}`}
                   key={card.id}
-                  ref={(element) => {
-                    if (element) cardWrapperRefs.current.set(card.id, element);
-                    else cardWrapperRefs.current.delete(card.id);
-                  }}
+                  ref={flipCoordinator.cardRef(card.id)}
                 >
                   <div
                     className={kanbanCardClassName(card, keyboardFocusedCardId === card.id)}
