@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { PiCommand, PiMessage, PiModel, PiPromptImage, PiResponseEvent, PiRpcEnvelope, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
 import { subscribePiEvents } from './eventBroker';
-import { appendPiMessage, compactPiMessages } from './transcript';
+import { appendPiMessage, reconcilePiMessages } from './transcript';
 import { GUI_BUILTIN_COMMANDS } from './commands';
 import { notifyPiAgentSettled, notifyPiPromptFailed } from './promptEvent';
 import { notifyPiUiRequestDismissed, notifyPiUiRequestReceived, preparePiUiRequestResponse } from './uiRequestWorkflow';
@@ -124,7 +124,15 @@ export class PiSessionController {
       if (!await stillEligible()) return false;
       if (this.snapshot.isStreaming) return true;
       const acceptedPromptExists = this.snapshot.messages.some((message) => message.role === 'user');
-      await this.prompt(acceptedPromptExists ? 'continue' : initialPrompt);
+      const userMessagesBeforePrompt = this.userMessageCount();
+      try {
+        await this.prompt(acceptedPromptExists ? 'continue' : initialPrompt);
+      } catch (error) {
+        // A transport timeout is ambiguous: Pi may have accepted the prompt
+        // even though its response never reached Stacks. Reinspect the durable
+        // process before allowing orchestration to retry with a new controller.
+        if (!await this.reinspectPromptAcceptance(userMessagesBeforePrompt)) throw error;
+      }
       return true;
     });
     this.launchPromptPromise = launch;
@@ -335,10 +343,23 @@ export class PiSessionController {
     if (!Array.isArray(response.data?.messages)) return;
     // Live message_end events may race hydration. Hydrated history is the base,
     // then newer projected messages are appended with transcript deduplication.
-    let messages = compactPiMessages(response.data.messages);
-    for (const current of this.snapshot.messages) messages = appendPiMessage(messages, current);
-    this.patch({ messages: compactPiMessages(messages) });
+    this.patch({ messages: reconcilePiMessages(response.data.messages, this.snapshot.messages) });
   };
+
+  private userMessageCount() {
+    return this.snapshot.messages.filter((message) => message.role === 'user' && !message.local).length;
+  }
+
+  private async reinspectPromptAcceptance(userMessagesBeforePrompt: number) {
+    try {
+      await Promise.all([this.refreshState(), this.refreshMessages()]);
+    } catch {
+      return false;
+    }
+    const accepted = this.snapshot.isStreaming || this.userMessageCount() > userMessagesBeforePrompt;
+    if (accepted) this.patch({ error: null });
+    return accepted;
+  }
 
   private refreshState = async () => {
     const requestedAtRevision = this.activityRevision;

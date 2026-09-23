@@ -73,6 +73,15 @@ describe('planning launcher', () => {
     expect(deps.applyCard).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'needs_refinement_input' }), 5);
   });
 
+  it('does not relaunch from a repeated open after refinement has started', async () => {
+    const current = { card: card() as KanbanCard | null };
+    const deps = dependencies(current);
+    expect(await runPlanningLaunch('local:172', projects, deps)).toBe(true);
+    expect(await runPlanningLaunch('local:172', projects, deps)).toBe(false);
+    expect(deps.beginRefinement).toHaveBeenCalledOnce();
+    expect(deps.submit).toHaveBeenCalledOnce();
+  });
+
   it('deduplicates concurrent requests', async () => {
     resetPlanningLaunchesForTests();
     const current = { card: card() as KanbanCard | null };

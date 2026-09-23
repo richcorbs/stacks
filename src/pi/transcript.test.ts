@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendPiMessage, compactPiMessages, hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, visiblePiMessages } from './transcript';
+import { appendPiMessage, compactPiMessages, hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, reconcilePiMessages, visiblePiMessages } from './transcript';
 import type { PiMessage } from './types';
 
 describe('Pi transcript', () => {
@@ -18,6 +18,30 @@ describe('Pi transcript', () => {
     const optimistic: PiMessage = { role: 'user', content: 'hello', timestamp: 1, local: true };
     const persisted: PiMessage = { role: 'user', content: [{ type: 'text', text: 'hello' }], timestamp: 2 };
     expect(appendPiMessage([optimistic], persisted)).toEqual([persisted]);
+  });
+
+  it('reconciles optimistic, live, and hydrated copies by occurrence', () => {
+    const optimistic: PiMessage = { role: 'user', content: 'plan this', timestamp: 10, local: true };
+    const liveUser: PiMessage = { role: 'user', content: 'plan this', timestamp: 20 };
+    const liveAssistant: PiMessage = { role: 'assistant', content: 'working', timestamp: 30 };
+    const hydrated = [
+      { role: 'user', content: [{ type: 'text' as const, text: 'plan this' }], timestamp: 20 },
+      { role: 'assistant', content: 'working', timestamp: 30 },
+    ];
+    expect(reconcilePiMessages(hydrated, [optimistic, liveUser, liveAssistant])).toEqual(hydrated);
+  });
+
+  it('does not collapse intentional identical user messages from separate turns', () => {
+    const first: PiMessage = { role: 'user', content: 'continue', timestamp: 1 };
+    const second: PiMessage = { role: 'user', content: 'continue', timestamp: 2 };
+    expect(reconcilePiMessages([first], [first, second])).toEqual([first, second]);
+    expect(appendPiMessage([first], second)).toEqual([first, second]);
+  });
+
+  it('deduplicates a stable live message even when it is no longer last', () => {
+    const assistant: PiMessage = { id: 'assistant-1', role: 'assistant', content: 'done' };
+    const messages = [assistant, { role: 'user', content: 'later', timestamp: 2 }];
+    expect(appendPiMessage(messages, { ...assistant })).toBe(messages);
   });
 
   it('collapses expanded skill documentation back to its invocation', () => {

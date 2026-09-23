@@ -27,12 +27,45 @@ export function compactPiMessages(messages: PiMessage[]): PiMessage[] {
 
 export function appendPiMessage(messages: PiMessage[], rawMessage: PiMessage): PiMessage[] {
   const message = rawMessage.local ? rawMessage : compactPiMessage(rawMessage);
+  const existingIndex = messages.findIndex((current) => sameMessage(current, message));
+  if (existingIndex >= 0) {
+    if (!messages[existingIndex].local || message.local) return messages;
+    const next = [...messages];
+    next[existingIndex] = restoreImagePreviews(message, messages[existingIndex]);
+    return retainRecentImagePreviews(next);
+  }
   const last = messages[messages.length - 1];
-  if (last && sameMessage(last, message)) return messages;
   if (last?.local && last.role === 'user' && message.role === 'user' && textContent(last) === textContent(message)) {
     return retainRecentImagePreviews([...messages.slice(0, -1), restoreImagePreviews(message, last)]);
   }
   return retainRecentImagePreviews([...messages, message]);
+}
+
+/**
+ * Reconciles an authoritative hydration with messages already projected from
+ * optimistic UI and live events. Occurrence matching is one-to-one so two
+ * intentional, identical turns remain two messages.
+ */
+export function reconcilePiMessages(hydrated: PiMessage[], projected: PiMessage[]): PiMessage[] {
+  let messages = compactPiMessages(hydrated);
+  const hydratedCount = messages.length;
+  const claimedHydrated = new Set<number>();
+  for (const rawCurrent of projected) {
+    const current = rawCurrent.local ? rawCurrent : compactPiMessage(rawCurrent);
+    let match = messages.findIndex((candidate, index) => index < hydratedCount && sameMessage(candidate, current));
+    if (match < 0) {
+      match = messages.findIndex((candidate, index) => index < hydratedCount && !claimedHydrated.has(index)
+        && candidate.role === current.role
+        && textContent(candidate) === textContent(current));
+    }
+    if (match >= 0) {
+      claimedHydrated.add(match);
+      if (current.local) messages[match] = restoreImagePreviews(messages[match], current);
+      continue;
+    }
+    messages = appendPiMessage(messages, current);
+  }
+  return compactPiMessages(messages);
 }
 
 function restoreImagePreviews(message: PiMessage, localMessage: PiMessage): PiMessage {
@@ -111,7 +144,9 @@ function textContent(message: PiMessage) {
 
 function sameMessage(left: PiMessage, right: PiMessage) {
   if (left.role !== right.role) return false;
-  if (left.timestamp && right.timestamp) return left.timestamp === right.timestamp;
+  if (typeof left.id === 'string' && left.id && typeof right.id === 'string' && right.id) return left.id === right.id;
+  if (typeof left.messageId === 'string' && left.messageId && typeof right.messageId === 'string' && right.messageId) return left.messageId === right.messageId;
+  if (left.timestamp !== undefined && left.timestamp !== null && right.timestamp !== undefined && right.timestamp !== null) return left.timestamp === right.timestamp;
   if (left.toolCallId && right.toolCallId) return left.toolCallId === right.toolCallId;
   return false;
 }
