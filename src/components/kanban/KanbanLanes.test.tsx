@@ -1,11 +1,11 @@
-import { createRef } from 'react';
+import { createRef, type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
 import type { CardServices } from '../../kanban/useCardServices';
-import { DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import { DoneLaneMenu, KanbanCardContents, KanbanLanes, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
 import { cardServerAvailability } from './BoardCardServerServices';
 
 const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
@@ -76,6 +76,45 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
       onCleanupMerged={() => {}}
     />,
   );
+}
+
+function renderLanes(cards: KanbanCard[], doneCollapsed = false) {
+  const pointer = {
+    draggingId: null,
+    dropBeforeId: null,
+    dragPreview: null,
+    setDragOverlayElement: () => {},
+    beginPointerDrag: () => {},
+    updatePointerDrag: () => {},
+    finishPointerDrag: async () => {},
+    cancelPointerDrag: () => {},
+    shouldSuppressCardClick: () => false,
+  } as ComponentProps<typeof KanbanLanes>['pointer'];
+
+  return renderToStaticMarkup(<KanbanLanes
+    cards={cards}
+    projects={[project]}
+    repositoryStatuses={{}}
+    serverServices={{}}
+    doneCollapsed={doneCollapsed}
+    doneToggleRef={createRef<HTMLButtonElement>()}
+    openLaneMenu={null}
+    setOpenLaneMenu={() => {}}
+    cleaningMerged={false}
+    keyboardFocusedCardId={null}
+    setKeyboardFocusedCardId={() => {}}
+    pointer={pointer}
+    onToggleDone={() => {}}
+    onCleanupMerged={() => {}}
+    onOpenCard={() => {}}
+    onNavigateParent={() => {}}
+  />);
+}
+
+function laneMarkup(markup: string, status: KanbanStatus) {
+  const lane = markup.match(new RegExp(`<section[^>]*data-kanban-lane-status="${status}"[^>]*>[\\s\\S]*?</section>`));
+  if (!lane) throw new Error(`Missing ${status} lane`);
+  return lane[0];
 }
 
 describe('kanbanCardClassName', () => {
@@ -198,6 +237,63 @@ describe('KanbanPullRequestBadge', () => {
 
   it('does not render non-open pull requests', () => {
     expect(renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest({ state: 'merged' })} />)).toBe('');
+  });
+});
+
+describe('KanbanLanes headings', () => {
+  it('renders every expanded heading with its current parenthesized card count', () => {
+    const cards = [
+      card({ id: 'ready-1', status: 'ready' }),
+      card({ id: 'working-1', status: 'agent_working' }),
+      card({ id: 'working-2', status: 'agent_working' }),
+      card({ id: 'done-1', status: 'done' }),
+    ];
+    const markup = renderLanes(cards);
+    const expected = {
+      needs_refinement: ['Needs refinement', 0],
+      refining: ['Refining', 0],
+      needs_refinement_input: ['Needs you for refinement', 0],
+      ready: ['Ready for agent', 1],
+      agent_working: ['Agent working', 2],
+      needs_human: ['Needs you', 0],
+      approved: ['Ready to merge', 0],
+      done: ['Done', 1],
+    } satisfies Record<KanbanStatus, [string, number]>;
+
+    for (const [status, [label, count]] of Object.entries(expected) as [KanbanStatus, [string, number]][]) {
+      expect(laneMarkup(markup, status)).toContain(`<strong class="kanbanLaneTitle">${label} <span class="kanbanLaneCount">(${count})</span></strong>`);
+    }
+  });
+
+  it('updates source and destination counts when a card changes columns', () => {
+    const readyCard = card({ id: 'moving-card', status: 'ready' });
+    const before = renderLanes([readyCard]);
+    const after = renderLanes([{ ...readyCard, status: 'agent_working' }]);
+
+    expect(laneMarkup(before, 'ready')).toContain('Ready for agent <span class="kanbanLaneCount">(1)</span>');
+    expect(laneMarkup(before, 'agent_working')).toContain('Agent working <span class="kanbanLaneCount">(0)</span>');
+    expect(laneMarkup(after, 'ready')).toContain('Ready for agent <span class="kanbanLaneCount">(0)</span>');
+    expect(laneMarkup(after, 'agent_working')).toContain('Agent working <span class="kanbanLaneCount">(1)</span>');
+  });
+
+  it('keeps the expanded Done menu separate from and after its title group', () => {
+    const done = laneMarkup(renderLanes([card({ id: 'done-1', status: 'done' })]), 'done');
+    const titleEnd = done.indexOf('</strong>');
+    const actionsStart = done.indexOf('class="kanbanLaneHeaderActions"');
+
+    expect(done).toContain('Done <span class="kanbanLaneCount">(1)</span>');
+    expect(titleEnd).toBeGreaterThan(-1);
+    expect(actionsStart).toBeGreaterThan(titleEnd);
+    expect(done).toContain('aria-label="Done column actions"');
+  });
+
+  it('leaves the collapsed Done header as the actions menu only', () => {
+    const done = laneMarkup(renderLanes([card({ id: 'done-1', status: 'done' })], true), 'done');
+
+    expect(done).toContain('class="kanbanLaneCollapsedHeader"');
+    expect(done).toContain('aria-label="Done column actions"');
+    expect(done).not.toContain('kanbanLaneTitle');
+    expect(done).not.toContain('kanbanLaneCount');
   });
 });
 

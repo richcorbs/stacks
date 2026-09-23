@@ -240,11 +240,12 @@ export function KanbanLanes({
             </header>
           ) : (<>
             <header>
-              <div>
-                <strong>{lane.label}</strong>
-                <span className="kanbanLaneHeaderActions">
-                  <span className="kanbanLaneCount">{cards.length}</span>
-                  {lane.status === 'done' && (
+              <div className="kanbanLaneHeader">
+                <strong className="kanbanLaneTitle">
+                  {lane.label} <span className="kanbanLaneCount">({cards.length})</span>
+                </strong>
+                {lane.status === 'done' && (
+                  <span className="kanbanLaneHeaderActions">
                     <DoneLaneMenu
                       cardsCount={cards.length}
                       collapsed={false}
@@ -255,8 +256,8 @@ export function KanbanLanes({
                       onToggle={onToggleDone}
                       onCleanupMerged={onCleanupMerged}
                     />
-                  )}
-                </span>
+                  </span>
+                )}
               </div>
             </header>
             <div className="kanbanLaneCards">
