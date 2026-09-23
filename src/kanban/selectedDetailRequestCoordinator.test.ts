@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { detailIsCurrent, mergeCardEvents, SelectedDetailRequestCoordinator } from './selectedDetailRequestCoordinator';
+import { canProjectSelectedDetail, detailIsCurrent, mergeCardEvents, SelectedDetailRequestCoordinator } from './selectedDetailRequestCoordinator';
 import type { KanbanCard } from './types';
 
 function deferred<T>() {
@@ -9,11 +9,11 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function card(revision: number, environmentRevision = 0): KanbanCard {
+function card(revision: number, environmentRevision = 0, id = 'c'): KanbanCard {
   return {
-    id: 'c', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [],
+    id, provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [],
     status: 'ready', workflow_revision: revision, record_revision: revision, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: true,
-    environment: environmentRevision ? { id: 'e', card_id: 'c', project_id: 'p', worktree_path: '/tmp/c', branch: 'c', repository_id: null, target_checkout_path: null, target_branch: null, source_revision: null, target_revision: null, lifecycle_state: 'ready', revision: environmentRevision, layout_revision: environmentRevision, split_layout: { kind: 'empty' }, focused_pane_id: null, panes: [] } : null,
+    environment: environmentRevision ? { id: 'e', card_id: id, project_id: 'p', worktree_path: '/tmp/c', branch: 'c', repository_id: null, target_checkout_path: null, target_branch: null, source_revision: null, target_revision: null, lifecycle_state: 'ready', revision: environmentRevision, layout_revision: environmentRevision, split_layout: { kind: 'empty' }, focused_pane_id: null, panes: [] } : null,
     created_at: 1, updated_at: revision, sort_order: 0, events: [], capabilities: [],
   };
 }
@@ -66,7 +66,7 @@ describe('SelectedDetailRequestCoordinator', () => {
     second.resolve(2);
     await current;
     expect(success).toHaveBeenCalledTimes(1);
-    expect(success).toHaveBeenCalledWith(2, 'authoritative');
+    expect(success).toHaveBeenCalledWith(2, 'authoritative', 'c');
   });
 
   it('ignores an active response after selection changes and then loads the new card', async () => {
@@ -82,15 +82,51 @@ describe('SelectedDetailRequestCoordinator', () => {
     await expect(old).resolves.toBeUndefined();
     await expect(current).resolves.toBe(2);
     expect(success).toHaveBeenCalledTimes(1);
-    expect(success).toHaveBeenCalledWith(2, 'authoritative');
+    expect(success).toHaveBeenCalledWith(2, 'authoritative', 'other');
   });
 });
 
 describe('selected detail projection', () => {
-  it('rejects record, workflow, and environment revision regressions', () => {
+  it('keeps background completions in the board without taking over another or a closed detail', () => {
+    const board = new Map<string, KanbanCard>();
+    let selectedId: string | null = 'one';
+    let detail: KanbanCard | null = card(1, 0, 'one');
+    const complete = (updated: KanbanCard) => {
+      board.set(updated.id, updated);
+      if (canProjectSelectedDetail(selectedId, updated.id, detail)) detail = updated;
+    };
+
+    selectedId = 'two';
+    detail = card(1, 0, 'two');
+    complete(card(2, 0, 'one'));
+    expect(board.get('one')?.record_revision).toBe(2);
+    expect(detail.id).toBe('two');
+
+    selectedId = null;
+    detail = null;
+    complete(card(3, 0, 'one'));
+    expect(board.get('one')?.record_revision).toBe(3);
+    expect(detail).toBeNull();
+  });
+
+  it('projects current-card completions and applies the same identity guard to cleanup updates', () => {
+    let detail = card(1, 0, 'two');
+    const currentCompletion = card(2, 0, 'two');
+    if (canProjectSelectedDetail('two', currentCompletion.id, detail)) detail = currentCompletion;
+    expect(detail.record_revision).toBe(2);
+
+    const staleCleanup = card(3, 0, 'one');
+    if (canProjectSelectedDetail('two', staleCleanup.id, detail)) detail = staleCleanup;
+    expect(detail.id).toBe('two');
+    expect(canProjectSelectedDetail(null, 'two', detail)).toBe(false);
+  });
+
+  it('rejects cross-card freshness and event projections as well as revision regressions', () => {
     expect(detailIsCurrent(card(3, 3), card(2, 2), card(3, 3))).toBe(true);
     expect(detailIsCurrent(card(2, 3), card(3, 3), null)).toBe(false);
     expect(detailIsCurrent(card(3, 2), card(3, 3), null)).toBe(false);
+    expect(detailIsCurrent(card(3, 3, 'one'), card(2, 2, 'two'), null)).toBe(false);
+    expect(canProjectSelectedDetail('two', 'one', card(3, 3, 'two'))).toBe(false);
   });
 
   it('merges old event pages in newest-first order without duplicates', () => {
