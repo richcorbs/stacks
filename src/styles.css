@@ -102,12 +102,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .empty { height: 100%; display: grid; place-items: center; color: #8091a5; border: 1px dashed #2d3d4f; border-radius: 12px; }
 
 .kanbanView { position: absolute; inset: 0; z-index: 25; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: #0b1118; }
-.kanbanHeader { position: relative; z-index: 45; flex: 0 0 auto; min-height: 72px; padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #1d2a38; background: #0e1620; }
+.kanbanHeader { position: relative; z-index: 45; flex: 0 0 auto; min-height: 60px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #1d2a38; background: transparent; }
 .kanbanHeaderActions { display: flex; align-items: center; gap: 8px; }
 .kanbanProjectTitleRow { min-width: 220px; padding: 0; border-color: transparent !important; background: transparent !important; display: flex; align-items: center; gap: 18px; text-align: left; }
 .kanbanProjectFilter { display: flex; align-items: center; gap: 7px; color: #7f93a6; font-size: calc(10px + var(--ui-font-delta, 0px)); }
 .kanbanProjectFilter select { min-width: 150px; }
-.kanbanProjectTitleRow:hover, .kanbanProjectTitleRow:focus-visible { border-color: #304459 !important; background: #121d28 !important; outline: none; }
 .kanbanProjectTitle { display: flex; align-items: center; }
 .kanbanProjectTitleRow strong { color: #d0dae4; font-size: calc(14px + var(--ui-font-delta, 0px)); }
 .kanbanProjectSwitchIcon { width: 14px; height: 14px; fill: none; stroke: #71879b; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
@@ -116,10 +115,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanHeader p { margin: 0; color: #718399; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanHeader button, .kanbanDetail > footer button { border: 1px solid #2a3b4e; border-radius: 7px; background: #182431; padding: 7px 10px; cursor: pointer; }
 .kanbanNotice { padding: 7px 18px; border-bottom: 1px solid #423427; background: #211b16; color: #d0a46f; font-size: calc(11px + var(--ui-font-delta, 0px)); }
-.kanbanLanes { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 12px; overflow-x: auto; overflow-y: hidden; }
-.kanbanLane { flex: 1 0 210px; min-width: 210px; max-width: 330px; min-height: 0; display: flex; flex-direction: column; border: 1px solid #1d2a38; border-radius: 9px; background: #101821; overflow: hidden; }
+.kanbanLanes { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 8px 12px 12px; overflow-x: auto; overflow-y: hidden; }
+.kanbanLane { flex: 1 0 210px; min-width: 210px; max-width: 330px; min-height: 0; display: flex; flex-direction: column; border: 0; border-radius: 9px; background: transparent; overflow: hidden; }
 .kanbanLane.collapsed { position: relative; flex: 0 0 48px; min-width: 48px; max-width: 48px; overflow: visible; }
-.kanbanLane > header { flex: 0 0 auto; padding: 11px 11px 9px; border-bottom: 1px solid #1c2936; background: #121c27; }
+.kanbanLane > header { flex: 0 0 auto; padding: 11px 11px 9px; border-bottom: 0; background: transparent; }
 .kanbanLane > header.kanbanLaneCollapsedHeader { display: flex; justify-content: flex-end; border-bottom: 0; border-radius: 9px 9px 0 0; }
 .kanbanLane > header > div { display: flex; justify-content: space-between; gap: 8px; color: #aebdcb; font-size: calc(12px + var(--ui-font-delta, 0px)); }
 .kanbanLane > header > div > strong { color: #7f8d9b; }
@@ -138,7 +137,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanLaneMenuPopover button.danger { color: #d29a9a; }
 .kanbanLaneMenuPopover button.danger:hover:not(:disabled) { background: #342329; }
 .kanbanLane > header p { margin: 4px 0 0; color: #5f7287; font-size: calc(9px + var(--ui-font-delta, 0px)); }
-.kanbanLaneCards { flex: 1; min-height: 0; padding: 8px; overflow-y: auto; }
+.kanbanLaneCards { flex: 1; min-height: 0; padding: 4px 8px 8px; overflow-y: auto; }
 .kanbanCardWrapper { position: relative; transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
 .kanbanCard { position: relative; width: 100%; margin: 0 0 8px; padding: 10px; display: flex; flex-direction: column; gap: 7px; text-align: left; text-transform: none; border: 1px solid #263647; border-radius: 8px; background: #151f2a; color: #bdc9d5; cursor: grab; touch-action: none; user-select: none; box-shadow: 0 3px 9px rgba(0, 0, 0, .12); }
 .kanbanCard.kanbanParentCard { background: #1a2734; }
