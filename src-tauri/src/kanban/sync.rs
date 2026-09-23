@@ -1,19 +1,33 @@
 use super::*;
 #[allow(unused_imports)]
-use super::{cards::*, domain::*, health::*, repository::*};
+use super::{
+    cards::*,
+    domain::*,
+    health::*,
+    repository::*,
+    superthread_identity::{
+        active_superthread_binding, adopt_legacy_superthread_rows, resolve_superthread_local_id,
+    },
+};
 
 pub(in crate::kanban) fn kanban_sync_superthread_cards_operation(
     owner_project_id: String,
     snapshot: SuperthreadSyncSnapshot,
-
 ) -> Result<BoardChange, String> {
-    with_board_mutation(|connection| sync_cards(connection, &owner_project_id, snapshot).map(|_| ()))?;
-    with_read_connection(|connection| Ok(BoardChange {
-        upserts: list_card_summaries(connection)?.into_iter().filter(|card| card.project_id.as_deref() == Some(&owner_project_id)).collect(),
-        removed_ids: Vec::new(),
-        detail_invalidated_ids: Vec::new(),
-        board_revision: board_revision(connection)?,
-    }))
+    with_board_mutation(|connection| {
+        sync_cards(connection, &owner_project_id, snapshot).map(|_| ())
+    })?;
+    with_read_connection(|connection| {
+        Ok(BoardChange {
+            upserts: list_card_summaries(connection)?
+                .into_iter()
+                .filter(|card| card.project_id.as_deref() == Some(&owner_project_id))
+                .collect(),
+            removed_ids: Vec::new(),
+            detail_invalidated_ids: Vec::new(),
+            board_revision: board_revision(connection)?,
+        })
+    })
 }
 
 pub(in crate::kanban) fn sync_cards(
@@ -48,10 +62,7 @@ pub(in crate::kanban) fn sync_cards(
         }
         Some(_) => {}
     }
-    let binding_id: String = connection.query_row(
-        "SELECT b.id FROM superthread_bindings b JOIN projects p ON p.superthread_binding_id=b.id WHERE p.id=?1 AND b.state='active' AND b.validated_at IS NOT NULL",
-        [owner_project_id], |row| row.get(0)
-    ).optional().map_err(db_error)?.ok_or_else(|| "Superthread synchronization is paused until this project's legacy binding is validated with stable IDs".to_string())?;
+    let binding_id = active_superthread_binding(connection, owner_project_id)?;
 
     let now = unix_timestamp();
     let cards_are_valid = snapshot
@@ -105,24 +116,33 @@ pub(in crate::kanban) fn sync_cards(
     }
 
     let transaction = connection.savepoint().map_err(db_error)?;
-    transaction.execute("UPDATE kanban_cards SET binding_id=?1 WHERE project_id=?2 AND external_provider='superthread' AND binding_id IS NULL", params![binding_id,owner_project_id]).map_err(db_error)?;
+    adopt_legacy_superthread_rows(&transaction, owner_project_id, &binding_id)?;
     for card in snapshot.cards {
         if card.id.trim().is_empty() || card.title.trim().is_empty() {
             continue;
         }
-        let existing_id = transaction.query_row(
-            "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
-            params![binding_id,card.id.trim()], |row| row.get::<_,String>(0)
-        ).optional().map_err(db_error)?;
+        let existing_id = transaction
+            .query_row(
+                "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
+                params![binding_id, card.id.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(db_error)?;
         let was_existing = existing_id.is_some();
-        let local_id = if let Some(id) = existing_id { id } else {
-            let preferred = format!("superthread:{}", card.id.trim());
-            let occupied = transaction.query_row("SELECT 1 FROM kanban_cards WHERE id=?1", [&preferred], |_| Ok(())).optional().map_err(db_error)?.is_some();
-            if occupied { format!("superthread:{}:{}", binding_id, card.id.trim()) } else { preferred }
-        };
+        let local_id = resolve_superthread_local_id(&transaction, &binding_id, card.id.trim())?;
         let parent_local_id = if let Some(parent_external_id) = card.task_parent_id.as_deref() {
-            transaction.query_row("SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2", params![binding_id,parent_external_id], |row| row.get::<_,String>(0)).optional().map_err(db_error)?
-        } else { None };
+            transaction
+                .query_row(
+                    "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
+                    params![binding_id, parent_external_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(db_error)?
+        } else {
+            None
+        };
         transaction.execute(
             "INSERT INTO kanban_cards (
                 id, external_provider, external_id, title, content, board_id, board_title,
@@ -188,7 +208,17 @@ pub(in crate::kanban) fn sync_cards(
         .iter()
         .filter(|hydration| !unsafe_parents.contains(hydration.parent_id.trim()))
     {
-        let Some(parent_local_id) = transaction.query_row("SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2", params![binding_id,hydration.parent_id.trim()], |row| row.get::<_,String>(0)).optional().map_err(db_error)? else { continue; };
+        let Some(parent_local_id) = transaction
+            .query_row(
+                "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
+                params![binding_id, hydration.parent_id.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(db_error)?
+        else {
+            continue;
+        };
         transaction
             .execute(
                 "UPDATE kanban_cards SET parent_id=NULL, provider_parent_title=NULL, updated_at=?1
@@ -201,7 +231,17 @@ pub(in crate::kanban) fn sync_cards(
         .iter()
         .filter(|hydration| !unsafe_parents.contains(hydration.parent_id.trim()))
     {
-        let Some(parent_local_id) = transaction.query_row("SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2", params![binding_id,hydration.parent_id.trim()], |row| row.get::<_,String>(0)).optional().map_err(db_error)? else { continue; };
+        let Some(parent_local_id) = transaction
+            .query_row(
+                "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
+                params![binding_id, hydration.parent_id.trim()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(db_error)?
+        else {
+            continue;
+        };
         for child in &hydration.children {
             transaction.execute(
                 "UPDATE kanban_cards SET parent_id=?1, provider_parent_title=?2, updated_at=?3
@@ -219,7 +259,7 @@ pub(in crate::kanban) fn sync_cards(
          WHERE binding_id=?2 AND parent_id IN (
             SELECT id FROM kanban_cards WHERE binding_id=?2 AND in_scope=1
          ) AND in_scope=0",
-            params![now,binding_id],
+            params![now, binding_id],
         )
         .map_err(db_error)?;
     if complete {
