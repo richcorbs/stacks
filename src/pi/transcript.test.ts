@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendPiMessage, compactPiMessages, hasVisiblePiStreamingText, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, visiblePiMessages } from './transcript';
+import { appendPiMessage, compactPiMessages, hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, visiblePiMessages } from './transcript';
 import type { PiMessage } from './types';
 
 describe('Pi transcript', () => {
@@ -73,11 +73,35 @@ describe('Pi transcript', () => {
     expect(messages[0].content).toBe('1');
   });
 
-  it('retains recent transcript state while bounding the rendered window', () => {
-    const messages = Array.from({ length: 5 }, (_, timestamp) => ({ role: 'user', timestamp, content: String(timestamp) }));
-    const visible = visiblePiMessages(messages, 2);
-    expect(visible.hiddenCount).toBe(3);
-    expect(visible.messages.map((message) => message.content)).toEqual(['3', '4']);
-    expect(messages).toHaveLength(5);
+  it('starts with the newest 50 messages without changing retained history', () => {
+    const messages = Array.from({ length: 125 }, (_, timestamp) => ({ role: 'user', timestamp, content: String(timestamp) }));
+    const visible = visiblePiMessages(messages);
+    expect(INITIAL_RENDERED_PI_MESSAGES).toBe(50);
+    expect(visible.hiddenCount).toBe(75);
+    expect(visible.messages).toHaveLength(50);
+    expect(visible.messages[0].content).toBe('75');
+    expect(messages).toHaveLength(125);
+  });
+
+  it('reveals history in batches of 50 and includes a final partial batch', () => {
+    const messages = Array.from({ length: 125 }, (_, timestamp) => ({ role: 'user', timestamp, content: String(timestamp) }));
+    let limit = INITIAL_RENDERED_PI_MESSAGES;
+    limit = nextPiMessageLimit(limit, messages.length);
+    expect(visiblePiMessages(messages, limit)).toMatchObject({ hiddenCount: 25 });
+    expect(visiblePiMessages(messages, limit).messages[0].content).toBe('25');
+    limit = nextPiMessageLimit(limit, messages.length);
+    expect(limit).toBe(125);
+    expect(visiblePiMessages(messages, limit)).toEqual({ hiddenCount: 0, messages });
+  });
+
+  it('preserves the viewport offset by the height added above it', () => {
+    expect(prependAnchoredScrollTop(2_000, 120, 3_250)).toBe(1_370);
+    expect(prependAnchoredScrollTop(2_000, 120, 1_900)).toBe(120);
+  });
+
+  it('keeps settled message objects stable when appending ordinary messages', () => {
+    const settled: PiMessage = { role: 'assistant', content: [{ type: 'text', text: 'settled' }], timestamp: 1 };
+    const messages = appendPiMessage([settled], { role: 'assistant', content: 'new', timestamp: 2 });
+    expect(messages[0]).toBe(settled);
   });
 });

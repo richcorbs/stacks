@@ -1,6 +1,7 @@
-import type { PiMessage } from './types';
+import type { PiContentBlock, PiMessage } from './types';
 
-export const MAX_RENDERED_PI_MESSAGES = 300;
+export const INITIAL_RENDERED_PI_MESSAGES = 50;
+export const PI_MESSAGE_REVEAL_BATCH = 50;
 export const MAX_STORED_PI_MESSAGES = 1_000;
 export const MAX_LIVE_IMAGE_PREVIEWS = 10;
 
@@ -52,28 +53,42 @@ function restoreImagePreviews(message: PiMessage, localMessage: PiMessage): PiMe
 function retainRecentImagePreviews(messages: PiMessage[]) {
   const bounded = messages.slice(-MAX_STORED_PI_MESSAGES);
   let previewsRemaining = MAX_LIVE_IMAGE_PREVIEWS;
-  return bounded.map((_, messageIndex) => {
-    const reverseIndex = bounded.length - 1 - messageIndex;
-    const sourceMessage = bounded[reverseIndex];
-    if (!Array.isArray(sourceMessage.content)) return sourceMessage;
-    const content = [...sourceMessage.content].reverse().map((block) => {
-      if (block.type !== 'image' || typeof block.data !== 'string' || !block.data) return block;
+  for (let messageIndex = bounded.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const sourceMessage = bounded[messageIndex];
+    if (!Array.isArray(sourceMessage.content)) continue;
+    let content: PiContentBlock[] | null = null;
+    for (let blockIndex = sourceMessage.content.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block = sourceMessage.content[blockIndex];
+      if (block.type !== 'image' || typeof block.data !== 'string' || !block.data) continue;
       if (previewsRemaining > 0) {
         previewsRemaining -= 1;
-        return block;
+        continue;
       }
-      return { ...block, data: '', omitted: true };
-    }).reverse();
-    return { ...sourceMessage, content };
-  }).reverse();
+      content ??= [...sourceMessage.content];
+      content[blockIndex] = { ...block, data: '', omitted: true };
+    }
+    // Keep settled message identity stable unless image-preview compaction
+    // actually changes that message.
+    if (content) bounded[messageIndex] = { ...sourceMessage, content };
+  }
+  return bounded;
 }
 
-export function visiblePiMessages(messages: PiMessage[], limit = MAX_RENDERED_PI_MESSAGES) {
-  const hiddenCount = Math.max(0, messages.length - limit);
+export function visiblePiMessages(messages: PiMessage[], limit = INITIAL_RENDERED_PI_MESSAGES) {
+  const renderedCount = Math.min(messages.length, Math.max(0, limit));
+  const hiddenCount = messages.length - renderedCount;
   return {
     hiddenCount,
-    messages: hiddenCount ? messages.slice(-limit) : messages,
+    messages: hiddenCount ? (renderedCount ? messages.slice(-renderedCount) : []) : messages,
   };
+}
+
+export function nextPiMessageLimit(current: number, retainedCount: number) {
+  return Math.min(retainedCount, current + PI_MESSAGE_REVEAL_BATCH);
+}
+
+export function prependAnchoredScrollTop(previousHeight: number, previousTop: number, nextHeight: number) {
+  return previousTop + Math.max(0, nextHeight - previousHeight);
 }
 
 function collapsedSkillInvocation(content: PiMessage['content']) {
