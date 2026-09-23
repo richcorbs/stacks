@@ -1,9 +1,9 @@
 import { createRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
-import { DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import { createKanbanFlipCoordinator, DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
 
 const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
 
@@ -59,6 +59,83 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
     />,
   );
 }
+
+function flipElement(rectangles: Array<{ left: number; top: number }>) {
+  let rectangleIndex = 0;
+  const animation = { cancel: vi.fn(), onfinish: null as null | (() => void) };
+  const element = {
+    style: { transform: '' },
+    getBoundingClientRect: vi.fn(() => ({
+      left: rectangles[Math.min(rectangleIndex++, rectangles.length - 1)].left,
+      top: rectangles[Math.min(rectangleIndex - 1, rectangles.length - 1)].top,
+    })),
+    animate: vi.fn(() => animation),
+  };
+  return { element: element as unknown as HTMLDivElement, animation };
+}
+
+describe('Kanban FLIP coordinator', () => {
+  it('does not read geometry until an order transition and animates only moved non-dragged cards', () => {
+    const coordinator = createKanbanFlipCoordinator();
+    const dragged = flipElement([{ left: 0, top: 0 }]);
+    const moved = flipElement([{ left: 0, top: 50 }, { left: 0, top: 0 }]);
+    const unchanged = flipElement([{ left: 0, top: 100 }]);
+    coordinator.cardRef('a')(dragged.element);
+    coordinator.cardRef('b')(moved.element);
+    coordinator.cardRef('c')(unchanged.element);
+
+    expect(dragged.element.getBoundingClientRect).not.toHaveBeenCalled();
+    expect(moved.element.getBoundingClientRect).not.toHaveBeenCalled();
+    coordinator.commit(undefined);
+    expect(moved.element.getBoundingClientRect).not.toHaveBeenCalled();
+
+    coordinator.beforeOrderChange({ revision: 1, draggedCardId: 'a', affectedCardIds: ['a', 'b'] });
+    expect(dragged.element.getBoundingClientRect).not.toHaveBeenCalled();
+    expect(moved.element.getBoundingClientRect).toHaveBeenCalledTimes(1);
+    coordinator.commit(1);
+
+    expect(moved.element.getBoundingClientRect).toHaveBeenCalledTimes(2);
+    expect(moved.element.animate).toHaveBeenCalledTimes(1);
+    expect(unchanged.element.getBoundingClientRect).not.toHaveBeenCalled();
+    expect(dragged.element.animate).not.toHaveBeenCalled();
+  });
+
+  it('cancels superseded and unmounted animations and clears pending work', () => {
+    const coordinator = createKanbanFlipCoordinator();
+    const moved = flipElement([{ left: 0, top: 50 }, { left: 0, top: 0 }, { left: 0, top: 0 }, { left: 0, top: 0 }, { left: 0, top: 20 }]);
+    const cardRef = coordinator.cardRef('b');
+    expect(coordinator.cardRef('b')).toBe(cardRef);
+    cardRef(moved.element);
+    coordinator.beforeOrderChange({ revision: 1, draggedCardId: 'a', affectedCardIds: ['b'] });
+    coordinator.commit(1);
+
+    coordinator.beforeOrderChange({ revision: 2, draggedCardId: 'a', affectedCardIds: ['b'] });
+    expect(moved.animation.cancel).toHaveBeenCalledTimes(1);
+    coordinator.clear();
+    coordinator.commit(2);
+    expect(moved.element.getBoundingClientRect).toHaveBeenCalledTimes(3);
+
+    coordinator.beforeOrderChange({ revision: 3, draggedCardId: 'a', affectedCardIds: ['b'] });
+    coordinator.commit(3);
+    cardRef(null);
+    expect(moved.animation.cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('merges captures when React batches preview transitions and tolerates card removal', () => {
+    const coordinator = createKanbanFlipCoordinator();
+    const first = flipElement([{ left: 0, top: 0 }, { left: 0, top: 20 }]);
+    const second = flipElement([{ left: 0, top: 20 }, { left: 0, top: 0 }]);
+    coordinator.cardRef('b')(first.element);
+    coordinator.cardRef('c')(second.element);
+    coordinator.beforeOrderChange({ revision: 1, draggedCardId: 'a', affectedCardIds: ['b'] });
+    coordinator.beforeOrderChange({ revision: 2, draggedCardId: 'a', affectedCardIds: ['c'] });
+    coordinator.cardRef('b')(null);
+    coordinator.commit(2);
+
+    expect(first.element.animate).not.toHaveBeenCalled();
+    expect(second.element.animate).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('kanbanCardClassName', () => {
   it('classifies cards as parents only when they have children', () => {

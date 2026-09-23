@@ -1,7 +1,7 @@
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KanbanCard } from './types';
-import { usePointerCardOrdering } from './usePointerCardOrdering';
+import { affectedPreviewCardIds, usePointerCardOrdering } from './usePointerCardOrdering';
 
 type Ordering = ReturnType<typeof usePointerCardOrdering>;
 type PointerHandlerEvent = Parameters<Ordering['beginPointerDrag']>[0];
@@ -58,6 +58,12 @@ function laneElement(status = 'needs_refinement') {
   return { closest: () => lane };
 }
 
+describe('affectedPreviewCardIds', () => {
+  it('returns only cards whose indexes changed', () => {
+    expect(affectedPreviewCardIds(['a', 'b', 'c', 'd'], ['a', 'c', 'b', 'd'])).toEqual(['b', 'c']);
+  });
+});
+
 describe('usePointerCardOrdering pointer lifecycle', () => {
   let fakeWindow: EventTarget & Pick<Window, 'setTimeout' | 'clearTimeout'>;
   let pointElement: ReturnType<typeof laneElement> | null;
@@ -109,6 +115,31 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     act(() => ordering.updatePointerDrag(pointerEvent({ buttons: 0, clientX: 30 })));
     act(() => ordering.updatePointerDrag(pointerEvent({ buttons: 1, clientX: 40 })));
     expect(ordering.dragPreview).toBeNull();
+  });
+
+  it('announces geometry capture only before actual preview-order changes', async () => {
+    await render();
+    const beforeOrderChange = vi.fn();
+    const clear = vi.fn();
+    ordering.setPreviewLifecycle({ beforeOrderChange, clear });
+    act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
+
+    act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30, clientY: 10 })));
+    expect(beforeOrderChange).not.toHaveBeenCalled();
+    expect(ordering.dragPreview?.orderRevision).toBe(0);
+
+    act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 31, clientY: 100 })));
+    expect(beforeOrderChange).toHaveBeenCalledWith({
+      revision: 1,
+      draggedCardId: 'a',
+      affectedCardIds: ['a', 'b'],
+    });
+
+    act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 32, clientY: 100 })));
+    expect(beforeOrderChange).toHaveBeenCalledTimes(1);
+    expect(ordering.dragPreview?.orderRevision).toBe(1);
+    act(() => ordering.cancelPointerDrag());
+    expect(clear).toHaveBeenCalledTimes(1);
   });
 
   it('commits a valid threshold-crossing reorder once within the source column', async () => {

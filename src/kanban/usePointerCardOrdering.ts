@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { KanbanCardSummary, KanbanStatus } from './types';
 import { reorderKanbanCardIds } from './workflow';
 import { buildFilteredLaneReorder } from './projectScope';
@@ -35,7 +35,29 @@ export type CardDragPreview = {
   clientY: number;
   beforeId: string | null;
   cardIds: string[];
+  orderRevision: number;
 };
+
+export type PreviewOrderTransition = {
+  revision: number;
+  draggedCardId: string;
+  affectedCardIds: string[];
+};
+
+type PreviewLifecycle = {
+  beforeOrderChange: (transition: PreviewOrderTransition) => void;
+  clear: () => void;
+};
+
+function sameOrder(left: string[], right: string[]) {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+export function affectedPreviewCardIds(current: string[], proposed: string[]) {
+  const currentIndexes = new Map(current.map((id, index) => [id, index]));
+  const proposedIndexes = new Map(proposed.map((id, index) => [id, index]));
+  return [...new Set([...current, ...proposed])].filter((id) => currentIndexes.get(id) !== proposedIndexes.get(id));
+}
 
 export function usePointerCardOrdering({
   allCards,
@@ -54,6 +76,9 @@ export function usePointerCardOrdering({
   const allCardsRef = useRef(allCards);
   const visibleCardsRef = useRef(visibleCards);
   const reorderRef = useRef(reorder);
+  const dragPreviewRef = useRef<CardDragPreview | null>(null);
+  const orderRevisionRef = useRef(0);
+  const previewLifecycleRef = useRef<PreviewLifecycle | null>(null);
   allCardsRef.current = allCards;
   visibleCardsRef.current = visibleCards;
   reorderRef.current = reorder;
@@ -69,29 +94,41 @@ export function usePointerCardOrdering({
   }
 
   function updatePreview(drag: PointerDrag, beforeId: string | null | undefined) {
-    setDragPreview((current) => {
-      // Moving outside the source column keeps the last valid gap. A release there
-      // is still rejected by finishPointerDragAt. If the threshold is crossed after
-      // leaving the lane, begin with a gap at the source's canonical position.
-      const canonicalIds = laneCardIds(drag.status);
-      const sourceIndex = canonicalIds.indexOf(drag.cardId);
-      const sourceBeforeId = canonicalIds[sourceIndex + 1] ?? null;
-      const validBeforeId = beforeId === undefined ? (current ? current.beforeId : sourceBeforeId) : beforeId;
-      const cardIds = beforeId === undefined && current
-        ? current.cardIds
-        : dragPreviewOrder(canonicalIds, drag.cardId, validBeforeId);
-      return {
-        cardId: drag.cardId,
-        sourceStatus: drag.status,
-        sourceBounds: drag.sourceBounds,
-        pointerOffsetX: drag.pointerOffsetX,
-        pointerOffsetY: drag.pointerOffsetY,
-        clientX: drag.clientX,
-        clientY: drag.clientY,
-        beforeId: validBeforeId ?? null,
-        cardIds,
-      };
-    });
+    const current = dragPreviewRef.current;
+    // Moving outside the source column keeps the last valid gap. A release there
+    // is still rejected by finishPointerDragAt. If the threshold is crossed after
+    // leaving the lane, begin with a gap at the source's canonical position.
+    const canonicalIds = laneCardIds(drag.status);
+    const sourceIndex = canonicalIds.indexOf(drag.cardId);
+    const sourceBeforeId = canonicalIds[sourceIndex + 1] ?? null;
+    const validBeforeId = beforeId === undefined ? (current ? current.beforeId : sourceBeforeId) : beforeId;
+    const cardIds = beforeId === undefined && current
+      ? current.cardIds
+      : dragPreviewOrder(canonicalIds, drag.cardId, validBeforeId);
+    const currentOrder = current?.cardIds ?? canonicalIds;
+    let orderRevision = current?.orderRevision ?? orderRevisionRef.current;
+    if (!sameOrder(currentOrder, cardIds)) {
+      orderRevision = ++orderRevisionRef.current;
+      previewLifecycleRef.current?.beforeOrderChange({
+        revision: orderRevision,
+        draggedCardId: drag.cardId,
+        affectedCardIds: affectedPreviewCardIds(currentOrder, cardIds),
+      });
+    }
+    const next = {
+      cardId: drag.cardId,
+      sourceStatus: drag.status,
+      sourceBounds: drag.sourceBounds,
+      pointerOffsetX: drag.pointerOffsetX,
+      pointerOffsetY: drag.pointerOffsetY,
+      clientX: drag.clientX,
+      clientY: drag.clientY,
+      beforeId: validBeforeId ?? null,
+      cardIds,
+      orderRevision,
+    };
+    dragPreviewRef.current = next;
+    setDragPreview(next);
   }
 
   function beginPointerDrag(event: ReactPointerEvent, card: KanbanCardSummary) {
@@ -167,7 +204,9 @@ export function usePointerCardOrdering({
   function clearPointerDrag(updateState = true) {
     const drag = pointerDragRef.current;
     pointerDragRef.current = null;
+    dragPreviewRef.current = null;
     stopDragAutoScroll();
+    previewLifecycleRef.current?.clear();
     if (updateState) setDragPreview(null);
     return drag;
   }
@@ -215,6 +254,10 @@ export function usePointerCardOrdering({
     if (drag && !sourceIsValid(drag)) cancelPointerDrag();
   }, [allCards, visibleCards]);
 
+  const setPreviewLifecycle = useCallback((lifecycle: PreviewLifecycle | null) => {
+    previewLifecycleRef.current = lifecycle;
+  }, []);
+
   useEffect(() => {
     // Reordering the captured card in the transient DOM can cause WebKit to drop
     // pointer capture. Observe the pointer for the entire pending/active gesture.
@@ -248,6 +291,7 @@ export function usePointerCardOrdering({
     draggingId: dragPreview?.cardId ?? null,
     dropBeforeId: dragPreview?.beforeId ?? null,
     dragPreview,
+    setPreviewLifecycle,
     beginPointerDrag,
     updatePointerDrag,
     finishPointerDrag,
