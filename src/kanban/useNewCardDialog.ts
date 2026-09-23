@@ -12,19 +12,20 @@ export function useNewCardDialog({
   selectedProject,
   filterProjectId,
   create,
-  openCard,
+  refine,
 }: {
   creationProjects: Project[];
   selectedProject: Project | null;
   filterProjectId: string | null;
   create: (project: Project, title: string, content: string, parentId: string | null) => Promise<KanbanCardSummary>;
-  openCard: (card: KanbanCardSummary) => Promise<void>;
+  refine: (card: KanbanCardSummary) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [projectId, setProjectId] = useState('');
   const [parentId, setParentId] = useState('');
+  const [addMore, setAddMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const titleRef = useRef<HTMLInputElement | null>(null);
@@ -33,6 +34,7 @@ export function useNewCardDialog({
   function show(requestedProjectId?: string) {
     const requested = creationProjects.find((project) => project.id === requestedProjectId);
     setProjectId(requested?.id ?? preselectedCardProject(creationProjects, selectedProject)?.id ?? '');
+    setAddMore(false);
     setError(null);
     setOpen(true);
   }
@@ -61,7 +63,7 @@ export function useNewCardDialog({
     });
   }
 
-  async function submit(outcome: 'close' | 'continue' | 'open') {
+  async function submit(destinationKind: 'queued' | 'refining') {
     const destination = creationProjects.find((project) => project.id === projectId);
     if (creating || !destination || !title.trim()) return;
     setCreating(true);
@@ -72,15 +74,12 @@ export function useNewCardDialog({
       setDescription('');
       setParentId('');
       const filteredOut = Boolean(filterProjectId && filterProjectId !== destination.id);
-      if (outcome === 'open') {
-        setOpen(false);
-        if (filteredOut) showAppToast(`Card added to ${destination.name}; it is hidden by the current filter`);
-        await openCard(card);
-      } else {
-        showAppToast(filteredOut ? `Card added to ${destination.name}; it is hidden by the current filter` : `Card added to ${destination.name}`);
-        if (outcome === 'close') setOpen(false);
-        else requestAnimationFrame(() => titleRef.current?.focus());
+      showAppToast(filteredOut ? `Card added to ${destination.name}; it is hidden by the current filter` : `Card added to ${destination.name}`);
+      if (destinationKind === 'refining') {
+        void refine(card).catch((launchError) => showAppToast(launchError instanceof Error ? launchError.message : String(launchError)));
       }
+      if (addMore) requestAnimationFrame(() => titleRef.current?.focus());
+      else setOpen(false);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
@@ -99,6 +98,8 @@ export function useNewCardDialog({
     setProjectId,
     parentId,
     setParentId,
+    addMore,
+    setAddMore,
     error,
     creating,
     titleRef,

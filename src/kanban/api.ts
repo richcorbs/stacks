@@ -52,6 +52,14 @@ export function recordKanbanAgentLaunchFailure(id: string, expectedWorkflowRevis
   return invoke<CardSnapshot>('kanban_record_agent_launch_failure', { id, expectedWorkflowRevision, expectedProjectId, errorDetail });
 }
 
+export function startKanbanRefinementLaunch(id: string, expectedWorkflowRevision: number, expectedProjectId: string) {
+  return invoke<CardSnapshot>('kanban_start_refinement_launch', { id, expectedWorkflowRevision, expectedProjectId });
+}
+
+export function recordKanbanRefinementLaunchFailure(id: string, expectedWorkflowRevision: number, expectedProjectId: string, errorDetail: string) {
+  return invoke<CardSnapshot>('kanban_record_refinement_launch_failure', { id, expectedWorkflowRevision, expectedProjectId, errorDetail });
+}
+
 export function fetchKanbanStatusMetadata() {
   return invoke<Array<{ status: KanbanStatus; label: string }>>('kanban_status_metadata');
 }

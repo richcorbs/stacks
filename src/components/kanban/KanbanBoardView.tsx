@@ -27,6 +27,7 @@ import { fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '.
 import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
 import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 import { useLoadingCoordinator } from '../../loadingState';
+import { launchPlanningAgent } from '../../kanban/planningLauncher';
 
 export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
@@ -83,7 +84,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     selectedProject,
     filterProjectId,
     create: board.create,
-    openCard,
+    refine: (card) => launchPlanningAgent(card.id, projects, board.applyCardSnapshot),
   });
   const { focusedCardId: keyboardFocusedCardId, setFocusedCardId: setKeyboardFocusedCardId } = useBoardKeyboardNavigation({
     visibleCards,
