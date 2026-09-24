@@ -33,6 +33,7 @@ import { useLoadingCoordinator } from '../../loadingState';
 import { launchPlanningAgent } from '../../kanban/planningLauncher';
 import { CardServerShutdownError, findConflictingCardServer, handoffCardServer } from '../../kanban/cardServerHandoff';
 import { ServerHandoffDialog } from './ServerHandoffDialog';
+import { CardDetailLoadingShell } from './CardDetailLoadingShell';
 
 export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
@@ -71,8 +72,9 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   selectedDetailRef.current = selectedDetail;
   const boardCardsRef = useRef(board.cards);
   boardCardsRef.current = board.cards;
-  const recordInteractionRef = useRef(new Set<string>());
-  const detailCoordinatorRef = useRef<SelectedDetailRequestCoordinator<{ card: KanbanCard; eventPage?: CardEventPage }> | null>(null);
+  const eventRequestGenerationRef = useRef(0);
+  const openingEventPageRef = useRef<{ cardId: string; generation: number; page: CardEventPage } | null>(null);
+  const detailCoordinatorRef = useRef<SelectedDetailRequestCoordinator<{ card: KanbanCard }> | null>(null);
   const launchRecoveryStartedRef = useRef(false);
   const pendingNotificationRouteRef = useRef<NotificationRoute | null>(null);
   const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, recheckEnvironment } = useKanbanRefreshCoordinator({
@@ -166,8 +168,6 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   useEffect(() => {
     if (!board.loading) loading.settleStartup('cards');
   }, [board.loading, loading]);
-
-  useEffect(() => () => { loading.remove('card-detail'); }, [loading]);
 
   useEffect(() => {
     if (projectsHydrated && board.cardsHydrated && !launchRecoveryStartedRef.current) {
@@ -267,19 +267,23 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     selectedCardIdRef.current = null;
     detailCacheRef.current.remove(selectedCardId);
     detailCoordinatorRef.current?.select(null);
-    loading.remove('card-detail');
+    eventRequestGenerationRef.current++;
+    openingEventPageRef.current = null;
     setDetailLoadError(null);
     setDetailRefreshError(null);
     clearSelection(selectedCardId);
     showAppToast('This card was removed');
-  }, [clearSelection, loading, selectedCard, selectedCardId]);
+  }, [clearSelection, selectedCard, selectedCardId]);
 
   function projectSelectedDetail(updated: KanbanCard, incomingEvents = updated.events) {
     const current = selectedDetailRef.current;
     if (!canProjectSelectedDetail(selectedCardIdRef.current, updated.id, current)) return false;
     const canonical = boardCardsRef.current.find((candidate) => candidate.id === updated.id);
     if (!detailIsCurrent(updated, canonical, current)) return false;
-    const detail = { ...updated, events: mergeCardEvents(current?.events, incomingEvents) };
+    const page = openingEventPageRef.current;
+    const events = page?.cardId === updated.id && page.generation === eventRequestGenerationRef.current
+      ? mergeCardEvents(incomingEvents, page.page.events) : incomingEvents;
+    const detail = { ...updated, events: mergeCardEvents(current?.events, events) };
     selectedDetailRef.current = detail;
     detailCacheRef.current.remember(detail, eventCursorRef.current);
     setSelectedDetail(detail);
@@ -289,29 +293,11 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   }
 
   const coordinatorConfiguration = {
-    run: async (cardId: string, kind: DetailRequestKind) => {
-      if (kind === 'local') return { card: await board.loadPersistedDetails(cardId) };
-      const loadingToken = selectedDetailRef.current ? null : loading.begin('card-detail', 'Loading card details…', 10);
-      try {
-        const started = performance.now();
-        if (recordInteractionRef.current.delete(cardId)) await board.interact(cardId);
-        const interacted = performance.now();
-        const summary = boardCardsRef.current.find((candidate) => candidate.id === cardId);
-        if (!summary) throw new Error('Card was removed');
-        const detailRequest = board.hydrateProviderDetails(summary).then((card) => ({ card, elapsed: performance.now() - interacted }));
-        const eventsRequest = fetchKanbanCardEvents(cardId).then((eventPage) => ({ eventPage, elapsed: performance.now() - interacted }));
-        const [{ card, elapsed: detailMs }, { eventPage, elapsed: eventsMs }] = await Promise.all([detailRequest, eventsRequest]);
-        if (import.meta.env.DEV && localStorage.getItem('stacks.debugCardOpen') === '1') {
-          console.debug('Card open', cardId, { interactionMs: interacted - started, detailMs, eventsMs, totalMs: performance.now() - started });
-        }
-        return { card, eventPage };
-      } finally { if (loadingToken !== null) loading.complete('card-detail', loadingToken); }
-    },
-    success: (result: { card: KanbanCard; eventPage?: CardEventPage }, kind: DetailRequestKind, cardId: string) => {
+    run: async (cardId: string, _kind: DetailRequestKind) => ({ card: await board.loadPersistedDetails(cardId) }),
+    success: (result: { card: KanbanCard }, kind: DetailRequestKind, cardId: string) => {
       if (result.card.id !== cardId || !boardCardsRef.current.some((card) => card.id === cardId)) return false;
       board.applyCardSnapshot(result.card);
-      const hadDetail = Boolean(selectedDetailRef.current);
-      if (!projectSelectedDetail(result.card, result.eventPage?.events ?? result.card.events)) {
+      if (!projectSelectedDetail(result.card)) {
         if (selectedCardIdRef.current === cardId) {
           const error = { cardId, message: 'Card changed during refresh. Retry to load its latest details.' };
           if (selectedDetailRef.current) setDetailRefreshError(error);
@@ -320,13 +306,10 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         }
         return false;
       }
-      if (kind === 'authoritative') {
-        if (result.eventPage && !hadDetail) updateCursor(result.eventPage.next_cursor);
-        setDetailNeedsPreflight(false);
-      }
+      if (kind === 'authoritative') setDetailNeedsPreflight(false);
       return true;
     },
-    failure: (error: unknown, kind: DetailRequestKind, cardId: string) => {
+    failure: (error: unknown, _kind: DetailRequestKind, cardId: string) => {
       if (!canProjectSelectedDetail(selectedCardIdRef.current, cardId, selectedDetailRef.current)) return;
       const next = { cardId, message: error instanceof Error ? error.message : String(error) };
       if (selectedDetailRef.current) setDetailRefreshError(next);
@@ -337,10 +320,9 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   else detailCoordinatorRef.current.configure(coordinatorConfiguration);
   detailCoordinatorRef.current.select(selectedCardId);
 
-  async function hydrateCardDetails(card: KanbanCardSummary, recordInteraction = false) {
+  async function hydrateCardDetails(card: KanbanCardSummary) {
     setDetailLoadError(null);
     setDetailRefreshError(null);
-    if (recordInteraction) recordInteractionRef.current.add(card.id);
     const result = await detailCoordinatorRef.current!.authoritative(card.id);
     return result?.card;
   }
@@ -361,7 +343,28 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     selectedCardIdRef.current = card.id;
     selectCard(card.id);
     detailCoordinatorRef.current?.select(card.id);
-    void hydrateCardDetails(card, true).catch(() => {});
+    const generation = ++eventRequestGenerationRef.current;
+    openingEventPageRef.current = null;
+    const started = performance.now();
+    const debugOpen = import.meta.env.DEV && localStorage.getItem('stacks.debugCardOpen') === '1';
+    if (debugOpen) requestAnimationFrame(() => {
+      if (selectedCardIdRef.current === card.id && eventRequestGenerationRef.current === generation)
+        console.debug('Card open panel', card.id, { panelMs: performance.now() - started });
+    });
+    // The directory check and the event page must never gate local detail or the panel.
+    void board.interact(card.id).catch(console.error);
+    void fetchKanbanCardEvents(card.id).then((page) => {
+      if (selectedCardIdRef.current !== card.id || eventRequestGenerationRef.current !== generation) return;
+      openingEventPageRef.current = { cardId: card.id, generation, page };
+      const detail = selectedDetailRef.current;
+      if (detail?.id === card.id) projectSelectedDetail(detail, page.events);
+      if (eventCursorRef.current === null) updateCursor(page.next_cursor);
+      if (debugOpen) console.debug('Card open events', card.id, { eventsMs: performance.now() - started });
+    }).catch(console.error);
+    void hydrateCardDetails(card).then((detail) => {
+      if (debugOpen && detail && selectedCardIdRef.current === card.id && eventRequestGenerationRef.current === generation)
+        requestAnimationFrame(() => console.debug('Card open usable detail', card.id, { detailMs: performance.now() - started }));
+    }).catch(() => {});
     if (card.status === 'needs_refinement') {
       void launchPlanningAgent(card.id, projects, board.applyCardSnapshot)
         .catch((error) => showAppToast(error instanceof Error ? error.message : String(error)));
@@ -372,7 +375,8 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     if (expectedCardId === undefined || selectedCardIdRef.current === expectedCardId) {
       selectedCardIdRef.current = null;
       detailCoordinatorRef.current?.select(null);
-      loading.remove('card-detail');
+      eventRequestGenerationRef.current++;
+      openingEventPageRef.current = null;
       setDetailLoadError(null);
       setDetailRefreshError(null);
       selectedDetailRef.current = null;
@@ -412,7 +416,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       cards: visibleCards,
       projects,
       openCard: openPaletteCard,
-      selectedCard: selectedDetail,
+      selectedCard: selectedCard?.id === selectedDetail?.id ? selectedDetail : null,
       runSelectedAction: (action) => cardDetailWorkflowRef.current?.run(action),
     });
   }, [onPaletteCardsChange, openPaletteCard, projects, selectedCard, selectedDetail, visibleCards]);
@@ -581,14 +585,13 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           onClose={() => { void replaceDirectWork(null); }}
         />
       )}
-      {selectedCard && !selectedDetail && detailLoadError?.cardId === selectedCard.id && (
-        <div className="kanbanDetailOverlay"><div className="kanbanEmpty">
-          <span>{detailLoadError.message}</span>
-          <button type="button" onClick={() => { void hydrateCardDetails(selectedCard).catch(() => {}); }}>Retry</button>
-          <button type="button" onClick={() => closeCardDetail(selectedCard.id)}>Close</button>
-        </div></div>
-      )}
-      {selectedCard && selectedDetail && cardServices[selectedDetail.id] && (
+      {selectedCard && selectedDetail?.id !== selectedCard.id && <CardDetailLoadingShell
+        card={selectedCard}
+        error={detailLoadError?.cardId === selectedCard.id ? detailLoadError.message : null}
+        onRetry={() => { void hydrateCardDetails(selectedCard).catch(() => {}); }}
+        onClose={() => closeCardDetail(selectedCard.id)}
+      />}
+      {selectedCard && selectedDetail?.id === selectedCard.id && cardServices[selectedDetail.id] && (
         <KanbanCardDetail
           key={selectedDetail.id}
           card={selectedDetail}

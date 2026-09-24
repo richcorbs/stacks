@@ -28,6 +28,14 @@ describe('KanbanCrudService detail reads', () => {
     expect(fetchCard).toHaveBeenCalledWith('superthread:1');
   });
 
+  it('reads an approved local card without fetching or persisting Superthread', async () => {
+    const integration = provider();
+    const { crud, fetchCard } = service(integration, vi.fn(async () => ({ card: { ...card(), id: 'local:192', provider: 'local' as const, status: 'approved' as const }, board_revision: 1 })));
+    await expect(crud.loadPersistedDetails('local:192')).resolves.toMatchObject({ id: 'local:192', status: 'approved' });
+    expect(fetchCard).toHaveBeenCalledOnce();
+    expect(integration.load).not.toHaveBeenCalled();
+  });
+
   it('hydrates the provider before reading persisted detail', async () => {
     const integration = provider();
     const { crud, fetchCard } = service(integration);

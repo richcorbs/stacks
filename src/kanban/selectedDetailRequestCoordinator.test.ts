@@ -19,6 +19,38 @@ function card(revision: number, environmentRevision = 0, id = 'c'): KanbanCard {
 }
 
 describe('SelectedDetailRequestCoordinator', () => {
+  it('shows usable local detail before an independent slow event page and never requests provider hydration', async () => {
+    const events = deferred<void>();
+    const loadPersistedDetails = vi.fn(async (_id: string) => card(2));
+    const hydrateProviderDetails = vi.fn();
+    const applied = vi.fn(() => true);
+    const coordinator = new SelectedDetailRequestCoordinator({ run: async (id: string) => ({ card: await loadPersistedDetails(id) }), success: applied, failure: vi.fn() });
+    coordinator.select('c');
+    const eventPage = events.promise;
+    await expect(coordinator.authoritative('c')).resolves.toMatchObject({ card: { record_revision: 2 } });
+    expect(applied).toHaveBeenCalledOnce();
+    expect(hydrateProviderDetails).not.toHaveBeenCalled();
+    events.resolve();
+    await eventPage;
+  });
+
+  it('reports a failed local read, permits retry, and ignores a closed response', async () => {
+    const slow = deferred<number>();
+    const failure = vi.fn();
+    const success = vi.fn(() => true);
+    let count = 0;
+    const coordinator = new SelectedDetailRequestCoordinator({ run: async () => ++count === 1 ? Promise.reject(new Error('disk')) : count === 3 ? slow.promise : 2, success, failure });
+    coordinator.select('c');
+    await expect(coordinator.authoritative('c')).rejects.toThrow('disk');
+    expect(failure).toHaveBeenCalledOnce();
+    await expect(coordinator.authoritative('c')).resolves.toBe(2);
+    const closing = coordinator.authoritative('c');
+    coordinator.select(null);
+    slow.resolve(3);
+    await expect(closing).resolves.toBeUndefined();
+    expect(success).toHaveBeenCalledOnce();
+  });
+
   it('coalesces a burst of invalidations into one trailing local read', async () => {
     const first = deferred<number>();
     const run = vi.fn(async () => run.mock.calls.length === 1 ? first.promise : 2);
