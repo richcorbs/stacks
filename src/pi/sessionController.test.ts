@@ -84,6 +84,26 @@ describe('PiSessionController', () => {
     expect(h.controller.getSnapshot().isStreaming).toBe(true);
   });
 
+  it('keeps a manually submitted first prompt singular when its live event is not adjacent', async () => {
+    const h = harness();
+    await begin(h);
+    respond(h, 0, 'get_state', { isStreaming: false });
+    respond(h, 1, 'get_messages', { messages: [] });
+    await vi.waitFor(() => expect(h.controller.getSnapshot().starting).toBe(false));
+
+    const submitted = h.controller.prompt('manual first prompt');
+    const prompt = h.commands.find((command) => command.type === 'prompt')!;
+    h.emit(envelope({ type: 'message_end', message: { role: 'assistant', content: 'interleaved output', timestamp: 20 } }));
+    h.emit(envelope({ type: 'message_end', message: { role: 'user', content: 'manual first prompt', timestamp: 21 } }));
+    h.emit(envelope({ type: 'response', id: prompt.id as string, command: 'prompt', success: true, data: {} }));
+    await submitted;
+
+    expect(h.controller.getSnapshot().messages.map((message) => message.content)).toEqual([
+      'manual first prompt', 'interleaved output',
+    ]);
+    h.controller.delete();
+  });
+
   it('keeps one initial prompt through hydration, a late live replay, and view reopening', async () => {
     const h = harness({ ...config, paneId: 'kanban-card:card-1:planning' });
     const closeView = h.controller.subscribe(() => {});

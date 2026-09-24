@@ -43,7 +43,7 @@ export const PiMessage = memo(function PiMessage({ message, toolArg }: { message
     return <div className="piMessage piMessageAssistant">
       {visibleBlocks.map((block, index) => {
         if (block?.type === 'text' && typeof block.text === 'string' && block.text) {
-          return <div className="piMessageText piMarkdown" key={`text:${index}`}><PiMarkdown>{block.text}</PiMarkdown></div>;
+          return <div className="piMessageText piMarkdown piAssistantTextBlock" key={`text:${index}`}><PiMarkdown>{block.text}</PiMarkdown></div>;
         }
         if (block?.type === 'thinking' && typeof block.thinking === 'string' && block.thinking) {
           return <details className="piThinking" key={`thinking:${index}`}><summary>Reasoning</summary><div className="piMarkdown"><PiMarkdown>{block.thinking}</PiMarkdown></div></details>;

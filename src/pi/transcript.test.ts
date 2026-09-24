@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendPiMessage, compactPiMessages, hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, reconcilePiMessages, visiblePiMessages } from './transcript';
+import { appendPiMessage, compactPiMessages, createPiTranscriptReconciliation, hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, MAX_LIVE_IMAGE_PREVIEWS, MAX_STORED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, reconcilePiMessages, visiblePiMessages } from './transcript';
 import type { PiMessage } from './types';
 
 describe('Pi transcript', () => {
@@ -32,13 +32,50 @@ describe('Pi transcript', () => {
   });
 
   it('consumes one late live copy after hydration replaces an optimistic prompt', () => {
+    const reconciliation = createPiTranscriptReconciliation();
     const optimistic: PiMessage = { role: 'user', content: 'plan this', timestamp: 10, local: true };
     const hydrated: PiMessage = { messageId: 'persisted-prompt', role: 'user', content: [{ type: 'text', text: 'plan this' }], timestamp: 21 };
     const lateLive: PiMessage = { role: 'user', content: 'plan this', timestamp: 20 };
 
-    const reconciled = reconcilePiMessages([hydrated], [optimistic]);
-    expect(appendPiMessage(reconciled, lateLive)).toBe(reconciled);
+    const projected = appendPiMessage([], optimistic, reconciliation);
+    const reconciled = reconcilePiMessages([hydrated], projected, reconciliation);
+    expect(appendPiMessage(reconciled, lateLive, reconciliation)).toBe(reconciled);
     expect(reconciled).toEqual([hydrated]);
+  });
+
+  it('replaces a pending optimistic prompt even after assistant output is projected', () => {
+    const reconciliation = createPiTranscriptReconciliation();
+    const optimistic: PiMessage = { role: 'user', content: 'first prompt', timestamp: 10, local: true };
+    const assistant: PiMessage = { role: 'assistant', content: 'Starting now', timestamp: 11 };
+    const live: PiMessage = { role: 'user', content: 'first prompt', timestamp: 12 };
+
+    let messages = appendPiMessage([], optimistic, reconciliation);
+    messages = appendPiMessage(messages, assistant, reconciliation);
+    messages = appendPiMessage(messages, live, reconciliation);
+
+    expect(messages).toEqual([live, assistant]);
+  });
+
+  it('reconciles live-before-hydration prompts by submission occurrence', () => {
+    const reconciliation = createPiTranscriptReconciliation();
+    const firstLocal: PiMessage = { role: 'user', content: 'repeat', timestamp: 10, local: true };
+    const firstLive: PiMessage = { role: 'user', content: 'repeat', timestamp: 11 };
+    const secondLocal: PiMessage = { role: 'user', content: 'repeat', timestamp: 20, local: true };
+    const secondLive: PiMessage = { role: 'user', content: 'repeat', timestamp: 21 };
+    let projected = appendPiMessage([], firstLocal, reconciliation);
+    projected = appendPiMessage(projected, firstLive, reconciliation);
+    projected = appendPiMessage(projected, secondLocal, reconciliation);
+    projected = appendPiMessage(projected, secondLive, reconciliation);
+
+    const hydrated: PiMessage[] = [
+      { role: 'user', content: 'repeat', timestamp: 101 },
+      { role: 'assistant', content: 'first answer', timestamp: 102 },
+      { role: 'user', content: 'repeat', timestamp: 103 },
+    ];
+    const reconciled = reconcilePiMessages(hydrated, projected, reconciliation);
+
+    expect(reconciled.filter((message) => message.role === 'user')).toHaveLength(2);
+    expect(reconciled).toEqual(hydrated);
   });
 
   it('does not collapse intentional identical user messages from separate turns', () => {
@@ -48,10 +85,12 @@ describe('Pi transcript', () => {
     expect(reconcilePiMessages([first], [second])).toEqual([first, second]);
     expect(appendPiMessage([first], second)).toEqual([first, second]);
 
-    const optimistic: PiMessage = { role: 'user', content: 'continue', local: true };
+    const reconciliation = createPiTranscriptReconciliation();
+    const optimistic: PiMessage = { role: 'user', content: 'continue', timestamp: 10, local: true };
     const hydrated: PiMessage = { messageId: 'first', role: 'user', content: 'continue' };
-    const afterLateReplay = appendPiMessage(reconcilePiMessages([hydrated], [optimistic]), { role: 'user', content: 'continue' });
-    expect(appendPiMessage(afterLateReplay, { role: 'user', content: 'continue' })).toHaveLength(2);
+    const projected = appendPiMessage([], optimistic, reconciliation);
+    const afterLateReplay = appendPiMessage(reconcilePiMessages([hydrated], projected, reconciliation), { role: 'user', content: 'continue' }, reconciliation);
+    expect(appendPiMessage(afterLateReplay, { role: 'user', content: 'continue' }, reconciliation)).toHaveLength(2);
   });
 
   it('deduplicates a stable live message even when it is no longer last', () => {
@@ -71,15 +110,17 @@ describe('Pi transcript', () => {
   });
 
   it('retains an optimistic image preview when hydration supplies the canonical message', () => {
+    const reconciliation = createPiTranscriptReconciliation();
     const optimistic: PiMessage = {
-      role: 'user', local: true,
+      role: 'user', local: true, timestamp: 10,
       content: [{ type: 'text', text: 'review this' }, { type: 'image', data: 'preview-base64', mimeType: 'image/jpeg' }],
     };
     const hydrated: PiMessage = {
       id: 'persisted-image', role: 'user',
       content: [{ type: 'text', text: 'review this' }, { type: 'image', data: 'persisted-base64', mimeType: 'image/jpeg' }],
     };
-    expect(reconcilePiMessages([hydrated], [optimistic])).toEqual([{
+    const projected = appendPiMessage([], optimistic, reconciliation);
+    expect(reconcilePiMessages([hydrated], projected, reconciliation)).toEqual([{
       ...hydrated,
       content: [{ type: 'text', text: 'review this' }, { type: 'image', data: 'preview-base64', mimeType: 'image/jpeg', omitted: false }],
     }]);

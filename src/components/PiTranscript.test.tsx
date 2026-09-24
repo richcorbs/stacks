@@ -64,18 +64,35 @@ describe('Pi settled transcript rendering', () => {
     expect(markdownRender.mock.calls.map(([text]) => text)).toEqual([later]);
   });
 
-  it('keeps meaningfully distinct commentary and final text in one assistant turn', async () => {
+  it('keeps and marks distinct sibling text blocks for blank-line separation', async () => {
     const progress = 'I found the duplicate in rendering and am now checking transcript persistence.';
     const final = 'The rendering fix is complete. The persisted transcript remains unchanged.';
+    let renderer!: TestRenderer.ReactTestRenderer;
     markdownRender.mockClear();
 
     await act(async () => {
-      TestRenderer.create(<PiSettledMessages messages={[{
+      renderer = TestRenderer.create(<PiSettledMessages messages={[{
         role: 'assistant', content: [{ type: 'text', text: progress }, { type: 'text', text: final }],
       }]} toolArgs={new Map()} />);
     });
 
     expect(markdownRender.mock.calls.map(([text]) => text)).toEqual([progress, final]);
+    expect(renderer.root.findAll((node) => node.props.className?.includes('piAssistantTextBlock'))).toHaveLength(2);
+  });
+
+  it('keeps one text block ungrouped from collapsible thinking', async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<PiSettledMessages messages={[{
+        role: 'assistant', content: [
+          { type: 'text', text: 'One visible answer.' },
+          { type: 'thinking', thinking: 'Private reasoning remains collapsible.' },
+        ],
+      }]} toolArgs={new Map()} />);
+    });
+
+    expect(renderer.root.findAll((node) => node.props.className?.includes('piAssistantTextBlock'))).toHaveLength(1);
+    expect(renderer.root.findAllByType('details')[0].props.className).toBe('piThinking');
   });
 
   it('does not collapse matching text from separate assistant turns', async () => {

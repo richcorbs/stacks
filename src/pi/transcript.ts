@@ -25,81 +25,156 @@ export function compactPiMessages(messages: PiMessage[]): PiMessage[] {
   return messages.slice(-MAX_STORED_PI_MESSAGES).map(compactPiMessage);
 }
 
-// Hydration can observe a persisted prompt before Pi emits its message_end event.
-// Keep the one outstanding live representation on the canonical hydrated object
-// rather than adding projection-only fields to messages rendered by React.
-export type PiTranscriptReconciliation = { pendingHydratedLiveCopies: WeakSet<PiMessage> };
-export function createPiTranscriptReconciliation(): PiTranscriptReconciliation {
-  return { pendingHydratedLiveCopies: new WeakSet<PiMessage>() };
-}
-const defaultReconciliation = createPiTranscriptReconciliation();
+type PendingOptimisticSubmission = {
+  contentKey: string;
+  localTimestamp?: number;
+  optimisticMessage: PiMessage;
+  userOrdinal: number;
+  liveSeen: boolean;
+  hydratedSeen: boolean;
+};
 
-export function appendPiMessage(messages: PiMessage[], rawMessage: PiMessage, reconciliation = defaultReconciliation): PiMessage[] {
-  const { pendingHydratedLiveCopies } = reconciliation;
+/** Reconciliation state is owned by one PiSessionController. */
+export type PiTranscriptReconciliation = { pendingOptimisticSubmissions: PendingOptimisticSubmission[] };
+export function createPiTranscriptReconciliation(): PiTranscriptReconciliation {
+  return { pendingOptimisticSubmissions: [] };
+}
+
+export function appendPiMessage(messages: PiMessage[], rawMessage: PiMessage, reconciliation = createPiTranscriptReconciliation()): PiMessage[] {
   const message = rawMessage.local ? rawMessage : compactPiMessage(rawMessage);
+  if (message.local && message.role === 'user') registerOptimisticSubmission(reconciliation, messages, message);
+
+  if (!message.local && message.role === 'user') {
+    const pending = reconciliation.pendingOptimisticSubmissions.find((submission) =>
+      !submission.liveSeen && submission.contentKey === messageContentKey(message));
+    if (pending) {
+      pending.liveSeen = true;
+      if (pending.hydratedSeen) {
+        removeCompletedSubmissions(reconciliation);
+        return messages;
+      }
+      const localIndex = messages.findIndex((current) => current === pending.optimisticMessage
+        || (pending.localTimestamp !== undefined && current.local === true
+          && current.role === 'user' && current.timestamp === pending.localTimestamp));
+      if (localIndex >= 0) {
+        const next = [...messages];
+        next[localIndex] = restoreImagePreviews(message, pending.optimisticMessage);
+        return retainRecentImagePreviews(next);
+      }
+    }
+  }
+
   const existingIndex = messages.findIndex((current) => sameMessage(current, message));
   if (existingIndex >= 0) {
-    pendingHydratedLiveCopies.delete(messages[existingIndex]);
     if (!messages[existingIndex].local || message.local) return messages;
     const next = [...messages];
     next[existingIndex] = restoreImagePreviews(message, messages[existingIndex]);
     return retainRecentImagePreviews(next);
   }
-  if (!message.local) {
-    const hydratedIndex = messages.findIndex((current) => pendingHydratedLiveCopies.has(current)
-      && fallbackMessageMatch(current, message, true));
-    if (hydratedIndex >= 0) {
-      pendingHydratedLiveCopies.delete(messages[hydratedIndex]);
-      return messages;
-    }
-  }
-  const last = messages[messages.length - 1];
-  if (last?.local && last.role === 'user' && message.role === 'user' && messageContentKey(last) === messageContentKey(message)) {
-    return retainRecentImagePreviews([...messages.slice(0, -1), restoreImagePreviews(message, last)]);
+
+  // Stateless callers still get the basic optimistic replacement behavior,
+  // but controller-owned state above handles messages that are no longer last.
+  const localIndex = messages.findIndex((current) => current.local === true && current.role === 'user'
+    && message.role === 'user' && messageContentKey(current) === messageContentKey(message));
+  if (localIndex >= 0) {
+    const next = [...messages];
+    next[localIndex] = restoreImagePreviews(message, messages[localIndex]);
+    return retainRecentImagePreviews(next);
   }
   return retainRecentImagePreviews([...messages, message]);
 }
 
+export function discardOptimisticPiMessage(reconciliation: PiTranscriptReconciliation, timestamp: number) {
+  reconciliation.pendingOptimisticSubmissions = reconciliation.pendingOptimisticSubmissions
+    .filter((submission) => submission.localTimestamp !== timestamp);
+}
+
 /**
- * Reconciles an authoritative hydration with messages already projected from
- * optimistic UI and live events. Occurrence matching is one-to-one so two
- * intentional, identical turns remain two messages.
+ * Reconciles authoritative hydration with projected events. Each optimistic
+ * submission owns one user-turn ordinal, so hydration and live delivery can
+ * replace it in either order without content-deduplicating later turns.
  */
-export function reconcilePiMessages(hydrated: PiMessage[], projected: PiMessage[], reconciliation = defaultReconciliation): PiMessage[] {
-  const { pendingHydratedLiveCopies } = reconciliation;
-  // Own the canonical objects so reconciliation bookkeeping cannot leak when a
-  // caller reuses raw response objects in another transcript.
+export function reconcilePiMessages(hydrated: PiMessage[], projected: PiMessage[], reconciliation = createPiTranscriptReconciliation()): PiMessage[] {
   let messages = compactPiMessages(hydrated).map((message) => ({ ...message }));
   const hydratedCount = messages.length;
-  const hydratedCanonical = messages.slice();
-  const claimedLocal = new Set<number>();
-  const claimedPersisted = new Set<number>();
+  const claimedHydrated = new Set<number>();
+  const optimisticHydratedClaims: Array<{ contentKey: string }> = [];
+
+  for (const submission of reconciliation.pendingOptimisticSubmissions) {
+    const match = userMessageAtOrdinal(messages, submission.userOrdinal);
+    if (match && messageContentKey(match.message) === submission.contentKey) {
+      submission.hydratedSeen = true;
+      messages[match.index] = restoreImagePreviews(match.message, submission.optimisticMessage);
+    }
+  }
+
+  let projectedUserOrdinal = 0;
   for (const rawCurrent of projected) {
     const current = rawCurrent.local ? rawCurrent : compactPiMessage(rawCurrent);
-    const claims = current.local ? claimedLocal : claimedPersisted;
-    let match = messages.findIndex((candidate, index) => index < hydratedCount && !claims.has(index) && sameMessage(candidate, current));
+    const currentUserOrdinal = current.role === 'user' ? projectedUserOrdinal++ : -1;
+    const pending = current.role === 'user'
+      ? reconciliation.pendingOptimisticSubmissions.find((submission) =>
+        submission.userOrdinal === currentUserOrdinal && submission.contentKey === messageContentKey(current))
+      : undefined;
+    if (pending?.hydratedSeen) {
+      const hydratedMatch = userMessageAtOrdinal(messages, pending.userOrdinal);
+      if (hydratedMatch) claimedHydrated.add(hydratedMatch.index);
+      continue;
+    }
+    if (!current.local && current.role === 'user') {
+      const optimisticClaim = optimisticHydratedClaims.findIndex((claim) => claim.contentKey === messageContentKey(current));
+      if (optimisticClaim >= 0) {
+        optimisticHydratedClaims.splice(optimisticClaim, 1);
+        continue;
+      }
+    }
+
+    let match = messages.findIndex((candidate, index) => index < hydratedCount
+      && !claimedHydrated.has(index) && sameMessage(candidate, current));
     if (match < 0) {
-      match = messages.findIndex((candidate, index) => index < hydratedCount && !claims.has(index)
-        && fallbackMessageMatch(candidate, current, current.local === true || claimedLocal.has(index)));
+      match = messages.findIndex((candidate, index) => index < hydratedCount
+        && !claimedHydrated.has(index) && fallbackMessageMatch(candidate, current, current.local === true));
     }
     if (match >= 0) {
-      claims.add(match);
+      claimedHydrated.add(match);
       if (current.local) {
         messages[match] = restoreImagePreviews(messages[match], current);
-        hydratedCanonical[match] = messages[match];
+        optimisticHydratedClaims.push({ contentKey: messageContentKey(current) });
       }
       continue;
     }
     messages = appendPiMessage(messages, current, reconciliation);
   }
-  messages = retainRecentImagePreviews(messages);
-  // A local projection was replaced by durable history, but its live event may
-  // still be queued behind get_messages. Permit exactly one fallback match.
-  for (const index of claimedLocal) {
-    const canonical = hydratedCanonical[index];
-    if (!claimedPersisted.has(index) && messages.includes(canonical)) pendingHydratedLiveCopies.add(canonical);
+  removeCompletedSubmissions(reconciliation);
+  return retainRecentImagePreviews(messages);
+}
+
+function registerOptimisticSubmission(reconciliation: PiTranscriptReconciliation, messages: PiMessage[], message: PiMessage) {
+  if (reconciliation.pendingOptimisticSubmissions.some((submission) =>
+    submission.localTimestamp === message.timestamp && submission.optimisticMessage === message)) return;
+  reconciliation.pendingOptimisticSubmissions.push({
+    contentKey: messageContentKey(message),
+    localTimestamp: message.timestamp,
+    optimisticMessage: message,
+    userOrdinal: messages.filter((current) => current.role === 'user').length,
+    liveSeen: false,
+    hydratedSeen: false,
+  });
+}
+
+function removeCompletedSubmissions(reconciliation: PiTranscriptReconciliation) {
+  reconciliation.pendingOptimisticSubmissions = reconciliation.pendingOptimisticSubmissions
+    .filter((submission) => !(submission.liveSeen && submission.hydratedSeen));
+}
+
+function userMessageAtOrdinal(messages: PiMessage[], ordinal: number) {
+  let currentOrdinal = 0;
+  for (let index = 0; index < messages.length; index += 1) {
+    if (messages[index].role !== 'user') continue;
+    if (currentOrdinal === ordinal) return { index, message: messages[index] };
+    currentOrdinal += 1;
   }
-  return messages;
+  return null;
 }
 
 function restoreImagePreviews(message: PiMessage, localMessage: PiMessage): PiMessage {

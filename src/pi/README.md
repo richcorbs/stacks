@@ -22,7 +22,7 @@ React mount/unmount does not own process or frontend session lifetime. Split-tre
 - Pi process start and exit events feed the shared `terminal-running-changed` projection so Pi-only workspaces receive the sidebar's running status dot. Assistant deltas and tool starts also emit `terminal-output`, giving background Pi workspaces the same fresh/unseen activity dots as terminals. A naturally settled agent run emits `app-attention`; the application-level notification hook filters out the active, focused workspace and honors the notification setting. User-aborted runs do not notify.
 - Child processes are reaped by a dedicated process thread. Pi and setup shells run in dedicated process groups so stop, timeout, and app shutdown also terminate tool descendants.
 - Concurrent starts for one pane are idempotent. React Strict Mode and remounts reuse the same controller and backend subscription rather than issuing another start.
-- Initial hydration merges durable history with any `message_end` events received while hydration is in flight. Activity revisions prevent an older `get_state` response from overwriting newer start/settle state.
+- Initial hydration merges durable history with any `message_end` events received while hydration is in flight. Each controller occurrence-tracks its pending optimistic submissions, allowing exactly one hydrated or live user message to replace each local projection regardless of event order; this is intentionally not global content deduplication, so later identical turns remain distinct. Activity revisions prevent an older `get_state` response from overwriting newer start/settle state.
 
 ## Workspace setup
 
