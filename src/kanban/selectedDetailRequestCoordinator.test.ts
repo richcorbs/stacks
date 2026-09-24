@@ -112,11 +112,33 @@ describe('SelectedDetailRequestCoordinator', () => {
     const old = coordinator.local('c');
     coordinator.select('other');
     const current = coordinator.authoritative('other');
+    await expect(current).resolves.toBe(2); // does not wait for the old card's I/O
     request.resolve(1);
     await expect(old).resolves.toBeUndefined();
-    await expect(current).resolves.toBe(2);
     expect(success).toHaveBeenCalledTimes(1);
     expect(success).toHaveBeenCalledWith(2, 'authoritative', 'other');
+  });
+  it('keeps new-card invalidations coalesced when a former card finishes late', async () => {
+    const oldRead = deferred<number>();
+    const newRead = deferred<number>();
+    const applied: Array<[string, number]> = [];
+    let newReads = 0;
+    const coordinator = new SelectedDetailRequestCoordinator({
+      run: (id: string) => id === 'old' ? oldRead.promise : ++newReads === 1 ? newRead.promise : Promise.resolve(3),
+      success: (value, _kind, id) => { applied.push([id, value]); return true; }, failure: vi.fn(),
+    });
+    coordinator.select('old');
+    const stale = coordinator.authoritative('old');
+    coordinator.select('new');
+    const first = coordinator.authoritative('new');
+    const invalidated = coordinator.local('new');
+    oldRead.resolve(1);
+    await stale;
+    expect(newReads).toBe(1);
+    newRead.resolve(2);
+    await first;
+    await expect(invalidated).resolves.toBe(3);
+    expect(applied).toEqual([['new', 2], ['new', 3]]);
   });
 });
 

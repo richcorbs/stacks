@@ -1,5 +1,5 @@
 import { applicationEvents, showAppToast } from '../../applicationEvents';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../../types';
 import { canonicalCardById } from '../../kanban/boardStore';
 import type { CardEventCursor, CardEventPage, CleanupInventory, CleanupPreflight, KanbanCard, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
@@ -73,6 +73,23 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   const boardCardsRef = useRef(board.cards);
   boardCardsRef.current = board.cards;
   const eventRequestGenerationRef = useRef(0);
+  const openTimingRef = useRef<{ id: string; started: number } | null>(null);
+  useLayoutEffect(() => {
+    const timing = openTimingRef.current;
+    if (timing && timing.id === selectedDetail?.id && timing.id === selectedCardId) {
+      console.debug('Card open detail committed', timing.id, { commitMs: performance.now() - timing.started });
+    }
+  }, [selectedCardId, selectedDetail]);
+  useEffect(() => {
+    const timing = openTimingRef.current;
+    if (!timing || timing.id !== selectedCardId || selectedDetail?.id !== timing.id) return;
+    const frame = requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (openTimingRef.current !== timing) return;
+      console.debug('Card open detail painted', timing.id, { paintMs: performance.now() - timing.started });
+      openTimingRef.current = null;
+    }));
+    return () => cancelAnimationFrame(frame);
+  }, [selectedCardId, selectedDetail]);
   const openingEventPageRef = useRef<{ cardId: string; generation: number; page: CardEventPage } | null>(null);
   const detailCoordinatorRef = useRef<SelectedDetailRequestCoordinator<{ card: KanbanCard }> | null>(null);
   const launchRecoveryStartedRef = useRef(false);
@@ -357,11 +374,17 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     openingEventPageRef.current = null;
     const started = performance.now();
     const debugOpen = import.meta.env.DEV && localStorage.getItem('stacks.debugCardOpen') === '1';
+    openTimingRef.current = debugOpen ? { id: card.id, started } : null;
     if (debugOpen) requestAnimationFrame(() => {
       if (selectedCardIdRef.current === card.id && eventRequestGenerationRef.current === generation)
         console.debug('Card open panel', card.id, { panelMs: performance.now() - started });
     });
     // The directory check and the event page must never gate local detail or the panel.
+    // Start the one required local read before ancillary IPC work (directory and history).
+    void hydrateCardDetails(card).then((detail) => {
+      if (debugOpen && detail && selectedCardIdRef.current === card.id && eventRequestGenerationRef.current === generation)
+        requestAnimationFrame(() => console.debug('Card open usable detail', card.id, { detailPaintMs: performance.now() - started }));
+    }).catch(() => {});
     void board.interact(card.id).catch(console.error);
     void fetchKanbanCardEvents(card.id).then((page) => {
       if (selectedCardIdRef.current !== card.id || eventRequestGenerationRef.current !== generation) return;
@@ -371,10 +394,6 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       if (eventCursorRef.current === null) updateCursor(page.next_cursor);
       if (debugOpen) console.debug('Card open events', card.id, { eventsMs: performance.now() - started });
     }).catch(console.error);
-    void hydrateCardDetails(card).then((detail) => {
-      if (debugOpen && detail && selectedCardIdRef.current === card.id && eventRequestGenerationRef.current === generation)
-        requestAnimationFrame(() => console.debug('Card open usable detail', card.id, { detailMs: performance.now() - started }));
-    }).catch(() => {});
     if (card.status === 'needs_refinement') {
       void launchPlanningAgent(card.id, projects, board.applyCardSnapshot)
         .catch((error) => showAppToast(error instanceof Error ? error.message : String(error)));
