@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { useEffect, useMemo, useRef, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { showAppToast } from '../applicationEvents';
+import { handleEditableClipboardKeyDown } from '../kanban/editableClipboard';
 import { ProjectNotesDraft, registerProjectNotes } from '../projectNotes';
 
 export function ProjectNotesView({ projectId, active, focusRequest }: { projectId: string; active: boolean; focusRequest?: number }) {
@@ -6,11 +9,24 @@ export function ProjectNotesView({ projectId, active, focusRequest }: { projectI
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot, model.getSnapshot);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const handledFocusRequestRef = useRef<number | undefined>(undefined);
+  const clipboardOperationRef = useRef(0);
+  const activeRef = useRef(active);
+  const modelRef = useRef(model);
+  activeRef.current = active;
+  modelRef.current = model;
 
   useEffect(() => {
     const unregister = registerProjectNotes(model);
-    return () => { unregister(); model.dispose(); };
+    return () => {
+      clipboardOperationRef.current += 1;
+      unregister();
+      model.dispose();
+    };
   }, [model]);
+
+  useEffect(() => {
+    clipboardOperationRef.current += 1;
+  }, [active]);
 
   useEffect(() => {
     if (!active || !state.ready || focusRequest === undefined || handledFocusRequestRef.current === focusRequest) return;
@@ -19,6 +35,24 @@ export function ProjectNotesView({ projectId, active, focusRequest }: { projectI
     textarea.focus();
     handledFocusRequestRef.current = focusRequest;
   }, [active, focusRequest, state.ready]);
+
+  function handleClipboard(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    const control = event.currentTarget;
+    const operation = clipboardOperationRef.current + 1;
+    clipboardOperationRef.current = operation;
+    void handleEditableClipboardKeyDown({
+      event,
+      isCurrent: () => clipboardOperationRef.current === operation
+        && textareaRef.current === control
+        && activeRef.current
+        && modelRef.current === model,
+      readText,
+      requestFrame: (callback) => requestAnimationFrame(callback),
+      setValue: (value) => model.edit(value),
+      showError: showAppToast,
+      writeText,
+    });
+  }
 
   const status = state.status === 'loading' ? 'Loading…' : state.status === 'saving' ? 'Saving…' : state.status === 'saved' ? 'Saved' : null;
   return <section className={`projectNotesView cardView${active ? ' active' : ''}`} aria-label="Project notes">
@@ -29,7 +63,11 @@ export function ProjectNotesView({ projectId, active, focusRequest }: { projectI
       disabled={!state.ready}
       spellCheck
       placeholder="Write project notes…"
-      onChange={(event) => model.edit(event.target.value)}
+      onChange={(event) => {
+        clipboardOperationRef.current += 1;
+        model.edit(event.target.value);
+      }}
+      onKeyDown={handleClipboard}
     />
     <div className={`projectNotesStatus ${state.status}`} aria-live="polite" title={state.error ?? undefined}>
       {state.status === 'error'
