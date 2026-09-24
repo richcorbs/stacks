@@ -41,6 +41,25 @@ describe('in-session full detail cache', () => {
     expect(sameActionRevisions(displayed, card('other', 2))).toBe(false);
   });
 
+  it('replaces cached environment details only after canonical deletion or replacement and requires preflight on reopen', () => {
+    const cache = new DetailSessionCache();
+    const original = { ...card('c', 3), environment: { id: 'old', revision: 8, layout_revision: 8 } as KanbanCard['environment'] };
+    const deleted = card('c', 4);
+    cache.remember(original, null);
+    cache.remember(deleted, null, original);
+    expect(cache.get('c', original)?.card.environment?.id).toBe('old');
+    cache.remember(deleted, null, deleted);
+    expect(cache.get('c', deleted)?.card.environment).toBeNull();
+    cache.remember(original, null, deleted);
+    expect(cache.get('c', deleted)?.card.record_revision).toBe(4);
+    const replacement = { ...card('c', 5), environment: { id: 'new', revision: 1, layout_revision: 1 } as KanbanCard['environment'] };
+    cache.remember(replacement, null, replacement);
+    expect(cache.get('c', replacement)?.card.environment?.id).toBe('new');
+    expect(sameActionRevisions(original, { ...original, environment: { ...original.environment!, id: 'new' } })).toBe(false);
+    // A cache hit is usable for display, never proof of a persisted action preflight.
+    expect(cache.get('c', replacement)).not.toBeNull();
+  });
+
   it('evicts deleted cards, including ones closed before deletion', () => {
     const cache = new DetailSessionCache();
     cache.remember(card('a', 1), null);

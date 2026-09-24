@@ -62,7 +62,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     eventCursorRef.current = cursor;
     setEventCursor(cursor);
     const detail = selectedDetailRef.current;
-    if (detail) detailCacheRef.current.remember(detail, cursor);
+    if (detail) detailCacheRef.current.remember(detail, cursor, boardCardsRef.current.find((card) => card.id === detail.id));
   }
   const cardDetailWorkflowRef = useRef<CardDetailWorkflowController | null>(null);
   const setCardDetailWorkflow = useCallback((controller: CardDetailWorkflowController | null) => { cardDetailWorkflowRef.current = controller; }, []);
@@ -275,38 +275,48 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     showAppToast('This card was removed');
   }, [clearSelection, selectedCard, selectedCardId]);
 
-  function projectSelectedDetail(updated: KanbanCard, incomingEvents = updated.events) {
+  function projectSelectedDetail(updated: KanbanCard, incomingEvents = updated.events, canonicalOverride?: KanbanCardSummary) {
     const current = selectedDetailRef.current;
     if (!canProjectSelectedDetail(selectedCardIdRef.current, updated.id, current)) return false;
-    const canonical = boardCardsRef.current.find((candidate) => candidate.id === updated.id);
+    const canonical = canonicalOverride ?? boardCardsRef.current.find((candidate) => candidate.id === updated.id);
     if (!detailIsCurrent(updated, canonical, current)) return false;
     const page = openingEventPageRef.current;
     const events = page?.cardId === updated.id && page.generation === eventRequestGenerationRef.current
       ? mergeCardEvents(incomingEvents, page.page.events) : incomingEvents;
     const detail = { ...updated, events: mergeCardEvents(current?.events, events) };
     selectedDetailRef.current = detail;
-    detailCacheRef.current.remember(detail, eventCursorRef.current);
+    detailCacheRef.current.remember(detail, eventCursorRef.current, canonical);
     setSelectedDetail(detail);
     setDetailLoadError((error) => error?.cardId === updated.id ? null : error);
     setDetailRefreshError((error) => error?.cardId === updated.id ? null : error);
     return true;
   }
 
+  // Retry once per newer canonical record; cleanup can invalidate several intermediate phases.
+  const retriedCanonicalRevisionRef = useRef(new Map<string, number>());
   const coordinatorConfiguration = {
     run: async (cardId: string, _kind: DetailRequestKind) => ({ card: await board.loadPersistedDetails(cardId) }),
-    success: (result: { card: KanbanCard }, kind: DetailRequestKind, cardId: string) => {
+    success: (result: { card: KanbanCard }, _kind: DetailRequestKind, cardId: string) => {
       if (result.card.id !== cardId || !boardCardsRef.current.some((card) => card.id === cardId)) return false;
-      board.applyCardSnapshot(result.card);
-      if (!projectSelectedDetail(result.card)) {
+      const canonical = board.applyCardSnapshot(result.card);
+      if (!projectSelectedDetail(result.card, result.card.events, canonical)) {
         if (selectedCardIdRef.current === cardId) {
-          const error = { cardId, message: 'Card changed during refresh. Retry to load its latest details.' };
-          if (selectedDetailRef.current) setDetailRefreshError(error);
-          else setDetailLoadError(error);
-          setDetailNeedsPreflight(true);
+          const newer = canonical.record_revision > result.card.record_revision;
+          const retried = retriedCanonicalRevisionRef.current.get(cardId) ?? 0;
+          if (newer && canonical.record_revision > retried) {
+            retriedCanonicalRevisionRef.current.set(cardId, canonical.record_revision);
+            void detailCoordinatorRef.current?.local(cardId).catch(() => {});
+          } else if (!selectedDetailRef.current || !detailIsCurrent(selectedDetailRef.current, canonical)) {
+            const error = { cardId, message: 'Card changed during refresh. Retry to load its latest details.' };
+            if (selectedDetailRef.current) setDetailRefreshError(error);
+            else setDetailLoadError(error);
+            setDetailNeedsPreflight(true);
+          }
         }
         return false;
       }
-      if (kind === 'authoritative') setDetailNeedsPreflight(false);
+      retriedCanonicalRevisionRef.current.delete(cardId);
+      setDetailNeedsPreflight(false);
       return true;
     },
     failure: (error: unknown, _kind: DetailRequestKind, cardId: string) => {
@@ -622,8 +632,8 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
             const cardId = selectedDetail.id;
             const updated = await onStartWork(cardId);
             if (!updated) return false;
-            board.applyCardSnapshot(updated);
-            if (updated.id === cardId) projectSelectedDetail(updated);
+            const canonical = board.applyCardSnapshot(updated);
+            if (updated.id === cardId) projectSelectedDetail(updated, updated.events, canonical);
             return true;
           }}
           onCleanup={async (evidence) => {
@@ -634,14 +644,13 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
             try {
               if (!await onCleanupCard(current, evidence)) return;
             } finally {
-              const refreshed = await board.loadPersistedDetails(current);
-              board.applyCardSnapshot(refreshed);
-              if (refreshed.id === cardId) projectSelectedDetail(refreshed);
+              // Completion reads by ID; never reproject the pre-cleanup environment.
+              await detailCoordinatorRef.current?.authoritative(cardId);
             }
           }}
           onCardUpdated={(updated) => {
-            board.applyCardSnapshot(updated);
-            projectSelectedDetail(updated);
+            const canonical = board.applyCardSnapshot(updated);
+            projectSelectedDetail(updated, updated.events, canonical);
           }}
           onWorkflowControllerChange={setCardDetailWorkflow}
           onToggleServer={toggleCardServer}
@@ -665,7 +674,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
             const detail = { ...current, events: mergeCardEvents(current.events, page.events) };
             selectedDetailRef.current = detail;
             setSelectedDetail(detail);
-            detailCacheRef.current.remember(detail, eventCursorRef.current);
+            detailCacheRef.current.remember(detail, eventCursorRef.current, boardCardsRef.current.find((card) => card.id === detail.id));
             if (selectedCardIdRef.current === cardId && eventCursorRef.current === eventCursor) updateCursor(page.next_cursor);
           }}
           onReload={async () => {

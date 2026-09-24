@@ -168,7 +168,12 @@ export class KanbanEntityStore {
     const removedRevision = this.removedAt.get(card.id) ?? 0;
     if (observedAtBoardRevision && removedRevision >= observedAtBoardRevision) return false;
     const current = this.entities.get(card.id);
-    if (current && card.record_revision <= current.record_revision) return false;
+    if (current && (card.record_revision <= current.record_revision
+      || card.workflow_revision < current.workflow_revision
+      || card.updated_at < current.updated_at
+      || (card.environment?.id === current.environment?.id && card.environment && current.environment
+        && (card.environment.revision < current.environment.revision
+          || card.environment.layout_revision < current.environment.layout_revision)))) return false;
     this.entities.set(card.id, card);
     this.entityMeta.set(card.id, {
       observedAtBoardRevision: Math.max(observedAtBoardRevision, this.entityMeta.get(card.id)?.observedAtBoardRevision ?? 0),

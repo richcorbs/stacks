@@ -28,6 +28,21 @@ describe('KanbanEntityStore revision ordering', () => {
     expect(store.card('a')?.title).toBe('newer');
   });
 
+  it('keeps a deleted environment deleted across older responses and rejects same-ID counter regressions', () => {
+    const store = new KanbanEntityStore();
+    const environment = { id: 'old', revision: 8, layout_revision: 9 } as KanbanCard['environment'];
+    store.applyCard(card('a', 2, { environment }));
+    expect(store.applyCard(card('a', 3, { environment: { ...environment!, revision: 7 } }))).toBe(false);
+    expect(store.applyCard(card('a', 3, { environment: { ...environment!, layout_revision: 8 } }))).toBe(false);
+    const deleted = card('a', 4);
+    expect(store.applyCard(deleted)).toBe(true);
+    expect(store.applyCard(card('a', 2, { environment }))).toBe(false);
+    expect(store.card('a')?.environment).toBeNull();
+    const replacement = { ...environment!, id: 'new', revision: 1, layout_revision: 1 };
+    expect(store.applyCard(card('a', 5, { environment: replacement }))).toBe(true);
+    expect(store.card('a')?.environment?.id).toBe('new');
+  });
+
   it('buffers out-of-order events and drains them contiguously', () => {
     const store = new KanbanEntityStore();
     store.applyBoardSnapshot({ board_revision: 5, cards: [card('a')] });
