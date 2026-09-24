@@ -9,7 +9,7 @@ beforeAll(() => {
 
 const config: PiSessionConfig = { paneId: 'kanban-card:card-1:work', cwd: '/work', workspaceId: 'kanban-card:card-1', projectId: 'project-1', projectPath: '/project' };
 
-function harness() {
+function harness(sessionConfig = config) {
   let eventSubscriber: ((event: PiRpcEnvelope) => void) | undefined;
   const commands: Record<string, unknown>[] = [];
   const stop = vi.fn();
@@ -30,8 +30,9 @@ function harness() {
     clearTimeout: globalThis.clearTimeout.bind(globalThis),
     events: { publish: publish as ControllerDependencies['events']['publish'] },
   };
-  const controller = new PiSessionController(config, dependencies);
-  return { controller, commands, dependencies, publish, emit: (event: PiRpcEnvelope) => eventSubscriber?.(event), stop, subscribeMock };
+  const controller = new PiSessionController(sessionConfig, dependencies);
+  return { controller, commands, dependencies, publish,
+    emit: (event: PiRpcEnvelope) => eventSubscriber?.({ ...event, pane_id: sessionConfig.paneId }), stop, subscribeMock };
 }
 
 function envelope(event: PiRpcEnvelope['event'], generation = 'generation-1'): PiRpcEnvelope {
@@ -81,6 +82,43 @@ describe('PiSessionController', () => {
     await vi.waitFor(() => expect(h.controller.getSnapshot().starting).toBe(false));
     expect(h.controller.getSnapshot().messages.map((message) => message.content)).toEqual(['old', 'live']);
     expect(h.controller.getSnapshot().isStreaming).toBe(true);
+  });
+
+  it('keeps one initial prompt through hydration, a late live replay, and view reopening', async () => {
+    const h = harness({ ...config, paneId: 'kanban-card:card-1:planning' });
+    const closeView = h.controller.subscribe(() => {});
+    const launch = h.controller.submitWorkLaunch('initial planning prompt');
+    await vi.waitFor(() => expect(h.commands.length).toBeGreaterThanOrEqual(2));
+    respond(h, 0, 'get_state', { isStreaming: false });
+    respond(h, 1, 'get_messages', { messages: [] });
+    await vi.waitFor(() => expect(h.commands.some((command) => command.type === 'prompt')).toBe(true));
+    const prompt = h.commands.find((command) => command.type === 'prompt')!;
+    h.emit(envelope({ type: 'response', id: prompt.id as string, command: 'prompt', success: true, data: {} }));
+    await launch;
+
+    expect(h.controller.getSnapshot().messages).toHaveLength(1);
+    expect(h.controller.getSnapshot().messages[0].local).toBe(true);
+
+    h.emit(envelope({ type: 'session_switch' }));
+    await vi.waitFor(() => expect(h.commands.filter((command) => command.type === 'get_messages')).toHaveLength(2));
+    const messagesIndex = h.commands.map((command) => command.type).lastIndexOf('get_messages');
+    const stateIndex = h.commands.map((command) => command.type).lastIndexOf('get_state');
+    respond(h, messagesIndex, 'get_messages', { messages: [{ messageId: 'hydrated-prompt', role: 'user', content: [{ type: 'text', text: 'initial planning prompt' }], timestamp: 98 }] });
+    respond(h, stateIndex, 'get_state', { isStreaming: true });
+    await vi.waitFor(() => expect(h.controller.getSnapshot().messages[0].local).not.toBe(true));
+
+    closeView();
+    h.emit(envelope({ type: 'message_end', message: { role: 'user', content: 'initial planning prompt', timestamp: 99 } }));
+    expect(h.controller.getSnapshot().messages).toHaveLength(1);
+
+    const reopened = vi.fn();
+    h.controller.subscribe(reopened);
+    expect(h.controller.getSnapshot().messages).toHaveLength(1);
+    expect(h.subscribeMock).toHaveBeenCalledOnce();
+
+    h.emit(envelope({ type: 'message_end', message: { role: 'user', content: 'initial planning prompt', timestamp: 100 } }));
+    expect(h.controller.getSnapshot().messages).toHaveLength(2);
+    h.controller.delete();
   });
 
   it('rejects stale generations and bounds transient tool state', async () => {

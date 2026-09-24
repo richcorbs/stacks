@@ -25,17 +25,36 @@ export function compactPiMessages(messages: PiMessage[]): PiMessage[] {
   return messages.slice(-MAX_STORED_PI_MESSAGES).map(compactPiMessage);
 }
 
-export function appendPiMessage(messages: PiMessage[], rawMessage: PiMessage): PiMessage[] {
+// Hydration can observe a persisted prompt before Pi emits its message_end event.
+// Keep the one outstanding live representation on the canonical hydrated object
+// rather than adding projection-only fields to messages rendered by React.
+export type PiTranscriptReconciliation = { pendingHydratedLiveCopies: WeakSet<PiMessage> };
+export function createPiTranscriptReconciliation(): PiTranscriptReconciliation {
+  return { pendingHydratedLiveCopies: new WeakSet<PiMessage>() };
+}
+const defaultReconciliation = createPiTranscriptReconciliation();
+
+export function appendPiMessage(messages: PiMessage[], rawMessage: PiMessage, reconciliation = defaultReconciliation): PiMessage[] {
+  const { pendingHydratedLiveCopies } = reconciliation;
   const message = rawMessage.local ? rawMessage : compactPiMessage(rawMessage);
   const existingIndex = messages.findIndex((current) => sameMessage(current, message));
   if (existingIndex >= 0) {
+    pendingHydratedLiveCopies.delete(messages[existingIndex]);
     if (!messages[existingIndex].local || message.local) return messages;
     const next = [...messages];
     next[existingIndex] = restoreImagePreviews(message, messages[existingIndex]);
     return retainRecentImagePreviews(next);
   }
+  if (!message.local) {
+    const hydratedIndex = messages.findIndex((current) => pendingHydratedLiveCopies.has(current)
+      && fallbackMessageMatch(current, message, true));
+    if (hydratedIndex >= 0) {
+      pendingHydratedLiveCopies.delete(messages[hydratedIndex]);
+      return messages;
+    }
+  }
   const last = messages[messages.length - 1];
-  if (last?.local && last.role === 'user' && message.role === 'user' && textContent(last) === textContent(message)) {
+  if (last?.local && last.role === 'user' && message.role === 'user' && messageContentKey(last) === messageContentKey(message)) {
     return retainRecentImagePreviews([...messages.slice(0, -1), restoreImagePreviews(message, last)]);
   }
   return retainRecentImagePreviews([...messages, message]);
@@ -46,26 +65,41 @@ export function appendPiMessage(messages: PiMessage[], rawMessage: PiMessage): P
  * optimistic UI and live events. Occurrence matching is one-to-one so two
  * intentional, identical turns remain two messages.
  */
-export function reconcilePiMessages(hydrated: PiMessage[], projected: PiMessage[]): PiMessage[] {
-  let messages = compactPiMessages(hydrated);
+export function reconcilePiMessages(hydrated: PiMessage[], projected: PiMessage[], reconciliation = defaultReconciliation): PiMessage[] {
+  const { pendingHydratedLiveCopies } = reconciliation;
+  // Own the canonical objects so reconciliation bookkeeping cannot leak when a
+  // caller reuses raw response objects in another transcript.
+  let messages = compactPiMessages(hydrated).map((message) => ({ ...message }));
   const hydratedCount = messages.length;
-  const claimedHydrated = new Set<number>();
+  const hydratedCanonical = messages.slice();
+  const claimedLocal = new Set<number>();
+  const claimedPersisted = new Set<number>();
   for (const rawCurrent of projected) {
     const current = rawCurrent.local ? rawCurrent : compactPiMessage(rawCurrent);
-    let match = messages.findIndex((candidate, index) => index < hydratedCount && sameMessage(candidate, current));
+    const claims = current.local ? claimedLocal : claimedPersisted;
+    let match = messages.findIndex((candidate, index) => index < hydratedCount && !claims.has(index) && sameMessage(candidate, current));
     if (match < 0) {
-      match = messages.findIndex((candidate, index) => index < hydratedCount && !claimedHydrated.has(index)
-        && candidate.role === current.role
-        && textContent(candidate) === textContent(current));
+      match = messages.findIndex((candidate, index) => index < hydratedCount && !claims.has(index)
+        && fallbackMessageMatch(candidate, current, current.local === true || claimedLocal.has(index)));
     }
     if (match >= 0) {
-      claimedHydrated.add(match);
-      if (current.local) messages[match] = restoreImagePreviews(messages[match], current);
+      claims.add(match);
+      if (current.local) {
+        messages[match] = restoreImagePreviews(messages[match], current);
+        hydratedCanonical[match] = messages[match];
+      }
       continue;
     }
-    messages = appendPiMessage(messages, current);
+    messages = appendPiMessage(messages, current, reconciliation);
   }
-  return compactPiMessages(messages);
+  messages = retainRecentImagePreviews(messages);
+  // A local projection was replaced by durable history, but its live event may
+  // still be queued behind get_messages. Permit exactly one fallback match.
+  for (const index of claimedLocal) {
+    const canonical = hydratedCanonical[index];
+    if (!claimedPersisted.has(index) && messages.includes(canonical)) pendingHydratedLiveCopies.add(canonical);
+  }
+  return messages;
 }
 
 function restoreImagePreviews(message: PiMessage, localMessage: PiMessage): PiMessage {
@@ -137,9 +171,32 @@ function collapsedSkillInvocation(content: PiMessage['content']) {
   return `/skill:${match[1]}${args ? ` ${args}` : ''}`;
 }
 
-function textContent(message: PiMessage) {
-  if (typeof message.content === 'string') return message.content;
-  return message.content.map((block) => block.type === 'text' && typeof block.text === 'string' ? block.text : '').filter(Boolean).join('\n');
+function messageContentKey(message: PiMessage) {
+  if (typeof message.content === 'string') return `text:${message.content}`;
+  if (message.content.every((block) => block.type === 'text' && 'text' in block && typeof block.text === 'string')) {
+    return `text:${message.content.map((block) => 'text' in block ? String(block.text) : '').join('\n')}`;
+  }
+  return JSON.stringify(message.content.map((block) => {
+    if (block.type === 'image') return { type: 'image', mimeType: block.mimeType, name: block.name };
+    return block;
+  }));
+}
+
+function fallbackMessageMatch(left: PiMessage, right: PiMessage, allowOptimisticTimestamp = false) {
+  if (left.role !== right.role || messageContentKey(left) !== messageContentKey(right)) return false;
+  if (allowOptimisticTimestamp) return true;
+  return !hasConflictingIdentity(left, right);
+}
+
+function hasConflictingIdentity(left: PiMessage, right: PiMessage) {
+  for (const key of ['id', 'messageId', 'timestamp', 'toolCallId'] as const) {
+    const leftValue = left[key];
+    const rightValue = right[key];
+    if (leftValue !== undefined && leftValue !== null && leftValue !== ''
+      && rightValue !== undefined && rightValue !== null && rightValue !== ''
+      && leftValue !== rightValue) return true;
+  }
+  return false;
 }
 
 function sameMessage(left: PiMessage, right: PiMessage) {
