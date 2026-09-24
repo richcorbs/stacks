@@ -257,7 +257,30 @@ impl PiLifecycleTracker {
 }
 
 #[tauri::command]
-pub fn start_pi_session(
+pub async fn start_pi_session(
+    window: Window,
+    pane_id: String,
+    cwd: String,
+    project_path: Option<String>,
+    project_id: String,
+) -> Result<String, String> {
+    let app = window.app_handle().clone();
+    run_pi_start_worker(move || {
+        start_pi_session_operation(
+            window, app.state::<Mutex<PiRpcRegistry>>(), pane_id, cwd, project_path, project_id,
+        )
+    }).await
+}
+
+async fn run_pi_start_worker<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("Pi session startup worker failed: {error}"))?
+}
+
+fn start_pi_session_operation(
     window: Window,
     registry: State<'_, Mutex<PiRpcRegistry>>,
     pane_id: String,
@@ -1122,10 +1145,19 @@ fn find_pi() -> Option<PathBuf> {
 mod tests {
     use super::{
         is_project_trusted, migrate_legacy_stacks_extension_at, project_trust_flag,
-        safe_session_key, PiLifecycleTracker,
+        run_pi_start_worker, safe_session_key, PiLifecycleTracker,
     };
     use serde_json::json;
     use std::{collections::HashSet, fs};
+
+    #[test]
+    fn pi_startup_does_not_run_on_the_calling_thread() {
+        let calling_thread = std::thread::current().id();
+        let worker_thread = tauri::async_runtime::block_on(run_pi_start_worker(|| {
+            Ok(std::thread::current().id())
+        })).unwrap();
+        assert_ne!(worker_thread, calling_thread);
+    }
 
     #[test]
     fn creates_safe_session_directory_names() {

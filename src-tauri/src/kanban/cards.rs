@@ -12,14 +12,22 @@ pub(in crate::kanban) fn kanban_cards_operation() -> Result<BoardSnapshot, Strin
 pub(in crate::kanban) fn kanban_card_snapshot_operation(
     id: String,
 ) -> Result<CardSnapshot, String> {
-    with_read_connection(|connection| {
+    let started = std::time::Instant::now();
+    let snapshot = with_read_connection(|connection| {
+        let connected = started.elapsed();
         let card =
             get_card(connection, &id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
-        Ok(CardSnapshot {
-            card,
-            board_revision: board_revision(connection)?,
-        })
-    })
+        let hydrated = started.elapsed();
+        let board_revision = board_revision(connection)?;
+        if std::env::var_os("STACKS_PROFILE_CARD_OPEN").is_some() {
+            eprintln!("Card snapshot {id}: connect={connected:?}, hydrate={:?}, revision={:?}", hydrated - connected, started.elapsed() - hydrated);
+        }
+        Ok(CardSnapshot { card, board_revision })
+    });
+    if std::env::var_os("STACKS_PROFILE_CARD_OPEN").is_some() {
+        eprintln!("Card snapshot {id}: total={:?}", started.elapsed());
+    }
+    snapshot
 }
 
 pub(in crate::kanban) async fn kanban_environment_health_operation(
@@ -383,9 +391,10 @@ pub(in crate::kanban) fn finalize_breakdown(
 
 pub(in crate::kanban) fn kanban_open_card_operation(id: String) -> Result<String, String> {
     with_read_connection(|connection| {
-        if get_card(connection, &id)?.is_none() {
-            return Err("Kanban card was not found".to_string());
-        }
+        let exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM kanban_cards WHERE id=?1)", [&id], |row| row.get(0),
+        ).map_err(db_error)?;
+        if !exists { return Err("Kanban card was not found".to_string()); }
         let directory = ensure_card_directory(&id)?;
         directory
             .to_str()

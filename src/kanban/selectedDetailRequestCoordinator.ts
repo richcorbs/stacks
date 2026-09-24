@@ -15,6 +15,7 @@ type Pending<T> = { cardId: string; kind: DetailRequestKind; waiters: Waiter<T>[
 export class SelectedDetailRequestCoordinator<T> {
   private selectedId: string | null = null;
   private generation = 0;
+  private selectionEpoch = 0;
   private active = false;
   private pending: Pending<T> | null = null;
 
@@ -26,6 +27,10 @@ export class SelectedDetailRequestCoordinator<T> {
     if (cardId === this.selectedId) return;
     this.selectedId = cardId;
     this.generation += 1;
+    this.selectionEpoch += 1;
+    // A read for the previous card must not hold up this card's first detail.
+    // Its completion is still guarded by generation and cannot project stale data.
+    this.active = false;
     this.resolvePending(undefined);
   }
 
@@ -53,6 +58,7 @@ export class SelectedDetailRequestCoordinator<T> {
   private async start(cardId: string, kind: DetailRequestKind, waiters: Waiter<T>[]): Promise<T | undefined> {
     this.active = true;
     const generation = this.generation;
+    const selectionEpoch = this.selectionEpoch;
     try {
       const value = await this.configuration.run(cardId, kind);
       const current = this.selectedId === cardId && this.generation === generation;
@@ -66,11 +72,13 @@ export class SelectedDetailRequestCoordinator<T> {
       if (current) throw error;
       return undefined;
     } finally {
-      this.active = false;
-      const pending = this.pending;
-      this.pending = null;
-      if (pending && this.selectedId === pending.cardId) void this.start(pending.cardId, pending.kind, pending.waiters).catch(() => {});
-      else if (pending) pending.waiters.forEach(({ resolve }) => resolve(undefined));
+      if (selectionEpoch === this.selectionEpoch) {
+        this.active = false;
+        const pending = this.pending;
+        this.pending = null;
+        if (pending && this.selectedId === pending.cardId) void this.start(pending.cardId, pending.kind, pending.waiters).catch(() => {});
+        else if (pending) pending.waiters.forEach(({ resolve }) => resolve(undefined));
+      }
     }
   }
 

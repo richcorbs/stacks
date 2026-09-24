@@ -9,6 +9,29 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static TRACED_READS: AtomicUsize = AtomicUsize::new(0);
 
+/// Opt-in read-only diagnostic: KANBAN_PROFILE_DB=/path/to/workflow.sqlite3
+#[test]
+#[ignore]
+fn profile_card_first_read() {
+    let path = std::env::var("KANBAN_PROFILE_DB").expect("set KANBAN_PROFILE_DB");
+    let start = std::time::Instant::now();
+    let connection = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    configure_connection(&connection).unwrap();
+    eprintln!("connection: {:?}", start.elapsed());
+    let id: String = connection.query_row("SELECT id FROM kanban_cards WHERE external_provider='superthread' ORDER BY length(content) DESC LIMIT 1", [], |row| row.get(0)).unwrap();
+    let start = std::time::Instant::now();
+    let card = get_card(&connection, &id).unwrap().unwrap();
+    eprintln!("cold snapshot {id}: {:?} ({} events)", start.elapsed(), card.events.len());
+    let start = std::time::Instant::now();
+    get_card(&connection, &id).unwrap();
+    eprintln!("warm snapshot: {:?}", start.elapsed());
+    let start = std::time::Instant::now();
+    let mut board_connection = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    configure_connection(&board_connection).unwrap();
+    let board = board_snapshot(&mut board_connection).unwrap();
+    eprintln!("board snapshot: {:?} ({} cards)", start.elapsed(), board.cards.len());
+}
+
 fn count_traced_reads(sql: &str) {
     let sql = sql.trim_start();
     if sql.starts_with("SELECT") || sql.starts_with("WITH") {

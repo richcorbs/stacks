@@ -6,8 +6,14 @@ export function fetchKanbanCards() {
   return invoke<BoardSnapshot>('kanban_cards');
 }
 
-export function fetchKanbanCard(id: string) {
-  return invoke<CardSnapshot>('kanban_card_snapshot', { id });
+export async function fetchKanbanCard(id: string) {
+  const debug = import.meta.env.DEV && localStorage.getItem('stacks.debugCardOpen') === '1';
+  const started = debug ? performance.now() : 0;
+  try {
+    return await invoke<CardSnapshot>('kanban_card_snapshot', { id });
+  } finally {
+    if (debug) console.debug('Card snapshot IPC', id, { invokeMs: performance.now() - started });
+  }
 }
 
 export function fetchKanbanCardEvents(id: string, cursor: CardEventCursor | null = null) {

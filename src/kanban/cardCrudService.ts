@@ -67,7 +67,10 @@ export class KanbanCrudService {
   /** Projects local persistence only. This operation must never contact a provider. */
   async loadPersistedDetails(cardOrId: KanbanCardSummary | string): Promise<KanbanCardDetail> {
     const snapshot = await this.dependencies.fetchCard(typeof cardOrId === 'string' ? cardOrId : cardOrId.id);
+    const debug = import.meta.env.DEV && typeof localStorage !== 'undefined' && localStorage.getItem('stacks.debugCardOpen') === '1';
+    const started = debug ? performance.now() : 0;
     this.dependencies.applyCard(snapshot.card, snapshot.board_revision);
+    if (debug) console.debug('Card detail board projection', snapshot.card.id, { projectionMs: performance.now() - started });
     return snapshot.card;
   }
 }
