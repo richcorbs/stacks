@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { PiCommand, PiMessage, PiModel, PiPromptImage, PiResponseEvent, PiRpcEnvelope, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
 import { subscribePiEvents } from './eventBroker';
-import { appendPiMessage, createPiTranscriptReconciliation, reconcilePiMessages } from './transcript';
+import { appendPiMessage, createPiTranscriptReconciliation, discardOptimisticPiMessage, reconcilePiMessages } from './transcript';
 import { GUI_BUILTIN_COMMANDS } from './commands';
 import { notifyPiAgentSettled, notifyPiPromptFailed } from './promptEvent';
 import { notifyPiUiRequestDismissed, notifyPiUiRequestReceived, preparePiUiRequestResponse } from './uiRequestWorkflow';
@@ -161,7 +161,10 @@ export class PiSessionController {
     try {
       await this.sendRequest({ type: 'prompt', message: text, ...(images.length ? { images } : {}) });
     } catch (error) {
-      if (optimistic) this.patch({ messages: this.snapshot.messages.filter((item) => !(item.local && item.timestamp === timestamp)) });
+      if (optimistic) {
+        discardOptimisticPiMessage(this.transcriptReconciliation, timestamp);
+        this.patch({ messages: this.snapshot.messages.filter((item) => !(item.local && item.timestamp === timestamp)) });
+      }
       throw error;
     }
   };
