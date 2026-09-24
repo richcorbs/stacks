@@ -80,6 +80,7 @@ describe('CardDetailTabs', () => {
   it('keeps the Diff refresh control rendered while another tab is active', () => {
     const markup = renderToStaticMarkup(<CardDetailTabs
       activeView="overview"
+      onToggleServer={() => undefined}
       hierarchyFinalized={false}
       projectAvailable
       cardPath="/tmp/stacks-card-82"
@@ -96,6 +97,8 @@ describe('CardDetailTabs', () => {
         consoleActive: false,
         serverRestartNonce: 0,
         consoleRestartNonce: 0,
+        start: async () => undefined,
+        stop: async () => undefined,
         toggle: async () => undefined,
       }}
       onRequestView={() => undefined}
@@ -109,6 +112,7 @@ describe('CardDetailTabs', () => {
   it('renders Server and Console controls from command lifecycle rather than terminal mounting', () => {
     const markup = renderToStaticMarkup(<CardDetailTabs
       activeView="server"
+      onToggleServer={() => undefined}
       hierarchyFinalized={false}
       projectAvailable
       cardPath="/tmp/stacks-card-82"
@@ -125,6 +129,8 @@ describe('CardDetailTabs', () => {
         consoleActive: false,
         serverRestartNonce: 1,
         consoleRestartNonce: 2,
+        start: async () => undefined,
+        stop: async () => undefined,
         toggle: async () => undefined,
       }}
       onRequestView={() => undefined}

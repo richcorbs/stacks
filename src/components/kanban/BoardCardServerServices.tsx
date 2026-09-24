@@ -34,7 +34,7 @@ function BoardCardServerHost({ card, projects, detailOpen, terminalFontSize, ter
 
   useLayoutEffect(() => {
     onServices(card.id, services);
-  }, [card.id, onServices, services.consoleActive, services.consoleEnabled, services.consoleRestartNonce, services.consoleRunning, services.consoleStarting, services.serverActive, services.serverEnabled, services.serverRestartNonce, services.serverRunning, services.serverStarting, services.toggle]);
+  }, [card.id, onServices, services.consoleActive, services.consoleEnabled, services.consoleRestartNonce, services.consoleRunning, services.consoleStarting, services.serverActive, services.serverEnabled, services.serverRestartNonce, services.serverRunning, services.serverStarting, services.start, services.stop, services.toggle]);
 
   useEffect(() => () => onServices(card.id, null), [card.id, onServices]);
 

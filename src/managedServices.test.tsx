@@ -95,7 +95,19 @@ describe('managed service lifecycle', () => {
     expect(latest.consoleActive).toBe(false);
   });
 
-  it('leaves the control active when stopping the process fails', async () => {
+  it('propagates explicit stop failures and leaves the control active', async () => {
+    sessions.set('server-id', session('bin/dev'));
+    invoke.mockRejectedValueOnce(new Error('kill failed'));
+    await act(async () => { TestRenderer.create(<Harness />); });
+
+    await expect(act(async () => { await latest.stop('server'); })).rejects.toThrow('kill failed');
+
+    expect(latest.serverActive).toBe(true);
+    expect(sessions.has('server-id')).toBe(true);
+    expect(sessions.get('server-id')?.managedStopRequested).toBe(false);
+  });
+
+  it('leaves the control active when toggled stopping fails', async () => {
     sessions.set('server-id', session('bin/dev'));
     invoke.mockRejectedValueOnce(new Error('kill failed'));
     await act(async () => { TestRenderer.create(<Harness />); });

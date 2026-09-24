@@ -84,28 +84,18 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
     return applicationEvents.subscribe('terminal-running-changed', handleRunningChanged);
   }, [onTerminalStopped, stableConfigs]);
 
-  const toggle = useCallback(async (mode: ManagedServiceMode) => {
+  const start = useCallback(async (mode: ManagedServiceMode) => {
     if (pendingActionsRef.current.has(mode)) return;
+    const config = stableConfigs[mode];
+    const identity = managedServiceIdentity(config);
+    const state = states[mode].identity === identity ? states[mode] : inactiveState(identity);
+    if (state.starting || state.running || !config.command.trim() || !config.cwd) return;
+
     pendingActionsRef.current.add(mode);
     try {
-      const config = stableConfigs[mode];
-      const identity = managedServiceIdentity(config);
-      const state = states[mode].identity === identity ? states[mode] : inactiveState(identity);
-      const active = state.starting || state.running;
-      if (active) {
-        await stopManagedService(config).catch(console.error);
-        return;
-      }
-      if (!config.command.trim() || !config.cwd) return;
-
       // A stopped xterm intentionally remains cached. Replace it only for an
       // explicit Play request so each run starts with fresh output.
-      try {
-        await disposeManagedService(config);
-      } catch (error) {
-        console.error(error);
-        return;
-      }
+      await disposeManagedService(config);
       setStates((current) => ({
         ...current,
         [mode]: {
@@ -121,6 +111,32 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
     }
   }, [stableConfigs, states]);
 
+  const stop = useCallback(async (mode: ManagedServiceMode) => {
+    if (pendingActionsRef.current.has(mode)) return;
+    const config = stableConfigs[mode];
+    const identity = managedServiceIdentity(config);
+    const state = states[mode].identity === identity ? states[mode] : inactiveState(identity);
+    if (!state.starting && !state.running) return;
+
+    pendingActionsRef.current.add(mode);
+    try {
+      await stopManagedService(config);
+    } finally {
+      pendingActionsRef.current.delete(mode);
+    }
+  }, [stableConfigs, states]);
+
+  const toggle = useCallback(async (mode: ManagedServiceMode) => {
+    const identity = managedServiceIdentity(stableConfigs[mode]);
+    const state = states[mode].identity === identity ? states[mode] : inactiveState(identity);
+    try {
+      if (state.starting || state.running) await stop(mode);
+      else await start(mode);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [stableConfigs, start, states, stop]);
+
   const serverActive = currentStates.server.starting || currentStates.server.running;
   const consoleActive = currentStates.console.starting || currentStates.console.running;
   return {
@@ -134,6 +150,8 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
     consoleActive,
     serverRestartNonce: currentStates.server.restartNonce,
     consoleRestartNonce: currentStates.console.restartNonce,
+    start,
+    stop,
     toggle,
   };
 }
