@@ -243,7 +243,7 @@ describe('KanbanPullRequestBadge', () => {
 });
 
 describe('KanbanLanes headings', () => {
-  it('renders every expanded heading with its current parenthesized card count', () => {
+  it('renders every expanded heading with its current plain card count, including zero', () => {
     const cards = [
       card({ id: 'ready-1', status: 'ready' }),
       card({ id: 'working-1', status: 'agent_working' }),
@@ -263,7 +263,7 @@ describe('KanbanLanes headings', () => {
     } satisfies Record<KanbanStatus, [string, number]>;
 
     for (const [status, [label, count]] of Object.entries(expected) as [KanbanStatus, [string, number]][]) {
-      expect(laneMarkup(markup, status)).toContain(`<strong class="kanbanLaneTitle">${label} <span class="kanbanLaneCount">(${count})</span></strong>`);
+      expect(laneMarkup(markup, status)).toContain(`<strong class="kanbanLaneTitle">${label} <span class="kanbanLaneCount">${count}</span></strong>`);
     }
   });
 
@@ -272,10 +272,10 @@ describe('KanbanLanes headings', () => {
     const before = renderLanes([readyCard]);
     const after = renderLanes([{ ...readyCard, status: 'agent_working' }]);
 
-    expect(laneMarkup(before, 'ready')).toContain('Ready for agent <span class="kanbanLaneCount">(1)</span>');
-    expect(laneMarkup(before, 'agent_working')).toContain('Agent working <span class="kanbanLaneCount">(0)</span>');
-    expect(laneMarkup(after, 'ready')).toContain('Ready for agent <span class="kanbanLaneCount">(0)</span>');
-    expect(laneMarkup(after, 'agent_working')).toContain('Agent working <span class="kanbanLaneCount">(1)</span>');
+    expect(laneMarkup(before, 'ready')).toContain('Ready for agent <span class="kanbanLaneCount">1</span>');
+    expect(laneMarkup(before, 'agent_working')).toContain('Agent working <span class="kanbanLaneCount">0</span>');
+    expect(laneMarkup(after, 'ready')).toContain('Ready for agent <span class="kanbanLaneCount">0</span>');
+    expect(laneMarkup(after, 'agent_working')).toContain('Agent working <span class="kanbanLaneCount">1</span>');
   });
 
   it('keeps the expanded Done menu separate from and after its title group', () => {
@@ -283,7 +283,7 @@ describe('KanbanLanes headings', () => {
     const titleEnd = done.indexOf('</strong>');
     const actionsStart = done.indexOf('class="kanbanLaneHeaderActions"');
 
-    expect(done).toContain('Done <span class="kanbanLaneCount">(1)</span>');
+    expect(done).toContain('Done <span class="kanbanLaneCount">1</span>');
     expect(titleEnd).toBeGreaterThan(-1);
     expect(actionsStart).toBeGreaterThan(titleEnd);
     expect(done).toContain('aria-label="Done column actions"');

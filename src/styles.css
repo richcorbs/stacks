@@ -122,9 +122,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanLane > header { flex: 0 0 auto; padding: 11px 11px 9px; border-bottom: 0; background: transparent; }
 .kanbanLane > header.kanbanLaneCollapsedHeader { display: flex; justify-content: flex-end; border-bottom: 0; border-radius: 9px 9px 0 0; }
 .kanbanLaneHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #aebdcb; font-size: calc(12px + var(--ui-font-delta, 0px)); }
-.kanbanLaneTitle { min-width: 0; display: inline-flex; align-items: baseline; gap: 4px; color: #7f8d9b; white-space: nowrap; }
+.kanbanLaneTitle { min-width: 0; display: inline-flex; align-items: baseline; gap: 8px; color: #9aabba; white-space: nowrap; }
 .kanbanLaneHeaderActions { margin-left: auto; display: inline-flex; align-items: center; flex: 0 0 auto; }
-.kanbanLane > header .kanbanLaneCount { color: #91a3b5; font: 700 calc(10px + var(--ui-font-delta, 0px)) ui-monospace, monospace; }
+.kanbanLane > header .kanbanLaneCount { color: #73869a; font: 500 calc(11px + var(--ui-font-delta, 0px)) ui-monospace, monospace; }
 .kanbanLaneMenu { position: relative; display: inline-flex; }
 .kanbanLaneMenuTrigger { flex: 0 0 auto; width: 24px; height: 22px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #74879b; cursor: pointer; }
 .kanbanLaneMenuTrigger:hover, .kanbanLaneMenuTrigger:focus-visible, .kanbanLaneMenuTrigger[aria-expanded="true"] { background: #1c2936; color: #a8bacb; outline: none; }
