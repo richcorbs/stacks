@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { PiCommand, PiMessage, PiModel, PiPromptImage, PiResponseEvent, PiRpcEnvelope, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
 import { subscribePiEvents } from './eventBroker';
-import { appendPiMessage, reconcilePiMessages } from './transcript';
+import { appendPiMessage, createPiTranscriptReconciliation, reconcilePiMessages } from './transcript';
 import { GUI_BUILTIN_COMMANDS } from './commands';
 import { notifyPiAgentSettled, notifyPiPromptFailed } from './promptEvent';
 import { notifyPiUiRequestDismissed, notifyPiUiRequestReceived, preparePiUiRequestResponse } from './uiRequestWorkflow';
@@ -64,6 +64,7 @@ export class PiSessionController {
     commands: GUI_BUILTIN_COMMANDS, availableModels: [], availableThinkingLevels: [], queuedSteering: [], queuedFollowUps: [],
   };
   private listeners = new Set<() => void>();
+  private transcriptReconciliation = createPiTranscriptReconciliation();
   private pendingRequests = new Map<string, PendingRequest>();
   private requestSequence = 0;
   private generation: string | null = null;
@@ -156,7 +157,7 @@ export class PiSessionController {
       : text;
     const timestamp = Date.now();
     const optimistic = !text.startsWith('/');
-    if (optimistic) this.patch({ messages: appendPiMessage(this.snapshot.messages, { role: 'user', content: optimisticContent, timestamp, local: true }) });
+    if (optimistic) this.patch({ messages: appendPiMessage(this.snapshot.messages, { role: 'user', content: optimisticContent, timestamp, local: true }, this.transcriptReconciliation) });
     try {
       await this.sendRequest({ type: 'prompt', message: text, ...(images.length ? { images } : {}) });
     } catch (error) {
@@ -343,7 +344,7 @@ export class PiSessionController {
     if (!Array.isArray(response.data?.messages)) return;
     // Live message_end events may race hydration. Hydrated history is the base,
     // then newer projected messages are appended with transcript deduplication.
-    this.patch({ messages: reconcilePiMessages(response.data.messages, this.snapshot.messages) });
+    this.patch({ messages: reconcilePiMessages(response.data.messages, this.snapshot.messages, this.transcriptReconciliation) });
   };
 
   private userMessageCount() {
@@ -444,7 +445,7 @@ export class PiSessionController {
       case 'message_end':
         if (event.message && typeof event.message === 'object') {
           const message = event.message as PiMessage;
-          const next: Partial<PiSessionSnapshot> = { messages: appendPiMessage(this.snapshot.messages, message) };
+          const next: Partial<PiSessionSnapshot> = { messages: appendPiMessage(this.snapshot.messages, message, this.transcriptReconciliation) };
           if (message.role === 'assistant') Object.assign(next, { isStreamingText: false, streamingText: '' });
           if (message.role === 'user') {
             const text = messageContentText(message.content).trim();

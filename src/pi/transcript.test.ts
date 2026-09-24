@@ -25,17 +25,33 @@ describe('Pi transcript', () => {
     const liveUser: PiMessage = { role: 'user', content: 'plan this', timestamp: 20 };
     const liveAssistant: PiMessage = { role: 'assistant', content: 'working', timestamp: 30 };
     const hydrated = [
-      { role: 'user', content: [{ type: 'text' as const, text: 'plan this' }], timestamp: 20 },
+      { messageId: 'hydrated-user', role: 'user', content: [{ type: 'text' as const, text: 'plan this' }], timestamp: 21 },
       { role: 'assistant', content: 'working', timestamp: 30 },
     ];
     expect(reconcilePiMessages(hydrated, [optimistic, liveUser, liveAssistant])).toEqual(hydrated);
+  });
+
+  it('consumes one late live copy after hydration replaces an optimistic prompt', () => {
+    const optimistic: PiMessage = { role: 'user', content: 'plan this', timestamp: 10, local: true };
+    const hydrated: PiMessage = { messageId: 'persisted-prompt', role: 'user', content: [{ type: 'text', text: 'plan this' }], timestamp: 21 };
+    const lateLive: PiMessage = { role: 'user', content: 'plan this', timestamp: 20 };
+
+    const reconciled = reconcilePiMessages([hydrated], [optimistic]);
+    expect(appendPiMessage(reconciled, lateLive)).toBe(reconciled);
+    expect(reconciled).toEqual([hydrated]);
   });
 
   it('does not collapse intentional identical user messages from separate turns', () => {
     const first: PiMessage = { role: 'user', content: 'continue', timestamp: 1 };
     const second: PiMessage = { role: 'user', content: 'continue', timestamp: 2 };
     expect(reconcilePiMessages([first], [first, second])).toEqual([first, second]);
+    expect(reconcilePiMessages([first], [second])).toEqual([first, second]);
     expect(appendPiMessage([first], second)).toEqual([first, second]);
+
+    const optimistic: PiMessage = { role: 'user', content: 'continue', local: true };
+    const hydrated: PiMessage = { messageId: 'first', role: 'user', content: 'continue' };
+    const afterLateReplay = appendPiMessage(reconcilePiMessages([hydrated], [optimistic]), { role: 'user', content: 'continue' });
+    expect(appendPiMessage(afterLateReplay, { role: 'user', content: 'continue' })).toHaveLength(2);
   });
 
   it('deduplicates a stable live message even when it is no longer last', () => {
@@ -52,6 +68,21 @@ describe('Pi transcript', () => {
     };
     expect(appendPiMessage([optimistic], persisted)).toEqual([{ role: 'user', content: '/skill:refine 2139' }]);
     expect(compactPiMessages([persisted])).toEqual([{ role: 'user', content: '/skill:refine 2139' }]);
+  });
+
+  it('retains an optimistic image preview when hydration supplies the canonical message', () => {
+    const optimistic: PiMessage = {
+      role: 'user', local: true,
+      content: [{ type: 'text', text: 'review this' }, { type: 'image', data: 'preview-base64', mimeType: 'image/jpeg' }],
+    };
+    const hydrated: PiMessage = {
+      id: 'persisted-image', role: 'user',
+      content: [{ type: 'text', text: 'review this' }, { type: 'image', data: 'persisted-base64', mimeType: 'image/jpeg' }],
+    };
+    expect(reconcilePiMessages([hydrated], [optimistic])).toEqual([{
+      ...hydrated,
+      content: [{ type: 'text', text: 'review this' }, { type: 'image', data: 'preview-base64', mimeType: 'image/jpeg', omitted: false }],
+    }]);
   });
 
   it('retains a recent submitted image preview when the persisted message arrives', () => {
