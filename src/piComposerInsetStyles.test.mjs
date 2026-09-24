@@ -15,6 +15,7 @@ describe('Pi composer inset styling', () => {
     const pane = declarationsFor('.piGuiPane');
     const composer = declarationsFor('.piComposer');
     const footer = declarationsFor('.piGuiFooter');
+    const footerContent = declarationsFor('.piGuiFooter > *');
 
     expect(pane).toContain('--pi-composer-inset: max(18px, 7cqw)');
     expect(pane).toContain('--pi-composer-bottom-inset: calc(var(--pi-composer-inset) + 2px)');
@@ -23,6 +24,8 @@ describe('Pi composer inset styling', () => {
     expect(footer).toContain('height: var(--pi-composer-bottom-inset)');
     expect(footer).toContain('flex: 0 0 var(--pi-composer-bottom-inset)');
     expect(footer).toContain('margin: 0 var(--pi-composer-inset)');
+    expect(footerContent).toContain('position: relative');
+    expect(footerContent).toContain('top: -1px');
   });
 
   it('uses the existing fixed card-chat inset everywhere', () => {
