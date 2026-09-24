@@ -16,7 +16,7 @@ describe('Kanban lane header layout', () => {
 
     expect(title).toContain('display: inline-flex');
     expect(title).toContain('align-items: baseline');
-    expect(title).toContain('gap: 4px');
+    expect(title).toContain('gap: 8px');
     expect(title).toContain('white-space: nowrap');
   });
 

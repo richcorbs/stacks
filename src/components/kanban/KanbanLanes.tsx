@@ -246,7 +246,7 @@ export function KanbanLanes({
             <header>
               <div className="kanbanLaneHeader">
                 <strong className="kanbanLaneTitle">
-                  {lane.label} <span className="kanbanLaneCount">({cards.length})</span>
+                  {lane.label} <span className="kanbanLaneCount">{cards.length}</span>
                 </strong>
                 {lane.status === 'done' && (
                   <span className="kanbanLaneHeaderActions">
