@@ -38,6 +38,7 @@ import { publishWorkPresence } from '../../appAttention';
 import { useCardDetailModel } from '../../kanban/useCardDetailModel';
 import { executeCardWorkflowAction, type CardWorkflowExecutorDependencies } from '../../kanban/cardWorkflowExecutor';
 import { CleanupPreflightDialog } from './CleanupPreflightDialog';
+import { sameActionRevisions } from '../../kanban/detailSessionCache';
 
 function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery']>['stage']) {
   return ({ merged: 'Merged locally', pushing: 'Pushing…', push_failed: 'Push failed', pushed: 'Pushed', deploying: 'Deploying…', deployment_failed: 'Deployment failed', cancelled: 'Deployment cancelled', uncertain: 'Deployment outcome uncertain', deployed: 'Deployed' } as const)[stage];
@@ -45,7 +46,7 @@ function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery'
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
-export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onToggleServer, onWorkflowControllerChange }: {
+export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, requireActionPreflight, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onToggleServer, onWorkflowControllerChange }: {
   card: KanbanCard;
   cards: KanbanCardSummary[];
   cardServices: CardServices;
@@ -59,6 +60,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   gitChangeSummary: import('../../types').GitChangeSummary | null;
   detailLoadError: string | null;
   detailRefreshError: string | null;
+  requireActionPreflight: boolean;
   hasOlderEvents: boolean;
   onLoadOlderEvents: () => Promise<void>;
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
@@ -299,20 +301,30 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
     disposeAcceptedRuntimeOutcomes(result.outcomes, deletePiSessionController, disposeTerminalSession);
     onCardUpdatedRef.current(preserveRevisionValues(result.card));
   }
-  function performWorkflowAction(action: CardWorkflowAction) {
+  async function performWorkflowAction(action: CardWorkflowAction) {
+    if (requireActionPreflight || detailRefreshError) {
+      try {
+        const fresh = await onReload();
+        if (!sameActionRevisions(card, fresh)) {
+          setActionError('Card changed while it was closed. Review the updated details and try again.');
+          return;
+        }
+      } catch (error) {
+        setActionError(`Could not verify current card details: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+    }
     return executeCardWorkflowAction(action, card, workflowDependencies);
   }
 
   const workflowActionsRef = useRef(workflowActions);
-  const workflowDependenciesRef = useRef(workflowDependencies);
-  const workflowCardRef = useRef(card);
+  const performWorkflowActionRef = useRef(performWorkflowAction);
+  performWorkflowActionRef.current = performWorkflowAction;
   workflowActionsRef.current = workflowActions;
-  workflowDependenciesRef.current = workflowDependencies;
-  workflowCardRef.current = card;
   useEffect(() => {
     onWorkflowControllerChange?.({ run: (kind) => {
       const action = workflowActionsRef.current.find((candidate) => candidate.kind === kind);
-      if (action) void executeCardWorkflowAction(action, workflowCardRef.current, workflowDependenciesRef.current);
+      if (action) void performWorkflowActionRef.current(action);
     } });
     return () => onWorkflowControllerChange?.(null);
   }, [card.id, onWorkflowControllerChange]);
