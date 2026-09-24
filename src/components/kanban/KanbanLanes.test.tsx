@@ -29,7 +29,7 @@ function services(active = false, toggle = vi.fn()): CardServices {
     serverRunning: false, consoleRunning: false,
     serverActive: active, consoleActive: false,
     serverRestartNonce: 0, consoleRestartNonce: 0,
-    toggle,
+    start: vi.fn(), stop: vi.fn(), toggle,
   };
 }
 
@@ -43,6 +43,7 @@ function renderCardContents(currentCard: KanbanCard, serverServices?: CardServic
     } : undefined}
     serverServices={serverServices}
     onNavigateParent={() => undefined}
+    onToggleServer={() => undefined}
   />);
 }
 
@@ -108,6 +109,7 @@ function renderLanes(cards: KanbanCard[], doneCollapsed = false) {
     onCleanupMerged={() => {}}
     onOpenCard={() => {}}
     onNavigateParent={() => {}}
+    onToggleServer={() => {}}
   />);
 }
 
@@ -195,7 +197,7 @@ describe('board server control', () => {
     [false, 'Start server', 'servicePlayIcon'],
     [true, 'Stop server', 'serviceStopIcon'],
   ])('renders active=%s with the accessible %s state', (active, label, icon) => {
-    const markup = renderToStaticMarkup(<KanbanServerControl services={services(active)} />);
+    const markup = renderToStaticMarkup(<KanbanServerControl services={services(active)} onToggle={() => {}} />);
     expect(markup).toContain(`aria-label="${label}"`);
     expect(markup).toContain(`aria-pressed="${active}"`);
     expect(markup).toContain(icon);
@@ -204,7 +206,7 @@ describe('board server control', () => {
   it('handles pointer and click interaction without propagating to card open or drag handlers', async () => {
     const toggle = vi.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
-    await act(async () => { renderer = TestRenderer.create(<KanbanServerControl services={services(false, toggle)} />); });
+    await act(async () => { renderer = TestRenderer.create(<KanbanServerControl services={services(false)} onToggle={toggle} />); });
     const button = renderer.root.findByType('button');
     const pointerStop = vi.fn();
     const clickStop = vi.fn();
@@ -216,7 +218,7 @@ describe('board server control', () => {
     expect(pointerStop).toHaveBeenCalledTimes(2);
     expect(clickStop).toHaveBeenCalledOnce();
     expect(toggle).toHaveBeenCalledOnce();
-    expect(toggle).toHaveBeenCalledWith('server');
+    expect(toggle).toHaveBeenCalledWith();
   });
 });
 

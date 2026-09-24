@@ -65,7 +65,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
   </header>;
 }
 
-export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailable, cardPath, serverCommand, consoleCommand, serverServices, onRequestView, onRefreshDiff }: {
+export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailable, cardPath, serverCommand, consoleCommand, serverServices, onRequestView, onRefreshDiff, onToggleServer }: {
   activeView: CardView;
   hierarchyFinalized: boolean;
   projectAvailable: boolean;
@@ -75,6 +75,7 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
   serverServices: CardServices;
   onRequestView: (view: CardView) => unknown;
   onRefreshDiff: () => void;
+  onToggleServer: () => void;
 }) {
   return <nav className="cardWorkspaceTabs" aria-label="Card views">
     <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => onRequestView('overview')}>Card</button>
@@ -88,7 +89,7 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
       {cardPath && (serverCommand || consoleCommand) && <span className="cardServiceTabs" aria-label="Card services">
         {serverCommand && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
           <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('server')}>Server</button>
-          <button className={`cardServiceToggle${serverServices.serverActive ? ' running' : ''}`} type="button" onClick={() => serverServices.toggle('server')} aria-label={serverServices.serverActive ? 'Stop server' : 'Start server'} aria-pressed={serverServices.serverActive}><span className={serverServices.serverActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
+          <button className={`cardServiceToggle${serverServices.serverActive ? ' running' : ''}`} type="button" onClick={onToggleServer} aria-label={serverServices.serverActive ? 'Stop server' : 'Start server'} aria-pressed={serverServices.serverActive}><span className={serverServices.serverActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
         </span>}
         {consoleCommand && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
           <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('console')}>Console</button>

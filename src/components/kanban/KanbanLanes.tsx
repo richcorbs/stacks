@@ -103,7 +103,7 @@ export function kanbanCardClassName(card: Pick<KanbanCardSummary, 'child_count'>
   return `kanbanCard${card.child_count > 0 ? ' kanbanParentCard' : ''}${keyboardFocused ? ' keyboardFocused' : ''}`;
 }
 
-export function KanbanServerControl({ services }: { services: CardServices }) {
+export function KanbanServerControl({ services, onToggle }: { services: CardServices; onToggle: () => void }) {
   const active = services.serverActive;
   const stopPropagation = (event: SyntheticEvent) => event.stopPropagation();
   return <button
@@ -115,7 +115,7 @@ export function KanbanServerControl({ services }: { services: CardServices }) {
     onPointerDown={stopPropagation}
     onPointerUp={stopPropagation}
     onPointerCancel={stopPropagation}
-    onClick={(event) => { event.stopPropagation(); void services.toggle('server'); }}
+    onClick={(event) => { event.stopPropagation(); onToggle(); }}
   ><span className={active ? 'serviceStopIcon' : 'servicePlayIcon'} aria-hidden="true" /></button>;
 }
 
@@ -125,12 +125,14 @@ export function KanbanCardContents({
   repositoryStatus,
   serverServices,
   onNavigateParent,
+  onToggleServer,
 }: {
   card: KanbanCardSummary;
   projects: Project[];
   repositoryStatus: CardRepositoryStatus | undefined;
   serverServices?: CardServices;
   onNavigateParent: (parentId: string) => void;
+  onToggleServer: (cardId: string) => void;
 }) {
   const hasHierarchy = Boolean(card.parent) || card.child_count > 0;
 
@@ -153,7 +155,7 @@ export function KanbanCardContents({
         {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
       </span>
       <span className="kanbanCardIndicators">
-        {serverServices && <KanbanServerControl services={serverServices} />}
+        {serverServices && <KanbanServerControl services={serverServices} onToggle={() => onToggleServer(card.id)} />}
         {hasGitChanges(repositoryStatus?.git) && (
           <span className="kanbanGitBadge" title={`${repositoryStatus?.git?.branch} working tree changes`}>
             {repositoryStatus!.git!.created > 0 && <span className="gitAdded">+{repositoryStatus!.git!.created}</span>}
@@ -184,6 +186,7 @@ export function KanbanLanes({
   onCleanupMerged,
   onOpenCard,
   onNavigateParent,
+  onToggleServer,
 }: {
   cards: KanbanCardSummary[];
   projects: Project[];
@@ -201,6 +204,7 @@ export function KanbanLanes({
   onCleanupMerged: () => void;
   onOpenCard: (card: KanbanCardSummary, initialView?: CardView) => void;
   onNavigateParent: (parentId: string) => void;
+  onToggleServer: (cardId: string) => void;
 }) {
   const dragging = Boolean(pointer.dragPreview);
   useEffect(() => {
@@ -285,7 +289,7 @@ export function KanbanLanes({
                       onFocus={() => setKeyboardFocusedCardId(card.id)}
                       onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                     />
-                    <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} />
+                    <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
                   </div>
                   {showEnvironmentWarning && environmentHealth && (
                     <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>
@@ -318,7 +322,7 @@ export function KanbanLanes({
         }}
       >
         <div className={kanbanCardClassName(draggedCard)}>
-          <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(draggedCard, projects).eligible ? serverServices[draggedCard.id] : undefined} onNavigateParent={() => {}} />
+          <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(draggedCard, projects).eligible ? serverServices[draggedCard.id] : undefined} onNavigateParent={() => {}} onToggleServer={onToggleServer} />
         </div>
         {showEnvironmentWarning && environmentHealth && (
           <span className="kanbanEnvironmentWarning" title={healthTooltip}><span aria-hidden="true">!</span></span>

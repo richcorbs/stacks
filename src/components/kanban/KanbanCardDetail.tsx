@@ -45,7 +45,7 @@ function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery'
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
-export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onWorkflowControllerChange }: {
+export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onToggleServer, onWorkflowControllerChange }: {
   card: KanbanCard;
   cards: KanbanCardSummary[];
   cardServices: CardServices;
@@ -74,6 +74,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   onRetryRefresh: () => Promise<void>;
   onCardUpdated: (card: KanbanCard) => void;
   onNavigate: (id: string, initialView?: CardView) => void;
+  onToggleServer: (cardId: string) => void;
   onWorkflowControllerChange?: (controller: CardDetailWorkflowController | null) => void;
 }) {
   const [cleanupInventory, setCleanupInventory] = useState<CleanupInventory | null>(null);
@@ -367,6 +368,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
           serverServices={cardServices}
           onRequestView={requestView}
           onRefreshDiff={() => setDiffRefreshNonce((nonce) => nonce + 1)}
+          onToggleServer={() => onToggleServer(card.id)}
         />
         <CardOverview
           active={activeView === 'overview'}
