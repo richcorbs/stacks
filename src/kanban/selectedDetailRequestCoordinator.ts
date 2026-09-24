@@ -93,13 +93,12 @@ export function detailIsCurrent(candidate: KanbanCardDetail, canonical?: KanbanC
     && candidate.workflow_revision >= card.workflow_revision
     && (candidate.workflow_revision > card.workflow_revision || candidate.status === card.status)
     && candidate.updated_at >= card.updated_at
-    && environmentRevision(candidate, 'revision') >= environmentRevision(card, 'revision')
-    && environmentRevision(candidate, 'layout_revision') >= environmentRevision(card, 'layout_revision')
+    && (candidate.environment?.id !== card.environment?.id
+      ? Boolean(canonical && canonical.environment?.id === candidate.environment?.id
+        && candidate.record_revision > card.record_revision)
+      : (!candidate.environment || (candidate.environment.revision >= card.environment!.revision
+        && candidate.environment.layout_revision >= card.environment!.layout_revision)))
   ));
-}
-
-function environmentRevision(card: KanbanCardSummary | KanbanCardDetail, field: 'revision' | 'layout_revision') {
-  return card.environment?.[field] ?? 0;
 }
 
 export function mergeCardEvents(current: readonly CardEvent[] = [], incoming: readonly CardEvent[] = []) {

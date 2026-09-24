@@ -7,6 +7,7 @@ export function sameActionRevisions(displayed: KanbanCard, fresh: KanbanCard) {
     && displayed.record_revision === fresh.record_revision
     && displayed.workflow_revision === fresh.workflow_revision
     && displayed.status === fresh.status
+    && displayed.environment?.id === fresh.environment?.id
     && (displayed.environment?.revision ?? 0) === (fresh.environment?.revision ?? 0)
     && (displayed.environment?.layout_revision ?? 0) === (fresh.environment?.layout_revision ?? 0);
 }
@@ -19,9 +20,9 @@ export class DetailSessionCache {
     return canonical && snapshot && detailIsCurrent(snapshot.card, canonical) ? snapshot : null;
   }
 
-  remember(card: KanbanCard, cursor: CardEventCursor | null) {
+  remember(card: KanbanCard, cursor: CardEventCursor | null, canonical?: KanbanCardSummary) {
     const prior = this.snapshots.get(card.id);
-    if (prior && !detailIsCurrent(card, prior.card)) return;
+    if (prior && !detailIsCurrent(card, canonical, prior.card)) return;
     this.snapshots.set(card.id, { card, cursor });
   }
 

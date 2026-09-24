@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { canProjectSelectedDetail, detailIsCurrent, mergeCardEvents, SelectedDetailRequestCoordinator } from './selectedDetailRequestCoordinator';
 import type { KanbanCard } from './types';
+import { KanbanEntityStore } from './boardStore';
+import { DetailSessionCache } from './detailSessionCache';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -159,6 +161,110 @@ describe('selected detail projection', () => {
     expect(detailIsCurrent(card(3, 2), card(3, 3), null)).toBe(false);
     expect(detailIsCurrent(card(3, 3, 'one'), card(2, 2, 'two'), null)).toBe(false);
     expect(canProjectSelectedDetail('two', 'one', card(3, 3, 'two'))).toBe(false);
+  });
+
+  it('accepts durable deletion and retained cleanup failure, but rejects stale environment resurrection', () => {
+    const before = card(5, 9);
+    const deleted = { ...card(6), status: before.status };
+    const failed = { ...card(6, 10), environment: { ...card(6, 10).environment!, lifecycle_state: 'cleanup_failed' as const } };
+    expect(detailIsCurrent(deleted, deleted, before)).toBe(true);
+    expect(detailIsCurrent(failed, failed, before)).toBe(true);
+    expect(detailIsCurrent(before, deleted, deleted)).toBe(false);
+    expect(detailIsCurrent(deleted, before, before)).toBe(false); // board has not caught up
+    expect(detailIsCurrent(card(4, 10), deleted, before)).toBe(false);
+    expect(detailIsCurrent({ ...deleted, record_revision: 7, workflow_revision: 4, updated_at: 7 }, deleted)).toBe(false);
+  });
+
+  it('requires a newer card snapshot for replacement, not larger counters from a different environment', () => {
+    const original = card(4, 12);
+    const replacement = { ...card(5, 1), environment: { ...card(5, 1).environment!, id: 'replacement' } };
+    expect(detailIsCurrent(replacement, replacement, original)).toBe(true);
+    expect(detailIsCurrent(replacement, original, original)).toBe(false);
+    expect(detailIsCurrent({ ...replacement, record_revision: 4 }, replacement, original)).toBe(false);
+    expect(detailIsCurrent({ ...card(6, 13), environment: { ...card(6, 13).environment!, layout_revision: 1 } }, undefined, original)).toBe(false);
+    expect(detailIsCurrent({ ...card(6, 1), environment: { ...card(6, 1).environment!, revision: 1, layout_revision: 13 } }, undefined, original)).toBe(false);
+  });
+
+  it('keeps open detail current across a board invalidation, stale in-flight read, and cleanup completion', async () => {
+    const store = new KanbanEntityStore();
+    const cache = new DetailSessionCache();
+    const before = card(2, 9);
+    const deleted = card(4);
+    store.applyCard(before);
+    cache.remember(before, null);
+    let displayed = before;
+    let needsPreflight = true; // reopened cached detail
+    let refreshError: string | null = null;
+    const first = deferred<KanbanCard>();
+    const reads: string[] = [];
+    const coordinator = new SelectedDetailRequestCoordinator({
+      run: async (id: string) => { reads.push(id); return reads.length === 1 ? first.promise : deleted; },
+      success: (candidate: KanbanCard) => {
+        store.applyCard(candidate);
+        const canonical = store.card(candidate.id)!;
+        if (!detailIsCurrent(candidate, canonical, displayed)) return false;
+        displayed = candidate;
+        cache.remember(candidate, null, canonical);
+        needsPreflight = false;
+        refreshError = null;
+        return true;
+      },
+      failure: () => { refreshError = 'disk failure'; },
+    });
+    coordinator.select('c');
+    const invalidated = coordinator.local('c');
+    // The board event arrives while an intermediate cleanup-phase read is in flight.
+    store.applyBoardChange({ board_revision: 1, upserts: [deleted], removed_ids: [], detail_invalidated_ids: ['c'] });
+    const completion = coordinator.authoritative('c'); // direct cleanup completion read by ID
+    first.resolve(before);
+    expect(await invalidated).toBeUndefined();
+    expect((await completion)?.environment).toBeNull();
+    expect(displayed.environment).toBeNull();
+    expect(store.card('c')?.environment).toBeNull();
+    expect(cache.get('c', store.card('c'))?.card.environment).toBeNull();
+    expect(needsPreflight).toBe(false);
+    expect(refreshError).toBeNull();
+    expect((await coordinator.local('c'))?.environment).toBeNull();
+    expect(reads).toEqual(['c', 'c', 'c']);
+  });
+
+  it('retries a locally obsolete cleanup-phase read against newer persisted state without a lasting error', async () => {
+    const store = new KanbanEntityStore();
+    const before = card(2, 9);
+    const deleted = card(4);
+    store.applyCard(before);
+    let displayed = before;
+    let error: string | null = null;
+    const first = deferred<KanbanCard>();
+    let reads = 0;
+    let retriedRevision = 0;
+    const coordinator = new SelectedDetailRequestCoordinator<KanbanCard>({
+      run: async () => ++reads === 1 ? first.promise : deleted,
+      success: (candidate) => {
+        store.applyCard(candidate);
+        const canonical = store.card('c')!;
+        if (!detailIsCurrent(candidate, canonical, displayed)) {
+          if (canonical.record_revision > candidate.record_revision && canonical.record_revision > retriedRevision) {
+            retriedRevision = canonical.record_revision;
+            void coordinator.local('c');
+          } else error = 'Card changed during refresh';
+          return false;
+        }
+        displayed = candidate;
+        error = null;
+        return true;
+      },
+      failure: () => { error = 'read failure'; },
+    });
+    coordinator.select('c');
+    const pending = coordinator.local('c');
+    store.applyBoardChange({ board_revision: 1, upserts: [deleted], removed_ids: [], detail_invalidated_ids: ['c'] });
+    first.resolve(before);
+    expect(await pending).toBeUndefined();
+    // The trailing retry is scheduled after the obsolete response.
+    await vi.waitFor(() => expect(displayed.environment).toBeNull());
+    expect(reads).toBe(2);
+    expect(error).toBeNull();
   });
 
   it('merges old event pages in newest-first order without duplicates', () => {
