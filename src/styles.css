@@ -864,6 +864,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   cursor: pointer;
 }
 .diffTreeRow:hover { background: #1a2735; color: #d3dce7; }
+.diffFileRow.selected, .diffFileRow.selected:hover { background: #253e56; color: #eef5fc; box-shadow: inset 3px 0 #6aa9d9; }
+.diffFileRow.selected:focus-visible { outline: 2px solid #9bc9ed; outline-offset: -2px; }
+.diffFileRow.selected.reviewed .diffTreeName { color: #eef5fc; }
 .diffTreeRow:disabled { cursor: wait; opacity: .65; }
 .diffFolderRow { color: #a0afbf; }
 .diffTreeName { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--ui-font-delta, 0px)); text-transform: none; }

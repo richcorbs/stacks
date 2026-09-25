@@ -83,17 +83,18 @@ export function DiffTab({ activePath, comparisonTarget, refreshNonce, review }: 
     {displayError && <div className="superthreadState superthreadError">{displayError}</div>}
     {!loading && !displayError && files.length === 0 && <div className="superthreadState">No changed files.</div>}
     {!displayError && <div className="diffTree" role="tree" aria-label="Changed files">
-      {tree.map((node) => <TreeNode key={node.path} node={node} depth={0} collapsed={collapsed} setCollapsed={setCollapsed} loadingFile={loadingFile} reviewedFiles={review.reviewedFiles} commentCounts={commentCounts} onOpenFile={openFile} />)}
+      {tree.map((node) => <TreeNode key={node.path} node={node} depth={0} collapsed={collapsed} setCollapsed={setCollapsed} loadingFile={loadingFile} selectedFile={review.openDiff?.path ?? null} reviewedFiles={review.reviewedFiles} commentCounts={commentCounts} onOpenFile={openFile} />)}
     </div>}
   </>;
 }
 
-function TreeNode({ node, depth, collapsed, setCollapsed, loadingFile, reviewedFiles, commentCounts, onOpenFile }: {
+function TreeNode({ node, depth, collapsed, setCollapsed, loadingFile, selectedFile, reviewedFiles, commentCounts, onOpenFile }: {
   node: DiffTreeNode;
   depth: number;
   collapsed: Set<string>;
   setCollapsed: Dispatch<SetStateAction<Set<string>>>;
   loadingFile: string | null;
+  selectedFile: string | null;
   reviewedFiles: Set<string>;
   commentCounts: Map<string, number>;
   onOpenFile: (path: string) => void;
@@ -109,14 +110,15 @@ function TreeNode({ node, depth, collapsed, setCollapsed, loadingFile, reviewedF
         <span className={`superthreadDisclosure${isCollapsed ? '' : ' expanded'}`} />
         <span className="diffTreeName">{node.name}</span>
       </button>
-      {!isCollapsed && <div role="group">{node.children.map((child) => <TreeNode key={child.path} node={child} depth={depth + 1} collapsed={collapsed} setCollapsed={setCollapsed} loadingFile={loadingFile} reviewedFiles={reviewedFiles} commentCounts={commentCounts} onOpenFile={onOpenFile} />)}</div>}
+      {!isCollapsed && <div role="group">{node.children.map((child) => <TreeNode key={child.path} node={child} depth={depth + 1} collapsed={collapsed} setCollapsed={setCollapsed} loadingFile={loadingFile} selectedFile={selectedFile} reviewedFiles={reviewedFiles} commentCounts={commentCounts} onOpenFile={onOpenFile} />)}</div>}
     </div>;
   }
   return <button
-    className={`diffTreeRow diffFileRow${reviewedFiles.has(node.path) ? ' reviewed' : ''}`}
+    className={`diffTreeRow diffFileRow${selectedFile === node.path ? ' selected' : ''}${reviewedFiles.has(node.path) ? ' reviewed' : ''}`}
     style={{ paddingLeft: 29 + depth * 14 }}
     type="button"
     role="treeitem"
+    aria-selected={selectedFile === node.path}
     disabled={loadingFile !== null}
     onClick={() => void onOpenFile(node.path)}
   >

@@ -158,7 +158,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         />
         <section className={`cardDiffView cardView${activeView === 'diff' ? ' active' : ''}`}>
           <aside className="cardDiffExplorer"><DiffTab activePath={gitState?.kind === 'git' ? project.path : null} comparisonTarget={projectRemoteComparisonTarget(project)} refreshNonce={diffRefreshNonce} review={diffReview} /></aside>
-          <div className="cardDiffContent">{diffReview.openDiff ? <DiffOverlay review={diffReview} fontSize={13} canSubmit onSubmit={submitDiffReview} onClose={() => diffReview.setOpenDiff(null)} /> : <div className="kanbanEmpty">Select a changed file to view its diff.</div>}</div>
+          <div className="cardDiffContent">{diffReview.openDiff ? <DiffOverlay review={diffReview} fontSize={13} canSubmit onSubmit={submitDiffReview} onClose={() => { diffReview.reset(); setActiveView('agent'); }} /> : <div className="kanbanEmpty">Select a changed file to view its diff.</div>}</div>
         </section>
         {project.releases_enabled && activeView === 'release' && <ReleaseTab project={project} />}
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>
