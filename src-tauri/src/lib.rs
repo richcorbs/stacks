@@ -52,7 +52,7 @@ use kanban::{
     kanban_reorder_cards, kanban_retry_provider_sync, kanban_retry_runtime_cleanup,
     kanban_save_environment_layout, kanban_scripted_deploy, kanban_scripted_push,
     kanban_set_merge_target, kanban_set_project, kanban_start_environment,
-    kanban_start_refinement_launch, kanban_status_metadata,
+    kanban_start_refinement_launch, kanban_skip_refinement, kanban_status_metadata,
     kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
 };
 use menu::app_menu;
@@ -185,6 +185,7 @@ pub fn run() {
             kanban_apply_workflow_action,
             kanban_apply_pi_lifecycle_intent,
             kanban_start_refinement_launch,
+            kanban_skip_refinement,
             kanban_record_refinement_launch_failure,
             kanban_record_agent_launch_failure,
             kanban_status_metadata,

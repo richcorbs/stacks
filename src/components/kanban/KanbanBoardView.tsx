@@ -394,10 +394,6 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       if (eventCursorRef.current === null) updateCursor(page.next_cursor);
       if (debugOpen) console.debug('Card open events', card.id, { eventsMs: performance.now() - started });
     }).catch(console.error);
-    if (card.status === 'needs_refinement') {
-      void launchPlanningAgent(card.id, projects, board.applyCardSnapshot)
-        .catch((error) => showAppToast(error instanceof Error ? error.message : String(error)));
-    }
   }
 
   function closeCardDetail(expectedCardId?: string) {
@@ -643,6 +639,15 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           onUpdate={(title, content, parentId) => board.update(selectedDetail.id, title, content, parentId)}
           onAction={(action) => board.act(selectedDetail.id, action)}
           onStopRefinement={() => board.stopRefinement(selectedDetail.id)}
+          onRefine={async () => {
+            const cardId = selectedDetail.id;
+            const launched = await launchPlanningAgent(cardId, projects, board.applyCardSnapshot);
+            const updated = (await fetchKanbanCard(cardId)).card;
+            const canonical = board.applyCardSnapshot(updated);
+            projectSelectedDetail(updated, updated.events, canonical);
+            if (!launched) throw new Error('Card changed before refinement could start; reload and try again');
+            return true;
+          }}
           onOpenChat={async (projectId) => {
             if (selectedDetail.project_id === projectId) return;
             await board.assignProject(selectedDetail.id, projectId);

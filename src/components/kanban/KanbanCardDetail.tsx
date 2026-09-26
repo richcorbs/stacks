@@ -46,7 +46,7 @@ function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery'
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
-export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, requireActionPreflight, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onToggleServer, onWorkflowControllerChange }: {
+export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, requireActionPreflight, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onRefine, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onToggleServer, onWorkflowControllerChange }: {
   card: KanbanCard;
   cards: KanbanCardSummary[];
   cardServices: CardServices;
@@ -69,6 +69,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   onAction: (action: 'return_to_refinement' | 'request_changes') => Promise<unknown>;
   onStopRefinement: () => Promise<unknown>;
   onOpenChat: (projectId: string) => Promise<void>;
+  onRefine: () => Promise<boolean>;
   onStartWork: () => Promise<boolean>;
   onCleanup: (evidence: CleanupPreflight) => Promise<void>;
   onDelete: () => Promise<void>;
@@ -238,7 +239,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
     setView: setActiveView,
     refreshRepository: () => applicationEvents.publish('refresh-card-repository-status', undefined),
     toast: showAppToast,
-    openRefinement: async () => { if (!projectId) return false; await onOpenChat(projectId); return true; },
+    openRefinement: async () => { if (!projectId) return false; return onRefine(); },
     finishRefinement: async () => { await runWritePlanAndFinishRefinement({
       showAgent: () => setActiveView('chat'),
       sendPromptAndWait: (prompt) => sendPromptToPiAndWait(cardPaneId(card.id, 'planning'), prompt),

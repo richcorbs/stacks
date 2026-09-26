@@ -61,6 +61,11 @@ pub fn kanban_finish_local_refinement(
 }
 
 #[tauri::command]
+pub fn kanban_skip_refinement(id: String, expected_revision: i64) -> Result<CardSnapshot, String> {
+    kanban_skip_refinement_operation(id, expected_revision)
+}
+
+#[tauri::command]
 pub fn kanban_open_card(id: String) -> Result<String, String> {
     kanban_open_card_operation(id)
 }

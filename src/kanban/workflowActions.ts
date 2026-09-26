@@ -36,13 +36,16 @@ const primary = new Set<CardWorkflowActionKind>(['open_refinement', 'start_work'
 /** Adds labels, confirmation copy, appearance, and transient operation state to backend capabilities. */
 export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWorkflowAction[] {
   return context.card.capabilities
-    .filter(({ action }) => action !== 'open_refinement' || context.activeTab !== 'chat')
+    .filter(({ action }) => context.card.status !== 'needs_refinement'
+      ? action !== 'open_refinement' || context.activeTab !== 'chat'
+      : action !== 'finish_refinement' && action !== 'delete')
     .map(({ action, available, disabled_reason }) => {
       const presentation = presentationFor(action, context);
       const operation = context.operation?.kind === action;
       return {
         kind: action,
-        label: action === 'ship' && context.card.status === 'approved' ? 'Commit updates'
+        label: action === 'open_refinement' && context.card.status === 'needs_refinement' ? 'Refine'
+          : action === 'ship' && context.card.status === 'approved' ? 'Commit updates'
           : action === 'start_work' && context.card.creation_operation ? 'Resume start'
           : action === 'cleanup' && context.card.cleanup_operation && context.card.cleanup_operation.status !== 'completed' ? 'Retry cleanup'
           : labels[action],

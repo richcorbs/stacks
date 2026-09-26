@@ -141,6 +141,25 @@ export class PiSessionController {
     return launch;
   };
 
+  /** Explicit planning prompt, even when a pre-refinement conversation exists. */
+  submitPlanningLaunch = (prompt: string, stillEligible: () => Promise<boolean>) => {
+    if (this.launchPromptPromise) return this.launchPromptPromise;
+    const launch = this.initializeAndHydrate().then(async () => {
+      if (this.snapshot.stopped || this.snapshot.error) await this.restart();
+      if (this.snapshot.isStreaming) throw new Error('Wait for the current planning Chat turn to finish before refining');
+      if (!await stillEligible()) return false;
+      const count = this.userMessageCount();
+      try { await this.prompt(prompt); }
+      catch (error) {
+        if (!await this.reinspectPromptAcceptance(count)) throw error;
+      }
+      return true;
+    });
+    this.launchPromptPromise = launch;
+    launch.finally(() => { if (this.launchPromptPromise === launch) this.launchPromptPromise = null; }).catch(() => {});
+    return launch;
+  };
+
   /** Planning relaunch compatibility; work launch uses submitWorkLaunch. */
   submitLaunchContinue = (stillEligible: () => Promise<boolean> = async () => true) => this.submitWorkLaunch('continue', stillEligible);
 
