@@ -269,6 +269,10 @@ pub fn capabilities(context: &WorkflowContext) -> Vec<WorkflowCapability> {
     let mut actions = match context.status {
         NeedsRefinement => vec![
             capability(OpenRefinement, project.clone()),
+            capability(StartWork, project.clone().or_else(|| {
+                context.has_children
+                    .then(|| "Approve the linked child breakdown before starting work".to_string())
+            }).or_else(|| context.environment.map(|_| "A work environment already exists".to_string()))),
             capability(FinishRefinement, project.clone()),
         ],
         Refining => vec![capability(StopRefinement, None)],
@@ -477,7 +481,7 @@ pub fn lifecycle_transition(
         (
             PiThread::Planning,
             PiLifecycleIntent::AgentStarted | PiLifecycleIntent::UiInputResolved,
-            NeedsRefinement | NeedsRefinementInput,
+            NeedsRefinementInput,
         ) => Refining,
         (
             PiThread::Planning,
@@ -828,17 +832,24 @@ mod tests {
     }
 
     #[test]
+    fn direct_start_requires_a_leaf_and_valid_project() {
+        let mut card = context(CardStatus::NeedsRefinement);
+        card.environment = None;
+        assert!(capabilities(&card).iter().any(|item| item.action == WorkflowAction::StartWork && item.available));
+        card.has_children = true;
+        assert!(capabilities(&card).iter().any(|item| item.action == WorkflowAction::StartWork && !item.available));
+        card.has_children = false;
+        card.project_present = false;
+        assert!(capabilities(&card).iter().any(|item| item.action == WorkflowAction::StartWork && !item.available));
+    }
+
+    #[test]
     fn lifecycle_rules_ignore_duplicates_and_reordered_irrelevant_events() {
-        assert_eq!(
-            lifecycle_transition(
-                &context(CardStatus::NeedsRefinement),
-                PiThread::Planning,
-                PiLifecycleIntent::AgentStarted
-            )
-            .unwrap()
-            .to,
-            CardStatus::Refining
-        );
+        for intent in [PiLifecycleIntent::AgentStarted, PiLifecycleIntent::AgentSettled,
+            PiLifecycleIntent::UiInputResolved, PiLifecycleIntent::UiInputRequested,
+            PiLifecycleIntent::ProcessExited, PiLifecycleIntent::ProtocolFailed] {
+            assert!(lifecycle_transition(&context(CardStatus::NeedsRefinement), PiThread::Planning, intent).is_none());
+        }
         assert!(lifecycle_transition(
             &context(CardStatus::NeedsRefinementInput),
             PiThread::Planning,

@@ -1,5 +1,5 @@
 import type { Project } from '../types';
-import { deletePiSessionController, getPiSessionController, type PiSessionConfig } from '../pi/sessionController';
+import { deletePiSessionController, getPiSessionController, getRetainedPiSessionController, type PiSessionConfig } from '../pi/sessionController';
 import { fetchKanbanCard, recordKanbanRefinementLaunchFailure, startKanbanRefinementLaunch } from './api';
 import { cardChatPrompt, cardPaneId, cardWorkspaceId } from './cardWorkspace';
 import type { CardSnapshot, KanbanCard, KanbanCardSummary } from './types';
@@ -23,7 +23,7 @@ function defaultDependencies(applyCard: PlanningLaunchDependencies['applyCard'])
       }
     },
     beginRefinement: (card) => startKanbanRefinementLaunch(card.id, card.workflow_revision, card.project_id!),
-    submit: (config, prompt, stillEligible) => getPiSessionController(config).submitWorkLaunch(prompt, stillEligible),
+    submit: (config, prompt, stillEligible) => getPiSessionController(config).submitPlanningLaunch(prompt, stillEligible),
     recordFailure: (card, message) => recordKanbanRefinementLaunchFailure(card.id, card.workflow_revision, card.project_id!, message),
     releaseController: deletePiSessionController,
     applyCard,
@@ -52,6 +52,8 @@ export async function runPlanningLaunch(cardId: string, projects: Project[], dep
   const eligibility = eligiblePlanningLaunch(initial, projects, ['needs_refinement']);
   if (!eligibility) return false;
 
+  if (getRetainedPiSessionController(cardPaneId(cardId, 'planning'))?.getSnapshot().isStreaming)
+    throw new Error('Wait for the current planning Chat turn to finish before refining');
   const started = await dependencies.beginRefinement(initial!);
   dependencies.applyCard(started.card, started.board_revision);
   let launchCard = started.card;
@@ -77,6 +79,7 @@ export async function runPlanningLaunch(cardId: string, projects: Project[], dep
       return true;
     } catch (error) {
       lastError = error;
+      if (errorMessage(error).includes('current planning Chat turn')) break;
       dependencies.releaseController(paneId);
       if (attempt === 0) {
         const latest = await dependencies.latestCard(cardId);

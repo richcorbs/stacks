@@ -53,9 +53,16 @@ describe('workflow action presentation', () => {
     expect(scriptedMerge.confirmation?.detail).not.toContain('push the configured upstream when present');
   });
 
-  it('hides Open refinement only when its destination tab is already open', () => {
-    const value = card('needs_refinement', [capability('open_refinement'), capability('finish_refinement')]);
-    expect(deriveCardWorkflowActions({ card: value, project, activeTab: 'chat' }).map(({ kind }) => kind)).toEqual(['finish_refinement']);
+  it('offers the three Needs refinement footer actions even on Chat, without finalization or deletion', () => {
+    const value = card('needs_refinement', [capability('open_refinement'), capability('start_work'), capability('finish_refinement'), capability('delete'), capability('close')]);
+    for (const activeTab of ['overview', 'chat'] as const) {
+      expect(deriveCardWorkflowActions({ card: value, project, activeTab })).toMatchObject([
+        { kind: 'open_refinement', label: 'Refine', primary: true },
+        { kind: 'start_work', label: 'Start work', primary: true },
+        { kind: 'close', label: 'Close without delivery', appearance: 'neutral-ghost' },
+      ]);
+    }
+    expect(deriveCardWorkflowActions({ card: card('needs_refinement_input', [capability('open_refinement'), capability('finish_refinement')]), project, activeTab: 'chat' }).map(({ kind }) => kind)).toEqual(['finish_refinement']);
   });
 
   it('keeps the active commit action visible while pending', () => {

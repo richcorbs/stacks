@@ -58,6 +58,10 @@ export function recordKanbanAgentLaunchFailure(id: string, expectedWorkflowRevis
   return invoke<CardSnapshot>('kanban_record_agent_launch_failure', { id, expectedWorkflowRevision, expectedProjectId, errorDetail });
 }
 
+export function skipKanbanRefinement(id: string, expectedRevision: number) {
+  return invoke<CardSnapshot>('kanban_skip_refinement', { id, expectedRevision });
+}
+
 export function startKanbanRefinementLaunch(id: string, expectedWorkflowRevision: number, expectedProjectId: string) {
   return invoke<CardSnapshot>('kanban_start_refinement_launch', { id, expectedWorkflowRevision, expectedProjectId });
 }

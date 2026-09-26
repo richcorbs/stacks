@@ -794,6 +794,29 @@ pub(in crate::kanban) fn apply_workflow_transition(
     Ok(true)
 }
 
+/// Approve the existing brief without editing it. The revision and structural checks
+/// share the same transaction as the transition, so a concurrent Refine cannot win.
+pub(in crate::kanban) fn kanban_skip_refinement_operation(
+    id: String,
+    expected_revision: i64,
+) -> Result<CardSnapshot, String> {
+    with_board_mutation(|connection| skip_refinement(connection, &id, expected_revision))?;
+    fresh_card_snapshot(&id)
+}
+
+pub(crate) fn skip_refinement(connection: &mut Connection, id: &str, expected_revision: i64) -> Result<(), String> {
+    let transaction = connection.savepoint().map_err(db_error)?;
+    let card = require_structural_capability(&transaction, id, WorkflowAction::StartWork)?;
+    if card.status != CardStatus::NeedsRefinement || card.workflow_revision != expected_revision {
+        return Err("Card changed; reload before starting work".to_string());
+    }
+    apply_workflow_transition(
+        &transaction, id, WorkflowActor::User, WorkflowAction::FinishRefinement,
+        Some(expected_revision), "skip_refinement", Some("Existing description approved for work"),
+    )?;
+    transaction.commit().map_err(db_error)
+}
+
 pub(in crate::kanban) fn kanban_apply_workflow_action_operation(
     id: String,
     action: WorkflowAction,

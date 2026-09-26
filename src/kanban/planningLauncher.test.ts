@@ -73,6 +73,16 @@ describe('planning launcher', () => {
     expect(deps.applyCard).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'needs_refinement_input' }), 5);
   });
 
+  it('does not tear down an active pre-refinement Chat turn on a conflicting launch', async () => {
+    const current = { card: card() as KanbanCard | null };
+    const deps = dependencies(current);
+    deps.submit = vi.fn().mockRejectedValue(new Error('Wait for the current planning Chat turn to finish before refining'));
+    await expect(runPlanningLaunch('local:172', projects, deps)).rejects.toThrow('Wait for the current planning Chat turn');
+    expect(deps.submit).toHaveBeenCalledOnce();
+    expect(deps.releaseController).not.toHaveBeenCalled();
+    expect(deps.recordFailure).toHaveBeenCalledOnce();
+  });
+
   it('does not relaunch from a repeated open after refinement has started', async () => {
     const current = { card: card() as KanbanCard | null };
     const deps = dependencies(current);

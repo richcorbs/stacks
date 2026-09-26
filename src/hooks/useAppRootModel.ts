@@ -16,7 +16,8 @@ import { buildCommandPaletteItems } from '../commandPaletteItems';
 import { selectedKanbanProject } from '../kanban/providerSelection';
 import { canOpenProjectSwitcher } from '../projectSwitcher';
 import type { CardTerminalContext } from '../cardTerminalCommands';
-import { fetchKanbanCard, fetchKanbanEnvironmentHealth, startKanbanEnvironment } from '../kanban/api';
+import { fetchKanbanCard, fetchKanbanEnvironmentHealth, skipKanbanRefinement, startKanbanEnvironment } from '../kanban/api';
+import { getRetainedPiSessionController } from '../pi/sessionController';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
@@ -209,21 +210,26 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
       if (!card.project_id) throw new Error('The card is not assigned to a project');
       const project = store.projects.find((candidate) => candidate.id === card.project_id);
       if (!project) throw new Error('The card project was not found');
-      let updated = card;
-      if (card.environment) {
+      if (card.status === 'needs_refinement' && getRetainedPiSessionController(`kanban-card:${cardId}:planning`)?.getSnapshot().isStreaming)
+        throw new Error('Wait for the current planning Chat turn to finish before starting work');
+      // Approval is durable before setup. If setup fails, the card remains Ready
+      // and retries use the ordinary recoverable environment-creation operation.
+      let updated = card.status === 'needs_refinement'
+        ? (await skipKanbanRefinement(cardId, card.workflow_revision)).card : card;
+      if (updated.environment) {
         const health = (await fetchKanbanEnvironmentHealth([card.id]))[0];
         if (health?.issues.length) throw new Error(health.issues[0].message);
       } else {
-        if (card.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
+        if (updated.status !== 'ready') throw new Error('The card must be Ready for agent before work can start');
         const input = card.provider === 'local' ? buildLocalWorkspaceInput(store, card.project_id, card.external_id, card.title) : buildSuperthreadWorkspaceInput(store, card.project_id, card.external_id, card.title, project.start_work_command || '');
         const setup = input.setupCommand?.trim();
         if (!setup) throw new Error('Start-work setup command is empty');
         updated = await startKanbanEnvironment(
           cardId,
-          card.workflow_revision,
+          updated.workflow_revision,
           setup,
           card.provider === 'superthread' || Boolean(project.start_work_command?.trim()),
-          card.creation_operation?.phase === 'recovery_required',
+          updated.creation_operation?.phase === 'recovery_required',
         );
         if (!updated.environment) {
           showToast(updated.creation_operation?.error || 'Environment creation needs attention');

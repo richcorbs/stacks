@@ -745,8 +745,10 @@ fn pi_lifecycle_is_idempotent_ordered_and_generation_scoped() {
         Some(0),
     )
     .unwrap();
-    assert_eq!(started.status, CardStatus::Refining);
-    assert_eq!(started.workflow_revision, 2);
+    assert_eq!(started.status, CardStatus::NeedsRefinement);
+    assert_eq!(started.workflow_revision, 1);
+    apply_workflow_transition(&connection, "local:test", WorkflowActor::User,
+        WorkflowAction::OpenRefinement, Some(1), "open_refinement", None).unwrap();
     let replay = apply_pi_lifecycle_intent(
         &mut connection,
         "local:test",
@@ -888,6 +890,23 @@ fn pre_generation_launch_failure_is_recorded_and_retryable() {
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     ).unwrap();
     assert_eq!(event, ("agent_launch_failed".into(), "failure".into(), "Pi CLI was not found".into()));
+}
+
+#[test]
+fn skipping_refinement_preserves_brief_and_rejects_stale_or_linked_cards() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "project", "local", "/tmp/project");
+    local_card(&mut connection);
+    assert!(skip_refinement(&mut connection, "local:test", 2).is_err());
+    skip_refinement(&mut connection, "local:test", 1).unwrap();
+    let card = get_card(&connection, "local:test").unwrap().unwrap();
+    assert_eq!(card.status, CardStatus::Ready);
+    assert_eq!((card.title.as_str(), card.content.as_str()), ("Draft", "Old description"));
+    assert!(skip_refinement(&mut connection, "local:test", 1).is_err());
+    connection.execute("UPDATE kanban_cards SET status='needs_refinement', workflow_revision=3 WHERE id='local:test'", []).unwrap();
+    connection.execute("INSERT INTO kanban_cards (id,external_provider,external_id,title,status,project_id,parent_id,created_at,updated_at) VALUES ('local:child','local:project','2','Child','needs_refinement','project','local:test',1,1)", []).unwrap();
+    assert!(skip_refinement(&mut connection, "local:test", 3).is_err());
 }
 
 #[test]
