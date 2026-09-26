@@ -50,6 +50,10 @@ pub struct SuperthreadTaskChildSnapshot {
 pub struct SuperthreadParentHydration {
     pub parent_id: String,
     pub parent_title: String,
+    /// The count returned by the same authoritative detail read as `children`.
+    /// Missing counts cannot prove that an empty collection means zero children.
+    #[serde(default)]
+    pub child_count: Option<u64>,
     #[serde(default)]
     pub children: Vec<SuperthreadTaskChildSnapshot>,
 }

@@ -1593,6 +1593,7 @@ fn parent_hydrations_assign_reparent_clear_and_preserve_conflicts_without_import
     initial.parent_hydrations = vec![SuperthreadParentHydration {
         parent_id: "2240".into(),
         parent_title: "Parent 2240".into(),
+        child_count: Some(3),
         children: vec![
             SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() },
             SuperthreadTaskChildSnapshot { id: "9999".into(), title: "Hidden child".into(), status: "backlog".into() },
@@ -1606,8 +1607,8 @@ fn parent_hydrations_assign_reparent_clear_and_preserve_conflicts_without_import
 
     let mut reparent = test_superthread_snapshot(Vec::new(), false);
     reparent.parent_hydrations = vec![
-        SuperthreadParentHydration { parent_id: "2240".into(), parent_title: "Parent 2240".into(), children: Vec::new() },
-        SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), children: vec![SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() }] },
+        SuperthreadParentHydration { parent_id: "2240".into(), parent_title: "Parent 2240".into(), child_count: Some(0), children: Vec::new() },
+        SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), child_count: Some(1), children: vec![SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() }] },
     ];
     sync_cards(&mut connection, "owner", reparent).unwrap();
     assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='2242'", [], |row| row.get::<_, Option<String>>(0)).unwrap().as_deref(), Some("superthread:3000"));
@@ -1617,16 +1618,82 @@ fn parent_hydrations_assign_reparent_clear_and_preserve_conflicts_without_import
     let mut conflict = test_superthread_snapshot(Vec::new(), false);
     let claimed_child = || SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() };
     conflict.parent_hydrations = vec![
-        SuperthreadParentHydration { parent_id: "2240".into(), parent_title: "Parent 2240".into(), children: vec![claimed_child()] },
-        SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), children: vec![claimed_child()] },
+        SuperthreadParentHydration { parent_id: "2240".into(), parent_title: "Parent 2240".into(), child_count: Some(1), children: vec![claimed_child()] },
+        SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), child_count: Some(1), children: vec![claimed_child()] },
     ];
     sync_cards(&mut connection, "owner", conflict).unwrap();
     assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='2242'", [], |row| row.get::<_, Option<String>>(0)).unwrap().as_deref(), Some("superthread:3000"));
 
     let mut clear = test_superthread_snapshot(Vec::new(), false);
-    clear.parent_hydrations = vec![SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), children: Vec::new() }];
+    clear.parent_hydrations = vec![SuperthreadParentHydration { parent_id: "3000".into(), parent_title: "Parent 3000".into(), child_count: Some(0), children: Vec::new() }];
     sync_cards(&mut connection, "owner", clear).unwrap();
     assert_eq!(connection.query_row("SELECT parent_id FROM kanban_cards WHERE external_id='2242'", [], |row| row.get::<_, Option<String>>(0)).unwrap(), None);
+}
+
+#[test]
+fn migration_does_not_treat_a_stale_zero_count_as_verified_absence() {
+    let db = Connection::open_in_memory().unwrap();
+    migrate(&db).unwrap();
+    test_project(&db, "owner", "superthread", "/tmp/superthread");
+    db.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,hierarchy_finalized,provider_child_count,created_at,updated_at) VALUES ('superthread:parent','superthread','parent','Parent','ready','owner',1,0,1,1)", []).unwrap();
+    migrate(&db).unwrap();
+    assert_eq!(db.query_row("SELECT hierarchy_finalized FROM kanban_cards WHERE id='superthread:parent'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+}
+
+#[test]
+fn verified_three_child_parent_never_becomes_a_leaf_after_partial_sync_or_lost_flag() {
+    let mut db = Connection::open_in_memory().unwrap();
+    migrate(&db).unwrap();
+    test_project(&db, "owner", "superthread", "/tmp/superthread");
+    let mut initial = test_superthread_snapshot(
+        ["parent", "one", "two", "three"].iter().map(|id| superthread_card(id, None, "board", "Doing", true)).collect(), true,
+    );
+    initial.parent_hydrations = vec![SuperthreadParentHydration {
+        parent_id: "parent".into(), parent_title: "Parent".into(), child_count: Some(3),
+        children: ["one", "two", "three"].iter().map(|id| SuperthreadTaskChildSnapshot {
+            id: (*id).into(), title: (*id).into(), status: "backlog".into(),
+        }).collect(),
+    }];
+    sync_cards(&mut db, "owner", initial).unwrap();
+    db.execute("UPDATE kanban_cards SET status='ready',workflow_revision=2 WHERE external_id='parent'", []).unwrap();
+    let parent = get_card(&db, "superthread:parent").unwrap().unwrap();
+    assert!(parent.hierarchy_finalized);
+    assert!(parent.capabilities.is_empty());
+
+    // Reproduce the inconsistent state seen after a lost aggregate flag. A
+    // partial list read reporting zero children must not erase verified links.
+    db.execute("UPDATE kanban_cards SET hierarchy_finalized=0 WHERE external_id='parent'", []).unwrap();
+    let partial = test_superthread_snapshot(vec![superthread_card("parent", None, "board", "Doing", true)], false);
+    sync_cards(&mut db, "owner", partial).unwrap();
+    let parent = get_card(&db, "superthread:parent").unwrap().unwrap();
+    assert_eq!(parent.children.len(), 3);
+    assert!(parent.hierarchy_finalized);
+    assert!(parent.capabilities.is_empty());
+    let issues = environment_health(&db, &parent.id).unwrap().issues;
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].code, "parent_state_inconsistent");
+    assert!(require_structural_capability(&db, &parent.id, WorkflowAction::StartWork).is_err());
+    assert!(apply_workflow_transition(&db, &parent.id, WorkflowActor::User, WorkflowAction::StartWork, Some(2), "test", None).is_err());
+
+    // Incomplete detail cannot remove links, even when it claims zero children.
+    let mut incomplete = test_superthread_snapshot(Vec::new(), false);
+    incomplete.parent_hydrations = vec![SuperthreadParentHydration {
+        parent_id: "parent".into(), parent_title: "Parent".into(), child_count: None, children: vec![],
+    }];
+    sync_cards(&mut db, "owner", incomplete).unwrap();
+    assert_eq!(get_card(&db, "superthread:parent").unwrap().unwrap().children.len(), 3);
+
+    let mut empty = test_superthread_snapshot(Vec::new(), false);
+    empty.parent_hydrations = vec![SuperthreadParentHydration {
+        parent_id: "parent".into(), parent_title: "Parent".into(), child_count: Some(0), children: vec![],
+    }];
+    sync_cards(&mut db, "owner", empty).unwrap();
+    let leaf = get_card(&db, "superthread:parent").unwrap().unwrap();
+    assert!(!leaf.hierarchy_finalized);
+    assert_eq!(leaf.child_count, 0);
+    assert!(environment_health(&db, &leaf.id).unwrap().issues.is_empty());
+    assert!(leaf.capabilities.iter().any(|capability| capability.action == WorkflowAction::StartWork && capability.available));
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM kanban_cards WHERE parent_id='superthread:parent'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
 }
 
 #[test]
@@ -1639,7 +1706,7 @@ fn full_sync_retains_children_of_in_scope_authoritative_parents_until_relationsh
 
     let mut linked = test_superthread_snapshot(vec![parent_card(), child_card()], true);
     linked.parent_hydrations = vec![SuperthreadParentHydration {
-        parent_id: "parent".into(), parent_title: "Parent".into(),
+        parent_id: "parent".into(), parent_title: "Parent".into(), child_count: Some(1),
         children: vec![SuperthreadTaskChildSnapshot { id: "child".into(), title: "Child".into(), status: "backlog".into() }],
     }];
     sync_cards(&mut connection, "owner", linked).unwrap();
@@ -1649,14 +1716,14 @@ fn full_sync_retains_children_of_in_scope_authoritative_parents_until_relationsh
     // in-scope parent still protects it from ordinary scope reconciliation.
     let mut still_linked = test_superthread_snapshot(vec![parent_card()], true);
     still_linked.parent_hydrations = vec![SuperthreadParentHydration {
-        parent_id: "parent".into(), parent_title: "Parent".into(),
+        parent_id: "parent".into(), parent_title: "Parent".into(), child_count: Some(1),
         children: vec![SuperthreadTaskChildSnapshot { id: "child".into(), title: "Child".into(), status: "backlog".into() }],
     }];
     sync_cards(&mut connection, "owner", still_linked).unwrap();
     assert_eq!(connection.query_row("SELECT in_scope FROM kanban_cards WHERE external_id='child'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
 
     let mut removed = test_superthread_snapshot(vec![parent_card()], true);
-    removed.parent_hydrations = vec![SuperthreadParentHydration { parent_id: "parent".into(), parent_title: "Parent".into(), children: Vec::new() }];
+    removed.parent_hydrations = vec![SuperthreadParentHydration { parent_id: "parent".into(), parent_title: "Parent".into(), child_count: Some(0), children: Vec::new() }];
     sync_cards(&mut connection, "owner", removed).unwrap();
     assert_eq!(connection.query_row("SELECT in_scope FROM kanban_cards WHERE external_id='child'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
 }
@@ -1671,7 +1738,7 @@ fn relationship_enrichment_hides_an_out_of_scope_parent_but_retains_its_edge() {
         false,
     );
     snapshot.parent_hydrations = vec![SuperthreadParentHydration {
-        parent_id: "2240".into(), parent_title: "Parent".into(),
+        parent_id: "2240".into(), parent_title: "Parent".into(), child_count: Some(1),
         children: vec![SuperthreadTaskChildSnapshot { id: "2242".into(), title: "Child".into(), status: "started".into() }],
     }];
     sync_cards(&mut connection, "owner", snapshot).unwrap();

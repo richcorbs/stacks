@@ -40,6 +40,7 @@ mod git_effects;
 mod github_delivery;
 mod health;
 mod local_delivery;
+mod parent_reconciliation;
 mod provider_sync;
 mod repository;
 mod scripted_delivery;
@@ -55,6 +56,7 @@ pub(crate) use cards::{
 };
 pub use commands::*;
 pub use domain::*;
+pub use parent_reconciliation::kanban_parent_state_preflight;
 #[allow(unused_imports)]
 pub use environment::{EnvironmentStartPreflight, WorkflowOperationResult};
 #[allow(unused_imports)]

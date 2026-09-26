@@ -44,7 +44,7 @@ describe('Kanban refresh targets', () => {
     expect(isPeriodicRefreshEligible({ ...card('parent'), hierarchy_finalized: true, child_count: 1 })).toBe(false);
   });
 
-  it('excludes finalized aggregate parents from every repository and health refresh request type', () => {
+  it('excludes aggregate parents from repository refresh but checks only the active parent for reconciliation health', () => {
     const parent = { ...card('parent', 'needs_human'), hierarchy_finalized: true, child_count: 1 };
     const parentSnapshot = snapshot([parent], ['parent'], 'parent');
     const requests = [
@@ -57,8 +57,9 @@ describe('Kanban refresh targets', () => {
     for (const request of requests) {
       const plan = buildRefreshCyclePlan(parentSnapshot, request);
       expect(plan.targets, JSON.stringify(request)).toEqual([]);
-      expect(plan.healthTargets, JSON.stringify(request)).toEqual([]);
+      expect(plan.healthTargets.map(({ card }) => card.id), JSON.stringify(request)).toEqual(request.visible ? [] : ['parent']);
     }
+    expect(buildRefreshCyclePlan(snapshot([parent], [], null), { ...emptyRefreshRequest(), full: true }).healthTargets).toEqual([]);
   });
 
   it('keeps ordinary child and environment-dependent cards eligible', () => {

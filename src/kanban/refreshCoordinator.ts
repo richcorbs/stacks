@@ -107,8 +107,8 @@ export function buildRefreshCyclePlan(snapshot: RefreshSnapshot, request: Refres
   const healthTargets = [...healthIds]
     .map((id) => byId.get(id))
     .filter((card): card is KanbanCardSummary => Boolean(card))
-    .filter((card) => !card.hierarchy_finalized)
-    .filter((card) => isPeriodicRefreshEligible(card) || (card.id === snapshot.activeCardId && Boolean(card.environment)) || request.healthOnlyCardIds.has(card.id))
+    .filter((card) => !card.hierarchy_finalized || card.id === snapshot.activeCardId)
+    .filter((card) => isPeriodicRefreshEligible(card) || (card.id === snapshot.activeCardId && (Boolean(card.environment) || card.hierarchy_finalized)) || request.healthOnlyCardIds.has(card.id))
     .map((card) => targetFor(card, snapshot.projects, snapshot.visibleCardIds.includes(card.id), card.id === snapshot.activeCardId));
   return { targets, healthTargets, activeCardId: snapshot.activeCardId };
 }

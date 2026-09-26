@@ -684,7 +684,7 @@ pub(in crate::kanban) fn workflow_context_for_card(
         project_present && ((card.provider == "superthread") == (source == "superthread"));
     Ok(WorkflowContext {
         status: card.status,
-        hierarchy_finalized: card.hierarchy_finalized,
+        hierarchy_finalized: card.hierarchy_finalized || (card.provider == "superthread" && repository::has_linked_children(connection, &card.id)?),
         provider_compatible,
         project_present,
         delivery_workflow,

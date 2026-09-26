@@ -12,9 +12,9 @@ use crate::superthread::{SuperthreadCard, SuperthreadService};
 const CHILD_FETCH_CONCURRENCY: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ParentHierarchy {
-    child_ids: Vec<String>,
-    child_count: u64,
+pub(in crate::kanban) struct ParentHierarchy {
+    pub(in crate::kanban) child_ids: Vec<String>,
+    pub(in crate::kanban) child_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -137,7 +137,7 @@ fn validate_refinement_destination(
     Ok(())
 }
 
-fn validate_parent_detail(
+pub(in crate::kanban) fn validate_parent_detail(
     card: &SuperthreadCard,
     expected_id: &str,
 ) -> Result<ParentHierarchy, String> {
@@ -285,6 +285,9 @@ fn persist_validated_refinement(
     if resolved_parent_id != snapshot.context.local_id {
         return Err(format!("Superthread parent identity resolved to {resolved_parent_id}, not the captured local identity {}", snapshot.context.local_id));
     }
+    if !snapshot.hierarchy.child_ids.is_empty() {
+        finish_parent_workflow(&transaction, &snapshot.context.local_id, current.3, current.4, current.5)?;
+    }
     let mut child_local_ids = HashMap::new();
     for child in &snapshot.children {
         let local_id = upsert_provider_card(
@@ -350,34 +353,8 @@ fn persist_validated_refinement(
         }
     }
 
-    if !current.5 {
-        match current.3 {
-            CardStatus::NeedsRefinement
-            | CardStatus::Refining
-            | CardStatus::NeedsRefinementInput => {
-                apply_workflow_transition(
-                    &transaction,
-                    &snapshot.context.local_id,
-                    WorkflowActor::Agent,
-                    WorkflowAction::FinishRefinement,
-                    Some(current.4),
-                    "finish_refinement",
-                    Some("Approved Superthread card breakdown"),
-                )?;
-            }
-            CardStatus::Ready => {}
-            _ => {
-                return Err(format!(
-                    "finish_refinement is not available while the parent card is {}",
-                    current.3
-                ))
-            }
-        }
-    } else if current.3 != CardStatus::Ready {
-        return Err(format!(
-            "The finalized Superthread parent has unexpected workflow state {}",
-            current.3
-        ));
+    if snapshot.hierarchy.child_ids.is_empty() {
+        finish_parent_workflow(&transaction, &snapshot.context.local_id, current.3, current.4, current.5)?;
     }
     // Completing refinement only creates an aggregate parent when the
     // authoritative hierarchy actually contains children. A zero-child card
@@ -390,6 +367,25 @@ fn persist_validated_refinement(
     transaction.commit().map_err(db_error)?;
     get_card(connection, &snapshot.context.local_id)?
         .ok_or_else(|| "Kanban card was not found".to_string())
+}
+
+fn finish_parent_workflow(
+    transaction: &Connection, id: &str, status: CardStatus, revision: i64, finalized: bool,
+) -> Result<(), String> {
+    if !finalized {
+        match status {
+            CardStatus::NeedsRefinement | CardStatus::Refining | CardStatus::NeedsRefinementInput => {
+                apply_workflow_transition(transaction, id, WorkflowActor::Agent,
+                    WorkflowAction::FinishRefinement, Some(revision), "finish_refinement",
+                    Some("Approved Superthread card breakdown"))?;
+            }
+            CardStatus::Ready => {}
+            _ => return Err(format!("finish_refinement is not available while the parent card is {status}")),
+        }
+    } else if status != CardStatus::Ready {
+        return Err(format!("The finalized Superthread parent has unexpected workflow state {status}"));
+    }
+    Ok(())
 }
 
 fn linked_external_child_ids(
@@ -696,6 +692,28 @@ mod tests {
                 .unwrap(),
             3
         );
+    }
+
+    #[test]
+    fn finished_three_child_hierarchy_survives_partial_list_import_and_blocks_start() {
+        let mut db = database();
+        let value = snapshot(
+            parent(Some(vec!["one", "two", "three"]), Some(3)),
+            vec![child("one"), child("two"), child("three")],
+        );
+        persist_validated_refinement(&mut db, &value).unwrap();
+        // A list-only import is not proof that the hierarchy vanished. In
+        // particular a missing/zero count must not undo successful refinement.
+        let partial = SuperthreadSyncSnapshot {
+            cards: vec![], parent_hydrations: vec![], successful_scope_ids: vec![],
+            successful_board_ids: vec![], failed_scopes: vec![], complete: false,
+        };
+        super::sync::sync_cards(&mut db, "owner", partial).unwrap();
+        let result = get_card(&db, "superthread:parent").unwrap().unwrap();
+        assert!(result.hierarchy_finalized);
+        assert_eq!(result.children.len(), 3);
+        assert!(result.capabilities.is_empty());
+        assert!(super::cards::require_structural_capability(&db, &result.id, WorkflowAction::StartWork).is_err());
     }
 
     #[test]

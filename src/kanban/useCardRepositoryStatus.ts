@@ -25,7 +25,7 @@ export function shouldShowEnvironmentWarning(
   card: Pick<KanbanCard, 'hierarchy_finalized'>,
   health: CardEnvironmentHealth | null | undefined,
 ) {
-  return !card.hierarchy_finalized && Boolean(health?.issues.length);
+  return Boolean(health?.issues.length) && (!card.hierarchy_finalized || health?.issues.some((issue) => issue.code === 'parent_state_inconsistent'));
 }
 
 export function environmentHealthTooltip(health: CardEnvironmentHealth | null | undefined) {
