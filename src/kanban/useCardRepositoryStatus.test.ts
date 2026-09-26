@@ -20,6 +20,9 @@ describe('card repository status', () => {
   it('suppresses stale environment warnings for finalized aggregate parents', () => {
     const staleHealth = { card_id: 'parent', issues: [{ code: 'environment_missing', message: 'Missing.', step: 'work' as const }] };
     expect(shouldShowEnvironmentWarning({ hierarchy_finalized: true }, staleHealth)).toBe(false);
+    expect(shouldShowEnvironmentWarning({ hierarchy_finalized: true }, {
+      card_id: 'parent', issues: [{ code: 'parent_state_inconsistent', message: 'Inspect parent.', step: 'work' }],
+    })).toBe(true);
     expect(shouldShowEnvironmentWarning({ hierarchy_finalized: false }, staleHealth)).toBe(true);
     expect(shouldShowEnvironmentWarning({ hierarchy_finalized: false }, { card_id: 'child', issues: [] })).toBe(false);
   });

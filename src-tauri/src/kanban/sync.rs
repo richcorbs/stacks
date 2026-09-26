@@ -95,6 +95,7 @@ pub(in crate::kanban) fn sync_cards(
         let mut unique_children = HashSet::new();
         if parent_id.is_empty()
             || hydration.parent_title.trim().is_empty()
+            || hydration.child_count != Some(hydration.children.len() as u64)
             || hydration.children.iter().any(|child| {
                 child.id.trim().is_empty()
                     || child.title.trim().is_empty()
@@ -201,6 +202,26 @@ pub(in crate::kanban) fn sync_cards(
             Some(false) | None => {}
         }
     }
+    // An active environment, advanced workflow, PR or pending operation must
+    // never be made into a leaf by an import. Keep existing links until a
+    // separate resource-aware lifecycle decision.
+    for hydration in &parent_hydrations {
+        if hydration.children.is_empty() {
+            let unsafe_lifecycle: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM kanban_cards c WHERE c.binding_id=?1 AND c.external_id=?2
+                   AND (c.status NOT IN ('needs_refinement','ready')
+                     OR EXISTS(SELECT 1 FROM card_environments e WHERE e.card_id=c.id)
+                     OR EXISTS(SELECT 1 FROM card_pull_requests pr WHERE pr.card_id=c.id)
+                     OR EXISTS(SELECT 1 FROM provider_sync_operations op WHERE op.card_id=c.id AND op.state IN ('pending','running','failed'))
+                     OR EXISTS(SELECT 1 FROM environment_creation_operations op WHERE op.card_id=c.id)
+                     OR EXISTS(SELECT 1 FROM card_target_merge_operations op WHERE op.card_id=c.id)
+                     OR EXISTS(SELECT 1 FROM card_cleanup_operations op WHERE op.card_id=c.id AND op.status!='completed')))",
+                params![binding_id, hydration.parent_id.trim()],
+                |row| row.get::<_, i64>(0),
+            ).map_err(db_error)? != 0;
+            if unsafe_lifecycle { unsafe_parents.insert(hydration.parent_id.trim().to_string()); }
+        }
+    }
     // Parent detail collections are authoritative only after provider-side completeness
     // validation. Clear all safe parents first, then assign children in stable order so
     // reparenting cannot depend on request completion order.
@@ -250,6 +271,14 @@ pub(in crate::kanban) fn sync_cards(
                 params![parent_local_id, hydration.parent_title.trim(), now, binding_id, child.id.trim()],
             ).map_err(db_error)?;
         }
+        // Only a complete detail collection can change aggregate state. A zero-child
+        // detail cannot silently convert a card with an environment into a leaf.
+        transaction.execute(
+            "UPDATE kanban_cards SET hierarchy_finalized=CASE WHEN ?1>0 THEN 1 ELSE 0 END,
+                    provider_child_count=?1,updated_at=?2
+             WHERE id=?3 AND (?1>0 OR NOT EXISTS (SELECT 1 FROM card_environments WHERE card_id=?3))",
+            params![hydration.children.len() as i64, now, parent_local_id],
+        ).map_err(db_error)?;
     }
     // A provider child remains board-visible while an in-scope authoritative parent
     // references it, even when the child's own list is outside discovery scope.

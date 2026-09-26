@@ -76,7 +76,10 @@ export function superthreadIntegration(configuration: SuperthreadConfiguration):
           const detail = await fetchSuperthreadCard(parentId, workspaceSlug, apiTokenEnvVar);
           if (detail.id.trim() !== parentId) throw new Error(`Superthread returned card ${detail.id || '(missing ID)'} instead`);
           if (!detail.title.trim()) throw new Error('the parent title was not included');
-          const expectedCount = listedChildCounts.get(parentId) ?? detail.total_task_children;
+          const expectedCount = detail.total_task_children;
+          if (expectedCount === undefined || !Number.isSafeInteger(expectedCount) || expectedCount < 0) throw new Error('the authoritative child count was not included');
+          const listedCount = listedChildCounts.get(parentId);
+          if (listedCount !== undefined && listedCount !== expectedCount) throw new Error('the list and detail child counts disagree');
           if (!Array.isArray(detail.task_children) && expectedCount !== 0) throw new Error('the child relationship collection was not included');
           const children = (detail.task_children ?? []).map((child) => ({ id: child.task_id?.trim(), title: child.title?.trim(), status: child.status ?? '' }));
           if (children.some((child) => !child.id || !child.title)) throw new Error('the child relationship collection was incomplete');
@@ -84,7 +87,7 @@ export function superthreadIntegration(configuration: SuperthreadConfiguration):
           if (expectedCount !== undefined && expectedCount !== children.length) {
             throw new Error(`expected ${expectedCount} children but received ${children.length}`);
           }
-          return { parent_id: parentId, parent_title: detail.title.trim(), children } satisfies SuperthreadParentHydration;
+          return { parent_id: parentId, parent_title: detail.title.trim(), child_count: expectedCount, children } satisfies SuperthreadParentHydration;
         } catch (error) {
           failedScopes.push({ scope: `parent:${parentId}:hierarchy`, message: `Could not hydrate parent ${parentId}: ${errorMessage(error)}` });
           return null;

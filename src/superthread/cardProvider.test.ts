@@ -128,8 +128,8 @@ describe('Superthread card provider creation', () => {
 
     expect(cardMock.mock.calls.map(([id]) => id)).toEqual(['2240', '3000']);
     expect(snapshot.parent_hydrations).toEqual([
-      { parent_id: '2240', parent_title: 'Listed parent', children: [{ id: '2242', title: 'Child', status: 'started' }] },
-      { parent_id: '3000', parent_title: 'Known parent now empty', children: [] },
+      { parent_id: '2240', parent_title: 'Listed parent', child_count: 1, children: [{ id: '2242', title: 'Child', status: 'started' }] },
+      { parent_id: '3000', parent_title: 'Known parent now empty', child_count: 0, children: [] },
     ]);
   });
 

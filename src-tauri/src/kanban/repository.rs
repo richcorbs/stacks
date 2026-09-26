@@ -958,15 +958,10 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
         connection.execute("ALTER TABLE card_cleanup_operations ADD COLUMN override_authorized INTEGER NOT NULL DEFAULT 0", []).map_err(db_error)?;
     }
     connection.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (76,unixepoch())", []).map_err(db_error)?;
-    connection.execute_batch(
-        "UPDATE kanban_cards AS card
-         SET hierarchy_finalized=0, updated_at=unixepoch()
-         WHERE external_provider='superthread'
-           AND hierarchy_finalized=1
-           AND provider_child_count=0
-           AND NOT EXISTS (SELECT 1 FROM kanban_cards AS child WHERE child.parent_id=card.id);
-         INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (77,unixepoch());"
-    ).map_err(db_error)?;
+    // A stored count of zero is not an authoritative hierarchy read. Older
+    // databases may have been partially hydrated; only verified provider detail
+    // (sync/refinement) may restore leaf eligibility.
+    connection.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (77,unixepoch())", []).map_err(db_error)?;
     provider_sync::recover_interrupted(connection)?;
     Ok(())
 }
@@ -1279,6 +1274,10 @@ pub(in crate::kanban) fn enrich_relationships_batched(
             }
         }
     }
+    for card in cards.iter_mut() {
+        // Linked children are evidence even if a legacy/partial import lost the flag.
+        card.hierarchy_finalized |= card.provider == "superthread" && !card.children.is_empty();
+    }
     let stored = cards
         .iter()
         .map(|card| (card.id.clone(), (card.status, card.hierarchy_finalized)))
@@ -1444,8 +1443,15 @@ pub(in crate::kanban) fn relationship_summary(
         )
         .optional()
         .map_err(db_error)? else { return Ok(None); };
-    let status = effective_card_status(connection, &id, &stored_status, finalized)?.parse()?;
+    let status = effective_card_status(connection, &id, &stored_status, finalized || has_linked_children(connection, &id)?)?.parse()?;
     Ok(Some(CardRelationshipSummary { id, external_id, title, status }))
+}
+
+pub(in crate::kanban) fn has_linked_children(connection: &Connection, id: &str) -> Result<bool, String> {
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM kanban_cards WHERE parent_id=?1)", [id],
+        |row| row.get::<_, i64>(0),
+    ).map(|value| value != 0).map_err(db_error)
 }
 
 fn effective_status_from_graph(
@@ -1559,6 +1565,7 @@ pub(in crate::kanban) fn enrich_relationships(
             .collect::<Result<Vec<_>, _>>()
             .map_err(db_error)?;
         card.child_count = card.child_count.max(card.children.len() as u64);
+        card.hierarchy_finalized |= card.provider == "superthread" && has_linked_children(connection, &card.id)?;
         card.status = effective_card_status(
             connection,
             &card.id,
@@ -1578,7 +1585,7 @@ pub(in crate::kanban) fn enrich_relationships(
                 connection,
                 &child.id,
                 child.status.as_str(),
-                finalized,
+                finalized || has_linked_children(connection, &child.id)?,
             )?
             .parse()?;
         }

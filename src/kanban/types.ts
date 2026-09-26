@@ -232,6 +232,7 @@ export type SuperthreadTaskChildSnapshot = {
 export type SuperthreadParentHydration = {
   parent_id: string;
   parent_title: string;
+  child_count: number;
   children: SuperthreadTaskChildSnapshot[];
 };
 

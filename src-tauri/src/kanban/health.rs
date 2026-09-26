@@ -57,11 +57,22 @@ pub(in crate::kanban) fn environment_health(
 ) -> Result<CardEnvironmentHealth, String> {
     let card = get_card(connection, card_id)?
         .ok_or_else(|| format!("Kanban card {card_id} was not found"))?;
-    if card.hierarchy_finalized {
+    if card.provider == "superthread" && card.hierarchy_finalized {
+        let stored_flag: i64 = connection.query_row(
+            "SELECT hierarchy_finalized FROM kanban_cards WHERE id=?1", [card_id], |row| row.get(0),
+        ).map_err(db_error)?;
+        let inconsistent = stored_flag == 0 || card.environment.is_some();
         return Ok(CardEnvironmentHealth {
             card_id: card.id,
-            issues: Vec::new(),
+            issues: if inconsistent { vec![health_issue(
+                "parent_state_inconsistent",
+                "This Superthread parent has conflicting local workflow or environment state. Leaf actions are blocked. Inspect the remote hierarchy and resolve any worktree, branch, process or PR separately before reconciling parent metadata.",
+                "work",
+            )] } else { Vec::new() },
         });
+    }
+    if card.hierarchy_finalized {
+        return Ok(CardEnvironmentHealth { card_id: card.id, issues: Vec::new() });
     }
     let mut issues = Vec::new();
     let pending_target_merge: Option<String> = connection
