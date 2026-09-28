@@ -660,11 +660,22 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           }}
           onStartWork={async () => {
             const cardId = selectedDetail.id;
-            const updated = await onStartWork(cardId);
-            if (!updated) return false;
-            const canonical = board.applyCardSnapshot(updated);
-            if (updated.id === cardId) projectSelectedDetail(updated, updated.events, canonical);
-            return true;
+            try {
+              const updated = await onStartWork(cardId);
+              if (!updated) return false;
+              const canonical = board.applyCardSnapshot(updated);
+              if (updated.id === cardId) projectSelectedDetail(updated, updated.events, canonical);
+              return true;
+            } catch (error) {
+              // A compensated operation can return to Ready without an operation row.
+              // Keep the failure visible in the detail panel via the workflow error.
+              try {
+                const updated = (await fetchKanbanCard(cardId)).card;
+                const canonical = board.applyCardSnapshot(updated);
+                projectSelectedDetail(updated, updated.events, canonical);
+              } catch { /* Keep the original setup failure visible even if refresh fails. */ }
+              throw error;
+            }
           }}
           onCleanup={async (evidence) => {
             const cardId = selectedDetail.id;

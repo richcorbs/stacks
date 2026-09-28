@@ -120,6 +120,44 @@ pub(in crate::kanban) fn validate_checkout_with_policy(
     })
 }
 
+/// Only update the configured, checked-out target. Never infer a target from the remote.
+pub(in crate::kanban) fn fast_forward_tracking_target(
+    target: &EnvironmentStartPreflight,
+) -> Result<(), String> {
+    let path = &target.target_checkout_path;
+    let branch = &target.target_branch;
+    let remote = git_output(path, &["config", "--get", &format!("branch.{branch}.remote")]);
+    let merge = git_output(path, &["config", "--get", &format!("branch.{branch}.merge")]);
+    let remote = match (remote, merge) {
+        (Ok(remote), Ok(merge)) if !remote.is_empty() && remote != "." && !merge.is_empty() => remote,
+        _ => return Ok(()), // No configured remote upstream: local-only project.
+    };
+    let upstream = git_output(path, &["rev-parse", "--symbolic-full-name", "@{upstream}"])
+        .map_err(|error| format!("Cannot resolve upstream for {branch}: {error}"))?;
+    if !upstream.starts_with("refs/remotes/") {
+        return Ok(()); // A local upstream is not a tracking remote.
+    }
+    git_output(path, &["fetch", "--", &remote])
+        .map_err(|error| format!("Could not fetch target branch {branch} from {remote}: {error}"))?;
+    let current = validate_checkout(path, Some(&target.repository_id))?;
+    if current.target_branch != *branch || current.target_revision != target.target_revision {
+        return Err(format!("Target checkout {branch} changed while fetching; review it and retry"));
+    }
+    let remote_tip = git_output(path, &["rev-parse", "@{upstream}"])
+        .map_err(|error| format!("Cannot resolve upstream for {branch} after fetch: {error}"))?;
+    if !git_status_success(path, &["merge-base", "--is-ancestor", &target.target_revision, &remote_tip])? {
+        if git_status_success(path, &["merge-base", "--is-ancestor", &remote_tip, &target.target_revision])? {
+            return Ok(()); // Local branch is already ahead.
+        }
+        return Err(format!("Target branch {branch} diverged from {upstream}; reconcile it manually before starting work"));
+    }
+    if remote_tip != target.target_revision {
+        git_output(path, &["merge", "--ff-only", &remote_tip])
+            .map_err(|error| format!("Could not fast-forward {branch} from {upstream}: {error}"))?;
+    }
+    Ok(())
+}
+
 pub(in crate::kanban) fn ensure_registered_distinct_worktree(
     target: &str,
     source: &str,

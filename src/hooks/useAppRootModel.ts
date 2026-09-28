@@ -232,14 +232,13 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
           updated.creation_operation?.phase === 'recovery_required',
         );
         if (!updated.environment) {
-          showToast(updated.creation_operation?.error || 'Environment creation needs attention');
-          return null;
+          throw new Error(updated.creation_operation?.error || 'Environment creation needs attention');
         }
       }
       if (!await launchWorkAgent(cardId, store.projects)) throw new Error('The card changed before its work agent could start');
       const current = (await fetchKanbanCard(cardId)).card;
       showToast(`Started work on #${current.external_id}`); return current;
-    } catch (error) { showToast(`Could not start work: ${error instanceof Error ? error.message : String(error)}`); return null; }
+    } catch (error) { throw new Error(`Could not start work: ${error instanceof Error ? error.message : String(error)}`); }
     finally { startingCardIds.current.delete(cardId); }
   }
   async function cleanupCard(card: KanbanCard, evidence: import('../kanban/types').CleanupPreflight) {
