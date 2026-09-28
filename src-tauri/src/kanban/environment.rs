@@ -123,6 +123,21 @@ pub(in crate::kanban) fn update_creation_phase(
     })
 }
 
+/// The provider binding is part of a card's identity; the store migration
+/// supplies binding columns before a project can start work.
+pub(in crate::kanban) fn verify_card_binding(connection: &Connection, id: &str) -> Result<(), String> {
+    let valid: i64 = connection.query_row(
+        "SELECT CASE WHEN c.external_provider='superthread' THEN
+            c.binding_id IS NOT NULL AND c.binding_id=p.superthread_binding_id
+            AND EXISTS(SELECT 1 FROM superthread_bindings b WHERE b.id=c.binding_id AND b.project_id=c.project_id AND b.state='active')
+            ELSE c.binding_id IS NULL END
+         FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
+        [id], |r| r.get(0),
+    ).optional().map_err(db_error)?.ok_or_else(|| "conflict: Card project is missing; reload before starting work".to_string())?;
+    if valid == 0 { return Err("conflict: Card provider binding is stale or belongs to another project; refresh provider state before starting work".into()); }
+    Ok(())
+}
+
 pub(in crate::kanban) fn prepare_creation_operation(
     id: &str,
     expected_revision: i64,
@@ -155,8 +170,9 @@ pub(in crate::kanban) fn prepare_creation_operation(
             "SELECT c.status,c.workflow_revision,c.project_id,c.external_provider,c.hierarchy_finalized,COALESCE(p.kanban_source,'local'),p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
             [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get::<_,i64>(4)? != 0,row.get(5)?,row.get(6)?))
         ).optional().map_err(db_error)?.ok_or_else(|| "Kanban card was not found".to_string())?;
-        if finalized {
-            return Err("A finalized aggregate parent cannot start work".to_string());
+        verify_card_binding(&tx, id)?;
+        if finalized || repository::has_linked_children(&tx, id)? {
+            return Err("conflict: Linked children make this card an aggregate; reload the hierarchy before starting leaf work".to_string());
         }
         if status != "ready" {
             return Err("The card must be Ready for agent before work can start".to_string());
@@ -180,6 +196,12 @@ pub(in crate::kanban) fn prepare_creation_operation(
             != 0
         {
             return Err("The card already has an environment".to_string());
+        }
+        if tx.query_row("SELECT COUNT(*) FROM card_cleanup_operations WHERE card_id=?1 AND status!='completed'", [id], |r| r.get::<_, i64>(0)).map_err(db_error)? != 0 {
+            return Err("conflict: Cleanup owns this card; finish or inspect cleanup before starting work".to_string());
+        }
+        if tx.query_row("SELECT COUNT(*) FROM environment_creation_operations WHERE card_id=?1", [id], |r| r.get::<_, i64>(0)).map_err(db_error)? != 0 {
+            return Err("conflict: Setup already owns this card; resume or recover it before starting again".to_string());
         }
         tx.execute("INSERT INTO environment_creation_operations (id,card_id,project_id,repository_id,expected_workflow_revision,target_checkout_path,target_branch,observed_target_revision,setup_command,custom_command,phase,result_path,pre_worktrees,pre_branches,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'prepared',?11,?12,?13,?14,?14)", params![operation_id,id,project_id,target.repository_id,expected_revision,target.target_checkout_path,target.target_branch,target.target_revision,setup_command.trim(),custom_command as i64,result_path.to_string_lossy(),worktrees,branches,unix_timestamp()]).map_err(db_error)?;
         tx.commit().map_err(db_error)
@@ -850,6 +872,7 @@ pub(in crate::kanban) fn kanban_environment_start_preflight_operation(
         }
         let _ = (status, finalized);
         require_structural_capability(connection, &id, WorkflowAction::StartWork)?;
+        verify_card_binding(connection, &id)?;
         let source: String = connection
             .query_row(
                 "SELECT COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
@@ -936,11 +959,12 @@ pub(in crate::kanban) fn kanban_create_environment(
         }
         let _ = (card_status, finalized);
         require_structural_capability(&transaction, &id, WorkflowAction::StartWork)?;
-        let (current_project_path, project_source): (String, String) = transaction
+        verify_card_binding(&transaction, &id)?;
+        let (current_project_path, project_source, configured_branch): (String, String, String) = transaction
             .query_row(
-                "SELECT path, COALESCE(kanban_source, 'local') FROM projects WHERE id=?1",
+                "SELECT path, COALESCE(kanban_source, 'local'), COALESCE(target_branch, 'main') FROM projects WHERE id=?1",
                 [&project_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(db_error)?
@@ -950,24 +974,33 @@ pub(in crate::kanban) fn kanban_create_environment(
                 "The card's owning project is not compatible with its provider".to_string(),
             );
         }
-        if current_project_path != project_path_snapshot || project_repository != repository_id {
+        if current_project_path != project_path_snapshot || project_repository != repository_id || configured_branch != target_branch {
             return Err(
                 "The card project's configured checkout belongs to a different repository"
                     .to_string(),
             );
+        }
+        if transaction.query_row("SELECT COUNT(*) FROM card_environments WHERE card_id=?1", [&id], |r| r.get::<_, i64>(0)).map_err(db_error)? != 0 {
+            return Err("conflict: This card already owns an environment; reload before starting work".to_string());
+        }
+        if transaction.query_row("SELECT COUNT(*) FROM card_cleanup_operations WHERE card_id=?1 AND status!='completed'", [&id], |r| r.get::<_, i64>(0)).map_err(db_error)? != 0 {
+            return Err("conflict: Cleanup still owns this card; inspect cleanup before starting work".to_string());
+        }
+        // Direct attachment is supported, but a pending creation operation must
+        // describe this exact checkout and revision, not merely the same card.
+        let creation: Option<(String, String, String, String, String, i64)> = transaction.query_row(
+            "SELECT project_id,repository_id,target_checkout_path,target_branch,observed_target_revision,expected_workflow_revision FROM environment_creation_operations WHERE card_id=?1",
+            [&id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)),
+        ).optional().map_err(db_error)?;
+        if creation.is_some_and(|op| op != (project_id.clone(), repository_id.clone(), target_checkout_path.clone(), target_branch.clone(), target_revision.clone(), expected_workflow_revision)) {
+            return Err("conflict: Creation evidence belongs to a different project, checkout, branch or revision; inspect setup before attaching".to_string());
         }
         let environment_id = format!("environment:{}", uuid::Uuid::new_v4());
         let now = unix_timestamp();
         transaction.execute(
             "INSERT INTO card_environments
              (id, card_id, project_id, worktree_path, branch, repository_id, target_checkout_path, target_branch, source_revision, target_revision, lifecycle_state, revision, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'ready', 1, ?11, ?11)
-             ON CONFLICT(card_id) DO UPDATE SET project_id = excluded.project_id,
-               worktree_path = excluded.worktree_path, branch = excluded.branch,
-               repository_id = excluded.repository_id, target_checkout_path = excluded.target_checkout_path,
-               target_branch = excluded.target_branch, source_revision = excluded.source_revision,
-               target_revision = excluded.target_revision, lifecycle_state = 'ready',
-               revision = card_environments.revision + 1, updated_at = excluded.updated_at",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'ready', 1, ?11, ?11)",
             params![environment_id, id, project_id, worktree_path.trim(), source.target_branch, repository_id,
                 target_checkout_path, target_branch, source.target_revision, target_revision, now],
         ).map_err(db_error)?;

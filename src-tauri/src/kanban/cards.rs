@@ -735,6 +735,9 @@ pub(in crate::kanban) fn require_structural_capability(
     action: WorkflowAction,
 ) -> Result<KanbanCard, String> {
     let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+    if repository::has_linked_children(connection, id)? && matches!(action, WorkflowAction::StartWork | WorkflowAction::Cleanup) {
+        return Err("conflict: Linked children make this card an aggregate; reload before attempting leaf work".into());
+    }
     let capability = workflow::capabilities(&workflow_context_for_card(connection, &card)?)
         .into_iter()
         .find(|capability| capability.action == action)
@@ -759,6 +762,9 @@ pub(in crate::kanban) fn apply_workflow_transition(
     let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
     if expected_revision.is_some_and(|revision| revision != card.workflow_revision) {
         return Err("Card changed; reload before trying again".to_string());
+    }
+    if repository::has_linked_children(connection, id)? && matches!(action, WorkflowAction::StartWork | WorkflowAction::MergeLocal | WorkflowAction::MergePr | WorkflowAction::Close | WorkflowAction::RequestChanges) {
+        return Err("conflict: Linked children make this card an aggregate; reload before attempting leaf workflow".into());
     }
     let context = workflow_context_for_card(connection, &card)?;
     let transition = workflow::transition(&context, actor, action)?;

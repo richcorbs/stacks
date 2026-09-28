@@ -1660,6 +1660,19 @@ fn migration_does_not_treat_a_stale_zero_count_as_verified_absence() {
 }
 
 #[test]
+fn start_work_binding_guard_rejects_rebound_provider_identity() {
+    let db = Connection::open_in_memory().unwrap();
+    migrate(&db).unwrap();
+    test_project(&db, "owner", "superthread", "/tmp/superthread");
+    db.execute_batch("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,binding_id,created_at,updated_at)
+        VALUES ('superthread:leaf','superthread','leaf','Leaf','ready','owner','stale-binding',1,1);").unwrap();
+    assert!(verify_card_binding(&db, "superthread:leaf").unwrap_err().contains("binding"));
+    db.execute("UPDATE kanban_cards SET binding_id='test-binding:owner' WHERE id='superthread:leaf'", []).unwrap();
+    assert!(verify_card_binding(&db, "superthread:leaf").is_ok());
+    assert!(require_structural_capability(&db, "superthread:leaf", WorkflowAction::StartWork).is_ok());
+}
+
+#[test]
 fn verified_three_child_parent_never_becomes_a_leaf_after_partial_sync_or_lost_flag() {
     let mut db = Connection::open_in_memory().unwrap();
     migrate(&db).unwrap();
@@ -3105,6 +3118,10 @@ fn environment_health_ignores_finalized_parent_with_active_child() {
     let parent = get_card(&connection, "local:test").unwrap().unwrap();
     assert_eq!(parent.status, "agent_working");
     assert!(health_codes(&connection, "local:test").is_empty());
+    connection.execute("UPDATE kanban_cards SET hierarchy_finalized=0 WHERE id='local:test'", []).unwrap();
+    connection.execute("INSERT INTO card_environments(id,card_id,project_id,worktree_path,branch,created_at,updated_at) VALUES ('parent-env','local:test','project','/tmp/nonexistent','feature',1,1)", []).unwrap();
+    assert!(health_codes(&connection, "local:test").contains(&"parent_state_inconsistent".into()));
+    assert!(require_structural_capability(&connection, "local:test", WorkflowAction::StartWork).is_err());
 }
 
 #[test]
@@ -3258,12 +3275,54 @@ fn cleanup_phase_advancement_is_compare_and_set_and_resumable_at_every_boundary(
         if current.status == "completed" {
             break;
         }
+        if current.phase == "remove_metadata" {
+            remove_cleanup_metadata_in_test(&mut connection, &current);
+        }
         advance_cleanup_phase_in_connection(&mut connection, &current).unwrap();
     }
     let completed = load_cleanup_snapshot(&connection, "local:phases").unwrap();
     assert_eq!(completed.status, "completed");
     assert!(completed.registration_validated);
     assert_eq!(connection.query_row("SELECT COUNT(*) FROM card_events WHERE card_id='local:phases' AND event_type='cleanup' AND outcome='success'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+}
+
+fn remove_cleanup_metadata_in_test(connection: &mut Connection, operation: &CleanupSnapshot) {
+    connection.execute("DELETE FROM card_environments WHERE id=?1", [&operation.environment_id]).unwrap();
+    connection.execute("UPDATE kanban_cards SET workflow_revision=workflow_revision+1 WHERE id=?1", [&operation.card_id]).unwrap();
+    connection.execute("INSERT INTO card_cleanup_phase_outcomes(card_id,phase,outcome,detail,completed_at) VALUES (?1,'remove_metadata','success',NULL,?2)", params![operation.card_id, unix_timestamp()]).unwrap();
+}
+
+#[test]
+fn cleanup_identity_distinguishes_removed_replaced_and_failed_resources_without_writes() {
+    let mut db = Connection::open_in_memory().unwrap();
+    migrate(&db).unwrap();
+    test_project(&db, "p", "local", "/tmp/repo");
+    let now = unix_timestamp();
+    db.execute("INSERT INTO kanban_cards (id,external_provider,external_id,title,status,completion_outcome,workflow_revision,project_id,created_at,updated_at) VALUES ('local:phases','local:p','64','Phases','done','closed',3,'p',?1,?1)", [now]).unwrap();
+    db.execute("INSERT INTO card_environments (id,card_id,project_id,worktree_path,branch,revision,created_at,updated_at) VALUES ('phase-env','local:phases','p','/tmp/source','feature',2,?1,?1)", [now]).unwrap();
+    db.execute("INSERT INTO card_cleanup_operations (card_id,environment_id,workflow_revision,environment_revision,status,phase,completion_outcome,repository_id,source_path,target_path,source_branch,target_branch,source_revision,delete_local_branch,delete_remote_branch,started_at,updated_at) VALUES ('local:phases','phase-env',3,2,'failed','runtime_sessions','closed','repo','/tmp/source','/tmp/repo','feature','main','abc',0,0,?1,?1)", [now]).unwrap();
+    let op = load_cleanup_snapshot(&db, "local:phases").unwrap();
+    assert!(verify_cleanup_identity(&db, &op).is_ok());
+    db.execute("UPDATE card_cleanup_operations SET status='completed' WHERE card_id='local:phases'", []).unwrap();
+    let completed_with_resources = load_cleanup_snapshot(&db, "local:phases").unwrap();
+    assert!(verify_cleanup_identity(&db, &completed_with_resources).unwrap_err().contains("still has"));
+    assert!(health_codes(&db, "local:phases").contains(&"cleanup_environment_retained".into()));
+    db.execute("UPDATE card_cleanup_operations SET status='failed' WHERE card_id='local:phases'", []).unwrap();
+    db.execute("UPDATE card_environments SET id='replacement' WHERE card_id='local:phases'", []).unwrap();
+    assert!(verify_cleanup_identity(&db, &op).unwrap_err().contains("replaced"));
+    assert!(health_codes(&db, "local:phases").contains(&"cleanup_environment_replaced".into()));
+    db.execute("DELETE FROM card_environments WHERE card_id='local:phases'", []).unwrap();
+    assert!(verify_cleanup_identity(&db, &op).unwrap_err().contains("missing"));
+    assert!(health_codes(&db, "local:phases").contains(&"cleanup_environment_missing".into()));
+    db.execute("UPDATE card_cleanup_operations SET phase='remove_metadata',registration_validated=1 WHERE card_id='local:phases'", []).unwrap();
+    let op = load_cleanup_snapshot(&db, "local:phases").unwrap();
+    assert!(verify_cleanup_identity(&db, &op).is_err());
+    db.execute("INSERT INTO card_cleanup_phase_outcomes(card_id,phase,outcome,completed_at) VALUES ('local:phases','remove_metadata','success',?1)", [now]).unwrap();
+    assert!(verify_cleanup_identity(&db, &op).is_ok());
+    advance_cleanup_phase_in_connection(&mut db, &op).unwrap();
+    let op = load_cleanup_snapshot(&db, "local:phases").unwrap();
+    advance_cleanup_phase_in_connection(&mut db, &op).unwrap();
+    assert!(health_codes(&db, "local:phases").is_empty());
 }
 
 fn cleanup_snapshot(target: &Path, source: &Path, outcome: &str) -> CleanupSnapshot {
