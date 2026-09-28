@@ -14,10 +14,12 @@ import {
 } from './refreshCoordinator';
 import { applicationEvents } from '../applicationEvents';
 import { healthCheckFailure, type CardRepositoryStatus } from './useCardRepositoryStatus';
+import { PrRefreshSchedule, runPrBatch } from './prRefreshSchedule';
 
 export type KanbanRefreshState = {
   statuses: Record<string, CardRepositoryStatus>;
   activeSummary: GitChangeSummary | null;
+  prChecks: Record<string, { identity: string; checkedAt: number | null; failed: boolean; refreshing: boolean }>;
   recheckEnvironment: (cardId: string) => Promise<CardEnvironmentHealth>;
   refreshAll: () => Promise<void>;
 };
@@ -54,6 +56,9 @@ export function useKanbanRefreshCoordinator({
   const statusCacheRef = useRef(statusCache);
   statusCacheRef.current = statusCache;
   const [summaryCache, setSummaryCache] = useState<CachedSummary>(null);
+  const [prChecks, setPrChecks] = useState<KanbanRefreshState['prChecks']>({});
+  const prScheduleRef = useRef(new PrRefreshSchedule());
+  prScheduleRef.current.prune(cards, projects);
 
   const coordinatorRef = useRef<KanbanRefreshCoordinator | null>(null);
   if (!coordinatorRef.current) {
@@ -65,27 +70,55 @@ export function useKanbanRefreshCoordinator({
           .catch((error) => new Map(plan.healthTargets.map((target) => [target.card.id, healthCheckFailure(target.card, error)])))
         : Promise.resolve(new Map<string, CardEnvironmentHealth>());
 
+      // Start cheap local reads immediately, independently of GitHub latency.
       const repositoryPromises = plan.targets.map(async (target) => {
         const path = target.card.environment?.worktree_path;
-        const [git, pullRequestRefresh, summary] = await Promise.all([
+        const [git, summary] = await Promise.all([
           path ? invoke<GitInfo | null>('git_info', { path }).catch(() => null) : Promise.resolve(undefined),
-          shouldRefreshPullRequest(target)
-            ? refreshKanbanPullRequest(target.card.id).catch(() => null)
-            : Promise.resolve(null),
           path && target.card.id === plan.activeCardId && target.card.environment?.target_branch
             ? invoke<GitChangeSummary>('git_change_summary', { path, targetBranch: target.card.environment.target_branch }).catch(() => null)
             : Promise.resolve(undefined),
         ]);
-        return { target, git, pullRequestRefresh, summary };
+        return { target, git, summary };
       });
-      const [healthByCard, repositoryResults] = await Promise.all([healthPromise, Promise.all(repositoryPromises)]);
+      const schedule = prScheduleRef.current;
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      const force = request.full || request.active || request.cardIds.size > 0;
+      const prTargets = plan.targets.filter((target) => shouldRefreshPullRequest(target) && schedule.due(
+        target, target.card.id === plan.activeCardId, hidden,
+        request.full || request.cardIds.has(target.card.id) || (request.active && target.card.id === plan.activeCardId),
+      ));
+      // The coordinator serializes cycles; this batch bounds parallel gh reads.
+      const prStarted = performance.now();
+      let prFailures = 0;
+      let rateLimits = 0;
+      if (prTargets.length) setPrChecks((current) => ({ ...current, ...Object.fromEntries(prTargets.map((target) => [target.card.id, { identity: schedule.identity(target.card, target.project), checkedAt: current[target.card.id]?.checkedAt ?? null, failed: false, refreshing: true }])) }));
+      const prResults = await runPrBatch(prTargets, plan.activeCardId, async (target) => {
+        if (schedule.isDisposed) return null;
+        const started = performance.now();
+        const result = await refreshKanbanPullRequest(target.card.id).catch(() => null);
+        schedule.finish(target, !result || Boolean(result.error));
+        if (!result || result.error) prFailures++;
+        if (/rate.limit|secondary rate limit|HTTP 429/i.test(result?.error ?? '')) rateLimits++;
+        if (!schedule.isDisposed && isRefreshTargetCurrent(target, snapshotRef.current)) setPrChecks((current) => ({ ...current, [target.card.id]: { identity: schedule.identity(target.card, target.project), checkedAt: schedule.checkedAt(target.card.id), failed: schedule.failed(target.card.id), refreshing: false } }));
+        if (import.meta.env.DEV) console.debug('[kanban-pr-refresh]', { elapsedMs: Math.round(performance.now() - started), failed: !result || Boolean(result.error) });
+        return result;
+      });
+      if (import.meta.env.DEV && (prTargets.length || force)) console.debug('[kanban-pr-cycle]', {
+        eligible: plan.targets.filter(shouldRefreshPullRequest).length, requests: prTargets.length,
+        elapsedMs: Math.round(performance.now() - prStarted), maxConcurrency: Math.min(2, prTargets.length),
+        failures: prFailures, rateLimits, hidden,
+      });
+      const [healthByCard, localResults] = await Promise.all([healthPromise, Promise.all(repositoryPromises)]);
+      const repositoryResults = localResults.map((result) => ({ ...result, pullRequestRefresh: prResults.get(result.target.card.id) ?? null }));
 
+      if (schedule.isDisposed) return;
       // PR reconciliation may transition the workflow. Apply it first, then
       // reject companion results captured against that obsolete identity.
       const transitioned = new Set<string>();
       for (const result of repositoryResults) {
         const refreshed = result.pullRequestRefresh?.card;
-        if (!refreshed || !isRefreshTargetCurrent(result.target, snapshotRef.current)) continue;
+        if (!refreshed || result.pullRequestRefresh?.error || !isRefreshTargetCurrent(result.target, snapshotRef.current)) continue;
         if (targetSnapshotIdentity(refreshed, result.target.project) !== targetSnapshotIdentity(result.target.card, result.target.project)) transitioned.add(result.target.card.id);
         patchCardRef.current(refreshed, result.target.card);
       }
@@ -134,11 +167,15 @@ export function useKanbanRefreshCoordinator({
   });
   useEffect(() => {
     coordinator.start(intervalMs);
-    const onRefresh = () => { void coordinator.request({ visible: true, active: true }); };
+    const onRefresh = () => { void coordinator.request({ full: true }); };
+    const onVisibility = () => { if (!document.hidden) void coordinator.request({ visible: true, active: true }); };
+    document.addEventListener('visibilitychange', onVisibility);
     const unsubscribe = applicationEvents.subscribe('refresh-card-repository-status', onRefresh);
     return () => {
       unsubscribe();
+      document.removeEventListener('visibilitychange', onVisibility);
       coordinator.dispose();
+      prScheduleRef.current.dispose();
     };
   }, [coordinator, intervalMs]);
 
@@ -161,6 +198,10 @@ export function useKanbanRefreshCoordinator({
   return {
     statuses: currentStatuses,
     activeSummary,
+    prChecks: Object.fromEntries(cards.flatMap((card) => {
+      const check = prChecks[card.id];
+      return check?.identity === prScheduleRef.current.identity(card, projects.find((project) => project.id === card.project_id) ?? null) ? [[card.id, check]] : [];
+    })),
     recheckEnvironment,
     refreshAll: () => coordinator.request({ full: true }),
   };

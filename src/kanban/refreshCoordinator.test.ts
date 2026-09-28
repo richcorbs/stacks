@@ -96,6 +96,8 @@ describe('Kanban refresh targets', () => {
     expect(isRefreshTargetCurrent(plan.targets[0], snapshot([{ ...target, record_revision: 2 }], ['one'], 'one'))).toBe(false);
     expect(isRefreshTargetCurrent(plan.targets[0], snapshot([{ ...target, workflow_revision: 2 }], ['one'], 'one'))).toBe(false);
     expect(isRefreshTargetCurrent(plan.targets[0], snapshot([{ ...target, environment: { ...target.environment!, target_branch: 'release' } }], ['one'], 'one'))).toBe(false);
+    expect(isRefreshTargetCurrent(plan.targets[0], snapshot([{ ...target, environment: { ...target.environment!, branch: 'new-head' } }], ['one'], 'one'))).toBe(false);
+    expect(isRefreshTargetCurrent(plan.targets[0], snapshot([{ ...target, pull_request: { repository: 'owner/repo', number: 12, title: '', url: '', state: 'open', draft: false, ci_status: 'pending', review_state: 'pending', has_conflicts: false, mergeable: false, blockers: [] } }], ['one'], 'one'))).toBe(false);
     expect(isRefreshTargetCurrent(plan.targets[0], snapshot([target], ['one'], null))).toBe(false);
   });
 });

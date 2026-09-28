@@ -313,8 +313,14 @@ pub(in crate::kanban) async fn kanban_merge_pull_request_operation(
             if !pr.blockers.is_empty() { return Err(format!("Pull request is not ready: {}", pr.blockers.join("; "))); }
             connection.execute("UPDATE kanban_cards SET delivery_operation_stage='merging_pr', delivery_error=NULL WHERE id=?1", [&id]).map_err(db_error)?;
             let number = pr.number.to_string();
+            // Pin the remote tip between preflight and merge. GitHub rejects a
+            // merge if another actor pushes after checks/review were verified.
+            let head: String = connection.query_row(
+                "SELECT head_revision FROM card_pull_requests WHERE card_id=?1", [&id], |row| row.get(0),
+            ).map_err(db_error)?;
+            if head.is_empty() { return Err("Pull request head is unknown; refresh before merging".to_string()); }
             let flag = match settings.merge_strategy.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
-            crate::github::run_gh(Some(Path::new(&settings.path)), &["pr", "merge", &number, "--repo", &pr.repository, flag])?;
+            crate::github::run_gh(Some(Path::new(&settings.path)), &["pr", "merge", &number, "--repo", &pr.repository, flag, "--match-head-commit", &head])?;
             let transaction=connection.savepoint().map_err(db_error)?;
             apply_workflow_transition(&transaction, &id, WorkflowActor::User, WorkflowAction::MergePr, Some(expected_workflow_revision), "merge_pr", Some("Merged pull request"))?;
             transaction.execute("UPDATE card_pull_requests SET state='merged', updated_at=?1 WHERE card_id=?2", params![unix_timestamp(), id]).map_err(db_error)?;

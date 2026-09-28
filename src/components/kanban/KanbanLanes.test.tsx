@@ -229,12 +229,20 @@ describe('KanbanPullRequestBadge', () => {
     ['pending CI plus another blocker', pullRequest({ ci_status: 'pending', blockers: ['CI is pending', 'Changes requested'] }), 'openBlocked', 'githubCiFailed', 'CI is pending\nChanges requested', 'open with blockers: CI is pending; Changes requested'],
     ['otherwise blocked', pullRequest({ blockers: ['Pull request is a draft'] }), 'openBlocked', 'githubCiFailed', 'Pull request is a draft', 'open with blockers: Pull request is a draft'],
   ])('renders the %s board presentation', (_name, pr, className, iconClass, tooltip, accessibleStatus) => {
-    const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pr} />);
+    const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pr} check={{ checkedAt: Date.now(), failed: false, refreshing: false }} />);
 
     expect(markup).toContain(`kanbanPrBadge ${className}`);
     expect(markup).toContain(iconClass);
-    expect(markup).toContain(`title="${tooltip}"`);
-    expect(markup).toContain(`aria-label="Pull request #98, ${accessibleStatus}"`);
+    expect(markup).toContain(tooltip === 'Pull request is ready to merge' ? 'last known pull request is ready to merge' : tooltip);
+    expect(markup).toContain(`aria-label="Pull request #98, ${accessibleStatus}, last checked 0m ago"`);
+  });
+
+  it('never labels a failed or unchecked API read as passing CI', () => {
+    for (const check of [undefined, { checkedAt: Date.now(), failed: true, refreshing: false }]) {
+      const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest()} check={check} />);
+      expect(markup).toContain('githubCiRunning');
+      expect(markup).not.toContain('githubCiPassed');
+    }
   });
 
   it('does not render non-open pull requests', () => {
