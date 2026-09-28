@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "seed:dev": "cargo run --manifest-path src-tauri/Cargo.toml --example seed_dev_data",
-    "build": "node scripts/check-kanban-contract.mjs && tsc && vite build",
-    "test": "node scripts/check-kanban-contract.mjs && vitest run",
+    "build": "node scripts/check-kanban-contract.mjs && node scripts/generate-kanban-boundary.mjs --check && tsc && vite build",
+    "kanban:contract:generate": "node scripts/generate-kanban-boundary.mjs",
+    "test": "node scripts/check-kanban-contract.mjs && node scripts/generate-kanban-boundary.mjs --check && node --test scripts/kanban-boundary.check.mjs && vitest run",
     "check:version": "node scripts/release.mjs check-version",
     "version:set": "node scripts/release.mjs set-version",
     "release:build": "TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/stacks-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"$(cat $HOME/.tauri/stacks-updater.password)\" tauri build --bundles app",

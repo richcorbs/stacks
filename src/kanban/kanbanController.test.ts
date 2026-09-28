@@ -88,6 +88,44 @@ describe('KanbanController', () => {
     expect(controller.getSnapshot().cards.map(({ id }) => id)).toEqual(['a', 'b']);
   });
 
+  it('projects contiguous broadcasts before revisioned detail notifications, deduplicates responses and recovers gaps', async () => {
+    const { controller, emit } = harness(async () => ({ cards: [card('a', 1)], board_revision: 1 }));
+    await controller.load();
+    controller.initialize();
+    await Promise.resolve();
+    const received: Array<[number, number, number]> = [];
+    controller.subscribeDetailInvalidations(({ boardRevision, recordRevision }) => {
+      received.push([boardRevision, recordRevision, controller.getSnapshot().cards[0].record_revision]);
+    });
+    const change = (boardRevision: number, recordRevision: number): BoardChange => ({
+      upserts: [card('a', recordRevision)], removed_ids: [], detail_invalidated_ids: ['a'], board_revision: boardRevision,
+    });
+    emit(change(3, 3)); // missing revision 2 must not publish or invalidate
+    expect(received).toEqual([]);
+    emit(change(2, 2)); // drains the buffered revision 3
+    expect(controller.getSnapshot().cards[0].record_revision).toBe(3);
+    expect(received).toEqual([[2, 3, 3]]);
+    emit(change(3, 3)); // duplicate broadcast cannot schedule another detail read
+    expect(received).toHaveLength(1);
+    controller.dispose();
+    emit(change(4, 4));
+    expect(received).toHaveLength(1);
+  });
+
+  it('repairs selected detail from a snapshot even when every broadcast was dropped', async () => {
+    let revision = 1;
+    const { controller } = harness(async () => ({ cards: [card('a', revision)], board_revision: revision }));
+    await controller.load();
+    const listener = vi.fn();
+    controller.subscribeDetailInvalidations(listener);
+    revision = 3;
+    await controller.load();
+    expect(listener).toHaveBeenCalledWith({ cardId: 'a', boardRevision: 3, recordRevision: 3 });
+    await controller.load();
+    expect(listener).toHaveBeenCalledTimes(1);
+    controller.dispose();
+  });
+
   it('removes cards and releases subscriptions on disposal without deleting retained sessions', async () => {
     const { controller, dependencies, disposed } = harness(async () => ({ cards: [card('a')], board_revision: 1 }));
     const deleteSession = dependencies.deletePiSession as ReturnType<typeof vi.fn>;

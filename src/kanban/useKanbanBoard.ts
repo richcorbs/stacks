@@ -38,6 +38,7 @@ export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadInt
     stopRefinement: controller.stopRefinement, assignProject: controller.assignProject,
     hydrateProviderDetails: controller.hydrateProviderDetails, loadPersistedDetails: controller.loadPersistedDetails,
     applyCardSnapshot: controller.applyCardSnapshot, patchCard: controller.patchCard,
+    subscribeDetailInvalidations: controller.subscribeDetailInvalidations,
   };
 }
 
@@ -57,10 +58,7 @@ function createBrowserKanbanController() {
     isReorderConflict: isKanbanReorderConflict,
     deletePiSession: deletePersistentPiSession,
     retainedPiSession: (paneId) => getRetainedPiSessionController(paneId) ?? undefined,
-    subscribeBoardChanges: async (listener) => getCurrentWindow().listen<BoardChange>('kanban-board-changed', ({ payload }) => {
-      listener(payload);
-      if (payload.detail_invalidated_ids?.length) window.dispatchEvent(new CustomEvent('stacks:kanban-detail-invalidated', { detail: payload.detail_invalidated_ids }));
-    }),
+    subscribeBoardChanges: async (listener) => getCurrentWindow().listen<BoardChange>('kanban-board-changed', ({ payload }) => listener(payload)),
     subscribePiEvents: subscribeAllPiEvents,
     registerUiRequestHandler: setPiUiRequestWorkflowHandler,
     notify: showAppToast,

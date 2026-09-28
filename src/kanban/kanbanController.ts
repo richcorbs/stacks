@@ -40,10 +40,14 @@ export type KanbanControllerDependencies = {
 };
 
 export type KanbanControllerConfiguration = { providers: readonly SuperthreadIntegration[] };
+export type DetailInvalidation = Readonly<{ cardId: string; boardRevision: number; recordRevision: number }>;
 
 /** Framework-independent owner of canonical board behavior and async lifecycles. */
 export class KanbanController {
   private listeners = new Set<() => void>();
+  private detailListeners = new Set<(change: DetailInvalidation) => void>();
+  private detailFloors = new Map<string, number>();
+  private pendingDetailChanges = new Map<number, BoardChange>();
   private store: KanbanEntityStore;
   private providerSync: KanbanProviderSyncService;
   private crud: KanbanCrudService;
@@ -84,6 +88,10 @@ export class KanbanController {
 
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
+  subscribeDetailInvalidations = (listener: (change: DetailInvalidation) => void) => {
+    this.detailListeners.add(listener);
+    return () => { this.detailListeners.delete(listener); };
+  };
 
   configure(configuration: KanbanControllerConfiguration) {
     if (this.disposed) return;
@@ -116,6 +124,9 @@ export class KanbanController {
     this.providerSync.dispose();
     this.store.dispose();
     this.listeners.clear();
+    this.detailListeners.clear();
+    this.detailFloors.clear();
+    this.pendingDetailChanges.clear();
   }
 
   load = async () => {
@@ -180,15 +191,48 @@ export class KanbanController {
   private receiveBoardChange = (change: BoardChange) => {
     if (this.disposed) return;
     if (this.store.applyBoardChange(change)) this.publishCards();
+    // The canonical store sees the delta before any detail reader sees its floor.
+    // A gap remains pending in the store; its timer still recovers missing events.
+    if (change.board_revision > this.store.contiguousBoardRevision) this.pendingDetailChanges.set(change.board_revision, change);
+    else this.invalidateDetails(change);
+    this.flushPendingDetails();
   };
+  private flushPendingDetails() {
+    for (const [revision, change] of this.pendingDetailChanges) {
+      if (revision > this.store.contiguousBoardRevision) continue;
+      this.pendingDetailChanges.delete(revision);
+      this.invalidateDetails(change);
+    }
+  }
   private applySnapshot = (snapshot: BoardSnapshot) => {
-    if (this.disposed || !this.store.applyBoardSnapshot(snapshot)) return;
+    if (this.disposed) return;
+    const previous = new Map(this.store.cards().map((card) => [card.id, card.record_revision]));
+    if (!this.store.applyBoardSnapshot(snapshot)) return;
     this.publishCards();
+    this.flushPendingDetails();
+    // A full snapshot also repairs detail when *all* broadcasts were missed.
+    for (const card of this.store.cards()) {
+      if (previous.has(card.id) && card.record_revision > previous.get(card.id)!) {
+        this.invalidateDetails({ board_revision: snapshot.board_revision, upserts: [], removed_ids: [], detail_invalidated_ids: [card.id] });
+      }
+    }
   };
   private applyPartialChange = (change: BoardChange) => {
     if (this.disposed) return;
     if (this.store.applyPartialChange(change)) this.publishCards();
+    // Command responses establish affected entities, not board completeness.
+    this.invalidateDetails(change);
   };
+  private invalidateDetails(change: BoardChange) {
+    for (const cardId of change.detail_invalidated_ids ?? []) {
+      const recordRevision = this.store.card(cardId)?.record_revision ?? 0;
+      const previous = this.detailFloors.get(cardId) ?? -1;
+      if (recordRevision <= previous) continue;
+      this.detailFloors.set(cardId, recordRevision);
+      const invalidation = { cardId, boardRevision: change.board_revision, recordRevision };
+      this.detailListeners.forEach((listener) => listener(invalidation));
+    }
+  }
   private publishCards() { this.patchSnapshot({ cards: this.store.cards() }); }
   private patchSnapshot(patch: Partial<KanbanControllerSnapshot>) {
     if (this.disposed) return;

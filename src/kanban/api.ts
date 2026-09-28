@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { BoundaryRequest_kanban_card_snapshot, BoundaryRequest_kanban_cleanup_preflight, BoundaryRequest_kanban_start_environment, BoundaryRequest_kanban_cleanup_environment_creation, BoundaryRequest_kanban_apply_pi_lifecycle_intent, BoundaryRequest_kanban_close_card, BoundaryRequest_kanban_retry_runtime_cleanup } from './boundaryContract.generated';
 import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardEventCursor, CardEventPage, CardSnapshot, CleanupInventory, CleanupPreflight, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
 import type { SplitNode } from '../types';
 
@@ -10,7 +11,7 @@ export async function fetchKanbanCard(id: string) {
   const debug = import.meta.env.DEV && localStorage.getItem('stacks.debugCardOpen') === '1';
   const started = debug ? performance.now() : 0;
   try {
-    return await invoke<CardSnapshot>('kanban_card_snapshot', { id });
+    return await invoke<CardSnapshot>('kanban_card_snapshot', { id } satisfies BoundaryRequest_kanban_card_snapshot);
   } finally {
     if (debug) console.debug('Card snapshot IPC', id, { invokeMs: performance.now() - started });
   }
@@ -51,7 +52,7 @@ export function applyKanbanWorkflowAction(id: string, action: Extract<KanbanWork
 }
 
 export function applyKanbanPiLifecycleIntent(id: string, thread: 'planning' | 'work', intent: PiLifecycleIntent, generation: string, eventId: string, eventOrder?: number, failureDetail?: string) {
-  return invoke<CardSnapshot>('kanban_apply_pi_lifecycle_intent', { id, thread, intent, generation, eventId, eventOrder, failureDetail });
+  return invoke<CardSnapshot>('kanban_apply_pi_lifecycle_intent', { id, thread, intent, generation, eventId, eventOrder, failureDetail } satisfies BoundaryRequest_kanban_apply_pi_lifecycle_intent);
 }
 
 export function recordKanbanAgentLaunchFailure(id: string, expectedWorkflowRevision: number, expectedProjectId: string, errorDetail: string) {
@@ -89,15 +90,15 @@ export function setKanbanProject(id: string, projectId: string) {
 }
 
 export type WorkflowOperationResult = { card: KanbanCard; message: string; idempotent: boolean };
-export type RuntimeResourceOutcome = { resource_type: 'pi_process' | 'pi_session' | 'pty'; id: string; success: boolean; error: string | null };
-export type CardRuntimeCleanupResult = { card: KanbanCard; outcomes: RuntimeResourceOutcome[] };
+export type { RuntimeResourceOutcome, CardRuntimeCleanupResult } from './types';
+import type { CardRuntimeCleanupResult } from './types';
 
 export function startKanbanEnvironment(id: string, expectedWorkflowRevision: number, setupCommand: string, customCommand: boolean, explicitRetry = false) {
-  return invoke<KanbanCard>('kanban_start_environment', { id, expectedWorkflowRevision, setupCommand, customCommand, explicitRetry });
+  return invoke<KanbanCard>('kanban_start_environment', { id, expectedWorkflowRevision, setupCommand, customCommand, explicitRetry } satisfies BoundaryRequest_kanban_start_environment);
 }
 
 export function fetchCleanupPreflight(id: string) {
-  return invoke<CleanupPreflight>('kanban_cleanup_preflight', { id });
+  return invoke<CleanupPreflight>('kanban_cleanup_preflight', { id } satisfies BoundaryRequest_kanban_cleanup_preflight);
 }
 
 export function fetchCleanupInventory(projectId: string | null) {
@@ -105,7 +106,7 @@ export function fetchCleanupInventory(projectId: string | null) {
 }
 
 export function cleanupKanbanEnvironmentCreation(id: string) {
-  return invoke<KanbanCard>('kanban_cleanup_environment_creation', { id });
+  return invoke<KanbanCard>('kanban_cleanup_environment_creation', { id } satisfies BoundaryRequest_kanban_cleanup_environment_creation);
 }
 
 export function setKanbanMergeTarget(id: string, targetCheckoutPath: string, expectedEnvironmentRevision: number) {
@@ -117,11 +118,11 @@ export function approveAndCommitKanbanCard(id: string, expectedWorkflowRevision:
 }
 
 export function closeKanbanCard(id: string, expectedRevision: number) {
-  return invoke<CardRuntimeCleanupResult>('kanban_close_card', { id, expectedRevision });
+  return invoke<CardRuntimeCleanupResult>('kanban_close_card', { id, expectedRevision } satisfies BoundaryRequest_kanban_close_card);
 }
 
 export function retryKanbanRuntimeCleanup(id: string) {
-  return invoke<CardRuntimeCleanupResult>('kanban_retry_runtime_cleanup', { id });
+  return invoke<CardRuntimeCleanupResult>('kanban_retry_runtime_cleanup', { id } satisfies BoundaryRequest_kanban_retry_runtime_cleanup);
 }
 
 export function retryKanbanProviderSync(id: string) {
