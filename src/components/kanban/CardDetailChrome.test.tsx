@@ -105,6 +105,8 @@ describe('CardDetailTabs', () => {
       onRefreshDiff={() => undefined}
     />);
 
+    expect(markup).toContain('<button class="active" type="button">Description</button>');
+    expect(markup).not.toContain('>Card</button>');
     expect(markup).toContain('class="cardDiffRefresh"');
     expect(markup).toContain('aria-label="Refresh diff"');
   });
