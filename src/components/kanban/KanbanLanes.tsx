@@ -36,21 +36,26 @@ export function shouldDismissDoneLaneMenu(wrapper: DoneLaneMenuWrapper | null, e
   return event.type === 'pointerdown' && wrapper !== null && event.target !== null && !wrapper.contains(event.target as Node);
 }
 
-export function KanbanPullRequestBadge({ pullRequest }: { pullRequest: CardPullRequestIndicator }) {
+type PrCheck = { checkedAt: number | null; failed: boolean; refreshing: boolean };
+
+export function KanbanPullRequestBadge({ pullRequest, check }: { pullRequest: CardPullRequestIndicator; check?: PrCheck }) {
   if (pullRequest.state !== 'open') return null;
   const presentation = pullRequestPresentation(pullRequest);
   if (!presentation.indicatorStatus) return null;
+  const age = check?.checkedAt == null ? 'not checked this session' : `last checked ${Math.max(0, Math.floor((Date.now() - check.checkedAt) / 60_000))}m ago`;
+  const stale = !check || check.failed || check.refreshing || check.checkedAt == null || Date.now() - check.checkedAt > 60_000;
+  const state = check?.failed ? 'GitHub refresh failed; will retry' : check?.refreshing ? 'refreshing GitHub' : age;
 
   return (
     <span
       className={`kanbanPrBadge ${presentation.className}`}
-      title={pullRequest.blockers.length > 0 ? pullRequest.blockers.join('\n') : 'Pull request is ready to merge'}
+      title={`${state}; ${pullRequest.blockers.length > 0 ? pullRequest.blockers.join('\n') : 'last known pull request is ready to merge'}`}
     >
       PR #{pullRequest.number}
       <GithubStatusIcon
-        status={presentation.indicatorStatus}
+        status={stale ? 'pending' : presentation.indicatorStatus}
         context="CI"
-        label={`Pull request #${pullRequest.number}, ${presentation.status}`}
+        label={`Pull request #${pullRequest.number}, ${stale ? state : presentation.status + ', ' + age}`}
       />
     </span>
   );
@@ -123,6 +128,7 @@ export function KanbanCardContents({
   card,
   projects,
   repositoryStatus,
+  prCheck,
   serverServices,
   onNavigateParent,
   onToggleServer,
@@ -130,6 +136,7 @@ export function KanbanCardContents({
   card: KanbanCardSummary;
   projects: Project[];
   repositoryStatus: CardRepositoryStatus | undefined;
+  prCheck?: PrCheck;
   serverServices?: CardServices;
   onNavigateParent: (parentId: string) => void;
   onToggleServer: (cardId: string) => void;
@@ -163,7 +170,7 @@ export function KanbanCardContents({
             {repositoryStatus!.git!.deleted > 0 && <span className="gitRemoved">-{repositoryStatus!.git!.deleted}</span>}
           </span>
         )}
-        {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} />}
+        {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} check={prCheck} />}
       </span>
     </span>
   </>;
@@ -173,6 +180,7 @@ export function KanbanLanes({
   cards: visibleCards,
   projects,
   repositoryStatuses,
+  prChecks,
   serverServices,
   doneCollapsed,
   doneToggleRef,
@@ -191,6 +199,7 @@ export function KanbanLanes({
   cards: KanbanCardSummary[];
   projects: Project[];
   repositoryStatuses: Record<string, CardRepositoryStatus>;
+  prChecks?: Record<string, PrCheck>;
   serverServices: Record<string, CardServices>;
   doneCollapsed: boolean;
   doneToggleRef: RefObject<HTMLButtonElement | null>;
@@ -289,7 +298,7 @@ export function KanbanLanes({
                       onFocus={() => setKeyboardFocusedCardId(card.id)}
                       onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                     />
-                    <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
+                    <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} prCheck={prChecks?.[card.id]} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
                   </div>
                   {showEnvironmentWarning && environmentHealth && (
                     <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>
