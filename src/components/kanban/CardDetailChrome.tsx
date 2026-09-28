@@ -78,7 +78,7 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
   onToggleServer: () => void;
 }) {
   return <nav className="cardWorkspaceTabs" aria-label="Card views">
-    <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => onRequestView('overview')}>Card</button>
+    <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => onRequestView('overview')}>Description</button>
     {!hierarchyFinalized && <>
       <button className={activeView === 'chat' ? 'active' : ''} type="button" disabled={!projectAvailable} onClick={() => onRequestView('chat')}>Agent</button>
       <span className={`cardDiffTab${activeView === 'diff' ? ' active' : ''}`}>
