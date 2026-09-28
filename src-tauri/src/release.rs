@@ -526,8 +526,13 @@ pub fn release_history(
     app: AppHandle,
     registry: State<'_, Arc<ReleaseRegistry>>,
     project_id: String,
+    recover: bool,
 ) -> Result<Vec<ReleaseOperation>, String> {
-    recover_project_orphans(&app, registry.inner(), &project_id)?;
+    // Only mount/resume and bounded fallback reads need to check for a dead worker.
+    // Stage events and command responses already have an authoritative durable state.
+    if recover {
+        recover_project_orphans(&app, registry.inner(), &project_id)?;
+    }
     kanban::with_read_connection(|connection| {
         let mut statement = connection.prepare("SELECT state_json FROM release_operations WHERE project_id=?1 ORDER BY created_at DESC LIMIT 25").map_err(db_error)?;
         let rows = statement

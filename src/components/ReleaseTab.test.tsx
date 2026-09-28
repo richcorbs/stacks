@@ -6,7 +6,7 @@ import { CommandPreview, ReconciliationSummary, ReleaseStage, ReleaseTab } from 
 
 const invoke = vi.hoisted(() => vi.fn());
 const eventListeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
-const polling = vi.hoisted(() => ({ callback: null as null | (() => void) }));
+const polling = vi.hoisted(() => ({ timers: new Map<number, { callback: () => void; ms: number }>(), nextId: 0, focus: null as null | (() => void) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn((name: string, listener: (event: { payload: unknown }) => void) => {
   eventListeners.set(name, listener);
@@ -15,11 +15,13 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn((name: string, listener:
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.stubGlobal('window', {
-  setInterval: vi.fn((callback: () => void) => { polling.callback = callback; return 1; }),
-  clearInterval: vi.fn(),
+  setInterval: vi.fn((callback: () => void, ms: number) => { const id = ++polling.nextId; polling.timers.set(id, { callback, ms }); return id; }),
+  clearInterval: vi.fn((id: number) => polling.timers.delete(id)),
+  addEventListener: vi.fn((_event: string, callback: () => void) => { polling.focus = callback; }),
+  removeEventListener: vi.fn(() => { polling.focus = null; }),
   confirm: vi.fn(() => true),
 });
-beforeEach(() => { invoke.mockReset(); eventListeners.clear(); polling.callback = null; });
+beforeEach(() => { invoke.mockReset(); eventListeners.clear(); polling.timers.clear(); polling.nextId = 0; polling.focus = null; });
 
 function stage(overrides: Partial<ReleaseStageState> = {}): ReleaseStageState {
   return {
@@ -157,13 +159,98 @@ describe('release status refresh', () => {
     expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' }).children.join('')).toBe('Awaiting smoke-test approval');
   });
 
-  it('retains polling as a fallback while an operation is active', async () => {
-    await renderReleaseTab([operation({ status: 'running' })]);
-    const callsBeforePoll = invoke.mock.calls.filter(([command]) => command === 'release_history').length;
+  it('uses a 30s recovery fallback and a separate local clock (baseline: 375 reads / five minutes)', async () => {
+    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
+    expect(invoke.mock.calls.filter(([command]) => command === 'release_history')).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledWith('release_history', { projectId: 'project', recover: true });
+    expect([...polling.timers.values()].map((timer) => timer.ms).sort()).toEqual([1000, 30000]);
+    await act(async () => { for (let i = 0; i < 300; i++) polling.timers.forEach((timer) => { if (timer.ms === 1000) timer.callback(); }); });
+    expect(invoke.mock.calls.filter(([command]) => command === 'release_history')).toHaveLength(1);
+    for (let i = 0; i < 10; i++) await act(async () => { [...polling.timers.values()].find((timer) => timer.ms === 30000)?.callback(); });
+    expect(invoke.mock.calls.filter(([command]) => command === 'release_history')).toHaveLength(11);
+    await act(async () => { polling.focus?.(); });
+    expect(invoke.mock.calls.filter(([command]) => command === 'release_history')).toHaveLength(12);
+    act(() => renderer.unmount());
+    expect(polling.timers.size).toBe(0);
+    expect(polling.focus).toBeNull();
+    expect(eventListeners.size).toBe(0);
+  });
 
-    await act(async () => { polling.callback?.(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  it('coalesces duplicate events and discards a read superseded by a stage transition', async () => {
+    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
+    let finishOld!: (value: ReleaseOperation[]) => void;
+    let reads = 0;
+    invoke.mockImplementation((command: string) => {
+      if (command !== 'release_history') return Promise.resolve(draft());
+      reads++;
+      return reads === 1 ? new Promise((resolve) => { finishOld = resolve; }) : Promise.resolve([operation({ status: 'awaitingApproval', revision: 3 })]);
+    });
+    await act(async () => {
+      eventListeners.get('release-operation-changed')?.({ payload: 'other-operation' });
+      eventListeners.get('release-operation-changed')?.({ payload: 'operation' });
+      eventListeners.get('release-operation-changed')?.({ payload: 'operation' });
+    });
+    expect(reads).toBe(1);
+    await act(async () => { finishOld([operation({ status: 'running', revision: 1 })]); });
+    expect(reads).toBe(2);
+    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' })).toBeDefined();
+    // Even if a later read returns an older snapshot, the durable revision wins.
+    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([operation({ status: 'running', revision: 2 })]) : Promise.resolve(draft()));
+    await act(async () => { polling.focus?.(); });
+    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' })).toBeDefined();
+  });
 
-    expect(invoke.mock.calls.filter(([command]) => command === 'release_history').length).toBe(callsBeforePoll + 1);
+  it('recovers a missed completion on the bounded tick and stops checking a finished release', async () => {
+    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
+    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([operation({ status: 'completed', revision: 4 })]) : Promise.resolve(draft()));
+    await act(async () => { [...polling.timers.values()].find((timer) => timer.ms === 30000)?.callback(); });
+    expect(renderer.root.findAllByProps({ className: 'releaseStatus running' })).toHaveLength(0);
+    expect(polling.timers.size).toBe(0);
+    expect(invoke).toHaveBeenCalledWith('release_history', { projectId: 'project', recover: true });
+  });
+
+  it('isolates project switches and ignores stale responses and late events after teardown', async () => {
+    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
+    let finish!: (value: ReleaseOperation[]) => void;
+    invoke.mockImplementation((command: string, args: { projectId: string }) => {
+      if (command === 'release_history') return args.projectId === 'project' ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve([operation({ id: 'new', projectId: 'new-project', status: 'awaitingApproval' })]);
+      return Promise.resolve(draft());
+    });
+    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: 'operation' }); });
+    await act(async () => { renderer.update(<ReleaseTab project={{ id: 'new-project', name: 'New', path: '/new' }} />); });
+    await act(async () => { finish([operation({ status: 'running' })]); });
+    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' })).toBeDefined();
+    expect(eventListeners.size).toBe(1);
+    act(() => renderer.unmount());
+    expect(eventListeners.size).toBe(0);
+    expect(polling.timers.size).toBe(0);
+  });
+
+  it('does not erase an action error when an older history read succeeds', async () => {
+    const renderer = await renderReleaseTab();
+    let finish!: (value: ReleaseOperation[]) => void;
+    invoke.mockImplementation((command: string) => {
+      if (command === 'release_history') return new Promise((resolve) => { finish = resolve; });
+      if (command === 'release_reconcile_preview') return Promise.reject(new Error('preview failed'));
+      return Promise.resolve(draft());
+    });
+    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: 'operation' }); });
+    const refresh = renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Refresh release status')!;
+    await act(async () => { refresh.props.onClick(); });
+    await act(async () => { finish([]); });
+    expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('preview failed');
+  });
+
+  it('keeps failed fallback checks actionable until a successful retry', async () => {
+    const renderer = await renderReleaseTab([operation({ status: 'awaitingApproval' })]);
+    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.reject(new Error('DB unavailable')) : Promise.resolve(draft()));
+    await act(async () => { polling.focus?.(); });
+    expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('DB unavailable');
+    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' })).toBeDefined();
+    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([operation({ status: 'awaitingApproval', revision: 2 })]) : Promise.resolve(draft()));
+    await act(async () => { renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Retry history check')?.props.onClick(); });
+    expect(renderer.root.findAllByProps({ role: 'alert' })).toHaveLength(0);
+    expect(invoke.mock.calls.filter(([command]) => command === 'release_approve')).toHaveLength(0);
   });
 
   it('shows recovery diagnostics and keeps Retry release available after inconclusive recovery', async () => {
