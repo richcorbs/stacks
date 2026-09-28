@@ -112,6 +112,30 @@ async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft =
 }
 
 describe('release durations', () => {
+  it('keeps version, status, revision, and resumed metadata before the right-hand timer', async () => {
+    const renderer = await renderReleaseTab([operation({ version: 'a-long-version-name-that-must-wrap-at-narrow-widths', adopted: true, completedAt: 163 })]);
+    const summary = renderer.root.findByProps({ className: 'releaseSummary' });
+    const metadata = renderer.root.findByProps({ className: 'releaseSummaryMetadata' });
+
+    expect(summary.children).toEqual([metadata, summary.findByProps({ className: 'releaseDuration' })]);
+    expect(metadata.children.map((node) => typeof node === 'string' ? node : node.children.join(''))).toEqual([
+      'a-long-version-name-that-must-wrap-at-narrow-widths', 'Failed', 'abcdef1234', 'resumed',
+    ]);
+    expect(summary.findByProps({ className: 'releaseDuration' }).children).toEqual(['1m3s']);
+  });
+
+  it('omits resumed metadata and keeps running duration formatting', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(163_000);
+    try {
+      const renderer = await renderReleaseTab([operation({ status: 'running' })]);
+      const summary = renderer.root.findByProps({ className: 'releaseSummary' });
+      expect(summary.findByProps({ className: 'releaseSummaryMetadata' }).children).toHaveLength(3);
+      expect(summary.findByProps({ className: 'releaseDuration' }).children).toEqual(['1m3s']);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('uses compact lowercase durations for operation summaries and release history', async () => {
     const active = operation({ id: 'active', completedAt: 163 });
     const completed = operation({ id: 'completed', status: 'completed', createdAt: 200, updatedAt: 263, completedAt: 263 });
