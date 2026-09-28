@@ -61,6 +61,18 @@ describe('executeCardWorkflowAction', () => {
     expect(cancellation.dependencies.runExclusive).not.toHaveBeenCalled();
   });
 
+  it('shows a compensated Ready failure without opening chat, and opens chat on success', async () => {
+    const failed = setup();
+    failed.dependencies.startWork = vi.fn(async () => { throw new Error('Target branch advanced during setup'); });
+    expect(await executeCardWorkflowAction(action('start_work'), { status: 'ready' }, failed.dependencies)).toBe(false);
+    expect(failed.dependencies.setError).toHaveBeenLastCalledWith('Target branch advanced during setup');
+    expect(failed.dependencies.setView).not.toHaveBeenCalledWith('chat');
+    const success = setup();
+    await executeCardWorkflowAction(action('start_work'), { status: 'ready' }, success.dependencies);
+    expect(success.dependencies.startWork).toHaveBeenCalledOnce();
+    expect(success.dependencies.setView).toHaveBeenCalledWith('chat');
+  });
+
   it('only requests changes from approved and refreshes repository actions', async () => {
     const notApproved = setup();
     await executeCardWorkflowAction(action('request_changes'), { status: 'needs_human' }, notApproved.dependencies);

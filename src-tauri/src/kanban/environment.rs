@@ -150,9 +150,26 @@ pub(in crate::kanban) fn prepare_creation_operation(
     let (project_id, project_path, configured_branch) = with_read_connection(|connection| {
         connection.query_row("SELECT c.project_id,p.path,COALESCE(p.target_branch,'main') FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1", [id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?))).optional().map_err(db_error)?.ok_or_else(|| "The card or its owning project was not found".to_string())
     })?;
-    let target = validate_checkout(&project_path, None)?;
-    if target.target_branch != configured_branch {
+    // Do not mutate even a clean target for a stale, unowned or ineligible card.
+    with_read_connection(|connection| {
+        let card = require_structural_capability(connection, id, WorkflowAction::StartWork)?;
+        verify_card_binding(connection, id)?;
+        if card.workflow_revision != expected_revision {
+            return Err("Card changed; reload before starting work".to_string());
+        }
+        if card.project_id.as_deref() != Some(project_id.as_str()) {
+            return Err("The card's project identity changed before setup".to_string());
+        }
+        Ok(())
+    })?;
+    let initial = validate_checkout(&project_path, None)?;
+    if initial.target_branch != configured_branch {
         return Err(format!("Project checkout must be clean and checked out on configured target branch {configured_branch}"));
+    }
+    fast_forward_tracking_target(&initial)?;
+    let target = validate_checkout(&project_path, Some(&initial.repository_id))?;
+    if target.target_checkout_path != initial.target_checkout_path || target.target_branch != configured_branch {
+        return Err("Target checkout changed during the tracking-branch update; retry".to_string());
     }
     let worktrees = serde_json::to_string(&worktree_inventory(&target.target_checkout_path)?)
         .map_err(|e| e.to_string())?;
@@ -166,9 +183,9 @@ pub(in crate::kanban) fn prepare_creation_operation(
         let tx = connection
             .savepoint()
             .map_err(db_error)?;
-        let (status, revision, current_project, provider, finalized, source, current_path): (String,i64,String,String,bool,String,String) = tx.query_row(
-            "SELECT c.status,c.workflow_revision,c.project_id,c.external_provider,c.hierarchy_finalized,COALESCE(p.kanban_source,'local'),p.path FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
-            [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get::<_,i64>(4)? != 0,row.get(5)?,row.get(6)?))
+        let (status, revision, current_project, provider, finalized, source, current_path, current_branch): (String,i64,String,String,bool,String,String,String) = tx.query_row(
+            "SELECT c.status,c.workflow_revision,c.project_id,c.external_provider,c.hierarchy_finalized,COALESCE(p.kanban_source,'local'),p.path,COALESCE(p.target_branch,'main') FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
+            [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get::<_,i64>(4)? != 0,row.get(5)?,row.get(6)?,row.get(7)?))
         ).optional().map_err(db_error)?.ok_or_else(|| "Kanban card was not found".to_string())?;
         verify_card_binding(&tx, id)?;
         if finalized || repository::has_linked_children(&tx, id)? {
@@ -182,6 +199,7 @@ pub(in crate::kanban) fn prepare_creation_operation(
         }
         if current_project != project_id
             || current_path != project_path
+            || current_branch != configured_branch
             || (provider == "superthread") != (source == "superthread")
         {
             return Err("The card's project identity changed before setup".to_string());
@@ -310,6 +328,20 @@ pub(in crate::kanban) fn coordinate_card_repository<T>(
         }
         operation()
     })
+}
+
+pub(in crate::kanban) fn ensure_creation_target_revision(
+    branch: &str,
+    expected_revision: &str,
+    target: &EnvironmentStartPreflight,
+) -> Result<(), String> {
+    if target.target_revision != expected_revision {
+        return Err(format!(
+            "Target branch {} advanced during setup; review custom setup commands that pull the target branch",
+            branch
+        ));
+    }
+    Ok(())
 }
 
 pub(in crate::kanban) fn persist_validated_source(
@@ -501,12 +533,16 @@ pub(in crate::kanban) fn compensate_creation(
         let tx = connection
             .savepoint()
             .map_err(db_error)?;
+        let failure: Option<String> = tx.query_row(
+            "SELECT error FROM environment_creation_operations WHERE card_id=?1",
+            [&op.card_id], |row| row.get(0),
+        ).map_err(db_error)?;
         tx.execute(
             "DELETE FROM environment_creation_operations WHERE card_id=?1",
             [&op.card_id],
         )
         .map_err(db_error)?;
-        tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,?2,'system','environment_compensation','success',?3)", params![op.card_id,unix_timestamp(),if op.source_branch_new { "Removed setup-created worktree and branch" } else { "Removed setup-created worktree and retained pre-existing branch" }]).map_err(db_error)?;
+        tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary,error_detail) VALUES (?1,?2,'system','environment_compensation','success',?3,?4)", params![op.card_id,unix_timestamp(),if op.source_branch_new { "Removed setup-created worktree and branch" } else { "Removed setup-created worktree and retained pre-existing branch" },failure]).map_err(db_error)?;
         tx.commit().map_err(db_error)?;
         get_card(connection, &op.card_id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
@@ -686,7 +722,8 @@ pub(in crate::kanban) fn run_environment_creation(
                 match persist_validated_source(&op, None) {
                     Ok(validated) => {
                         update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
-                        return compensate_creation(&validated);
+                        let card = compensate_creation(&validated)?;
+                        return if card.creation_operation.is_none() { Err(error) } else { Ok(card) };
                     }
                     Err(_) => {
                         return creation_recovery(
@@ -741,7 +778,8 @@ pub(in crate::kanban) fn run_environment_creation(
                 match persist_validated_source(&op, None) {
                     Ok(validated) => {
                         update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
-                        return compensate_creation(&validated);
+                        let card = compensate_creation(&validated)?;
+                        return if card.creation_operation.is_none() { Err(error) } else { Ok(card) };
                     }
                     Err(_) => return creation_recovery(&id, &error, false),
                 }
@@ -762,13 +800,21 @@ pub(in crate::kanban) fn run_environment_creation(
                 Some("Target checkout identity or branch changed during setup"),
                 true,
             )?;
-            return compensate_creation(&op);
+            let card = compensate_creation(&op)?;
+            return if card.creation_operation.is_none() { Err("Target checkout identity or branch changed during setup".into()) } else { Ok(card) };
         }
         Err(error) => {
             update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
-            return compensate_creation(&op);
+            let card = compensate_creation(&op)?;
+            return if card.creation_operation.is_none() { Err(error) } else { Ok(card) };
         }
     };
+    if let Err(error) = ensure_creation_target_revision(&op.target_branch, &op.observed_target_revision, &target) {
+        update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
+        op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?.unwrap();
+        let card = compensate_creation(&op)?;
+        return if card.creation_operation.is_none() { Err(error) } else { Ok(card) };
+    }
     update_creation_phase(&id, "attaching", None, false)?;
     match kanban_create_environment(
         id.clone(),
@@ -776,7 +822,7 @@ pub(in crate::kanban) fn run_environment_creation(
         op.repository_id.clone(),
         op.target_checkout_path.clone(),
         op.target_branch.clone(),
-        target.target_revision,
+        op.observed_target_revision.clone(),
         op.expected_workflow_revision,
     ) {
         Ok(card) => {
@@ -787,7 +833,8 @@ pub(in crate::kanban) fn run_environment_creation(
             update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
             op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
                 .unwrap();
-            compensate_creation(&op)
+            let card = compensate_creation(&op)?;
+            if card.creation_operation.is_none() { Err(error) } else { Ok(card) }
         }
     }
 }
