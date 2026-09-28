@@ -55,6 +55,9 @@ export type CardPullRequest = {
   blockers: string[];
 };
 
+export type RuntimeResourceOutcome = { resource_type: string; id: string; success: boolean; error: string | null };
+export type CardRuntimeCleanupResult = { card: KanbanCardDetail; outcomes: RuntimeResourceOutcome[] };
+
 export type CleanupResource = { resource_type: string; id: string; disposition: string };
 export type CleanupPreflight = {
   card_id: string; card_number: string; card_title: string; project_id: string; project_name: string;

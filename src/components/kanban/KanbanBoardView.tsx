@@ -92,6 +92,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   }, [selectedCardId, selectedDetail]);
   const openingEventPageRef = useRef<{ cardId: string; generation: number; page: CardEventPage } | null>(null);
   const detailCoordinatorRef = useRef<SelectedDetailRequestCoordinator<{ card: KanbanCard }> | null>(null);
+  useEffect(() => () => { detailCoordinatorRef.current?.select(null); }, []);
   const launchRecoveryStartedRef = useRef(false);
   const pendingNotificationRouteRef = useRef<NotificationRoute | null>(null);
   const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, recheckEnvironment } = useKanbanRefreshCoordinator({
@@ -323,12 +324,9 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           if (newer && canonical.record_revision > retried) {
             retriedCanonicalRevisionRef.current.set(cardId, canonical.record_revision);
             void detailCoordinatorRef.current?.local(cardId).catch(() => {});
-          } else if (!selectedDetailRef.current || !detailIsCurrent(selectedDetailRef.current, canonical)) {
-            const error = { cardId, message: 'Card changed during refresh. Retry to load its latest details.' };
-            if (selectedDetailRef.current) setDetailRefreshError(error);
-            else setDetailLoadError(error);
-            setDetailNeedsPreflight(true);
           }
+          // An obsolete read is not a backend failure. The next revisioned
+          // invalidation (or a manual retry) can schedule another local read.
         }
         return false;
       }
@@ -416,20 +414,28 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   boardCardsRef.current = board.cards;
   openCardRef.current = openCard;
   useEffect(() => {
+    const pending = new Map<string, number>();
+    let alive = true;
     let queued = false;
-    const invalidate = (event: Event) => {
-      const id = selectedCardIdRef.current;
-      if (!id || !(event as CustomEvent<string[]>).detail?.includes(id) || queued) return;
+    const unsubscribe = board.subscribeDetailInvalidations(({ cardId, recordRevision }) => {
+      if (selectedCardIdRef.current !== cardId) return;
+      pending.set(cardId, Math.max(pending.get(cardId) ?? 0, recordRevision));
+      if (queued) return;
       queued = true;
       queueMicrotask(() => {
         queued = false;
-        const summary = boardCardsRef.current.find((card) => card.id === selectedCardIdRef.current);
-        if (summary) void refreshCardDetailsLocally(summary.id).catch(() => {});
+        if (!alive) return;
+        const entries = [...pending];
+        pending.clear();
+        for (const [id, floor] of entries) {
+          if (selectedCardIdRef.current !== id) continue;
+          const summary = boardCardsRef.current.find((card) => card.id === id);
+          if (summary && summary.record_revision >= floor) void detailCoordinatorRef.current?.local(id).catch(() => {});
+        }
       });
-    };
-    window.addEventListener('stacks:kanban-detail-invalidated', invalidate);
-    return () => window.removeEventListener('stacks:kanban-detail-invalidated', invalidate);
-  });
+    });
+    return () => { alive = false; pending.clear(); unsubscribe(); };
+  }, [board.subscribeDetailInvalidations]);
 
   const openPaletteCard = useCallback((cardId: string) => {
     const current = canonicalCardById(boardCardsRef.current, cardId);
