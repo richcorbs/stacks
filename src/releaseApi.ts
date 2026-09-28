@@ -12,7 +12,7 @@ export type ReleaseOperation = { id: string; projectId: string; projectPath: str
 
 export const inspectRelease = (projectId: string) => invoke<ReleaseDraft>('release_inspect', { projectId });
 export const reconcileReleasePreview = (projectId: string, version: string, notes: string) => invoke<ReleasePreviewRefresh>('release_reconcile_preview', { projectId, version, notes });
-export const releaseHistory = (projectId: string) => invoke<ReleaseOperation[]>('release_history', { projectId });
+export const releaseHistory = (projectId: string, recover = false) => invoke<ReleaseOperation[]>('release_history', { projectId, recover });
 export const startRelease = (projectId: string, version: string, notes: string) => invoke<ReleaseOperation>('release_start', { projectId, version, notes });
 export const cancelRelease = (operationId: string) => invoke<ReleaseOperation>('release_cancel', { operationId });
 export const retryRelease = (operationId: string) => invoke<ReleaseOperation>('release_retry', { operationId });

@@ -1,20 +1,82 @@
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../types';
 import { GithubStatusIcon } from './GithubStatusIcon';
 import { abandonRelease, approveRelease, cancelRelease, inspectRelease, reconcileReleasePreview, recoverPreparedRelease, refreshRelease, releaseHistory, retryRelease, startRelease, type ReleaseConfig, type ReleaseDraft, type ReleaseOperation, type ReleaseReconciliation, type ReleaseStageState } from '../releaseApi';
 
+// Keying the tab isolates pending reads, draft edits and listeners across project switches.
 export function ReleaseTab({ project }: { project: Project }) {
+  return <ProjectReleaseTab key={project.id} project={project} />;
+}
+
+const RECOVERY_INTERVAL_MS = 30_000;
+
+function ProjectReleaseTab({ project }: { project: Project }) {
   const [draft, setDraft] = useState<ReleaseDraft | null>(null);
   const [history, setHistory] = useState<ReleaseOperation[]>([]);
   const [version, setVersion] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const active = history.find((operation) => !['completed', 'abandoned'].includes(operation.status)) ?? null;
+  const operationIds = useRef(new Set<string>());
+  operationIds.current = new Set(history.map((item) => item.id));
+  const refreshRef = useRef<(recover?: boolean) => Promise<void>>(async () => {});
+  const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
 
-  const refreshHistory = useCallback(() => releaseHistory(project.id).then(setHistory).catch((value) => setError(String(value))), [project.id]);
+  // Serialize reads and coalesce events while one is pending. Discard a response if a
+  // newer event/check arrived during it; compare durable revisions as a second guard.
+  useEffect(() => {
+    let alive = true;
+    let reading = false;
+    let queued = false;
+    let recoverNext = false;
+    let waiters: Array<() => void> = [];
+    const drain = async () => {
+      if (reading || !queued || !alive) return;
+      reading = true;
+      queued = false;
+      const recover = recoverNext;
+      recoverNext = false;
+      try {
+        const next = await releaseHistory(project.id, recover);
+        if (alive && !queued) {
+          setHistory((current) => next.map((item) => {
+            const previous = current.find((old) => old.id === item.id);
+            return previous && previous.revision > item.revision ? previous : item;
+          }));
+          setHistoryError(null);
+        }
+      } catch (value) {
+        if (alive && !queued) setHistoryError(String(value));
+      } finally {
+        reading = false;
+        if (queued) void drain();
+        else { waiters.forEach((resolve) => resolve()); waiters = []; }
+      }
+    };
+    const refresh = (recover = false) => {
+      if (!alive) return Promise.resolve();
+      queued = true;
+      recoverNext ||= recover;
+      const result = new Promise<void>((resolve) => { waiters.push(resolve); });
+      void drain();
+      return result;
+    };
+    refreshRef.current = refresh;
+    let remove: (() => void) | undefined;
+    // Subscribe before the first load so a stage transition during mount is not lost.
+    void listen<string>('release-operation-changed', ({ payload }) => {
+      if (alive && typeof payload === 'string' && (!operationIds.current.size || operationIds.current.has(payload))) void refresh();
+    }).then((unlisten) => {
+      if (!alive) unlisten();
+      else { remove = unlisten; void refresh(true); }
+    }).catch((value) => { if (alive) { setHistoryError(String(value)); void refresh(true); } });
+    return () => { alive = false; remove?.(); waiters.forEach((resolve) => resolve()); };
+  }, [project.id]);
+  const refreshHistory = useCallback((recover = false) => refreshRef.current(recover), []);
   const refreshDraft = useCallback(() => {
     setError(null);
     return inspectRelease(project.id).then((next) => {
@@ -23,16 +85,20 @@ export function ReleaseTab({ project }: { project: Project }) {
     }).catch((value) => setError(String(value)));
   }, [project.id]);
 
-  useEffect(() => { void Promise.all([refreshDraft(), refreshHistory()]); }, [refreshDraft, refreshHistory]);
+  useEffect(() => { void refreshDraft(); }, [refreshDraft]);
+  const live = active && ['running', 'awaitingApproval'].includes(active.status);
   useEffect(() => {
-    const unlisten = listen<string>('release-operation-changed', () => { void refreshHistory(); });
-    return () => { unlisten.then((remove) => remove()).catch(console.error); };
-  }, [refreshHistory]);
+    if (!live) return;
+    const timer = window.setInterval(() => void refreshHistory(true), RECOVERY_INTERVAL_MS);
+    const onFocus = () => { void refreshHistory(true); };
+    window.addEventListener('focus', onFocus);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', onFocus); };
+  }, [live, refreshHistory]);
   useEffect(() => {
-    if (!active || !['running', 'awaitingApproval'].includes(active.status)) return;
-    const timer = window.setInterval(refreshHistory, 800);
+    if (!live) return;
+    const timer = window.setInterval(() => setNowSeconds(Math.floor(Date.now() / 1000)), 1000);
     return () => window.clearInterval(timer);
-  }, [active, refreshHistory]);
+  }, [live]);
 
   async function action(run: () => Promise<unknown>) {
     setBusy(true); setError(null);
@@ -40,7 +106,7 @@ export function ReleaseTab({ project }: { project: Project }) {
   }
 
   const displayed = active;
-  const duration = displayed ? formatDuration((displayed.completedAt ?? Math.floor(Date.now() / 1000)) - displayed.createdAt) : null;
+  const duration = displayed ? formatDuration((displayed.completedAt ?? nowSeconds) - displayed.createdAt) : null;
   const envNames = 'STACKS_RELEASE_VERSION, STACKS_RELEASE_PREVIOUS_VERSION, STACKS_RELEASE_PROJECT_PATH, STACKS_RELEASE_TARGET_BRANCH, STACKS_RELEASE_INITIAL_REVISION, STACKS_RELEASE_OPERATION_ID, STACKS_RELEASE_NOTES_FILE';
   return <section className="releaseView cardView active" aria-label="Release pipeline">
     <div className="releaseScroll">
@@ -49,6 +115,7 @@ export function ReleaseTab({ project }: { project: Project }) {
         <div className="releaseHeaderActions"><button type="button" onClick={() => void action(async () => { const refreshed = await reconcileReleasePreview(project.id, version, notes); setNotes(refreshed.notes); setDraft((current) => current ? { ...current, generatedNotes: refreshed.notes, reconciliation: refreshed.reconciliation } : current); })} disabled={busy || !version.trim() || !draft?.config?.reconciliation}>Refresh release status</button><button type="button" disabled={!draft?.configPath} onClick={() => invoke<{ editor_app?: string | null }>('load_settings').then((settings) => invoke('open_path_in_editor', { path: draft?.configPath, editor: settings.editor_app })).catch((value) => setError(String(value)))}>Open config</button></div>
       </header>
       {error && <div className="kanbanActionError" role="alert">{error}</div>}
+      {historyError && <div className="kanbanActionError" role="alert">{historyError} <button type="button" onClick={() => void refreshHistory(true)}>Retry history check</button></div>}
       {draft?.valid && !active && <div className="releaseSetup">
         <div className="releaseFacts"><Fact label="Latest published" value={draft.reconciliation?.latestPublishedVersion || draft.currentVersion} /><Fact label="Target branch" value={draft.targetBranch} /><Fact label="Source revision" value={draft.reconciliation?.sourceRevision || draft.sourceRevision} mono /></div>
         {draft.reconciliation && <ReconciliationSummary reconciliation={draft.reconciliation} />}
