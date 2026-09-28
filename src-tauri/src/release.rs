@@ -453,6 +453,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
         "execution_error TEXT",
         "settlement_error TEXT",
         "recovery_error TEXT",
+        "recovery_claim TEXT",
+        "recovery_claimed_at INTEGER",
     ] {
         if let Err(error) = connection.execute(
             &format!("ALTER TABLE release_attempts ADD COLUMN {column}"),
@@ -464,36 +466,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
         }
     }
     connection.execute("UPDATE release_attempts SET execution_status=CASE WHEN status='running' THEN 'executing' ELSE 'settled' END WHERE execution_status IS NULL OR execution_status='' OR (execution_status='executing' AND status!='running')", []).map_err(db_error)?;
-    let now = now();
-    let mut statement = connection
-        .prepare("SELECT id, state_json FROM release_operations WHERE status='running'")
-        .map_err(db_error)?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(db_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_error)?;
-    drop(statement);
-    for (id, json) in rows {
-        let mut operation: ReleaseOperation =
-            serde_json::from_str(&json).map_err(|error| error.to_string())?;
-        operation.status = "interrupted".into();
-        operation.updated_at = now;
-        operation.revision += 1;
-        if let Some(stage) = operation
-            .stages
-            .iter_mut()
-            .find(|stage| stage.status == "running")
-        {
-            stage.status = "interrupted".into();
-            stage.completed_at = Some(now);
-            stage.error = Some("Stacks closed while this attempt was running. Retry after reviewing repository state.".into());
-        }
-        connection.execute("UPDATE release_operations SET status='interrupted', revision=?1, state_json=?2, updated_at=?3 WHERE id=?4", params![operation.revision, serde_json::to_string(&operation).unwrap(), now, id]).map_err(db_error)?;
-    }
-    connection.execute("UPDATE release_attempts SET status='interrupted', completed_at=?1 WHERE status='running'", [now]).map_err(db_error)?;
+    // Keep running tokens across restart; orphan recovery reconciles remote state
+    // before deciding whether an interrupted execution completed.
     Ok(())
 }
 
@@ -793,6 +767,13 @@ pub fn release_retry(
         validate_recovery_evidence(&operation, &evidence)?;
         apply_proven_evidence(&mut operation, &evidence);
         if evidence.disposition == "published" {
+            if operation.stages.iter().any(|stage| {
+                stage.attempt_token.is_some()
+                    && stage.status != "completed"
+                    && stage.status != "awaitingApproval"
+            }) {
+                return Err("Remote publication is visible but the prior attempt is not durably complete. Inspect its journal and release identity before resolving it; retry will not overwrite the attempt or rerun publication.".into());
+            }
             operation.reconciliation = Some(evidence);
             complete_operation(&mut operation, "completed")?;
             return load_operation(&operation_id);
@@ -813,6 +794,22 @@ pub fn release_retry(
         .iter()
         .position(|stage| stage.status != "completed")
         .ok_or_else(|| "Reconciliation proved all stages complete".to_string())?;
+    if let Some(token) = operation.stages[index].attempt_token.as_deref() {
+        let uncertain = kanban::with_read_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT recovery_error IS NOT NULL FROM release_attempts WHERE token=?1",
+                    [token],
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()
+                .map_err(db_error)
+        })?
+        .unwrap_or(false);
+        if uncertain {
+            return Err(format!("Attempt {token} has unresolved recovery evidence. Refresh and inspect the remote tag, release, assets and captured revision; resolve the conflict manually before starting a new attempt. Retry will not rerun an ambiguous stage."));
+        }
+    }
     operation.status = "running".into();
     update_operation(&mut operation, None)?;
     start_stage(
@@ -900,12 +897,15 @@ pub fn release_refresh(operation_id: String) -> Result<ReleaseOperation, String>
         .as_ref()
         .and_then(|release| release.url.clone());
     operation.reconciliation = Some(evidence.clone());
-    if evidence.disposition == "published" {
-        complete_operation(&mut operation, "completed")?;
+    // Refresh is inspection only. Settlement owns the operation/journal pair.
+    // A worker can finish while the external read is in flight; show its durable
+    // result rather than projecting evidence onto the stale running snapshot.
+    let latest = load_operation(&operation_id)?;
+    if latest.revision != operation.revision {
+        Ok(latest)
     } else {
-        update_operation(&mut operation, None)?;
+        Ok(operation)
     }
-    load_operation(&operation_id)
 }
 
 #[tauri::command]
@@ -1050,6 +1050,12 @@ fn start_stage(
             result,
             &notes_path,
         ) {
+            // A concurrent recovery may have committed the same token while the
+            // worker was reconciling. Never append a false warning to its log.
+            if attempt_already_settled(&op.id, &token).unwrap_or(false) {
+                registry.remove(&token);
+                return;
+            }
             let diagnostic = match checkpoint_error {
                 Some(checkpoint) => format!("Persistence failed while checkpointing execution: {checkpoint}; settlement failed: {error}"),
                 None => format!("Settlement failed: {error}"),
@@ -1060,7 +1066,6 @@ fn start_stage(
             );
             registry.settlement_failed(&token, diagnostic.clone());
             let _ = record_settlement_failure(&token, &diagnostic);
-            let _ = app.emit("release-operation-changed", &op.id);
         } else {
             registry.remove(&token);
         }
@@ -1228,6 +1233,7 @@ fn settle_attempt(
     let log_path = operation.stages[index].log_path.clone().unwrap_or_default();
     let (log, truncated) = read_log(Path::new(&log_path));
     let timestamp = now();
+    let changed;
     operation.stages[index].log = log;
     operation.stages[index].truncated = truncated;
     operation.stages[index].completed_at = Some(timestamp);
@@ -1257,23 +1263,25 @@ fn settle_attempt(
             if operation.config.stages[index].approval.is_some() {
                 operation.stages[index].status = "awaitingApproval".into();
                 operation.status = "awaitingApproval".into();
-                persist_attempt_settlement(&mut operation, token, "awaitingApproval")?;
+                changed = persist_attempt_settlement(&mut operation, token, "awaitingApproval")?;
             } else {
                 operation.stages[index].status = "completed".into();
                 if index + 1 == operation.stages.len() {
                     operation.status = "completed".into();
                     operation.completed_at = Some(now());
-                    persist_attempt_settlement(&mut operation, token, "completed")?;
+                    changed = persist_attempt_settlement(&mut operation, token, "completed")?;
                 } else {
-                    persist_attempt_settlement(&mut operation, token, "completed")?;
-                    start_stage(
-                        app,
-                        registry,
-                        &mut operation,
-                        index + 1,
-                        false,
-                        Path::new(notes_path),
-                    )?;
+                    changed = persist_attempt_settlement(&mut operation, token, "completed")?;
+                    if changed {
+                        start_stage(
+                            app,
+                            registry,
+                            &mut operation,
+                            index + 1,
+                            false,
+                            Path::new(notes_path),
+                        )?;
+                    }
                 }
             }
         }
@@ -1316,10 +1324,12 @@ fn settle_attempt(
             operation.stages[index].error = Some(diagnostic);
             operation.status = operation.stages[index].status.clone();
             let status = operation.status.clone();
-            persist_attempt_settlement(&mut operation, token, &status)?;
+            changed = persist_attempt_settlement(&mut operation, token, &status)?;
         }
     }
-    let _ = app.emit("release-operation-changed", operation_id);
+    if changed {
+        let _ = app.emit("release-operation-changed", operation_id);
+    }
     Ok(())
 }
 
@@ -1332,10 +1342,25 @@ fn checkpoint_execution(token: &str, outcome: &ExecutionOutcome) -> Result<(), S
     })
 }
 
+fn attempt_already_settled(operation_id: &str, token: &str) -> Result<bool, String> {
+    kanban::with_read_connection(|connection| {
+        let (json, status): (String, String) = connection.query_row(
+            "SELECT o.state_json,a.status FROM release_operations o JOIN release_attempts a ON a.operation_id=o.id WHERE o.id=?1 AND a.token=?2",
+            params![operation_id, token], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(db_error)?;
+        let operation: ReleaseOperation =
+            serde_json::from_str(&json).map_err(|error| error.to_string())?;
+        Ok(!matches!(status.as_str(), "running" | "settlementFailed")
+            && operation.stages.iter().any(|stage| {
+                stage.attempt_token.as_deref() == Some(token) && stage.status != "running"
+            }))
+    })
+}
+
 fn record_settlement_failure(token: &str, error: &str) -> Result<(), String> {
     kanban::with_write_connection(|connection| {
         connection.execute(
-        "UPDATE release_attempts SET status='settlementFailed',execution_status='completed',settlement_error=?1 WHERE token=?2",
+        "UPDATE release_attempts SET status='settlementFailed',settlement_error=?1 WHERE token=?2 AND status IN ('running','settlementFailed')",
         params![error, token],
     ).map(|_| ()).map_err(db_error)
     })
@@ -1345,8 +1370,15 @@ fn persist_attempt_settlement(
     operation: &mut ReleaseOperation,
     token: &str,
     attempt_status: &str,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     persist_attempt_state(operation, token, attempt_status, None, true)
+}
+
+#[derive(Debug, PartialEq)]
+enum SettlementDecision {
+    Written,
+    AlreadySettled,
+    Superseded(String),
 }
 
 fn persist_attempt_state(
@@ -1355,16 +1387,20 @@ fn persist_attempt_state(
     attempt_status: &str,
     recovery_error: Option<&str>,
     clear_settlement_error: bool,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     kanban::with_write_connection(|connection| {
-        persist_attempt_state_in_transaction(
+        match persist_attempt_state_in_transaction(
             connection,
             operation,
             token,
             attempt_status,
             recovery_error,
             clear_settlement_error,
-        )
+        )? {
+            SettlementDecision::Written => Ok(true),
+            SettlementDecision::AlreadySettled => Ok(false),
+            SettlementDecision::Superseded(reason) => Err(reason),
+        }
     })
 }
 
@@ -1374,58 +1410,74 @@ fn persist_attempt_state_in_transaction(
     token: &str,
     attempt_status: &str,
     recovery_error: Option<&str>,
-    clear_settlement_error: bool,
-) -> Result<(), String> {
-    let revision: i64 = connection
+    _clear_settlement_error: bool,
+) -> Result<SettlementDecision, String> {
+    let (revision, json): (i64, String) = connection
         .query_row(
-            "SELECT revision FROM release_operations WHERE id=?1",
+            "SELECT revision,state_json FROM release_operations WHERE id=?1",
             [&operation.id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(db_error)?;
-    if revision != operation.revision {
-        return Err(
-            "Persistence failed: release operation changed before attempt settlement".into(),
-        );
+    let (owner, stage_id, journal_status): (String, String, String) = connection
+        .query_row(
+            "SELECT operation_id,stage_id,status FROM release_attempts WHERE token=?1",
+            [token],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(db_error)?;
+    let latest: ReleaseOperation =
+        serde_json::from_str(&json).map_err(|error| error.to_string())?;
+    let stage = latest.stages.iter().find(|stage| stage.id == stage_id);
+    if owner != operation.id
+        || stage.and_then(|stage| stage.attempt_token.as_deref()) != Some(token)
+    {
+        return Ok(SettlementDecision::Superseded(format!("Attempt {token} no longer owns stage {stage_id} at revision {revision}; reload before recovery")));
     }
-    operation.revision += 1;
-    operation.updated_at = now();
+    if !matches!(journal_status.as_str(), "running" | "settlementFailed") {
+        if stage.is_some_and(|stage| stage.status != "running") {
+            *operation = latest;
+            return Ok(SettlementDecision::AlreadySettled);
+        }
+        return Ok(SettlementDecision::Superseded(format!("Attempt {token} is {journal_status} but stage remains running at revision {revision}; inspect the journal")));
+    }
+    if revision != operation.revision {
+        return Ok(SettlementDecision::Superseded(format!("Operation advanced from revision {} to {revision} while attempt {token} is unsettled; reconcile fresh remote evidence before retrying", operation.revision)));
+    }
+    let mut next = operation.clone();
+    next.revision += 1;
+    next.updated_at = now();
     let changed = connection.execute(
             "UPDATE release_operations SET status=?1,revision=?2,state_json=?3,updated_at=?4 WHERE id=?5 AND revision=?6",
-            params![operation.status, operation.revision, serde_json::to_string(operation).map_err(|error| error.to_string())?, operation.updated_at, operation.id, revision],
+            params![next.status, next.revision, serde_json::to_string(&next).map_err(|error| error.to_string())?, next.updated_at, next.id, revision],
         ).map_err(db_error)?;
     if changed != 1 {
         return Err("Persistence failed: attempt settlement lost its revision claim".into());
     }
     let changed = connection.execute(
-            "UPDATE release_attempts SET status=?1,execution_status='settled',completed_at=?2,recovery_error=?4,settlement_error=CASE WHEN ?5 THEN NULL ELSE settlement_error END WHERE token=?3",
-            params![attempt_status, now(), token, recovery_error, clear_settlement_error],
+            "UPDATE release_attempts SET status=?1,execution_status='settled',completed_at=?2,recovery_error=?4,settlement_error=NULL,recovery_claim=NULL,recovery_claimed_at=NULL WHERE token=?3 AND status IN ('running','settlementFailed')",
+            params![attempt_status, now(), token, recovery_error],
         ).map_err(db_error)?;
     if changed != 1 {
-        return Err("Persistence failed: release attempt was not found during settlement".into());
+        return Err(
+            "Persistence failed: release attempt was not writable during settlement".into(),
+        );
     }
-    Ok(())
+    *operation = next;
+    Ok(SettlementDecision::Written)
 }
 
 fn persist_recovery_settlement(
-    registry: &ReleaseRegistry,
     operation: &mut ReleaseOperation,
     token: &str,
     status: &str,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let recovery_error = operation
         .stages
         .iter()
         .find(|stage| stage.attempt_token.as_deref() == Some(token))
         .and_then(|stage| stage.error.clone());
-    persist_attempt_state(operation, token, status, recovery_error.as_deref(), false).map_err(
-        |error| {
-            let diagnostic = format!("Persistence failed during recovery settlement: {error}");
-            registry.settlement_failed(token, diagnostic.clone());
-            let _ = record_settlement_failure(token, &diagnostic);
-            diagnostic
-        },
-    )
+    persist_attempt_state(operation, token, status, recovery_error.as_deref(), true)
 }
 
 fn apply_proven_evidence(operation: &mut ReleaseOperation, evidence: &ReleaseReconciliation) {
@@ -1657,109 +1709,149 @@ fn recover_orphan(
     if registry.actively_owned(&token) {
         return Ok(());
     }
-    let Some((outcome, registry_error)) = registry.claim_recovery(&token)? else {
+    let Some((outcome, _registry_error)) = registry.claim_recovery(&token)? else {
         return Ok(());
     };
-    let journal = kanban::with_read_connection(|connection| {
-        connection.query_row(
-        "SELECT execution_head,execution_error,settlement_error FROM release_attempts WHERE token=?1", [&token],
-        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?)),
+    // A claim is persisted so other processes cannot independently reconcile this
+    // orphan. A crashed claimant expires; settlement still requires the same token
+    // and revision, and the worker is free to finish first.
+    let claim = uuid::Uuid::new_v4().to_string();
+    let claimed = kanban::with_write_connection(|connection| {
+        connection.execute("UPDATE release_attempts SET recovery_claim=?1,recovery_claimed_at=?2 WHERE token=?3 AND status IN ('running','settlementFailed') AND (recovery_claim IS NULL OR recovery_claimed_at<?4)",
+            params![claim, now(), token, now() - 120]).map_err(db_error)
+    });
+    if claimed.is_err() {
+        registry.remove(&token);
+    }
+    if claimed? == 0 {
+        registry.remove(&token);
+        return Ok(());
+    }
+    let mut settled = false;
+    let result = (|| -> Result<(), String> {
+        operation = load_operation(operation_id)?;
+        if operation.stages.get(index).is_none_or(|stage| {
+            stage.attempt_token.as_deref() != Some(token.as_str()) || stage.status != "running"
+        }) {
+            return Ok(());
+        }
+        let journal =
+            kanban::with_read_connection(|connection| {
+                connection.query_row(
+        "SELECT execution_head,execution_error FROM release_attempts WHERE token=?1", [&token],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
     ).optional().map_err(db_error)
-    })?;
-    let mut diagnostics = Vec::new();
-    if let Some(error) = registry_error {
-        diagnostics.push(error);
-    }
-    if let Some(outcome) = outcome {
-        if let Some(error) = outcome.error {
-            diagnostics.push(format!("Command execution failed: {error}"));
-        }
-    }
-    if let Some((_, execution_error, settlement_error)) = journal {
-        if let Some(error) = execution_error {
-            diagnostics.push(format!("Command execution failed: {error}"));
-        }
-        if let Some(error) = settlement_error {
-            diagnostics.push(error);
-        }
-    }
-    let notes_path = write_notes(&operation.id, &operation.notes)?;
-    let env = release_env(
-        &operation.version,
-        &operation.previous_version,
-        Path::new(&operation.project_path),
-        &operation.target_branch,
-        &operation.initial_revision,
-        &operation.id,
-        notes_path.to_string_lossy().as_ref(),
-    );
-    let recovered = reconcile(&operation.config, Path::new(&operation.project_path), &env)
-        .map_err(|error| format!("Recovery reconciliation failed: {error}"))
-        .and_then(|evidence| {
-            evidence.ok_or_else(|| "Recovery reconciliation returned no evidence".into())
-        })
-        .and_then(|evidence| {
-            validate_recovery_evidence(&operation, &evidence)?;
-            Ok(evidence)
-        });
-    match recovered {
-        Ok(evidence) => {
-            apply_proven_evidence(&mut operation, &evidence);
-            operation.reconciliation = Some(evidence.clone());
-            let approval_proven = operation
-                .config
-                .stages
-                .iter()
-                .filter(|stage| stage.approval.is_some())
-                .any(|stage| evidence.proven_stages.contains(&stage.id));
-            let expected_assets: HashSet<&str> = evidence
-                .expected_assets
-                .iter()
-                .map(String::as_str)
-                .collect();
-            let existing_assets: HashSet<&str> = evidence
-                .existing_assets
-                .iter()
-                .map(|asset| asset.name.as_str())
-                .collect();
-            let exact_assets = evidence.missing_assets.is_empty()
-                && evidence.extra_assets.is_empty()
-                && evidence.conflicting_assets.is_empty()
-                && expected_assets == existing_assets
-                && evidence.expected_assets.len() == evidence.existing_assets.len();
-            if evidence.disposition == "resumableDraft" && approval_proven && exact_assets {
-                operation.status = "awaitingApproval".into();
-                operation.stages[index].error = if diagnostics.is_empty() {
-                    None
-                } else {
-                    Some(diagnostics.join("\n"))
-                };
-                persist_recovery_settlement(registry, &mut operation, &token, "recovered")?;
-            } else {
-                diagnostics.push(format!(
-                    "Recovery reconciliation was inconclusive (disposition {})",
-                    evidence.disposition
-                ));
-                operation.status = "failed".into();
-                if operation.stages[index].status == "running" {
-                    operation.stages[index].status = "failed".into();
-                }
-                operation.stages[index].error = Some(diagnostics.join("\n"));
-                persist_recovery_settlement(registry, &mut operation, &token, "failed")?;
+            })?;
+        let mut diagnostics = Vec::new();
+        if let Some(outcome) = outcome {
+            if let Some(error) = outcome.error {
+                diagnostics.push(format!("Command execution failed: {error}"));
             }
         }
-        Err(error) => {
-            diagnostics.push(error);
-            operation.status = "failed".into();
-            operation.stages[index].status = "failed".into();
-            operation.stages[index].completed_at = Some(now());
-            operation.stages[index].error = Some(diagnostics.join("\n"));
-            persist_recovery_settlement(registry, &mut operation, &token, "failed")?;
+        if let Some((_, execution_error)) = journal {
+            if let Some(error) = execution_error {
+                diagnostics.push(format!("Command execution failed: {error}"));
+            }
         }
-    }
+        let notes_path = write_notes(&operation.id, &operation.notes)?;
+        let env = release_env(
+            &operation.version,
+            &operation.previous_version,
+            Path::new(&operation.project_path),
+            &operation.target_branch,
+            &operation.initial_revision,
+            &operation.id,
+            notes_path.to_string_lossy().as_ref(),
+        );
+        let recovered = reconcile(&operation.config, Path::new(&operation.project_path), &env)
+            .map_err(|error| format!("Recovery reconciliation failed: {error}"))
+            .and_then(|evidence| {
+                evidence.ok_or_else(|| "Recovery reconciliation returned no evidence".into())
+            })
+            .and_then(|evidence| {
+                validate_recovery_evidence(&operation, &evidence)?;
+                Ok(evidence)
+            });
+        match recovered {
+            Ok(evidence) => {
+                apply_proven_evidence(&mut operation, &evidence);
+                operation.reconciliation = Some(evidence.clone());
+                let approval_proven = operation
+                    .config
+                    .stages
+                    .iter()
+                    .filter(|stage| stage.approval.is_some())
+                    .any(|stage| evidence.proven_stages.contains(&stage.id));
+                let expected_assets: HashSet<&str> = evidence
+                    .expected_assets
+                    .iter()
+                    .map(String::as_str)
+                    .collect();
+                let existing_assets: HashSet<&str> = evidence
+                    .existing_assets
+                    .iter()
+                    .map(|asset| asset.name.as_str())
+                    .collect();
+                let exact_assets = evidence.missing_assets.is_empty()
+                    && evidence.extra_assets.is_empty()
+                    && evidence.conflicting_assets.is_empty()
+                    && expected_assets == existing_assets
+                    && evidence.expected_assets.len() == evidence.existing_assets.len();
+                let stage_proven = evidence.proven_stages.contains(&operation.stages[index].id);
+                if stage_proven
+                    && exact_assets
+                    && evidence.disposition == "published"
+                    && index + 1 == operation.stages.len()
+                {
+                    operation.status = "completed".into();
+                    operation.completed_at = Some(now());
+                    operation.stages[index].status = "completed".into();
+                    operation.stages[index].error = None;
+                    operation.stages[index].completed_at = Some(now());
+                    settled = persist_recovery_settlement(&mut operation, &token, "completed")?;
+                } else if evidence.disposition == "resumableDraft"
+                    && approval_proven
+                    && stage_proven
+                    && exact_assets
+                {
+                    operation.status = "awaitingApproval".into();
+                    operation.stages[index].status = "awaitingApproval".into();
+                    operation.stages[index].completed_at = Some(now());
+                    operation.stages[index].error = None;
+                    settled =
+                        persist_recovery_settlement(&mut operation, &token, "awaitingApproval")?;
+                } else {
+                    diagnostics.push(format!(
+                        "Recovery reconciliation was inconclusive (disposition {})",
+                        evidence.disposition
+                    ));
+                    operation.status = "failed".into();
+                    if operation.stages[index].status == "running" {
+                        operation.stages[index].status = "failed".into();
+                    }
+                    operation.stages[index].error = Some(diagnostics.join("\n"));
+                    settled = persist_recovery_settlement(&mut operation, &token, "failed")?;
+                }
+            }
+            Err(error) => {
+                diagnostics.push(error);
+                operation.status = "failed".into();
+                operation.stages[index].status = "failed".into();
+                operation.stages[index].completed_at = Some(now());
+                operation.stages[index].error = Some(diagnostics.join("\n"));
+                settled = persist_recovery_settlement(&mut operation, &token, "failed")?;
+            }
+        }
+        Ok(())
+    })();
+    let _ = kanban::with_write_connection(|connection| {
+        connection.execute("UPDATE release_attempts SET recovery_claim=NULL,recovery_claimed_at=NULL WHERE token=?1 AND recovery_claim=?2", params![token, claim]).map_err(db_error).map(|_| ())
+    });
     registry.remove(&token);
-    let _ = app.emit("release-operation-changed", operation_id);
-    Ok(())
+    if settled {
+        let _ = app.emit("release-operation-changed", operation_id);
+    }
+    result
 }
 
 fn inspect(project: &ProjectReleaseSettings, generate_notes: bool) -> Result<ReleaseDraft, String> {
@@ -2617,7 +2709,9 @@ mod tests {
 
         let mut inconsistent_publication = published.clone();
         inconsistent_publication.release.as_mut().unwrap().draft = true;
-        assert!(validate_recovery_evidence(&published_operation, &inconsistent_publication).is_err());
+        assert!(
+            validate_recovery_evidence(&published_operation, &inconsistent_publication).is_err()
+        );
 
         let mut conflicting_identity = published;
         conflicting_identity.identity["draft"] = serde_json::json!(false);
@@ -2677,6 +2771,8 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
         let mut operation = test_operation();
+        operation.stages[0].attempt_token = Some("attempt".into());
+        operation.stages[0].status = "running".into();
         let state = serde_json::to_string(&operation).unwrap();
         connection.execute(
             "INSERT INTO release_operations(id,project_id,repository_identity,status,revision,state_json,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,1,1)",
@@ -2708,6 +2804,311 @@ mod tests {
             stored,
             ("running".into(), 2, "completed".into(), "settled".into())
         );
+    }
+
+    #[test]
+    fn restart_keeps_unsettled_execution_checkpoint_for_reconciliation() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let mut operation = test_operation();
+        operation.stages[2].status = "running".into();
+        operation.stages[2].attempt_token = Some("checkpoint".into());
+        connection
+            .execute(
+                "INSERT INTO release_operations VALUES (?1,?2,?3,'running',1,?4,1,1)",
+                params![
+                    operation.id,
+                    operation.project_id,
+                    operation.repository_identity,
+                    serde_json::to_string(&operation).unwrap()
+                ],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO release_attempts(token,operation_id,stage_id,kind,status,execution_status,execution_head,log_path,started_at) VALUES ('checkpoint',?1,'publish','run','running','completed','prepared','/tmp/log',1)", [&operation.id]).unwrap();
+        migrate(&connection).unwrap();
+        let (status, head): (String, String) = connection
+            .query_row(
+                "SELECT status,execution_head FROM release_attempts",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((status.as_str(), head.as_str()), ("running", "prepared"));
+        assert_eq!(
+            connection
+                .query_row("SELECT revision FROM release_operations", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn worker_and_recovery_race_has_one_durable_publish_outcome() {
+        use std::sync::{mpsc, Barrier};
+        let path =
+            std::env::temp_dir().join(format!("release-settlement-{}.db", uuid::Uuid::new_v4()));
+        let connection = Connection::open(&path).unwrap();
+        migrate(&connection).unwrap();
+        let mut snapshot = test_operation();
+        snapshot.stages[2].status = "running".into();
+        snapshot.stages[2].attempt_token = Some("publish-token".into());
+        connection
+            .execute(
+                "INSERT INTO release_operations VALUES (?1,?2,?3,'running',1,?4,1,1)",
+                params![
+                    snapshot.id,
+                    snapshot.project_id,
+                    snapshot.repository_identity,
+                    serde_json::to_string(&snapshot).unwrap()
+                ],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO release_attempts(token,operation_id,stage_id,kind,status,execution_status,log_path,started_at) VALUES ('publish-token',?1,'publish','run','running','completed','/tmp/log',1)", [&snapshot.id]).unwrap();
+        let barrier = std::sync::Arc::new(Barrier::new(2));
+        let (finished, receiver) = mpsc::channel();
+        let worker_path = path.clone();
+        let worker_barrier = barrier.clone();
+        let worker = std::thread::spawn(move || {
+            let connection = Connection::open(worker_path).unwrap();
+            let mut worker = snapshot;
+            worker.stages[2].status = "completed".into();
+            worker.status = "completed".into();
+            worker.completed_at = Some(2);
+            worker_barrier.wait();
+            connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+            assert_eq!(
+                persist_attempt_state_in_transaction(
+                    &connection,
+                    &mut worker,
+                    "publish-token",
+                    "completed",
+                    None,
+                    true
+                )
+                .unwrap(),
+                SettlementDecision::Written
+            );
+            connection.execute_batch("COMMIT").unwrap();
+            finished.send(()).unwrap();
+        });
+        let mut recovery = connection
+            .query_row("SELECT state_json FROM release_operations", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .map(|json| serde_json::from_str::<ReleaseOperation>(&json).unwrap())
+            .unwrap();
+        recovery.stages[2].status = "failed".into();
+        recovery.status = "failed".into();
+        barrier.wait();
+        receiver.recv().unwrap();
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        assert_eq!(
+            persist_attempt_state_in_transaction(
+                &connection,
+                &mut recovery,
+                "publish-token",
+                "failed",
+                Some("stale evidence"),
+                true
+            )
+            .unwrap(),
+            SettlementDecision::AlreadySettled
+        );
+        connection.execute_batch("COMMIT").unwrap();
+        worker.join().unwrap();
+        let (json, status, error): (String, String, Option<String>) = connection.query_row("SELECT o.state_json,a.status,a.settlement_error FROM release_operations o JOIN release_attempts a ON a.operation_id=o.id", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+        assert_eq!(
+            serde_json::from_str::<ReleaseOperation>(&json)
+                .unwrap()
+                .status,
+            "completed"
+        );
+        assert_eq!(status, "completed");
+        assert!(error.is_none());
+        // A restarted observer sees the same authoritative outcome without a write.
+        let revision = recovery.revision;
+        assert_eq!(
+            persist_attempt_state_in_transaction(
+                &connection,
+                &mut recovery,
+                "publish-token",
+                "failed",
+                None,
+                true
+            )
+            .unwrap(),
+            SettlementDecision::AlreadySettled
+        );
+        assert_eq!(recovery.revision, revision);
+        drop(connection);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn journal_write_failure_rolls_back_operation_and_can_be_retried() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let mut operation = test_operation();
+        operation.stages[2].status = "running".into();
+        operation.stages[2].attempt_token = Some("token".into());
+        connection
+            .execute(
+                "INSERT INTO release_operations VALUES (?1,?2,?3,'running',1,?4,1,1)",
+                params![
+                    operation.id,
+                    operation.project_id,
+                    operation.repository_identity,
+                    serde_json::to_string(&operation).unwrap()
+                ],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO release_attempts(token,operation_id,stage_id,kind,status,execution_status,log_path,started_at) VALUES ('token',?1,'publish','run','running','completed','/tmp/log',1)", [&operation.id]).unwrap();
+        operation.status = "completed".into();
+        operation.stages[2].status = "completed".into();
+        connection.execute_batch("CREATE TRIGGER fail_settlement BEFORE UPDATE OF status ON release_attempts BEGIN SELECT RAISE(ABORT,'injected journal failure'); END;").unwrap();
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        assert!(persist_attempt_state_in_transaction(
+            &connection,
+            &mut operation,
+            "token",
+            "completed",
+            None,
+            true
+        )
+        .is_err());
+        connection
+            .execute_batch("ROLLBACK; DROP TRIGGER fail_settlement;")
+            .unwrap();
+        let revision: i64 = connection
+            .query_row("SELECT revision FROM release_operations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(revision, 1);
+        // The proposal remains usable after a rolled-back journal write.
+        assert_eq!(operation.revision, 1);
+        operation = serde_json::from_str(
+            &connection
+                .query_row("SELECT state_json FROM release_operations", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+        )
+        .unwrap();
+        operation.status = "completed".into();
+        operation.stages[2].status = "completed".into();
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        assert_eq!(
+            persist_attempt_state_in_transaction(
+                &connection,
+                &mut operation,
+                "token",
+                "completed",
+                None,
+                true
+            )
+            .unwrap(),
+            SettlementDecision::Written
+        );
+        connection.execute_batch("COMMIT").unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT revision FROM release_operations", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn stale_token_cannot_clobber_new_stage_owner() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let mut old = test_operation();
+        old.stages[1].status = "running".into();
+        old.stages[1].attempt_token = Some("old".into());
+        let mut new = old.clone();
+        new.revision = 2;
+        new.stages[1].attempt_token = Some("new".into());
+        connection
+            .execute(
+                "INSERT INTO release_operations VALUES (?1,?2,?3,'running',2,?4,1,1)",
+                params![
+                    new.id,
+                    new.project_id,
+                    new.repository_identity,
+                    serde_json::to_string(&new).unwrap()
+                ],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO release_attempts(token,operation_id,stage_id,kind,status,execution_status,log_path,started_at) VALUES ('old',?1,'draft','run','running','completed','/tmp/log',1)", [&old.id]).unwrap();
+        old.status = "awaitingApproval".into();
+        old.stages[1].status = "awaitingApproval".into();
+        assert!(matches!(
+            persist_attempt_state_in_transaction(
+                &connection,
+                &mut old,
+                "old",
+                "awaitingApproval",
+                None,
+                true
+            )
+            .unwrap(),
+            SettlementDecision::Superseded(_)
+        ));
+        let (revision, status): (i64, String) = connection.query_row("SELECT o.revision,a.status FROM release_operations o JOIN release_attempts a ON a.operation_id=o.id", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!((revision, status.as_str()), (2, "running"));
+    }
+
+    #[test]
+    fn approval_settlement_is_idempotent_and_never_advances_publish() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        let mut draft = test_operation();
+        draft.stages[1].status = "running".into();
+        draft.stages[1].attempt_token = Some("draft-token".into());
+        connection
+            .execute(
+                "INSERT INTO release_operations VALUES (?1,?2,?3,'running',1,?4,1,1)",
+                params![
+                    draft.id,
+                    draft.project_id,
+                    draft.repository_identity,
+                    serde_json::to_string(&draft).unwrap()
+                ],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO release_attempts(token,operation_id,stage_id,kind,status,execution_status,log_path,started_at) VALUES ('draft-token',?1,'draft','run','running','completed','/tmp/log',1)", [&draft.id]).unwrap();
+        let mut recovered = draft.clone();
+        recovered.status = "awaitingApproval".into();
+        recovered.stages[1].status = "awaitingApproval".into();
+        assert_eq!(
+            persist_attempt_state_in_transaction(
+                &connection,
+                &mut recovered,
+                "draft-token",
+                "awaitingApproval",
+                None,
+                true
+            )
+            .unwrap(),
+            SettlementDecision::Written
+        );
+        assert_eq!(
+            persist_attempt_state_in_transaction(
+                &connection,
+                &mut draft,
+                "draft-token",
+                "failed",
+                None,
+                true
+            )
+            .unwrap(),
+            SettlementDecision::AlreadySettled
+        );
+        assert_eq!(draft.status, "awaitingApproval");
+        assert_eq!(draft.stages[2].status, "pending");
     }
 
     fn test_operation() -> ReleaseOperation {
