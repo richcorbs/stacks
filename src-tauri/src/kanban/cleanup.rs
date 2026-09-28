@@ -172,6 +172,7 @@ pub(in crate::kanban) fn cleanup_preflight(
     if environment_id.is_none()
         && cleanup_state.as_ref().is_some_and(|(_, phase, validated)| {
             *validated && matches!(phase.as_str(), "remove_metadata" | "record_completion")
+                && with_read_connection(|connection| connection.query_row("SELECT EXISTS(SELECT 1 FROM card_cleanup_phase_outcomes WHERE card_id=?1 AND phase='remove_metadata' AND outcome='success')", [card_id], |r| r.get::<_, i64>(0)).map(|value| value != 0).map_err(db_error)).unwrap_or(false)
         })
     {
         let durable: (String,String,String,String,String,String,Option<String>) = with_read_connection(|connection| connection.query_row(
@@ -511,7 +512,19 @@ pub(in crate::kanban) fn run_cleanup(
     pty_registry: &Mutex<PtyRegistry>,
     pi_registry: &Mutex<PiRpcRegistry>,
 ) -> Result<KanbanCard, String> {
-    coordinate_card_repository(id, true, || {
+    coordinate_card_repository(id, false, || {
+        if let Some(op) = with_read_connection(|connection| optional_cleanup_snapshot(connection, id))? {
+            with_read_connection(|connection| verify_cleanup_identity(connection, &op))?;
+            if op.status == "completed" {
+                return with_read_connection(|connection| {
+                    let card = get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())?;
+                    if expected_workflow_revision != card.workflow_revision || expected_environment_revision != op.environment_revision {
+                        return Err("conflict: Cleanup evidence is stale; reload before retrying".into());
+                    }
+                    Ok(card)
+                });
+            }
+        }
         let preflight = cleanup_preflight(id, pty_registry, pi_registry)?;
         let persisted_override = with_read_connection(|connection| connection.query_row(
             "SELECT override_authorized FROM card_cleanup_operations WHERE card_id=?1", [id], |row| row.get::<_, i64>(0),
@@ -520,8 +533,14 @@ pub(in crate::kanban) fn run_cleanup(
         if preflight.blocked && !(authorized && preflight.override_available) {
             return Err("Cleanup is blocked and cannot run without an available explicit override".into());
         }
+        let recorded = with_read_connection(|connection| optional_cleanup_snapshot(connection, id))?;
+        let metadata_removed = recorded.as_ref().is_some_and(|op| {
+            op.registration_validated && matches!(op.phase.as_str(), "remove_metadata" | "record_completion")
+                && preflight.environment_revision == 0
+        });
         if preflight.workflow_revision != expected_workflow_revision
-            || preflight.environment_revision != expected_environment_revision
+            || (!metadata_removed && preflight.environment_revision != expected_environment_revision)
+            || (metadata_removed && recorded.as_ref().is_some_and(|op| op.environment_revision != expected_environment_revision))
         {
             return Err(
                 "Card or environment changed after cleanup preflight; inspect it again".to_string(),
@@ -538,6 +557,7 @@ pub(in crate::kanban) fn run_cleanup(
         loop {
             let operation =
                 with_read_connection(|connection| load_cleanup_snapshot(connection, id))?;
+            with_read_connection(|connection| verify_cleanup_identity(connection, &operation))?;
             if operation.status == "completed" {
                 return with_read_connection(|connection| {
                     get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string())
@@ -546,16 +566,43 @@ pub(in crate::kanban) fn run_cleanup(
             let phase = operation.phase.clone();
             if let Err(detail) = execute_cleanup_phase(&operation, pty_registry, pi_registry) {
                 let code = cleanup_error_code(&phase, &detail);
-                record_cleanup_failure(id, &phase, &code, &detail);
+                if !detail.starts_with("conflict:") {
+                    record_cleanup_failure(id, &phase, &code, &detail);
+                }
                 return Err(detail);
             }
             if let Err(detail) = advance_cleanup_phase(&operation) {
                 let code = cleanup_error_code(&phase, &detail);
-                record_cleanup_failure(id, &phase, &code, &detail);
+                // A competing metadata change is a conflict, not a failed Git cleanup.
+                if !detail.starts_with("conflict:") {
+                    record_cleanup_failure(id, &phase, &code, &detail);
+                }
                 return Err(detail);
             }
         }
     })
+}
+
+fn optional_cleanup_snapshot(connection: &Connection, id: &str) -> Result<Option<CleanupSnapshot>, String> {
+    let exists: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM card_cleanup_operations WHERE card_id=?1)", [id], |row| row.get(0)).map_err(db_error)?;
+    if exists { load_cleanup_snapshot(connection, id).map(Some) } else { Ok(None) }
+}
+
+/// Only the exact captured environment may be cleaned. Absence is valid only
+/// after durable metadata-removal evidence; absence of a path is never proof.
+pub(in crate::kanban) fn verify_cleanup_identity(connection: &Connection, op: &CleanupSnapshot) -> Result<(), String> {
+    let current: Option<(String, i64)> = connection.query_row(
+        "SELECT id,revision FROM card_environments WHERE card_id=?1", [&op.card_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional().map_err(db_error)?;
+    match current {
+        Some((id, revision)) if id == op.environment_id && revision == op.environment_revision && op.status != "completed" => Ok(()),
+        Some((id, revision)) if id == op.environment_id && revision == op.environment_revision => Err("conflict: Completed cleanup still has its captured environment; inspect resources".into()),
+        Some(_) => Err("conflict: The environment was replaced or its revision changed; inspect the card before cleanup".into()),
+        None if op.status == "completed" || (op.registration_validated && matches!(op.phase.as_str(), "remove_metadata" | "record_completion")
+            && connection.query_row("SELECT EXISTS(SELECT 1 FROM card_cleanup_phase_outcomes WHERE card_id=?1 AND phase='remove_metadata' AND outcome='success')", [&op.card_id], |r| r.get::<_, i64>(0)).map_err(db_error)? != 0) => Ok(()),
+        None => Err("conflict: The captured environment is missing without completed cleanup evidence; inspect cleanup".into()),
+    }
 }
 
 pub(in crate::kanban) fn initialize_cleanup(
@@ -567,15 +614,14 @@ pub(in crate::kanban) fn initialize_cleanup(
     authoritatively_merged: bool,
 ) -> Result<(), String> {
     with_board_mutation(|connection| {
-        if connection
-            .query_row(
-                "SELECT COUNT(*) FROM card_cleanup_operations WHERE card_id=?1",
-                [card_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .map_err(db_error)?
-            > 0
-        {
+        if let Some(existing) = optional_cleanup_snapshot(connection, card_id)? {
+            verify_cleanup_identity(connection, &existing)?;
+            let current_revision: i64 = connection.query_row("SELECT workflow_revision FROM kanban_cards WHERE id=?1", [card_id], |r| r.get(0)).map_err(db_error)?;
+            if current_revision != expected_workflow_revision
+                || existing.environment_revision != expected_environment_revision {
+                return Err("conflict: Cleanup request has stale workflow or environment evidence; reload before retrying".into());
+            }
+            if existing.status == "completed" { return Ok(()); }
             if cleanup_anyway {
                 connection.execute("UPDATE card_cleanup_operations SET override_authorized=1,updated_at=?1 WHERE card_id=?2 AND override_authorized=0", params![unix_timestamp(), card_id]).map_err(db_error)?;
             }
@@ -1033,17 +1079,7 @@ pub(in crate::kanban) fn remove_cleanup_metadata(
             )
             .map_err(db_error)?;
         if removed == 0 {
-            let still_exists = transaction
-                .query_row(
-                    "SELECT COUNT(*) FROM card_environments WHERE card_id=?1",
-                    [&operation.card_id],
-                    |row| row.get::<_, i64>(0),
-                )
-                .map_err(db_error)?
-                > 0;
-            if still_exists {
-                return Err("Environment metadata changed; cleanup will not remove it".to_string());
-            }
+            verify_cleanup_identity(&transaction, operation)?;
         } else {
             transaction.execute("DELETE FROM card_pi_lifecycle WHERE card_id=?1", [&operation.card_id]).map_err(db_error)?;
             let updated = transaction.execute("UPDATE kanban_cards SET workflow_revision=workflow_revision+1,updated_at=?1 WHERE id=?2 AND workflow_revision=?3", params![unix_timestamp(), operation.card_id, operation.workflow_revision]).map_err(db_error)?;
@@ -1051,6 +1087,7 @@ pub(in crate::kanban) fn remove_cleanup_metadata(
                 return Err("Card changed before cleanup metadata removal".to_string());
             }
         }
+        transaction.execute("INSERT OR IGNORE INTO card_cleanup_phase_outcomes(card_id,phase,outcome,detail,completed_at) VALUES (?1,'remove_metadata','success','Captured environment metadata removed',?2)", params![operation.card_id, unix_timestamp()]).map_err(db_error)?;
         transaction.commit().map_err(db_error)
     })
 }
@@ -1064,7 +1101,11 @@ pub(in crate::kanban) fn advance_cleanup_phase_in_connection(
     operation: &CleanupSnapshot,
 ) -> Result<(), String> {
     let transaction = connection.savepoint().map_err(db_error)?;
+    verify_cleanup_identity(&transaction, operation)?;
     if operation.phase == "record_completion" {
+        if transaction.query_row("SELECT COUNT(*) FROM card_environments WHERE card_id=?1", [&operation.card_id], |r| r.get::<_, i64>(0)).map_err(db_error)? != 0 {
+            return Err("conflict: Cleanup cannot complete while the captured environment is still present".into());
+        }
         let now = unix_timestamp();
         transaction.execute("INSERT OR REPLACE INTO card_cleanup_phase_outcomes(card_id,phase,outcome,detail,completed_at) VALUES (?1,?2,'success','Cleanup completed',?3)", params![operation.card_id,operation.phase,now]).map_err(db_error)?;
         let changed = transaction.execute("UPDATE card_cleanup_operations SET status='completed',error_code=NULL,error_detail=NULL,completed_at=?1,updated_at=?1 WHERE card_id=?2 AND phase=?3 AND status!='completed'", params![now, operation.card_id, operation.phase]).map_err(db_error)?;
@@ -1114,7 +1155,7 @@ pub(in crate::kanban) fn record_cleanup_failure(
         let transaction = connection.savepoint().map_err(db_error)?;
         transaction.execute("UPDATE card_cleanup_operations SET status='failed',error_code=?1,error_detail=?2,updated_at=?3 WHERE card_id=?4 AND phase=?5", params![code, detail, unix_timestamp(), card_id, phase]).map_err(db_error)?;
         transaction.execute("INSERT OR REPLACE INTO card_cleanup_phase_outcomes(card_id,phase,outcome,detail,completed_at) VALUES (?1,?2,'failure',?3,?4)", params![card_id,phase,detail,unix_timestamp()]).map_err(db_error)?;
-        transaction.execute("UPDATE card_environments SET lifecycle_state='cleanup_failed',updated_at=?1 WHERE card_id=?2", params![unix_timestamp(), card_id]).map_err(db_error)?;
+        transaction.execute("UPDATE card_environments SET lifecycle_state='cleanup_failed',updated_at=?1 WHERE id=(SELECT environment_id FROM card_cleanup_operations WHERE card_id=?2) AND card_id=?2", params![unix_timestamp(), card_id]).map_err(db_error)?;
         transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary,error_code,error_detail) VALUES (?1,?2,'user','cleanup','failure',?3,?4,?5)", params![card_id, unix_timestamp(), format!("Cleanup failed during {phase}"), code, detail]).map_err(db_error)?;
         transaction.commit().map_err(db_error)
     });

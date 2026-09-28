@@ -57,24 +57,44 @@ pub(in crate::kanban) fn environment_health(
 ) -> Result<CardEnvironmentHealth, String> {
     let card = get_card(connection, card_id)?
         .ok_or_else(|| format!("Kanban card {card_id} was not found"))?;
-    if card.provider == "superthread" && card.hierarchy_finalized {
+    let cleanup: Option<(String, String, String, i64, bool)> = connection.query_row(
+        "SELECT environment_id,status,phase,environment_revision,registration_validated FROM card_cleanup_operations WHERE card_id=?1",
+        [card_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get::<_, i64>(4)? != 0)),
+    ).optional().map_err(db_error)?;
+    let mut invariant_issues = Vec::new();
+    if let Some((id, status, phase, revision, validated)) = cleanup {
+        let actual = card.environment.as_ref();
+        if actual.is_some_and(|env| env.id != id || env.revision != revision) {
+            invariant_issues.push(health_issue("cleanup_environment_replaced", "Cleanup evidence belongs to a different environment or revision. Do not retry deletion; inspect the operation and resources.", "cleanup"));
+        } else if actual.is_none() && status != "completed" && !(validated && matches!(phase.as_str(), "remove_metadata" | "record_completion")
+            && connection.query_row("SELECT EXISTS(SELECT 1 FROM card_cleanup_phase_outcomes WHERE card_id=?1 AND phase='remove_metadata' AND outcome='success')", [card_id], |r| r.get::<_, i64>(0)).map_err(db_error)? != 0) {
+            invariant_issues.push(health_issue("cleanup_environment_missing", "Cleanup metadata has no captured environment and no completed removal evidence. Inspect resources before retrying.", "cleanup"));
+        } else if actual.is_some() && status == "completed" {
+            invariant_issues.push(health_issue("cleanup_environment_retained", "Completed cleanup still has an environment. Inspect resources before taking further action.", "cleanup"));
+        }
+    }
+    let linked_children = repository::has_linked_children(connection, card_id)?;
+    if linked_children || (card.provider == "superthread" && card.hierarchy_finalized) {
         let stored_flag: i64 = connection.query_row(
             "SELECT hierarchy_finalized FROM kanban_cards WHERE id=?1", [card_id], |row| row.get(0),
         ).map_err(db_error)?;
-        let inconsistent = stored_flag == 0 || card.environment.is_some();
+        let inconsistent = (card.provider == "superthread" && stored_flag == 0) || card.environment.is_some();
         return Ok(CardEnvironmentHealth {
             card_id: card.id,
-            issues: if inconsistent { vec![health_issue(
-                "parent_state_inconsistent",
-                "This Superthread parent has conflicting local workflow or environment state. Leaf actions are blocked. Inspect the remote hierarchy and resolve any worktree, branch, process or PR separately before reconciling parent metadata.",
-                "work",
-            )] } else { Vec::new() },
+            issues: {
+                if inconsistent { invariant_issues.push(health_issue(
+                    "parent_state_inconsistent",
+                    "This Superthread parent has conflicting local workflow or environment state. Leaf actions are blocked. Inspect the remote hierarchy and resolve any worktree, branch, process or PR separately before reconciling parent metadata.",
+                    "work",
+                )); }
+                invariant_issues
+            },
         });
     }
     if card.hierarchy_finalized {
-        return Ok(CardEnvironmentHealth { card_id: card.id, issues: Vec::new() });
+        return Ok(CardEnvironmentHealth { card_id: card.id, issues: invariant_issues });
     }
-    let mut issues = Vec::new();
+    let mut issues = invariant_issues;
     let pending_target_merge: Option<String> = connection
         .query_row(
             "SELECT phase FROM card_target_merge_operations WHERE card_id=?1",
