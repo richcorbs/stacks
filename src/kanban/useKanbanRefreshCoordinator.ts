@@ -13,7 +13,8 @@ import {
   type RefreshSnapshot,
 } from './refreshCoordinator';
 import { applicationEvents } from '../applicationEvents';
-import { healthCheckFailure, type CardRepositoryStatus } from './useCardRepositoryStatus';
+import { healthCheckFailure, unavailableGitStatus, type CardRepositoryStatus } from './useCardRepositoryStatus';
+import { gitDiagnosticsEnabled, runGitBatch } from './gitRefreshBatch';
 import { PrRefreshSchedule, runPrBatch } from './prRefreshSchedule';
 
 export type KanbanRefreshState = {
@@ -70,17 +71,35 @@ export function useKanbanRefreshCoordinator({
           .catch((error) => new Map(plan.healthTargets.map((target) => [target.card.id, healthCheckFailure(target.card, error)])))
         : Promise.resolve(new Map<string, CardEnvironmentHealth>());
 
-      // Start cheap local reads immediately, independently of GitHub latency.
-      const repositoryPromises = plan.targets.map(async (target) => {
+      // Local reads start independently of GitHub. Keep Git subprocess pressure bounded.
+      const gitStarted = performance.now();
+      const timings: number[] = [];
+      let gitFailures = 0;
+      const gitTargets = [...plan.targets].sort((a, b) => Number(b.card.id === plan.activeCardId) - Number(a.card.id === plan.activeCardId));
+      const repositoryPromise = runGitBatch(gitTargets, async (target) => {
         const path = target.card.environment?.worktree_path;
-        const [git, summary] = await Promise.all([
-          path ? invoke<GitInfo | null>('git_info', { path }).catch(() => null) : Promise.resolve(undefined),
-          path && target.card.id === plan.activeCardId && target.card.environment?.target_branch
-            ? invoke<GitChangeSummary>('git_change_summary', { path, targetBranch: target.card.environment.target_branch }).catch(() => null)
-            : Promise.resolve(undefined),
-        ]);
-        return { target, git, summary };
+        if (!path) return null;
+        const started = performance.now();
+        try {
+          return await invoke<GitInfo | null>('git_info', { path }) ?? unavailableGitStatus();
+        } finally {
+          if (gitDiagnosticsEnabled()) timings.push(Math.round(performance.now() - started));
+        }
+      }).then((results) => {
+        gitFailures = results.filter((result) => result?.status === 'error').length;
+        if (gitDiagnosticsEnabled()) console.debug('[kanban-git-cycle]', {
+          cards: plan.targets.length, estimatedProcesses: results.filter(Boolean).length * 2,
+          elapsedMs: Math.round(performance.now() - gitStarted), cardMs: timings,
+          slowCards: timings.filter((ms) => ms > 200).length, errors: gitFailures,
+          visible: plan.targets.filter((target) => capturedSnapshot.visibleCardIds.includes(target.card.id)).length,
+          hidden: typeof document !== 'undefined' && document.hidden, explicit: request.full || request.cardIds.size > 0,
+        });
+        return results.map((git, index) => ({ target: gitTargets[index], git: gitTargets[index].card.environment?.worktree_path ? git ?? unavailableGitStatus() : undefined }));
       });
+      const summaryPromise = plan.targets.find((target) => target.card.id === plan.activeCardId)?.card.environment;
+      const activeSummaryPromise = summaryPromise?.worktree_path && summaryPromise.target_branch
+        ? invoke<GitChangeSummary>('git_change_summary', { path: summaryPromise.worktree_path, targetBranch: summaryPromise.target_branch }).catch(() => null)
+        : Promise.resolve(undefined);
       const schedule = prScheduleRef.current;
       const hidden = typeof document !== 'undefined' && document.hidden;
       const force = request.full || request.active || request.cardIds.size > 0;
@@ -112,8 +131,8 @@ export function useKanbanRefreshCoordinator({
         elapsedMs: Math.round(performance.now() - prStarted), maxConcurrency: Math.min(2, prTargets.length),
         failures: prFailures, rateLimits, hidden,
       });
-      const [healthByCard, localResults] = await Promise.all([healthPromise, Promise.all(repositoryPromises)]);
-      const repositoryResults = localResults.map((result) => ({ ...result, pullRequestRefresh: prResults.get(result.target.card.id) ?? null }));
+      const [healthByCard, localResults, summary] = await Promise.all([healthPromise, repositoryPromise, activeSummaryPromise]);
+      const repositoryResults = localResults.map((result) => ({ ...result, summary: result.target.card.id === plan.activeCardId ? summary : undefined, pullRequestRefresh: prResults.get(result.target.card.id) ?? null }));
 
       if (schedule.isDisposed) return;
       // PR reconciliation may transition the workflow. Apply it first, then
@@ -164,6 +183,16 @@ export function useKanbanRefreshCoordinator({
     });
   }
   const coordinator = coordinatorRef.current;
+
+  useEffect(() => {
+    const ids = new Set(cards.map((card) => card.id));
+    setStatusCache((current) => {
+      if (Object.keys(current).every((id) => ids.has(id))) return current;
+      const next = Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id)));
+      statusCacheRef.current = next;
+      return next;
+    });
+  }, [cards]);
 
   useEffect(() => {
     coordinator.updateSnapshot(snapshotRef.current);

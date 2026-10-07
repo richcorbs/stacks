@@ -4,9 +4,10 @@ import type { KanbanCard } from './types';
 
 describe('card repository status', () => {
   it('only reports a Git status when the worktree has changes', () => {
-    expect(hasGitChanges({ branch: 'main', created: 0, changed: 0, deleted: 0 })).toBe(false);
-    expect(hasGitChanges({ branch: 'feature', created: 0, changed: 2, deleted: 0 })).toBe(true);
+    expect(hasGitChanges({ branch: 'main', status: 'ok', created: 0, changed: 0, deleted: 0 })).toBe(false);
+    expect(hasGitChanges({ branch: 'feature', status: 'ok', created: 0, changed: 2, deleted: 0 })).toBe(true);
     expect(hasGitChanges(null)).toBe(false);
+    expect(hasGitChanges({ branch: 'feature', status: 'error', message: 'Unavailable' })).toBe(false);
   });
 
   it('builds accessible warning text from every blocker and affected step', () => {

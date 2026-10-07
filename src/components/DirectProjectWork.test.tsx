@@ -28,7 +28,7 @@ describe('DirectWorkGitMetadata', () => {
   it('renders the shared branch presentation, separator, and all Git counts in order', () => {
     const markup = renderToStaticMarkup(<DirectWorkGitMetadata gitState={{
       kind: 'git',
-      info: { branch: 'feature/a-very-long-direct-work-branch-name', created: 2, changed: 3, deleted: 4 },
+      info: { branch: 'feature/a-very-long-direct-work-branch-name', status: 'ok', created: 2, changed: 3, deleted: 4 },
     }} />);
 
     expect(markup).toContain('class="kanbanDetailRepositoryMeta"');
@@ -46,12 +46,18 @@ describe('DirectWorkGitMetadata', () => {
   it('keeps all zero counts visible for a clean repository', () => {
     const markup = renderToStaticMarkup(<DirectWorkGitMetadata gitState={{
       kind: 'git',
-      info: { branch: 'main', created: 0, changed: 0, deleted: 0 },
+      info: { branch: 'main', status: 'ok', created: 0, changed: 0, deleted: 0 },
     }} />);
 
     expect(markup).toContain('class="gitAdded">+0</span>');
     expect(markup).toContain('class="gitChanged">~0</span>');
     expect(markup).toContain('class="gitRemoved">-0</span>');
+  });
+
+  it('labels a failed status unknown, not clean', () => {
+    const markup = renderToStaticMarkup(<DirectWorkGitMetadata gitState={{ kind: 'git', info: { branch: 'main', status: 'error', message: 'Retry refresh' } }} />);
+    expect(markup).toContain('Git status unknown');
+    expect(markup).not.toContain('gitAdded');
   });
 
   it.each([
