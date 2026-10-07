@@ -233,15 +233,48 @@ describe('KanbanPullRequestBadge', () => {
 
     expect(markup).toContain(`kanbanPrBadge ${className}`);
     expect(markup).toContain(iconClass);
-    expect(markup).toContain(tooltip === 'Pull request is ready to merge' ? 'last known pull request is ready to merge' : tooltip);
-    expect(markup).toContain(`aria-label="Pull request #98, ${accessibleStatus}, last checked 0m ago"`);
+    expect(markup).toContain(tooltip === 'Pull request is ready to merge' ? 'open and ready to merge' : tooltip === 'CI is pending' ? 'CI running' : tooltip.replaceAll('\n', '; '));
+    expect(markup).toContain(`aria-label="Pull request #98, ${accessibleStatus}, `);
+    expect(markup).toContain('last checked 0m ago');
   });
 
-  it('never labels a failed or unchecked API read as passing CI', () => {
-    for (const check of [undefined, { checkedAt: Date.now(), failed: true, refreshing: false }]) {
-      const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest()} check={check} />);
-      expect(markup).toContain('githubCiRunning');
-      expect(markup).not.toContain('githubCiPassed');
+  it('keeps the last-known result independent of GitHub observation freshness', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+      const checkedAt = Date.now();
+      const states = [
+        [pullRequest(), 'githubCiPassed', 'CI passed'],
+        [pullRequest({ ci_status: 'pending', blockers: ['CI is pending'] }), 'githubCiRunning', 'CI running'],
+        [pullRequest({ ci_status: 'failure', blockers: ['CI failed'] }), 'githubCiFailed', 'CI failed'],
+        [pullRequest({ ci_status: 'success', blockers: ['Merge conflict'] }), 'githubCiFailed', 'CI passed'],
+      ] as const;
+      for (const [pr, icon, result] of states) {
+        for (const [check, freshness, marked] of [
+          [{ checkedAt, failed: false, refreshing: false }, 'last checked 0m ago', false],
+          [undefined, 'not checked this session', true],
+          [{ checkedAt, failed: false, refreshing: true }, 'updating PR status', true],
+          [{ checkedAt, failed: true, refreshing: false }, 'GitHub refresh failed; retrying', true],
+        ] as const) {
+          const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pr} check={check} />);
+          expect(markup).toContain(icon);
+          expect(markup).toContain(result);
+          expect(markup).toContain(freshness);
+          expect(markup.includes('kanbanPrFreshness')).toBe(marked);
+          if (icon !== 'githubCiRunning') expect(markup).not.toContain('githubCiRunning');
+        }
+      }
+      vi.advanceTimersByTime(61_000);
+      let markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest()} check={{ checkedAt, failed: false, refreshing: false }} />);
+      expect(markup).toContain('githubCiPassed');
+      expect(markup).toContain('last checked 1m ago');
+      expect(markup).toContain('kanbanPrFreshness');
+      vi.advanceTimersByTime(120_000);
+      markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest()} check={{ checkedAt, failed: false, refreshing: false }} />);
+      expect(markup).toContain('last checked 3m ago');
+      expect(markup).toContain('githubCiPassed');
+    } finally {
+      vi.useRealTimers();
     }
   });
 

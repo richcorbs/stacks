@@ -92,15 +92,18 @@ export function useKanbanRefreshCoordinator({
       const prStarted = performance.now();
       let prFailures = 0;
       let rateLimits = 0;
-      if (prTargets.length) setPrChecks((current) => ({ ...current, ...Object.fromEntries(prTargets.map((target) => [target.card.id, { identity: schedule.identity(target.card, target.project), checkedAt: current[target.card.id]?.checkedAt ?? null, failed: false, refreshing: true }])) }));
+      if (prTargets.length) setPrChecks((current) => ({ ...current, ...Object.fromEntries(prTargets.map((target) => [target.card.id, { identity: schedule.identity(target.card, target.project), checkedAt: current[target.card.id]?.checkedAt ?? null, failed: current[target.card.id]?.failed ?? false, refreshing: true }])) }));
       const prResults = await runPrBatch(prTargets, plan.activeCardId, async (target) => {
         if (schedule.isDisposed) return null;
         const started = performance.now();
         const result = await refreshKanbanPullRequest(target.card.id).catch(() => null);
-        schedule.finish(target, !result || Boolean(result.error));
         if (!result || result.error) prFailures++;
         if (/rate.limit|secondary rate limit|HTTP 429/i.test(result?.error ?? '')) rateLimits++;
-        if (!schedule.isDisposed && isRefreshTargetCurrent(target, snapshotRef.current)) setPrChecks((current) => ({ ...current, [target.card.id]: { identity: schedule.identity(target.card, target.project), checkedAt: schedule.checkedAt(target.card.id), failed: schedule.failed(target.card.id), refreshing: false } }));
+        // Do not let an obsolete head/workflow response reset the freshness of a newer card.
+        if (!schedule.isDisposed && isRefreshTargetCurrent(target, snapshotRef.current)) {
+          schedule.finish(target, !result || Boolean(result.error));
+          setPrChecks((current) => ({ ...current, [target.card.id]: { identity: schedule.identity(target.card, target.project), checkedAt: schedule.checkedAt(target.card.id), failed: schedule.failed(target.card.id), refreshing: false } }));
+        }
         if (import.meta.env.DEV) console.debug('[kanban-pr-refresh]', { elapsedMs: Math.round(performance.now() - started), failed: !result || Boolean(result.error) });
         return result;
       });
