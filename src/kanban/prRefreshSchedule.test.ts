@@ -18,6 +18,11 @@ describe('PR refresh schedule (fake clock / fake gh)', () => {
     }
     // Baseline: 10 cards x 10 cycles. Two scheduled reads per card.
     expect(gh).toHaveBeenCalledTimes(20);
+    const inactive = targets[0];
+    now = 359_999;
+    expect(schedule.due(inactive, false, false)).toBe(false);
+    now = 360_000;
+    expect(schedule.due(inactive, false, false)).toBe(true);
   });
 
   it('prioritizes active TTL, forces explicit actions, and invalidates head/target/environment identity', () => {
@@ -68,9 +73,14 @@ describe('PR refresh schedule (fake clock / fake gh)', () => {
     expect(schedule.due(target, false, false)).toBe(true);
     schedule.finish(target, true);
     expect(schedule.failed('1')).toBe(true);
+    expect(schedule.checkedAt('1')).toBe(0); // failed reads do not freshen the last known result
     expect(schedule.due(target, false, false)).toBe(false);
     now += 20_000;
     expect(schedule.due(target, false, false)).toBe(true);
+    schedule.finish(target, true);
+    expect(schedule.checkedAt('1')).toBe(0);
+    schedule.finish(target, false);
+    expect(schedule.checkedAt('1')).toBe(now);
     schedule.dispose();
     expect(schedule.due(target, false, false)).toBe(false);
   });

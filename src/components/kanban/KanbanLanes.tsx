@@ -42,21 +42,24 @@ export function KanbanPullRequestBadge({ pullRequest, check }: { pullRequest: Ca
   if (pullRequest.state !== 'open') return null;
   const presentation = pullRequestPresentation(pullRequest);
   if (!presentation.indicatorStatus) return null;
-  const age = check?.checkedAt == null ? 'not checked this session' : `last checked ${Math.max(0, Math.floor((Date.now() - check.checkedAt) / 60_000))}m ago`;
-  const stale = !check || check.failed || check.refreshing || check.checkedAt == null || Date.now() - check.checkedAt > 60_000;
-  const state = check?.failed ? 'GitHub refresh failed; will retry' : check?.refreshing ? 'refreshing GitHub' : age;
+  // The timestamp is an in-session successful GitHub read, not the card's edit time.
+  // Without one, the persisted PR result is useful but its age is unknown.
+  const age = check?.checkedAt == null
+    ? 'last-known result; not checked this session'
+    : `last checked ${Math.max(0, Math.floor((Date.now() - check.checkedAt) / 60_000))}m ago`;
+  const stale = check?.checkedAt == null || Date.now() - check.checkedAt > 60_000;
+  const freshness = [age, ...(check?.refreshing ? ['updating PR status'] : []), ...(check?.failed ? ['GitHub refresh failed; retrying'] : [])].join('; ');
+  const result = pullRequest.ci_status === 'success' ? 'CI passed'
+    : pullRequest.ci_status === 'failure' ? 'CI failed'
+      : pullRequest.ci_status === 'pending' ? 'CI running'
+        : pullRequest.ci_status === 'no_ci' ? 'no CI configured' : 'CI status unknown';
+  const label = `Pull request #${pullRequest.number}, ${presentation.status}, ${result}; ${freshness}`;
 
   return (
-    <span
-      className={`kanbanPrBadge ${presentation.className}`}
-      title={`${state}; ${pullRequest.blockers.length > 0 ? pullRequest.blockers.join('\n') : 'last known pull request is ready to merge'}`}
-    >
+    <span className={`kanbanPrBadge ${presentation.className}`} title={label}>
       PR #{pullRequest.number}
-      <GithubStatusIcon
-        status={stale ? 'pending' : presentation.indicatorStatus}
-        context="CI"
-        label={`Pull request #${pullRequest.number}, ${stale ? state : presentation.status + ', ' + age}`}
-      />
+      <GithubStatusIcon status={presentation.indicatorStatus} context="CI" label={label} />
+      {(stale || check?.refreshing || check?.failed) && <span className="kanbanPrFreshness" aria-hidden="true">·</span>}
     </span>
   );
 }

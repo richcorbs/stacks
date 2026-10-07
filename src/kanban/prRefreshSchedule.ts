@@ -21,7 +21,7 @@ export const PR_ACTIVE_MS = 60_000;
 export const PR_FOREGROUND_MS = 180_000;
 export const PR_HIDDEN_MS = 600_000;
 
-type Entry = { identity: string; checkedAt: number; failures: number; retryAt: number };
+type Entry = { identity: string; checkedAt: number | null; failures: number; retryAt: number };
 
 /** Ephemeral schedule; never used as merge authorization (the backend preflights merges). */
 export class PrRefreshSchedule {
@@ -52,7 +52,7 @@ export class PrRefreshSchedule {
     if (force) return true;
     const now = this.now();
     if (entry.failures) return now >= entry.retryAt;
-    return now - entry.checkedAt >= (hidden ? PR_HIDDEN_MS : active ? PR_ACTIVE_MS : PR_FOREGROUND_MS);
+    return entry.checkedAt === null || now - entry.checkedAt >= (hidden ? PR_HIDDEN_MS : active ? PR_ACTIVE_MS : PR_FOREGROUND_MS);
   }
 
   finish(target: RefreshTarget, error: boolean) {
@@ -61,9 +61,11 @@ export class PrRefreshSchedule {
     const previous = this.entries.get(target.card.id);
     const failures = error ? (previous?.identity === identity ? previous.failures : 0) + 1 : 0;
     const now = this.now();
+    // A failed read schedules a retry but must not make the last successful observation look fresh.
+    const checkedAt = error ? (previous?.identity === identity ? previous.checkedAt : null) : now;
     // Deterministic per-card jitter; retry is always finite (at most two minutes).
     const jitter = [...target.card.id].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 5000;
-    this.entries.set(target.card.id, { identity, checkedAt: now, failures, retryAt: now + Math.min(120_000, 15_000 * 2 ** Math.min(failures - 1, 3) + jitter) });
+    this.entries.set(target.card.id, { identity, checkedAt, failures, retryAt: now + Math.min(120_000, 15_000 * 2 ** Math.min(failures - 1, 3) + jitter) });
   }
 
   get isDisposed() { return this.disposed; }
