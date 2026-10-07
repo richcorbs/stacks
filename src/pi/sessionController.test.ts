@@ -346,20 +346,62 @@ describe('PiSessionController', () => {
     const abortIndex = h.commands.findIndex((command) => command.type === 'abort');
     respond(h, abortIndex, 'abort', {});
     await aborting;
-    h.emit(envelope({ type: 'agent_settled' }));
+    h.emit(envelope({ type: 'agent_settled', aborted: false }));
     expect(h.publish.mock.calls.some(([key, payload]) => key === 'attention' && payload.kind === 'pi-complete')).toBe(false);
     h.controller.delete();
   });
 
-  it('emits a completion notification exactly once for an eligible run', async () => {
+  it.each([
+    { label: 'externally aborted', settlement: { type: 'agent_settled', aborted: true } },
+    { label: 'legacy missing status', settlement: { type: 'agent_settled' } },
+    { label: 'malformed status', settlement: { type: 'agent_settled', aborted: 'false' } },
+    { label: 'watchdog recovery', settlement: { type: 'agent_settled', source: 'stacks_watchdog' } },
+    { label: 'watchdog with claimed success', settlement: { type: 'agent_settled', source: 'stacks_watchdog', aborted: false } },
+  ])('settles $label without claiming completion', async ({ settlement }) => {
     const h = harness();
     await begin(h);
     h.emit(envelope({ type: 'agent_start' }));
-    h.emit(envelope({ type: 'agent_settled' }));
-    h.emit(envelope({ type: 'agent_settled' }));
+    h.emit(envelope({ type: 'tool_execution_start', toolCallId: 'tool-1', toolName: 'read' }));
+    h.emit(envelope({ type: 'extension_ui_request', id: 'question', method: 'confirm' }));
+    h.emit(envelope({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'working' } }));
+    h.emit(envelope(settlement as PiRpcEnvelope['event']));
+    expect(h.controller.getSnapshot()).toMatchObject({ isStreaming: false, isStreamingText: false, streamingText: '', tools: [], uiRequest: null });
+    expect(h.publish.mock.calls.filter(([key, payload]) => key === 'attention' && payload.kind === 'pi-complete')).toHaveLength(0);
+    h.emit(envelope({ type: 'agent_settled', aborted: false }));
+    expect(h.publish.mock.calls.filter(([key, payload]) => key === 'attention' && payload.kind === 'pi-complete')).toHaveLength(0);
+    h.controller.delete();
+  });
+
+  it('emits a completion notification exactly once for an eligible confirmed run', async () => {
+    const h = harness();
+    await begin(h);
+    h.emit(envelope({ type: 'agent_start' }));
+    h.emit(envelope({ type: 'agent_settled', aborted: false }));
+    h.emit(envelope({ type: 'agent_settled', aborted: false }));
     const attentionEvents = h.publish.mock.calls
       .filter(([key, payload]) => key === 'attention' && payload.kind === 'pi-complete');
     expect(attentionEvents).toHaveLength(1);
+    h.controller.delete();
+  });
+
+  it('retains only valid Pi tool execution durations in bounded live state until tool cleanup', async () => {
+    const h = harness();
+    await begin(h);
+    h.emit(envelope({ type: 'agent_start' }));
+    // A final event alone must not synthesize a live tool or inferred timing.
+    h.emit(envelope({ type: 'tool_execution_end', toolCallId: 'never-started', durationMs: 4 }));
+    expect(h.controller.getSnapshot().tools).toEqual([]);
+    for (const [index, durationMs] of [0, 12.5, undefined, -1, NaN, Infinity, '12'].entries()) {
+      const toolCallId = `tool-${index}`;
+      h.emit(envelope({ type: 'tool_execution_start', toolCallId, toolName: 'read' }));
+      h.emit(envelope({ type: 'tool_execution_end', toolCallId, durationMs: durationMs as number | undefined, result: { content: [{ type: 'text', text: 'done' }] } }));
+    }
+    expect(h.controller.getSnapshot().tools.map((tool) => tool.durationMs)).toEqual([0, 12.5, undefined, undefined, undefined, undefined, undefined]);
+    expect(h.controller.getSnapshot().tools.map((tool) => tool.status)).toEqual(Array(7).fill('complete'));
+    h.emit(envelope({ type: 'message_end', message: { role: 'toolResult', content: 'done', toolCallId: 'tool-1' } }));
+    expect(h.controller.getSnapshot().tools.find((tool) => tool.id === 'tool-1')).toBeUndefined();
+    h.emit(envelope({ type: 'agent_settled', aborted: false }));
+    expect(h.controller.getSnapshot().tools).toEqual([]);
     h.controller.delete();
   });
 
