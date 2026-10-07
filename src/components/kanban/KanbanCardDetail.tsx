@@ -402,6 +402,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
           onNavigate={onNavigate}
           hasOlderEvents={hasOlderEvents}
           onLoadOlderEvents={onLoadOlderEvents}
+          onReload={reloadCard}
         />
         {project && !card.hierarchy_finalized && <CardChatView card={card} project={project} cardPath={cardPath} thread={activeChatThread} active={showChat} deploymentOutput={deploymentOutput} />}
         <CardDiffView active={activeView === 'diff'} card={card} cardPath={cardPath} refreshNonce={diffRefreshNonce} review={diffReview} canSubmit={Boolean(project)} onSubmit={submitDiffReview} onClose={() => { diffReview.reset(); setActiveView('chat'); }} />
