@@ -166,11 +166,12 @@ export function KanbanCardContents({
       </span>
       <span className="kanbanCardIndicators">
         {serverServices && <KanbanServerControl services={serverServices} onToggle={() => onToggleServer(card.id)} />}
-        {hasGitChanges(repositoryStatus?.git) && (
-          <span className="kanbanGitBadge" title={`${repositoryStatus?.git?.branch} working tree changes`}>
-            {repositoryStatus!.git!.created > 0 && <span className="gitAdded">+{repositoryStatus!.git!.created}</span>}
-            {repositoryStatus!.git!.changed > 0 && <span className="gitChanged">~{repositoryStatus!.git!.changed}</span>}
-            {repositoryStatus!.git!.deleted > 0 && <span className="gitRemoved">-{repositoryStatus!.git!.deleted}</span>}
+        {repositoryStatus?.git?.status === 'error' && <span className="kanbanGitBadge" title={repositoryStatus.git.message} aria-label="Git status unknown; check the worktree and refresh">Git ?</span>}
+        {repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git) && (
+          <span className="kanbanGitBadge" title={`${repositoryStatus.git.branch} working tree changes`}>
+            {repositoryStatus.git.created > 0 && <span className="gitAdded">+{repositoryStatus.git.created}</span>}
+            {repositoryStatus.git.changed > 0 && <span className="gitChanged">~{repositoryStatus.git.changed}</span>}
+            {repositoryStatus.git.deleted > 0 && <span className="gitRemoved">-{repositoryStatus.git.deleted}</span>}
           </span>
         )}
         {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} check={prCheck} />}

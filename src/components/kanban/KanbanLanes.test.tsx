@@ -38,7 +38,7 @@ function renderCardContents(currentCard: KanbanCard, serverServices?: CardServic
     card={currentCard}
     projects={[project]}
     repositoryStatus={serverServices ? {
-      git: { branch: 'card-177', created: 1, changed: 0, deleted: 0 },
+      git: { branch: 'card-177', status: 'ok', created: 1, changed: 0, deleted: 0 },
       environmentHealth: { card_id: currentCard.id, issues: [] },
     } : undefined}
     serverServices={serverServices}
@@ -46,6 +46,17 @@ function renderCardContents(currentCard: KanbanCard, serverServices?: CardServic
     onToggleServer={() => undefined}
   />);
 }
+
+it('shows unknown status without stale counts when Git fails', () => {
+  const markup = renderToStaticMarkup(<KanbanCardContents
+    card={card()} projects={[project]}
+    repositoryStatus={{ git: { branch: 'feature', status: 'error', message: 'Check the worktree and retry' }, environmentHealth: { card_id: card().id, issues: [] } }}
+    onNavigateParent={() => undefined} onToggleServer={() => undefined}
+  />);
+  expect(markup).toContain('Git ?');
+  expect(markup).toContain('Git status unknown');
+  expect(markup).not.toContain('gitAdded');
+});
 
 function pullRequest(overrides: Partial<CardPullRequest> = {}): CardPullRequest {
   return {

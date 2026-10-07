@@ -79,6 +79,13 @@ describe('Kanban refresh targets', () => {
     expect(activePlan.healthTargets.map(({ card }) => card.id)).toEqual(['working', 'done']);
   });
 
+  it('limits periodic refresh to visible cards but includes hidden cards on explicit full refresh', () => {
+    const board = snapshot([card('visible'), card('hidden')], ['visible'], 'visible');
+    expect(buildRefreshCyclePlan(board, { ...emptyRefreshRequest(), visible: true }).targets.map(({ card }) => card.id)).toEqual(['visible']);
+    expect(buildRefreshCyclePlan(board, { ...emptyRefreshRequest(), full: true }).targets.map(({ card }) => card.id)).toEqual(['visible', 'hidden']);
+    expect(buildRefreshCyclePlan(board, { ...emptyRefreshRequest(), cardIds: new Set(['hidden']) }).targets.map(({ card }) => card.id)).toEqual(['hidden']);
+  });
+
   it('refreshes PRs only once through an eligible card owning project', () => {
     expect(shouldRefreshPullRequest(targetFor(card('pr'), [project]))).toBe(true);
     expect(shouldRefreshPullRequest(targetFor(card('local'), [{ ...project, delivery_workflow: 'local_merge' }]))).toBe(false);
@@ -99,6 +106,8 @@ describe('Kanban refresh targets', () => {
     expect(isRefreshTargetCurrent(plan.targets[0], snapshot([{ ...target, environment: { ...target.environment!, branch: 'new-head' } }], ['one'], 'one'))).toBe(false);
     expect(isRefreshTargetCurrent(plan.targets[0], snapshot([{ ...target, pull_request: { repository: 'owner/repo', number: 12, title: '', url: '', state: 'open', draft: false, ci_status: 'pending', review_state: 'pending', has_conflicts: false, mergeable: false, blockers: [] } }], ['one'], 'one'))).toBe(false);
     expect(isRefreshTargetCurrent(plan.targets[0], snapshot([target], ['one'], null))).toBe(false);
+    expect(isRefreshTargetCurrent(plan.targets[0], snapshot([], [], null))).toBe(false);
+    expect(isRefreshTargetCurrent(plan.targets[0], snapshot([{ ...target, status: 'done' }], ['one'], 'one'))).toBe(false);
   });
 });
 

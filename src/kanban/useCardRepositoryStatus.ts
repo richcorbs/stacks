@@ -33,6 +33,8 @@ export function environmentHealthTooltip(health: CardEnvironmentHealth | null | 
   return health.issues.map((issue) => `${issue.message} Affects ${issue.step}.`).join(' ');
 }
 
+export const unavailableGitStatus = (): GitInfo => ({ branch: '', status: 'error', message: 'Git status could not be read. Check the worktree and retry refresh.' });
+
 export function hasGitChanges(git: GitInfo | null | undefined) {
-  return Boolean(git && (git.created > 0 || git.changed > 0 || git.deleted > 0));
+  return Boolean(git?.status === 'ok' && (git.created > 0 || git.changed > 0 || git.deleted > 0));
 }

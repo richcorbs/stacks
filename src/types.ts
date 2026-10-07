@@ -60,7 +60,7 @@ export type SplitNode =
 
 export type PtyData = { terminal_id: string; generation: string; data: number[] };
 export type PtyExit = { terminal_id: string; generation: string };
-export type GitInfo = { branch: string; created: number; changed: number; deleted: number };
+export type GitInfo = { branch: string } & ({ status: 'ok'; created: number; changed: number; deleted: number } | { status: 'error'; message: string });
 export type GitChangeSummary = { added: number; modified: number; deleted: number };
 export type GitDiffFile = { path: string; status: 'A' | 'M' | 'D' | 'R' | 'U' };
 export type GitDiffFilesResponse = { files: GitDiffFile[] };

@@ -12,9 +12,21 @@ const MAX_DIFF_LINES: usize = 20_000;
 #[derive(Debug, Clone, Serialize)]
 pub struct GitInfo {
     branch: String,
-    created: u32,
-    changed: u32,
-    deleted: u32,
+    #[serde(flatten)]
+    status: GitStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum GitStatus {
+    Ok {
+        created: u32,
+        changed: u32,
+        deleted: u32,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -108,31 +120,35 @@ pub fn git_info(path: String) -> Result<Option<GitInfo>, String> {
         return Ok(None);
     }
 
-    let (created, changed, deleted) = if let Ok(output) = Command::new("git")
+    let status = load_git_status(&path, "git");
+    Ok(Some(GitInfo { branch, status }))
+}
+
+fn load_git_status(path: &str, executable: &str) -> GitStatus {
+    match Command::new(executable)
         .args([
             "-C",
-            &path,
+            path,
             "status",
             "--porcelain=v1",
             "--untracked-files=all",
         ])
         .output()
     {
-        if output.status.success() {
-            parse_git_status(&String::from_utf8_lossy(&output.stdout))
-        } else {
-            (0, 0, 0)
+        Ok(output) if output.status.success() => {
+            let (created, changed, deleted) =
+                parse_git_status(&String::from_utf8_lossy(&output.stdout));
+            GitStatus::Ok {
+                created,
+                changed,
+                deleted,
+            }
         }
-    } else {
-        (0, 0, 0)
-    };
-
-    Ok(Some(GitInfo {
-        branch,
-        created,
-        changed,
-        deleted,
-    }))
+        // Do not expose stderr: it can contain private paths or repository data.
+        _ => GitStatus::Error {
+            message: "Git status could not be read. Check the worktree and retry refresh.".into(),
+        },
+    }
 }
 
 fn command_error(output: &std::process::Output, fallback: &str) -> String {
@@ -841,6 +857,25 @@ mod tests {
 
     fn clean_up(repository: &Path) {
         fs::remove_dir_all(repository.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn status_success_and_failure_are_distinct() {
+        let (repository, worktree) = test_repository("status-result");
+        fs::write(worktree.join("new.txt"), "new").unwrap();
+        assert!(matches!(
+            load_git_status(worktree.to_str().unwrap(), "git"),
+            GitStatus::Ok { created: 1, .. }
+        ));
+        assert!(matches!(
+            load_git_status(repository.parent().unwrap().to_str().unwrap(), "git"),
+            GitStatus::Error { .. }
+        ));
+        assert!(matches!(
+            load_git_status(worktree.to_str().unwrap(), "/no/such/git/executable"),
+            GitStatus::Error { .. }
+        ));
+        clean_up(&repository);
     }
 
     #[test]

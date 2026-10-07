@@ -4,7 +4,8 @@ import { CardEnvironmentBranch } from './CardEnvironmentBranch';
 export type DirectWorkGitState = { kind: 'git'; info: GitInfo } | { kind: 'not-git' } | { kind: 'error'; message: string } | null;
 
 export function DirectWorkGitMetadata({ gitState }: { gitState: DirectWorkGitState }) {
-  if (gitState?.kind === 'git') return <div className="kanbanDetailRepositoryMeta">
+  if (gitState?.kind === 'git' && gitState.info.status === 'error') return <div className="directWorkGitStatus" title={gitState.info.message}>Git status unknown — check the worktree and refresh</div>;
+  if (gitState?.kind === 'git' && gitState.info.status === 'ok') return <div className="kanbanDetailRepositoryMeta">
     <CardEnvironmentBranch branch={gitState.info.branch} />
     <span className="kanbanDetailRepositorySeparator" aria-hidden="true">•</span>
     <span className="directWorkGitSummary" title="Files created / changed / deleted">
