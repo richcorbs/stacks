@@ -488,9 +488,17 @@ export class PiSessionController {
       case 'tool_execution_update':
         this.patch({ tools: this.snapshot.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, partialText: toolResultText(event.partialResult) } : tool) });
         break;
-      case 'tool_execution_end':
-        this.patch({ tools: this.snapshot.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, partialText: toolResultText(event.result), status: event.isError ? 'error' : 'complete' } : tool) });
+      case 'tool_execution_end': {
+        // Keep only Pi-provided execution time in the bounded live-tool snapshot.
+        // No inferred timing for tools that did not run or older Pi versions.
+        const durationMs = typeof event.durationMs === 'number' && Number.isFinite(event.durationMs) && event.durationMs >= 0
+          ? event.durationMs : undefined;
+        this.patch({ tools: this.snapshot.tools.map((tool) => tool.id === event.toolCallId ? {
+          ...tool, partialText: toolResultText(event.result), status: event.isError ? 'error' : 'complete',
+          ...(durationMs === undefined ? {} : { durationMs }),
+        } : tool) });
         break;
+      }
       case 'queue_update':
         this.patch({ queuedSteering: stringArray(event.steering), queuedFollowUps: stringArray(event.followUp) });
         break;
@@ -501,7 +509,11 @@ export class PiSessionController {
         // Needs you for normal review rather than restoring Agent working.
         this.clearUiRequest(true, false);
         notifyPiAgentSettled(this.config.paneId);
-        if (this.completionNotificationEligible) this.dispatchAttention('pi-complete', `${payload.generation}:run:${this.activityRevision}`);
+        // Only Pi's explicit non-aborted result confirms completion. Legacy Pi
+        // and the stacks_watchdog idle-recovery event omit aborted: neither
+        // proves success nor cancellation, so settle without completion attention.
+        if (this.completionNotificationEligible && event.aborted === false && event.source !== 'stacks_watchdog')
+          this.dispatchAttention('pi-complete', `${payload.generation}:run:${this.activityRevision}`);
         this.completionNotificationEligible = false;
         this.patch({ isStreaming: false, isStreamingText: false, streamingText: '', tools: [] });
         this.refreshState().catch(() => {});

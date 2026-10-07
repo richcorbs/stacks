@@ -59,6 +59,10 @@ export type PiRpcEvent = PiResponseEvent | {
   partialResult?: unknown;
   result?: unknown;
   isError?: boolean;
+  /** Pi 1.1.0 settlement status; absent on legacy and watchdog events. */
+  aborted?: boolean;
+  /** Pi-measured tool execute() time, not whole-turn wall time. */
+  durationMs?: number;
   id?: string;
   method?: string;
   title?: string;
@@ -107,4 +111,6 @@ export type PiToolActivity = {
   args: unknown;
   partialText: string;
   status: 'running' | 'complete' | 'error';
+  /** Only present for a final tool event with a valid Pi-measured execute() duration. */
+  durationMs?: number;
 };
