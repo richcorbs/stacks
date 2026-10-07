@@ -56,7 +56,7 @@ pub(crate) use cards::{
 };
 pub use commands::*;
 pub use domain::*;
-pub use parent_reconciliation::kanban_parent_state_preflight;
+pub use parent_reconciliation::{kanban_parent_state_preflight, kanban_repair_parent_state};
 #[allow(unused_imports)]
 pub use environment::{EnvironmentStartPreflight, WorkflowOperationResult};
 #[allow(unused_imports)]

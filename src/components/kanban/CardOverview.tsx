@@ -8,6 +8,7 @@ import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardCleanupStatus, cleanupPhaseLabel } from '../CardCleanupStatus';
 import { shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
 import { retryKanbanProviderSync } from '../../kanban/api';
+import { ParentStateResolution } from './ParentStateResolution';
 
 export function CardOverview({
   active,
@@ -28,6 +29,7 @@ export function CardOverview({
   onNavigate,
   hasOlderEvents = false,
   onLoadOlderEvents = async () => {},
+  onReload,
 }: {
   active: boolean;
   editing: boolean;
@@ -47,6 +49,7 @@ export function CardOverview({
   onNavigate: (id: string) => void;
   hasOlderEvents?: boolean;
   onLoadOlderEvents?: () => Promise<void>;
+  onReload?: () => Promise<unknown>;
 }) {
   const [retryingProviderSync, setRetryingProviderSync] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -65,6 +68,7 @@ export function CardOverview({
       </label>
     )}
     {!project && <aside className="cardEnvironmentWarningPanel" role="alert"><div><strong>Card ownership is invalid</strong><span>This card references a project that no longer exists. Project-dependent actions are blocked.</span></div></aside>}
+    {card.provider === 'superthread' && onReload && <ParentStateResolution card={card} onReload={onReload} />}
     {shouldShowEnvironmentWarning(card, environmentHealth) && environmentHealth && (
       <aside className="cardEnvironmentWarningPanel" aria-labelledby="card-environment-warning-title">
         <div>

@@ -1,0 +1,7 @@
+# Superthread parent metadata repair (#211)
+
+The repair path is deliberately narrower than environment cleanup. It only finalizes an environment-free, ready Superthread card with **nonempty, complete, twice-checked** remote child identities that exactly match its locally linked, scoped children on the active binding, project and board. It only updates `hierarchy_finalized`, `provider_child_count`, and `updated_at`, and writes an audit event; the board mutation advances record/board revisions and invalidates the card detail. It does not change children, workflow status, sessions, Git, PRs, or provider data.
+
+The UI's preflight is diagnostic, not an authorization token. Execution repeats provider reads, runtime inventories, local ownership/resource checks and revision checks, then uses an immediate board transaction to reject concurrent local changes. A repeated already-correct result is returned without another write. The provider has no atomic hierarchy revision token: two matching reads cannot rule out a subsequent remote edit; no external destructive action is performed.
+
+Zero-child cards remain leaves. Any environment record (even with missing path/branch) remains blocked: absence of worktree, branch, services and process ownership cannot yet be proven to the standard needed to remove that record. Do not use this operation for orphan cleanup or force-delete an unregistered checkout. Diagnose those resources separately.

@@ -1,9 +1,8 @@
-//! Read-only evidence for a narrowly scoped Superthread parent-state repair.
-//! This module deliberately has no write path: inspection must not imply that
-//! orphaned Git, runtime, provider, or delivery resources can be discarded.
+//! Evidence and guarded metadata-only repair for Superthread hierarchy state.
+//! Orphaned environments are never removed by this path.
 use super::*;
 use super::{
-    git_effects::repository_identity, health::db_error, repository::with_read_connection,
+    git_effects::repository_identity, health::{db_error, unix_timestamp}, repository::with_read_connection,
     superthread_identity::active_superthread_binding,
     superthread_refinement::validate_parent_detail,
 };
@@ -32,6 +31,10 @@ pub struct ParentStatePreflight {
     project_id: String,
     binding_id: String,
     board_id: String,
+    #[serde(skip_serializing)]
+    token_env: String,
+    #[serde(skip_serializing)]
+    workspace_slug: Option<String>,
     workflow_revision: i64,
     record_revision: i64,
     board_revision: i64,
@@ -49,7 +52,6 @@ pub struct ParentStatePreflight {
     pending_operations: Vec<String>,
     blockers: Vec<String>,
     uncertainty: Vec<String>,
-    // The backend has no revision-guarded write path yet. Do not offer repair.
     repair_available: bool,
 }
 
@@ -112,7 +114,17 @@ fn inspect_local(
         "SELECT external_id FROM kanban_cards WHERE parent_id=?1 AND binding_id=?2 ORDER BY external_id",
     ).map_err(db_error)?.query_map(params![id, active_binding], |row| row.get::<_,String>(0))
         .map_err(db_error)?.collect::<Result<Vec<_>,_>>().map_err(db_error)?;
+    let invalid_children: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM kanban_cards WHERE parent_id=?1 AND (project_id IS NULL OR project_id!=?2 OR board_id!=?3 OR external_provider!='superthread' OR in_scope!=1 OR external_id='' OR binding_id IS NULL OR binding_id!=?4)",
+        params![id, project_id, configured_board, active_binding], |row| row.get(0),
+    ).map_err(db_error)?;
+    if invalid_children != 0 { blockers.push("Linked child ownership, board, provider or scope is inconsistent".into()); }
+    let parent_link: Option<String> = connection.query_row("SELECT parent_id FROM kanban_cards WHERE id=?1", [id], |row| row.get(0)).map_err(db_error)?;
+    if parent_link.is_some() { blockers.push("A linked child cannot be repaired as an aggregate root".into()); }
     linked_child_ids.sort();
+    if linked_child_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+        blockers.push("Duplicate local child identities are ambiguous".into());
+    }
     let foreign_links: i64 = connection.query_row(
         "SELECT COUNT(*) FROM kanban_cards WHERE parent_id=?1 AND (binding_id IS NULL OR binding_id!=?2)",
         params![id, active_binding], |row| row.get(0),
@@ -196,6 +208,8 @@ fn inspect_local(
         project_id: project_id.clone(),
         binding_id: active_binding.clone(),
         board_id: configured_board.clone(),
+        token_env: token.clone(),
+        workspace_slug: slug.clone(),
         workflow_revision: revision,
         record_revision,
         board_revision: super::repository::board_revision(connection)?,
@@ -432,10 +446,14 @@ pub(crate) fn inspect_parent_state(
             .blockers
             .push("Card PTY or Pi processes are running".into());
     }
-    report
-        .uncertainty
-        .push("External service and operating-system process ownership is not yet proven".into());
-    inspect_repository(&mut report, &project_path);
+    if report.environment.is_some() {
+        report.uncertainty.push("External service and operating-system process ownership is not yet proven".into());
+        inspect_repository(&mut report, &project_path);
+    } else {
+        // No card environment means there is no card checkout or service path to
+        // dispose of. Runtime inventories still must succeed and be empty.
+        let _ = project_path;
+    }
     // Configure credentials and read the provider twice. It has no hierarchy
     // revision token: equal observations reduce, but cannot eliminate, races.
     match service
@@ -462,9 +480,9 @@ pub(crate) fn inspect_parent_state(
                 );
             }
             if report.remote_child_ids.is_empty() {
-                report
-                    .blockers
-                    .push("A zero-child hierarchy is a leaf; do not make it a parent".into());
+                if report.stored_finalized || report.stored_child_count != 0 {
+                    report.blockers.push("A zero-child hierarchy with conflicting parent metadata requires separate resolution; never convert a working leaf".into());
+                }
             } else if report.stored_finalized
                 && report.stored_child_count == hierarchy.child_count as i64
             {
@@ -477,9 +495,13 @@ pub(crate) fn inspect_parent_state(
             .uncertainty
             .push(format!("Remote hierarchy is unverified: {error}")),
     }
-    let current =
-        with_read_connection(|connection| inspect_local(connection, id).map(|(_, report)| report))?;
-    if current.workflow_revision != report.workflow_revision
+    let (current_identity, current) =
+        with_read_connection(|connection| inspect_local(connection, id))?;
+    if current_identity.external_id != identity.external_id
+        || current_identity.project_id != identity.project_id
+        || current_identity.token_env != identity.token_env
+        || current_identity.workspace_slug != identity.workspace_slug
+        || current.workflow_revision != report.workflow_revision
         || current.record_revision != report.record_revision
         || current.board_revision != report.board_revision
         || current.linked_child_ids != report.linked_child_ids
@@ -497,8 +519,118 @@ pub(crate) fn inspect_parent_state(
             .blockers
             .push("Local state changed during inspection; retry the preflight".into());
     }
-    report.uncertainty.push("No revision-guarded repair execution is available; this report cannot authorize a mutation".into());
+    // Only an environment-free, ready card with complete matching children can
+    // acquire aggregate metadata. Zero-child cards are leaves, not repairs.
+    report.repair_available = can_repair(&report);
     Ok(report)
+}
+
+fn can_repair(report: &ParentStatePreflight) -> bool {
+    report.blockers.is_empty() && report.uncertainty.is_empty()
+        && report.hierarchy_verified && !report.remote_child_ids.is_empty()
+        && i64::try_from(report.remote_child_ids.len()).is_ok()
+        && report.remote_child_count == Some(report.remote_child_ids.len() as u64)
+        && report.remote_child_ids == report.linked_child_ids
+        && report.environment.is_none() && report.pty_ids.is_empty() && report.pi_ids.is_empty()
+        && report.pull_request_state.is_none() && report.pending_operations.is_empty()
+        && report.status == "ready" && report.workflow_revision > 0 && report.record_revision > 0
+}
+
+/// Re-inspect rather than accepting the UI's preflight as an authorization token.
+/// No Git, provider or runtime resource is changed by this operation.
+fn repair_parent_state(
+    id: &str, service: &SuperthreadService, pty: &Mutex<PtyRegistry>, pi: &Mutex<PiRpcRegistry>,
+    expected_workflow_revision: i64, expected_record_revision: i64, expected_board_revision: i64,
+    confirmed: bool,
+) -> Result<ParentStatePreflight, String> {
+    if !confirmed { return Err("Explicit confirmation is required".into()); }
+    let evidence = inspect_parent_state(id, service, pty, pi)?;
+    let already_correct = evidence.hierarchy_verified && evidence.uncertainty.is_empty()
+        && evidence.environment.is_none() && evidence.status == "ready"
+        && !evidence.remote_child_ids.is_empty() && evidence.remote_child_ids == evidence.linked_child_ids
+        && evidence.stored_finalized && i64::try_from(evidence.remote_child_count.unwrap_or(0)).ok() == Some(evidence.stored_child_count)
+        && evidence.blockers.iter().all(|blocker| blocker.contains("already finalized"));
+    if !evidence.repair_available && !already_correct {
+        return Err(format!("Parent state cannot be repaired: {}", evidence.blockers.iter().chain(evidence.uncertainty.iter()).cloned().collect::<Vec<_>>().join("; ")));
+    }
+    if evidence.workflow_revision != expected_workflow_revision
+        || evidence.record_revision != expected_record_revision
+        || evidence.board_revision != expected_board_revision
+    {
+        // An identical, completed repair may be retried after losing its response.
+        if already_correct && evidence.workflow_revision == expected_workflow_revision
+            && evidence.record_revision == expected_record_revision + 1
+            && evidence.board_revision == expected_board_revision + 1
+            && super::repository::with_read_connection(|connection| {
+                connection.query_row("SELECT EXISTS(SELECT 1 FROM card_events WHERE card_id=?1 AND event_type='resolve_parent_state')", [id], |row| row.get::<_, i64>(0)).map_err(db_error)
+            })? == 1 {
+            return Ok(evidence);
+        }
+        return Err("Parent or board revision changed; run preflight again".into());
+    }
+    if already_correct { return Ok(evidence); }
+    if !crate::pty::card_pty_runtime_ids(pty, id)?.is_empty()
+        || !crate::pi_rpc::card_pi_runtime_ids(pi, id)?.is_empty() {
+        return Err("Card processes started during repair; run preflight again".into());
+    }
+    super::repository::with_board_mutation(|connection| apply_verified_repair(connection, id, &evidence))?;
+    // Do not turn a committed repair into an apparent failure if the provider
+    // becomes unavailable while preparing the response.
+    super::repository::with_read_connection(|connection| {
+        let (_, mut result) = inspect_local(connection, id)?;
+        result.remote_child_ids = evidence.remote_child_ids;
+        result.remote_child_count = evidence.remote_child_count;
+        result.hierarchy_verified = true;
+        Ok(result)
+    })
+}
+
+fn apply_verified_repair(connection: &Connection, id: &str, evidence: &ParentStatePreflight) -> Result<(), String> {
+        if !evidence.repair_available || !can_repair(evidence) {
+            return Err("Verified environment-free parent evidence is required".into());
+        }
+        let (identity, current) = inspect_local(connection, id)?;
+        if identity.external_id != evidence.external_id || identity.project_id != evidence.project_id {
+            return Err("Parent identity changed during repair".into());
+        }
+        if current.workflow_revision != evidence.workflow_revision
+            || current.record_revision != evidence.record_revision
+            || current.board_revision != evidence.board_revision
+            || current.linked_child_ids != evidence.linked_child_ids
+            || current.environment.is_some() || current.pull_request_state.is_some()
+            || !current.pending_operations.is_empty() || !current.blockers.is_empty()
+            || current.status != "ready" || current.stored_finalized != evidence.stored_finalized
+            || current.stored_child_count != evidence.stored_child_count
+            || current.binding_id != evidence.binding_id || current.board_id != evidence.board_id
+            || identity.token_env != evidence.token_env || identity.workspace_slug != evidence.workspace_slug
+        {
+            return Err("Parent state changed during repair; run preflight again".into());
+        }
+        let count = i64::try_from(evidence.remote_child_ids.len()).map_err(|_| "Child count overflow")?;
+        connection.execute(
+            "UPDATE kanban_cards SET hierarchy_finalized=1,provider_child_count=?1,updated_at=?2 WHERE id=?3",
+            params![count, unix_timestamp(), id],
+        ).map_err(db_error)?;
+        connection.execute(
+            "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,?2,'user','resolve_parent_state','success',?3)",
+            params![id, unix_timestamp(), format!("Verified {} Superthread child identities; corrected aggregate metadata only", count)],
+        ).map_err(db_error)?;
+        Ok(())
+}
+
+#[tauri::command]
+pub async fn kanban_repair_parent_state(
+    app: AppHandle, service: State<'_, SuperthreadService>, id: String,
+    expected_workflow_revision: i64, expected_record_revision: i64, expected_board_revision: i64,
+    confirmed: bool,
+) -> Result<ParentStatePreflight, String> {
+    let provider = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let pty = app.state::<Mutex<PtyRegistry>>();
+        let pi = app.state::<Mutex<PiRpcRegistry>>();
+        repair_parent_state(&id, &provider, pty.inner(), pi.inner(),
+            expected_workflow_revision, expected_record_revision, expected_board_revision, confirmed)
+    }).await.map_err(|error| format!("Parent repair worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -609,6 +741,8 @@ mod tests {
             project_id: "p".into(),
             binding_id: "b".into(),
             board_id: "board".into(),
+            token_env: "ST_TOKEN".into(),
+            workspace_slug: None,
             workflow_revision: 1,
             record_revision: 1,
             board_revision: 0,
@@ -652,6 +786,65 @@ mod tests {
             .any(|reason| reason.contains("path exists")));
         assert!(!report.repair_available);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn guarded_metadata_repair_is_atomic_and_preserves_children() {
+        let mut db = Connection::open_in_memory().unwrap();
+        migrate(&db).unwrap();
+        migrate_store_schema(&db).unwrap();
+        db.execute("INSERT INTO projects(id,name,path,kanban_source,superthread_board_id) VALUES ('p','P','/missing','superthread','board')", []).unwrap();
+        db.execute("INSERT INTO superthread_bindings(id,project_id,token_env_var,validation_revision,validated_at,state,created_at,updated_at) VALUES ('b','p','ST_TOKEN',1,1,'active',1,1)", []).unwrap();
+        db.execute("UPDATE projects SET superthread_binding_id='b' WHERE id='p'", []).unwrap();
+        db.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,binding_id,board_id,created_at,updated_at) VALUES ('parent','superthread','2313','P','ready','p','b','board',1,1)", []).unwrap();
+        db.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,binding_id,board_id,parent_id,created_at,updated_at) VALUES ('child','superthread','2314','C','ready','p','b','board','parent',1,1)", []).unwrap();
+        let (_, mut evidence) = inspect_local(&db, "parent").unwrap();
+        evidence.remote_child_ids = vec!["2314".into()];
+        evidence.remote_child_count = Some(1);
+        evidence.hierarchy_verified = true;
+        evidence.repair_available = true;
+        assert!(can_repair(&evidence));
+        for mutation in [
+            (|report: &mut ParentStatePreflight| report.remote_child_ids.clear()) as fn(&mut ParentStatePreflight),
+            |report| report.remote_child_count = None,
+            |report| report.linked_child_ids.clear(),
+            |report| report.pty_ids.push("running".into()),
+            |report| report.pi_ids.push("running".into()),
+            |report| report.pending_operations.push("provider_sync_operations".into()),
+            |report| report.pull_request_state = Some("open".into()),
+            |report| report.uncertainty.push("unverified services".into()),
+        ] {
+            let mut unsafe_evidence = evidence.clone();
+            mutation(&mut unsafe_evidence);
+            assert!(!can_repair(&unsafe_evidence));
+        }
+        let mut orphan = evidence.clone();
+        orphan.environment = Some(ParentEnvironmentEvidence {
+            id: "orphan".into(), project_id: "p".into(), revision: 1, lifecycle: "ready".into(),
+            worktree_path: "/missing".into(), branch: "branch".into(), recorded_repository: None,
+            path_exists: false, registered: Some(false), dirty: None, local_tip: None, remote_tip: None,
+        });
+        assert!(!can_repair(&orphan));
+        let mut leaf = evidence.clone();
+        leaf.remote_child_ids.clear(); leaf.linked_child_ids.clear(); leaf.remote_child_count = Some(0);
+        assert!(!can_repair(&leaf));
+        let (_, change) = super::super::repository::execute_board_mutation(&mut db, |connection| apply_verified_repair(connection, "parent", &evidence)).unwrap();
+        let change = change.unwrap();
+        assert!(change.detail_invalidated_ids.contains(&"parent".to_string()));
+        assert!(change.board_revision > evidence.board_revision);
+        assert_eq!(db.query_row("SELECT hierarchy_finalized FROM kanban_cards WHERE id='parent'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(db.query_row("SELECT parent_id FROM kanban_cards WHERE id='child'", [], |row| row.get::<_, String>(0)).unwrap(), "parent");
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM card_events WHERE event_type='resolve_parent_state'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        assert!(super::super::repository::execute_board_mutation(&mut db, |connection| apply_verified_repair(connection, "parent", &evidence)).is_err());
+        db.execute("UPDATE kanban_cards SET hierarchy_finalized=0 WHERE id='parent'", []).unwrap();
+        db.execute("INSERT INTO card_pull_requests(card_id,repository,number,title,url,state,updated_at) VALUES ('parent','repo',1,'PR','url','open',1)", []).unwrap();
+        let (_, mut with_pr) = inspect_local(&db, "parent").unwrap();
+        with_pr.remote_child_ids = vec!["2314".into()];
+        with_pr.remote_child_count = Some(1);
+        with_pr.hierarchy_verified = true;
+        with_pr.repair_available = true;
+        assert!(!can_repair(&with_pr));
+        assert!(super::super::repository::execute_board_mutation(&mut db, |connection| apply_verified_repair(connection, "parent", &with_pr)).is_err());
     }
 
     #[test]
