@@ -191,23 +191,28 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanListChevron { display: inline-block; width: 6px; height: 6px; margin-right: 10px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); vertical-align: 2px; }
 .kanbanListGroupToggle[aria-expanded="true"] .kanbanListChevron { transform: rotate(45deg); }
 .kanbanListRows { padding: 3px 8px 6px; }
-.kanbanListRow.kanbanCard { width: auto; margin: 0; padding: 8px 10px; display: grid; grid-template-columns: minmax(180px, 270px) minmax(120px, 1fr) minmax(150px, auto); align-items: center; gap: 12px; border: 1px solid transparent; border-bottom-color: #203040; border-radius: 5px; background: transparent; box-shadow: none; cursor: pointer; touch-action: auto; }
+.kanbanListRow.kanbanCard { width: auto; margin: 0; padding: 8px 10px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 2fr); align-items: center; gap: 12px; border: 1px solid transparent; border-bottom-color: #203040; border-radius: 5px; background: transparent; box-shadow: none; cursor: pointer; touch-action: auto; }
 .kanbanListRow.kanbanParentCard { background: #192735; }
 .kanbanListRow:hover, .kanbanListRow.kanbanParentCard:hover { border-color: #344f69; background: #1b2b3b; }
 .kanbanListRows > .kanbanListRow:last-child { border-bottom-color: transparent; }
-.kanbanListRow .kanbanCardSource { gap: 5px; }
-.kanbanListRow .kanbanCardSourceLeft { flex: 1 1 auto; }
-.kanbanListRow .kanbanCardNumber { margin-right: 4px; }
-.kanbanListRow .kanbanCardMeta { min-width: 0; gap: 10px; }
+.kanbanListRow .kanbanCardSource { flex-wrap: wrap; gap: 5px; white-space: normal; }
+.kanbanListRow .kanbanCardSourceLeft { flex: 1 1 auto; flex-wrap: wrap; min-width: 0; white-space: normal; }
+.kanbanListRow .kanbanCardNumber { min-width: 6ch; margin-right: 4px; white-space: nowrap; }
+.kanbanListRow .kanbanCardSourceLeft > .kanbanProjectBadge,
+.kanbanListRow .kanbanCardSourceLeft > .kanbanCardStatusBadge { flex: 0 0 auto; min-width: 0; max-width: 100%; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+.kanbanListRow .kanbanHierarchyGroup { flex: 0 1 auto; flex-wrap: wrap; max-width: 100%; white-space: normal; }
+.kanbanListRow .kanbanHierarchyBadge { flex: 0 0 auto; max-width: 100%; overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+.kanbanListRow > strong { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.kanbanListRow .kanbanCardMeta { min-width: 0; flex-wrap: wrap; gap: 5px 10px; }
 .kanbanListRow .kanbanCardAttribution { font-size: calc(10px + var(--ui-font-delta, 0px)); }
-.kanbanListRow .kanbanCardIndicators { min-width: 0; }
+.kanbanListRow .kanbanCardIndicators { min-width: 0; flex-wrap: wrap; justify-content: flex-start; }
 .kanbanListRow .kanbanCardSourceLeft > button.kanbanEnvironmentWarning { position: relative; top: auto; right: auto; bottom: auto; z-index: 3; flex: 0 0 17px; align-self: center; margin-left: 1px; padding: 0; pointer-events: auto; transform: translateY(1px); }
 .kanbanListRow .kanbanCardSourceLeft > button.kanbanEnvironmentWarning > span { transform: translateY(-1px); }
 .kanbanListEmpty { padding: 9px 12px; color: #62788c; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 @media (max-width: 800px) {
-  .kanbanListRow.kanbanCard { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; }
-  .kanbanListRow > strong { grid-column: 1 / -1; grid-row: 2; }
-  .kanbanListRow .kanbanCardMeta { justify-content: flex-end; }
+  .kanbanListRow.kanbanCard { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .kanbanListRow > strong { grid-row: 2; }
+  .kanbanListRow .kanbanCardMeta { grid-row: 3; }
   .kanbanHeader { flex-wrap: wrap; }
   .kanbanHeaderActions { flex-wrap: wrap; }
 }
