@@ -6,6 +6,7 @@ export type ShortcutAction =
   | 'split-terminal-down'
   | 'close-terminal'
   | 'clear-terminal'
+  | 'select-list-view'
   | 'search-terminal'
   | 'command-palette'
   | 'switch-project'
@@ -27,6 +28,9 @@ export type ShortcutHandlers = {
   openProjectSwitcher: () => void;
   openSettings: () => void;
   isGlobalTerminalVisible: () => boolean;
+  isCardOpen: () => boolean;
+  isCardTerminalActive: () => boolean;
+  setKanbanView: (view: 'list' | 'board') => void;
   toggleGlobalTerminal: () => void;
   newGlobalTerminalTab: () => void;
   runGlobalTerminalAction: (action: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize') => void;

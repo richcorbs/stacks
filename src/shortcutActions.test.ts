@@ -3,11 +3,12 @@ import { runShortcutAction } from './shortcutActions';
 import type { ShortcutHandlers } from './shortcutTypes';
 
 function handlers(): ShortcutHandlers {
-  return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), isGlobalTerminalVisible: () => false, toggleGlobalTerminal: vi.fn(), newGlobalTerminalTab: vi.fn(), runGlobalTerminalAction: vi.fn(), runCardTerminalAction: vi.fn() };
+  return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), isGlobalTerminalVisible: () => false, isCardOpen: () => false, isCardTerminalActive: () => false, setKanbanView: vi.fn(), toggleGlobalTerminal: vi.fn(), newGlobalTerminalTab: vi.fn(), runGlobalTerminalAction: vi.fn(), runCardTerminalAction: vi.fn() };
 }
 describe('shortcut actions', () => {
   it('routes retained terminal actions through the card command interface', () => {
     const h = handlers();
+    h.isCardOpen = () => true; h.isCardTerminalActive = () => true;
     runShortcutAction('split-terminal-right', h); runShortcutAction('clear-terminal', h); runShortcutAction('maximize-pane', h);
     expect(h.runCardTerminalAction).toHaveBeenNthCalledWith(1, 'split-right');
     expect(h.runCardTerminalAction).toHaveBeenNthCalledWith(2, 'clear');
@@ -18,6 +19,31 @@ describe('shortcut actions', () => {
     runShortcutAction('close-terminal', h);
     expect(h.runGlobalTerminalAction).toHaveBeenCalledWith('close');
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
+  });
+  it('applies menu view actions only in the overview, including already-selected views', () => {
+    const h = handlers();
+    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    expect(vi.mocked(h.setKanbanView).mock.calls).toEqual([['board'], ['list'], ['board'], ['list']]);
+    expect(h.runCardTerminalAction).not.toHaveBeenCalled();
+    h.isCardOpen = () => true;
+    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    expect(h.setKanbanView).toHaveBeenCalledTimes(4);
+    expect(h.runCardTerminalAction).not.toHaveBeenCalled();
+    h.isCardTerminalActive = () => true;
+    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    expect(h.runCardTerminalAction).toHaveBeenCalledExactlyOnceWith('clear');
+    expect(h.setKanbanView).toHaveBeenCalledTimes(4);
+  });
+  it('gives the top-level terminal precedence for menu actions', () => {
+    const h = handlers(); h.isGlobalTerminalVisible = () => true;
+    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    h.isCardOpen = () => true; h.isCardTerminalActive = () => true;
+    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    expect(h.runGlobalTerminalAction).toHaveBeenCalledTimes(2);
+    expect(h.runGlobalTerminalAction).toHaveBeenCalledWith('clear');
+    expect(h.runCardTerminalAction).not.toHaveBeenCalled();
+    expect(h.setKanbanView).not.toHaveBeenCalled();
   });
   it('routes retained app actions', () => {
     const h = handlers(); runShortcutAction('add-project', h); runShortcutAction('settings', h); runShortcutAction('quit', h);

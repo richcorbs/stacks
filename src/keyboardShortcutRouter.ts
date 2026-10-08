@@ -29,17 +29,18 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   const globalTerminal = handlers.isGlobalTerminalVisible();
   if (globalTerminal && /^[1-9]$/.test(event.key)) return handled(event, () => applicationEvents.publish('global-terminal-command', { type: 'select-tab', number: Number(event.key) }));
   if (globalTerminal && bracket && !event.shiftKey) return handled(event, () => applicationEvents.publish('global-terminal-command', { type: 'navigate-tab', direction: bracket }));
-  const cardOpen = Boolean(typeof document !== 'undefined' && document.querySelector('.kanbanDetail'));
-  const cardTerminal = Boolean(typeof document !== 'undefined' && document.querySelector('.kanbanDetail .cardTerminalView.active'));
+  const cardOpen = handlers.isCardOpen();
+  const cardTerminal = handlers.isCardTerminalActive();
   if (cardOpen && /^[1-5]$/.test(event.key)) return handled(event, () => applicationEvents.publish('card-tab-shortcut', { number: Number(event.key) }));
   if (cardOpen && bracket && !event.shiftKey) return handled(event, () => applicationEvents.publish('card-tab-shortcut', { direction: bracket }));
   if (key === 'o' && !event.shiftKey) return handled(event, () => runShortcutAction('add-project', handlers));
   if (key === 'q') return handled(event, () => runShortcutAction('quit', handlers));
+  if (key === 'k' && !event.shiftKey) return handled(event, () => runShortcutAction('clear-terminal', handlers));
+  if (key === 'l' && !event.shiftKey) return handled(event, () => runShortcutAction('select-list-view', handlers));
   if (!globalTerminal && !cardTerminal) return;
   if (key === 'd') return handled(event, () => runShortcutAction(event.shiftKey ? 'split-terminal-down' : 'split-terminal-right', handlers));
   if (key === 'w') return handled(event, () => runShortcutAction('close-terminal', handlers));
   if (key === 'f') return handled(event, () => runShortcutAction('search-terminal', handlers));
-  if (key === 'k') return handled(event, () => runShortcutAction('clear-terminal', handlers));
   if (event.key === 'Enter' && event.shiftKey) return handled(event, () => runShortcutAction('maximize-pane', handlers));
 }
 

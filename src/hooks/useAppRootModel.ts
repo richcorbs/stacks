@@ -290,6 +290,9 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
   const shortcutHandlers: ShortcutHandlers = {
     setMetaKeyDown, openProjectDialog: () => { void openProjectDialog(); }, requestQuit,
     isGlobalTerminalVisible: () => globalTerminalVisible,
+    isCardOpen: () => Boolean(document.querySelector('.kanbanDetail')),
+    isCardTerminalActive: () => Boolean(document.querySelector('.kanbanDetail .cardTerminalView.active')),
+    setKanbanView: (view) => setAppSettings((current) => ({ ...current, kanban_view: view })),
     toggleGlobalTerminal: () => setGlobalTerminalVisible((visible) => !visible),
     newGlobalTerminalTab: () => { setGlobalTerminalVisible(true); setGlobalTerminalNewTabNonce((nonce) => nonce + 1); },
     runGlobalTerminalAction: (action) => dispatchGlobalTerminal(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
