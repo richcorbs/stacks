@@ -10,10 +10,18 @@ describe('settings model', () => {
     expect(settings.kanban_project_id).toBe('p1');
     expect(settings.kanban_view).toBe('list');
     expect(settings.kanban_done_collapsed).toBe(true);
+    expect(settings.kanban_backlog_collapsed).toBe(true);
+    expect(resolveAppSettings({ kanban_backlog_collapsed: null }).kanban_backlog_collapsed).toBe(true);
   });
   it('persists the board/list choice and rejects unknown values on load', () => {
     expect(resolveAppSettings(toPersistedAppSettings({ ...DEFAULT_APP_SETTINGS, kanban_view: 'board' })).kanban_view).toBe('board');
     expect(resolveAppSettings({ kanban_view: 'other' as 'list' }).kanban_view).toBe('list');
+  });
+  it('round-trips independent Backlog and Done collapse states', () => {
+    for (const backlog of [true, false]) for (const done of [true, false]) {
+      const persisted = toPersistedAppSettings({ ...DEFAULT_APP_SETTINGS, kanban_backlog_collapsed: backlog, kanban_done_collapsed: done });
+      expect(resolveAppSettings(persisted)).toMatchObject({ kanban_backlog_collapsed: backlog, kanban_done_collapsed: done });
+    }
   });
   it('persists no obsolete workspace UI settings', () => {
     const persisted = toPersistedAppSettings(DEFAULT_APP_SETTINGS) as Record<string, unknown>;

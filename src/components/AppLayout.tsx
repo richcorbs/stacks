@@ -22,6 +22,8 @@ export function AppLayout({ appStyle, main, overlays, globalTerminal }: {
         superthreadEnabled={main.appSettings.superthread_enabled}
         selectedProjectId={main.appSettings.kanban_project_id}
         onSelectProject={main.setKanbanProjectId}
+        backlogCollapsed={main.appSettings.kanban_backlog_collapsed}
+        onBacklogCollapsedChange={main.setKanbanBacklogCollapsed}
         doneCollapsed={main.appSettings.kanban_done_collapsed}
         onDoneCollapsedChange={main.setKanbanDoneCollapsed}
         view={main.appSettings.kanban_view}

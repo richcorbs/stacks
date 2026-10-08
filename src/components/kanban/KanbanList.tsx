@@ -9,18 +9,20 @@ import { WORK_GROUPS, groupCards } from '../../kanban/workflowGroups';
 import { cardServerAvailability } from './BoardCardServerServices';
 import { DoneLaneMenu, KanbanCardContents, kanbanCardClassName } from './KanbanLanes';
 
-export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serverServices, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer }: {
+export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serverServices, backlogCollapsed, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, onToggleBacklog, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer }: {
   cards: KanbanCardSummary[];
   projects: Project[];
   repositoryStatuses: Record<string, CardRepositoryStatus>;
   prChecks?: Record<string, { checkedAt: number | null; failed: boolean; refreshing: boolean }>;
   serverServices: Record<string, CardServices>;
+  backlogCollapsed: boolean;
   doneCollapsed: boolean;
   openLaneMenu: KanbanStatus | null;
   setOpenLaneMenu: Dispatch<SetStateAction<KanbanStatus | null>>;
   cleaningMerged: boolean;
   keyboardFocusedCardId: string | null;
   setKeyboardFocusedCardId: (id: string | null) => void;
+  onToggleBacklog: () => void;
   onToggleDone: () => void;
   onCleanupMerged: () => void;
   onOpenCard: (card: KanbanCardSummary, initialView?: CardView) => void;
@@ -31,11 +33,12 @@ export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serv
   return <div className="kanbanList" role="region" aria-label="Cards by work group">
     {WORK_GROUPS.map((group) => {
       const entries = groupCards(cards, group);
-      const collapsed = group.id === 'done' && doneCollapsed;
+      const collapsed = (group.id === 'done' && doneCollapsed) || (group.id === 'backlog' && backlogCollapsed);
       return <section className="kanbanListGroup" data-kanban-group={group.id} key={group.id}>
         <header className="kanbanListGroupHeader">
-          {group.id === 'done'
-            ? <button type="button" className="kanbanListDoneToggle" aria-expanded={!collapsed} onClick={onToggleDone}>
+          {group.id === 'done' || group.id === 'backlog'
+            ? <button type="button" className="kanbanListGroupToggle" aria-expanded={!collapsed}
+                onClick={group.id === 'done' ? onToggleDone : onToggleBacklog}>
                 <span className="kanbanListChevron" aria-hidden="true" />{group.label} <span className="kanbanLaneCount">{entries.length}</span>
               </button>
             : <h2>{group.label} <span className="kanbanLaneCount">{entries.length}</span></h2>}

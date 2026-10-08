@@ -13,6 +13,8 @@ export type KanbanBoardProps = {
   projectsHydrated: boolean;
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
+  backlogCollapsed: boolean;
+  onBacklogCollapsedChange: (collapsed: boolean) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
   view: 'list' | 'board';
