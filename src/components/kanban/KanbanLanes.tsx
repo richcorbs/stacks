@@ -154,11 +154,15 @@ export function KanbanCardContents({
   const statusBadge = <span className="kanbanCardStatusBadge" title={statusLabel}>{statusLabel}</span>;
   const providerBoard = card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active'
     ? <span className="kanbanProviderBoardTitle">{card.board_title}</span> : null;
+  const hasGitChangesBadge = repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git);
+  const hasAttribution = card.provider !== 'local';
+  const hasIndicators = Boolean(serverServices || repositoryStatus?.git?.status === 'error' || hasGitChangesBadge || card.pull_request);
 
   return <>
     <span className="kanbanCardSource">
       <span className="kanbanCardSourceLeft">
         <span className="kanbanCardNumber">#{card.external_id}</span>
+        {projectBadge}
         {statusBadge}
         {layout === 'list' && listWarning && <button className="kanbanEnvironmentWarning" type="button"
           title={listWarning.tooltip} aria-label={`Environment warning: ${listWarning.tooltip}`}
@@ -171,19 +175,17 @@ export function KanbanCardContents({
       </span>}
     </span>
     <strong>{card.title}</strong>
-    <span className="kanbanCardMeta">
+    {(hasAttribution || hasIndicators) && <span className="kanbanCardMeta">
       {layout === 'board' ? (
-        <span className="kanbanCardBoardAttribution">
-          {projectBadge}
-          {card.provider !== 'local' && <span className="kanbanCardBoardAssignee" title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
+        hasAttribution && <span className="kanbanCardBoardAttribution">
+          <span className="kanbanCardBoardAssignee" title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>
         </span>
-      ) : (<>
-        {projectBadge}
+      ) : hasAttribution && (
         <span className="kanbanCardAttribution">
           {providerBoard}
           {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
         </span>
-      </>)}
+      )}
       <span className="kanbanCardIndicators">
         {serverServices && <KanbanServerControl services={serverServices} onToggle={() => onToggleServer(card.id)} />}
         {repositoryStatus?.git?.status === 'error' && <span className="kanbanGitBadge" title={repositoryStatus.git.message} aria-label="Git status unknown; check the worktree and refresh">Git ?</span>}
@@ -196,7 +198,7 @@ export function KanbanCardContents({
         )}
         {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} check={prCheck} />}
       </span>
-    </span>
+    </span>}
   </>;
 }
 

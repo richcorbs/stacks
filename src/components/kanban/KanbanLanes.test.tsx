@@ -151,7 +151,7 @@ describe('kanbanCardClassName', () => {
 });
 
 describe('KanbanCardContents', () => {
-  it('puts the bright status by the card number, the project in trailing metadata, and hierarchy on the right', () => {
+  it('orders number, dim project and bright status in the heading, with hierarchy on the right', () => {
     const markup = renderCardContents(card());
     const leftStart = markup.indexOf('class="kanbanCardSourceLeft"');
     const leftEnd = markup.indexOf('</span><span class="kanbanHierarchyGroup">');
@@ -161,13 +161,21 @@ describe('KanbanCardContents', () => {
 
     expect(leftStart).toBeGreaterThan(-1);
     expect(markup.indexOf('#128')).toBeGreaterThan(leftStart);
-    expect(statusIndex).toBeGreaterThan(markup.indexOf('#128'));
+    expect(projectIndex).toBeGreaterThan(markup.indexOf('#128'));
+    expect(statusIndex).toBeGreaterThan(projectIndex);
     expect(statusIndex).toBeLessThan(leftEnd);
     expect(hierarchyIndex).toBeGreaterThan(leftEnd);
-    expect(projectIndex).toBeGreaterThan(markup.indexOf('<strong>Align hierarchy badges</strong>'));
-    expect(markup).toContain('class="kanbanCardMeta"><span class="kanbanCardBoardAttribution"><span class="kanbanProjectBadge"');
+    expect(markup.match(/class="kanbanProjectBadge"/g)).toHaveLength(1);
+    expect(markup).not.toContain('kanbanCardMeta');
     expect(markup).toContain('>#12 / 2</button>');
     expect(markup).not.toContain('class="kanbanHierarchyBadge children"');
+  });
+
+  it('retains the unknown-project badge treatment in the heading', () => {
+    const markup = renderToStaticMarkup(<KanbanCardContents card={card({ project_id: 'missing', board_id: 'missing' })}
+      projects={[project]} repositoryStatus={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    expect(markup).toContain('class="kanbanCardNumber">#128</span><span class="kanbanProjectBadge invalid">Unknown project</span><span class="kanbanCardStatusBadge"');
+    expect(markup.match(/kanbanProjectBadge/g)).toHaveLength(1);
   });
 
   it('omits the hierarchy group when the card has no hierarchy metadata', () => {
@@ -177,10 +185,11 @@ describe('KanbanCardContents', () => {
     expect(markup).not.toContain('kanbanHierarchyGroup');
   });
 
-  it('puts Superthread assignees immediately after the board project badge without a provider board title', () => {
+  it('keeps Superthread assignees in board metadata without a provider board title', () => {
     const markup = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', assignee_names: ['Rich', 'Alex'] }));
 
-    expect(markup).toContain(`class="kanbanCardBoardAttribution"><span class="kanbanProjectBadge">${project.name}</span><span class="kanbanCardBoardAssignee" title="Assigned in Superthread">Rich, Alex</span></span>`);
+    expect(markup).toContain('class="kanbanCardBoardAttribution"><span class="kanbanCardBoardAssignee" title="Assigned in Superthread">Rich, Alex</span></span>');
+    expect(markup.match(/class="kanbanProjectBadge"/g)).toHaveLength(1);
     expect(markup).not.toContain('Roadmap');
     expect(markup).not.toContain('kanbanCardAttribution');
   });
@@ -191,7 +200,8 @@ describe('KanbanCardContents', () => {
 
     expect(unassigned).toContain('title="Assigned in Superthread">Unassigned</span>');
     expect(unassigned).not.toContain('Roadmap');
-    expect(local).toContain(`class="kanbanCardBoardAttribution"><span class="kanbanProjectBadge">${project.name}</span></span>`);
+    expect(local).not.toContain('kanbanCardMeta');
+    expect(local).not.toContain('kanbanCardBoardAttribution');
     expect(local).not.toContain('kanbanCardBoardAssignee');
     expect(local).not.toContain('kanbanCardAttribution');
   });
@@ -203,8 +213,10 @@ describe('KanbanCardContents', () => {
 
     expect(suppressed).not.toContain('kanbanProviderBoardTitle');
     expect(suppressed).toContain('class="kanbanCardAttribution"><span title="Assigned in Superthread">Unassigned</span>');
-    expect(visible).toContain(`class="kanbanCardMeta"><span class="kanbanProjectBadge">${project.name}</span><span class="kanbanCardAttribution"><span class="kanbanProviderBoardTitle">Roadmap</span><span title="Assigned in Superthread">Rich</span></span><span class="kanbanCardIndicators">`);
-    expect(local).toContain('class="kanbanCardAttribution"></span>');
+    expect(visible).toContain('class="kanbanCardMeta"><span class="kanbanCardAttribution"><span class="kanbanProviderBoardTitle">Roadmap</span><span title="Assigned in Superthread">Rich</span></span><span class="kanbanCardIndicators">');
+    expect(visible.match(/class="kanbanProjectBadge"/g)).toHaveLength(1);
+    expect(local).not.toContain('kanbanCardMeta');
+    expect(local).not.toContain('kanbanCardAttribution');
     expect(local).not.toContain('kanbanCardBoardAttribution');
   });
 
@@ -215,7 +227,7 @@ describe('KanbanCardContents', () => {
       pull_request: pullRequest(),
     }), services());
 
-    expect(markup.indexOf('kanbanProjectBadge')).toBeLessThan(markup.indexOf('kanbanCardBoardAssignee'));
+    expect(markup.indexOf('kanbanProjectBadge')).toBeLessThan(markup.indexOf('kanbanCardStatusBadge'));
     expect(markup.indexOf('Rich')).toBeLessThan(markup.indexOf('kanbanCardIndicators'));
     expect(markup.indexOf('kanbanServerToggle')).toBeLessThan(markup.indexOf('kanbanGitBadge'));
     expect(markup.indexOf('kanbanGitBadge')).toBeLessThan(markup.indexOf('kanbanPrBadge'));
