@@ -5,6 +5,7 @@ import type { Project } from '../../types';
 import type { KanbanCard, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import { KanbanList } from './KanbanList';
+import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 
 const project = { id: 'project', name: 'Project', path: '/tmp/project' } as Project;
 function card(status: KanbanStatus): KanbanCard {
@@ -157,6 +158,43 @@ describe('Kanban list', () => {
     expect(stopPropagation).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith('parent');
     expect(open).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
+  });
+
+  it('attaches pointer ordering only to expanded Backlog rows and preserves click controls', async () => {
+    const begin = vi.fn();
+    const finish = vi.fn();
+    const cancel = vi.fn();
+    const open = vi.fn();
+    const pointer = { beginPointerDrag: begin, finishPointerDrag: finish, cancelPointerDrag: cancel,
+      shouldSuppressCardClick: vi.fn(() => false), draggingId: null, dragPreview: null } as unknown as ReturnType<typeof usePointerCardOrdering>;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    const cards = [card('needs_refinement'), card('ready'), card('done')];
+    const component = (backlogCollapsed: boolean) => <KanbanList cards={cards} projects={[project]}
+      repositoryStatuses={{}} serverServices={{}} backlogCollapsed={backlogCollapsed} doneCollapsed={false} openLaneMenu={null}
+      pointer={pointer} setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
+      setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      onOpenCard={open} onNavigateParent={() => {}} onToggleServer={() => {}} />;
+    await act(async () => { renderer = TestRenderer.create(component(false)); });
+    const rows = renderer.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.split(' ').includes('kanbanListRow'));
+    expect(rows.map((row) => row.props['data-kanban-card-id'])).toEqual([undefined, 'needs_refinement', undefined]);
+    const backlogRow = rows[1];
+    backlogRow.props.onPointerDown({ button: 0 });
+    expect(begin).toHaveBeenCalledWith({ button: 0 }, cards[0], 'list');
+    backlogRow.props.onPointerUp({});
+    backlogRow.props.onPointerCancel({});
+    expect(finish).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(rows[0].props.onPointerDown).toBeUndefined();
+    const fullRowButton = backlogRow.findByProps({ className: 'kanbanCardOpen' });
+    fullRowButton.props.onClick({ stopPropagation: vi.fn() });
+    expect(open).toHaveBeenCalledOnce();
+    vi.mocked(pointer.shouldSuppressCardClick).mockReturnValue(true);
+    backlogRow.props.onClick();
+    fullRowButton.props.onClick({ stopPropagation: vi.fn() });
+    expect(open).toHaveBeenCalledOnce();
+    await act(async () => renderer.update(component(true)));
+    expect(renderer.root.findAll((node) => node.props['data-kanban-card-id'] === 'needs_refinement')).toHaveLength(0);
     await act(async () => renderer.unmount());
   });
 
