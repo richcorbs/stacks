@@ -200,7 +200,6 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanListRow .kanbanCardAttribution:empty { display: none; }
 .kanbanListRow .kanbanCardIndicators { min-width: 0; }
 .kanbanListRow .kanbanCardSourceLeft > button.kanbanEnvironmentWarning { position: relative; top: auto; right: auto; bottom: auto; z-index: 3; flex: 0 0 17px; align-self: center; margin-left: 1px; padding: 0; pointer-events: auto; }
-.kanbanListRow .kanbanCardSourceLeft > button.kanbanEnvironmentWarning > span { transform: translateY(-1px); }
 .kanbanListEmpty { padding: 9px 12px; color: #62788c; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 @media (max-width: 800px) {
   .kanbanListRow.kanbanCard { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; }
