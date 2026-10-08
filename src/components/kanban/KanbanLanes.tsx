@@ -47,7 +47,6 @@ export function KanbanPullRequestBadge({ pullRequest, check }: { pullRequest: Ca
   const age = check?.checkedAt == null
     ? 'last-known result; not checked this session'
     : `last checked ${Math.max(0, Math.floor((Date.now() - check.checkedAt) / 60_000))}m ago`;
-  const stale = check?.checkedAt == null || Date.now() - check.checkedAt > 60_000;
   const freshness = [age, ...(check?.refreshing ? ['updating PR status'] : []), ...(check?.failed ? ['GitHub refresh failed; retrying'] : [])].join('; ');
   const result = pullRequest.ci_status === 'success' ? 'CI passed'
     : pullRequest.ci_status === 'failure' ? 'CI failed'
@@ -59,7 +58,6 @@ export function KanbanPullRequestBadge({ pullRequest, check }: { pullRequest: Ca
     <span className={`kanbanPrBadge ${presentation.className}`} title={label}>
       PR #{pullRequest.number}
       <GithubStatusIcon status={presentation.indicatorStatus} context="CI" label={label} />
-      {(stale || check?.refreshing || check?.failed) && <span className="kanbanPrFreshness" aria-hidden="true">·</span>}
     </span>
   );
 }
