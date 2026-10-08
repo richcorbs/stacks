@@ -21,16 +21,29 @@ function render(statuses: KanbanStatus[], collapsed = true, repositoryStatuses: 
 }
 
 describe('Kanban list', () => {
+  it('scopes row hover and number tokens to each card owner, including missing owners', () => {
+    const teal = { ...project, color_id: 'teal' };
+    const rose = { ...project, id: 'other', color_id: 'rose' };
+    const cards = [card('ready'), { ...card('refining'), id: 'other-card', project_id: rose.id }, { ...card('approved'), id: 'missing-card', project_id: 'missing' }];
+    const markup = renderToStaticMarkup(<KanbanList cards={cards} projects={[teal, rose]}
+      repositoryStatuses={{}} serverServices={{}} backlogCollapsed doneCollapsed openLaneMenu={null}
+      setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
+      setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    expect(markup).toMatch(/class="kanbanCard kanbanListRow" data-project-color="teal"/);
+    expect(markup).toMatch(/class="kanbanCard kanbanListRow" data-project-color="rose"/);
+    expect(markup).toMatch(/class="kanbanCard kanbanListRow"><button[^>]*aria-label="Open card #approved/);
+  });
   it('shows all eight exact statuses in four groups and keeps Done collapsed', () => {
     const markup = render(['needs_refinement', 'refining', 'needs_refinement_input', 'ready', 'agent_working', 'needs_human', 'approved', 'done']);
     expect(markup.match(/class="kanbanListGroup"/g)).toHaveLength(4);
     for (const label of ['Refining', 'Needs you for refinement', 'Ready for agent', 'Agent working', 'Needs you', 'Ready to merge']) {
-      expect(markup).toContain(`class="kanbanCardStatusBadge" title="${label}">${label}</span>`);
+      expect(markup).toContain(`class="kanbanCardStatusBadge" data-project-color="blue" title="${label}">${label}</span>`);
     }
     expect(markup).toContain('aria-expanded="false"');
     expect(markup).not.toContain('title="Needs refinement"');
     expect(markup).toContain('data-kanban-group="backlog"><header class="kanbanListGroupHeader"><button type="button" class="kanbanListGroupToggle" aria-expanded="false"');
-    expect(markup).not.toContain('class="kanbanCardStatusBadge" title="Done · Closed"');
+    expect(markup).not.toContain('class="kanbanCardStatusBadge" data-project-color="blue" title="Done · Closed"');
   });
 
   it('renders empty group headers and restores Backlog independently of Done', () => {
@@ -70,7 +83,7 @@ describe('Kanban list', () => {
     const markup = render(['ready']);
     const number = markup.indexOf('class="kanbanCardNumber">#ready');
     const projectIndex = markup.indexOf('class="kanbanProjectBadge"');
-    const status = markup.indexOf('class="kanbanCardStatusBadge" title="Ready for agent"');
+    const status = markup.indexOf('class="kanbanCardStatusBadge" data-project-color="blue" title="Ready for agent"');
     const title = markup.indexOf('<strong>ready</strong>');
     expect(number).toBeGreaterThan(-1);
     expect(projectIndex).toBeGreaterThan(number);
@@ -201,7 +214,7 @@ describe('Kanban list', () => {
   it('shows Done rows when expanded, with accessible card open controls', () => {
     const markup = render(['done'], false);
     expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain('class="kanbanCardStatusBadge" title="Done · Closed">Done · Closed</span>');
+    expect(markup).toContain('class="kanbanCardStatusBadge" data-project-color="blue" title="Done · Closed">Done · Closed</span>');
     expect(markup).toContain('aria-label="Open card #done: done"');
   });
 });

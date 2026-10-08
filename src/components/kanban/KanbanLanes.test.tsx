@@ -106,10 +106,10 @@ function pointerStub() {
   } as ComponentProps<typeof KanbanLanes>['pointer'];
 }
 
-function renderLanes(cards: KanbanCard[], doneCollapsed = false) {
+function renderLanes(cards: KanbanCard[], doneCollapsed = false, projects: Project[] = [project]) {
   return renderToStaticMarkup(<KanbanLanes
     cards={cards}
-    projects={[project]}
+    projects={projects}
     repositoryStatuses={{}}
     serverServices={{}}
     doneCollapsed={doneCollapsed}
@@ -134,6 +134,21 @@ function laneMarkup(markup: string, group: WorkGroup) {
   return lane[0];
 }
 
+describe('card owner accents', () => {
+  it('scopes board card surfaces and numbers to each owner, not a board filter', () => {
+    const teal = { ...project, color_id: 'teal' };
+    const rose = { ...project, id: 'other', name: 'Other', color_id: 'rose' };
+    const markup = renderLanes([
+      card({ id: 'teal-card', project_id: teal.id, status: 'ready', parent: null, child_count: 0 }),
+      card({ id: 'rose-card', project_id: rose.id, status: 'ready', parent: null, child_count: 0 }),
+      card({ id: 'unowned-card', project_id: 'missing', status: 'ready', parent: null, child_count: 0 }),
+    ], false, [teal, rose]);
+    expect(markup).toMatch(/class="kanbanCard" data-project-color="teal"/);
+    expect(markup).toMatch(/class="kanbanCard" data-project-color="rose"/);
+    expect(markup).toMatch(/class="kanbanCard"[^>]*><button[^>]*data-kanban-card-id="unowned-card"/);
+  });
+});
+
 describe('kanbanCardClassName', () => {
   it('classifies cards as parents only when they have children', () => {
     expect(kanbanCardClassName(card({ parent: null, child_count: 1 }))).toBe('kanbanCard kanbanParentCard');
@@ -151,12 +166,24 @@ describe('kanbanCardClassName', () => {
 });
 
 describe('KanbanCardContents', () => {
+  it('uses each card owner for mixed board and list badges, not the current filter', () => {
+    const other = { ...project, id: 'other', name: 'Other', color_id: 'rose' };
+    const first = { ...project, color_id: 'teal' };
+    for (const layout of ['board', 'list'] as const) {
+      const render = (owner: Project | null) => renderToStaticMarkup(<KanbanCardContents
+        card={card({ project_id: owner?.id ?? 'missing', board_id: owner?.id ?? 'missing' })}
+        projects={[first, other]} layout={layout} repositoryStatus={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+      expect(render(first).match(/data-project-color="teal"/g)).toHaveLength(2);
+      expect(render(other).match(/data-project-color="rose"/g)).toHaveLength(2);
+      expect(render(null)).not.toContain('data-project-color=');
+    }
+  });
   it('orders number, dim project and bright status in the heading, with hierarchy on the right', () => {
     const markup = renderCardContents(card());
     const leftStart = markup.indexOf('class="kanbanCardSourceLeft"');
     const leftEnd = markup.indexOf('</span><span class="kanbanHierarchyGroup">');
     const hierarchyIndex = markup.indexOf('class="kanbanHierarchyBadge parent combined"');
-    const statusIndex = markup.indexOf('class="kanbanCardStatusBadge" title="Ready for agent"');
+    const statusIndex = markup.indexOf('class="kanbanCardStatusBadge"');
     const projectIndex = markup.indexOf('class="kanbanProjectBadge"');
 
     expect(leftStart).toBeGreaterThan(-1);
@@ -175,6 +202,7 @@ describe('KanbanCardContents', () => {
     const markup = renderToStaticMarkup(<KanbanCardContents card={card({ project_id: 'missing', board_id: 'missing' })}
       projects={[project]} repositoryStatus={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
     expect(markup).toContain('class="kanbanCardNumber">#128</span><span class="kanbanProjectBadge invalid">Unknown project</span><span class="kanbanCardStatusBadge"');
+    expect(markup).not.toContain('data-project-color=');
     expect(markup.match(/kanbanProjectBadge/g)).toHaveLength(1);
   });
 

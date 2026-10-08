@@ -21,6 +21,7 @@ import {
 import { NotificationsSettingsSection } from './NotificationsSettingsSection';
 import { DialogFields } from './DialogFields';
 import { projectSettingsDraft, projectSettingsEqual } from '../projectSettings';
+import { projectColor } from '../projectColor';
 
 export type GlobalSettingsSection = 'interface' | 'terminal' | 'confirmations' | 'notifications' | 'editor' | 'superthread';
 export type SettingsPageId = `global:${GlobalSettingsSection}` | `project:${string}`;
@@ -233,7 +234,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
               {!projects.length && <span>No projects configured</span>}
             </div>
           </nav>
-          <main className="settingsContent" aria-labelledby="settings-page-heading">
+          <main className="settingsContent" data-project-color={project && projectPageDraft ? projectColor(projectPageDraft.colorId) : undefined} aria-labelledby="settings-page-heading">
             <h2 id="settings-page-heading" ref={headingRef} tabIndex={-1}>{title}</h2>
             <fieldset disabled={saving} className="settingsPageFields">
               {section === 'interface' && <InterfaceSettingsSection draft={globalDraft} firstInputRef={firstInputRef} update={(patch) => setGlobalDraft((current) => ({ ...current, ...patch }))} />}
@@ -254,7 +255,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
           </main>
         </div>
         {pending && <div className="settingsPromptBackdrop" onMouseDown={(event) => event.stopPropagation()}>
-          <div className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title">
+          <div className="settingsPrompt" data-project-color={project && projectPageDraft ? projectColor(projectPageDraft.colorId) : undefined} role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title">
             <h3 id="unsaved-title">Save changes?</h3><p>This page has unsaved changes.</p>
             {pageError && <div className="dialogSubmitError" role="alert">{pageError}</div>}
             <div className="modalActions"><button type="button" disabled={saving} onClick={cancelPending}>Cancel</button><button type="button" disabled={saving} onClick={finishPending}>Discard</button><button type="button" className="primaryAction" disabled={saving} autoFocus onClick={async () => { if (await save()) finishPending(); }}>Save</button></div>

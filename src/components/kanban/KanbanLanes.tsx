@@ -1,6 +1,7 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project } from '../../types';
+import { projectColorAttribute } from '../../projectColor';
 import type { CardPullRequestIndicator, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import type { CardView } from '../../kanban/cardView';
@@ -149,9 +150,9 @@ export function KanbanCardContents({
 }) {
   const hasHierarchy = Boolean(card.parent) || card.child_count > 0;
   const project = owningProject(card, projects);
-  const projectBadge = <span className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>;
+  const projectBadge = <span data-project-color={projectColorAttribute(project)} className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>;
   const statusLabel = hierarchyStatusLabel(card);
-  const statusBadge = <span className="kanbanCardStatusBadge" title={statusLabel}>{statusLabel}</span>;
+  const statusBadge = <span className="kanbanCardStatusBadge" data-project-color={projectColorAttribute(project)} title={statusLabel}>{statusLabel}</span>;
   const providerBoard = card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active'
     ? <span className="kanbanProviderBoardTitle">{card.board_title}</span> : null;
   const hasGitChangesBadge = repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git);
@@ -316,6 +317,7 @@ export function KanbanLanes({
                     >
                       <div
                         className={kanbanCardClassName(card, keyboardFocusedCardId === card.id)}
+                        data-project-color={projectColorAttribute(owningProject(card, projects))}
                         onPointerDown={(event) => pointer.beginPointerDrag(event, card)}
                         onPointerUp={pointer.finishPointerDrag}
                         onPointerCancel={pointer.cancelPointerDrag}
@@ -363,7 +365,7 @@ export function KanbanLanes({
           transformOrigin: `${preview.pointerOffsetX}px ${preview.pointerOffsetY}px`,
         }}
       >
-        <div className={kanbanCardClassName(draggedCard)}>
+        <div className={kanbanCardClassName(draggedCard)} data-project-color={projectColorAttribute(owningProject(draggedCard, projects))}>
           <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(draggedCard, projects).eligible ? serverServices[draggedCard.id] : undefined} onNavigateParent={() => {}} onToggleServer={onToggleServer} />
         </div>
         {showEnvironmentWarning && environmentHealth && (

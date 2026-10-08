@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
+import { projectColorAttribute } from '../projectColor';
 import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiFileDrops } from '../pi/fileDropBroker';
 import { activePathToken, applyPathCompletion, formatDroppedPathReference, insertPathReferences } from '../pi/pathReferences';
@@ -489,6 +490,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   return (
     <div
       ref={paneRef}
+      data-project-color={projectColorAttribute(project)}
       className={`terminal piGuiPane ${active ? 'active' : ''} ${maximized ? 'maximized' : ''}`}
       data-pi-pane-id={terminal.id}
       style={{ '--pi-font-size': `${fontSize}px` } as React.CSSProperties}

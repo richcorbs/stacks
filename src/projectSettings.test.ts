@@ -20,6 +20,12 @@ describe('canonical project settings', () => {
     expect(canonicalProjectSettings(hydrated).superthreadIncomingColumnIds).toEqual(['first', 'second']);
   });
 
+  it('tracks only valid changed colors and treats legacy color as blue', () => {
+    expect(projectSettingsEqual(remote(), remote({ colorId: 'blue' }))).toBe(true);
+    expect(projectSettingsEqual(remote(), remote({ colorId: 'teal' }))).toBe(false);
+    expect(canonicalProjectSettings(remote({ colorId: 'unsafe' })).colorId).toBe('blue');
+  });
+
   it('ignores provider hydration and presentation metadata', () => {
     const hydrated = remote({
       superthreadWorkspaceId: 'workspace', superthreadWorkspaceName: 'Canonical workspace', superthreadSpaceName: 'Canonical space',

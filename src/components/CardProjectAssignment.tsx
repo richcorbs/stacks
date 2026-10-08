@@ -1,4 +1,5 @@
 import type { Project } from '../types';
+import { projectColorAttribute } from '../projectColor';
 import { canReassignKanbanCardProject } from '../kanban/cardEditing';
 import { localKanbanProjects } from '../kanban/projectScope';
 import type { KanbanCard } from '../kanban/types';
@@ -10,11 +11,12 @@ export function CardProjectAssignment({ card, project, projects, onChange }: {
   onChange: (projectId: string) => void;
 }) {
   if (!canReassignKanbanCardProject(card)) {
-    return <span className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>;
+    return <span data-project-color={projectColorAttribute(project)} className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>;
   }
 
   return <select
     className="kanbanProjectAssignment"
+    data-project-color={projectColorAttribute(project)}
     aria-label="Owning project"
     value={card.project_id ?? ''}
     onChange={(event) => onChange(event.target.value)}

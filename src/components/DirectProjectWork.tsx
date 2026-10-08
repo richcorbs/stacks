@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GitInfo, Project } from '../types';
+import { projectColorAttribute } from '../projectColor';
 import { applicationEvents } from '../applicationEvents';
 import { directWorkTabs, workAgentId, workTerminalId, type WorkNavigationRequest, type WorkView } from '../directWork';
 import { useDiffReview } from '../diffReview/useDiffReview';
@@ -135,7 +136,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   }, [activeView, agentId, focusedShellPane, owner, serviceConfigs.console.terminalId, serviceConfigs.server.terminalId]);
   return <>
     <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={requestClose}>
-      <article className={`kanbanDetail cardWorkspace directProjectWork${showAgent ? ' chatActive' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
+      <article data-project-color={projectColorAttribute(project)} className={`kanbanDetail cardWorkspace directProjectWork${showAgent ? ' chatActive' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
         <ProjectWorkspaceHeader project={project} gitState={gitState} onClose={requestClose} />
         <nav className="cardWorkspaceTabs" aria-label={PROJECT_WORKSPACE_VIEWS_LABEL}>
           {displayedTabs.map((tab) => tab === 'diff' ? <span key={tab} className={`cardDiffTab${activeView === tab ? ' active' : ''}`}>

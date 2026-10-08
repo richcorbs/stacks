@@ -1,6 +1,7 @@
 import type React from 'react';
 import type { DialogState } from '../types';
 import { SuperthreadMappingFields } from './SuperthreadMappingFields';
+import { PROJECT_COLORS, projectColor } from '../projectColor';
 
 type DialogFieldsProps = {
   dialog: DialogState;
@@ -14,6 +15,9 @@ export function DialogFields({ dialog, setDialog, firstInputRef, showHeading = t
     {showHeading && <h2>{dialog.kind === 'project' ? 'Add Project' : 'Edit Project'}</h2>}
     <label>Name<input ref={firstInputRef} value={dialog.name} onChange={(event) => setDialog({ ...dialog, name: event.target.value })} /></label>
     <label>Directory<input value={dialog.path} placeholder="/Users/rich/Code/my-project" onChange={(event) => setDialog({ ...dialog, path: event.target.value })} /></label>
+    <fieldset className="projectColorField" data-project-color={projectColor(dialog.colorId)}><legend>Project accent color</legend><div className="projectColorSwatches">
+      {PROJECT_COLORS.map((color) => <label key={color} data-project-color={color} title={color} className="projectColorSwatch"><input type="radio" name="project-accent-color" value={color} aria-label={`${color} project accent`} checked={projectColor(dialog.colorId) === color} onChange={() => setDialog({ ...dialog, colorId: color })} /><span aria-hidden="true" /></label>)}
+    </div><small>Selected: {projectColor(dialog.colorId)}</small></fieldset>
     <label>Work board<select value={dialog.kanbanSource ?? 'local'} onChange={(event) => setDialog({ ...dialog, kanbanSource: event.target.value as 'superthread' | 'local' })}><option value="local">Local Stacks board</option><option value="superthread">Superthread</option></select></label>
     {dialog.kanbanSource === 'superthread' && <section className="superthreadSettingsCard" aria-labelledby="superthread-settings-title">
       <h3 id="superthread-settings-title">Superthread configuration</h3>

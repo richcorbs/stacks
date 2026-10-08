@@ -33,7 +33,7 @@ import type { GlobalSettingsSection, SettingsPageId } from '../components/Settin
 import { presentedToast, useLoadingSnapshot, type LoadingCoordinator } from '../loadingState';
 
 function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, current: Project): Project {
-  return { ...current, name: draft.name.trim(), path: draft.path.trim(), kanban_source: draft.kanbanSource ?? 'local',
+  return { ...current, color_id: draft.colorId, name: draft.name.trim(), path: draft.path.trim(), kanban_source: draft.kanbanSource ?? 'local',
     start_work_command: draft.startWorkCommand?.trim() || undefined,
     superthread_spaces: draft.kanbanSource === 'superthread' ? draft.superthreadSpaces?.trim() : undefined,
     superthread_workspace_id: draft.superthreadWorkspaceId, superthread_workspace_name: draft.superthreadWorkspaceName,
@@ -56,7 +56,7 @@ function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, cur
 }
 
 function projectConfigurationInput(project: Project, expectedRevision: number) {
-  return { id: project.id, name: project.name, path: project.path, kanban_source: project.kanban_source,
+  return { id: project.id, name: project.name, path: project.path, color_id: project.color_id, kanban_source: project.kanban_source,
     start_work_command: project.start_work_command, superthread_spaces: project.superthread_spaces,
     superthread_workspace_id: project.superthread_workspace_id, superthread_workspace_name: project.superthread_workspace_name,
     superthread_space_id: project.superthread_space_id, superthread_space_name: project.superthread_space_name, superthread_binding_id: project.superthread_binding_id,
@@ -166,7 +166,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     if (dialog.kanbanSource === 'superthread' && !dialog.superthreadSpaces?.trim()) throw new Error('Superthread spaces are required');
     if (dialog.deliveryWorkflow === 'scripted_delivery' && !dialog.deploymentCommand?.trim()) throw new Error('Deployment command is required for Scripted delivery');
     const project: Project = {
-      id, name, path, workspaces: [], kanban_source: dialog.kanbanSource ?? 'local',
+      id, name, path, color_id: dialog.colorId, workspaces: [], kanban_source: dialog.kanbanSource ?? 'local',
       start_work_command: dialog.startWorkCommand?.trim() || undefined,
       superthread_spaces: dialog.kanbanSource === 'superthread' ? dialog.superthreadSpaces?.trim() : undefined,
       superthread_workspace_id: dialog.superthreadWorkspaceId, superthread_workspace_name: dialog.superthreadWorkspaceName,
