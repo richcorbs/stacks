@@ -54,7 +54,7 @@ export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serv
             <button type="button" className="kanbanCardOpen" data-kanban-card-id={card.id}
               aria-label={`Open card #${card.external_id}: ${card.title}`}
               onFocus={() => setKeyboardFocusedCardId(card.id)} onClick={(event) => { event.stopPropagation(); onOpenCard(card); }} />
-            <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatuses[card.id]}
+            <KanbanCardContents card={card} projects={projects} layout="list" repositoryStatus={repositoryStatuses[card.id]}
               prCheck={prChecks?.[card.id]}
               serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined}
               onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />

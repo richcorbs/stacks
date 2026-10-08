@@ -23,10 +23,21 @@ describe('Kanban list', () => {
     const markup = render(['needs_refinement', 'refining', 'needs_refinement_input', 'ready', 'agent_working', 'needs_human', 'approved', 'done']);
     expect(markup.match(/class="kanbanListGroup"/g)).toHaveLength(4);
     for (const label of ['Needs refinement', 'Refining', 'Needs you for refinement', 'Ready for agent', 'Agent working', 'Needs you', 'Ready to merge']) {
-      expect(markup).toContain(`kanbanCardStatusBadge">${label}</span>`);
+      expect(markup).toContain(`class="kanbanCardStatusBadge" title="${label}">${label}</span>`);
     }
     expect(markup).toContain('aria-expanded="false"');
-    expect(markup).not.toContain('kanbanCardStatusBadge">Done · Closed</span>');
+    expect(markup).not.toContain('class="kanbanCardStatusBadge" title="Done · Closed"');
+  });
+
+  it('places the bright status by the number and the project in the trailing metadata', () => {
+    const markup = render(['ready']);
+    const status = markup.indexOf('class="kanbanCardStatusBadge" title="Ready for agent"');
+    const title = markup.indexOf('<strong>ready</strong>');
+    const project = markup.indexOf('class="kanbanProjectBadge"');
+    expect(status).toBeGreaterThan(-1);
+    expect(status).toBeLessThan(title);
+    expect(project).toBeGreaterThan(title);
+    expect(markup).toContain('class="kanbanCardMeta"><span class="kanbanProjectBadge"');
   });
 
   it('opens from the row surface or overlay button without duplicate calls', async () => {
@@ -50,7 +61,7 @@ describe('Kanban list', () => {
   it('shows Done rows when expanded, with accessible card open controls', () => {
     const markup = render(['done'], false);
     expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain('kanbanCardStatusBadge">Done · Closed</span>');
+    expect(markup).toContain('class="kanbanCardStatusBadge" title="Done · Closed">Done · Closed</span>');
     expect(markup).toContain('aria-label="Open card #done: done"');
   });
 });

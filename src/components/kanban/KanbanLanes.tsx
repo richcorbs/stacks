@@ -134,25 +134,31 @@ export function KanbanCardContents({
   serverServices,
   onNavigateParent,
   onToggleServer,
+  layout = 'board',
 }: {
   card: KanbanCardSummary;
   projects: Project[];
   repositoryStatus: CardRepositoryStatus | undefined;
   prCheck?: PrCheck;
   serverServices?: CardServices;
+  layout?: 'board' | 'list';
   onNavigateParent: (parentId: string) => void;
   onToggleServer: (cardId: string) => void;
 }) {
   const hasHierarchy = Boolean(card.parent) || card.child_count > 0;
+  const project = owningProject(card, projects);
+  const projectBadge = <span className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>;
+  const statusLabel = hierarchyStatusLabel(card);
+  const statusBadge = <span className="kanbanCardStatusBadge" title={layout === 'list' ? statusLabel : undefined}>{statusLabel}</span>;
+  const providerBoard = card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active'
+    ? <span className="kanbanProviderBoardTitle">{card.board_title}</span> : null;
 
   return <>
     <span className="kanbanCardSource">
       <span className="kanbanCardSourceLeft">
         <span className="kanbanCardNumber">#{card.external_id}</span>
-        <span className={`kanbanProjectBadge${owningProject(card, projects) ? '' : ' invalid'}`}>
-          {owningProject(card, projects)?.name ?? 'Unknown project'}
-        </span>
-        {card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active' && <span className="kanbanProviderBoardTitle">{card.board_title}</span>}
+        {layout === 'list' ? statusBadge : projectBadge}
+        {layout === 'board' && providerBoard}
       </span>
       {hasHierarchy && <span className="kanbanHierarchyGroup">
         <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
@@ -160,8 +166,10 @@ export function KanbanCardContents({
     </span>
     <strong>{card.title}</strong>
     <span className="kanbanCardMeta">
+      {layout === 'list' && projectBadge}
       <span className="kanbanCardAttribution">
-        <span className="kanbanCardStatusBadge">{hierarchyStatusLabel(card)}</span>
+        {layout === 'board' && statusBadge}
+        {layout === 'list' && providerBoard}
         {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
       </span>
       <span className="kanbanCardIndicators">

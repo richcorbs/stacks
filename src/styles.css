@@ -185,15 +185,17 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanListChevron { display: inline-block; width: 6px; height: 6px; margin-right: 10px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); vertical-align: 2px; }
 .kanbanListDoneToggle[aria-expanded="true"] .kanbanListChevron { transform: rotate(45deg); }
 .kanbanListRows { padding: 3px 8px 6px; }
-.kanbanListRow.kanbanCard { width: auto; margin: 0; padding: 8px 10px; display: grid; grid-template-columns: minmax(140px, 240px) minmax(120px, 1fr) minmax(130px, auto); align-items: center; gap: 12px; border: 1px solid transparent; border-bottom-color: #203040; border-radius: 5px; background: transparent; box-shadow: none; cursor: pointer; touch-action: auto; }
+.kanbanListRow.kanbanCard { width: auto; margin: 0; padding: 8px 10px; display: grid; grid-template-columns: minmax(180px, 270px) minmax(120px, 1fr) minmax(150px, auto); align-items: center; gap: 12px; border: 1px solid transparent; border-bottom-color: #203040; border-radius: 5px; background: transparent; box-shadow: none; cursor: pointer; touch-action: auto; }
 .kanbanListRow.kanbanParentCard { background: #192735; }
 .kanbanListRow:hover, .kanbanListRow.kanbanParentCard:hover { border-color: #344f69; background: #1b2b3b; }
 .kanbanListRow.kanbanListChild > strong::before { content: '↳'; margin-right: 8px; color: #64839c; }
 .kanbanListRow .kanbanCardSource { gap: 5px; }
 .kanbanListRow .kanbanCardSourceLeft { flex: 1 1 auto; }
-.kanbanListRow .kanbanProjectBadge { font-size: calc(10px + var(--ui-font-delta, 0px)); }
-.kanbanListRow .kanbanCardMeta { gap: 10px; }
+.kanbanListRow .kanbanCardStatusBadge { min-width: 0; max-width: 100%; padding: 4px 8px; overflow: hidden; border: 1px solid #52799c; border-radius: 999px; background: #243e56; color: #cce6fa; font: 650 calc(11px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-overflow: ellipsis; text-transform: none; letter-spacing: normal; white-space: nowrap; }
+.kanbanListRow .kanbanProjectBadge { flex: 0 1 auto; max-width: 150px; color: #8296a9; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanListRow .kanbanCardMeta { min-width: 0; gap: 10px; }
 .kanbanListRow .kanbanCardAttribution { font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanListRow .kanbanCardAttribution:empty { display: none; }
 .kanbanListRow .kanbanCardIndicators { min-width: 0; }
 .kanbanListRow.hasEnvironmentWarning .kanbanCardIndicators { padding-right: 22px; }
 .kanbanListRow > button.kanbanEnvironmentWarning { top: 50%; right: 9px; bottom: auto; z-index: 3; transform: translateY(-50%); pointer-events: auto; }
