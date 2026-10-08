@@ -151,7 +151,7 @@ export function KanbanCardContents({
   const project = owningProject(card, projects);
   const projectBadge = <span className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>;
   const statusLabel = hierarchyStatusLabel(card);
-  const statusBadge = <span className="kanbanCardStatusBadge" title={layout === 'list' ? statusLabel : undefined}>{statusLabel}</span>;
+  const statusBadge = <span className="kanbanCardStatusBadge" title={statusLabel}>{statusLabel}</span>;
   const providerBoard = card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active'
     ? <span className="kanbanProviderBoardTitle">{card.board_title}</span> : null;
 
@@ -159,13 +159,12 @@ export function KanbanCardContents({
     <span className="kanbanCardSource">
       <span className="kanbanCardSourceLeft">
         <span className="kanbanCardNumber">#{card.external_id}</span>
-        {layout === 'list' ? statusBadge : projectBadge}
+        {statusBadge}
         {layout === 'list' && listWarning && <button className="kanbanEnvironmentWarning" type="button"
           title={listWarning.tooltip} aria-label={`Environment warning: ${listWarning.tooltip}`}
           onKeyDown={(event) => event.stopPropagation()}
           onClick={(event) => { event.stopPropagation(); listWarning.onOpen(); }}
         ><span aria-hidden="true">!</span></button>}
-        {layout === 'board' && providerBoard}
       </span>
       {hasHierarchy && <span className="kanbanHierarchyGroup">
         <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
@@ -173,10 +172,9 @@ export function KanbanCardContents({
     </span>
     <strong>{card.title}</strong>
     <span className="kanbanCardMeta">
-      {layout === 'list' && projectBadge}
+      {projectBadge}
       <span className="kanbanCardAttribution">
-        {layout === 'board' && statusBadge}
-        {layout === 'list' && providerBoard}
+        {providerBoard}
         {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
       </span>
       <span className="kanbanCardIndicators">
