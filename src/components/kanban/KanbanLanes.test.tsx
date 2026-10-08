@@ -247,6 +247,8 @@ describe('KanbanPullRequestBadge', () => {
     expect(markup).toContain(tooltip === 'Pull request is ready to merge' ? 'open and ready to merge' : tooltip === 'CI is pending' ? 'CI running' : tooltip.replaceAll('\n', '; '));
     expect(markup).toContain(`aria-label="Pull request #98, ${accessibleStatus}, `);
     expect(markup).toContain('last checked 0m ago');
+    expect(markup).not.toContain('kanbanPrFreshness');
+    expect(markup).not.toContain('·');
   });
 
   it('keeps the last-known result independent of GitHub observation freshness', () => {
@@ -261,29 +263,34 @@ describe('KanbanPullRequestBadge', () => {
         [pullRequest({ ci_status: 'success', blockers: ['Merge conflict'] }), 'githubCiFailed', 'CI passed'],
       ] as const;
       for (const [pr, icon, result] of states) {
-        for (const [check, freshness, marked] of [
-          [{ checkedAt, failed: false, refreshing: false }, 'last checked 0m ago', false],
-          [undefined, 'not checked this session', true],
-          [{ checkedAt, failed: false, refreshing: true }, 'updating PR status', true],
-          [{ checkedAt, failed: true, refreshing: false }, 'GitHub refresh failed; retrying', true],
+        for (const [check, freshness] of [
+          [{ checkedAt, failed: false, refreshing: false }, 'last checked 0m ago'],
+          [undefined, 'last-known result; not checked this session'],
+          [{ checkedAt, failed: false, refreshing: true }, 'last checked 0m ago; updating PR status'],
+          [{ checkedAt, failed: true, refreshing: false }, 'last checked 0m ago; GitHub refresh failed; retrying'],
         ] as const) {
           const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pr} check={check} />);
+          const tooltip = markup.match(/<span class="kanbanPrBadge [^"]+" title="([^"]+)"/)?.[1];
+          const accessibleLabel = markup.match(/role="img" aria-label="([^"]+)"/)?.[1];
+          expect(markup).toContain('PR #98');
           expect(markup).toContain(icon);
-          expect(markup).toContain(result);
-          expect(markup).toContain(freshness);
-          expect(markup.includes('kanbanPrFreshness')).toBe(marked);
+          expect(tooltip).toContain(result);
+          expect(tooltip).toContain(freshness);
+          expect(accessibleLabel).toBe(tooltip);
+          expect(markup).not.toContain('kanbanPrFreshness');
+          expect(markup).not.toContain('·');
           if (icon !== 'githubCiRunning') expect(markup).not.toContain('githubCiRunning');
         }
       }
       vi.advanceTimersByTime(61_000);
-      let markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest()} check={{ checkedAt, failed: false, refreshing: false }} />);
-      expect(markup).toContain('githubCiPassed');
-      expect(markup).toContain('last checked 1m ago');
-      expect(markup).toContain('kanbanPrFreshness');
-      vi.advanceTimersByTime(120_000);
-      markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest()} check={{ checkedAt, failed: false, refreshing: false }} />);
-      expect(markup).toContain('last checked 3m ago');
-      expect(markup).toContain('githubCiPassed');
+      for (const minutes of [1, 3]) {
+        const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest()} check={{ checkedAt, failed: false, refreshing: false }} />);
+        expect(markup).toContain('githubCiPassed');
+        expect(markup).toContain(`last checked ${minutes}m ago`);
+        expect(markup).not.toContain('kanbanPrFreshness');
+        expect(markup).not.toContain('·');
+        vi.advanceTimersByTime(120_000);
+      }
     } finally {
       vi.useRealTimers();
     }
