@@ -142,7 +142,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .kanbanLaneMenuPopover button.danger { color: #d29a9a; }
 .kanbanLaneMenuPopover button.danger:hover:not(:disabled) { background: #342329; }
 .kanbanLane > header p { margin: 4px 0 0; color: #5f7287; font-size: calc(9px + var(--ui-font-delta, 0px)); }
-.kanbanLaneCards { flex: 1; min-height: 0; padding: 4px 8px 8px; overflow-y: auto; }
+.kanbanLaneCards { flex: 1; min-height: 0; padding: 4px 8px 8px; overflow-y: auto; scrollbar-gutter: stable both-edges; }
 .kanbanStatusGroup { margin-bottom: 7px; }
 .kanbanCardWrapper { position: relative; transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
 .kanbanCard { position: relative; width: 100%; margin: 0 0 8px; padding: 10px; display: flex; flex-direction: column; gap: 7px; text-align: left; text-transform: none; border: 1px solid #304154; border-radius: 8px; background: #151f2a; color: #bdc9d5; cursor: grab; touch-action: none; user-select: none; box-shadow: 0 3px 9px rgba(0, 0, 0, .12); }
