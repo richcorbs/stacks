@@ -297,6 +297,7 @@ export function KanbanLanes({
                         onPointerDown={(event) => pointer.beginPointerDrag(event, card)}
                         onPointerUp={pointer.finishPointerDrag}
                         onPointerCancel={pointer.cancelPointerDrag}
+                        onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                       >
                         <button
                           className="kanbanCardOpen"
@@ -304,7 +305,7 @@ export function KanbanLanes({
                           data-kanban-card-id={card.id}
                           aria-label={`Open card #${card.external_id}: ${card.title}`}
                           onFocus={() => setKeyboardFocusedCardId(card.id)}
-                          onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
+                          onClick={(event) => { event.stopPropagation(); if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                         />
                         <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} prCheck={prChecks?.[card.id]} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
                       </div>

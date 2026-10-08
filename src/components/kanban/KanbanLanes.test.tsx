@@ -91,8 +91,8 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
   );
 }
 
-function renderLanes(cards: KanbanCard[], doneCollapsed = false) {
-  const pointer = {
+function pointerStub() {
+  return {
     draggingId: null,
     dropBeforeId: null,
     dragPreview: null,
@@ -103,7 +103,9 @@ function renderLanes(cards: KanbanCard[], doneCollapsed = false) {
     cancelPointerDrag: () => {},
     shouldSuppressCardClick: () => false,
   } as ComponentProps<typeof KanbanLanes>['pointer'];
+}
 
+function renderLanes(cards: KanbanCard[], doneCollapsed = false) {
   return renderToStaticMarkup(<KanbanLanes
     cards={cards}
     projects={[project]}
@@ -116,7 +118,7 @@ function renderLanes(cards: KanbanCard[], doneCollapsed = false) {
     cleaningMerged={false}
     keyboardFocusedCardId={null}
     setKeyboardFocusedCardId={() => {}}
-    pointer={pointer}
+    pointer={pointerStub()}
     onToggleDone={() => {}}
     onCleanupMerged={() => {}}
     onOpenCard={() => {}}
@@ -299,6 +301,29 @@ describe('KanbanPullRequestBadge', () => {
 
   it('does not render non-open pull requests', () => {
     expect(renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pullRequest({ state: 'merged' })} />)).toBe('');
+  });
+});
+
+describe('KanbanLanes card opening', () => {
+  it('opens on both the overlay button and the card surface, once per click', async () => {
+    const open = vi.fn();
+    vi.stubGlobal('document', { documentElement: { classList: { toggle: vi.fn(), remove: vi.fn() } } });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<KanbanLanes
+      cards={[card({ parent: null, child_count: 0 })]} projects={[project]} repositoryStatuses={{}} serverServices={{}}
+      doneCollapsed doneToggleRef={createRef<HTMLButtonElement>()} openLaneMenu={null} setOpenLaneMenu={() => {}}
+      cleaningMerged={false} keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}}
+      pointer={pointerStub()} onToggleDone={() => {}} onCleanupMerged={() => {}} onOpenCard={open}
+      onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+    const overlay = renderer.root.findByProps({ className: 'kanbanCardOpen' });
+    const surface = renderer.root.findAllByProps({ className: 'kanbanCard' })[0];
+    const stop = vi.fn();
+    overlay.props.onClick({ stopPropagation: stop });
+    expect(stop).toHaveBeenCalledOnce();
+    surface.props.onClick();
+    expect(open).toHaveBeenCalledTimes(2);
+    await act(async () => renderer.unmount());
+    vi.unstubAllGlobals();
   });
 });
 

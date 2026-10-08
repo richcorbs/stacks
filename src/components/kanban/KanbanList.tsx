@@ -50,15 +50,15 @@ export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serv
             const health = repositoryStatuses[card.id]?.environmentHealth;
             const warning = shouldShowEnvironmentWarning(card, health);
             const tooltip = environmentHealthTooltip(health);
-            return <div className={`${kanbanCardClassName(card, keyboardFocusedCardId === card.id)} kanbanListRow${card.parent ? ' kanbanListChild' : ''}${warning ? ' hasEnvironmentWarning' : ''}`} key={card.id}>
+            return <div className={`${kanbanCardClassName(card, keyboardFocusedCardId === card.id)} kanbanListRow${card.parent ? ' kanbanListChild' : ''}${warning ? ' hasEnvironmentWarning' : ''}`} key={card.id} onClick={() => onOpenCard(card)}>
             <button type="button" className="kanbanCardOpen" data-kanban-card-id={card.id}
               aria-label={`Open card #${card.external_id}: ${card.title}`}
-              onFocus={() => setKeyboardFocusedCardId(card.id)} onClick={() => onOpenCard(card)} />
+              onFocus={() => setKeyboardFocusedCardId(card.id)} onClick={(event) => { event.stopPropagation(); onOpenCard(card); }} />
             <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatuses[card.id]}
               prCheck={prChecks?.[card.id]}
               serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined}
               onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
-            {warning && <button className="kanbanEnvironmentWarning" type="button" title={tooltip} aria-label={`Environment warning: ${tooltip}`} onClick={() => onOpenCard(card, 'overview')}><span aria-hidden="true">!</span></button>}
+            {warning && <button className="kanbanEnvironmentWarning" type="button" title={tooltip} aria-label={`Environment warning: ${tooltip}`} onClick={(event) => { event.stopPropagation(); onOpenCard(card, 'overview'); }}><span aria-hidden="true">!</span></button>}
           </div>;
           })}
           {!entries.length && <p className="kanbanListEmpty">No cards here</p>}

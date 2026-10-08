@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import TestRenderer, { act } from 'react-test-renderer';
+import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../types';
 import type { KanbanCard, KanbanStatus } from '../../kanban/types';
 import { KanbanList } from './KanbanList';
@@ -26,6 +27,24 @@ describe('Kanban list', () => {
     }
     expect(markup).toContain('aria-expanded="false"');
     expect(markup).not.toContain('kanbanCardStatusBadge">Done · Closed</span>');
+  });
+
+  it('opens from the row surface or overlay button without duplicate calls', async () => {
+    const open = vi.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<KanbanList cards={[card('ready')]} projects={[project]}
+      repositoryStatuses={{}} serverServices={{}} doneCollapsed openLaneMenu={null}
+      setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
+      setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      onOpenCard={open} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+    const overlay = renderer.root.findByProps({ className: 'kanbanCardOpen' });
+    const row = renderer.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.split(' ').includes('kanbanListRow'))[0];
+    const stop = vi.fn();
+    overlay.props.onClick({ stopPropagation: stop });
+    expect(stop).toHaveBeenCalledOnce();
+    row.props.onClick();
+    expect(open).toHaveBeenCalledTimes(2);
+    await act(async () => renderer.unmount());
   });
 
   it('shows Done rows when expanded, with accessible card open controls', () => {
