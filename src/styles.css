@@ -195,6 +195,10 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanListRow.kanbanParentCard { background: #192735; }
 .kanbanListRow:hover, .kanbanListRow.kanbanParentCard:hover { border-color: #344f69; background: #1b2b3b; }
 .kanbanListRows > .kanbanListRow:last-child { border-bottom-color: transparent; }
+.kanbanListRow.kanbanListPlaceholder, .kanbanListRow.kanbanListPlaceholder:hover { background: #223b50; border: 1px dashed #71a9d0; box-shadow: inset 0 0 0 1px #344e65; }
+.kanbanListPlaceholder > * { visibility: hidden; }
+.kanbanListDragOverlay { transform: rotate(1deg); }
+.kanbanListDragOverlay > .kanbanListRow.kanbanCard { height: 100%; box-sizing: border-box; border: 1px solid #6c9abd; background: #1b2b3b; box-shadow: 0 12px 24px #0008; }
 .kanbanListRow .kanbanCardSource { flex-wrap: wrap; gap: 5px; white-space: normal; }
 .kanbanListRow .kanbanCardSourceLeft { flex: 1 1 auto; flex-wrap: wrap; min-width: 0; white-space: normal; }
 .kanbanListRow .kanbanCardNumber { min-width: 6ch; margin-right: 4px; white-space: nowrap; }

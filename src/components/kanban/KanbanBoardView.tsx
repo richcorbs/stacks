@@ -184,7 +184,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     openCard,
     view,
   });
-  const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder });
+  const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder, view, backlogCollapsed });
 
   useEffect(() => {
     if (!board.loading) loading.settleStartup('cards');
@@ -593,6 +593,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         prChecks={prChecks}
         serverServices={cardServices}
         backlogCollapsed={backlogCollapsed}
+        pointer={pointerOrdering}
         doneCollapsed={doneCollapsed}
         openLaneMenu={openLaneMenu}
         setOpenLaneMenu={setOpenLaneMenu}

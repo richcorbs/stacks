@@ -31,10 +31,11 @@ export function dropTargetAtPoint(
   status: KanbanStatus,
   x: number,
   y: number,
+  layout: 'board' | 'list' = 'board',
 ): string | null | undefined {
   const element = document.elementFromPoint(x, y);
-  const lane = element?.closest<HTMLElement>('[data-kanban-lane-status]');
-  if (lane?.dataset.kanbanLaneStatus !== status) return undefined;
-  const cards = [...lane.querySelectorAll<HTMLElement>('[data-kanban-card-id]')];
+  const container = element?.closest<HTMLElement>(layout === 'list' ? '[data-kanban-list-status]' : '[data-kanban-lane-status]');
+  if ((layout === 'list' ? container?.dataset.kanbanListStatus : container?.dataset.kanbanLaneStatus) !== status) return undefined;
+  const cards = [...container!.querySelectorAll<HTMLElement>('[data-kanban-card-id]')];
   return dropTargetFromCards(cards, sourceId, y);
 }
