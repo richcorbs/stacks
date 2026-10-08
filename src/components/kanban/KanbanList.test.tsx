@@ -3,6 +3,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../types';
 import type { KanbanCard, KanbanStatus } from '../../kanban/types';
+import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import { KanbanList } from './KanbanList';
 
 const project = { id: 'project', name: 'Project', path: '/tmp/project' } as Project;
@@ -10,9 +11,9 @@ function card(status: KanbanStatus): KanbanCard {
   return { id: status, external_id: status, title: status, provider: 'local', project_id: project.id,
     status, parent: null, child_count: 0, board_title: '', assignee_names: [], pull_request: null } as unknown as KanbanCard;
 }
-function render(statuses: KanbanStatus[], collapsed = true) {
+function render(statuses: KanbanStatus[], collapsed = true, repositoryStatuses: Record<string, CardRepositoryStatus> = {}) {
   return renderToStaticMarkup(<KanbanList cards={statuses.map(card)} projects={[project]}
-    repositoryStatuses={{}} serverServices={{}} doneCollapsed={collapsed} openLaneMenu={null}
+    repositoryStatuses={repositoryStatuses} serverServices={{}} doneCollapsed={collapsed} openLaneMenu={null}
     setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
     setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
     onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
@@ -33,11 +34,41 @@ describe('Kanban list', () => {
     const markup = render(['ready']);
     const status = markup.indexOf('class="kanbanCardStatusBadge" title="Ready for agent"');
     const title = markup.indexOf('<strong>ready</strong>');
-    const project = markup.indexOf('class="kanbanProjectBadge"');
+    const projectIndex = markup.indexOf('class="kanbanProjectBadge"');
     expect(status).toBeGreaterThan(-1);
     expect(status).toBeLessThan(title);
-    expect(project).toBeGreaterThan(title);
+    expect(projectIndex).toBeGreaterThan(title);
     expect(markup).toContain('class="kanbanCardMeta"><span class="kanbanProjectBadge"');
+  });
+
+  it('puts environment warnings immediately after the status pill, without trailing space', async () => {
+    const repositoryStatuses: Record<string, CardRepositoryStatus> = {
+      ready: { git: null, environmentHealth: { card_id: 'ready', issues: [{ code: 'worktree_missing', message: 'Worktree missing', step: 'work' }] } },
+    };
+    const markup = render(['ready'], true, repositoryStatuses);
+    const status = markup.indexOf('class="kanbanCardStatusBadge"');
+    const warning = markup.indexOf('class="kanbanEnvironmentWarning"');
+    const projectIndex = markup.indexOf('class="kanbanProjectBadge"');
+    expect(status).toBeGreaterThan(-1);
+    expect(warning).toBeGreaterThan(status);
+    expect(warning).toBeLessThan(projectIndex);
+    expect(markup).toContain('aria-label="Environment warning: Worktree missing Affects work."');
+    expect(markup.match(/class="kanbanEnvironmentWarning"/g)).toHaveLength(1);
+
+    const open = vi.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<KanbanList cards={[card('ready')]} projects={[project]}
+      repositoryStatuses={repositoryStatuses} serverServices={{}} doneCollapsed openLaneMenu={null}
+      setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
+      setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      onOpenCard={open} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+    const warningButton = renderer.root.findByProps({ className: 'kanbanEnvironmentWarning' });
+    const stop = vi.fn();
+    warningButton.props.onClick({ stopPropagation: stop });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ id: 'ready' }), 'overview');
+    await act(async () => renderer.unmount());
   });
 
   it('opens from the row surface or overlay button without duplicate calls', async () => {

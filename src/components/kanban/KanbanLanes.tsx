@@ -135,6 +135,7 @@ export function KanbanCardContents({
   onNavigateParent,
   onToggleServer,
   layout = 'board',
+  listWarning,
 }: {
   card: KanbanCardSummary;
   projects: Project[];
@@ -142,6 +143,7 @@ export function KanbanCardContents({
   prCheck?: PrCheck;
   serverServices?: CardServices;
   layout?: 'board' | 'list';
+  listWarning?: { tooltip: string; onOpen: () => void };
   onNavigateParent: (parentId: string) => void;
   onToggleServer: (cardId: string) => void;
 }) {
@@ -158,6 +160,11 @@ export function KanbanCardContents({
       <span className="kanbanCardSourceLeft">
         <span className="kanbanCardNumber">#{card.external_id}</span>
         {layout === 'list' ? statusBadge : projectBadge}
+        {layout === 'list' && listWarning && <button className="kanbanEnvironmentWarning" type="button"
+          title={listWarning.tooltip} aria-label={`Environment warning: ${listWarning.tooltip}`}
+          onKeyDown={(event) => event.stopPropagation()}
+          onClick={(event) => { event.stopPropagation(); listWarning.onOpen(); }}
+        ><span aria-hidden="true">!</span></button>}
         {layout === 'board' && providerBoard}
       </span>
       {hasHierarchy && <span className="kanbanHierarchyGroup">
