@@ -65,15 +65,18 @@ describe('Kanban list', () => {
     await act(async () => renderer.unmount());
   });
 
-  it('places the bright status by the number and the project in the trailing metadata', () => {
+  it('orders number, project and status in the heading with one project badge', () => {
     const markup = render(['ready']);
+    const number = markup.indexOf('class="kanbanCardNumber">#ready');
+    const projectIndex = markup.indexOf('class="kanbanProjectBadge"');
     const status = markup.indexOf('class="kanbanCardStatusBadge" title="Ready for agent"');
     const title = markup.indexOf('<strong>ready</strong>');
-    const projectIndex = markup.indexOf('class="kanbanProjectBadge"');
-    expect(status).toBeGreaterThan(-1);
+    expect(number).toBeGreaterThan(-1);
+    expect(projectIndex).toBeGreaterThan(number);
+    expect(status).toBeGreaterThan(projectIndex);
     expect(status).toBeLessThan(title);
-    expect(projectIndex).toBeGreaterThan(title);
-    expect(markup).toContain('class="kanbanCardMeta"><span class="kanbanProjectBadge"');
+    expect(markup.match(/class="kanbanProjectBadge"/g)).toHaveLength(1);
+    expect(markup).not.toContain('kanbanCardMeta');
   });
 
   it('puts environment warnings immediately after the status pill, without trailing space', async () => {
@@ -86,7 +89,8 @@ describe('Kanban list', () => {
     const projectIndex = markup.indexOf('class="kanbanProjectBadge"');
     expect(status).toBeGreaterThan(-1);
     expect(warning).toBeGreaterThan(status);
-    expect(warning).toBeLessThan(projectIndex);
+    expect(projectIndex).toBeLessThan(status);
+    expect(warning).toBeLessThan(markup.indexOf('<strong>ready</strong>'));
     expect(markup).toContain('aria-label="Environment warning: Worktree missing Affects work."');
     expect(markup.match(/class="kanbanEnvironmentWarning"/g)).toHaveLength(1);
 
@@ -129,9 +133,9 @@ describe('Kanban list', () => {
     const child = { ...card('ready'), id: 'child', external_id: '13', title: 'Child',
       parent: { id: 'parent', external_id: '12', title: 'Parent', status: 'ready' as const } };
     const markup = renderToStaticMarkup(<KanbanList cards={[parent, child]} projects={[project]}
-      repositoryStatuses={{}} serverServices={{}} doneCollapsed openLaneMenu={null}
+      repositoryStatuses={{}} serverServices={{}} backlogCollapsed doneCollapsed openLaneMenu={null}
       setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
-      setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
       onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
     expect(markup).toContain('<strong>Child</strong>');
     expect(markup).toContain('<strong>Parent</strong>');
@@ -143,9 +147,9 @@ describe('Kanban list', () => {
     const open = vi.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<KanbanList cards={[parent, child]} projects={[project]}
-      repositoryStatuses={{}} serverServices={{}} doneCollapsed openLaneMenu={null}
+      repositoryStatuses={{}} serverServices={{}} backlogCollapsed doneCollapsed openLaneMenu={null}
       setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
-      setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
       onOpenCard={open} onNavigateParent={navigate} onToggleServer={() => {}} />); });
     const badge = renderer.root.findByProps({ className: 'kanbanHierarchyBadge parent' });
     const stopPropagation = vi.fn();

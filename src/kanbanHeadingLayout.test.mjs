@@ -28,16 +28,26 @@ describe('kanban hierarchy heading layout', () => {
     expect(declarations).toContain('white-space: nowrap');
   });
 
-  it('keeps the hierarchy badges adjacent, right-aligned, and non-shrinking', () => {
+  it('keeps hierarchy badges adjacent and right-aligned while allowing truncation', () => {
     const group = declarationsFor('.kanbanHierarchyGroup');
     const badge = declarationsFor('.kanbanHierarchyGroup > .kanbanHierarchyBadge');
 
     expect(group).toContain('display: inline-flex');
     expect(group).toContain('justify-content: flex-end');
     expect(group).toContain('gap: 5px');
-    expect(group).toContain('flex: 0 0 auto');
+    expect(group).toContain('max-width: 30%');
+    expect(group).toContain('flex: 0 1 auto');
     expect(group).toContain('white-space: nowrap');
-    expect(badge).toContain('flex: 0 0 auto');
+    expect(badge).toContain('min-width: 0');
+    expect(badge).toContain('flex: 0 1 auto');
+  });
+
+  it('shrinks the heading project before the status without shrinking the card number', () => {
+    expect(declarationsFor('.kanbanCardSourceLeft .kanbanCardNumber')).toContain('flex: 0 0 auto');
+    const project = declarationsFor('.kanbanCardSourceLeft > .kanbanProjectBadge');
+    expect(project).toContain('flex: 0 10 auto');
+    expect(project).toContain('max-width: 150px');
+    expect(declarationsFor('.kanbanCardSourceLeft > .kanbanCardStatusBadge')).toContain('min-width: 55px');
   });
 
   it.each(['.kanbanProjectBadge', '.kanbanProjectAssignment'])('ellipsizes long project text in %s', (selector) => {
