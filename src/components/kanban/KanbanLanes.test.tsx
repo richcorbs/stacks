@@ -7,6 +7,7 @@ import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/typ
 import type { CardServices } from '../../kanban/useCardServices';
 import { DoneLaneMenu, KanbanCardContents, KanbanLanes, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
 import { cardServerAvailability } from './BoardCardServerServices';
+import type { WorkGroup } from '../../kanban/workflowGroups';
 
 const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
 
@@ -124,9 +125,9 @@ function renderLanes(cards: KanbanCard[], doneCollapsed = false) {
   />);
 }
 
-function laneMarkup(markup: string, status: KanbanStatus) {
-  const lane = markup.match(new RegExp(`<section[^>]*data-kanban-lane-status="${status}"[^>]*>[\\s\\S]*?</section>`));
-  if (!lane) throw new Error(`Missing ${status} lane`);
+function laneMarkup(markup: string, group: WorkGroup) {
+  const lane = markup.match(new RegExp(`<section[^>]*data-kanban-group="${group}"[^>]*>[\\s\\S]*?</section>`));
+  if (!lane) throw new Error(`Missing ${group} group`);
   return lane[0];
 }
 
@@ -302,7 +303,7 @@ describe('KanbanPullRequestBadge', () => {
 });
 
 describe('KanbanLanes headings', () => {
-  it('renders every expanded heading with its current plain card count, including zero', () => {
+  it('renders four group headings and retains exact statuses on the cards', () => {
     const cards = [
       card({ id: 'ready-1', status: 'ready' }),
       card({ id: 'working-1', status: 'agent_working' }),
@@ -311,30 +312,31 @@ describe('KanbanLanes headings', () => {
     ];
     const markup = renderLanes(cards);
     const expected = {
-      needs_refinement: ['Needs refinement', 0],
-      refining: ['Refining', 0],
-      needs_refinement_input: ['Needs you for refinement', 0],
-      ready: ['Ready for agent', 1],
-      agent_working: ['Agent working', 2],
-      needs_human: ['Needs you', 0],
-      approved: ['Ready to merge', 0],
+      attention: ['Needs your action', 1],
+      progress: ['In progress', 2],
+      backlog: ['Backlog', 0],
       done: ['Done', 1],
-    } satisfies Record<KanbanStatus, [string, number]>;
+    } satisfies Record<WorkGroup, [string, number]>;
 
-    for (const [status, [label, count]] of Object.entries(expected) as [KanbanStatus, [string, number]][]) {
-      expect(laneMarkup(markup, status)).toContain(`<strong class="kanbanLaneTitle">${label} <span class="kanbanLaneCount">${count}</span></strong>`);
+    expect(markup.match(/data-kanban-group=/g)).toHaveLength(4);
+    expect([...markup.matchAll(/<section[^>]*data-kanban-group="([^"]+)"/g)].map((match) => match[1]))
+      .toEqual(['backlog', 'progress', 'attention', 'done']);
+    for (const [group, [label, count]] of Object.entries(expected) as [WorkGroup, [string, number]][]) {
+      expect(laneMarkup(markup, group)).toContain(`<strong class="kanbanLaneTitle">${label} <span class="kanbanLaneCount">${count}</span></strong>`);
     }
+    expect(laneMarkup(markup, 'attention')).toContain('Ready for agent');
+    expect(laneMarkup(markup, 'progress')).toContain('Agent working');
   });
 
-  it('updates source and destination counts when a card changes columns', () => {
+  it('updates source and destination group counts when a card changes status', () => {
     const readyCard = card({ id: 'moving-card', status: 'ready' });
     const before = renderLanes([readyCard]);
     const after = renderLanes([{ ...readyCard, status: 'agent_working' }]);
 
-    expect(laneMarkup(before, 'ready')).toContain('Ready for agent <span class="kanbanLaneCount">1</span>');
-    expect(laneMarkup(before, 'agent_working')).toContain('Agent working <span class="kanbanLaneCount">0</span>');
-    expect(laneMarkup(after, 'ready')).toContain('Ready for agent <span class="kanbanLaneCount">0</span>');
-    expect(laneMarkup(after, 'agent_working')).toContain('Agent working <span class="kanbanLaneCount">1</span>');
+    expect(laneMarkup(before, 'attention')).toContain('Needs your action <span class="kanbanLaneCount">1</span>');
+    expect(laneMarkup(before, 'progress')).toContain('In progress <span class="kanbanLaneCount">0</span>');
+    expect(laneMarkup(after, 'attention')).toContain('Needs your action <span class="kanbanLaneCount">0</span>');
+    expect(laneMarkup(after, 'progress')).toContain('In progress <span class="kanbanLaneCount">1</span>');
   });
 
   it('keeps the expanded Done menu separate from and after its title group', () => {

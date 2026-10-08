@@ -15,6 +15,8 @@ export type KanbanBoardProps = {
   onSelectProject: (projectId: string | null) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
+  view: 'list' | 'board';
+  onViewChange: (view: 'list' | 'board') => void;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;

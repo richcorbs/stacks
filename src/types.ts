@@ -81,6 +81,7 @@ export type AppSettings = {
   superthread_enabled?: boolean | null;
   kanban_project_id?: string | null;
   kanban_done_collapsed?: boolean | null;
+  kanban_view?: 'list' | 'board' | null;
   activity_notifications?: boolean | null;
 };
 export type TermSize = { cols: number; rows: number };

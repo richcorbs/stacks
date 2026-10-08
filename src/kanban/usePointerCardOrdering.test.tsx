@@ -210,7 +210,7 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     };
     const lane = {
       dataset: { kanbanLaneStatus: 'needs_refinement' },
-      querySelector: () => scroller,
+      closest: () => ({ querySelector: () => scroller }),
     };
     vi.mocked(document.querySelectorAll).mockReturnValue([lane] as unknown as NodeListOf<Element>);
 

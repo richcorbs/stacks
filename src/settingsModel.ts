@@ -30,6 +30,7 @@ export type ResolvedAppSettings = {
   superthread_enabled: boolean;
   kanban_project_id: string | null;
   kanban_done_collapsed: boolean;
+  kanban_view: 'list' | 'board';
   activity_notifications: boolean;
 };
 
@@ -47,6 +48,7 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   superthread_enabled: true,
   kanban_project_id: null,
   kanban_done_collapsed: true,
+  kanban_view: 'list',
   activity_notifications: false,
 };
 
@@ -65,6 +67,7 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     superthread_enabled: settings?.superthread_enabled ?? DEFAULT_APP_SETTINGS.superthread_enabled,
     kanban_project_id: settings?.kanban_project_id?.trim() || null,
     kanban_done_collapsed: settings?.kanban_done_collapsed ?? DEFAULT_APP_SETTINGS.kanban_done_collapsed,
+    kanban_view: settings?.kanban_view === 'board' ? 'board' : 'list',
     activity_notifications: settings?.activity_notifications ?? DEFAULT_APP_SETTINGS.activity_notifications,
   };
 }
@@ -84,6 +87,7 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     superthread_enabled: settings.superthread_enabled,
     kanban_project_id: settings.kanban_project_id?.trim() || null,
     kanban_done_collapsed: settings.kanban_done_collapsed,
+    kanban_view: settings.kanban_view,
     activity_notifications: settings.activity_notifications,
   };
 }

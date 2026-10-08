@@ -15,6 +15,8 @@ type MainWorkspaceProps = {
   onSelectProject: (projectId: string | null) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
+  view: 'list' | 'board';
+  onViewChange: (view: 'list' | 'board') => void;
   onAddProject: () => void;
   onCleanupCard: (card: KanbanCard, evidence: import('../kanban/types').CleanupPreflight) => Promise<boolean>;
   onStartWork: (cardId: string) => Promise<KanbanCard | null>;
@@ -33,6 +35,8 @@ export function MainWorkspace({
   onSelectProject,
   doneCollapsed,
   onDoneCollapsedChange,
+  view,
+  onViewChange,
   onAddProject,
   onCleanupCard,
   onStartWork,
@@ -49,6 +53,8 @@ export function MainWorkspace({
           onSelectProject={onSelectProject}
           doneCollapsed={doneCollapsed}
           onDoneCollapsedChange={onDoneCollapsedChange}
+          view={view}
+          onViewChange={onViewChange}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}
           terminalScrollback={terminalScrollback}

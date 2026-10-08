@@ -199,7 +199,7 @@ export function usePointerCardOrdering({
       }
       const lane = [...document.querySelectorAll<HTMLElement>('[data-kanban-lane-status]')]
         .find((candidate) => candidate.dataset.kanbanLaneStatus === drag.status);
-      const scroller = lane?.querySelector<HTMLElement>('.kanbanLaneCards');
+      const scroller = lane?.closest<HTMLElement>('.kanbanLane')?.querySelector<HTMLElement>('.kanbanLaneCards');
       if (!scroller) return;
       const rect = scroller.getBoundingClientRect();
       const edgeSize = Math.min(64, rect.height / 4);

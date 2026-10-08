@@ -48,6 +48,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub kanban_done_collapsed: Option<bool>,
     #[serde(default)]
+    pub kanban_view: Option<String>,
+    #[serde(default)]
     pub activity_notifications: Option<bool>,
 }
 
@@ -68,6 +70,7 @@ impl AppSettings {
                 "superthread_enabled" => self.superthread_enabled = next.superthread_enabled,
                 "kanban_project_id" => self.kanban_project_id = non_empty(next.kanban_project_id.clone()),
                 "kanban_done_collapsed" => self.kanban_done_collapsed = next.kanban_done_collapsed,
+                "kanban_view" => self.kanban_view = valid_kanban_view(next.kanban_view.clone()),
                 "activity_notifications" => self.activity_notifications = next.activity_notifications,
                 _ => {}
             }
@@ -90,6 +93,7 @@ impl AppSettings {
         self.superthread_enabled = next.superthread_enabled;
         self.kanban_project_id = non_empty(next.kanban_project_id);
         self.kanban_done_collapsed = next.kanban_done_collapsed;
+        self.kanban_view = valid_kanban_view(next.kanban_view);
         self.activity_notifications = next.activity_notifications;
     }
 }
@@ -131,6 +135,10 @@ fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())
 }
 
+fn valid_kanban_view(value: Option<String>) -> Option<String> {
+    value.filter(|value| matches!(value.as_str(), "list" | "board"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,6 +163,15 @@ mod tests {
         assert_eq!(current.terminal_font_size, Some(18));
         assert_eq!(current.editor_app.as_deref(), Some("Zed"));
         assert_eq!(current.window.as_ref().map(WindowState::width), Some(1200));
+    }
+
+    #[test]
+    fn kanban_view_only_accepts_known_presentations() {
+        let mut settings = AppSettings::default();
+        settings.apply_patch(AppSettings { kanban_view: Some("unknown".into()), ..Default::default() }, &["kanban_view".into()]);
+        assert_eq!(settings.kanban_view, None);
+        settings.apply_patch(AppSettings { kanban_view: Some("board".into()), ..Default::default() }, &["kanban_view".into()]);
+        assert_eq!(settings.kanban_view.as_deref(), Some("board"));
     }
 
     #[test]

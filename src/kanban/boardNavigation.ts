@@ -1,16 +1,16 @@
 import type { KanbanCardSummary } from './types';
-import { KANBAN_LANES } from './workflow';
+import { BOARD_GROUPS, WORK_GROUPS, groupCards } from './workflowGroups';
 
 export function keyboardNavigableCards(cards: KanbanCardSummary[], doneCollapsed: boolean) {
   return doneCollapsed ? cards.filter((card) => card.status !== 'done') : cards;
 }
 
 export function adjacentBoardCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l') {
-  const lanes = KANBAN_LANES.map((lane) => cards.filter((card) => card.status === lane.status));
+  const lanes = BOARD_GROUPS.map((group) => groupCards(cards, group));
   const first = lanes.find((lane) => lane.length > 0)?.[0] ?? null;
   const current = cards.find((card) => card.id === currentId);
   if (!current) return first;
-  const laneIndex = KANBAN_LANES.findIndex((lane) => lane.status === current.status);
+  const laneIndex = BOARD_GROUPS.findIndex((group) => group.statuses.some((status) => status === current.status));
   const rowIndex = lanes[laneIndex]?.findIndex((card) => card.id === current.id) ?? 0;
   if (direction === 'j' || direction === 'k') {
     const lane = lanes[laneIndex] ?? [];
@@ -21,4 +21,11 @@ export function adjacentBoardCard(cards: KanbanCardSummary[], currentId: string 
     if (lanes[index].length > 0) return lanes[index][Math.min(rowIndex, lanes[index].length - 1)];
   }
   return current;
+}
+
+export function adjacentListCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'j' | 'k') {
+  const ordered = WORK_GROUPS.flatMap((group) => groupCards(cards, group));
+  const index = ordered.findIndex((card) => card.id === currentId);
+  if (index < 0) return ordered[0] ?? null;
+  return ordered[Math.max(0, Math.min(ordered.length - 1, index + (direction === 'j' ? 1 : -1)))];
 }

@@ -19,6 +19,7 @@ import type { KanbanBoardModel, KanbanBoardProps } from '../KanbanBoard';
 import { KanbanCardDetail, type CardDetailWorkflowController } from './KanbanCardDetail';
 import { NewCardDialog } from './NewCardDialog';
 import { KanbanLanes } from './KanbanLanes';
+import { KanbanList } from './KanbanList';
 import { BoardCardServerServices } from './BoardCardServerServices';
 import type { CardServices } from '../../kanban/useCardServices';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
@@ -35,7 +36,7 @@ import { CardServerShutdownError, findConflictingCardServer, handoffCardServer }
 import { ServerHandoffDialog } from './ServerHandoffDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
 
-export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
+export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
@@ -180,6 +181,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     doneCollapsed,
     selectedCard,
     openCard,
+    view,
   });
   const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder });
 
@@ -513,6 +515,14 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           </label>
         </div>
         <div className="kanbanHeaderActions">
+          <div className="kanbanViewSwitch" role="group" aria-label="Card view">
+            <button type="button" aria-label="List view" title="List view" aria-pressed={view === 'list'} onClick={() => onViewChange('list')}>
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2.5 4h2m3 0h8m-13 5h2m3 0h8m-13 5h2m3 0h8" /></svg>
+            </button>
+            <button type="button" aria-label="Board view" title="Board view" aria-pressed={view === 'board'} onClick={() => onViewChange('board')}>
+              <svg viewBox="0 0 18 18" aria-hidden="true"><rect x="2" y="3" width="4" height="12" rx="1" /><rect x="7" y="3" width="4" height="9" rx="1" /><rect x="12" y="3" width="4" height="11" rx="1" /></svg>
+            </button>
+          </div>
           <button className="primaryAction" type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
             newCard.show();
           }}>+ Add card</button>
@@ -540,7 +550,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         copyOnSelect={copyOnSelect}
         onServices={updateCardServices}
       />
-      {!board.loading && (
+      {!board.loading && view === 'board' && (
         <KanbanLanes
           cards={visibleCards}
           projects={projects}
@@ -565,6 +575,27 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           }}
         />
       )}
+      {!board.loading && view === 'list' && visibleCards.length > 0 && <KanbanList
+        cards={visibleCards}
+        projects={projects}
+        repositoryStatuses={repositoryStatuses}
+        prChecks={prChecks}
+        serverServices={cardServices}
+        doneCollapsed={doneCollapsed}
+        openLaneMenu={openLaneMenu}
+        setOpenLaneMenu={setOpenLaneMenu}
+        cleaningMerged={cleaningMerged}
+        keyboardFocusedCardId={keyboardFocusedCardId}
+        setKeyboardFocusedCardId={setKeyboardFocusedCardId}
+        onToggleDone={toggleDoneCollapsed}
+        onCleanupMerged={cleanupMergedCards}
+        onOpenCard={openCard}
+        onNavigateParent={(parentId) => {
+          const parent = board.cards.find((candidate) => candidate.id === parentId);
+          if (parent) openCard(parent, 'overview');
+        }}
+        onToggleServer={toggleCardServer}
+      />}
       {!board.loading && visibleCards.length === 0 && (
         <div className="kanbanWelcome">
           <strong>No cards in this view.</strong>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { KanbanCardSummary } from './types';
-import { adjacentBoardCard, keyboardNavigableCards } from './boardNavigation';
+import { adjacentBoardCard, adjacentListCard, keyboardNavigableCards } from './boardNavigation';
 import { isEditableElement } from './boardInteractions';
 
 export function useBoardKeyboardNavigation({
@@ -8,11 +8,13 @@ export function useBoardKeyboardNavigation({
   doneCollapsed,
   selectedCard,
   openCard,
+  view = 'board',
 }: {
   visibleCards: KanbanCardSummary[];
   doneCollapsed: boolean;
   selectedCard: KanbanCardSummary | null;
   openCard: (card: KanbanCardSummary) => void;
+  view?: 'list' | 'board';
 }) {
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const keyboardCards = useMemo(
@@ -39,7 +41,10 @@ export function useBoardKeyboardNavigation({
         openCard(card);
         return;
       }
-      const nextCard = adjacentBoardCard(keyboardCards, focusedCardId, key as 'h' | 'j' | 'k' | 'l');
+      if (view === 'list' && key !== 'j' && key !== 'k') return;
+      const nextCard = view === 'list'
+        ? adjacentListCard(keyboardCards, focusedCardId, key as 'j' | 'k')
+        : adjacentBoardCard(keyboardCards, focusedCardId, key as 'h' | 'j' | 'k' | 'l');
       if (!nextCard) return;
       event.preventDefault();
       setFocusedCardId(nextCard.id);
@@ -52,7 +57,7 @@ export function useBoardKeyboardNavigation({
     };
     window.addEventListener('keydown', handleBoardNavigation);
     return () => window.removeEventListener('keydown', handleBoardNavigation);
-  }, [keyboardCards, focusedCardId, selectedCard]);
+  }, [keyboardCards, focusedCardId, selectedCard, view]);
 
   return { focusedCardId, setFocusedCardId };
 }

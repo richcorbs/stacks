@@ -311,7 +311,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
   return {
     appStyle: useAppStyle(appSettings),
     globalTerminal: { visible: globalTerminalVisible, newTabNonce: globalTerminalNewTabNonce, setVisible: setGlobalTerminalVisible },
-    main: { projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork, onPaletteCardsChange: setPaletteCards },
+    main: { projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), setKanbanView: (view: 'list' | 'board') => setAppSettings((current) => ({ ...current, kanban_view: view })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork, onPaletteCardsChange: setPaletteCards },
     overlays: {
       appSettings, setAppSettings, projects: store.projects, settingsPage, setSettingsPage,
       saveSettingsSection: async (_section: GlobalSettingsSection, patch: Partial<ResolvedAppSettings>) => {

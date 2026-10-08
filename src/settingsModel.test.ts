@@ -8,6 +8,12 @@ describe('settings model', () => {
     expect(settings.ui_font_size).toBe(10);
     expect(settings.terminal_font_family).toBe(DEFAULT_APP_SETTINGS.terminal_font_family);
     expect(settings.kanban_project_id).toBe('p1');
+    expect(settings.kanban_view).toBe('list');
+    expect(settings.kanban_done_collapsed).toBe(true);
+  });
+  it('persists the board/list choice and rejects unknown values on load', () => {
+    expect(resolveAppSettings(toPersistedAppSettings({ ...DEFAULT_APP_SETTINGS, kanban_view: 'board' })).kanban_view).toBe('board');
+    expect(resolveAppSettings({ kanban_view: 'other' as 'list' }).kanban_view).toBe('list');
   });
   it('persists no obsolete workspace UI settings', () => {
     const persisted = toPersistedAppSettings(DEFAULT_APP_SETTINGS) as Record<string, unknown>;
