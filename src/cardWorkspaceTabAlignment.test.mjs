@@ -37,6 +37,20 @@ describe('shared card workspace tab alignment', () => {
     expect(declarations).toContain('align-items: end');
   });
 
+  it('stretches service hover paint through the tab row in both workspace layouts', () => {
+    const wrapper = declarationsFor('.cardServiceTabs');
+    const service = declarationsFor('.cardServiceTab');
+    const diff = declarationsFor('.cardDiffTab');
+
+    // Card detail nests service tabs; direct project work renders them directly in the row.
+    expect(wrapper).toContain('align-self: stretch');
+    expect(wrapper).toContain('align-items: stretch');
+    expect(service).toContain('align-self: stretch');
+    expect(service).toContain('align-items: end');
+    expect(diff).toContain('align-self: stretch');
+    expect(declarationsFor('.cardDiffTab:hover, .cardServiceTab:hover')).toContain('background: #2b4058');
+  });
+
   it('reserves the extra trailing inset for icon-bearing tabs', () => {
     const declarations = declarationsFor(
       '.cardWorkspaceTabs .cardDiffTab:has(.cardDiffRefresh), .cardWorkspaceTabs .cardServiceTab',
