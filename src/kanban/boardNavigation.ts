@@ -1,8 +1,9 @@
 import type { KanbanCardSummary } from './types';
 import { BOARD_GROUPS, WORK_GROUPS, groupCards } from './workflowGroups';
 
-export function keyboardNavigableCards(cards: KanbanCardSummary[], doneCollapsed: boolean) {
-  return doneCollapsed ? cards.filter((card) => card.status !== 'done') : cards;
+export function keyboardNavigableCards(cards: KanbanCardSummary[], doneCollapsed: boolean, backlogCollapsed = false, view: 'list' | 'board' = 'board') {
+  return cards.filter((card) => !(doneCollapsed && card.status === 'done')
+    && !(view === 'list' && backlogCollapsed && card.status === 'needs_refinement'));
 }
 
 export function adjacentBoardCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l') {

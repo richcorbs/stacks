@@ -36,7 +36,7 @@ import { CardServerShutdownError, findConflictingCardServer, handoffCardServer }
 import { ServerHandoffDialog } from './ServerHandoffDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
 
-export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
+export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
@@ -179,6 +179,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
   const { focusedCardId: keyboardFocusedCardId, setFocusedCardId: setKeyboardFocusedCardId } = useBoardKeyboardNavigation({
     visibleCards,
     doneCollapsed,
+    backlogCollapsed,
     selectedCard,
     openCard,
     view,
@@ -456,6 +457,16 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
 
   useEffect(() => () => onPaletteCardsChange(null), [onPaletteCardsChange]);
 
+  function toggleBacklogCollapsed() {
+    const collapsed = !backlogCollapsed;
+    if (collapsed) {
+      setKeyboardFocusedCardId((currentId) => (
+        visibleCards.some((card) => card.id === currentId && card.status === 'needs_refinement') ? null : currentId
+      ));
+    }
+    onBacklogCollapsedChange(collapsed);
+  }
+
   function toggleDoneCollapsed() {
     const collapsed = !doneCollapsed;
     setOpenLaneMenu(null);
@@ -575,18 +586,20 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
           }}
         />
       )}
-      {!board.loading && view === 'list' && visibleCards.length > 0 && <KanbanList
+      {!board.loading && view === 'list' && <KanbanList
         cards={visibleCards}
         projects={projects}
         repositoryStatuses={repositoryStatuses}
         prChecks={prChecks}
         serverServices={cardServices}
+        backlogCollapsed={backlogCollapsed}
         doneCollapsed={doneCollapsed}
         openLaneMenu={openLaneMenu}
         setOpenLaneMenu={setOpenLaneMenu}
         cleaningMerged={cleaningMerged}
         keyboardFocusedCardId={keyboardFocusedCardId}
         setKeyboardFocusedCardId={setKeyboardFocusedCardId}
+        onToggleBacklog={toggleBacklogCollapsed}
         onToggleDone={toggleDoneCollapsed}
         onCleanupMerged={cleanupMergedCards}
         onOpenCard={openCard}
@@ -596,7 +609,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
         }}
         onToggleServer={toggleCardServer}
       />}
-      {!board.loading && visibleCards.length === 0 && (
+      {!board.loading && view === 'board' && visibleCards.length === 0 && (
         <div className="kanbanWelcome">
           <strong>No cards in this view.</strong>
           <span>{filterProjectId ? 'Choose All projects or add a card for this project.' : 'Add a card or sync Superthread to begin planning work.'}</span>

@@ -11,11 +11,11 @@ function card(status: KanbanStatus): KanbanCard {
   return { id: status, external_id: status, title: status, provider: 'local', project_id: project.id,
     status, parent: null, child_count: 0, board_title: '', assignee_names: [], pull_request: null } as unknown as KanbanCard;
 }
-function render(statuses: KanbanStatus[], collapsed = true, repositoryStatuses: Record<string, CardRepositoryStatus> = {}) {
+function render(statuses: KanbanStatus[], collapsed = true, repositoryStatuses: Record<string, CardRepositoryStatus> = {}, backlogCollapsed = true) {
   return renderToStaticMarkup(<KanbanList cards={statuses.map(card)} projects={[project]}
-    repositoryStatuses={repositoryStatuses} serverServices={{}} doneCollapsed={collapsed} openLaneMenu={null}
+    repositoryStatuses={repositoryStatuses} serverServices={{}} backlogCollapsed={backlogCollapsed} doneCollapsed={collapsed} openLaneMenu={null}
     setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
-    setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+    setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
     onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
 }
 
@@ -23,11 +23,46 @@ describe('Kanban list', () => {
   it('shows all eight exact statuses in four groups and keeps Done collapsed', () => {
     const markup = render(['needs_refinement', 'refining', 'needs_refinement_input', 'ready', 'agent_working', 'needs_human', 'approved', 'done']);
     expect(markup.match(/class="kanbanListGroup"/g)).toHaveLength(4);
-    for (const label of ['Needs refinement', 'Refining', 'Needs you for refinement', 'Ready for agent', 'Agent working', 'Needs you', 'Ready to merge']) {
+    for (const label of ['Refining', 'Needs you for refinement', 'Ready for agent', 'Agent working', 'Needs you', 'Ready to merge']) {
       expect(markup).toContain(`class="kanbanCardStatusBadge" title="${label}">${label}</span>`);
     }
     expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain('title="Needs refinement"');
+    expect(markup).toContain('data-kanban-group="backlog"><header class="kanbanListGroupHeader"><button type="button" class="kanbanListGroupToggle" aria-expanded="false"');
     expect(markup).not.toContain('class="kanbanCardStatusBadge" title="Done · Closed"');
+  });
+
+  it('renders empty group headers and restores Backlog independently of Done', () => {
+    const empty = render([]);
+    expect(empty).toContain('Backlog <span class="kanbanLaneCount">0</span>');
+    expect(empty).toContain('Done <span class="kanbanLaneCount">0</span>');
+    const expanded = render(['needs_refinement', 'done'], true, {}, false);
+    expect(expanded).toContain('title="Needs refinement"');
+    expect(expanded).not.toContain('title="Done · Closed"');
+    expect(render(['needs_refinement', 'done'], false)).toContain('title="Done · Closed"');
+  });
+
+  it('toggles each section from its button independently of Done actions', async () => {
+    const toggleBacklog = vi.fn();
+    const toggleDone = vi.fn();
+    const setMenu = vi.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<KanbanList cards={[]} projects={[project]}
+      repositoryStatuses={{}} serverServices={{}} backlogCollapsed doneCollapsed openLaneMenu={null}
+      setOpenLaneMenu={setMenu} cleaningMerged={false} keyboardFocusedCardId={null}
+      setKeyboardFocusedCardId={() => {}} onToggleBacklog={toggleBacklog} onToggleDone={toggleDone} onCleanupMerged={() => {}}
+      onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+    const toggles = renderer.root.findAllByProps({ className: 'kanbanListGroupToggle' });
+    expect(toggles).toHaveLength(2);
+    expect(toggles.map((button) => button.props['aria-expanded'])).toEqual([false, false]);
+    toggles[0].props.onClick();
+    toggles[1].props.onClick();
+    renderer.root.findByProps({ className: 'kanbanLaneMenuTrigger' }).props.onClick();
+    expect(toggleBacklog).toHaveBeenCalledOnce();
+    expect(toggleDone).toHaveBeenCalledOnce();
+    expect(setMenu).toHaveBeenCalledOnce();
+    expect(setMenu.mock.calls[0][0](null)).toBe('done');
+    await act(async () => renderer.unmount());
   });
 
   it('places the bright status by the number and the project in the trailing metadata', () => {
@@ -58,9 +93,9 @@ describe('Kanban list', () => {
     const open = vi.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<KanbanList cards={[card('ready')]} projects={[project]}
-      repositoryStatuses={repositoryStatuses} serverServices={{}} doneCollapsed openLaneMenu={null}
+      repositoryStatuses={repositoryStatuses} serverServices={{}} backlogCollapsed doneCollapsed openLaneMenu={null}
       setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
-      setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
       onOpenCard={open} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
     const warningButton = renderer.root.findByProps({ className: 'kanbanEnvironmentWarning' });
     const stop = vi.fn();
@@ -75,9 +110,9 @@ describe('Kanban list', () => {
     const open = vi.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<KanbanList cards={[card('ready')]} projects={[project]}
-      repositoryStatuses={{}} serverServices={{}} doneCollapsed openLaneMenu={null}
+      repositoryStatuses={{}} serverServices={{}} backlogCollapsed doneCollapsed openLaneMenu={null}
       setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
-      setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
       onOpenCard={open} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
     const overlay = renderer.root.findByProps({ className: 'kanbanCardOpen' });
     const row = renderer.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.split(' ').includes('kanbanListRow'))[0];

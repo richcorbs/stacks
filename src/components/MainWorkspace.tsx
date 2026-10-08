@@ -13,6 +13,8 @@ type MainWorkspaceProps = {
   superthreadEnabled: boolean;
   selectedProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
+  backlogCollapsed: boolean;
+  onBacklogCollapsedChange: (collapsed: boolean) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
   view: 'list' | 'board';
@@ -33,6 +35,8 @@ export function MainWorkspace({
   superthreadEnabled,
   selectedProjectId,
   onSelectProject,
+  backlogCollapsed,
+  onBacklogCollapsedChange,
   doneCollapsed,
   onDoneCollapsedChange,
   view,
@@ -51,6 +55,8 @@ export function MainWorkspace({
           projectsHydrated={projectsHydrated}
           selectedProjectId={selectedProjectId}
           onSelectProject={onSelectProject}
+          backlogCollapsed={backlogCollapsed}
+          onBacklogCollapsedChange={onBacklogCollapsedChange}
           doneCollapsed={doneCollapsed}
           onDoneCollapsedChange={onDoneCollapsedChange}
           view={view}

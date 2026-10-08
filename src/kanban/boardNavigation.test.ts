@@ -16,6 +16,15 @@ describe('Kanban board keyboard navigation', () => {
     expect(adjacentBoardCard(navigable, 'approved', 'l')?.id).toBe('approved');
   });
 
+  it('excludes collapsed list groups independently without hiding the board Backlog lane', () => {
+    const grouped = [card('backlog', 'needs_refinement'), ...cards];
+    expect(keyboardNavigableCards(grouped, true, true, 'list').map((item) => item.id)).toEqual(['ready', 'approved']);
+    expect(keyboardNavigableCards(grouped, false, true, 'list').map((item) => item.id)).toEqual(['ready', 'approved', 'done']);
+    expect(keyboardNavigableCards(grouped, true, false, 'list').map((item) => item.id)).toEqual(['backlog', 'ready', 'approved']);
+    expect(adjacentListCard(keyboardNavigableCards(grouped, true, true, 'list'), 'approved', 'k')?.id).toBe('ready');
+    expect(keyboardNavigableCards(grouped, true, true, 'board').map((item) => item.id)).toEqual(['backlog', 'ready', 'approved']);
+  });
+
   it('navigates within four groups and through list rows in presentation order', () => {
     const grouped = [card('ready', 'ready'), card('approved', 'approved'), card('refining', 'refining'), card('backlog', 'needs_refinement')];
     expect(adjacentBoardCard(grouped, 'ready', 'j')?.id).toBe('approved');

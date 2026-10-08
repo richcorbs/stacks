@@ -10,6 +10,7 @@ export type MainLayoutProps = {
   appSettings: ResolvedAppSettings;
   setKanbanProjectId: (projectId: string | null) => void;
   setKanbanDoneCollapsed: (collapsed: boolean) => void;
+  setKanbanBacklogCollapsed: (collapsed: boolean) => void;
   setKanbanView: (view: 'list' | 'board') => void;
   openProjectDialog: () => void;
   cleanupCard: (card: import('../kanban/types').KanbanCard, evidence: import('../kanban/types').CleanupPreflight) => Promise<boolean>;

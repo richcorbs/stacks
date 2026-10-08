@@ -48,6 +48,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub kanban_done_collapsed: Option<bool>,
     #[serde(default)]
+    pub kanban_backlog_collapsed: Option<bool>,
+    #[serde(default)]
     pub kanban_view: Option<String>,
     #[serde(default)]
     pub activity_notifications: Option<bool>,
@@ -70,6 +72,7 @@ impl AppSettings {
                 "superthread_enabled" => self.superthread_enabled = next.superthread_enabled,
                 "kanban_project_id" => self.kanban_project_id = non_empty(next.kanban_project_id.clone()),
                 "kanban_done_collapsed" => self.kanban_done_collapsed = next.kanban_done_collapsed,
+                "kanban_backlog_collapsed" => self.kanban_backlog_collapsed = next.kanban_backlog_collapsed,
                 "kanban_view" => self.kanban_view = valid_kanban_view(next.kanban_view.clone()),
                 "activity_notifications" => self.activity_notifications = next.activity_notifications,
                 _ => {}
@@ -93,6 +96,7 @@ impl AppSettings {
         self.superthread_enabled = next.superthread_enabled;
         self.kanban_project_id = non_empty(next.kanban_project_id);
         self.kanban_done_collapsed = next.kanban_done_collapsed;
+        self.kanban_backlog_collapsed = next.kanban_backlog_collapsed;
         self.kanban_view = valid_kanban_view(next.kanban_view);
         self.activity_notifications = next.activity_notifications;
     }
@@ -172,6 +176,21 @@ mod tests {
         assert_eq!(settings.kanban_view, None);
         settings.apply_patch(AppSettings { kanban_view: Some("board".into()), ..Default::default() }, &["kanban_view".into()]);
         assert_eq!(settings.kanban_view.as_deref(), Some("board"));
+    }
+
+    #[test]
+    fn backlog_and_done_settings_patch_and_serialize_independently() {
+        let mut current = AppSettings { kanban_backlog_collapsed: Some(true), kanban_done_collapsed: Some(true), ..Default::default() };
+        current.apply_patch(AppSettings { kanban_backlog_collapsed: Some(false), ..Default::default() }, &["kanban_backlog_collapsed".into()]);
+        assert_eq!(current.kanban_backlog_collapsed, Some(false));
+        assert_eq!(current.kanban_done_collapsed, Some(true));
+        let stored = serde_json::to_string(&current).unwrap();
+        let restored: AppSettings = serde_json::from_str(&stored).unwrap();
+        assert_eq!(restored.kanban_backlog_collapsed, Some(false));
+        assert_eq!(restored.kanban_done_collapsed, Some(true));
+        current.apply_user_settings(AppSettings { kanban_backlog_collapsed: Some(true), kanban_done_collapsed: Some(false), ..Default::default() });
+        assert_eq!(current.kanban_backlog_collapsed, Some(true));
+        assert_eq!(current.kanban_done_collapsed, Some(false));
     }
 
     #[test]
