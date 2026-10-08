@@ -174,7 +174,9 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanCardMeta { display: flex; align-items: center; justify-content: space-between; gap: 7px; color: #73869a; font-size: calc(9px + var(--ui-font-delta, 0px)); }
 .kanbanCardAttribution { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; }
 .kanbanCardStatusBadge { flex: 0 1 auto; min-width: 0; max-width: 100%; padding: 4px 8px; overflow: hidden; border: 1px solid #52799c; border-radius: 999px; background: #243e56; color: #cce6fa; font: 650 calc(11px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-overflow: ellipsis; text-transform: none; letter-spacing: normal; white-space: nowrap; }
-.kanbanCardMeta > .kanbanProjectBadge { flex: 0 1 auto; max-width: 150px; color: #8296a9; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanCardMeta > .kanbanProjectBadge, .kanbanCardBoardAttribution > .kanbanProjectBadge { flex: 0 1 auto; max-width: 150px; color: #8296a9; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanCardBoardAttribution { min-width: 0; display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; overflow: hidden; white-space: nowrap; }
+.kanbanCardBoardAssignee { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kanbanCardAttribution:empty { display: none; }
 .kanbanList { flex: 1; min-height: 0; overflow-y: auto; padding: 16px max(16px, calc((100% - 1200px) / 2)) 32px; }
 .kanbanListGroup { margin-bottom: 16px; border: 1px solid #253546; border-radius: 9px; background: #101922; }

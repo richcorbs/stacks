@@ -172,11 +172,18 @@ export function KanbanCardContents({
     </span>
     <strong>{card.title}</strong>
     <span className="kanbanCardMeta">
-      {projectBadge}
-      <span className="kanbanCardAttribution">
-        {providerBoard}
-        {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
-      </span>
+      {layout === 'board' ? (
+        <span className="kanbanCardBoardAttribution">
+          {projectBadge}
+          {card.provider !== 'local' && <span className="kanbanCardBoardAssignee" title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
+        </span>
+      ) : (<>
+        {projectBadge}
+        <span className="kanbanCardAttribution">
+          {providerBoard}
+          {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
+        </span>
+      </>)}
       <span className="kanbanCardIndicators">
         {serverServices && <KanbanServerControl services={serverServices} onToggle={() => onToggleServer(card.id)} />}
         {repositoryStatus?.git?.status === 'error' && <span className="kanbanGitBadge" title={repositoryStatus.git.message} aria-label="Git status unknown; check the worktree and refresh">Git ?</span>}
