@@ -3,6 +3,7 @@ import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../../types';
+import { projectColorAttribute } from '../../projectColor';
 import type { CardEnvironmentHealth, CleanupInventory, CleanupPreflight, KanbanCard, KanbanCardSummary } from '../../kanban/types';
 import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cancelScriptedDeployment, cleanupKanbanEnvironmentCreation, closeKanbanCard, confirmScriptedDeployed, createKanbanPullRequest, deployScriptedDelivery, fetchCleanupPreflight, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, pushScriptedDelivery, retryKanbanRuntimeCleanup } from '../../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../../kanban/workflowActions';
@@ -352,7 +353,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   }, [activeChatThread, activeView, card.id, focusedShellPane]);
   return <>
     <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={requestClose}>
-      <article className={`kanbanDetail cardWorkspace${showChat ? ' chatActive' : ''}${editing ? ' editing' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
+      <article data-project-color={projectColorAttribute(project)} className={`kanbanDetail cardWorkspace${showChat ? ' chatActive' : ''}${editing ? ' editing' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
         <CardDetailHeader
           card={card}
           project={project}

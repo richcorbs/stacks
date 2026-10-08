@@ -9,6 +9,8 @@ import type { CardView } from '../../kanban/cardView';
 import { environmentHealthTooltip, shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
 import { WORK_GROUPS, groupCards } from '../../kanban/workflowGroups';
 import { cardServerAvailability } from './BoardCardServerServices';
+import { owningProject } from '../../kanban/projectScope';
+import { projectColorAttribute } from '../../projectColor';
 import { DoneLaneMenu, KanbanCardContents, kanbanCardClassName } from './KanbanLanes';
 
 export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serverServices, backlogCollapsed, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer }: {
@@ -69,6 +71,7 @@ export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serv
             const tooltip = environmentHealthTooltip(health);
             return <div className={`${kanbanCardClassName(card, keyboardFocusedCardId === card.id)} kanbanListRow${placeholder ? ' kanbanListPlaceholder' : ''}`} key={card.id}
               data-kanban-card-id={draggable ? card.id : undefined}
+              data-project-color={projectColorAttribute(owningProject(card, projects))}
               onPointerDown={draggable ? (event) => pointer?.beginPointerDrag(event, card, 'list') : undefined}
               onPointerUp={draggable ? pointer?.finishPointerDrag : undefined}
               onPointerCancel={draggable ? pointer?.cancelPointerDrag : undefined}
@@ -92,7 +95,7 @@ export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serv
       style={{ left: pointer.dragPreview.clientX - pointer.dragPreview.pointerOffsetX,
         top: pointer.dragPreview.clientY - pointer.dragPreview.pointerOffsetY,
         width: pointer.dragPreview.sourceBounds.width, height: pointer.dragPreview.sourceBounds.height }}>
-      <div className={`${kanbanCardClassName(draggedCard)} kanbanListRow`}>
+      <div className={`${kanbanCardClassName(draggedCard)} kanbanListRow`} data-project-color={projectColorAttribute(owningProject(draggedCard, projects))}>
         <KanbanCardContents card={draggedCard} projects={projects} layout="list" repositoryStatus={repositoryStatuses[draggedCard.id]}
           prCheck={prChecks?.[draggedCard.id]} onNavigateParent={() => {}} onToggleServer={() => {}} />
       </div>

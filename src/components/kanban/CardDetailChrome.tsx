@@ -39,7 +39,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
     <div className="kanbanDetailHeading">
       <div className="kanbanDetailHeaderMeta">
         <div className="kanbanDetailHeaderMetaLeft">
-          <a href={card.card_url || undefined} onClick={(event) => card.card_url && openExternalLink(event, card.card_url)}>#{card.external_id}</a>
+          <a className="kanbanDetailNumber" href={card.card_url || undefined} onClick={(event) => card.card_url && openExternalLink(event, card.card_url)}>#{card.external_id}</a>
           <CardProjectAssignment card={card} project={project ?? null} projects={projects} onChange={(nextProjectId) => {
             onAssignProject(nextProjectId).catch((error) => onActionError(error instanceof Error ? error.message : String(error)));
           }} />

@@ -1017,8 +1017,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .updateReleaseNotes { max-height: 220px; margin-top: 12px; padding: 10px; overflow-y: auto; border: 1px solid #26384a; border-radius: 6px; background: #101923; color: #91a4b8; font-size: calc(11px + var(--ui-font-delta, 0px)); line-height: 1.5; white-space: pre-wrap; }
 .dialogSubmitError { margin-top: 12px; padding: 8px 10px; border: 1px solid #673c41; border-radius: 6px; background: #2b191d; color: #d38b91; font-size: calc(10px + var(--ui-font-delta, 0px)); line-height: 1.45; white-space: pre-wrap; }
 
-.piGuiPane { --pi-pane-accent: var(--focused-terminal-border, #3b82f6); --pi-composer-inset: max(18px, 7cqw); --pi-composer-bottom-inset: calc(var(--pi-composer-inset) + 2px); container-type: inline-size; display: flex; flex-direction: column; overflow: hidden; background: #0c1219; color: #b9c5d3; }
-.piGuiPane.maximized { --pi-pane-accent: var(--maximized-terminal-border, #84cc16); }
+.piGuiPane { --pi-pane-accent: var(--project-accent, #3b82f6); --pi-composer-inset: max(18px, 7cqw); --pi-composer-bottom-inset: calc(var(--pi-composer-inset) + 2px); container-type: inline-size; display: flex; flex-direction: column; overflow: hidden; background: #0c1219; color: #b9c5d3; }
+.piGuiPane.maximized { --pi-pane-accent: var(--project-accent, #3b82f6); }
 .piGuiPane.piFileDropTarget { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--pi-pane-accent) 88%, white), inset 0 0 42px color-mix(in srgb, var(--pi-pane-accent) 18%, transparent) !important; }
 .piGuiContext { width: 100%; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .piContextPicker { position: relative; min-width: 0; max-width: 220px; }
@@ -1266,3 +1266,109 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .cleanupPreflightStatus { display: flex; gap: 12px; color: #8091a5; white-space: nowrap; }
 .cleanupOverride { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; color: #d9a1a1; }
 .cleanupOverride input { margin: 0; }
+
+/* Project accents live on owner boundaries. Unowned/global content never inherits a board filter. */
+[data-project-color="blue"] { --project-accent: #3b82f6; --project-badge-color: #687c92; --project-badge-border: #34495d; --project-badge-surface: #172431; --project-tab-accent: #6295c2; --project-note-focus: #466987; --project-status-color: #cce6fa; --project-status-border: #52799c; --project-status-surface: #243e56; --project-detail-status-color: #9fc2df; --project-detail-status-border: #36506a; --project-detail-status-surface: #172838; --project-card-number: #96aabd; --project-card-hover-border: #344f69; --project-card-hover-surface: #192838; }
+[data-project-color="slate"] { --project-accent: #849bb0; }
+[data-project-color="teal"] { --project-accent: #56a9a4; }
+[data-project-color="green"] { --project-accent: #77ab81; }
+[data-project-color="amber"] { --project-accent: #c3a16a; }
+[data-project-color="coral"] { --project-accent: #ca8f76; }
+[data-project-color="rose"] { --project-accent: #bd839b; }
+[data-project-color="violet"] { --project-accent: #a58dc8; }
+[data-project-color="indigo"] { --project-accent: #849ad0; }
+[data-project-color="cyan"] { --project-accent: #70abc3; }
+[data-project-color]:not([data-project-color="blue"]) {
+  --project-badge-color: #687c92;
+  --project-badge-color: color-mix(in srgb, var(--project-accent) 58%, #687c92);
+  --project-badge-border: #34495d;
+  --project-badge-border: color-mix(in srgb, var(--project-accent) 35%, #253545);
+  --project-badge-surface: #172431;
+  --project-badge-surface: color-mix(in srgb, var(--project-accent) 12%, #101922);
+  --project-tab-accent: var(--project-accent);
+  --project-note-focus: var(--project-accent);
+  --project-status-color: #e0e9ef;
+  --project-status-color: color-mix(in srgb, var(--project-accent) 46%, #f2f6fa);
+  --project-status-border: #52799c;
+  --project-status-border: color-mix(in srgb, var(--project-accent) 69%, #263747);
+  --project-status-surface: #243e56;
+  --project-status-surface: color-mix(in srgb, var(--project-accent) 32%, #172431);
+  --project-detail-status-color: var(--project-status-color);
+  --project-detail-status-border: var(--project-status-border);
+  --project-detail-status-surface: var(--project-status-surface);
+  --project-card-number: #96aabd;
+  --project-card-number: color-mix(in srgb, var(--project-accent) 66%, #b4c5d4);
+  --project-card-hover-border: #344f69;
+  --project-card-hover-border: color-mix(in srgb, var(--project-accent) 53%, #28394a);
+  --project-card-hover-surface: #192838;
+  --project-card-hover-surface: color-mix(in srgb, var(--project-accent) 24%, #15202c);
+}
+.kanbanProjectBadge[data-project-color] { border-color: var(--project-badge-border); background: var(--project-badge-surface); color: var(--project-badge-color); }
+/* The full-card open button overlays the card. Its generic hover background must
+   stay transparent or it hides the owning project's card surface underneath. */
+.kanbanCard > .kanbanCardOpen:hover:not(:disabled),
+.kanbanCard > .kanbanCardOpen:focus-visible { background: transparent; }
+.kanbanCard[data-project-color] .kanbanCardNumber { color: var(--project-card-number); }
+.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .kanbanDetailHeaderMetaLeft > .kanbanDetailNumber { color: var(--project-card-number); }
+.kanbanDetail:not([data-project-color]) .kanbanDetailHeaderMetaLeft > .kanbanDetailNumber { color: #96aabd; }
+.kanbanCardWrapper > .kanbanCard:hover:not(.keyboardFocused),
+.kanbanListRows > .kanbanListRow:hover:not(.keyboardFocused):not(.kanbanListPlaceholder) { border-color: #344553; background: #192530; }
+.kanbanCardWrapper > .kanbanCard[data-project-color]:hover:not(.keyboardFocused),
+.kanbanListRows > .kanbanListRow[data-project-color]:hover:not(.keyboardFocused):not(.kanbanListPlaceholder) { border-color: var(--project-card-hover-border); background: var(--project-card-hover-surface); }
+/* Keep the existing keyboard-focus outline and border when the pointer overlaps it. */
+.kanbanListRows > .kanbanListRow.keyboardFocused:hover { border-color: #466b8d; }
+.kanbanListRows > .kanbanListRow[data-project-color].keyboardFocused:hover { background: var(--project-card-hover-surface); }
+.kanbanListRows > .kanbanListRow:not([data-project-color]).keyboardFocused:hover { background: #192530; }
+.kanbanProjectBadge.invalid { border-color: #34495d; background: #172431; color: #687c92; }
+.kanbanCardStatusBadge[data-project-color] { border-color: var(--project-status-border); background: var(--project-status-surface); color: var(--project-status-color); }
+.kanbanCardStatusBadge:not([data-project-color]),
+.kanbanDetail:not([data-project-color]) .kanbanDetailHeaderMeta .kanbanCardStatus { border-color: #34485a; background: #1a2632; color: #a0afbe; }
+.kanbanDetail[data-project-color] .kanbanDetailHeaderMeta .kanbanCardStatus { border-color: var(--project-detail-status-border); background: var(--project-detail-status-surface); color: var(--project-detail-status-color); }
+.kanbanProjectAssignment[data-project-color] { border-color: var(--project-badge-border); color: var(--project-badge-color); }
+[data-project-color] .cardWorkspaceTabs button.active,
+[data-project-color] .cardDiffTab.active,
+[data-project-color] .cardServiceTab.active { border-bottom-color: var(--project-tab-accent); }
+[data-project-color] .projectNotesView textarea:focus { border-color: var(--project-note-focus); }
+.projectColorField { min-width: 0; padding: 8px 0; border: 0; color: #aab9c8; }
+.projectColorField legend { padding: 0; font-size: 12px; }
+.projectColorField small { display: block; margin-top: 6px; text-transform: capitalize; color: #96a9ba; }
+.projectColorSwatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 2px; }
+.projectColorSwatches .projectColorSwatch { position: relative; display: grid; place-items: center; width: 29px; height: 29px; margin: 0; cursor: pointer; }
+.projectColorSwatch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.projectColorSwatch span { display: block; width: 19px; height: 19px; border-radius: 50%; background: var(--project-accent); border: 2px solid #35485a; pointer-events: none; }
+.projectColorSwatch input:checked + span { outline: 2px solid #d8e4ee; outline-offset: 2px; }
+.projectColorSwatch input:focus-visible + span { box-shadow: 0 0 0 4px #101922, 0 0 0 6px #fff; }
+.projectColorSwatch input:disabled + span { opacity: .5; }
+
+/* Only owner-scoped, non-semantic controls are tinted. Focus outlines, danger,
+   service health, disabled buttons, and the global board header remain distinct. */
+.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .primaryAction:not(:disabled),
+.projectDialog[data-project-color]:not([data-project-color="blue"]) .modalActions .primaryAction:not(:disabled),
+.settingsContent[data-project-color]:not([data-project-color="blue"]) .settingsPageActions .primaryAction:not(:disabled),
+.settingsPrompt[data-project-color]:not([data-project-color="blue"]) .modalActions .primaryAction:not(:disabled) {
+  border-color: var(--project-accent);
+  background: #25496b;
+  background: color-mix(in srgb, var(--project-accent) 48%, #152737);
+  color: #f5f8fa;
+}
+.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .primaryAction:hover:not(:disabled),
+.projectDialog[data-project-color]:not([data-project-color="blue"]) .modalActions .primaryAction:hover:not(:disabled),
+.settingsContent[data-project-color]:not([data-project-color="blue"]) .settingsPageActions .primaryAction:hover:not(:disabled),
+.settingsPrompt[data-project-color]:not([data-project-color="blue"]) .modalActions .primaryAction:hover:not(:disabled) {
+  background: #365475;
+  background: color-mix(in srgb, var(--project-accent) 62%, #203345);
+}
+.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .cardFooterActionGroupLeft > button:not(.primaryAction):not(:disabled),
+.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .kanbanEditActions button:not(.primaryAction):not(:disabled),
+.projectDialog[data-project-color]:not([data-project-color="blue"]) .modalActions button:not(.primaryAction):not(:disabled),
+.settingsContent[data-project-color]:not([data-project-color="blue"]) .settingsInlineAction button:not(:disabled) {
+  border-color: #34495d;
+  border-color: color-mix(in srgb, var(--project-accent) 32%, #28394a);
+}
+.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .cardFooterActionGroupLeft > button:not(.primaryAction):hover:not(:disabled),
+.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .kanbanEditActions button:not(.primaryAction):hover:not(:disabled),
+.projectDialog[data-project-color]:not([data-project-color="blue"]) .modalActions button:not(.primaryAction):hover:not(:disabled),
+.settingsContent[data-project-color]:not([data-project-color="blue"]) .settingsInlineAction button:hover:not(:disabled) {
+  background: #203348;
+  background: color-mix(in srgb, var(--project-accent) 14%, #182431);
+}

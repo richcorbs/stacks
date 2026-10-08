@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DialogState } from '../types';
 import { DialogFields, dialogSubmitLabel } from './DialogFields';
+import { projectColor } from '../projectColor';
 
 export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   dialog: DialogState;
@@ -13,7 +14,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   const [submitError, setSubmitError] = useState<string | null>(null);
   useEffect(() => { requestAnimationFrame(() => firstInputRef.current?.focus()); }, [dialog.kind]);
   return <div className="modalBackdrop" onMouseDown={() => { if (!submitting) onCancel(); }}>
-    <form className="modal" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === 'Escape' && !submitting) { event.preventDefault(); onCancel(); } }} onSubmit={async (event) => {
+    <form className="modal projectDialog" data-project-color={projectColor(dialog.colorId)} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === 'Escape' && !submitting) { event.preventDefault(); onCancel(); } }} onSubmit={async (event) => {
       event.preventDefault(); if (submitting) return; setSubmitting(true); setSubmitError(null);
       try { await onSubmit(); } catch (error) { setSubmitError(error instanceof Error ? error.message : String(error)); } finally { setSubmitting(false); }
     }}>
