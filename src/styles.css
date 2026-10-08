@@ -192,7 +192,6 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanListRow.kanbanParentCard { background: #192735; }
 .kanbanListRow:hover, .kanbanListRow.kanbanParentCard:hover { border-color: #344f69; background: #1b2b3b; }
 .kanbanListRows > .kanbanListRow:last-child { border-bottom-color: transparent; }
-.kanbanListRow.kanbanListChild > strong::before { content: '↳'; margin-right: 8px; color: #64839c; }
 .kanbanListRow .kanbanCardSource { gap: 5px; }
 .kanbanListRow .kanbanCardSourceLeft { flex: 1 1 auto; }
 .kanbanListRow .kanbanCardNumber { margin-right: 4px; }

@@ -124,6 +124,38 @@ describe('Kanban list', () => {
     await act(async () => renderer.unmount());
   });
 
+  it('renders child titles without an indicator and keeps parent badge navigation', async () => {
+    const parent = { ...card('ready'), id: 'parent', external_id: '12', title: 'Parent', child_count: 1 };
+    const child = { ...card('ready'), id: 'child', external_id: '13', title: 'Child',
+      parent: { id: 'parent', external_id: '12', title: 'Parent', status: 'ready' as const } };
+    const markup = renderToStaticMarkup(<KanbanList cards={[parent, child]} projects={[project]}
+      repositoryStatuses={{}} serverServices={{}} doneCollapsed openLaneMenu={null}
+      setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
+      setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    expect(markup).toContain('<strong>Child</strong>');
+    expect(markup).toContain('<strong>Parent</strong>');
+    expect(markup).toContain('class="kanbanHierarchyBadge parent"');
+    expect(markup).toContain('>#12</button>');
+    expect(markup).not.toContain('kanbanListChild');
+
+    const navigate = vi.fn();
+    const open = vi.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<KanbanList cards={[parent, child]} projects={[project]}
+      repositoryStatuses={{}} serverServices={{}} doneCollapsed openLaneMenu={null}
+      setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
+      setKeyboardFocusedCardId={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      onOpenCard={open} onNavigateParent={navigate} onToggleServer={() => {}} />); });
+    const badge = renderer.root.findByProps({ className: 'kanbanHierarchyBadge parent' });
+    const stopPropagation = vi.fn();
+    badge.props.onClick({ stopPropagation });
+    expect(stopPropagation).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith('parent');
+    expect(open).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
+  });
+
   it('shows Done rows when expanded, with accessible card open controls', () => {
     const markup = render(['done'], false);
     expect(markup).toContain('aria-expanded="true"');

@@ -53,7 +53,7 @@ export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serv
             const health = repositoryStatuses[card.id]?.environmentHealth;
             const warning = shouldShowEnvironmentWarning(card, health);
             const tooltip = environmentHealthTooltip(health);
-            return <div className={`${kanbanCardClassName(card, keyboardFocusedCardId === card.id)} kanbanListRow${card.parent ? ' kanbanListChild' : ''}`} key={card.id} onClick={() => onOpenCard(card)}>
+            return <div className={`${kanbanCardClassName(card, keyboardFocusedCardId === card.id)} kanbanListRow`} key={card.id} onClick={() => onOpenCard(card)}>
             <button type="button" className="kanbanCardOpen" data-kanban-card-id={card.id}
               aria-label={`Open card #${card.external_id}: ${card.title}`}
               onFocus={() => setKeyboardFocusedCardId(card.id)} onClick={(event) => { event.stopPropagation(); onOpenCard(card); }} />
