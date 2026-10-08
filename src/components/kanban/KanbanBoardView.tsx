@@ -503,7 +503,7 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     <div className="kanbanView">
       <header className="kanbanHeader">
         <div className="kanbanProjectTitleRow">
-          <span className="kanbanProjectTitle"><strong>Board</strong></span>
+          <span className="kanbanProjectTitle"><strong>Stacks</strong></span>
           <label className="kanbanProjectFilter">
             <select aria-label="Filter board by project" value={filterProjectId ?? ''} onChange={(event) => {
               onSelectProject(event.target.value || null);
@@ -513,8 +513,6 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
               {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select>
           </label>
-        </div>
-        <div className="kanbanHeaderActions">
           <div className="kanbanViewSwitch" role="group" aria-label="Card view">
             <button type="button" aria-label="List view" title="List view" aria-pressed={view === 'list'} onClick={() => onViewChange('list')}>
               <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2.5 4h2m3 0h8m-13 5h2m3 0h8m-13 5h2m3 0h8" /></svg>
@@ -523,6 +521,8 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
               <svg viewBox="0 0 18 18" aria-hidden="true"><rect x="2" y="3" width="4" height="12" rx="1" /><rect x="7" y="3" width="4" height="9" rx="1" /><rect x="12" y="3" width="4" height="11" rx="1" /></svg>
             </button>
           </div>
+        </div>
+        <div className="kanbanHeaderActions">
           <button className="primaryAction" type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
             newCard.show();
           }}>+ Add card</button>
