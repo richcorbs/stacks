@@ -376,7 +376,7 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardWorkspaceTabs .cardDiffTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
 .cardWorkspaceTabs .cardDiffTab.active .cardDiffTabLabel { color: #b9cad9; }
 .cardServiceTabs { align-self: stretch; display: inline-flex; align-items: stretch; gap: 16px; }
-.cardServiceTab { display: inline-flex; align-items: end; gap: 0; border-bottom: 2px solid transparent; }
+.cardServiceTab { align-self: stretch; display: inline-flex; align-items: end; gap: 0; border-bottom: 2px solid transparent; }
 .cardServiceTab.active { border-bottom-color: #6295c2; }
 .cardWorkspaceTabs .cardDiffTab:has(.cardDiffRefresh), .cardWorkspaceTabs .cardServiceTab { padding-right: 10px; }
 .cardWorkspaceTabs .cardServiceTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
