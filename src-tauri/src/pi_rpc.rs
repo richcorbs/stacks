@@ -27,6 +27,7 @@ pub struct PiRpcHandle {
     cwd: String,
     project_id: String,
     approve_project: bool,
+    enable_mcp: bool,
     lifecycle: Arc<Mutex<PiLifecycleTracker>>,
 }
 
@@ -334,6 +335,8 @@ fn start_pi_session_operation(
                 && handle.project_id == project.id
                 && handle.approve_project == approve_project
             {
+                // Configuration edits do not interrupt a retained conversation.
+                // A deliberate stop/restart uses the new authoritative setting.
                 return Ok(handle.generation.clone());
             }
         }
@@ -391,27 +394,16 @@ fn spawn_pi_session(
     let extension_path = stacks_extension_path(window)?;
 
     let generation = uuid::Uuid::new_v4().to_string();
-    let trust_flag = project_trust_flag(approve_project);
+    let args = pi_launch_args(
+        project.enable_mcp,
+        approve_project,
+        extension_path.to_str().ok_or_else(|| "Bundled Stacks Pi extension path is invalid".to_string())?,
+        session_dir.to_str().ok_or_else(|| "Pi session path is invalid".to_string())?,
+    );
     let mut pi_command = Command::new(pi);
     pi_command
         .current_dir(cwd)
-        .args([
-            "--mode",
-            "rpc",
-            trust_flag,
-            "--no-extensions",
-            "--extension",
-            extension_path
-                .to_str()
-                .ok_or_else(|| "Bundled Stacks Pi extension path is invalid".to_string())?,
-            "--session-dir",
-            session_dir
-                .to_str()
-                .ok_or_else(|| "Pi session path is invalid".to_string())?,
-            "--continue",
-            "--name",
-            "Stacks Pi GUI",
-        ])
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -588,8 +580,26 @@ fn spawn_pi_session(
         cwd: cwd.to_string(),
         project_id: project.id.clone(),
         approve_project,
+        enable_mcp: project.enable_mcp,
         lifecycle,
     })
+}
+
+// Pi 1.1.0: --no-extensions disables discovery, but explicit builtin: paths
+// still load. MCP activates codemode/tool_search according to server exposure.
+fn pi_launch_args<'a>(enable_mcp: bool, approved: bool, extension: &'a str, session_dir: &'a str) -> Vec<&'a str> {
+    let mut args = vec!["--mode", "rpc", project_trust_flag(approved), "--no-extensions", "--extension", extension];
+    if enable_mcp {
+        args.extend(["--extension", "builtin:codemode", "--extension", "builtin:tool-search", "--extension", "builtin:mcp"]);
+    }
+    args.extend(["--session-dir", session_dir, "--continue", "--name", "Stacks Pi GUI"]);
+    args
+}
+
+#[tauri::command]
+pub fn pi_session_mcp_enabled(registry: State<'_, Mutex<PiRpcRegistry>>, pane_id: String) -> Result<Option<bool>, String> {
+    Ok(registry.lock().map_err(|_| "Pi session registry lock poisoned".to_string())?
+        .sessions.get(&pane_id).filter(|handle| handle.alive.load(Ordering::Acquire)).map(|handle| handle.enable_mcp))
 }
 
 #[tauri::command]
@@ -879,6 +889,26 @@ pub fn pi_session_exists(pane_id: String) -> Result<bool, String> {
         .is_some())
 }
 
+#[derive(Serialize)]
+pub struct PiMcpLocalStatus {
+    local_config_present: bool,
+    trusted: bool,
+}
+
+#[tauri::command]
+pub fn pi_mcp_local_status(cwd: String, project_path: Option<String>) -> Result<PiMcpLocalStatus, String> {
+    let cwd = canonical_project_path(&cwd)?;
+    let project_path = project_path.as_deref().map(canonical_project_path).transpose()?;
+    Ok(PiMcpLocalStatus {
+        local_config_present: local_mcp_config_present(&cwd),
+        trusted: is_project_trusted(&read_trusted_projects()?, &cwd, project_path.as_deref()),
+    })
+}
+
+fn local_mcp_config_present(cwd: &str) -> bool {
+    Path::new(cwd).join(".pi/mcp.json").is_file()
+}
+
 #[tauri::command]
 pub fn pi_project_trusted(cwd: String, project_path: Option<String>) -> Result<bool, String> {
     let cwd = canonical_project_path(&cwd)?;
@@ -1144,7 +1174,7 @@ fn find_pi() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_project_trusted, migrate_legacy_stacks_extension_at, project_trust_flag,
+        is_project_trusted, local_mcp_config_present, migrate_legacy_stacks_extension_at, pi_launch_args, project_trust_flag,
         run_pi_start_worker, safe_session_key, PiLifecycleTracker,
     };
     use serde_json::json;
@@ -1179,6 +1209,33 @@ mod tests {
     fn does_not_trust_projects_without_explicit_approval() {
         assert_eq!(project_trust_flag(false), "--no-approve");
         assert_eq!(project_trust_flag(true), "--approve");
+    }
+
+    #[test]
+    fn mcp_is_explicit_and_never_changes_trust_or_session_lifecycle() {
+        let off = pi_launch_args(false, false, "/stacks.ts", "/sessions");
+        assert_eq!(off, ["--mode", "rpc", "--no-approve", "--no-extensions", "--extension", "/stacks.ts", "--session-dir", "/sessions", "--continue", "--name", "Stacks Pi GUI"]);
+        let on = pi_launch_args(true, false, "/stacks.ts", "/sessions");
+        assert_eq!(&on[0..6], &off[0..6]);
+        assert!(on.windows(2).any(|pair| pair == ["--extension", "builtin:mcp"]));
+        assert!(on.windows(2).any(|pair| pair == ["--extension", "builtin:codemode"]));
+        assert!(on.windows(2).any(|pair| pair == ["--extension", "builtin:tool-search"]));
+        assert!(on.contains(&"--continue"));
+        assert!(!on.contains(&"--no-session"));
+        assert_eq!(pi_launch_args(true, true, "/stacks.ts", "/sessions")[2], "--approve");
+    }
+
+    #[test]
+    fn worktree_mcp_config_is_never_inherited_from_the_primary_checkout() {
+        let root = std::env::temp_dir().join(format!("stacks-mcp-path-{}", uuid::Uuid::new_v4()));
+        let primary = root.join("primary");
+        let worktree = root.join("worktree");
+        fs::create_dir_all(primary.join(".pi")).unwrap();
+        fs::create_dir_all(&worktree).unwrap();
+        fs::write(primary.join(".pi/mcp.json"), "{}").unwrap();
+        assert!(local_mcp_config_present(primary.to_str().unwrap()));
+        assert!(!local_mcp_config_present(worktree.to_str().unwrap()));
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn legacy_extension_text() -> &'static str {

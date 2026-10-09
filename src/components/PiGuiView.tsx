@@ -51,6 +51,11 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [selectedPathIndex, setSelectedPathIndex] = useState(0);
   const [completionCursor, setCompletionCursor] = useState(0);
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [mcpActive, setMcpActive] = useState<boolean | null>(null);
+  const [mcpLocal, setMcpLocal] = useState<{ local_config_present: boolean; trusted: boolean } | null>(null);
+  const [confirmMcpRestart, setConfirmMcpRestart] = useState(false);
+  const [confirmMcpTrust, setConfirmMcpTrust] = useState(false);
+  const [mcpTrustChanged, setMcpTrustChanged] = useState(false);
   const [extensionInput, setExtensionInput] = useState('');
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
   const [contextPicker, setContextPicker] = useState<'model' | 'thinking' | null>(null);
@@ -73,6 +78,26 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const pathRequestRef = useRef(0);
   const knownSessionIdRef = useRef('');
   const pendingPrependAnchorRef = useRef<{ height: number; top: number } | null>(null);
+  useEffect(() => {
+    if (pi.starting) return;
+    let cancelled = false;
+    setMcpTrustChanged(false);
+    invoke<boolean | null>('pi_session_mcp_enabled', { paneId: terminal.id })
+      .then((enabled) => { if (!cancelled) setMcpActive(enabled); })
+      .catch(() => { if (!cancelled) setMcpActive(null); });
+    return () => { cancelled = true; };
+  }, [terminal.id, pi.starting, pi.stopped, project.enable_mcp]);
+
+  useEffect(() => {
+    setMcpTrustChanged(false);
+    if (!project.enable_mcp) { setMcpLocal(null); return; }
+    let cancelled = false;
+    invoke<{ local_config_present: boolean; trusted: boolean }>('pi_mcp_local_status', { cwd, projectPath: project.path })
+      .then((status) => { if (!cancelled) setMcpLocal(status); })
+      .catch(() => { if (!cancelled) setMcpLocal(null); });
+    return () => { cancelled = true; };
+  }, [cwd, project.path, project.enable_mcp]);
+
   const quickResponseSessionEligible = canSendPiQuickResponse(pi);
   const quickResponseSessionEligibleRef = useRef(quickResponseSessionEligible);
   quickResponseSessionEligibleRef.current = quickResponseSessionEligible;
@@ -562,7 +587,28 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         />
       </div>
 
-      {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => pi.restart().catch(() => {})}>Restart Pi</button></div>}
+      {(project.enable_mcp || mcpActive) && <div className="piMcpStatus" role="status">
+        <span>{mcpActive === null ? 'MCP status pending.' : mcpActive ? 'MCP available to Pi (server connections not verified).' : 'MCP off in this Pi session.'} Enabled global servers in ~/.pi/agent/mcp.json may load when MCP is active.
+          {project.enable_mcp && mcpLocal && (!mcpLocal.trusted && mcpLocal.local_config_present ? ' Project .pi/mcp.json is skipped because this directory is untrusted.' : !mcpLocal.local_config_present ? ' No .pi/mcp.json in this session’s working directory; worktrees do not inherit one.' : '')}
+          {' '}For connection or authentication errors, explicitly run pi mcp list in a shell (this contacts all enabled servers; the Pi CLI has its own trust decision); do not paste diagnostics or credentials into a card chat.
+          {mcpTrustChanged && ' Trust changed; restart Pi to apply it.'}</span>
+        {project.enable_mcp && mcpLocal?.local_config_present && !mcpLocal.trusted && <button type="button" onClick={() => setConfirmMcpTrust(true)}>Trust this directory for Pi</button>}
+        {mcpActive !== null && (mcpActive !== (project.enable_mcp ?? false) || mcpTrustChanged) && <button type="button" disabled={pi.starting} onClick={() => {
+          if (pi.isStreaming || pi.queuedFollowUps.length || pi.queuedSteering.length || pi.uiRequest) setConfirmMcpRestart(true);
+          else void pi.restart().catch(() => {});
+        }}>Restart Pi to apply setting</button>}
+      </div>}
+      {confirmMcpTrust && <div className="piMcpRestartConfirm" role="alertdialog" aria-label="Trust this directory for Pi?"><span>Trust grants Pi access to project-local settings and resources, not only MCP servers. Trust this working directory?</span><button type="button" onClick={() => setConfirmMcpTrust(false)}>Cancel</button><button type="button" onClick={() => {
+        setConfirmMcpTrust(false);
+        void invoke('set_pi_project_trusted', { cwd, projectPath: null, trusted: true })
+          .then(() => { setMcpLocal((current) => current && { ...current, trusted: true }); setMcpTrustChanged(true); })
+          .catch((error) => setComposerError(String(error)));
+      }}>Trust directory</button></div>}
+      {confirmMcpRestart && <div className="piMcpRestartConfirm" role="alertdialog" aria-label="Restart active Pi session?"><span>Pi is running or has pending work. Restarting will interrupt it; the saved conversation will be resumed. Restart now?</span><button type="button" onClick={() => setConfirmMcpRestart(false)}>Cancel</button><button type="button" onClick={() => { setConfirmMcpRestart(false); void pi.restart().catch(() => {}); }}>Restart Pi</button></div>}
+      {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => {
+        if (pi.isStreaming || pi.queuedFollowUps.length || pi.queuedSteering.length || pi.uiRequest) setConfirmMcpRestart(true);
+        else void pi.restart().catch(() => {});
+      }}>Restart Pi</button></div>}
 
       <div className="piComposer">
         <div className="piComposerRow">
