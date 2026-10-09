@@ -102,18 +102,23 @@ function operation(overrides: Partial<ReleaseOperation> = {}): ReleaseOperation 
   return { id: 'operation', projectId: 'project', projectPath: '/repo', repositoryIdentity: '/repo/.git', configPath: '/repo/.stacks/release.json', config: config({ stages: [] }), previousVersion: '1.2.3', version: '1.2.4', notes: 'persisted notes', targetBranch: 'main', initialRevision: 'abcdef1234567890', expectedRevision: 'abcdef1234567890', preparedRevision: null, preparedParent: null, approvedPaths: [], reconciliation: reconciliation({ permittedActions: [] }), identityFingerprint: '', artifactEvidence: null, releaseUrl: null, adopted: false, status: 'failed', stages: [], createdAt: 100, updatedAt: 105, completedAt: null, revision: 1, ...overrides };
 }
 
-async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft = draft()) {
+async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft = draft(), colorId?: string) {
   invoke.mockImplementation((command: string) => {
     if (command === 'release_inspect') return Promise.resolve(releaseDraft);
     if (command === 'release_history') return Promise.resolve(history);
     return Promise.resolve(undefined);
   });
   let renderer!: TestRenderer.ReactTestRenderer;
-  await act(async () => { renderer = TestRenderer.create(<ReleaseTab project={{ id: 'project', name: 'Project', path: '/repo' }} />); });
+  await act(async () => { renderer = TestRenderer.create(<ReleaseTab project={{ id: 'project', name: 'Project', path: '/repo', color_id: colorId }} />); });
   return renderer;
 }
 
 describe('release durations', () => {
+  it('scopes release actions to the owning project color', async () => {
+    const renderer = await renderReleaseTab([], draft(), 'rose');
+    expect(renderer.root.findByProps({ className: 'releaseView cardView active' }).props['data-project-color']).toBe('rose');
+  });
+
   it('keeps version, status, revision, and resumed metadata before the right-hand timer', async () => {
     const renderer = await renderReleaseTab([operation({ version: 'a-long-version-name-that-must-wrap-at-narrow-widths', adopted: true, completedAt: 163 })]);
     const summary = renderer.root.findByProps({ className: 'releaseSummary' });

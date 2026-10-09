@@ -378,7 +378,7 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardWorkflowFooter.editing { grid-template-columns: 1fr; align-items: center; }
 .kanbanEditActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .superthreadSelectedProject { color: #8295a8; font-size: calc(11px + var(--ui-font-delta, 0px)); font-weight: 650; }
-.kanbanDetail .primaryAction { background: #25496b; border-color: #3d6d98; }
+.kanbanDetail .primaryAction:not(.danger):not(.dangerAction) { background: #354a5e; border-color: #657c91; }
 .kanbanDetail.cardWorkspace { width: min(1000px, calc(100vw - 32px)); background: #0c1219; }
 .cardWorkspaceTabs { flex: 0 0 auto; min-height: 38px; padding: 0 20px; display: flex; align-items: end; gap: 16px; border-bottom: 1px solid #223142; background: #0e1620; }
 .cardWorkspaceTabs button { padding: 7px 10px 11px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #6f8297; font-size: calc(10px + var(--ui-font-delta, 0px)); font-weight: 650; letter-spacing: .05em; }
@@ -617,7 +617,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   padding: 8px 12px;
   cursor: pointer;
 }
-.modalActions .primaryAction { background: #2563eb; border-color: #3b82f6; }
+.modalActions .primaryAction:not(.danger):not(.dangerAction) { background: #354a5e; border-color: #657c91; }
 .modalActions button:disabled { cursor: not-allowed; }
 
 /* xterm measures cells itself. The app-wide border-box reset breaks those
@@ -811,7 +811,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .settingsPageFields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .settingsPageActions { position: sticky; bottom: -8px; display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; margin-top: auto; padding: 12px 0 8px; background: linear-gradient(transparent, #111821 18%); }
 .settingsPageActions button, .settingsPrompt button { border: 1px solid #2d3d4f; background: #1a2531; color: inherit; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
-.settingsPageActions .primaryAction, .settingsPrompt .primaryAction { background: #2563eb; border-color: #3b82f6; }
+.settingsPageActions .primaryAction, .settingsPrompt .primaryAction { background: #354a5e; border-color: #657c91; }
 .settingsPageActions .dangerAction, .settingsPrompt .dangerAction { border-color: #7f3434; color: #f0a0a0; }
 .settingsPromptBackdrop { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: 18px; background: #0009; }
 .settingsPrompt { z-index: 3; width: min(420px, calc(100% - 36px)); padding: 18px; border: 1px solid #40546b; border-radius: 12px; background: #172230; box-shadow: 0 16px 60px #000d; }
@@ -1340,35 +1340,53 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .projectColorSwatch input:focus-visible + span { box-shadow: 0 0 0 4px #101922, 0 0 0 6px #fff; }
 .projectColorSwatch input:disabled + span { opacity: .5; }
 
-/* Only owner-scoped, non-semantic controls are tinted. Focus outlines, danger,
-   service health, disabled buttons, and the global board header remain distinct. */
-.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .primaryAction:not(:disabled),
-.projectDialog[data-project-color]:not([data-project-color="blue"]) .modalActions .primaryAction:not(:disabled),
-.settingsContent[data-project-color]:not([data-project-color="blue"]) .settingsPageActions .primaryAction:not(:disabled),
-.settingsPrompt[data-project-color]:not([data-project-color="blue"]) .modalActions .primaryAction:not(:disabled) {
+.modalActions button.danger, .modalActions button.dangerAction {
+  border-color: #7f3434;
+  background: #3a2227;
+  color: #f0a0a0;
+}
+.modalActions button.danger:hover:not(:disabled), .modalActions button.dangerAction:hover:not(:disabled) { background: #553038; }
+
+/* Action buttons default to slate. Only definite owner surfaces supply a project accent;
+   navigation, status, danger and nested global controls are deliberately excluded. */
+.kanbanHeaderActions > .primaryAction:not(:disabled),
+.modalActions .primaryAction:not(.danger):not(.dangerAction):not(:disabled),
+.settingsPageActions .primaryAction:not(:disabled),
+.kanbanDetail .primaryAction:not(.danger):not(.dangerAction):not(:disabled),
+.releaseView .primaryAction:not(:disabled) {
+  border-color: #657c91;
+  background: #354a5e;
+  color: #f5f8fa;
+}
+.kanbanHeaderActions > .primaryAction:hover:not(:disabled),
+.modalActions .primaryAction:not(.danger):not(.dangerAction):hover:not(:disabled),
+.settingsPageActions .primaryAction:hover:not(:disabled),
+.kanbanDetail .primaryAction:not(.danger):not(.dangerAction):hover:not(:disabled),
+.releaseView .primaryAction:hover:not(:disabled) {
+  border-color: #839cb2;
+  background: #48637b;
+}
+:is(.kanbanHeaderActions, .modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .releaseActions) > button:not(.danger):not(.dangerAction):focus-visible,
+.releaseStart:focus-visible,
+.kanbanNewCardActionButtons > button:focus-visible {
+  outline: 2px solid #a6bed2;
+  outline-offset: 2px;
+}
+.modalActions > button:is(.danger, .dangerAction):focus-visible,
+.settingsPageActions > button.dangerAction:focus-visible { outline: 2px solid #f0a0a0; outline-offset: 2px; }
+:is(.kanbanDetail, .projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft) .primaryAction:not(.danger):not(.dangerAction):not(:disabled),
+.releaseView[data-project-color] .primaryAction:not(:disabled) {
   border-color: var(--project-accent);
-  background: #25496b;
   background: color-mix(in srgb, var(--project-accent) 48%, #152737);
   color: #f5f8fa;
 }
-.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .primaryAction:hover:not(:disabled),
-.projectDialog[data-project-color]:not([data-project-color="blue"]) .modalActions .primaryAction:hover:not(:disabled),
-.settingsContent[data-project-color]:not([data-project-color="blue"]) .settingsPageActions .primaryAction:hover:not(:disabled),
-.settingsPrompt[data-project-color]:not([data-project-color="blue"]) .modalActions .primaryAction:hover:not(:disabled) {
-  background: #365475;
+:is(.kanbanDetail, .projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft) .primaryAction:not(.danger):not(.dangerAction):hover:not(:disabled),
+.releaseView[data-project-color] .primaryAction:hover:not(:disabled) {
   background: color-mix(in srgb, var(--project-accent) 62%, #203345);
 }
-.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .cardFooterActionGroupLeft > button:not(.primaryAction):not(:disabled),
-.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .kanbanEditActions button:not(.primaryAction):not(:disabled),
-.projectDialog[data-project-color]:not([data-project-color="blue"]) .modalActions button:not(.primaryAction):not(:disabled),
-.settingsContent[data-project-color]:not([data-project-color="blue"]) .settingsInlineAction button:not(:disabled) {
-  border-color: #34495d;
+:is(.kanbanDetail, .projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .settingsInlineAction) button:not(.primaryAction):not(.danger):not(.dangerAction):not(.workflowActionDangerGhost):not(.workflowActionNeutralGhost):not(:disabled) {
   border-color: color-mix(in srgb, var(--project-accent) 32%, #28394a);
 }
-.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .cardFooterActionGroupLeft > button:not(.primaryAction):hover:not(:disabled),
-.kanbanDetail[data-project-color]:not([data-project-color="blue"]) .kanbanEditActions button:not(.primaryAction):hover:not(:disabled),
-.projectDialog[data-project-color]:not([data-project-color="blue"]) .modalActions button:not(.primaryAction):hover:not(:disabled),
-.settingsContent[data-project-color]:not([data-project-color="blue"]) .settingsInlineAction button:hover:not(:disabled) {
-  background: #203348;
+:is(.kanbanDetail, .projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .settingsInlineAction) button:not(.primaryAction):not(.danger):not(.dangerAction):not(.workflowActionDangerGhost):not(.workflowActionNeutralGhost):hover:not(:disabled) {
   background: color-mix(in srgb, var(--project-accent) 14%, #182431);
 }
