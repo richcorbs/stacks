@@ -11,6 +11,15 @@ function declarationsFor(selector) {
 }
 
 describe('Kanban List layout', () => {
+  it('keeps local indicators trailing with a flexible invisible slot in board and narrow list views', () => {
+    const spacer = declarationsFor('.kanbanCardLocalAttribution');
+    expect(spacer).toContain('flex: 1 1 0');
+    expect(spacer).toContain('min-width: 0');
+    expect(declarationsFor('.kanbanCardMeta')).toContain('display: flex');
+    expect(declarationsFor('.kanbanListRow .kanbanCardMeta')).toContain('flex-wrap: wrap');
+    expect(styles).toMatch(/@media \(max-width: 800px\)\s*\{\s*\.kanbanListRow\.kanbanCard \{ grid-template-columns: minmax\(0, 1fr\)/);
+  });
+
   it('reserves a font-relative four-digit ID and lets metadata wrap without clipping badges', () => {
     expect(declarationsFor('.kanbanListRow.kanbanCard')).toContain('grid-template-columns: minmax(0,');
     expect(declarationsFor('.kanbanListRow .kanbanCardNumber')).toContain('min-width: 6ch');

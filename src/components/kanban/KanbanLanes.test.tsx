@@ -249,6 +249,44 @@ describe('KanbanCardContents', () => {
     expect(local).not.toContain('kanbanCardBoardAttribution');
   });
 
+  it.each(['board', 'list'] as const)('keeps local %s cards without indicators free of metadata, including inactive PRs', (layout) => {
+    for (const currentCard of [card(), card({ pull_request: pullRequest({ state: 'merged' }) })]) {
+      const markup = renderCardContents(currentCard, undefined, layout);
+      expect(markup).not.toContain('kanbanCardMeta');
+      expect(markup).not.toContain('kanbanCardLocalAttribution');
+      expect(markup).not.toContain('Unassigned');
+    }
+  });
+
+  it.each(['board', 'list'] as const)('aligns local %s indicators after an invisible flexible slot without assignee text', (layout) => {
+    const cases = [
+      [renderCardContents(card(), services(), layout), ['kanbanServerToggle', 'kanbanGitBadge']],
+      [renderCardContents(card({ pull_request: pullRequest() }), undefined, layout), ['kanbanPrBadge']],
+      [renderToStaticMarkup(<KanbanCardContents card={card()} projects={[project]} layout={layout}
+        repositoryStatus={{ git: { branch: 'feature', status: 'error', message: 'Git unavailable' }, environmentHealth: { card_id: card().id, issues: [] } }}
+        onNavigateParent={() => {}} onToggleServer={() => {}} />), ['kanbanGitBadge']],
+    ] as const;
+    for (const [markup, indicators] of cases) {
+      expect(markup).toContain('class="kanbanCardMeta"><span class="kanbanCardLocalAttribution" aria-hidden="true"></span><span class="kanbanCardIndicators">');
+      for (const indicator of indicators) expect(markup).toContain(indicator);
+      expect(markup).not.toContain('Unassigned');
+      expect(markup).not.toContain('Assigned in Superthread');
+      expect(markup).not.toContain('kanbanCardBoardAttribution');
+      expect(markup).not.toContain('kanbanCardAttribution');
+    }
+  });
+
+  it.each(['board', 'list'] as const)('preserves Superthread %s attribution and indicator layout', (layout) => {
+    const markup = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', pull_request: pullRequest() }), services(), layout);
+    const attribution = layout === 'board'
+      ? 'class="kanbanCardBoardAttribution"><span class="kanbanCardBoardAssignee" title="Assigned in Superthread">Unassigned</span></span>'
+      : 'class="kanbanCardAttribution"><span class="kanbanProviderBoardTitle">Roadmap</span><span title="Assigned in Superthread">Unassigned</span></span>';
+    expect(markup).toContain(`class="kanbanCardMeta"><span ${attribution}<span class="kanbanCardIndicators">`);
+    expect(markup).not.toContain('kanbanCardLocalAttribution');
+    expect(markup.indexOf('kanbanGitBadge')).toBeLessThan(markup.indexOf('kanbanPrBadge'));
+    expect(markup.indexOf('kanbanPrBadge')).toBeLessThan(markup.indexOf('kanbanServerToggle'));
+  });
+
   it.each(['board', 'list'] as const)('keeps attribution left and orders present Git, PR, and server indicators in %s layout', (layout) => {
     const cases = [
       { git: 'changes', pr: true, server: true, expected: ['kanbanGitBadge', 'kanbanPrBadge', 'kanbanServerToggle'] },

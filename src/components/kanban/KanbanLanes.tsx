@@ -157,7 +157,7 @@ export function KanbanCardContents({
     ? <span className="kanbanProviderBoardTitle">{card.board_title}</span> : null;
   const hasGitChangesBadge = repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git);
   const hasAttribution = card.provider !== 'local';
-  const hasIndicators = Boolean(serverServices || repositoryStatus?.git?.status === 'error' || hasGitChangesBadge || card.pull_request);
+  const hasIndicators = Boolean(serverServices || repositoryStatus?.git?.status === 'error' || hasGitChangesBadge || (card.pull_request && (hasAttribution || card.pull_request.state === 'open')));
 
   return <>
     <span className="kanbanCardSource">
@@ -184,9 +184,10 @@ export function KanbanCardContents({
       ) : hasAttribution && (
         <span className="kanbanCardAttribution">
           {providerBoard}
-          {card.provider !== 'local' && <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>}
+          <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>
         </span>
       )}
+      {!hasAttribution && <span className="kanbanCardLocalAttribution" aria-hidden="true" />}
       <span className="kanbanCardIndicators">
         {repositoryStatus?.git?.status === 'error' && <span className="kanbanGitBadge" title={repositoryStatus.git.message} aria-label="Git status unknown; check the worktree and refresh">Git ?</span>}
         {repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git) && (
