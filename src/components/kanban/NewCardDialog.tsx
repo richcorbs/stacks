@@ -2,6 +2,7 @@ import type { Project } from '../../types';
 import type { KanbanCardSummary } from '../../kanban/types';
 import type { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { candidateParents } from '../../kanban/hierarchy';
+import { projectColorAttribute } from '../../projectColor';
 
 type NewCardDialogModel = ReturnType<typeof useNewCardDialog>;
 
@@ -17,7 +18,7 @@ export function NewCardDialog({
   if (!model.open) return null;
   return (
     <div className="modalBackdrop" onMouseDown={() => { if (!model.creating) model.setOpen(false); }}>
-      <form className="modal kanbanNewCardDialog" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => {
+      <form className="modal kanbanNewCardDialog" data-project-color={projectColorAttribute(creationProjects.find((project) => project.id === model.projectId))} onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => {
         event.preventDefault();
         model.submit('refining');
       }}>
