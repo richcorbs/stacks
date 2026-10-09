@@ -189,7 +189,6 @@ export function KanbanCardContents({
       )}
       {!hasAttribution && <span className="kanbanCardLocalAttribution" aria-hidden="true" />}
       <span className="kanbanCardIndicators">
-        {serverServices && <KanbanServerControl services={serverServices} onToggle={() => onToggleServer(card.id)} />}
         {repositoryStatus?.git?.status === 'error' && <span className="kanbanGitBadge" title={repositoryStatus.git.message} aria-label="Git status unknown; check the worktree and refresh">Git ?</span>}
         {repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git) && (
           <span className="kanbanGitBadge" title={`${repositoryStatus.git.branch} working tree changes`}>
@@ -199,6 +198,7 @@ export function KanbanCardContents({
           </span>
         )}
         {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} check={prCheck} />}
+        {serverServices && <KanbanServerControl services={serverServices} onToggle={() => onToggleServer(card.id)} />}
       </span>
     </span>}
   </>;

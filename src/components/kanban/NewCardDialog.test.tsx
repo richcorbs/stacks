@@ -7,8 +7,8 @@ import { NewCardDialog } from './NewCardDialog';
 type DialogModel = ComponentProps<typeof NewCardDialog>['model'];
 
 const projects: Project[] = [
-  { id: 'alpha', name: 'Alpha', path: '/alpha' },
-  { id: 'beta', name: 'Beta', path: '/beta' },
+  { id: 'alpha', name: 'Alpha', path: '/alpha', color_id: 'blue' },
+  { id: 'beta', name: 'Beta', path: '/beta', color_id: 'teal' },
 ];
 
 function dialogModel(overrides: Partial<DialogModel> = {}): DialogModel {
@@ -60,6 +60,7 @@ describe('NewCardDialog', () => {
     const project = renderer.root.findAllByType('select')[0];
     const title = renderer.root.findAllByType('input').find((input) => input.props.type !== 'checkbox')!;
 
+    expect(renderer.root.findByType('form').props['data-project-color']).toBeUndefined();
     expect(project.props.value).toBe('');
     expect(project.findByProps({ value: '', disabled: true }).children).toEqual(['Select a project…']);
     expect(project.props.autoFocus).toBe(true);
@@ -72,6 +73,7 @@ describe('NewCardDialog', () => {
     const project = renderer.root.findAllByType('select')[0];
     const title = renderer.root.findAllByType('input').find((input) => input.props.type !== 'checkbox')!;
 
+    expect(renderer.root.findByType('form').props['data-project-color']).toBe('blue');
     expect(project.props.value).toBe('alpha');
     expect(project.props.autoFocus).toBe(false);
     expect(title.props.autoFocus).toBe(true);
@@ -98,6 +100,7 @@ describe('NewCardDialog', () => {
 
     const selects = renderer.root.findAllByType('select');
     expect(selects[0].props.value).toBe('beta');
+    expect(renderer.root.findByType('form').props['data-project-color']).toBe('teal');
     expect(selects[1].props.value).toBe('');
     expect(focusTitle).not.toHaveBeenCalled();
 

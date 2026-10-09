@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../types';
+import { projectColorAttribute } from '../projectColor';
 import { GithubStatusIcon } from './GithubStatusIcon';
 import { abandonRelease, approveRelease, cancelRelease, inspectRelease, reconcileReleasePreview, recoverPreparedRelease, refreshRelease, releaseHistory, retryRelease, startRelease, type ReleaseConfig, type ReleaseDraft, type ReleaseOperation, type ReleaseReconciliation, type ReleaseStageState } from '../releaseApi';
 
@@ -108,7 +109,7 @@ function ProjectReleaseTab({ project }: { project: Project }) {
   const displayed = active;
   const duration = displayed ? formatDuration((displayed.completedAt ?? nowSeconds) - displayed.createdAt) : null;
   const envNames = 'STACKS_RELEASE_VERSION, STACKS_RELEASE_PREVIOUS_VERSION, STACKS_RELEASE_PROJECT_PATH, STACKS_RELEASE_TARGET_BRANCH, STACKS_RELEASE_INITIAL_REVISION, STACKS_RELEASE_OPERATION_ID, STACKS_RELEASE_NOTES_FILE';
-  return <section className="releaseView cardView active" aria-label="Release pipeline">
+  return <section className="releaseView cardView active" data-project-color={projectColorAttribute(project)} aria-label="Release pipeline">
     <div className="releaseScroll">
       <header className="releaseHeader">
         <div><h3>Release pipeline</h3><span className={draft?.valid ? 'releaseValid' : 'releaseInvalid'}>{draft ? draft.valid ? 'Configuration valid' : draft.error : 'Validating configuration…'}</span></div>
