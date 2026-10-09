@@ -1000,7 +1000,7 @@ fn update_project_configuration_validated(
                 "UPDATE superthread_bindings SET app_slug=?1,updated_at=unixepoch() WHERE id=(SELECT superthread_binding_id FROM projects WHERE id=?2)",
                 params![input.superthread_workspace_slug, input.id],
             ).map_err(db_error)?;
-        } else if previous_source == "superthread" {
+        } else if leaving_superthread_for_local(&previous_source, next_source) {
             let history: i64 = transaction.query_row("SELECT COUNT(*) FROM kanban_cards WHERE project_id=?1 AND binding_id IS NOT NULL", [&input.id], |row| row.get(0)).map_err(db_error)?;
             if history > 0 { return Err("A project with Superthread card history cannot switch to Local until an explicit archive flow is available".into()); }
         }
@@ -1074,6 +1074,10 @@ fn activate_superthread_binding(connection: &Connection, input: &ProjectConfigur
     connection.execute("UPDATE projects SET superthread_binding_id=?1,superthread_workspace_id=?2,superthread_workspace_name=?3,superthread_space_id=?4,superthread_space_name=?5 WHERE id=?6", params![binding_id,workspace_id,input.superthread_workspace_name,space_id,input.superthread_space_name,input.id]).map_err(db_error)?;
     connection.execute("UPDATE kanban_cards SET binding_id=?1 WHERE project_id=?2 AND external_provider='superthread' AND binding_id IS NULL", params![binding_id,input.id]).map_err(db_error)?;
     Ok(binding_id)
+}
+
+fn leaving_superthread_for_local(previous_source: &str, next_source: &str) -> bool {
+    previous_source == "superthread" && next_source == "local"
 }
 
 fn update_project_configuration_row(
@@ -1647,6 +1651,21 @@ mod tests {
         assert!(changes.ordinary && changes.any());
         assert!(!changes.requires_provider_guard() && !changes.schedules_provider_work());
         assert!(!changes.routing && !changes.provider_workflow && !changes.slug);
+    }
+
+    #[test]
+    fn superthread_color_change_does_not_enter_local_archive_guard() {
+        let mut current = sample_input();
+        current.kanban_source = Some("superthread".into());
+        normalize_project_configuration(&mut current);
+        let mut next = current.clone();
+        next.color_id = Some("rose".into());
+        let changes = project_configuration_changes(&current, &next);
+        assert!(changes.ordinary);
+        assert!(!changes.requires_validation("superthread"));
+        assert!(!leaving_superthread_for_local("superthread", "superthread"));
+        assert!(leaving_superthread_for_local("superthread", "local"));
+        assert!(!leaving_superthread_for_local("local", "local"));
     }
 
     #[test]
