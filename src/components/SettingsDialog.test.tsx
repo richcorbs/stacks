@@ -70,6 +70,22 @@ describe('SettingsDialog', () => {
     expect(renderer.root.findByProps({ id: 'settings-page-heading' }).children).toEqual(['Interface']);
   });
 
+  it('keeps MCP off by default and saves the project-only toggle without treating it as provider mapping', async () => {
+    const { renderer, onSaveProject } = render('project:one', { ...projects[0], enable_mcp: true, config_revision: 4 });
+    const toggle = renderer.root.findAllByType('input').find((node) => node.props.type === 'checkbox' && node.parent?.children.includes('Enable MCP for Pi sessions'))!;
+    expect(toggle.props.checked).toBe(false);
+    act(() => toggle.props.onChange({ target: { checked: true } }));
+    expect(button(renderer.root, 'Save').props.disabled).toBe(false);
+    await act(async () => { await button(renderer.root, 'Save').props.onClick(); });
+    expect(onSaveProject).toHaveBeenCalledWith('one', expect.objectContaining({ enableMcp: true }), 3);
+    expect(renderer.root.findAllByType('input').find((node) => node.parent?.children.includes('Enable MCP for Pi sessions'))?.props.checked).toBe(true);
+    expect(button(renderer.root, 'Save').props.disabled).toBe(true);
+    const hint = renderer.root.findByProps({ className: 'projectMcpSettings' }).findByType('small').children.join('');
+    expect(hint).toContain('global servers');
+    expect(hint).toContain('worktrees');
+    expect(hint).toContain('trusted');
+  });
+
   it('opens and closes an untouched local project without prompting', () => {
     const { renderer, onClose } = render('project:one');
     expect(button(renderer.root, 'Save').props.disabled).toBe(true);

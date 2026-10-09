@@ -59,7 +59,7 @@ use menu::app_menu;
 use open::{open_path_in_editor, open_url};
 use pi_paths::discover_pi_paths;
 use pi_rpc::{
-    delete_pi_session, pi_project_trusted, pi_session_exists, send_pi_rpc, set_pi_project_trusted,
+    delete_pi_session, pi_mcp_local_status, pi_project_trusted, pi_session_exists, pi_session_mcp_enabled, send_pi_rpc, set_pi_project_trusted,
     start_pi_session, stop_pi_session, PiRpcRegistry,
 };
 use project_direct::{
@@ -158,6 +158,8 @@ pub fn run() {
             pi_project_trusted,
             set_pi_project_trusted,
             send_pi_rpc,
+            pi_session_mcp_enabled,
+            pi_mcp_local_status,
             discover_pi_paths,
             stop_pi_session,
             delete_pi_session,

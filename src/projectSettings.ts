@@ -13,6 +13,7 @@ export function canonicalProjectSettings(draft: DialogState) {
   const kanbanSource = source(draft.kanbanSource);
   return {
     colorId: projectColor(draft.colorId),
+    enableMcp: draft.enableMcp ?? false,
     name: draft.name.trim(),
     path: draft.path.trim(),
     kanbanSource,
@@ -46,7 +47,7 @@ export function projectSettingsEqual(left: DialogState | null, right: DialogStat
 
 export function projectSettingsDraft(project: Project): Extract<DialogState, { kind: 'editProject' }> {
   return {
-    kind: 'editProject', projectId: project.id, name: project.name, path: project.path, colorId: projectColor(project.color_id),
+    kind: 'editProject', projectId: project.id, name: project.name, path: project.path, colorId: projectColor(project.color_id), enableMcp: project.enable_mcp ?? false,
     kanbanSource: project.kanban_source ?? 'local', startWorkCommand: project.start_work_command,
     superthreadSpaces: project.superthread_spaces, superthreadWorkspaceId: project.superthread_workspace_id, superthreadWorkspaceName: project.superthread_workspace_name,
     superthreadSpaceId: project.superthread_space_id, superthreadSpaceName: project.superthread_space_name, superthreadBindingId: project.superthread_binding_id,
