@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
 import type { CardServices } from '../../kanban/useCardServices';
+import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import { DoneLaneMenu, KanbanCardContents, KanbanLanes, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
 import { cardServerAvailability } from './BoardCardServerServices';
 import type { WorkGroup } from '../../kanban/workflowGroups';
@@ -248,17 +249,36 @@ describe('KanbanCardContents', () => {
     expect(local).not.toContain('kanbanCardBoardAttribution');
   });
 
-  it('keeps attribution left and orders server, Git, and pull-request indicators on the right', () => {
-    const markup = renderCardContents(card({
-      provider: 'superthread',
-      assignee_names: ['Rich'],
-      pull_request: pullRequest(),
-    }), services());
+  it.each(['board', 'list'] as const)('keeps attribution left and orders present Git, PR, and server indicators in %s layout', (layout) => {
+    const cases = [
+      { git: 'changes', pr: true, server: true, expected: ['kanbanGitBadge', 'kanbanPrBadge', 'kanbanServerToggle'] },
+      { git: 'error', pr: true, server: true, expected: ['kanbanGitBadge', 'kanbanPrBadge', 'kanbanServerToggle'] },
+      { git: 'none', pr: true, server: true, expected: ['kanbanPrBadge', 'kanbanServerToggle'] },
+      { git: 'changes', pr: false, server: true, expected: ['kanbanGitBadge', 'kanbanServerToggle'] },
+      { git: 'changes', pr: true, server: false, expected: ['kanbanGitBadge', 'kanbanPrBadge'] },
+      { git: 'none', pr: false, server: true, expected: ['kanbanServerToggle'] },
+      { git: 'none', pr: false, server: false, expected: [] },
+    ] as const;
 
-    expect(markup.indexOf('kanbanProjectBadge')).toBeLessThan(markup.indexOf('kanbanCardStatusBadge'));
-    expect(markup.indexOf('Rich')).toBeLessThan(markup.indexOf('kanbanCardIndicators'));
-    expect(markup.indexOf('kanbanServerToggle')).toBeLessThan(markup.indexOf('kanbanGitBadge'));
-    expect(markup.indexOf('kanbanGitBadge')).toBeLessThan(markup.indexOf('kanbanPrBadge'));
+    for (const { git, pr, server, expected } of cases) {
+      const repositoryStatus: CardRepositoryStatus | undefined = git === 'none' ? undefined : {
+        git: git === 'error'
+          ? { branch: 'card-224', status: 'error', message: 'Git unavailable' }
+          : { branch: 'card-224', status: 'ok', created: 1, changed: 0, deleted: 0 },
+        environmentHealth: { card_id: 'local:project-1:128', issues: [] },
+      };
+      const markup = renderToStaticMarkup(<KanbanCardContents
+        card={card({ provider: 'superthread', assignee_names: ['Rich'], pull_request: pr ? pullRequest() : null })}
+        projects={[project]} layout={layout} repositoryStatus={repositoryStatus}
+        serverServices={server ? services() : undefined}
+        onNavigateParent={() => {}} onToggleServer={() => {}}
+      />);
+      const indicators = [...markup.matchAll(/class="(kanbanGitBadge|kanbanPrBadge|kanbanServerToggle)(?: [^"]*)?"/g)].map((match) => match[1]);
+
+      expect(markup.indexOf('kanbanProjectBadge')).toBeLessThan(markup.indexOf('kanbanCardStatusBadge'));
+      expect(markup.indexOf('Rich')).toBeLessThan(markup.indexOf('kanbanCardIndicators'));
+      expect(indicators).toEqual(expected);
+    }
   });
 });
 
