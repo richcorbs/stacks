@@ -90,4 +90,28 @@ describe.each(['board', 'list'] as const)('%s keyboard shortcut', (view) => {
     expect(openCard).toHaveBeenCalledWith(card);
     expect(openNewCard).not.toHaveBeenCalled();
   });
+
+  it('ignores Enter and navigation while an overlay blocks the board, even with a card still focused', async () => {
+    const nextCard = { ...card, id: 'b', sort_order: 1 };
+    await render({ visibleCards: [card, nextCard] });
+    const cardTarget = { closest: () => null }; // Focus can remain on a card until palette focus runs.
+    expect(key('j', { target: cardTarget }).defaultPrevented).toBe(true);
+    expect(navigation.focusedCardId).toBe('a');
+
+    await act(async () => renderer.update(<Harness {...options(view, {
+      visibleCards: [card, nextCard], shortcutBlocked: true,
+    })} />));
+    for (const blockedKey of ['Enter', 'j', 'k', 'h', 'l', 'n']) {
+      expect(key(blockedKey, { target: cardTarget }).defaultPrevented).toBe(false);
+    }
+    expect(navigation.focusedCardId).toBe('a');
+    expect(openCard).not.toHaveBeenCalled();
+    expect(openNewCard).not.toHaveBeenCalled();
+
+    await act(async () => renderer.update(<Harness {...options(view, { visibleCards: [card, nextCard] })} />));
+    expect(key('Enter', { target: cardTarget }).defaultPrevented).toBe(true);
+    expect(openCard).toHaveBeenCalledExactlyOnceWith(card);
+    expect(key('j', { target: cardTarget }).defaultPrevented).toBe(true);
+    expect(navigation.focusedCardId).toBe('b');
+  });
 });
