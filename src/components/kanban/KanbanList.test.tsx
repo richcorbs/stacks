@@ -34,6 +34,20 @@ describe('Kanban list', () => {
     expect(markup).toMatch(/class="kanbanCard kanbanListRow" data-project-color="rose"/);
     expect(markup).toMatch(/class="kanbanCard kanbanListRow"><button[^>]*aria-label="Open card #approved/);
   });
+  it('marks only the keyboard-focused row above a parent card, regardless of navigation direction', () => {
+    const ordinary = { ...card('ready'), id: 'ordinary' };
+    const parent = { ...card('ready'), id: 'parent', child_count: 1 };
+    const markupFor = (focusedId: string) => renderToStaticMarkup(<KanbanList cards={[ordinary, parent]} projects={[project]}
+      repositoryStatuses={{}} serverServices={{}} backlogCollapsed doneCollapsed openLaneMenu={null}
+      setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={focusedId}
+      setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+      onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    const rowClasses = (focusedId: string) => [...markupFor(focusedId).matchAll(/class="(kanbanCard[^\"]*kanbanListRow)"/g)].map((match) => match[1]);
+
+    expect(rowClasses('ordinary')).toEqual(['kanbanCard keyboardFocused kanbanListRow', 'kanbanCard kanbanParentCard kanbanListRow']);
+    expect(rowClasses('parent')).toEqual(['kanbanCard kanbanListRow', 'kanbanCard kanbanParentCard keyboardFocused kanbanListRow']);
+  });
+
   it('shows all eight exact statuses in four groups and keeps Done collapsed', () => {
     const markup = render(['needs_refinement', 'refining', 'needs_refinement_input', 'ready', 'agent_working', 'needs_human', 'approved', 'done']);
     expect(markup.match(/class="kanbanListGroup"/g)).toHaveLength(4);
