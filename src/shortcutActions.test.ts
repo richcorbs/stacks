@@ -45,6 +45,21 @@ describe('shortcut actions', () => {
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
     expect(h.setKanbanView).not.toHaveBeenCalled();
   });
+  it('guards pane menu actions in inactive views and prioritizes the top-level terminal', () => {
+    const h = handlers();
+    runShortcutAction('previous-terminal-pane', h);
+    h.isCardOpen = () => true;
+    runShortcutAction('next-terminal-pane', h);
+    expect(h.runCardTerminalAction).not.toHaveBeenCalled();
+    h.isCardTerminalActive = () => true;
+    runShortcutAction('previous-terminal-pane', h);
+    runShortcutAction('next-terminal-pane', h);
+    expect(vi.mocked(h.runCardTerminalAction).mock.calls).toEqual([['previous-pane'], ['next-pane']]);
+    h.isGlobalTerminalVisible = () => true;
+    runShortcutAction('previous-terminal-pane', h);
+    expect(h.runGlobalTerminalAction).toHaveBeenCalledExactlyOnceWith('previous-pane');
+    expect(h.runCardTerminalAction).toHaveBeenCalledTimes(2);
+  });
   it('routes retained app actions', () => {
     const h = handlers(); runShortcutAction('add-project', h); runShortcutAction('settings', h); runShortcutAction('quit', h);
     expect(h.openProjectDialog).toHaveBeenCalled(); expect(h.openSettings).toHaveBeenCalled(); expect(h.requestQuit).toHaveBeenCalled();

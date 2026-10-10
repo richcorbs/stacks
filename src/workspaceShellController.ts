@@ -1,5 +1,5 @@
 import type { SplitNode, TerminalEntry } from './types';
-import { collectLeafTerminalIds, removeLeaf, setSplitRatio, splitLeaf } from './utils';
+import { collectLeafTerminalIds, relativePaneId, removeLeaf, setSplitRatio, splitLeaf } from './utils';
 
 export type WorkspaceShellRequest = { terminalId: string; nonce: number };
 export type WorkspaceShellPane = TerminalEntry;
@@ -27,6 +27,7 @@ export type WorkspaceShellCommand =
   | { type: 'stop' }
   | { type: 'close' }
   | { type: 'focus'; paneId: string }
+  | { type: 'navigate-pane'; direction: -1 | 1 }
   | { type: 'toggle-maximize' }
   | { type: 'run-one-time'; command: string };
 
@@ -82,6 +83,11 @@ export class WorkspaceShellController {
     if (!this.snapshot.paneIds.includes(paneId)) return false;
     this.update({ focusedPaneId: paneId, maximizedPaneId: this.snapshot.maximizedPaneId ? paneId : null });
     return true;
+  }
+
+  navigatePane(direction: -1 | 1) {
+    const next = relativePaneId(this.snapshot.tree, this.snapshot.focusedPaneId, direction);
+    return next ? this.focus(next) : false;
   }
 
   async split(direction: 'row' | 'column', requestedPaneId?: string) {
@@ -198,6 +204,7 @@ export class WorkspaceShellController {
     if (!active || ownerId !== this.ownerId) return false;
     if (command.type === 'split') void this.split(command.direction, command.paneId);
     else if (command.type === 'focus') this.focus(command.paneId);
+    else if (command.type === 'navigate-pane') this.navigatePane(command.direction);
     else if (command.type === 'search') this.search();
     else if (command.type === 'clear') this.clear();
     else if (command.type === 'restart') this.restart();

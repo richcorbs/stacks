@@ -8,6 +8,7 @@ export type CardTerminalCommand =
   | { type: 'stop' }
   | { type: 'close' }
   | { type: 'focus'; paneId: string }
+  | { type: 'navigate-pane'; direction: -1 | 1 }
   | { type: 'toggle-maximize' }
   | { type: 'run-one-time'; command: string };
 

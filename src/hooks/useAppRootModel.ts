@@ -295,12 +295,12 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     setKanbanView: (view) => setAppSettings((current) => ({ ...current, kanban_view: view })),
     toggleGlobalTerminal: () => setGlobalTerminalVisible((visible) => !visible),
     newGlobalTerminalTab: () => { setGlobalTerminalVisible(true); setGlobalTerminalNewTabNonce((nonce) => nonce + 1); },
-    runGlobalTerminalAction: (action) => dispatchGlobalTerminal(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
+    runGlobalTerminalAction: (action) => dispatchGlobalTerminal(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : action === 'previous-pane' || action === 'next-pane' ? { type: 'navigate-pane', direction: action === 'previous-pane' ? -1 : 1 } : { type: action }),
     adjustTerminalFontSize: (delta) => setAppSettings((current) => ({ ...current, terminal_font_size: clampTerminalFontSize(current.terminal_font_size + delta) })),
     adjustUiFontSize: (delta) => setAppSettings((current) => ({ ...current, ui_font_size: clampUiFontSize(current.ui_font_size + delta) })),
     openCommandPalette: () => setCommandPaletteOpen(true), openProjectSwitcher: () => { if (canOpenProjectSwitcher(document)) events.publish('open-project-switcher', undefined); },
     openSettings: () => setSettingsOpen(true),
-    runCardTerminalAction: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
+    runCardTerminalAction: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : action === 'previous-pane' || action === 'next-pane' ? { type: 'navigate-pane', direction: action === 'previous-pane' ? -1 : 1 } : { type: action }),
   };
   useKeyboardShortcuts(shortcutHandlers, loading.isInteractionBlocked);
   const shortcutRef = useRef(shortcutHandlers); shortcutRef.current = shortcutHandlers;

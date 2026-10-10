@@ -56,6 +56,24 @@ describe('WorkspaceShellController', () => {
     expect(scrolled).toEqual([['one'], ['two']]);
   });
 
+  it('cycles visual leaf order with wrap, persisted focus, and maximized display', () => {
+    const tree: SplitNode = { kind: 'split', direction: 'column', first: twoPaneTree, second: { kind: 'leaf', terminalId: 'three' } };
+    const { controller, layouts } = createHarness(tree, 'two');
+    expect(controller.handleCommand('owner', false, { type: 'navigate-pane', direction: 1 })).toBe(false);
+    expect(controller.getSnapshot().focusedPaneId).toBe('two');
+    controller.toggleMaximize();
+    controller.handleCommand('owner', true, { type: 'navigate-pane', direction: 1 });
+    expect(controller.getSnapshot()).toMatchObject({ focusedPaneId: 'three', maximizedPaneId: 'three' });
+    controller.navigatePane(1);
+    expect(controller.getSnapshot()).toMatchObject({ focusedPaneId: 'one', maximizedPaneId: 'one' });
+    controller.navigatePane(-1);
+    expect(controller.getSnapshot()).toMatchObject({ focusedPaneId: 'three', maximizedPaneId: 'three' });
+    expect(layouts.at(-1)?.focusedPaneId).toBe('three');
+    const single = createHarness();
+    expect(single.controller.navigatePane(1)).toBe(false);
+    expect(single.layouts).toHaveLength(0);
+  });
+
   it('selects the previous visual pane when a close is confirmed', () => {
     const tree: SplitNode = { kind: 'split', direction: 'row', first: twoPaneTree, second: { kind: 'leaf', terminalId: 'three' } };
     const { controller } = createHarness(tree, 'two');

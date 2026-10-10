@@ -1,7 +1,7 @@
 import type { SplitNode } from './types';
-import { collectLeafTerminalIds, removeLeaf } from './utils';
+import { collectLeafTerminalIds, relativePaneId, removeLeaf } from './utils';
 
-export type GlobalTerminalCommand = { type: 'new-tab' | 'select-tab' | 'navigate-tab' | 'split' | 'close' | 'clear' | 'search' | 'toggle-maximize'; number?: number; direction?: -1 | 1 | 'row' | 'column' };
+export type GlobalTerminalCommand = { type: 'new-tab' | 'select-tab' | 'navigate-tab' | 'navigate-pane' | 'split' | 'close' | 'clear' | 'search' | 'toggle-maximize'; number?: number; direction?: -1 | 1 | 'row' | 'column' };
 
 export type GlobalTerminalTab = {
   id: string;
@@ -25,6 +25,10 @@ export function createGlobalTab(): GlobalTerminalTab {
 export function selectRelativeTab(tabs: GlobalTerminalTab[], selectedId: string, direction: -1 | 1) {
   const index = Math.max(0, tabs.findIndex((tab) => tab.id === selectedId));
   return tabs[(index + direction + tabs.length) % tabs.length]?.id ?? selectedId;
+}
+export function selectRelativePane(tab: GlobalTerminalTab, direction: -1 | 1): GlobalTerminalTab {
+  const paneId = relativePaneId(tab.split_layout, tab.focused_pane_id, direction);
+  return paneId ? { ...tab, focused_pane_id: paneId, maximized_pane_id: tab.maximized_pane_id ? paneId : null } : tab;
 }
 export function removeGlobalTab(tabs: GlobalTerminalTab[], selectedId: string, removeId: string) {
   if (tabs.length <= 1) return { tabs, selectedId };
