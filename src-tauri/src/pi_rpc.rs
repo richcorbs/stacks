@@ -28,6 +28,7 @@ pub struct PiRpcHandle {
     project_id: String,
     approve_project: bool,
     enable_mcp: bool,
+    mcp_env_names: String,
     lifecycle: Arc<Mutex<PiLifecycleTracker>>,
 }
 
@@ -378,6 +379,27 @@ fn start_pi_session_operation(
     }
 }
 
+fn resolve_mcp_env(
+    csv: &str,
+    app: impl Fn(&str) -> Option<String>,
+    shell: impl Fn(&str) -> Option<String>,
+) -> Result<Vec<(String, String)>, String> {
+    if csv.len() > 1024 { return Err("Invalid MCP environment name list in project settings".into()); }
+    let mut result = Vec::new();
+    for name in csv.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+        if result.len() >= 16 || name.len() > 64 || !name.starts_with(|c: char| c == '_' || c.is_ascii_alphabetic())
+            || !name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
+            || name == "ST_TOKEN" || name == "PATH" || name.starts_with("STACKS_") {
+            return Err("Invalid or reserved MCP environment name in project settings".into());
+        }
+        let value = app(name).filter(|value| !value.trim().is_empty())
+            .or_else(|| shell(name))
+            .ok_or_else(|| format!("MCP environment variable {name} is unavailable in the app and login shell. Set it and restart Pi."))?;
+        result.push((name.to_string(), value));
+    }
+    Ok(result)
+}
+
 fn spawn_pi_session(
     window: &Window,
     pane_id: &str,
@@ -418,6 +440,11 @@ fn spawn_pi_session(
             "STACKS_AUTOMATION_SOCKET",
             crate::automation::socket_path()?,
         );
+    if project.enable_mcp {
+        for (name, value) in resolve_mcp_env(&project.mcp_env_names, |name| env::var(name).ok(), crate::superthread::token_from_login_shell)? {
+            pi_command.env(name, value);
+        }
+    }
     if let Some(owner) = crate::kanban::card_pi_session(pane_id)? {
         pi_command
             .env("STACKS_CARD_ID", owner.card_id)
@@ -513,23 +540,10 @@ fn spawn_pi_session(
         }
     });
 
-    let error_window = window.clone();
-    let error_pane_id = pane_id.to_string();
-    let error_generation = generation.clone();
-    let error_event_order = event_order.clone();
-    let error_emission_lock = emission_lock.clone();
+    // Servers may print authorization headers to stderr. Drain without sending
+    // stderr to the UI, logs or transcript; structured extension events report status.
     std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            emit_event(
-                &error_window,
-                &error_pane_id,
-                &error_generation,
-                &error_event_order,
-                &error_emission_lock,
-                json!({"type":"pi_stderr","message":line}),
-                "native",
-            );
-        }
+        for _ in BufReader::new(stderr).lines().map_while(Result::ok) {}
     });
 
     let process_window = window.clone();
@@ -581,6 +595,7 @@ fn spawn_pi_session(
         project_id: project.id.clone(),
         approve_project,
         enable_mcp: project.enable_mcp,
+        mcp_env_names: project.mcp_env_names.clone(),
         lifecycle,
     })
 }
@@ -600,6 +615,12 @@ fn pi_launch_args<'a>(enable_mcp: bool, approved: bool, extension: &'a str, sess
 pub fn pi_session_mcp_enabled(registry: State<'_, Mutex<PiRpcRegistry>>, pane_id: String) -> Result<Option<bool>, String> {
     Ok(registry.lock().map_err(|_| "Pi session registry lock poisoned".to_string())?
         .sessions.get(&pane_id).filter(|handle| handle.alive.load(Ordering::Acquire)).map(|handle| handle.enable_mcp))
+}
+
+#[tauri::command]
+pub fn pi_session_mcp_env_names(registry: State<'_, Mutex<PiRpcRegistry>>, pane_id: String) -> Result<Option<String>, String> {
+    Ok(registry.lock().map_err(|_| "Pi session registry lock poisoned".to_string())?
+        .sessions.get(&pane_id).filter(|handle| handle.alive.load(Ordering::Acquire)).map(|handle| handle.mcp_env_names.clone()))
 }
 
 #[tauri::command]
@@ -707,6 +728,31 @@ fn send_json(stdin: &mut ChildStdin, value: &Value) -> Result<(), String> {
     stdin.flush().map_err(|error| error.to_string())
 }
 
+fn safe_extension_event(event: Value) -> Value {
+    let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
+    if kind != "extension_error" && !(kind == "extension_ui_request" && event.get("method").and_then(Value::as_str) == Some("notify")) {
+        return event;
+    }
+    let text = event.get("message").or_else(|| event.get("error")).and_then(Value::as_str).unwrap_or("");
+    let mcp = text.to_ascii_lowercase().contains("mcp") || event.get("extension").and_then(Value::as_str).is_some_and(|value| value.contains("mcp"))
+        || text.split_whitespace().any(|word| word.ends_with(':') && text.contains("failed"));
+    let words = text.split_whitespace().collect::<Vec<_>>();
+    let name = words.windows(2).filter(|pair| pair[1].starts_with("failed") || pair[1].starts_with("connected"))
+        .filter_map(|pair| pair[0].strip_suffix(':'))
+        .find(|word| !word.is_empty() && word.len() <= 40 && word.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && word.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+    let lower = text.to_ascii_lowercase();
+    let result = if mcp {
+        let category = if lower.contains("auth") || lower.contains("unauthorized") || lower.contains("denied") || lower.contains("401") || lower.contains("403") { "authentication" }
+            else if lower.contains("config") || lower.contains("invalid") || lower.contains("not set") { "configuration" } else { "connection" };
+        let status = if kind == "extension_error" || lower.contains("failed") || lower.contains("error") { "failed" }
+            else if lower.contains("connected") { "connected" } else { "unknown" };
+        format!("MCP {}: {status} {category}", name.unwrap_or("server"))
+    } else if kind == "extension_error" { "Pi extension error".into() } else { "Pi extension notification".into() };
+    if kind == "extension_ui_request" { json!({"type":kind,"method":"notify","message":result}) }
+    else { json!({"type":kind,"message":result}) }
+}
+
 fn process_raw_event(
     window: &Window,
     pane_id: &str,
@@ -731,7 +777,7 @@ fn process_raw_event(
         generation,
         sequence,
         emission_lock,
-        event,
+        safe_extension_event(event),
         "native",
     );
     if synthetic {
@@ -1223,6 +1269,35 @@ mod tests {
         assert!(on.contains(&"--continue"));
         assert!(!on.contains(&"--no-session"));
         assert_eq!(pi_launch_args(true, true, "/stacks.ts", "/sessions")[2], "--approve");
+    }
+
+    #[test]
+    fn extension_events_are_sanitized_before_crossing_rpc_boundary() {
+        let secret = "https://internal/?token=fixture Authorization: Bearer fixture";
+        let event = super::safe_extension_event(json!({"type":"extension_ui_request","method":"notify","message":format!("MCP servers need attention:\n  local_fixture: failed: authentication {secret}")}));
+        assert_eq!(event["message"], "MCP local_fixture: failed authentication");
+        assert!(!event.to_string().contains("fixture Authorization"));
+        let error = super::safe_extension_event(json!({"type":"extension_error","extension":"builtin:mcp","error":secret}));
+        assert!(!error.to_string().contains("Bearer"));
+    }
+
+    #[test]
+    fn approved_environment_is_project_scoped_with_bounded_fallback() {
+        use super::resolve_mcp_env;
+        let app = |name: &str| (name == "APP_KEY").then(|| "app-fixture".to_string());
+        let shell = |name: &str| (name == "SHELL_KEY").then(|| "shell-fixture".to_string());
+        assert_eq!(resolve_mcp_env("APP_KEY, SHELL_KEY", app, shell).unwrap(),
+            [("APP_KEY".into(), "app-fixture".into()), ("SHELL_KEY".into(), "shell-fixture".into())]);
+        assert!(resolve_mcp_env("MISSING", app, shell).unwrap_err().contains("MISSING"));
+        assert!(resolve_mcp_env("ST_TOKEN", app, shell).is_err());
+        assert!(resolve_mcp_env("STACKS_CARD_ID", app, shell).is_err());
+        assert!(resolve_mcp_env("APP_KEY=bad", app, shell).is_err());
+        assert!(resolve_mcp_env("", app, shell).unwrap().is_empty());
+        let values = resolve_mcp_env("APP_KEY", app, shell).unwrap();
+        let mut child = std::process::Command::new("/bin/sh");
+        child.env_clear().args(["-c", "test \"$APP_KEY\" = app-fixture && test -z \"$SHELL_KEY\""]);
+        for (name, value) in values { child.env(name, value); }
+        assert!(child.status().unwrap().success());
     }
 
     #[test]

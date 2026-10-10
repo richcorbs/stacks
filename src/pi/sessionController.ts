@@ -30,6 +30,8 @@ export type PiSessionSnapshot = {
   isStreaming: boolean;
   tools: PiToolActivity[];
   error: string | null;
+  mcpStatus: 'unknown' | 'connected' | 'failed';
+  extensionNotice: string | null;
   starting: boolean;
   stopped: boolean;
   uiRequest: PiUiRequest | null;
@@ -60,7 +62,7 @@ const defaultDependencies: ControllerDependencies = {
 export class PiSessionController {
   private snapshot: PiSessionSnapshot = {
     messages: [], context: EMPTY_CONTEXT, streamingText: '', isStreamingText: false, isStreaming: false,
-    tools: [], error: null, starting: true, stopped: false, uiRequest: null, editorTextRequest: null,
+    tools: [], error: null, mcpStatus: 'unknown', extensionNotice: null, starting: true, stopped: false, uiRequest: null, editorTextRequest: null,
     commands: GUI_BUILTIN_COMMANDS, availableModels: [], availableThinkingLevels: [], queuedSteering: [], queuedFollowUps: [],
   };
   private listeners = new Set<() => void>();
@@ -68,6 +70,7 @@ export class PiSessionController {
   private pendingRequests = new Map<string, PendingRequest>();
   private requestSequence = 0;
   private generation: string | null = null;
+  private previousGeneration: string | null = null;
   private completionNotificationEligible = false;
   private activityRevision = 0;
   private uiResponseEpoch = 0;
@@ -261,12 +264,14 @@ export class PiSessionController {
     this.completionNotificationEligible = false;
     this.uiResponseEpoch += 1;
     this.clearUiRequest(true, false);
-    this.patch({ starting: true, stopped: false, isStreamingText: false, streamingText: '', error: null, queuedSteering: [], queuedFollowUps: [] });
+    this.patch({ starting: true, stopped: false, isStreamingText: false, streamingText: '', error: null, mcpStatus: 'unknown', extensionNotice: null, queuedSteering: [], queuedFollowUps: [] });
+    this.previousGeneration = this.generation;
     this.generation = 'restarting';
     try {
       await this.dependencies.invoke('stop_pi_session', { paneId: this.config.paneId });
       const generation = await this.dependencies.invoke<string>('start_pi_session', this.startArgs());
       this.generation = generation;
+      this.previousGeneration = null;
       await this.hydrate();
       notifyRunning(this.dependencies, this.config.paneId, true);
       this.patch({ stopped: false });
@@ -427,6 +432,7 @@ export class PiSessionController {
   private handleEnvelope = (payload: PiRpcEnvelope) => {
     if (this.deleted || payload.pane_id !== this.config.paneId) return;
     const lifecycleDiagnostic = ['agent_start', 'agent_end', 'agent_settled', 'pi_protocol_error', 'pi_process_exit'].includes(payload.event.type);
+    if (this.generation === 'restarting' && payload.generation !== this.previousGeneration) this.generation = payload.generation;
     if (this.generation && this.generation !== payload.generation) {
       if (lifecycleDiagnostic) console.debug('[pi-lifecycle]', { stage: 'frontend_session', pane: payload.pane_id, generation: payload.generation,
         acceptedGeneration: this.generation, eventId: payload.event_id, eventOrder: payload.event_order, eventType: payload.event.type, result: 'filtered', reason: 'stale_generation' });
@@ -523,7 +529,7 @@ export class PiSessionController {
         this.refreshMessages().catch(() => {});
         this.refreshState().catch(() => {});
         break;
-      case 'pi_stderr': console.warn('[pi]', event.message); break;
+      case 'pi_stderr': break; // Pi or a server may write credentials to stderr.
       case 'pi_protocol_error':
         notifyPiPromptFailed(this.config.paneId);
         this.patch({ error: typeof event.message === 'string' ? event.message : 'Pi reported an error' });
@@ -539,7 +545,11 @@ export class PiSessionController {
         for (const pending of this.pendingRequests.values()) { this.dependencies.clearTimeout(pending.timer); pending.reject(new Error('Pi session stopped')); }
         this.pendingRequests.clear();
         break;
+      case 'extension_error':
+        this.recordExtensionNotice(event, true);
+        break;
       case 'extension_ui_request': {
+        if (event.method === 'notify') { this.recordExtensionNotice(event, false); break; }
         if (event.method === 'set_editor_text' && typeof event.text === 'string') { this.patch({ editorTextRequest: { text: event.text } }); break; }
         const request = extensionUiRequest(event);
         if (!request) break;
@@ -554,6 +564,26 @@ export class PiSessionController {
       }
     }
   };
+
+  private recordExtensionNotice(event: Record<string, unknown>, isError: boolean) {
+    // Pi notifications are untrusted: never render raw text, URLs, headers or arbitrary extension data.
+    const raw = [event.message, event.text, event.title, event.error].filter((part): part is string => typeof part === 'string').join(' ');
+    const mcp = /\bmcp\b|\bserver\b|\bconnected\b|\bconnection\b|(?:^|\s)[A-Za-z][A-Za-z0-9_-]{0,39}:\s*failed\b/i.test(raw) || (typeof event.extension === 'string' && /mcp/i.test(event.extension));
+    const failed = isError || /\bfail(?:ed|ure)?\b|\berror\b|\bunauthorized\b|\bdenied\b/i.test(raw);
+    if (mcp) {
+      const category = /auth|unauthorized|denied|401|403/i.test(raw) ? 'authentication' : /config|invalid|missing|not set/i.test(raw) ? 'configuration' : 'connection';
+      const name = raw.match(/(?:^|\s)([A-Za-z][A-Za-z0-9_-]{0,39}):\s*(?:failed|connected)\b/i)?.[1];
+      const server = name && !['Authorization', 'Bearer', 'https', 'http'].includes(name) ? `${name}: ` : '';
+      const connected = Boolean(name && new RegExp(`\\b${name}:\\s*connected\\b`, 'i').test(raw));
+      const notice = failed ? `MCP ${server}${category} failed. Check project config, approved environment names and /mcp status.` :
+        connected ? `MCP ${server}connected (reported by Pi).` : 'MCP status reported by Pi; run /mcp for server details.';
+      const status = failed ? 'failed' : connected ? 'connected' as const : this.snapshot.mcpStatus;
+      if (status !== this.snapshot.mcpStatus || notice !== this.snapshot.extensionNotice) this.patch({ mcpStatus: status, extensionNotice: notice });
+    } else if ((isError || raw) && this.snapshot.mcpStatus !== 'failed') {
+      const notice = isError ? 'Pi extension error. Check extension configuration.' : 'Pi extension notification received.';
+      if (notice !== this.snapshot.extensionNotice) this.patch({ extensionNotice: notice });
+    }
+  }
 
   private dispatchAttention(kind: 'pi-complete' | 'pi-request', lifecycleKey: string) {
     const owner = parseWorkOwnerId(this.config.workspaceId);
