@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KanbanCard } from './types';
 import { canEditKanbanCard, hasDirtyCardDraft } from './cardEditing';
 import { initialCardView, type CardView } from './cardView';
-import { availableCardDetailTabs, CardRevisionTracker, resolveCardDetailNavigation, validCardDetailView, type CardDetailNavigationCommand, type CardDetailTabAvailability } from './cardDetailModel';
+import { availableCardDetailTabs, displayedCardDetailTabs, CardRevisionTracker, resolveCardDetailNavigation, validCardDetailView, type CardDetailNavigationCommand, type CardDetailTabAvailability } from './cardDetailModel';
 
 export function useCardDetailModel({ card, initialView, availability, onUpdate, confirmDiscard = () => window.confirm('Discard your unsaved card edits?') }: {
   card: KanbanCard;
@@ -12,6 +12,7 @@ export function useCardDetailModel({ card, initialView, availability, onUpdate, 
   confirmDiscard?: () => boolean;
 }) {
   const tabs = useMemo(() => availableCardDetailTabs(availability), [availability.chat, availability.console, availability.server, availability.workspace]);
+  const displayedTabs = useMemo(() => displayedCardDetailTabs(card.hierarchy_finalized, availability), [card.hierarchy_finalized, availability.workspace, availability.server, availability.console]);
   const [activeView, setActiveView] = useState<CardView>(() => validCardDetailView(card.hierarchy_finalized ? 'overview' : initialCardView(card.status, initialView), tabs));
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(card.title);
@@ -27,13 +28,13 @@ export function useCardDetailModel({ card, initialView, availability, onUpdate, 
   }, [card.content, card.title]);
   const mayLeave = useCallback(() => !saving && (!editing || !dirty || confirmDiscard()), [confirmDiscard, dirty, editing, saving]);
   const command = useCallback((value: CardDetailNavigationCommand) => {
-    const target = resolveCardDetailNavigation(activeView, tabs, value);
+    const target = resolveCardDetailNavigation(activeView, tabs, displayedTabs, value);
     if (!target || target === activeView) return Boolean(target);
     if (!mayLeave()) return false;
     if (editing) cancel();
     setActiveView(target);
     return true;
-  }, [activeView, cancel, editing, mayLeave, tabs]);
+  }, [activeView, cancel, displayedTabs, editing, mayLeave, tabs]);
   const begin = useCallback(() => {
     if (!editable || activeView !== 'overview') return false;
     setDraftTitle(card.title); setDraftContent(card.content); setEditError(null); setEditing(true); return true;

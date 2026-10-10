@@ -111,7 +111,7 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         (
             "menu-shortcut-card-tabs",
             "Navigate Card Tabs",
-            "Cmd+1 … Cmd+5 / Cmd+[ / Cmd+]",
+            "Cmd+1 … Cmd+9 / Cmd+[ / Cmd+]",
             None,
         ),
         (

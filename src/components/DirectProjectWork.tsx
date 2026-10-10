@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { GitInfo, Project } from '../types';
 import { projectColorAttribute } from '../projectColor';
 import { applicationEvents } from '../applicationEvents';
-import { directWorkTabs, workAgentId, workTerminalId, type WorkNavigationRequest, type WorkView } from '../directWork';
+import { directWorkTabs, displayedDirectWorkTabs, workAgentId, workTerminalId, type WorkNavigationRequest, type WorkView } from '../directWork';
 import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { projectRemoteComparisonTarget } from '../git/comparisonTarget';
@@ -53,12 +53,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   const diffReview = useDiffReview(workspaceId);
   const isGit = gitState?.kind !== 'not-git';
   const tabs = useMemo(() => directWorkTabs(project, isGit), [isGit, project]);
-  const displayedTabs = useMemo<WorkView[]>(() => [
-    'agent', 'notes', 'diff', 'terminal',
-    ...(project.releases_enabled ? ['release' as const] : []),
-    ...(project.server_command?.trim() ? ['server' as const] : []),
-    ...(project.console_command?.trim() ? ['console' as const] : []),
-  ], [project.console_command, project.server_command]);
+  const displayedTabs = useMemo(() => displayedDirectWorkTabs(project), [project]);
   useEffect(() => { if (directShell.error) setActionError(directShell.error); }, [directShell.error]);
 
   useEffect(() => {
@@ -107,15 +102,15 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   useEffect(() => {
     const handleTabs = (detail: { number?: number; direction?: -1 | 1 }) => {
       if (detail?.number) {
-        const target = tabs[detail.number - 1];
-        if (target) setActiveView(target);
+        const target = displayedTabs[detail.number - 1];
+        if (target && tabs.includes(target)) setActiveView(target);
       } else if (detail?.direction) {
         const index = Math.max(0, tabs.indexOf(activeView));
         setActiveView(tabs[(index + detail.direction + tabs.length) % tabs.length]);
       }
     };
     return applicationEvents.subscribe('card-tab-shortcut', handleTabs);
-  }, [activeView, tabs]);
+  }, [activeView, displayedTabs, tabs]);
 
   function submitDiffReview() {
     const prompt = composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments);
