@@ -31,7 +31,7 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   if (globalTerminal && bracket && !event.shiftKey) return handled(event, () => applicationEvents.publish('global-terminal-command', { type: 'navigate-tab', direction: bracket }));
   const cardOpen = handlers.isCardOpen();
   const cardTerminal = handlers.isCardTerminalActive();
-  if (cardOpen && /^[1-5]$/.test(event.key)) return handled(event, () => applicationEvents.publish('card-tab-shortcut', { number: Number(event.key) }));
+  if (cardOpen && /^[1-9]$/.test(event.key)) return handled(event, () => applicationEvents.publish('card-tab-shortcut', { number: Number(event.key) }));
   if (cardOpen && bracket && !event.shiftKey) return handled(event, () => applicationEvents.publish('card-tab-shortcut', { direction: bracket }));
   if (key === 'o' && !event.shiftKey) return handled(event, () => runShortcutAction('add-project', handlers));
   if (key === 'q') return handled(event, () => runShortcutAction('quit', handlers));

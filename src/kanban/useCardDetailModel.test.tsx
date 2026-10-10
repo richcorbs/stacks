@@ -2,6 +2,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import type { KanbanCard } from './types';
 import { useCardDetailModel } from './useCardDetailModel';
+import type { CardDetailTabAvailability } from './cardDetailModel';
 
 function card(overrides: Partial<KanbanCard> = {}): KanbanCard {
   return { id: 'c', provider: 'local', external_id: '1', title: 'Title', content: 'Body', board_id: 'p', board_title: 'P', list_id: '', list_title: '', card_url: '', assignee_names: [], status: 'needs_refinement', workflow_revision: 1, record_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment: null, created_at: 1, updated_at: 1, sort_order: 0, events: [], capabilities: [], ...overrides };
@@ -9,8 +10,8 @@ function card(overrides: Partial<KanbanCard> = {}): KanbanCard {
 
 type Model = ReturnType<typeof useCardDetailModel>;
 let model: Model;
-function Harness({ value, update, confirmDiscard }: { value: KanbanCard; update: (title: string, content: string) => Promise<KanbanCard>; confirmDiscard: () => boolean }) {
-  model = useCardDetailModel({ card: value, availability: { chat: true, workspace: true, server: false, console: false }, onUpdate: update, confirmDiscard });
+function Harness({ value, update, confirmDiscard, availability = { chat: true, workspace: true, server: false, console: false } }: { value: KanbanCard; update: (title: string, content: string) => Promise<KanbanCard>; confirmDiscard: () => boolean; availability?: CardDetailTabAvailability }) {
+  model = useCardDetailModel({ card: value, availability, onUpdate: update, confirmDiscard });
   return null;
 }
 
@@ -28,6 +29,26 @@ describe('useCardDetailModel editing', () => {
     act(() => model.cancel());
     expect(model.draftTitle).toBe('Title');
     renderer.unmount();
+  });
+
+  it('only prompts to discard on valid numbered targets, keeping disabled positions', async () => {
+    const confirmDiscard = vi.fn(() => false);
+    const availability = { chat: false, workspace: true, server: true, console: true };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<Harness value={card()} availability={availability} update={async () => card()} confirmDiscard={confirmDiscard} />); });
+    act(() => { model.begin(); model.setDraftTitle('Changed'); });
+    act(() => {
+      expect(model.command({ type: 'number', number: 2 })).toBe(false);
+      expect(model.command({ type: 'number', number: 7 })).toBe(false);
+    });
+    expect(confirmDiscard).not.toHaveBeenCalled();
+    act(() => expect(model.command({ type: 'number', number: 6 })).toBe(false));
+    expect(confirmDiscard).toHaveBeenCalledOnce();
+    await act(async () => { renderer.update(<Harness value={card()} availability={availability} update={async () => card()} confirmDiscard={() => true} />); });
+    act(() => expect(model.command({ type: 'number', number: 6 })).toBe(true));
+    expect(model.activeView).toBe('console');
+    expect(model.editing).toBe(false);
+    act(() => renderer.unmount());
   });
 
   it('isolates save failures and successful completion', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { availableCardDetailTabs, CardRevisionTracker, resolveCardDetailNavigation, validCardDetailView } from './cardDetailModel';
+import { availableCardDetailTabs, displayedCardDetailTabs, CardRevisionTracker, resolveCardDetailNavigation, validCardDetailView } from './cardDetailModel';
 
 describe('card detail navigation model', () => {
   it('derives tabs from capabilities in visual order', () => {
@@ -9,10 +9,28 @@ describe('card detail navigation model', () => {
 
   it('handles numeric, forward, and backward commands against available tabs', () => {
     const tabs = ['overview', 'chat', 'diff', 'terminal'] as const;
-    expect(resolveCardDetailNavigation('chat', [...tabs], { type: 'number', number: 3 })).toBe('diff');
-    expect(resolveCardDetailNavigation('terminal', [...tabs], { type: 'cycle', direction: 1 })).toBe('overview');
-    expect(resolveCardDetailNavigation('overview', [...tabs], { type: 'cycle', direction: -1 })).toBe('terminal');
-    expect(resolveCardDetailNavigation('overview', [...tabs], { type: 'select', view: 'server' })).toBeNull();
+    expect(resolveCardDetailNavigation('chat', [...tabs], [...tabs], { type: 'number', number: 3 })).toBe('diff');
+    expect(resolveCardDetailNavigation('terminal', [...tabs], [...tabs], { type: 'cycle', direction: 1 })).toBe('overview');
+    expect(resolveCardDetailNavigation('overview', [...tabs], [...tabs], { type: 'cycle', direction: -1 })).toBe('terminal');
+    expect(resolveCardDetailNavigation('overview', [...tabs], [...tabs], { type: 'select', view: 'server' })).toBeNull();
+  });
+
+  it('numbers visible disabled tabs without allowing them to navigate or enter the cycle', () => {
+    const capabilities = { chat: false, workspace: true, server: true, console: true };
+    const available = availableCardDetailTabs(capabilities);
+    const displayed = displayedCardDetailTabs(false, capabilities);
+    expect(displayed).toEqual(['overview', 'chat', 'diff', 'terminal', 'server', 'console']);
+    expect(resolveCardDetailNavigation('overview', available, displayed, { type: 'number', number: 2 })).toBeNull();
+    expect(resolveCardDetailNavigation('overview', available, displayed, { type: 'number', number: 3 })).toBe('diff');
+    expect(resolveCardDetailNavigation('overview', available, displayed, { type: 'number', number: 6 })).toBe('console');
+    expect(resolveCardDetailNavigation('overview', available, displayed, { type: 'number', number: 7 })).toBeNull();
+    expect(resolveCardDetailNavigation('overview', available, displayed, { type: 'cycle', direction: 1 })).toBe('diff');
+    const noWorkspace = { chat: true, workspace: false, server: true, console: true };
+    const withoutWorkspace = displayedCardDetailTabs(false, noWorkspace);
+    expect(withoutWorkspace).toEqual(['overview', 'chat', 'diff', 'terminal']);
+    expect(resolveCardDetailNavigation('overview', availableCardDetailTabs(noWorkspace), withoutWorkspace, { type: 'number', number: 3 })).toBeNull();
+    expect(resolveCardDetailNavigation('overview', availableCardDetailTabs(noWorkspace), withoutWorkspace, { type: 'number', number: 5 })).toBeNull();
+    expect(displayedCardDetailTabs(true, capabilities)).toEqual(['overview']);
   });
 
   it('falls back when a dynamic tab disappears', () => {

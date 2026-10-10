@@ -22,10 +22,21 @@ export function availableCardDetailTabs(availability: CardDetailTabAvailability)
   ];
 }
 
-export function resolveCardDetailNavigation(active: CardView, tabs: CardView[], command: CardDetailNavigationCommand): CardView | null {
+export function displayedCardDetailTabs(hierarchyFinalized: boolean, availability: CardDetailTabAvailability): CardView[] {
+  return hierarchyFinalized ? ['overview'] : [
+    'overview', 'chat', 'diff', 'terminal',
+    ...(availability.workspace && availability.server ? ['server' as const] : []),
+    ...(availability.workspace && availability.console ? ['console' as const] : []),
+  ];
+}
+
+export function resolveCardDetailNavigation(active: CardView, tabs: CardView[], displayedTabs: CardView[], command: CardDetailNavigationCommand): CardView | null {
   if (tabs.length === 0) return null;
   if (command.type === 'select') return tabs.includes(command.view) ? command.view : null;
-  if (command.type === 'number') return tabs[command.number - 1] ?? null;
+  if (command.type === 'number') {
+    const target = displayedTabs[command.number - 1];
+    return target && tabs.includes(target) ? target : null;
+  }
   const index = tabs.indexOf(active);
   const current = index < 0 ? 0 : index;
   return tabs[(current + command.direction + tabs.length) % tabs.length];

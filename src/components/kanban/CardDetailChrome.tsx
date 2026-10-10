@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { GitChangeSummary, Project } from '../../types';
 import type { KanbanCard } from '../../kanban/types';
 import type { CardView } from '../../kanban/cardView';
+import { displayedCardDetailTabs } from '../../kanban/cardDetailModel';
 import type { useCardServices } from '../../kanban/useCardServices';
 import { CardProjectAssignment } from '../CardProjectAssignment';
 import { CardGitSummary, hasGitChangeSummary } from '../CardGitSummary';
@@ -77,21 +78,24 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
   onRefreshDiff: () => void;
   onToggleServer: () => void;
 }) {
+  const displayedTabs = displayedCardDetailTabs(hierarchyFinalized, {
+    chat: projectAvailable, workspace: Boolean(cardPath), server: Boolean(serverCommand), console: Boolean(consoleCommand),
+  });
   return <nav className="cardWorkspaceTabs" aria-label="Card views">
     <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => onRequestView('overview')}>Description</button>
-    {!hierarchyFinalized && <>
+    {displayedTabs.includes('chat') && <>
       <button className={activeView === 'chat' ? 'active' : ''} type="button" disabled={!projectAvailable} onClick={() => onRequestView('chat')}>Agent</button>
       <span className={`cardDiffTab${activeView === 'diff' ? ' active' : ''}`}>
         <button className="cardDiffTabLabel" type="button" disabled={!cardPath} onClick={() => onRequestView('diff')}>Diff</button>
         <button className="cardDiffRefresh" type="button" disabled={!cardPath} aria-label="Refresh diff" title="Refresh diff" onClick={onRefreshDiff}><span className="diffRefreshIcon" aria-hidden="true" /></button>
       </span>
       <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => onRequestView('terminal')}>Terminal</button>
-      {cardPath && (serverCommand || consoleCommand) && <span className="cardServiceTabs" aria-label="Card services">
-        {serverCommand && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
+      {(displayedTabs.includes('server') || displayedTabs.includes('console')) && <span className="cardServiceTabs" aria-label="Card services">
+        {displayedTabs.includes('server') && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
           <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('server')}>Server</button>
           <button className={`cardServiceToggle${serverServices.serverActive ? ' running' : ''}`} type="button" onClick={onToggleServer} aria-label={serverServices.serverActive ? 'Stop server' : 'Start server'} aria-pressed={serverServices.serverActive}><span className={serverServices.serverActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
         </span>}
-        {consoleCommand && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
+        {displayedTabs.includes('console') && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
           <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('console')}>Console</button>
           <button className={`cardServiceToggle${serverServices.consoleActive ? ' running' : ''}`} type="button" onClick={() => serverServices.toggle('console')} aria-label={serverServices.consoleActive ? 'Stop console' : 'Start console'} aria-pressed={serverServices.consoleActive}><span className={serverServices.consoleActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
         </span>}

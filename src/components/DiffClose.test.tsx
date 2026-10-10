@@ -6,6 +6,7 @@ import { CardDetailTabs } from './kanban/CardDetailChrome';
 import { DirectProjectWork } from './DirectProjectWork';
 import { KanbanCardDetail } from './kanban/KanbanCardDetail';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
+import { applicationEvents } from '../applicationEvents';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
@@ -54,6 +55,41 @@ const project = { id: 'p', name: 'Project', path: '/repo', workspaces: [] };
 beforeAll(() => {
   vi.stubGlobal('window', { setInterval: () => 1, clearInterval: () => {}, addEventListener: () => {}, removeEventListener: () => {} });
   vi.stubGlobal('requestAnimationFrame', (callback: () => void) => callback());
+});
+
+describe('project workspace tab shortcuts', () => {
+  it('keeps disabled Diff at position 3 and numbers optional tabs in visible order', async () => {
+    const extended = { ...project, releases_enabled: true, server_command: 'server', console_command: 'console' };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<DirectProjectWork project={extended} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} onClose={() => {}} />); });
+    const active = () => renderer.root.findByProps({ 'aria-label': 'Project Workspace views' }).findAllByType('button').filter((button) => button.props.className?.includes('active')).map((button) => button.props.children);
+    const select = (number: number) => act(() => applicationEvents.publish('card-tab-shortcut', { number }));
+    select(3);
+    expect(renderer.root.findByProps({ className: 'cardChatView cardView active' })).toBeTruthy();
+    select(4);
+    expect(renderer.root.findByProps({ className: 'cardTerminalView cardView active' })).toBeTruthy();
+    select(5);
+    expect(active()).toContain('Release');
+    select(6);
+    expect(renderer.root.findByProps({ className: 'cardServiceView cardView active', 'aria-label': 'server terminal' })).toBeTruthy();
+    select(7);
+    expect(renderer.root.findByProps({ className: 'cardServiceView cardView active', 'aria-label': 'console terminal' })).toBeTruthy();
+    select(8);
+    expect(renderer.root.findByProps({ className: 'cardServiceView cardView active', 'aria-label': 'console terminal' })).toBeTruthy();
+    act(() => applicationEvents.publish('card-tab-shortcut', { direction: 1 }));
+    expect(renderer.root.findByProps({ className: 'cardChatView cardView active' })).toBeTruthy();
+    act(() => renderer.unmount());
+  });
+
+  it('skips hidden optional tabs without shifting disabled Diff', async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<DirectProjectWork project={project} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} onClose={() => {}} />); });
+    act(() => applicationEvents.publish('card-tab-shortcut', { number: 4 }));
+    expect(renderer.root.findByProps({ className: 'cardTerminalView cardView active' })).toBeTruthy();
+    act(() => applicationEvents.publish('card-tab-shortcut', { number: 5 }));
+    expect(renderer.root.findByProps({ className: 'cardTerminalView cardView active' })).toBeTruthy();
+    act(() => renderer.unmount());
+  });
 });
 
 describe('diff review Close', () => {

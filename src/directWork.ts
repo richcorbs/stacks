@@ -29,14 +29,15 @@ export function directWorkInitialLayout(projectId: string): SplitNode {
   return { kind: 'leaf', terminalId: workTerminalId({ kind: 'project', projectId }, 'shell') };
 }
 
-export function directWorkTabs(project: Project, isGitRepository: boolean): WorkView[] {
+export function displayedDirectWorkTabs(project: Project): WorkView[] {
   return [
-    'agent',
-    'notes',
-    ...(isGitRepository ? ['diff' as const] : []),
-    'terminal',
+    'agent', 'notes', 'diff', 'terminal',
     ...(project.releases_enabled ? ['release' as const] : []),
     ...(project.server_command?.trim() ? ['server' as const] : []),
     ...(project.console_command?.trim() ? ['console' as const] : []),
   ];
+}
+
+export function directWorkTabs(project: Project, isGitRepository: boolean): WorkView[] {
+  return displayedDirectWorkTabs(project).filter((tab) => tab !== 'diff' || isGitRepository);
 }
