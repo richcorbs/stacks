@@ -124,19 +124,73 @@ describe('NewCardDialog', () => {
     expect(model.setAddMore).toHaveBeenCalledWith(true);
   });
 
-  it('submits Add & refine from Enter and Add card as queued', () => {
+  it('submits Add & refine from Enter and Add card as queued', async () => {
     const model = dialogModel({ projectId: 'alpha', title: 'Next card' });
     const renderer = renderModel(model);
     const form = renderer.root.findByType('form');
     const preventDefault = vi.fn();
-    act(() => form.props.onSubmit({ preventDefault }));
+    await act(async () => form.props.onSubmit({ preventDefault }));
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(model.submit).toHaveBeenCalledWith('refining');
 
     const addCard = renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Add card')!;
-    act(() => addCard.props.onClick());
+    await act(async () => addCard.props.onClick());
     expect(model.submit).toHaveBeenCalledWith('queued');
   });
 
+  it('dismisses Escape from each dialog control without submitting or changing the draft', () => {
+    const model = dialogModel({ projectId: 'alpha', title: 'Draft', description: 'Details' });
+    const renderer = renderModel(model);
+    const form = renderer.root.findByType('form');
+    const controls = [
+      ...renderer.root.findAllByType('select'),
+      ...renderer.root.findAllByType('input'),
+      ...renderer.root.findAllByType('textarea'),
+      ...renderer.root.findAllByType('button'),
+    ];
 
+    for (const control of controls) {
+      const event = { key: 'Escape', preventDefault: vi.fn() };
+      // react-test-renderer does not dispatch DOM events or bubble them automatically.
+      act(() => {
+        control.props.onKeyDown?.(event);
+        form.props.onKeyDown(event);
+      });
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(model.setOpen).toHaveBeenLastCalledWith(false);
+    }
+    expect(model.setOpen).toHaveBeenCalledTimes(controls.length);
+    expect(model.handleClipboard).toHaveBeenCalledTimes(2);
+    expect(model.submit).not.toHaveBeenCalled();
+    expect(model.setTitle).not.toHaveBeenCalled();
+    expect(model.setDescription).not.toHaveBeenCalled();
+  });
+
+  it('ignores Escape during creation', () => {
+    const model = dialogModel({ projectId: 'alpha', creating: true });
+    const renderer = renderModel(model);
+    const form = renderer.root.findByType('form');
+    const event = { key: 'Escape', preventDefault: vi.fn() };
+    act(() => form.props.onKeyDown(event));
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(model.setOpen).not.toHaveBeenCalled();
+    expect(model.submit).not.toHaveBeenCalled();
+  });
+
+  it('leaves unrelated keys and Enter submission unchanged', async () => {
+    const model = dialogModel({ projectId: 'alpha', title: 'Draft' });
+    const renderer = renderModel(model);
+    const form = renderer.root.findByType('form');
+    for (const key of ['a', 'Enter']) {
+      const event = { key, preventDefault: vi.fn() };
+      act(() => form.props.onKeyDown(event));
+      expect(event.preventDefault).not.toHaveBeenCalled();
+    }
+    expect(model.setOpen).not.toHaveBeenCalled();
+    expect(model.submit).not.toHaveBeenCalled();
+    const preventDefault = vi.fn();
+    await act(async () => form.props.onSubmit({ preventDefault }));
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(model.submit).toHaveBeenCalledWith('refining');
+  });
 });

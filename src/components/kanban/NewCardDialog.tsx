@@ -18,7 +18,11 @@ export function NewCardDialog({
   if (!model.open) return null;
   return (
     <div className="modalBackdrop" onMouseDown={() => { if (!model.creating) model.setOpen(false); }}>
-      <form className="modal kanbanNewCardDialog" data-project-color={projectColorAttribute(creationProjects.find((project) => project.id === model.projectId))} onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => {
+      <form className="modal kanbanNewCardDialog" data-project-color={projectColorAttribute(creationProjects.find((project) => project.id === model.projectId))} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => {
+        if (event.key !== 'Escape' || model.creating) return;
+        event.preventDefault();
+        model.setOpen(false);
+      }} onSubmit={(event) => {
         event.preventDefault();
         model.submit('refining');
       }}>
