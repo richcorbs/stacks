@@ -34,6 +34,14 @@ describe('Kanban board keyboard navigation', () => {
     expect(adjacentListCard(grouped, 'ready', 'k')?.id).toBe('ready');
   });
 
+  it('moves both ways between an ordinary list row and the parent row directly below it', () => {
+    const rows = [card('ordinary', 'ready'), { ...card('parent', 'ready'), child_count: 2 }];
+    const navigable = keyboardNavigableCards(rows, true, true, 'list');
+    expect(navigable.map((item) => item.id)).toEqual(['ordinary', 'parent']);
+    expect(adjacentListCard(navigable, 'ordinary', 'j')?.id).toBe('parent');
+    expect(adjacentListCard(navigable, 'parent', 'k')?.id).toBe('ordinary');
+  });
+
   it('includes Done cards while the Done column is expanded', () => {
     const navigable = keyboardNavigableCards(cards, false);
 
