@@ -4,6 +4,7 @@ import type { KanbanCard } from '../kanban/types';
 import type { CardPaletteRegistration } from '../commandPaletteCards';
 
 type MainWorkspaceProps = {
+  boardShortcutBlocked: boolean;
   projects: Project[];
   projectsHydrated: boolean;
   terminalFontSize: number;
@@ -26,6 +27,7 @@ type MainWorkspaceProps = {
 };
 
 export function MainWorkspace({
+  boardShortcutBlocked,
   projects,
   projectsHydrated,
   terminalFontSize,
@@ -50,6 +52,7 @@ export function MainWorkspace({
     <main className="main">
       <section className="workspace kanbanWorkspace">
         <KanbanBoard
+          boardShortcutBlocked={boardShortcutBlocked}
           superthreadEnabled={superthreadEnabled}
           projects={projects}
           projectsHydrated={projectsHydrated}

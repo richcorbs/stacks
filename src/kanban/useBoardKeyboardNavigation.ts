@@ -10,6 +10,9 @@ export function useBoardKeyboardNavigation({
   selectedCard,
   openCard,
   view = 'board',
+  creationAvailable,
+  shortcutBlocked,
+  openNewCard,
 }: {
   visibleCards: KanbanCardSummary[];
   doneCollapsed: boolean;
@@ -17,6 +20,9 @@ export function useBoardKeyboardNavigation({
   selectedCard: KanbanCardSummary | null;
   openCard: (card: KanbanCardSummary) => void;
   view?: 'list' | 'board';
+  creationAvailable: boolean;
+  shortcutBlocked: boolean;
+  openNewCard: () => void;
 }) {
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const keyboardCards = useMemo(
@@ -35,8 +41,14 @@ export function useBoardKeyboardNavigation({
 
   useEffect(() => {
     const handleBoardNavigation = (event: KeyboardEvent) => {
-      if (selectedCard || event.metaKey || event.ctrlKey || event.altKey || isEditableElement(event.target)
-        || (view === 'list' && (event.target as Element | null)?.closest?.('.kanbanListGroupHeader'))) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || isEditableElement(event.target)) return;
+      if (event.key === 'n') {
+        if (event.shiftKey || selectedCard || shortcutBlocked || !creationAvailable) return;
+        event.preventDefault();
+        openNewCard();
+        return;
+      }
+      if (selectedCard || (view === 'list' && (event.target as Element | null)?.closest?.('.kanbanListGroupHeader'))) return;
       const key = event.key.toLocaleLowerCase();
       if (!['h', 'j', 'k', 'l', 'enter'].includes(key)) return;
       if (key === 'enter') {
@@ -62,7 +74,7 @@ export function useBoardKeyboardNavigation({
     };
     window.addEventListener('keydown', handleBoardNavigation);
     return () => window.removeEventListener('keydown', handleBoardNavigation);
-  }, [keyboardCards, focusedCardId, selectedCard, view]);
+  }, [keyboardCards, focusedCardId, selectedCard, view, creationAvailable, shortcutBlocked, openNewCard]);
 
   return { focusedCardId, setFocusedCardId };
 }

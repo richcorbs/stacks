@@ -8,6 +8,7 @@ import { superthreadIntegration } from '../superthread/cardProvider';
 import { KanbanBoardView } from './kanban/KanbanBoardView';
 
 export type KanbanBoardProps = {
+  boardShortcutBlocked: boolean;
   superthreadEnabled: boolean;
   projects: Project[];
   projectsHydrated: boolean;
