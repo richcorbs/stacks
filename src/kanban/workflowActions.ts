@@ -31,33 +31,58 @@ const labels: Record<CardWorkflowActionKind, string> = {
   merge_target: 'Merge in target & resolve', cleanup: 'Clean up', cleanup_creation: 'Clean up',
   retry_runtime_cleanup: 'Retry process cleanup', close: 'Close without delivery', delete: 'Delete card',
 };
-const primary = new Set<CardWorkflowActionKind>(['open_refinement', 'start_work', 'ship', 'merge_local', 'deploy', 'retry_deploy', 'create_pr', 'merge_pr']);
+// Priority is independent of availability: a blocked forward action must not
+// turn an enabled destructive alternative into the default.
+const priority: CardWorkflowActionKind[] = [
+  'finish_refinement', 'open_refinement', 'stop_refinement', 'start_work',
+  'return_to_refinement', 'ship', 'merge_local', 'create_pr', 'create_pr_with_fe',
+  'merge_pr', 'push', 'retry_push', 'deploy', 'retry_deploy', 'confirm_deployed',
+  'run_deployment_again', 'merge_target', 'retry_runtime_cleanup', 'cleanup',
+  'cleanup_creation', 'open_pr', 'request_changes', 'cancel_deployment', 'close', 'delete',
+];
+
+function primaryKind(context: CardWorkflowContext, displayed: CardWorkflowActionKind[]): CardWorkflowActionKind | undefined {
+  const preferred: CardWorkflowActionKind[] = context.card.status === 'needs_refinement'
+    ? ['open_refinement', 'start_work']
+    : context.card.status === 'refining' ? ['stop_refinement']
+    : context.card.status === 'needs_refinement_input' ? ['finish_refinement', 'stop_refinement']
+    : context.card.status === 'ready' ? ['start_work', 'return_to_refinement']
+    : context.card.status === 'approved' && context.project?.delivery_workflow === 'local_merge'
+      ? ['merge_local', 'ship']
+      : context.card.status === 'approved' && context.project?.delivery_workflow === 'github_pull_request'
+        ? ['merge_pr', 'create_pr', 'ship']
+        : context.card.status === 'approved' && context.project?.delivery_workflow === 'scripted_delivery'
+          ? ['push', 'retry_push', 'deploy', 'retry_deploy', 'confirm_deployed', 'run_deployment_again', 'merge_local']
+          : [];
+  return [...preferred, ...priority, ...displayed].find((kind) => displayed.includes(kind));
+}
 
 /** Adds labels, confirmation copy, appearance, and transient operation state to backend capabilities. */
 export function deriveCardWorkflowActions(context: CardWorkflowContext): CardWorkflowAction[] {
-  return context.card.capabilities
+  const displayed = context.card.capabilities
     .filter(({ action }) => context.card.status !== 'needs_refinement'
       ? action !== 'open_refinement' || context.activeTab !== 'chat'
       : action !== 'finish_refinement' && action !== 'delete')
-    .map(({ action, available, disabled_reason }) => {
-      const presentation = presentationFor(action, context);
-      const operation = context.operation?.kind === action;
-      return {
-        kind: action,
-        label: action === 'open_refinement' && context.card.status === 'needs_refinement' ? 'Refine'
-          : action === 'ship' && context.card.status === 'approved' ? 'Commit updates'
-          : action === 'start_work' && context.card.creation_operation ? 'Resume start'
-          : action === 'cleanup' && context.card.cleanup_operation && context.card.cleanup_operation.status !== 'completed' ? 'Retry cleanup'
-          : labels[action],
-        primary: primary.has(action) || undefined,
-        ...presentation,
-        loading: operation && !context.operation?.error,
-        error: operation ? context.operation?.error : undefined,
-        disabledReason: disabled_reason ?? (!available ? 'Action unavailable' : undefined) ??
-          (action === 'merge_local' && context.backendPreflight && !context.backendPreflight.ok
-            ? context.backendPreflight.message ?? 'Merge preflight failed' : undefined),
-      };
-    });
+  const selected = primaryKind(context, displayed.map(({ action }) => action));
+  return displayed.map(({ action, available, disabled_reason }) => {
+    const presentation = presentationFor(action, context);
+    const operation = context.operation?.kind === action;
+    return {
+      kind: action,
+      label: action === 'open_refinement' && context.card.status === 'needs_refinement' ? 'Refine'
+        : action === 'ship' && context.card.status === 'approved' ? 'Commit updates'
+        : action === 'start_work' && context.card.creation_operation ? 'Resume start'
+        : action === 'cleanup' && context.card.cleanup_operation && context.card.cleanup_operation.status !== 'completed' ? 'Retry cleanup'
+        : labels[action],
+      primary: action === selected || undefined,
+      ...presentation,
+      loading: operation && !context.operation?.error,
+      error: operation ? context.operation?.error : undefined,
+      disabledReason: disabled_reason ?? (!available ? 'Action unavailable' : undefined) ??
+        (action === 'merge_local' && context.backendPreflight && !context.backendPreflight.ok
+          ? context.backendPreflight.message ?? 'Merge preflight failed' : undefined),
+    };
+  });
 }
 
 function presentationFor(action: CardWorkflowActionKind, { card, project }: CardWorkflowContext): Partial<CardWorkflowAction> {

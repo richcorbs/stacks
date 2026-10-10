@@ -117,6 +117,8 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const statusLabel = hierarchyStatusLabel(card);
   const workflowCard = workflowOperation === 'ship' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
+  const actionRowVisible = activeView === 'overview' || activeView === 'chat' || activeView === 'diff';
+  const primaryAction = workflowActions.find((action) => action.primary);
   const latestAgentRunEvent = (card.events ?? []).find((event) => ['agent_launch_failed', 'protocol_failed', 'process_exited', 'agent_started', 'agent_settled'].includes(event.event_type));
   const agentFailure = latestAgentRunEvent?.outcome === 'failure' ? latestAgentRunEvent.error_detail : null;
   const cardLevelErrors = useMemo(() => collectCardLevelErrors({ actionError, detailLoadError, detailRefreshError, recoveryError: card.creation_operation?.error, agentFailure }), [actionError, agentFailure, card.creation_operation?.error, detailLoadError, detailRefreshError]);
@@ -188,7 +190,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
 
   useEffect(() => {
     const handleDetailKeyboard = (event: KeyboardEvent) => {
-      if (pendingCloseShellPane || document.querySelector('.confirmModal')) return;
+      if (pendingCloseShellPane || cleanupInventory || document.querySelector('.confirmModal, [role="dialog"][aria-modal="true"]')) return;
       if (editing && event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -199,6 +201,14 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
         event.preventDefault();
         event.stopPropagation();
         saveEdit().catch(console.error);
+        return;
+      }
+      if (!editing && actionRowVisible && primaryAction && event.key === 'Enter' && event.metaKey
+        && !event.ctrlKey && !event.altKey && !primaryAction.disabledReason && !working && !workflow.isRunning()
+        && !actionPendingRef.current && !cancellationPendingRef.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        void performWorkflowActionRef.current(primaryAction);
         return;
       }
       if (event.key === 'Escape') {
@@ -222,7 +232,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
     };
     window.addEventListener('keydown', handleDetailKeyboard, true);
     return () => window.removeEventListener('keydown', handleDetailKeyboard, true);
-  }, [activeView, editable, editing, pendingCloseShellPane, savingEdit, detail.begin, detail.cancel, detail.save, detail.mayLeave]);
+  }, [activeView, actionRowVisible, primaryAction, working, cleanupInventory, editable, editing, pendingCloseShellPane, savingEdit, detail.begin, detail.cancel, detail.save, detail.mayLeave]);
 
   useEffect(() => {
     const handleTabShortcut = (shortcut: { number?: number; direction?: -1 | 1 }) => {
@@ -303,20 +313,31 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
     disposeAcceptedRuntimeOutcomes(result.outcomes, deletePiSessionController, disposeTerminalSession);
     onCardUpdatedRef.current(preserveRevisionValues(result.card));
   }
+  const actionPendingRef = useRef(false);
+  const cancellationPendingRef = useRef(false);
   async function performWorkflowAction(action: CardWorkflowAction) {
-    if (requireActionPreflight || detailRefreshError) {
-      try {
-        const fresh = await onReload();
-        if (!sameActionRevisions(card, fresh)) {
-          setActionError('Card changed while it was closed. Review the updated details and try again.');
+    const cancelling = action.kind === 'cancel_deployment';
+    if (action.disabledReason || (cancelling ? cancellationPendingRef.current : actionPendingRef.current || workflow.isRunning())) return;
+    if (cancelling) cancellationPendingRef.current = true;
+    else actionPendingRef.current = true;
+    try {
+      if (requireActionPreflight || detailRefreshError) {
+        try {
+          const fresh = await onReload();
+          if (!sameActionRevisions(card, fresh)) {
+            setActionError('Card changed while it was closed. Review the updated details and try again.');
+            return;
+          }
+        } catch (error) {
+          setActionError(`Could not verify current card details: ${error instanceof Error ? error.message : String(error)}`);
           return;
         }
-      } catch (error) {
-        setActionError(`Could not verify current card details: ${error instanceof Error ? error.message : String(error)}`);
-        return;
       }
+      return await executeCardWorkflowAction(action, card, workflowDependencies);
+    } finally {
+      if (cancelling) cancellationPendingRef.current = false;
+      else actionPendingRef.current = false;
     }
-    return executeCardWorkflowAction(action, card, workflowDependencies);
   }
 
   const workflowActionsRef = useRef(workflowActions);
@@ -411,7 +432,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
 
         {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={cardServices.serverEnabled} active={activeView === 'server'} background={cardServices.serverEnabled && activeView !== 'server'} restartRequestNonce={cardServices.serverRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={cardServices.consoleEnabled} active={activeView === 'console'} background={cardServices.consoleEnabled && activeView !== 'console'} restartRequestNonce={cardServices.consoleRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
+        {(editing || (actionRowVisible && (workflowActions.length > 0 || card.scripted_delivery))) && <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
           {editing ? (
             <div className="kanbanEditActions">
               <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
@@ -424,12 +445,12 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
               <span>{scriptedDeliveryLabel(card.scripted_delivery.stage)}</span>
               {card.scripted_delivery.summary && <small>{card.scripted_delivery.summary}</small>}
             </div>}
-            <CardWorkflowControls
-            actions={workflowActions}
-            working={working}
-            onAction={performWorkflowAction}
-          /></>}
-        </footer>
+            {workflowActions.length > 0 && <CardWorkflowControls
+              actions={workflowActions}
+              working={working}
+              onAction={performWorkflowAction}
+            />}</>}
+        </footer>}
       </article>
     </div>
     {cleanupInventory && <CleanupPreflightDialog inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={async ([entry]) => {
