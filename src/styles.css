@@ -375,6 +375,12 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardFooterActions button.workflowActionDangerGhost { padding: 8px 11px; border: 0; background: transparent; }
 .cardFooterActions button.workflowActionNeutralGhost { color: #93a4b7; }
 .cardFooterActions button.workflowActionDangerGhost { color: #d79298; }
+/* A lone ghost cancellation/close action still reads as the primary action. */
+.kanbanDetail .cardFooterActions button.primaryAction:is(.workflowActionNeutralGhost, .workflowActionDangerGhost) {
+  border: 1px solid #657c91;
+  background: #354a5e;
+  color: #e2eaf3;
+}
 .cardFooterActions button.workflowActionNeutralGhost:hover:not(:disabled),
 .cardFooterActions button.workflowActionNeutralGhost:focus-visible { outline: 2px solid rgba(147, 164, 183, .25); outline-offset: 1px; background: transparent; color: #c4d0dc; }
 .cardFooterActions button.workflowActionDangerGhost:hover:not(:disabled),

@@ -58,7 +58,7 @@ describe('workflow action presentation', () => {
     for (const activeTab of ['overview', 'chat'] as const) {
       expect(deriveCardWorkflowActions({ card: value, project, activeTab })).toMatchObject([
         { kind: 'open_refinement', label: 'Refine', primary: true },
-        { kind: 'start_work', label: 'Start work', primary: true },
+        { kind: 'start_work', label: 'Start work', primary: undefined },
         { kind: 'close', label: 'Close without delivery', appearance: 'neutral-ghost' },
       ]);
     }
@@ -90,5 +90,45 @@ describe('workflow action presentation', () => {
     const actions = deriveCardWorkflowActions({ card: failed, project });
     expect(actions.map(({ kind }) => kind)).toEqual(['retry_runtime_cleanup', 'cleanup']);
     expect(actions[1].confirmation).toBeUndefined();
+  });
+
+  it.each([
+    ['needs_refinement', ['start_work', 'open_refinement', 'close'], 'open_refinement'],
+    ['refining', ['stop_refinement', 'close'], 'stop_refinement'],
+    ['needs_refinement_input', ['stop_refinement', 'finish_refinement', 'close'], 'finish_refinement'],
+    ['ready', ['return_to_refinement', 'start_work', 'close'], 'start_work'],
+    ['needs_human', ['request_changes', 'merge_target', 'ship', 'close'], 'ship'],
+    ['approved', ['request_changes', 'ship', 'merge_local', 'close'], 'merge_local'],
+    ['approved', ['push', 'deploy'], 'push'],
+    ['approved', ['confirm_deployed', 'run_deployment_again'], 'confirm_deployed'],
+    ['approved', ['retry_push', 'deploy'], 'retry_push'],
+    ['approved', ['retry_deploy'], 'retry_deploy'],
+    ['done', ['retry_runtime_cleanup', 'cleanup'], 'retry_runtime_cleanup'],
+    ['approved', ['cancel_deployment'], 'cancel_deployment'],
+    ['done', ['cleanup'], 'cleanup'],
+    ['ready', ['close'], 'close'],
+  ] as const)('selects one primary for %s: %j', (status, kinds, expected) => {
+    const actions = deriveCardWorkflowActions({ card: card(status, kinds.map((kind) => capability(kind, kind !== expected))), project: { ...project, delivery_workflow: 'scripted_delivery' } });
+    expect(actions.filter((action) => action.primary).map((action) => action.kind)).toEqual([expected]);
+    expect(actions.find((action) => action.primary)?.disabledReason).toBe('Action unavailable');
+  });
+
+  it('prefers PR creation over commit updates and merge PR over opening it', () => {
+    for (const [kinds, expected] of [
+      [['ship', 'create_pr', 'create_pr_with_fe'], 'create_pr'],
+      [['open_pr', 'merge_pr', 'request_changes'], 'merge_pr'],
+    ] as const) {
+      const actions = deriveCardWorkflowActions({ card: card('approved', kinds.map((kind) => capability(kind))), project: { ...project, delivery_workflow: 'github_pull_request' } });
+      expect(actions.filter((action) => action.primary).map((action) => action.kind)).toEqual([expected]);
+    }
+  });
+
+  it('keeps empty and changing capability sets deterministic', () => {
+    const value = card('agent_working', []);
+    expect(deriveCardWorkflowActions({ card: value, project })).toEqual([]);
+    value.capabilities = [capability('delete'), capability('open_pr')];
+    expect(deriveCardWorkflowActions({ card: value, project }).filter((action) => action.primary).map((action) => action.kind)).toEqual(['open_pr']);
+    value.capabilities = [capability('delete')];
+    expect(deriveCardWorkflowActions({ card: value, project })[0].primary).toBe(true);
   });
 });
