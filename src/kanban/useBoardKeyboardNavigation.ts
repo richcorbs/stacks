@@ -41,9 +41,9 @@ export function useBoardKeyboardNavigation({
 
   useEffect(() => {
     const handleBoardNavigation = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || isEditableElement(event.target)) return;
+      if (shortcutBlocked || event.metaKey || event.ctrlKey || event.altKey || isEditableElement(event.target)) return;
       if (event.key === 'n') {
-        if (event.shiftKey || selectedCard || shortcutBlocked || !creationAvailable) return;
+        if (event.shiftKey || selectedCard || !creationAvailable) return;
         event.preventDefault();
         openNewCard();
         return;
