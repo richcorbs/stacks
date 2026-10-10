@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { projectColorAttribute } from '../projectColor';
-import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
+import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, isMcpStatusCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiFileDrops } from '../pi/fileDropBroker';
 import { activePathToken, applyPathCompletion, formatDroppedPathReference, insertPathReferences } from '../pi/pathReferences';
 import type { PiCommand, PiModel, PiSessionContext } from '../pi/types';
@@ -68,6 +68,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [completionCursor, setCompletionCursor] = useState(0);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [mcpBannerDismissed, dismissMcpBanner] = useMcpBannerDismissal(terminal.id);
+  const [mcpCommandVisible, setMcpCommandVisible] = useState(false);
   const [mcpActive, setMcpActive] = useState<boolean | null>(null);
   const [mcpSessionNames, setMcpSessionNames] = useState<string | null>(null);
   const [mcpLocal, setMcpLocal] = useState<{ local_config_present: boolean; trusted: boolean } | null>(null);
@@ -413,6 +414,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setPrompt('');
     setPathSuggestions([]);
     setComposerError(null);
+    setMcpCommandVisible(isMcpStatusCommand(message));
     shouldStickToBottomRef.current = true;
     await structuredRequestDismissal.catch(() => {});
     const send = builtinCommand
@@ -608,6 +610,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         />
       </div>
 
+      {mcpCommandVisible && <PiMcpCommandStatus status={pi.mcpStatus} notice={pi.extensionNotice} onDismiss={() => setMcpCommandVisible(false)} />}
       {!mcpBannerDismissed && (project.enable_mcp || mcpActive) && <div className="piMcpStatus" role="status">
         <button className="piMcpDismiss" type="button" aria-label="Dismiss MCP status" title="Dismiss MCP status" onClick={() => { dismissMcpBanner(); setConfirmMcpTrust(false); setConfirmMcpRestart(false); }}>×</button>
         <span>{mcpActive === null ? 'MCP status pending.' : mcpActive ? `MCP extension enabled in this Pi session (server status: ${pi.mcpStatus}).` : 'MCP off in this Pi session.'} Enabled global servers in ~/.pi/agent/mcp.json may load when MCP is active.
@@ -877,6 +880,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       )}
     </div>
   );
+}
+
+export function PiMcpCommandStatus({ status, notice, onDismiss }: { status: 'unknown' | 'connected' | 'failed'; notice: string | null; onDismiss: () => void }) {
+  return <div className="piMcpCommandStatus" role="status" aria-live="polite">
+    <span>MCP connection: {status}.{notice ? ` ${notice}` : ' Waiting for Pi status; check the MCP configuration if this does not update.'}</span>
+    <button type="button" aria-label="Dismiss MCP command status" onClick={onDismiss}>×</button>
+  </div>;
 }
 
 export function PiPendingOutput({ isStreaming, hasActiveStreamingText, queuedSteering, queuedFollowUps }: {

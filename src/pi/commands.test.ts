@@ -5,6 +5,7 @@ import {
   fuzzyCommandScore,
   GUI_BUILTIN_COMMANDS,
   isGuiBuiltinCommand,
+  isMcpStatusCommand,
   matchingSlashCommands,
   shouldCycleCommandHistory,
   slashCommandQuery,
@@ -54,6 +55,13 @@ describe('Pi slash commands', () => {
     expect(GUI_BUILTIN_COMMANDS.map((command) => command.name)).toEqual(['new', 'compact']);
     expect(isGuiBuiltinCommand('compact')).toBe(true);
     expect(isGuiBuiltinCommand('settings')).toBe(false);
+  });
+
+  it('identifies the MCP status command without treating MCP actions as status requests', () => {
+    expect(isMcpStatusCommand('/mcp')).toBe(true);
+    expect(isMcpStatusCommand('  /mcp  ')).toBe(true);
+    expect(isMcpStatusCommand('/mcp reconnect datadog')).toBe(false);
+    expect(isMcpStatusCommand('ask about /mcp')).toBe(false);
   });
 
   it('inserts the RPC command with room for arguments', () => {

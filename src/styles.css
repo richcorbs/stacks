@@ -1131,9 +1131,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piDiffLine.context { color: #718397; }
 .projectMcpSettings { display: grid; gap: 7px; margin: 12px 0; }
 .projectMcpSettings small { color: #97a8ba; line-height: 1.45; }
-.piMcpStatus, .piMcpRestartConfirm { max-width: 820px; margin: 8px auto; padding: 8px 11px; border: 1px solid #425771; border-radius: 7px; background: #192737; color: #b4c5d6; font-size: calc(11px + var(--ui-font-delta, 0px)); line-height: 1.45; display: flex; align-items: center; gap: 9px; }
-.piMcpStatus span, .piMcpRestartConfirm span { flex: 1; }
-.piMcpStatus button, .piMcpRestartConfirm button { border: 1px solid #526b84; border-radius: 5px; background: #263c52; color: #d1dfea; cursor: pointer; padding: 5px 7px; }
+.piMcpStatus, .piMcpRestartConfirm, .piMcpCommandStatus { max-width: 820px; margin: 8px auto; padding: 8px 11px; border: 1px solid #425771; border-radius: 7px; background: #192737; color: #b4c5d6; font-size: calc(11px + var(--ui-font-delta, 0px)); line-height: 1.45; display: flex; align-items: center; gap: 9px; }
+.piMcpStatus span, .piMcpRestartConfirm span, .piMcpCommandStatus span { flex: 1; }
+.piMcpStatus button, .piMcpRestartConfirm button, .piMcpCommandStatus button { border: 1px solid #526b84; border-radius: 5px; background: #263c52; color: #d1dfea; cursor: pointer; padding: 5px 7px; }
 .piMcpStatus { position: relative; flex-wrap: wrap; padding-right: 36px; }
 .piMcpStatus span { flex: 1 1 320px; min-width: 0; }
 .piMcpStatus .piMcpDismiss { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; padding: 0; font-size: 18px; line-height: 1; background: transparent; }

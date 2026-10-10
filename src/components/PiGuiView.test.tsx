@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it } from 'vitest';
-import { PiPendingOutput, PiQueuedMessage, useMcpBannerDismissal } from './PiGuiView';
+import { PiMcpCommandStatus, PiPendingOutput, PiQueuedMessage, useMcpBannerDismissal } from './PiGuiView';
 
 function McpBannerHarness({ terminalId }: { terminalId: string }) {
   const [dismissed, dismiss] = useMcpBannerDismissal(terminalId);
@@ -29,6 +29,17 @@ describe('Pi MCP banner dismissal', () => {
     act(() => renderer.update(<McpBannerHarness terminalId="mcp-test-b" />));
     expect(banner()).toHaveLength(1);
     act(() => renderer.unmount());
+  });
+});
+
+describe('Pi MCP command output', () => {
+  it('shows the sanitized RPC status independently of a dismissed MCP banner', () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<PiMcpCommandStatus status="connected" notice="MCP datadog: connected (reported by Pi)." onDismiss={() => renderer.unmount()} />); });
+    expect(renderer.root.findByProps({ className: 'piMcpCommandStatus' }).props.role).toBe('status');
+    expect(renderer.root.findByType('span').children.join('')).toBe('MCP connection: connected. MCP datadog: connected (reported by Pi).');
+    act(() => renderer.root.findByProps({ 'aria-label': 'Dismiss MCP command status' }).props.onClick());
+    expect(renderer.toJSON()).toBeNull();
   });
 });
 

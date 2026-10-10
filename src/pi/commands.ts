@@ -9,6 +9,10 @@ export function isGuiBuiltinCommand(name: string) {
   return GUI_BUILTIN_COMMANDS.some((command) => command.name === name);
 }
 
+export function isMcpStatusCommand(input: string) {
+  return /^\/mcp\s*$/.test(input.trim());
+}
+
 export function slashCommandQuery(value: string): string | null {
   if (!value.startsWith('/') || /\s/.test(value)) return null;
   return value.slice(1).toLowerCase();
