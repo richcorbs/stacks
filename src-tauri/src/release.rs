@@ -471,7 +471,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_inspect(project_id: String) -> Result<ReleaseDraft, String> {
     let project = project(&project_id)?;
     let config_path = project.config_path.clone();
@@ -492,7 +492,7 @@ pub fn release_inspect(project_id: String) -> Result<ReleaseDraft, String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_reconcile_preview(
     project_id: String,
     version: String,
@@ -521,7 +521,7 @@ pub fn release_reconcile_preview(
     refresh_release_preview(&config, &root, &env, &notes_path, notes)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_history(
     app: AppHandle,
     registry: State<'_, Arc<ReleaseRegistry>>,
@@ -547,7 +547,7 @@ pub fn release_history(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_start(
     app: AppHandle,
     registry: State<'_, Arc<ReleaseRegistry>>,
@@ -711,7 +711,7 @@ pub fn release_start(
     load_operation(&id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_cancel(
     app: AppHandle,
     registry: State<'_, Arc<ReleaseRegistry>>,
@@ -734,7 +734,7 @@ pub fn release_cancel(
     load_operation(&operation_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_retry(
     app: AppHandle,
     registry: State<'_, Arc<ReleaseRegistry>>,
@@ -828,7 +828,7 @@ pub fn release_retry(
     load_operation(&operation_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_approve(
     app: AppHandle,
     registry: State<'_, Arc<ReleaseRegistry>>,
@@ -880,7 +880,7 @@ pub fn release_approve(
     Ok(load_operation(&operation_id)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_refresh(operation_id: String) -> Result<ReleaseOperation, String> {
     let mut operation = load_operation(&operation_id)?;
     let root = Path::new(&operation.project_path);
@@ -913,7 +913,7 @@ pub fn release_refresh(operation_id: String) -> Result<ReleaseOperation, String>
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_recover_prepared(operation_id: String) -> Result<ReleaseOperation, String> {
     let mut operation = load_operation(&operation_id)?;
     if operation
@@ -962,7 +962,7 @@ pub fn release_recover_prepared(operation_id: String) -> Result<ReleaseOperation
     load_operation(&operation_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_abandon(operation_id: String) -> Result<ReleaseOperation, String> {
     let mut operation = load_operation(&operation_id)?;
     if operation

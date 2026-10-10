@@ -18,7 +18,8 @@ function ProjectReleaseTab({ project }: { project: Project }) {
   const [history, setHistory] = useState<ReleaseOperation[]>([]);
   const [version, setVersion] = useState('');
   const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const busy = busyLabel !== null;
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const active = history.find((operation) => !['completed', 'abandoned'].includes(operation.status)) ?? null;
@@ -101,9 +102,10 @@ function ProjectReleaseTab({ project }: { project: Project }) {
     return () => window.clearInterval(timer);
   }, [live]);
 
-  async function action(run: () => Promise<unknown>) {
-    setBusy(true); setError(null);
-    try { await run(); await refreshHistory(); } catch (value) { setError(String(value)); } finally { setBusy(false); }
+  async function action(label: string, run: () => Promise<unknown>) {
+    if (busy) return;
+    setBusyLabel(label); setError(null);
+    try { await run(); await refreshHistory(); } catch (value) { setError(String(value)); } finally { setBusyLabel(null); }
   }
 
   const displayed = active;
@@ -112,10 +114,12 @@ function ProjectReleaseTab({ project }: { project: Project }) {
   return <section className="releaseView cardView active" data-project-color={projectColorAttribute(project)} aria-label="Release pipeline">
     <div className="releaseScroll">
       <header className="releaseHeader">
-        <div><h3>Release pipeline</h3><span className={draft?.valid ? 'releaseValid' : 'releaseInvalid'}>{draft ? draft.valid ? 'Configuration valid' : draft.error : 'Validating configuration…'}</span></div>
-        <div className="releaseHeaderActions"><button type="button" onClick={() => void action(async () => { const refreshed = await reconcileReleasePreview(project.id, version, notes); setNotes(refreshed.notes); setDraft((current) => current ? { ...current, generatedNotes: refreshed.notes, reconciliation: refreshed.reconciliation } : current); })} disabled={busy || !version.trim() || !draft?.config?.reconciliation}>Refresh release status</button><button type="button" disabled={!draft?.configPath} onClick={() => invoke<{ editor_app?: string | null }>('load_settings').then((settings) => invoke('open_path_in_editor', { path: draft?.configPath, editor: settings.editor_app })).catch((value) => setError(String(value)))}>Open config</button></div>
+        <div><h3>Release pipeline</h3><span className={draft ? draft.valid ? 'releaseValid' : 'releaseInvalid' : error ? 'releaseInvalid' : 'releasePending'}>{draft ? draft.valid ? 'Configuration valid' : draft.error : error ? 'Could not load release' : 'Checking repository and release provider…'}</span></div>
+        <div className="releaseHeaderActions"><button type="button" onClick={() => void action('Refreshing release status', async () => { const refreshed = await reconcileReleasePreview(project.id, version, notes); setNotes(refreshed.notes); setDraft((current) => current ? { ...current, generatedNotes: refreshed.notes, reconciliation: refreshed.reconciliation } : current); })} disabled={busy || !version.trim() || !draft?.config?.reconciliation}>Refresh release status</button><button type="button" disabled={!draft?.configPath} onClick={() => invoke<{ editor_app?: string | null }>('load_settings').then((settings) => invoke('open_path_in_editor', { path: draft?.configPath, editor: settings.editor_app })).catch((value) => setError(String(value)))}>Open config</button></div>
       </header>
-      {error && <div className="kanbanActionError" role="alert">{error}</div>}
+      {!draft && !error && <p className="releaseProgress" role="status">Loading release configuration, repository state, and provider status…</p>}
+      {busyLabel && <p className="releaseProgress" role="status">{busyLabel}… Waiting for the operation to finish.</p>}
+      {error && <div className="kanbanActionError" role="alert">{error}{!draft && <button type="button" onClick={() => void refreshDraft()}>Retry loading</button>}</div>}
       {historyError && <div className="kanbanActionError" role="alert">{historyError} <button type="button" onClick={() => void refreshHistory(true)}>Retry history check</button></div>}
       {draft?.valid && !active && <div className="releaseSetup">
         <div className="releaseFacts"><Fact label="Latest published" value={draft.reconciliation?.latestPublishedVersion || draft.currentVersion} /><Fact label="Target branch" value={draft.targetBranch} /><Fact label="Source revision" value={draft.reconciliation?.sourceRevision || draft.sourceRevision} mono /></div>
@@ -123,19 +127,19 @@ function ProjectReleaseTab({ project }: { project: Project }) {
         <label>New version<input value={version} onChange={(event) => { setVersion(event.target.value); setDraft((current) => current ? { ...current, reconciliation: null } : current); }} placeholder="Opaque version supplied to scripts" /></label>
         {draft.config?.generateNotes && <label>Approved release notes<textarea rows={8} value={notes} onChange={(event) => { setNotes(event.target.value); setDraft((current) => current ? { ...current, reconciliation: null } : current); }} /></label>}
         <section className="releasePreview"><h4>Command preview</h4>{draft.config && <CommandPreview config={draft.config} />}<small>Release data is supplied only through: {envNames}</small></section>
-        <button className="primaryAction releaseStart" type="button" disabled={busy || !version.trim() || !draft.reconciliation || !draft.reconciliation.permittedActions.some((item) => ['start', 'resume', 'approve', 'complete'].includes(item))} onClick={() => void action(() => startRelease(project.id, version, notes))}>{draft.reconciliation && ['resumablePrepared', 'resumableDraft', 'published'].includes(draft.reconciliation.disposition) ? 'Resume release' : 'Start release'}</button>
+        <button className="primaryAction releaseStart" type="button" disabled={busy || !version.trim() || !draft.reconciliation || !draft.reconciliation.permittedActions.some((item) => ['start', 'resume', 'approve', 'complete'].includes(item))} onClick={() => void action('Starting release', () => startRelease(project.id, version, notes))}>{draft.reconciliation && ['resumablePrepared', 'resumableDraft', 'published'].includes(draft.reconciliation.disposition) ? 'Resume release' : 'Start release'}</button>
       </div>}
       {displayed && <div className="releaseOperation">
         <div className="releaseSummary"><div className="releaseSummaryMetadata"><strong>{displayed.version}</strong><span className={`releaseStatus ${displayed.status}`}>{statusLabel(displayed.status)}</span><code>{displayed.initialRevision.slice(0, 10)}</code>{displayed.adopted && <span>resumed</span>}</div><span className="releaseDuration">{duration}</span></div>
         {displayed.reconciliation && <ReconciliationSummary reconciliation={displayed.reconciliation} />}
         <div className="releaseStages">{displayed.stages.map((stage, index) => <ReleaseStage key={stage.id} stage={stage} index={index} approvalInstructions={displayed.config.stages[index].approval?.instructions} />)}</div>
         <div className="releaseActions">
-          {displayed.status === 'running' && <button type="button" disabled={busy} onClick={() => void action(() => cancelRelease(displayed.id))}>Cancel process</button>}
-          {displayed.status === 'awaitingApproval' && displayed.reconciliation?.permittedActions.includes('approve') && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action(() => approveRelease(displayed.id))}>Approve and publish</button>}
-          {['failed', 'cancelled', 'interrupted'].includes(displayed.status) && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action(() => retryRelease(displayed.id))}>Retry release</button>}
-          {displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => void action(() => refreshRelease(displayed.id))}>Refresh release status</button>}
-          {displayed.status !== 'running' && displayed.reconciliation?.permittedActions.includes('recover') && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Recover this prepared checkout? Stacks will re-prove every safety condition, remove only the exact local release tag and artifact directory, and reset to the captured source revision.')) void action(() => recoverPreparedRelease(displayed.id)); }}>Recover prepared checkout</button>}
-          {!['completed', 'abandoned'].includes(displayed.status) && displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Abandon this release? Repository commits, tags, drafts, and artifacts remain and are not automatically undone.')) void action(() => abandonRelease(displayed.id)); }}>Abandon release</button>}
+          {displayed.status === 'running' && <button type="button" disabled={busy} onClick={() => void action('Cancelling process', () => cancelRelease(displayed.id))}>Cancel process</button>}
+          {displayed.status === 'awaitingApproval' && displayed.reconciliation?.permittedActions.includes('approve') && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action('Approving and publishing release', () => approveRelease(displayed.id))}>Approve and publish</button>}
+          {['failed', 'cancelled', 'interrupted'].includes(displayed.status) && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action('Retrying release', () => retryRelease(displayed.id))}>Retry release</button>}
+          {displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => void action('Refreshing release status', () => refreshRelease(displayed.id))}>Refresh release status</button>}
+          {displayed.status !== 'running' && displayed.reconciliation?.permittedActions.includes('recover') && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Recover this prepared checkout? Stacks will re-prove every safety condition, remove only the exact local release tag and artifact directory, and reset to the captured source revision.')) void action('Recovering prepared checkout', () => recoverPreparedRelease(displayed.id)); }}>Recover prepared checkout</button>}
+          {!['completed', 'abandoned'].includes(displayed.status) && displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Abandon this release? Repository commits, tags, drafts, and artifacts remain and are not automatically undone.')) void action('Abandoning release', () => abandonRelease(displayed.id)); }}>Abandon release</button>}
         </div>
       </div>}
       {history.some((item) => ['completed', 'abandoned'].includes(item.status)) && <section className="releaseHistory"><h4>Release history</h4>{history.filter((item) => ['completed', 'abandoned'].includes(item.status)).map((item) => <div key={item.id}><strong>{item.version}</strong><span>{statusLabel(item.status)}</span><span className="releaseDuration">{formatDuration((item.completedAt ?? item.updatedAt) - item.createdAt)}</span><span>{item.stages.length} stages</span></div>)}</section>}

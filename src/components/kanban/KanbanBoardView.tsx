@@ -11,7 +11,6 @@ import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { DirectProjectWork } from '../DirectProjectWork';
 import type { WorkNavigationRequest, WorkView } from '../../directWork';
-import { inspectRelease } from '../../releaseApi';
 import { useBoardKeyboardNavigation } from '../../kanban/useBoardKeyboardNavigation';
 import { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import type { CardView } from '../../kanban/cardView';
@@ -44,7 +43,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct' | 'notes' | 'release'>('filter');
   const [projectPickerCurrentProjectId, setProjectPickerCurrentProjectId] = useState<string | null>(null);
-  const [releasePickerProjects, setReleasePickerProjects] = useState<Project[]>([]);
   const visibleCards = useMemo(() => filterKanbanCards(board.cards, filterProjectId), [board.cards, filterProjectId]);
   const creationAvailability = useMemo(
     () => cardCreationAvailability(projects, selectedProject, superthreadEnabled),
@@ -262,10 +260,9 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       } else if (project && (detail?.view !== 'release' || project.releases_enabled)) {
         void replaceDirectWork(project.id, detail?.view);
       } else if (detail?.view === 'release') {
-        void Promise.all(projects.filter((candidate) => candidate.releases_enabled).map(async (candidate) => (await inspectRelease(candidate.id)).valid ? candidate : null)).then((items) => {
-          setReleasePickerProjects(items.filter((item): item is Project => Boolean(item)));
-          setProjectPickerPurpose('release'); setProjectSwitcherOpen(true);
-        });
+        // Opening the picker must not wait on release inspection (which can call GitHub).
+        // The selected project's Release tab shows any configuration error itself.
+        setProjectPickerPurpose('release'); setProjectSwitcherOpen(true);
       } else {
         setProjectPickerPurpose('direct'); setProjectSwitcherOpen(true);
       }
@@ -624,7 +621,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       )}
       <ProjectSwitcherDialog
         open={projectSwitcherOpen}
-        projects={projectPickerPurpose === 'release' ? releasePickerProjects : projects}
+        projects={projectPickerPurpose === 'release' ? projects.filter((project) => project.releases_enabled) : projects}
         currentProjectId={projectPickerPurpose === 'filter' ? filterProjectId : projectPickerPurpose === 'notes' ? projectPickerCurrentProjectId : null}
         includeAllProjects={projectPickerPurpose === 'filter'}
         onCancel={() => setProjectSwitcherOpen(false)}

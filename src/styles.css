@@ -1220,6 +1220,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseHeaderActions { display: flex; gap: 8px; }
 .releaseHeaderActions button, .releaseActions button, .releaseStart { border: 1px solid #34495d; border-radius: 6px; background: #172431; color: #b7c8d8; padding: 7px 10px; }
 .releaseValid { color: #70bd8d; } .releaseInvalid, .releaseStageError { color: #df858b; }
+.releasePending, .releaseProgress { color: #8faec8; }
+.releaseProgress { margin: 0 0 16px; font-size: 12px; }
 .releaseSetup { display: grid; gap: 16px; }
 .releaseSetup > label { display: grid; gap: 6px; color: #8498aa; font-size: 12px; }
 .releaseSetup input, .releaseSetup textarea { box-sizing: border-box; width: 100%; padding: 9px; border: 1px solid #2c4053; border-radius: 6px; background: #101b25; color: #c5d1dc; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
