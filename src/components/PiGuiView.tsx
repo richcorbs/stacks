@@ -19,6 +19,22 @@ import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
 
+// Runtime-only: pane IDs survive Pi restarts and view remounts, but not an app restart.
+const dismissedMcpTerminalIds = new Set<string>();
+
+export function useMcpBannerDismissal(terminalId: string) {
+  const [state, setState] = useState(() => ({ terminalId, dismissed: dismissedMcpTerminalIds.has(terminalId) }));
+  useEffect(() => {
+    setState({ terminalId, dismissed: dismissedMcpTerminalIds.has(terminalId) });
+  }, [terminalId]);
+  const dismissed = state.terminalId === terminalId ? state.dismissed : dismissedMcpTerminalIds.has(terminalId);
+  const dismiss = () => {
+    dismissedMcpTerminalIds.add(terminalId);
+    setState({ terminalId, dismissed: true });
+  };
+  return [dismissed, dismiss] as const;
+}
+
 export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
@@ -51,6 +67,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [selectedPathIndex, setSelectedPathIndex] = useState(0);
   const [completionCursor, setCompletionCursor] = useState(0);
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [mcpBannerDismissed, dismissMcpBanner] = useMcpBannerDismissal(terminal.id);
   const [mcpActive, setMcpActive] = useState<boolean | null>(null);
   const [mcpLocal, setMcpLocal] = useState<{ local_config_present: boolean; trusted: boolean } | null>(null);
   const [confirmMcpRestart, setConfirmMcpRestart] = useState(false);
@@ -587,7 +604,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         />
       </div>
 
-      {(project.enable_mcp || mcpActive) && <div className="piMcpStatus" role="status">
+      {!mcpBannerDismissed && (project.enable_mcp || mcpActive) && <div className="piMcpStatus" role="status">
+        <button className="piMcpDismiss" type="button" aria-label="Dismiss MCP status" title="Dismiss MCP status" onClick={() => { dismissMcpBanner(); setConfirmMcpTrust(false); setConfirmMcpRestart(false); }}>×</button>
         <span>{mcpActive === null ? 'MCP status pending.' : mcpActive ? 'MCP available to Pi (server connections not verified).' : 'MCP off in this Pi session.'} Enabled global servers in ~/.pi/agent/mcp.json may load when MCP is active.
           {project.enable_mcp && mcpLocal && (!mcpLocal.trusted && mcpLocal.local_config_present ? ' Project .pi/mcp.json is skipped because this directory is untrusted.' : !mcpLocal.local_config_present ? ' No .pi/mcp.json in this session’s working directory; worktrees do not inherit one.' : '')}
           {' '}For connection or authentication errors, explicitly run pi mcp list in a shell (this contacts all enabled servers; the Pi CLI has its own trust decision); do not paste diagnostics or credentials into a card chat.
