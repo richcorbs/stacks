@@ -42,6 +42,19 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
             "Cmd+Shift+D",
             Some("Cmd+Shift+D"),
         ),
+        // No native accelerator: the keydown router handles these, avoiding double dispatch.
+        (
+            "menu-shortcut-previous-terminal-pane",
+            "Previous Terminal Pane",
+            "Cmd+Shift+[",
+            None,
+        ),
+        (
+            "menu-shortcut-next-terminal-pane",
+            "Next Terminal Pane",
+            "Cmd+Shift+]",
+            None,
+        ),
         (
             "menu-shortcut-close-terminal",
             "Close Focused Terminal",

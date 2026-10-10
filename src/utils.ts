@@ -8,6 +8,12 @@ function leafTerminalId(node: Extract<SplitNode, { kind: 'leaf' }>) {
   return node.terminalId ?? (node as unknown as { paneId?: string }).paneId ?? null;
 }
 
+export function relativePaneId(node: SplitNode, focusedPaneId: string | null, direction: -1 | 1): string | null {
+  const ids = collectLeafTerminalIds(node);
+  const index = ids.indexOf(focusedPaneId ?? '');
+  return index < 0 || ids.length < 2 ? null : ids[(index + direction + ids.length) % ids.length];
+}
+
 export function collectLeafTerminalIds(node: SplitNode | null | undefined): string[] {
   if (!node || node.kind === 'empty') return [];
   if (node.kind === 'leaf') {

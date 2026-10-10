@@ -28,6 +28,7 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
 
   const globalTerminal = handlers.isGlobalTerminalVisible();
   if (globalTerminal && /^[1-9]$/.test(event.key)) return handled(event, () => applicationEvents.publish('global-terminal-command', { type: 'select-tab', number: Number(event.key) }));
+  if (bracket && event.shiftKey && (globalTerminal || handlers.isCardTerminalActive())) return handled(event, () => runShortcutAction(bracket === -1 ? 'previous-terminal-pane' : 'next-terminal-pane', handlers));
   if (globalTerminal && bracket && !event.shiftKey) return handled(event, () => applicationEvents.publish('global-terminal-command', { type: 'navigate-tab', direction: bracket }));
   const cardOpen = handlers.isCardOpen();
   const cardTerminal = handlers.isCardTerminalActive();

@@ -4,6 +4,8 @@ export type ShortcutAction =
   | 'add-project'
   | 'split-terminal-right'
   | 'split-terminal-down'
+  | 'previous-terminal-pane'
+  | 'next-terminal-pane'
   | 'close-terminal'
   | 'clear-terminal'
   | 'select-list-view'
@@ -33,6 +35,6 @@ export type ShortcutHandlers = {
   setKanbanView: (view: 'list' | 'board') => void;
   toggleGlobalTerminal: () => void;
   newGlobalTerminalTab: () => void;
-  runGlobalTerminalAction: (action: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize') => void;
-  runCardTerminalAction: (action: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize') => void;
+  runGlobalTerminalAction: (action: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize' | 'previous-pane' | 'next-pane') => void;
+  runCardTerminalAction: (action: 'split-right' | 'split-down' | 'close' | 'clear' | 'search' | 'toggle-maximize' | 'previous-pane' | 'next-pane') => void;
 };

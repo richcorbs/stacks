@@ -51,6 +51,35 @@ describe('keyboard shortcut router', () => {
     expect(h.runGlobalTerminalAction).toHaveBeenCalledWith('split-right');
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
   });
+  it('cycles panes only in an active terminal, including shifted bracket key values', () => {
+    const h = handlers(); cardOpen = true;
+    const inactive = key('{', { code: 'BracketLeft', shiftKey: true });
+    handleMetaShortcutKeyDown(inactive, h);
+    expect(inactive.defaultPrevented).toBe(false);
+    cardTerminal = true;
+    handleMetaShortcutKeyDown(key('{', { code: 'BracketLeft', shiftKey: true }), h);
+    handleMetaShortcutKeyDown(key('}', { shiftKey: true }), h);
+    expect(vi.mocked(h.runCardTerminalAction).mock.calls).toEqual([['previous-pane'], ['next-pane']]);
+    expect(h.runGlobalTerminalAction).not.toHaveBeenCalled();
+  });
+  it('keeps unshifted bracket tab navigation and gives the top-level terminal precedence', () => {
+    cardOpen = true; cardTerminal = true; const h = handlers(true);
+    const global = vi.fn(); const card = vi.fn();
+    const offGlobal = applicationEvents.subscribe('global-terminal-command', global);
+    const offCard = applicationEvents.subscribe('card-tab-shortcut', card);
+    handleMetaShortcutKeyDown(key('[', { code: 'BracketLeft' }), h);
+    handleMetaShortcutKeyDown(key(']', { code: 'BracketRight' }), h);
+    handleMetaShortcutKeyDown(key('{', { code: 'BracketLeft', shiftKey: true }), h);
+    handleMetaShortcutKeyDown(key('}', { code: 'BracketRight', shiftKey: true }), h);
+    expect(global.mock.calls).toEqual([[{ type: 'navigate-tab', direction: -1 }], [{ type: 'navigate-tab', direction: 1 }]]);
+    expect(card).not.toHaveBeenCalled();
+    expect(vi.mocked(h.runGlobalTerminalAction).mock.calls).toEqual([['previous-pane'], ['next-pane']]);
+    expect(h.runCardTerminalAction).not.toHaveBeenCalled();
+    h.isGlobalTerminalVisible = () => false;
+    handleMetaShortcutKeyDown(key('[', { code: 'BracketLeft' }), h);
+    expect(card).toHaveBeenCalledWith({ direction: -1 });
+    offGlobal(); offCard();
+  });
   it('selects Board and List from the overview, including when already selected', () => {
     const h = handlers();
     for (const view of ['k', 'l', 'k', 'l']) {

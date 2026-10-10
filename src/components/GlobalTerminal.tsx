@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { Project, TerminalEntry } from '../types';
 import { collectLeafTerminalIds, setSplitRatio, splitLeaf } from '../utils';
-import { createGlobalTab, globalPaneId, removeGlobalPane, removeGlobalTab, selectRelativeTab, type GlobalTerminalCommand, type GlobalTerminalState, type GlobalTerminalTab } from '../globalTerminalState';
+import { createGlobalTab, globalPaneId, removeGlobalPane, removeGlobalTab, selectRelativePane, selectRelativeTab, type GlobalTerminalCommand, type GlobalTerminalState, type GlobalTerminalTab } from '../globalTerminalState';
 import { loadGlobalTerminal, saveGlobalTerminal } from '../globalTerminalApi';
 import { disposeTerminalSession, disposeTerminalSessions, focusTerminalSession, getTerminalSession, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { SplitView } from './WorkspaceTerminalTree';
@@ -85,6 +85,11 @@ export function GlobalTerminal({ visible, newTabNonce, settings, onVisibleChange
     }
     if (command.type === 'navigate-tab' && (command.direction === -1 || command.direction === 1)) return setState({ ...state, selected_tab_id: selectRelativeTab(state.tabs, state.selected_tab_id, command.direction) });
     if (!selected) return;
+    const direction = command.direction;
+    if (command.type === 'navigate-pane' && (direction === -1 || direction === 1)) {
+      setState((current) => current ? { ...current, tabs: current.tabs.map((tab) => tab.id === current.selected_tab_id ? selectRelativePane(tab, direction) : tab) } : current);
+      return;
+    }
     if (command.type === 'split' && (command.direction === 'row' || command.direction === 'column')) void split(command.direction);
     else if (command.type === 'close') requestClosePane();
     else if (command.type === 'search') setSearchRequest({ terminalId: selected.focused_pane_id, nonce: Date.now() });

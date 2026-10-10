@@ -9,6 +9,11 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     case 'add-project': handlers.openProjectDialog(); break;
     case 'split-terminal-right': terminalAction('split-right'); break;
     case 'split-terminal-down': terminalAction('split-down'); break;
+    case 'previous-terminal-pane':
+    case 'next-terminal-pane':
+      if (handlers.isGlobalTerminalVisible()) handlers.runGlobalTerminalAction(action === 'previous-terminal-pane' ? 'previous-pane' : 'next-pane');
+      else if (handlers.isCardTerminalActive()) handlers.runCardTerminalAction(action === 'previous-terminal-pane' ? 'previous-pane' : 'next-pane');
+      break;
     case 'close-terminal': terminalAction('close'); break;
     case 'clear-terminal':
       if (handlers.isGlobalTerminalVisible()) handlers.runGlobalTerminalAction('clear');
