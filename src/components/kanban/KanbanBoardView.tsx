@@ -36,7 +36,7 @@ import { CardServerShutdownError, findConflictingCardServer, handoffCardServer }
 import { ServerHandoffDialog } from './ServerHandoffDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
 
-export function KanbanBoardView({ board, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
+export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
@@ -183,6 +183,9 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
     selectedCard,
     openCard,
     view,
+    creationAvailable: !creationAvailability.disabled,
+    shortcutBlocked: boardShortcutBlocked || board.loading || !projectsHydrated || Boolean(selectedCardId || projectSwitcherOpen || newCard.open || openLaneMenu || serverHandoff || cleanupInventory || directWorkProjectId || cleaningMerged),
+    openNewCard: newCard.show,
   });
   const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder, view, backlogCollapsed });
 

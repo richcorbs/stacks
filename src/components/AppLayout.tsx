@@ -13,6 +13,7 @@ export function AppLayout({ appStyle, main, overlays, globalTerminal }: {
   return (
     <div className="app" style={appStyle}>
       <MainWorkspace
+        boardShortcutBlocked={main.boardShortcutBlocked}
         projects={main.projects}
         projectsHydrated={main.projectsHydrated}
         terminalFontSize={main.appSettings.terminal_font_size}

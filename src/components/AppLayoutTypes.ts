@@ -5,6 +5,7 @@ import type { PaletteItem } from './CommandPalette';
 import type { CardPaletteRegistration } from '../commandPaletteCards';
 
 export type MainLayoutProps = {
+  boardShortcutBlocked: boolean;
   projects: Project[];
   projectsHydrated: boolean;
   appSettings: ResolvedAppSettings;
