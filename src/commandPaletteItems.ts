@@ -8,6 +8,7 @@ export type CommandPaletteItemOptions = {
   selectedKanbanProject: Project | null;
   superthreadEnabled: boolean;
   cardTerminal: CardTerminalContext | null;
+  workspaceDirectory: string | null;
   onNewProject: () => void;
   onEditProject: (project: Project) => void;
   onDeleteProject: (projectId: string) => void;
@@ -39,9 +40,13 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
     { id: 'restart-stacks', title: 'Restart Stacks', subtitle: 'Relaunch the app and load the installed build', keywords: 'restart reload relaunch app update build', action: options.onRestartApp },
   ];
 
+  const directory = options.workspaceDirectory?.trim();
+  if (directory) items.push({
+    id: 'open-directory-editor', title: 'Open directory in editor', subtitle: directory,
+    keywords: 'editor project folder directory worktree', action: () => options.onOpenDirectoryInEditor(directory),
+  });
   if (!cardTerminal?.active || !cardTerminal.focusedPaneId) return items;
   items.push(
-    { id: 'open-directory-editor', title: 'Open directory in editor', subtitle: cardTerminal.cwd ?? 'Card worktree', keywords: 'editor project folder cwd directory', action: () => { if (cardTerminal.cwd) options.onOpenDirectoryInEditor(cardTerminal.cwd); } },
     { id: 'run-one-time-command', title: 'Run one-time command', subtitle: `From ${cardTerminal.cwd ?? 'the focused pane directory'}`, keywords: 'execute temporary command task current directory cwd', action: options.onRunOneTimeCommand },
     { id: 'split-terminal-right', title: 'Split pane right', subtitle: '⌘D', keywords: 'split terminal pane vertical', action: () => options.onCardTerminalCommand('split-right') },
     { id: 'split-terminal-down', title: 'Split pane down', subtitle: '⇧⌘D', keywords: 'split terminal pane horizontal', action: () => options.onCardTerminalCommand('split-down') },

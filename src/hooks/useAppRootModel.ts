@@ -23,7 +23,7 @@ import type { KanbanCard } from '../kanban/types';
 import { disposeTerminalSessions } from '../terminalSessionManager';
 import { runShortcutAction } from '../shortcutActions';
 import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
-import { buildCardPaletteItems, type CardPaletteRegistration } from '../commandPaletteCards';
+import { buildCardPaletteItems, workspaceEditorDirectory, type CardPaletteRegistration } from '../commandPaletteCards';
 import { launchWorkAgent } from '../kanban/workAgentLauncher';
 import { flushAllProjectNotes } from '../projectNotes';
 import { useActivityNotifications } from './useActivityNotifications';
@@ -266,8 +266,9 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
   }
 
   const selectedProject = selectedKanbanProject(store.projects, appSettings.kanban_project_id);
+  const workspaceDirectory = workspaceEditorDirectory(paletteCards?.openWorkspace, store.projects);
   const paletteItems = useMemo(() => buildCommandPaletteItems({
-    store, selectedKanbanProject: selectedProject, superthreadEnabled: appSettings.superthread_enabled, cardTerminal,
+    store, selectedKanbanProject: selectedProject, superthreadEnabled: appSettings.superthread_enabled, cardTerminal, workspaceDirectory,
     onNewProject: () => { void openProjectDialog(); }, onEditProject: editProject,
     onDeleteProject: setConfirmDeleteProjectId, onOpenSettings: () => setSettingsOpen(true),
     onRestartApp: () => { void invoke('restart_app'); },
@@ -279,7 +280,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     onRelease: (project) => events.publish('open-direct-work', { projectId: project?.id, view: 'release' }),
     onCardTerminalCommand: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
     onFocusCardTerminalPane: (paneId) => events.publish('card-terminal-command', { type: 'focus', paneId }),
-  }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, events, selectedProject, store]);
+  }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, events, selectedProject, store, workspaceDirectory]);
 
   const paletteCardItems = useMemo(
     () => paletteCards ? buildCardPaletteItems(paletteCards) : [],

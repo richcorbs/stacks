@@ -451,9 +451,12 @@ export function KanbanBoardView({ board, superthreadEnabled, projects, projectsH
       projects,
       openCard: openPaletteCard,
       selectedCard: selectedCard?.id === selectedDetail?.id ? selectedDetail : null,
+      openWorkspace: selectedCard
+        ? { kind: 'card', cardId: selectedCard.id, projectId: selectedCard.project_id, worktreePath: selectedCard.environment?.worktree_path ?? null }
+        : directWorkProjectId ? { kind: 'project', projectId: directWorkProjectId } : null,
       runSelectedAction: (action) => cardDetailWorkflowRef.current?.run(action),
     });
-  }, [onPaletteCardsChange, openPaletteCard, projects, selectedCard, selectedDetail, visibleCards]);
+  }, [onPaletteCardsChange, openPaletteCard, projects, selectedCard, selectedDetail, directWorkProjectId, visibleCards]);
 
   useEffect(() => () => onPaletteCardsChange(null), [onPaletteCardsChange]);
 
