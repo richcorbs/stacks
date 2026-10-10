@@ -8,8 +8,16 @@ export type CardPaletteRegistration = {
   projects: Project[];
   openCard: (cardId: string) => void;
   selectedCard?: KanbanCardDetail | null;
+  openWorkspace?: { kind: 'project'; projectId: string } | { kind: 'card'; cardId: string; projectId: string | null; worktreePath: string | null } | null;
   runSelectedAction?: (action: CardWorkflowActionKind) => void;
 };
+
+export function workspaceEditorDirectory(workspace: CardPaletteRegistration['openWorkspace'], projects: Project[]): string | null {
+  if (!workspace) return null;
+  const project = projects.find((candidate) => candidate.id === workspace.projectId);
+  const path = workspace.kind === 'card' ? workspace.worktreePath?.trim() || project?.path?.trim() : project?.path?.trim();
+  return path || null;
+}
 
 export function buildCardPaletteItems({ cards, projects, openCard, selectedCard, runSelectedAction }: CardPaletteRegistration): PaletteItem[] {
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));

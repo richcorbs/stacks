@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildCardPaletteItems } from './commandPaletteCards';
+import { buildCardPaletteItems, workspaceEditorDirectory, type CardPaletteRegistration } from './commandPaletteCards';
 import { filterPaletteItems, scorePaletteItem, type PaletteItem } from './components/CommandPalette';
 import { filterKanbanCards } from './kanban/projectScope';
 import type { KanbanCard, KanbanCardSummary } from './kanban/types';
@@ -23,6 +23,26 @@ function card(id: string, number: string, title: string, projectId: string | nul
 function items(cards: KanbanCardSummary[], openCard = vi.fn()) {
   return { openCard, results: buildCardPaletteItems({ cards, projects, openCard }) };
 }
+
+describe('workspace editor context', () => {
+  const directory = (openWorkspace: CardPaletteRegistration['openWorkspace']) => workspaceEditorDirectory(openWorkspace, projects);
+
+  it('uses the open Project Workspace checkout, not a selected board project', () => {
+    expect(directory({ kind: 'project', projectId: 'p2' })).toBe('/elsewhere');
+  });
+
+  it('prefers the card worktree and falls back to its owning project before work starts or during loading', () => {
+    expect(directory({ kind: 'card', cardId: 'c1', projectId: 'p1', worktreePath: '/worktree' })).toBe('/worktree');
+    expect(directory({ kind: 'card', cardId: 'c1', projectId: 'p1', worktreePath: null })).toBe('/stacks');
+  });
+
+  it('clears on close or unavailable directories', () => {
+    expect(directory(null)).toBeNull();
+    expect(directory({ kind: 'project', projectId: 'deleted' })).toBeNull();
+    expect(directory({ kind: 'card', cardId: 'c2', projectId: null, worktreePath: null })).toBeNull();
+    expect(workspaceEditorDirectory({ kind: 'project', projectId: 'p1' }, [{ ...projects[0], path: ' ' }])).toBeNull();
+  });
+});
 
 describe('card command-palette items', () => {
   it('displays card number/title and the owning project without searching the subtitle or metadata', () => {

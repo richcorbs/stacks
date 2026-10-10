@@ -4,7 +4,7 @@ import { buildCommandPaletteItems, type CommandPaletteItemOptions } from './comm
 const project = { id: 'p1', name: 'Stacks', path: '/repo', workspaces: [], kanban_source: 'local' as const };
 function options(overrides: Partial<CommandPaletteItemOptions> = {}): CommandPaletteItemOptions {
   return {
-    store: { projects: [project] }, selectedKanbanProject: project, superthreadEnabled: true, cardTerminal: null,
+    store: { projects: [project] }, selectedKanbanProject: project, superthreadEnabled: true, cardTerminal: null, workspaceDirectory: null,
     onNewProject: vi.fn(), onEditProject: vi.fn(), onDeleteProject: vi.fn(), onOpenSettings: vi.fn(), onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(), onRunOneTimeCommand: vi.fn(), onNewCard: vi.fn(), onDirectProjectWork: vi.fn(),
     onAddProjectNote: vi.fn(), onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), ...overrides,
@@ -54,6 +54,20 @@ describe('command palette items', () => {
     expect(onRelease).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'p1', releases_enabled: true }));
   });
 
+  it('offers the editor action independently of the card Terminal tab and launches the stable root', () => {
+    const onOpenDirectoryInEditor = vi.fn();
+    for (const cardTerminal of [null, { cardId: 'c1', active: false, focusedPaneId: 'pane-1', paneIds: ['pane-1'], cwd: '/elsewhere', maximized: false },
+      { cardId: 'c1', active: true, focusedPaneId: 'pane-1', paneIds: ['pane-1'], cwd: '/elsewhere', maximized: false }]) {
+      const items = buildCommandPaletteItems(options({ workspaceDirectory: '/worktree', cardTerminal, onOpenDirectoryInEditor }));
+      expect(items.find((item) => item.id === 'open-directory-editor')?.subtitle).toBe('/worktree');
+      items.find((item) => item.id === 'open-directory-editor')?.action();
+      expect(items.some((item) => item.id === 'run-one-time-command')).toBe(Boolean(cardTerminal?.active));
+    }
+    expect(onOpenDirectoryInEditor).toHaveBeenCalledTimes(3);
+    expect(onOpenDirectoryInEditor).toHaveBeenCalledWith('/worktree');
+    expect(buildCommandPaletteItems(options({ workspaceDirectory: '  ' })).some((item) => item.id === 'open-directory-editor')).toBe(false);
+  });
+
   it('adds focused card terminal commands only in an active Terminal tab', () => {
     const onCardTerminalCommand = vi.fn();
     const items = buildCommandPaletteItems(options({ onCardTerminalCommand, cardTerminal: { cardId: 'c1', active: true, focusedPaneId: 'pane-2', paneIds: ['pane-1', 'pane-2'], cwd: '/worktree', maximized: false } }));
@@ -68,6 +82,7 @@ describe('command palette items', () => {
   it('uses sentence case while preserving proper names and dynamic values', () => {
     const cwd = '/Users/Rich/Code/StacksAPI';
     const items = buildCommandPaletteItems(options({
+      workspaceDirectory: cwd,
       cardTerminal: { cardId: 'c1', active: true, focusedPaneId: 'Pane-A', paneIds: ['Pane-A'], cwd, maximized: false },
     }));
     const item = (id: string) => items.find((candidate) => candidate.id === id);
