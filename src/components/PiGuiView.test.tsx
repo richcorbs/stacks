@@ -1,6 +1,36 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it } from 'vitest';
-import { PiPendingOutput, PiQueuedMessage } from './PiGuiView';
+import { PiPendingOutput, PiQueuedMessage, useMcpBannerDismissal } from './PiGuiView';
+
+function McpBannerHarness({ terminalId }: { terminalId: string }) {
+  const [dismissed, dismiss] = useMcpBannerDismissal(terminalId);
+  return dismissed ? null : <div className="piMcpStatus"><button aria-label="Dismiss MCP status" onClick={dismiss}>×</button></div>;
+}
+
+describe('Pi MCP banner dismissal', () => {
+  it('survives a session restart and view remount, but is scoped to the terminal ID', () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    const banner = () => renderer.root.findAllByProps({ className: 'piMcpStatus' });
+    act(() => { renderer = TestRenderer.create(<McpBannerHarness terminalId="mcp-test-a" />); });
+    expect(banner()).toHaveLength(1);
+    act(() => renderer.root.findByProps({ 'aria-label': 'Dismiss MCP status' }).props.onClick());
+    expect(banner()).toHaveLength(0);
+    // A Pi restart does not change the pane ID or re-show the banner.
+    act(() => renderer.update(<McpBannerHarness terminalId="mcp-test-a" />));
+    expect(banner()).toHaveLength(0);
+    act(() => renderer.update(<McpBannerHarness terminalId="mcp-test-b" />));
+    expect(banner()).toHaveLength(1);
+    act(() => renderer.update(<McpBannerHarness terminalId="mcp-test-a" />));
+    expect(banner()).toHaveLength(0);
+    act(() => renderer.unmount());
+    act(() => { renderer = TestRenderer.create(<McpBannerHarness terminalId="mcp-test-a" />); });
+    expect(banner()).toHaveLength(0);
+    act(() => renderer.update(<McpBannerHarness terminalId="mcp-test-b" />));
+    expect(banner()).toHaveLength(1);
+    act(() => renderer.unmount());
+  });
+});
 
 describe('PiGuiView queued messages', () => {
   it('renders the thinking indicator before steering and follow-up messages', () => {
