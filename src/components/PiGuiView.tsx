@@ -69,6 +69,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [composerError, setComposerError] = useState<string | null>(null);
   const [mcpBannerDismissed, dismissMcpBanner] = useMcpBannerDismissal(terminal.id);
   const [mcpActive, setMcpActive] = useState<boolean | null>(null);
+  const [mcpSessionNames, setMcpSessionNames] = useState<string | null>(null);
   const [mcpLocal, setMcpLocal] = useState<{ local_config_present: boolean; trusted: boolean } | null>(null);
   const [confirmMcpRestart, setConfirmMcpRestart] = useState(false);
   const [confirmMcpTrust, setConfirmMcpTrust] = useState(false);
@@ -102,8 +103,11 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     invoke<boolean | null>('pi_session_mcp_enabled', { paneId: terminal.id })
       .then((enabled) => { if (!cancelled) setMcpActive(enabled); })
       .catch(() => { if (!cancelled) setMcpActive(null); });
+    invoke<string | null>('pi_session_mcp_env_names', { paneId: terminal.id })
+      .then((names) => { if (!cancelled) setMcpSessionNames(names); })
+      .catch(() => { if (!cancelled) setMcpSessionNames(null); });
     return () => { cancelled = true; };
-  }, [terminal.id, pi.starting, pi.stopped, project.enable_mcp]);
+  }, [terminal.id, pi.starting, pi.stopped, project.enable_mcp, project.mcp_env_names]);
 
   useEffect(() => {
     setMcpTrustChanged(false);
@@ -606,12 +610,15 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 
       {!mcpBannerDismissed && (project.enable_mcp || mcpActive) && <div className="piMcpStatus" role="status">
         <button className="piMcpDismiss" type="button" aria-label="Dismiss MCP status" title="Dismiss MCP status" onClick={() => { dismissMcpBanner(); setConfirmMcpTrust(false); setConfirmMcpRestart(false); }}>×</button>
-        <span>{mcpActive === null ? 'MCP status pending.' : mcpActive ? 'MCP available to Pi (server connections not verified).' : 'MCP off in this Pi session.'} Enabled global servers in ~/.pi/agent/mcp.json may load when MCP is active.
+        <span>{mcpActive === null ? 'MCP status pending.' : mcpActive ? `MCP extension enabled in this Pi session (server status: ${pi.mcpStatus}).` : 'MCP off in this Pi session.'} Enabled global servers in ~/.pi/agent/mcp.json may load when MCP is active.
           {project.enable_mcp && mcpLocal && (!mcpLocal.trusted && mcpLocal.local_config_present ? ' Project .pi/mcp.json is skipped because this directory is untrusted.' : !mcpLocal.local_config_present ? ' No .pi/mcp.json in this session’s working directory; worktrees do not inherit one.' : '')}
-          {' '}For connection or authentication errors, explicitly run pi mcp list in a shell (this contacts all enabled servers; the Pi CLI has its own trust decision); do not paste diagnostics or credentials into a card chat.
+          {' '}Run /mcp in Pi for connection status. Do not paste credentials into a card chat.
+          {mcpLocal?.trusted && mcpLocal.local_config_present && ' Project config present and trusted.'}
+          {pi.extensionNotice && <> {pi.extensionNotice}</>}
+          {mcpSessionNames !== null && mcpSessionNames !== (project.mcp_env_names ?? '') && ' Approved environment names changed; restart Pi to apply them.'}
           {mcpTrustChanged && ' Trust changed; restart Pi to apply it.'}</span>
         {project.enable_mcp && mcpLocal?.local_config_present && !mcpLocal.trusted && <button type="button" onClick={() => setConfirmMcpTrust(true)}>Trust this directory for Pi</button>}
-        {mcpActive !== null && (mcpActive !== (project.enable_mcp ?? false) || mcpTrustChanged) && <button type="button" disabled={pi.starting} onClick={() => {
+        {mcpActive !== null && (mcpActive !== (project.enable_mcp ?? false) || mcpTrustChanged || (mcpSessionNames !== null && mcpSessionNames !== (project.mcp_env_names ?? ''))) && <button type="button" disabled={pi.starting} onClick={() => {
           if (pi.isStreaming || pi.queuedFollowUps.length || pi.queuedSteering.length || pi.uiRequest) setConfirmMcpRestart(true);
           else void pi.restart().catch(() => {});
         }}>Restart Pi to apply setting</button>}

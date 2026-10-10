@@ -49,6 +49,56 @@ function respond(h: ReturnType<typeof harness>, index: number, command: string, 
 }
 
 describe('PiSessionController', () => {
+  it('shows sanitized MCP notify failures and success without writing to the transcript', async () => {
+    const h = harness();
+    await begin(h);
+    const secret = 'https://internal.example/?token=secret Authorization: Bearer secret';
+    h.emit(envelope({ type: 'extension_ui_request', method: 'notify', message: `MCP servers need attention:\n  datadog: failed: authentication ${secret}\nRun /mcp to fix.` }));
+    expect(h.controller.getSnapshot().mcpStatus).toBe('failed');
+    expect(h.controller.getSnapshot().extensionNotice).toContain('authentication failed');
+    expect(JSON.stringify(h.controller.getSnapshot())).not.toContain('secret');
+    h.emit(envelope({ type: 'extension_ui_request', method: 'notify', message: 'MCP datadog: connected' }));
+    expect(h.controller.getSnapshot().mcpStatus).toBe('connected');
+    expect(h.controller.getSnapshot().messages).toEqual([]);
+    h.emit(envelope({ type: 'extension_error', extension: 'builtin:mcp', message: secret }));
+    expect(h.controller.getSnapshot().mcpStatus).toBe('failed');
+    expect(JSON.stringify(h.controller.getSnapshot())).not.toContain('secret');
+  });
+
+  it('retains new-generation startup failures during an explicit restart and rejects old events', async () => {
+    const h = harness();
+    await begin(h);
+    respond(h, 0, 'get_state', { isStreaming: false });
+    respond(h, 1, 'get_messages', { messages: [] });
+    await vi.waitFor(() => expect(h.controller.getSnapshot().starting).toBe(false));
+    const originalInvoke = vi.mocked(h.dependencies.invoke).getMockImplementation()!;
+    vi.mocked(h.dependencies.invoke).mockImplementation(async (command, args) => {
+      if (command === 'start_pi_session') {
+        h.controller.project(envelope({ type: 'extension_ui_request', method: 'notify', message: 'MCP fixture: failed: connection' }, 'generation-2'));
+        return 'generation-2' as never;
+      }
+      return originalInvoke(command, args);
+    });
+    const commandOffset = h.commands.length;
+    const restart = h.controller.restart();
+    await vi.waitFor(() => expect(h.controller.getSnapshot().mcpStatus).toBe('failed'));
+    h.controller.project(envelope({ type: 'extension_ui_request', method: 'notify', message: 'MCP old: connected' }));
+    expect(h.controller.getSnapshot().mcpStatus).toBe('failed');
+    await vi.waitFor(() => expect(h.commands.length).toBeGreaterThanOrEqual(commandOffset + 2));
+    for (const index of [commandOffset, commandOffset + 1]) h.controller.project(envelope({ type: 'response', id: h.commands[index].id as string, command: h.commands[index].type as string, success: true, data: {} }, 'generation-2'));
+    await restart;
+    expect(h.controller.getSnapshot().mcpStatus).toBe('failed');
+    h.controller.delete();
+  });
+
+  it('does not turn unrelated extension notifications into chat or MCP success', async () => {
+    const h = harness();
+    await begin(h);
+    h.emit(envelope({ type: 'extension_ui_request', method: 'notify', message: 'Other extension ready' }));
+    expect(h.controller.getSnapshot().mcpStatus).toBe('unknown');
+    expect(h.controller.getSnapshot().extensionNotice).toBe('Pi extension notification received.');
+    expect(h.controller.getSnapshot().messages).toEqual([]);
+  });
   it('keeps one backend subscription and projects events while no view is subscribed', async () => {
     const h = harness();
     const first = vi.fn();

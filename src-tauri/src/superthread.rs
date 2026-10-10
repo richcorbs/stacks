@@ -1011,7 +1011,7 @@ pub(crate) fn resolve_api_token(name: &str) -> Result<String, String> {
         .ok_or_else(|| format!("Superthread API token environment variable {name} is not set in the app or login shell; Stacks does not use the Superthread CLI config token"))
 }
 
-fn token_from_login_shell(name: &str) -> Option<String> {
+pub(crate) fn token_from_login_shell(name: &str) -> Option<String> {
     // The shell source is constant. The already-validated variable name is passed as
     // positional data, not interpolated into executable shell text.
     let shell = PathBuf::from(env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));

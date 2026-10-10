@@ -93,6 +93,8 @@ struct Project {
     config_revision: i64,
     #[serde(default)]
     enable_mcp: bool,
+    #[serde(default)]
+    mcp_env_names: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +166,8 @@ pub struct ProjectConfigurationInput {
     expected_revision: i64,
     #[serde(default)]
     enable_mcp: bool,
+    #[serde(default)]
+    mcp_env_names: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -271,6 +275,7 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
         ("config_revision", "ALTER TABLE projects ADD COLUMN config_revision INTEGER NOT NULL DEFAULT 0"),
         ("color_id", "ALTER TABLE projects ADD COLUMN color_id TEXT"),
         ("enable_mcp", "ALTER TABLE projects ADD COLUMN enable_mcp INTEGER NOT NULL DEFAULT 0"),
+        ("mcp_env_names", "ALTER TABLE projects ADD COLUMN mcp_env_names TEXT NOT NULL DEFAULT ''"),
     ] {
         if !columns.iter().any(|column| column == name) { connection.execute(sql, []).map_err(db_error)?; }
     }
@@ -360,6 +365,7 @@ pub(crate) struct PiProjectScope {
     pub kanban_source: String,
     pub superthread_token_env_var: Option<String>,
     pub enable_mcp: bool,
+    pub mcp_env_names: String,
 }
 
 pub(crate) fn pi_project_scope(project_id: &str) -> Result<PiProjectScope, String> {
@@ -372,7 +378,7 @@ fn pi_project_scope_from_connection(
 ) -> Result<PiProjectScope, String> {
     connection
         .query_row(
-            "SELECT id, name, COALESCE(kanban_source, 'local'), CASE WHEN kanban_source='superthread' THEN COALESCE(superthread_api_token_env_var,'ST_TOKEN') END, enable_mcp FROM projects WHERE id = ?1",
+            "SELECT id, name, COALESCE(kanban_source, 'local'), CASE WHEN kanban_source='superthread' THEN COALESCE(superthread_api_token_env_var,'ST_TOKEN') END, enable_mcp, mcp_env_names FROM projects WHERE id = ?1",
             [project_id],
             |row| {
                 Ok(PiProjectScope {
@@ -381,6 +387,7 @@ fn pi_project_scope_from_connection(
                     kanban_source: row.get(2)?,
                     superthread_token_env_var: row.get(3)?,
                     enable_mcp: row.get::<_, i64>(4)? != 0,
+                    mcp_env_names: row.get(5)?,
                 })
             },
         )
@@ -675,6 +682,24 @@ fn normalize_project_configuration(input: &mut ProjectConfigurationInput) {
     normalize_incoming_columns(&mut input.superthread_incoming_columns);
 }
 
+fn normalize_mcp_env_names(csv: &str) -> Result<String, String> {
+    if csv.len() > 1024 { return Err("MCP environment name list is too long".into()); }
+    if csv.trim().is_empty() { return Ok(String::new()); }
+    let mut names = Vec::new();
+    for name in csv.split(',').map(str::trim) {
+        if name.is_empty() || name.len() > 64 || !name.starts_with(|c: char| c == '_' || c.is_ascii_alphabetic())
+            || !name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric()) {
+            return Err("MCP environment names must be valid identifiers (max 64 characters each)".into());
+        }
+        if name == "ST_TOKEN" || name.starts_with("STACKS_") || name == "PATH" {
+            return Err(format!("MCP environment name {name} is reserved by Stacks"));
+        }
+        if !names.contains(&name) { names.push(name); }
+        if names.len() > 16 { return Err("At most 16 MCP environment names are allowed".into()); }
+    }
+    Ok(names.join(", "))
+}
+
 fn project_configuration(project: &Project) -> ProjectConfigurationInput {
     ProjectConfigurationInput {
         id: project.id.clone(), name: project.name.clone(), path: project.path.clone(), color_id: project.color_id.clone(), deployment_command: project.deployment_command.clone(),
@@ -689,7 +714,7 @@ fn project_configuration(project: &Project) -> ProjectConfigurationInput {
         server_command: project.server_command.clone(), console_command: project.console_command.clone(), delivery_workflow: project.delivery_workflow.clone(),
         target_branch: project.target_branch.clone(), supports_feature_environments: project.supports_feature_environments, github_merge_strategy: project.github_merge_strategy.clone(),
         require_passing_ci: project.require_passing_ci, require_approval: project.require_approval, releases_enabled: project.releases_enabled,
-        release_config_path: project.release_config_path.clone(), expected_revision: project.config_revision, enable_mcp: project.enable_mcp,
+        release_config_path: project.release_config_path.clone(), expected_revision: project.config_revision, enable_mcp: project.enable_mcp, mcp_env_names: project.mcp_env_names.clone(),
     }
 }
 
@@ -722,7 +747,7 @@ fn project_configuration_changes(current: &ProjectConfigurationInput, next: &Pro
         || current.superthread_done_column_id != next.superthread_done_column_id;
     let scope = current.superthread_spaces != next.superthread_spaces || current.superthread_space_id != next.superthread_space_id;
     ProjectConfigurationChanges {
-        ordinary: current.enable_mcp != next.enable_mcp || current.color_id != next.color_id || current.name != next.name || current.path != next.path || current.start_work_command != next.start_work_command
+        ordinary: current.enable_mcp != next.enable_mcp || current.mcp_env_names != next.mcp_env_names || current.color_id != next.color_id || current.name != next.name || current.path != next.path || current.start_work_command != next.start_work_command
             || current.server_command != next.server_command || current.console_command != next.console_command
             || current.deployment_command != next.deployment_command || current.target_branch != next.target_branch
             || current.github_merge_strategy != next.github_merge_strategy || current.releases_enabled != next.releases_enabled
@@ -746,6 +771,7 @@ pub async fn create_project(
     service: State<'_, SuperthreadService>,
     mut input: ProjectConfigurationInput,
 ) -> Result<ProjectStore, String> {
+    input.mcp_env_names = normalize_mcp_env_names(&input.mcp_env_names)?;
     normalize_project_configuration(&mut input);
     validate_live_superthread_configuration(service.inner().clone(), &mut input).await?;
     normalize_project_configuration(&mut input);
@@ -810,13 +836,13 @@ fn create_project_validated(input: ProjectConfigurationInput) -> Result<ProjectS
         };
         let transaction = connection.savepoint().map_err(db_error)?;
         transaction.execute(
-            "INSERT INTO projects(id,name,path,kanban_source,start_work_command,superthread_spaces,superthread_workspace_slug,superthread_api_token_env_var,superthread_board_id,superthread_board_name,superthread_incoming_columns,superthread_default_incoming_column_id,superthread_in_progress_column_id,superthread_in_progress_column_name,superthread_done_column_id,superthread_done_column_name,superthread_mapping_revision,server_command,console_command,sort_order,delivery_workflow,deployment_command,target_branch,supports_feature_environments,github_merge_strategy,require_passing_ci,require_approval,releases_enabled,release_config_path,config_revision,color_id,enable_mcp) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,1,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,0,?29,?30)",
+            "INSERT INTO projects(id,name,path,kanban_source,start_work_command,superthread_spaces,superthread_workspace_slug,superthread_api_token_env_var,superthread_board_id,superthread_board_name,superthread_incoming_columns,superthread_default_incoming_column_id,superthread_in_progress_column_id,superthread_in_progress_column_name,superthread_done_column_id,superthread_done_column_name,superthread_mapping_revision,server_command,console_command,sort_order,delivery_workflow,deployment_command,target_branch,supports_feature_environments,github_merge_strategy,require_passing_ci,require_approval,releases_enabled,release_config_path,config_revision,color_id,enable_mcp,mcp_env_names) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,1,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,0,?29,?30,?31)",
             params![input.id, input.name.trim(), input.path.trim(), source, non_empty(input.start_work_command.clone()), spaces, slug,
                 input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN").trim(), input.superthread_board_id, input.superthread_board_name, serde_json::to_string(&input.superthread_incoming_columns).map_err(|e| e.to_string())?,
                 input.superthread_default_incoming_column_id, input.superthread_in_progress_column_id, input.superthread_in_progress_column_name,
                 input.superthread_done_column_id, input.superthread_done_column_name, non_empty(input.server_command.clone()), non_empty(input.console_command.clone()), order,
                 normalize_delivery_workflow(&input.delivery_workflow), non_empty(input.deployment_command.clone()), target, input.supports_feature_environments as i64,
-                normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64, input.require_approval as i64, input.releases_enabled as i64, release, input.color_id, input.enable_mcp as i64],
+                normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64, input.require_approval as i64, input.releases_enabled as i64, release, input.color_id, input.enable_mcp as i64, input.mcp_env_names],
         ).map_err(db_error)?;
         if source == "superthread" {
             activate_superthread_binding(&transaction, &input)?;
@@ -835,6 +861,7 @@ pub async fn update_project_configuration(
     mut input: ProjectConfigurationInput,
 ) -> Result<ProjectStore, String> {
     let provider = service.inner().clone();
+    input.mcp_env_names = normalize_mcp_env_names(&input.mcp_env_names)?;
     normalize_project_configuration(&mut input);
     let current_store = kanban::with_read_connection(|connection| read_store(connection))?;
     let current_project = current_store.projects.iter().find(|project| project.id == input.id)
@@ -1115,14 +1142,14 @@ fn update_project_configuration_row(
          superthread_board_id=?7,superthread_board_name=?8,superthread_incoming_columns=?9,superthread_default_incoming_column_id=?10,
          superthread_in_progress_column_id=?11,superthread_in_progress_column_name=?12,superthread_done_column_id=?13,superthread_done_column_name=?14,
          superthread_mapping_revision=superthread_mapping_revision + CASE WHEN COALESCE(superthread_board_id,'')!=COALESCE(?7,'') OR COALESCE((SELECT group_concat(id,'|') FROM (SELECT json_extract(value,'$.id') AS id FROM json_each(superthread_incoming_columns) ORDER BY id)),'')!=COALESCE((SELECT group_concat(id,'|') FROM (SELECT json_extract(value,'$.id') AS id FROM json_each(?9) ORDER BY id)),'') OR COALESCE(superthread_default_incoming_column_id,'')!=COALESCE(?10,'') OR COALESCE(superthread_in_progress_column_id,'')!=COALESCE(?11,'') OR COALESCE(superthread_done_column_id,'')!=COALESCE(?13,'') THEN 1 ELSE 0 END,
-         server_command=?15,console_command=?16,delivery_workflow=?17,deployment_command=?28,target_branch=?18,supports_feature_environments=?19,github_merge_strategy=?20,require_passing_ci=?21,require_approval=?22,releases_enabled=?23,release_config_path=?24,color_id=?29,enable_mcp=?30,config_revision=config_revision+1 WHERE id=?25 AND config_revision=?26",
+         server_command=?15,console_command=?16,delivery_workflow=?17,deployment_command=?28,target_branch=?18,supports_feature_environments=?19,github_merge_strategy=?20,require_passing_ci=?21,require_approval=?22,releases_enabled=?23,release_config_path=?24,color_id=?29,enable_mcp=?30,mcp_env_names=?31,config_revision=config_revision+1 WHERE id=?25 AND config_revision=?26",
         params![input.name.trim(), input.path.trim(), source, non_empty(input.start_work_command.clone()), superthread_spaces, superthread_slug,
             input.superthread_board_id, input.superthread_board_name, incoming, input.superthread_default_incoming_column_id,
             input.superthread_in_progress_column_id, input.superthread_in_progress_column_name, input.superthread_done_column_id, input.superthread_done_column_name,
             non_empty(input.server_command.clone()), non_empty(input.console_command.clone()), normalize_delivery_workflow(&input.delivery_workflow), target_branch,
             input.supports_feature_environments as i64, normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64,
             input.require_approval as i64, input.releases_enabled as i64, release_path, input.id, input.expected_revision,
-            input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN").trim(), non_empty(input.deployment_command.clone()), input.color_id, input.enable_mcp as i64],
+            input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN").trim(), non_empty(input.deployment_command.clone()), input.color_id, input.enable_mcp as i64, input.mcp_env_names],
     ).map(|changed| changed == 1).map_err(db_error)
 }
 
@@ -1293,7 +1320,7 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
                 superthread_in_progress_column_id, superthread_in_progress_column_name, superthread_done_column_id, superthread_done_column_name, superthread_mapping_revision,
                 server_command, console_command, delivery_workflow, deployment_command, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
                 releases_enabled, release_config_path, config_revision, superthread_workspace_id, superthread_workspace_name, superthread_space_id, superthread_space_name, superthread_binding_id,
-                EXISTS(SELECT 1 FROM kanban_cards c WHERE c.project_id=projects.id AND c.status!='done' AND (c.status IN ('agent_working','needs_human','approved') OR EXISTS (SELECT 1 FROM card_environments e WHERE e.card_id=c.id))), color_id, enable_mcp
+                EXISTS(SELECT 1 FROM kanban_cards c WHERE c.project_id=projects.id AND c.status!='done' AND (c.status IN ('agent_working','needs_human','approved') OR EXISTS (SELECT 1 FROM card_environments e WHERE e.card_id=c.id))), color_id, enable_mcp, mcp_env_names
          FROM projects ORDER BY sort_order, rowid"
     ).map_err(db_error)?;
     let projects = project_statement
@@ -1304,6 +1331,7 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
                 path: row.get(2)?,
                 color_id: Some(normalized_project_color(row.get::<_, Option<String>>(37)?.as_deref()).into()),
                 enable_mcp: row.get::<_, i64>(38)? != 0,
+                mcp_env_names: row.get(39)?,
                 deployment_command: row.get(22)?,
                 delivery_workflow_locked: row.get::<_, i64>(36)? != 0,
                 notes: row.get(3)?,
@@ -1411,9 +1439,9 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
     // Notes have a focused compare-and-swap writer. Snapshot them before the broad
     // replacement so an unrelated settings save cannot become an alternate writer.
     let persisted_config = connection
-        .prepare("SELECT id, enable_mcp, config_revision FROM projects")
+        .prepare("SELECT id, enable_mcp, config_revision, mcp_env_names FROM projects")
         .map_err(db_error)?
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, (row.get::<_, i64>(1)? != 0, row.get::<_, i64>(2)?))))
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, (row.get::<_, i64>(1)? != 0, row.get::<_, i64>(2)?, row.get::<_, String>(3)?))))
         .map_err(db_error)?
         .collect::<Result<std::collections::HashMap<_, _>, _>>()
         .map_err(db_error)?;
@@ -1517,18 +1545,18 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
                  delivery_workflow, deployment_command, target_branch, supports_feature_environments, github_merge_strategy, require_passing_ci, require_approval,
                  releases_enabled, release_config_path, config_revision, superthread_board_id, superthread_board_name, superthread_incoming_columns,
                  superthread_default_incoming_column_id, superthread_in_progress_column_id, superthread_in_progress_column_name,
-                 superthread_done_column_id, superthread_done_column_name, superthread_mapping_revision, superthread_api_token_env_var, color_id, enable_mcp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?33, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?34, ?35)",
+                 superthread_done_column_id, superthread_done_column_name, superthread_mapping_revision, superthread_api_token_env_var, color_id, enable_mcp, mcp_env_names)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?33, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?34, ?35, ?36)",
             params![project.id, project.name, project.path, notes, notes_revision, project.collapsed as i64,
                 project.kanban_source, project.start_work_command, project.superthread_spaces, project.superthread_workspace_slug,
                 project.server_command, project.console_command, project_index as i64,
                 normalize_delivery_workflow(&project.delivery_workflow), target_branch, project.supports_feature_environments as i64,
                 normalize_merge_strategy(&project.github_merge_strategy), project.require_passing_ci as i64, project.require_approval as i64,
-                project.releases_enabled as i64, if project.release_config_path.trim().is_empty() { default_release_config_path() } else { project.release_config_path.clone() }, persisted_config.get(&project.id).map(|(_, revision)| *revision).unwrap_or(project.config_revision),
+                project.releases_enabled as i64, if project.release_config_path.trim().is_empty() { default_release_config_path() } else { project.release_config_path.clone() }, persisted_config.get(&project.id).map(|(_, revision, _)| *revision).unwrap_or(project.config_revision),
                 project.superthread_board_id, project.superthread_board_name, serde_json::to_string(&project.superthread_incoming_columns).map_err(|e| e.to_string())?,
                 project.superthread_default_incoming_column_id, project.superthread_in_progress_column_id, project.superthread_in_progress_column_name,
                 project.superthread_done_column_id, project.superthread_done_column_name, project.superthread_mapping_revision,
-                project.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN"), project.deployment_command, normalized_project_color(project.color_id.as_deref()), persisted_config.get(&project.id).map(|(enabled, _)| *enabled).unwrap_or(project.enable_mcp) as i64],
+                project.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN"), project.deployment_command, normalized_project_color(project.color_id.as_deref()), persisted_config.get(&project.id).map(|(enabled, _, _)| *enabled).unwrap_or(project.enable_mcp) as i64, persisted_config.get(&project.id).map(|(_, _, names)| names.as_str()).unwrap_or(&project.mcp_env_names)],
         ).map_err(db_error)?;
         for (workspace_index, workspace) in project.workspaces.iter().enumerate() {
             transaction.execute(
@@ -1646,6 +1674,7 @@ mod tests {
                 release_config_path: default_release_config_path(),
                 config_revision: 0,
                 enable_mcp: false,
+                mcp_env_names: String::new(),
             }],
         }
     }
@@ -1695,22 +1724,35 @@ mod tests {
         assert!(!pi_project_scope_from_connection(&connection, "p1").unwrap().enable_mcp);
         let mut input = project_configuration(&read_store(&connection).unwrap().projects[0]);
         input.enable_mcp = true;
+        input.mcp_env_names = normalize_mcp_env_names(" DD_ACCESS_TOKEN, OTHER, DD_ACCESS_TOKEN ").unwrap();
         let changes = project_configuration_changes(&sample_input(), &input);
         assert!(changes.ordinary && !changes.requires_provider_guard() && !changes.schedules_provider_work());
         assert!(update_project_configuration_row(&connection, &input, "local").unwrap());
         assert!(!update_project_configuration_row(&connection, &input, "local").unwrap());
         assert!(pi_project_scope_from_connection(&connection, "p1").unwrap().enable_mcp);
+        assert_eq!(pi_project_scope_from_connection(&connection, "p1").unwrap().mcp_env_names, "DD_ACCESS_TOKEN, OTHER");
         let saved = read_store(&connection).unwrap();
         assert_eq!(saved.projects[0].config_revision, 1);
         assert!(serde_json::from_str::<ProjectStore>(&serde_json::to_string(&saved).unwrap()).unwrap().projects[0].enable_mcp);
         write_store(&mut connection, &sample_store()).unwrap(); // stale broad workspace save cannot revert it
         assert!(pi_project_scope_from_connection(&connection, "p1").unwrap().enable_mcp);
         assert_eq!(read_store(&connection).unwrap().projects[0].config_revision, 1);
+        assert_eq!(read_store(&connection).unwrap().projects[0].mcp_env_names, "DD_ACCESS_TOKEN, OTHER");
         // Legacy JSON and old SQLite rows both default to off.
         assert!(!serde_json::from_str::<ProjectStore>(r#"{"projects":[{"id":"old","name":"Old","path":"/old"}]}"#).unwrap().projects[0].enable_mcp);
         connection.execute("UPDATE projects SET enable_mcp=0 WHERE id='p1'", []).unwrap();
         migrate_store_schema(&connection).unwrap();
         assert!(!read_store(&connection).unwrap().projects[0].enable_mcp);
+    }
+
+    #[test]
+    fn mcp_names_are_bounded_and_never_accept_values_or_reserved_names() {
+        assert_eq!(normalize_mcp_env_names(" A, B, A, _C ").unwrap(), "A, B, _C");
+        for value in ["A,,B", "A,", "A=secret", "1TOKEN", "${TOKEN}", "ST_TOKEN", "PATH", "STACKS_CARD_ID", "A; echo x"] {
+            assert!(normalize_mcp_env_names(value).is_err(), "{value}");
+        }
+        assert!(normalize_mcp_env_names(&"X".repeat(65)).is_err());
+        assert!(normalize_mcp_env_names(&(0..17).map(|i| format!("T{i}")).collect::<Vec<_>>().join(",")).is_err());
     }
 
     #[test]
@@ -1891,6 +1933,7 @@ mod tests {
             release_config_path: "release.json".into(),
             expected_revision: 0,
             enable_mcp: false,
+            mcp_env_names: String::new(),
         };
 
         assert!(update_project_configuration_row(&connection, &input, "local").unwrap());
@@ -1931,7 +1974,7 @@ mod tests {
             superthread_default_incoming_column_id: Some("63".into()), superthread_in_progress_column_id: Some("38".into()), superthread_in_progress_column_name: Some("Doing".into()),
             superthread_done_column_id: Some("41".into()), superthread_done_column_name: Some("Done".into()), server_command: None, console_command: None,
             delivery_workflow: default_delivery_workflow(), target_branch: default_target_branch(), supports_feature_environments: false, github_merge_strategy: default_merge_strategy(),
-            require_passing_ci: true, require_approval: false, releases_enabled: false, release_config_path: default_release_config_path(), expected_revision: 0, enable_mcp: false,
+            require_passing_ci: true, require_approval: false, releases_enabled: false, release_config_path: default_release_config_path(), expected_revision: 0, enable_mcp: false, mcp_env_names: String::new(),
         };
 
         assert!(!superthread_scope_change_requires_quiescence(&connection, &input, "superthread", "superthread").unwrap());
@@ -2032,6 +2075,7 @@ mod tests {
             release_config_path: default_release_config_path(),
             config_revision: 0,
             enable_mcp: false,
+            mcp_env_names: String::new(),
         });
         write_store(&mut connection, &store).unwrap();
 
@@ -2043,6 +2087,7 @@ mod tests {
                 kanban_source: "local".into(),
                 superthread_token_env_var: None,
                 enable_mcp: false,
+                mcp_env_names: String::new(),
             }
         );
         assert_eq!(
