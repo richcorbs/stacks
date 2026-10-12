@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { handleDialogShortcut } from './dialogShortcut';
 
 export function OneTimeCommandDialog({ open, cwd, onCancel, onRun }: {
   open: boolean;
@@ -23,6 +24,7 @@ export function OneTimeCommandDialog({ open, cwd, onCancel, onRun }: {
         className="modal terminalDialog"
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
+          handleDialogShortcut(event);
           if (event.key !== 'Escape') return;
           event.preventDefault();
           onCancel();

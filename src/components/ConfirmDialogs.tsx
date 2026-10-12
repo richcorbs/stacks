@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { handleDialogShortcut } from './dialogShortcut';
 
 function ConfirmDialog({ title, children, cancelLabel = 'No', confirmLabel = 'Yes', onCancel, onConfirm }: {
   title: string;
@@ -19,8 +20,10 @@ function ConfirmDialog({ title, children, cancelLabel = 'No', confirmLabel = 'Ye
         className="modal confirmModal"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
+          handleDialogShortcut(e, true);
           if (e.key !== 'Escape') return;
           e.preventDefault();
+          e.stopPropagation();
           onCancel();
         }}
         onSubmit={(e) => { e.preventDefault(); onConfirm(); }}

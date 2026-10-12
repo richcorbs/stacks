@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { handleDialogShortcut } from '../dialogShortcut';
 
 export function ServerHandoffDialog({ externalId, busy, onCancel, onConfirm }: {
   externalId: string;
@@ -17,6 +18,7 @@ export function ServerHandoffDialog({ externalId, busy, onCancel, onConfirm }: {
       aria-labelledby="server-handoff-title"
       onMouseDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
+        handleDialogShortcut(event, true);
         if (event.key !== 'Escape' || busy) return;
         event.preventDefault();
         onCancel();

@@ -19,6 +19,7 @@ export function useCardDetailModel({ card, initialView, availability, onUpdate, 
   const [draftContent, setDraftContent] = useState(card.content);
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const revisionTrackerRef = useRef(new CardRevisionTracker({ workflow: card.workflow_revision, environment: card.environment?.revision, layout: card.environment?.layout_revision }));
   const dirty = hasDirtyCardDraft(card, draftTitle, draftContent);
   const editable = canEditKanbanCard(card);
@@ -40,7 +41,8 @@ export function useCardDetailModel({ card, initialView, availability, onUpdate, 
     setDraftTitle(card.title); setDraftContent(card.content); setEditError(null); setEditing(true); return true;
   }, [activeView, card.content, card.title, editable]);
   const save = useCallback(async () => {
-    if (saving) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true); setEditError(null);
     try {
       const updated = await onUpdate(draftTitle, draftContent);
@@ -48,8 +50,8 @@ export function useCardDetailModel({ card, initialView, availability, onUpdate, 
       return updated;
     } catch (error) {
       setEditError(error instanceof Error ? error.message : String(error));
-    } finally { setSaving(false); }
-  }, [draftContent, draftTitle, onUpdate, saving]);
+    } finally { savingRef.current = false; setSaving(false); }
+  }, [draftContent, draftTitle, onUpdate]);
 
   useEffect(() => { revisionTrackerRef.current.observe({ workflow: card.workflow_revision, environment: card.environment?.revision, layout: card.environment?.layout_revision }); }, [card.environment?.layout_revision, card.environment?.revision, card.workflow_revision]);
   useEffect(() => {

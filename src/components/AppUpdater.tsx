@@ -1,4 +1,5 @@
 import { showAppToast } from '../applicationEvents';
+import { handleDialogShortcut } from './dialogShortcut';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -16,6 +17,7 @@ export function AppUpdater() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const checkingRef = useRef(false);
+  const installingRef = useRef(false);
 
   const checkForUpdates = useCallback(async (manual = false) => {
     if (checkingRef.current) return;
@@ -58,7 +60,8 @@ export function AppUpdater() {
   }, [checkForUpdates]);
 
   async function installUpdate() {
-    if (!update) return;
+    if (!update || installingRef.current) return;
+    installingRef.current = true;
     setStatus('downloading');
     setError(null);
     let downloaded = 0;
@@ -75,6 +78,8 @@ export function AppUpdater() {
     } catch (installError) {
       setStatus('error');
       setError(errorMessage(installError));
+    } finally {
+      installingRef.current = false;
     }
   }
 
@@ -88,7 +93,7 @@ export function AppUpdater() {
   const releaseUrl = update ? `${RELEASES_URL}/tag/v${update.version}` : RELEASES_URL;
 
   return <div className="modalBackdrop" onMouseDown={status === 'downloading' ? undefined : closeDialog}>
-    <section className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+    <section className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={handleDialogShortcut}>
       <h2 id="update-dialog-title">{status === 'error' ? 'Update check failed' : `Stacks ${update?.version} is available`}</h2>
       {status === 'available' && <>
         <p>You currently have version {update?.currentVersion}.</p>

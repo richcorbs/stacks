@@ -138,6 +138,20 @@ describe('NewCardDialog', () => {
     expect(model.submit).toHaveBeenCalledWith('queued');
   });
 
+  it('routes Cmd-Enter from the description to Add & refine, not Add card', () => {
+    const model = dialogModel({ projectId: 'alpha', title: 'Next card' });
+    const renderer = renderModel(model);
+    const form = renderer.root.findByType('form');
+    const queued = vi.fn();
+    const primary = { disabled: false, closest: () => root, getClientRects: () => [1], click: () => form.props.onSubmit({ preventDefault: vi.fn() }) };
+    const root = { querySelectorAll: () => [primary, { disabled: false, closest: () => root, getClientRects: () => [1], click: queued }] };
+    const event = { key: 'Enter', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, currentTarget: root, target: { closest: () => ({}) }, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    act(() => form.props.onKeyDown(event));
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(model.submit).toHaveBeenCalledWith('refining');
+    expect(queued).not.toHaveBeenCalled();
+  });
+
   it('dismisses Escape from each dialog control without submitting or changing the draft', () => {
     const model = dialogModel({ projectId: 'alpha', title: 'Draft', description: 'Details' });
     const renderer = renderModel(model);

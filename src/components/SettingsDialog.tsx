@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
+import { handleDialogShortcut } from './dialogShortcut';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { DialogState, Project } from '../types';
 import type { ResolvedAppSettings } from '../settingsModel';
@@ -82,6 +83,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
   const [projectBaseline, setProjectBaseline] = useState<DialogState | null>(null);
   const [projectRevision, setProjectRevision] = useState(0);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [pending, setPending] = useState<{ type: 'page'; page: SettingsPageId } | { type: 'close' } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -150,7 +152,8 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
   }
 
   async function save(): Promise<boolean> {
-    if (saving) return false;
+    if (savingRef.current) return false;
+    savingRef.current = true;
     setSaving(true);
     setPageError(null);
     try {
@@ -172,6 +175,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
       setPageError(error instanceof Error ? error.message : String(error));
       return false;
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -190,7 +194,8 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
   }
 
   async function confirmDelete() {
-    if (!project || saving) return;
+    if (!project || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setPageError(null);
     try {
@@ -204,6 +209,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
       setDeleteConfirm(false);
       setPageError(error instanceof Error ? error.message : String(error));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -216,6 +222,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
   return (
     <div className="modalBackdrop" onMouseDown={requestClose}>
       <div className="modal settingsModal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => {
+        handleDialogShortcut(event);
         if (event.key === 'Escape') { event.preventDefault(); if (pending) cancelPending(); else if (deleteConfirm) setDeleteConfirm(false); else requestClose(); }
       }}>
         <header className="settingsHeader"><h2 id="settings-title">Settings</h2><button type="button" aria-label="Close Settings" onClick={requestClose}>×</button></header>
@@ -255,13 +262,13 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
           </main>
         </div>
         {pending && <div className="settingsPromptBackdrop" onMouseDown={(event) => event.stopPropagation()}>
-          <div className="settingsPrompt" data-project-color={project && projectPageDraft ? projectColor(projectPageDraft.colorId) : undefined} role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title">
+          <div className="settingsPrompt" data-project-color={project && projectPageDraft ? projectColor(projectPageDraft.colorId) : undefined} role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title" onKeyDown={(event) => handleDialogShortcut(event, true)}>
             <h3 id="unsaved-title">Save changes?</h3><p>This page has unsaved changes.</p>
             {pageError && <div className="dialogSubmitError" role="alert">{pageError}</div>}
             <div className="modalActions"><button type="button" disabled={saving} onClick={cancelPending}>Cancel</button><button type="button" disabled={saving} onClick={finishPending}>Discard</button><button type="button" className="primaryAction" disabled={saving} autoFocus onClick={async () => { if (await save()) finishPending(); }}>Save</button></div>
           </div>
         </div>}
-        {deleteConfirm && <div className="settingsPromptBackdrop" onMouseDown={() => setDeleteConfirm(false)}><form className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void confirmDelete(); }}><h3 id="delete-project-title">Delete project?</h3><p>This will remove “{project?.name}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p><div className="modalActions"><button type="button" disabled={saving} onClick={() => setDeleteConfirm(false)}>Cancel</button><button type="submit" className="dangerAction" disabled={saving} autoFocus>Delete</button></div></form></div>}
+        {deleteConfirm && <div className="settingsPromptBackdrop" onMouseDown={() => setDeleteConfirm(false)}><form className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => handleDialogShortcut(event, true)} onSubmit={(event) => { event.preventDefault(); void confirmDelete(); }}><h3 id="delete-project-title">Delete project?</h3><p>This will remove “{project?.name}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p><div className="modalActions"><button type="button" disabled={saving} onClick={() => setDeleteConfirm(false)}>Cancel</button><button type="submit" className="dangerAction" data-dialog-primary disabled={saving} autoFocus>Delete</button></div></form></div>}
       </div>
     </div>
   );

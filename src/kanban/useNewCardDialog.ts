@@ -28,6 +28,7 @@ export function useNewCardDialog({
   const [addMore, setAddMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const clipboardOperationRef = useRef(new WeakMap<HTMLInputElement | HTMLTextAreaElement, number>());
 
@@ -65,7 +66,8 @@ export function useNewCardDialog({
 
   async function submit(destinationKind: 'queued' | 'refining') {
     const destination = creationProjects.find((project) => project.id === projectId);
-    if (creating || !destination || !title.trim()) return;
+    if (creatingRef.current || !destination || !title.trim()) return;
+    creatingRef.current = true;
     setCreating(true);
     setError(null);
     try {
@@ -83,6 +85,7 @@ export function useNewCardDialog({
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   }
