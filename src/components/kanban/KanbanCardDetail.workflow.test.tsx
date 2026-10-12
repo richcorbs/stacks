@@ -2,6 +2,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KanbanCardDetail } from './KanbanCardDetail';
 import { CardDetailTabs } from './CardDetailChrome';
+import { WorkflowShortcutConfirmDialog } from './WorkflowShortcutConfirmDialog';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
@@ -47,6 +48,10 @@ describe('card workflow shortcut', () => {
     expect(key(false).preventDefault).not.toHaveBeenCalled();
     expect(key(false, true).preventDefault).not.toHaveBeenCalled();
     await act(async () => { expect(key().preventDefault).toHaveBeenCalledOnce(); await Promise.resolve(); });
+    expect(onStartWork).not.toHaveBeenCalled();
+    const prompt = renderer.root.findByType(WorkflowShortcutConfirmDialog);
+    expect(prompt.props.label).toBe('Start work');
+    await act(async () => { prompt.props.onConfirm(); await Promise.resolve(); });
     expect(onStartWork).toHaveBeenCalledOnce();
     act(() => renderer.unmount());
   });
@@ -77,8 +82,36 @@ describe('card workflow shortcut', () => {
     expect(key().preventDefault).not.toHaveBeenCalled();
     modalOpen = false;
     act(() => { key(); key(); });
+    expect(onStartWork).not.toHaveBeenCalled();
+    const prompt = renderer.root.findByType(WorkflowShortcutConfirmDialog);
+    await act(async () => { prompt.props.onConfirm(); prompt.props.onConfirm(); await Promise.resolve(); });
     expect(onStartWork).toHaveBeenCalledOnce();
     await act(async () => { finish(false); await Promise.resolve(); });
+    act(() => renderer.unmount());
+  });
+
+  it('cancels the shortcut prompt without executing, then leaves the click path direct', async () => {
+    const { renderer, onStartWork } = await mount();
+    act(() => { key(); });
+    act(() => renderer.root.findByType(WorkflowShortcutConfirmDialog).props.onCancel());
+    expect(onStartWork).not.toHaveBeenCalled();
+    const button = renderer.root.findAllByType('button').find((item) => item.props['aria-label'] === 'Start work')!;
+    await act(async () => { button.props.onClick(); await Promise.resolve(); });
+    expect(onStartWork).toHaveBeenCalledOnce();
+    act(() => renderer.unmount());
+  });
+
+  it('Escape dismisses the confirmation, and a later shortcut can confirm', async () => {
+    const { renderer, onStartWork } = await mount();
+    act(() => { key(); });
+    const prompt = renderer.root.findByType(WorkflowShortcutConfirmDialog);
+    const form = prompt.findByType('form');
+    act(() => form.props.onKeyDown({ key: 'Escape', preventDefault: vi.fn(), stopPropagation: vi.fn() }));
+    expect(onStartWork).not.toHaveBeenCalled();
+    act(() => { key(); });
+    const stalePrompt = renderer.root.findByType(WorkflowShortcutConfirmDialog);
+    await act(async () => { stalePrompt.props.onConfirm(); await Promise.resolve(); });
+    expect(onStartWork).toHaveBeenCalledOnce();
     act(() => renderer.unmount());
   });
 
@@ -101,6 +134,13 @@ describe('card workflow shortcut', () => {
     expect(window.confirm).toHaveBeenCalledOnce();
     await act(async () => { key(); await Promise.resolve(); });
     expect(window.confirm).toHaveBeenCalledTimes(2);
+    act(() => renderer.unmount());
+  });
+
+  it('keeps cleanup on its existing preflight path without a generic confirmation', async () => {
+    const { renderer } = await mount({ capabilities: [{ action: 'cleanup', available: true }] });
+    await act(async () => { key(); await Promise.resolve(); });
+    expect(renderer.root.findAllByType(WorkflowShortcutConfirmDialog)).toHaveLength(0);
     act(() => renderer.unmount());
   });
 

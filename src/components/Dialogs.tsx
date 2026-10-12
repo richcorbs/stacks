@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DialogState } from '../types';
 import { DialogFields, dialogSubmitLabel } from './DialogFields';
 import { projectColor } from '../projectColor';
+import { handleDialogShortcut } from './dialogShortcut';
 
 export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
   dialog: DialogState;
@@ -11,12 +12,13 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
 }) {
   const firstInputRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   useEffect(() => { requestAnimationFrame(() => firstInputRef.current?.focus()); }, [dialog.kind]);
   return <div className="modalBackdrop" onMouseDown={() => { if (!submitting) onCancel(); }}>
-    <form className="modal projectDialog" data-project-color={projectColor(dialog.colorId)} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === 'Escape' && !submitting) { event.preventDefault(); onCancel(); } }} onSubmit={async (event) => {
-      event.preventDefault(); if (submitting) return; setSubmitting(true); setSubmitError(null);
-      try { await onSubmit(); } catch (error) { setSubmitError(error instanceof Error ? error.message : String(error)); } finally { setSubmitting(false); }
+    <form className="modal projectDialog" data-project-color={projectColor(dialog.colorId)} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { handleDialogShortcut(event); if (event.key === 'Escape' && !submitting) { event.preventDefault(); onCancel(); } }} onSubmit={async (event) => {
+      event.preventDefault(); if (submittingRef.current) return; submittingRef.current = true; setSubmitting(true); setSubmitError(null);
+      try { await onSubmit(); } catch (error) { setSubmitError(error instanceof Error ? error.message : String(error)); } finally { submittingRef.current = false; setSubmitting(false); }
     }}>
       <fieldset className="dialogFields" disabled={submitting}><DialogFields dialog={dialog} setDialog={setDialog} firstInputRef={firstInputRef} /></fieldset>
       {submitError && <div className="dialogSubmitError">{submitError}</div>}

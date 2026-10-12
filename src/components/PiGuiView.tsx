@@ -15,6 +15,7 @@ import { listenForPiPrompt } from '../pi/promptEvent';
 import { canSendPiQuickResponse, sendPiQuickResponse, type PiQuickResponse } from '../pi/quickResponse';
 import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
+import { handleDialogShortcut } from './dialogShortcut';
 import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
@@ -864,7 +865,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       )}
 
       {modalUiRequest && (
-        <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={modalUiRequest.title}>
+        <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={modalUiRequest.title} onKeyDown={handleDialogShortcut}>
           <div className="piExtensionDialog">
             <strong>{modalUiRequest.title}</strong>
             {modalUiRequest.message && <p>{modalUiRequest.message}</p>}
@@ -873,7 +874,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               : <input autoFocus value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />}
             <div className="piExtensionActions">
               <button type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { cancelled: true }).catch(() => {})}>Cancel</button>
-              <button className="primary" type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { value: extensionInput }).catch(() => {})}>Submit</button>
+              <button className="primary" data-dialog-primary type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { value: extensionInput }).catch(() => {})}>Submit</button>
             </div>
           </div>
         </div>

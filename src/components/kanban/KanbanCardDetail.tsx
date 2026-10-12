@@ -18,6 +18,7 @@ import { runWritePlanAndFinishRefinement } from '../../kanban/writePlanAndFinish
 import { GENERATE_PR_METADATA_PROMPT } from '../../kanban/pullRequestMetadata';
 import { sendPromptToPiAndWait } from '../../pi/promptEvent';
 import { ConfirmCloseTerminalDialog } from '../ConfirmDialogs';
+import { WorkflowShortcutConfirmDialog } from './WorkflowShortcutConfirmDialog';
 import { disposeTerminalSession } from '../../terminalSessionManager';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardWorkflowControls } from '../CardWorkflowControls';
@@ -82,6 +83,17 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   onWorkflowControllerChange?: (controller: CardDetailWorkflowController | null) => void;
 }) {
   const [cleanupInventory, setCleanupInventory] = useState<CleanupInventory | null>(null);
+  const [shortcutConfirmation, setShortcutConfirmation] = useState<{ cardId: string; action: CardWorkflowAction; workflowRevision: number; environmentRevision: number; recordRevision: number } | null>(null);
+  const shortcutConfirmingRef = useRef(false);
+  const shortcutTriggerRef = useRef<HTMLElement | null>(null);
+  const dismissShortcutConfirmation = () => {
+    setShortcutConfirmation(null);
+    requestAnimationFrame(() => {
+      const trigger = shortcutTriggerRef.current;
+      if (trigger?.isConnected && trigger.closest('.kanbanDetailBackdrop')) trigger.focus();
+      else document.querySelector<HTMLElement>('.kanbanDetailBackdrop .cardWorkflowFooter .primaryAction')?.focus();
+    });
+  };
   const projectId = card.project_id ?? '';
   const project = projects.find((candidate) => candidate.id === projectId);
   const cardPath = card.environment?.worktree_path ?? null;
@@ -190,7 +202,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
 
   useEffect(() => {
     const handleDetailKeyboard = (event: KeyboardEvent) => {
-      if (pendingCloseShellPane || cleanupInventory || document.querySelector('.confirmModal, [role="dialog"][aria-modal="true"]')) return;
+      if (pendingCloseShellPane || cleanupInventory || shortcutConfirmation || document.querySelector('.modalBackdrop:not(.kanbanDetailBackdrop), .settingsPrompt, [role="dialog"][aria-modal="true"]')) return;
       if (editing && event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -200,7 +212,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
       if (editing && event.key === 'Enter' && event.metaKey) {
         event.preventDefault();
         event.stopPropagation();
-        saveEdit().catch(console.error);
+        if (!savingEdit) saveEdit().catch(console.error);
         return;
       }
       if (!editing && actionRowVisible && primaryAction && event.key === 'Enter' && event.metaKey
@@ -208,7 +220,11 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
         && !actionPendingRef.current && !cancellationPendingRef.current) {
         event.preventDefault();
         event.stopPropagation();
-        void performWorkflowActionRef.current(primaryAction);
+        if (primaryAction.confirmation || primaryAction.kind === 'cleanup') void performWorkflowActionRef.current(primaryAction);
+        else {
+          shortcutTriggerRef.current = document.activeElement as HTMLElement | null;
+          setShortcutConfirmation({ cardId: card.id, action: primaryAction, workflowRevision: card.workflow_revision, environmentRevision: card.environment?.revision ?? 0, recordRevision: card.record_revision });
+        }
         return;
       }
       if (event.key === 'Escape') {
@@ -232,7 +248,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
     };
     window.addEventListener('keydown', handleDetailKeyboard, true);
     return () => window.removeEventListener('keydown', handleDetailKeyboard, true);
-  }, [activeView, actionRowVisible, primaryAction, working, cleanupInventory, editable, editing, pendingCloseShellPane, savingEdit, detail.begin, detail.cancel, detail.save, detail.mayLeave]);
+  }, [activeView, actionRowVisible, primaryAction, working, cleanupInventory, shortcutConfirmation, editable, editing, pendingCloseShellPane, savingEdit, detail.begin, detail.cancel, detail.save, detail.mayLeave]);
 
   useEffect(() => {
     const handleTabShortcut = (shortcut: { number?: number; direction?: -1 | 1 }) => {
@@ -453,6 +469,21 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
         </footer>}
       </article>
     </div>
+    {shortcutConfirmation && <WorkflowShortcutConfirmDialog label={shortcutConfirmation.action.label} onCancel={dismissShortcutConfirmation} onConfirm={() => {
+      if (shortcutConfirmingRef.current) return;
+      const current = workflowActionsRef.current.find((action) => action.primary);
+      if (card.id !== shortcutConfirmation.cardId || card.workflow_revision !== shortcutConfirmation.workflowRevision
+        || (card.environment?.revision ?? 0) !== shortcutConfirmation.environmentRevision || card.record_revision !== shortcutConfirmation.recordRevision
+        || !actionRowVisible || editing || !current || current.kind !== shortcutConfirmation.action.kind
+        || current.label !== shortcutConfirmation.action.label || current.confirmation || current.disabledReason || working
+        || workflow.isRunning() || actionPendingRef.current || cancellationPendingRef.current) {
+        dismissShortcutConfirmation();
+        return;
+      }
+      shortcutConfirmingRef.current = true;
+      setShortcutConfirmation(null);
+      void performWorkflowActionRef.current(current).finally(() => { shortcutConfirmingRef.current = false; });
+    }} />}
     {cleanupInventory && <CleanupPreflightDialog inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={async ([entry]) => {
       if (!entry) return;
       await onCleanup(entry);
