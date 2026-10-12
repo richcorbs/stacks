@@ -83,12 +83,12 @@ export function DiffTab({ activePath, comparisonTarget, refreshNonce, review }: 
     {displayError && <div className="superthreadState superthreadError">{displayError}</div>}
     {!loading && !displayError && files.length === 0 && <div className="superthreadState">No changed files.</div>}
     {!displayError && <div className="diffTree" role="tree" aria-label="Changed files">
-      {tree.map((node) => <TreeNode key={node.path} node={node} depth={0} collapsed={collapsed} setCollapsed={setCollapsed} loadingFile={loadingFile} selectedFile={review.openDiff?.path ?? null} reviewedFiles={review.reviewedFiles} commentCounts={commentCounts} onOpenFile={openFile} />)}
+      {tree.map((node) => <TreeNode key={node.path} node={node} depth={0} collapsed={collapsed} setCollapsed={setCollapsed} loadingFile={loadingFile} selectedFile={review.openDiff?.path ?? null} reviewedFiles={review.reviewedFiles} commentCounts={commentCounts} onOpenFile={openFile} onToggleReviewed={review.toggleReviewed} />)}
     </div>}
   </>;
 }
 
-function TreeNode({ node, depth, collapsed, setCollapsed, loadingFile, selectedFile, reviewedFiles, commentCounts, onOpenFile }: {
+function TreeNode({ node, depth, collapsed, setCollapsed, loadingFile, selectedFile, reviewedFiles, commentCounts, onOpenFile, onToggleReviewed }: {
   node: DiffTreeNode;
   depth: number;
   collapsed: Set<string>;
@@ -98,6 +98,7 @@ function TreeNode({ node, depth, collapsed, setCollapsed, loadingFile, selectedF
   reviewedFiles: Set<string>;
   commentCounts: Map<string, number>;
   onOpenFile: (path: string) => void;
+  onToggleReviewed: (path: string) => void;
 }) {
   if (node.type === 'folder') {
     const isCollapsed = collapsed.has(node.path);
@@ -110,21 +111,24 @@ function TreeNode({ node, depth, collapsed, setCollapsed, loadingFile, selectedF
         <span className={`superthreadDisclosure${isCollapsed ? '' : ' expanded'}`} />
         <span className="diffTreeName">{node.name}</span>
       </button>
-      {!isCollapsed && <div role="group">{node.children.map((child) => <TreeNode key={child.path} node={child} depth={depth + 1} collapsed={collapsed} setCollapsed={setCollapsed} loadingFile={loadingFile} selectedFile={selectedFile} reviewedFiles={reviewedFiles} commentCounts={commentCounts} onOpenFile={onOpenFile} />)}</div>}
+      {!isCollapsed && <div role="group">{node.children.map((child) => <TreeNode key={child.path} node={child} depth={depth + 1} collapsed={collapsed} setCollapsed={setCollapsed} loadingFile={loadingFile} selectedFile={selectedFile} reviewedFiles={reviewedFiles} commentCounts={commentCounts} onOpenFile={onOpenFile} onToggleReviewed={onToggleReviewed} />)}</div>}
     </div>;
   }
-  return <button
-    className={`diffTreeRow diffFileRow${selectedFile === node.path ? ' selected' : ''}${reviewedFiles.has(node.path) ? ' reviewed' : ''}`}
+  const reviewed = reviewedFiles.has(node.path);
+  return <div
+    className={`diffTreeRow diffFileRow${selectedFile === node.path ? ' selected' : ''}${reviewed ? ' reviewed' : ''}`}
     style={{ paddingLeft: 29 + depth * 14 }}
-    type="button"
     role="treeitem"
+    aria-label={node.path}
     aria-selected={selectedFile === node.path}
-    disabled={loadingFile !== null}
-    onClick={() => void onOpenFile(node.path)}
   >
-    <span className="diffTreeName">{node.name}</span>
-    {Boolean(commentCounts.get(node.path)) && <span className="diffCommentCount">{commentCounts.get(node.path)}</span>}
-    {reviewedFiles.has(node.path) && <span className="diffReviewedMark" title="Reviewed">●</span>}
-    <span className={`diffFileStatus status${node.status}`}>{loadingFile === node.path ? '…' : node.status}</span>
-  </button>;
+    <button className="diffFileOpen" type="button" disabled={loadingFile !== null} onClick={() => void onOpenFile(node.path)} aria-label={`Open ${node.path}`}>
+      <span className="diffTreeName">{node.name}</span>
+      {Boolean(commentCounts.get(node.path)) && <span className="diffCommentCount">{commentCounts.get(node.path)}</span>}
+      <span className={`diffFileStatus status${node.status}`}>{loadingFile === node.path ? '…' : node.status}</span>
+    </button>
+    <button className="diffReviewDot" type="button" aria-label={`${reviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${node.path}`} aria-pressed={reviewed} onClick={() => onToggleReviewed(node.path)}>
+      <span aria-hidden="true" className="diffReviewedMark">●</span>
+    </button>
+  </div>;
 }

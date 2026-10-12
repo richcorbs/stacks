@@ -927,14 +927,40 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 }
 .diffTreeRow:hover { background: #1a2735; color: #d3dce7; }
 .diffFileRow.selected, .diffFileRow.selected:hover { background: #253e56; color: #eef5fc; }
-.diffFileRow.selected:focus-visible { outline: 2px solid #9bc9ed; outline-offset: -2px; }
+.diffFileOpen:focus-visible { outline: 2px solid #9bc9ed; outline-offset: -2px; }
 .diffFileRow.selected.reviewed .diffTreeName { color: #eef5fc; }
 .diffTreeRow:disabled { cursor: wait; opacity: .65; }
 .diffFolderRow { color: #a0afbf; }
 .diffTreeName { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--ui-font-delta, 0px)); text-transform: none; }
 .diffFileStatus { flex: 0 0 18px; font: calc(10px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 .diffCommentCount { min-width: 17px; padding: 1px 4px; border-radius: 8px; background: #26394c; color: #91abc4; font: calc(9px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
-.diffReviewedMark { color: #55b478; font-size: calc(9px + var(--ui-font-delta, 0px)); }
+.diffFileOpen {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  text-align: left;
+  cursor: pointer;
+}
+.diffFileOpen:disabled { cursor: wait; opacity: .65; }
+.diffReviewDot {
+  flex: 0 0 22px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.diffReviewDot:focus-visible { outline: 2px solid #9bc9ed; outline-offset: -2px; border-radius: 3px; }
+.diffReviewedMark { color: #55b478; font-size: calc(9px + var(--ui-font-delta, 0px)); opacity: 0; }
+.diffFileRow:hover .diffReviewedMark, .diffFileRow:focus-within .diffReviewedMark { opacity: .45; }
+.diffFileRow.reviewed .diffReviewedMark { opacity: 1; }
 .diffFileRow.reviewed .diffTreeName { color: #b5c4d2; }
 .diffFileStatus.statusA { color: #72bb88; }
 .diffFileStatus.statusM, .diffFileStatus.statusR { color: #d2ac6f; }
