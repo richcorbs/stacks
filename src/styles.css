@@ -917,7 +917,6 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   min-width: 0;
   height: 29px;
   border: 0;
-  border-radius: 5px;
   background: transparent;
   color: #899bad;
   display: flex;
@@ -927,7 +926,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   cursor: pointer;
 }
 .diffTreeRow:hover { background: #1a2735; color: #d3dce7; }
-.diffFileRow.selected, .diffFileRow.selected:hover { background: #253e56; color: #eef5fc; box-shadow: inset 3px 0 #6aa9d9; }
+.diffFileRow.selected, .diffFileRow.selected:hover { background: #253e56; color: #eef5fc; }
 .diffFileRow.selected:focus-visible { outline: 2px solid #9bc9ed; outline-offset: -2px; }
 .diffFileRow.selected.reviewed .diffTreeName { color: #eef5fc; }
 .diffTreeRow:disabled { cursor: wait; opacity: .65; }
