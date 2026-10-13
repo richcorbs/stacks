@@ -911,7 +911,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .diffBranch + .diffSourceLabel::before { content: '•'; margin-right: 7px; color: #455466; }
 .diffGitStats { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .diffFileCount { margin-left: auto; color: #64778b; }
-.diffTree { padding: 4px 1px 0; }
+.diffTree { padding: 4px 0 0; }
 .diffTreeRow {
   width: 100%;
   min-width: 0;
@@ -925,8 +925,10 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   text-align: left;
   cursor: pointer;
 }
-.diffTreeRow:hover { background: #1a2735; color: #d3dce7; }
+.diffTreeRow:hover, .diffTree .diffFolderRow:hover:not(:disabled) { background: #1a2735; color: #d3dce7; }
 .diffFileRow.selected, .diffFileRow.selected:hover { background: #253e56; color: #eef5fc; }
+/* Only the outer row paints hover/selection; its controls stay transparent. */
+.diffTree .diffFileRow > button:hover:not(:disabled) { background: transparent; }
 .diffFileOpen:focus-visible { outline: 2px solid #9bc9ed; outline-offset: -2px; }
 .diffFileRow.selected.reviewed .diffTreeName { color: #eef5fc; }
 .diffTreeRow:disabled { cursor: wait; opacity: .65; }
