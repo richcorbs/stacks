@@ -244,7 +244,9 @@ pub fn run() {
             cancel_workspace_setup,
         ])
         .setup(|app| {
+            fs_paths::verify_production_data_copy().map_err(std::io::Error::other)?;
             kanban::initialize_database().map_err(std::io::Error::other)?;
+            fs_paths::mark_production_data_copy_verified().map_err(std::io::Error::other)?;
             kanban::set_app_handle(app.handle().clone());
             let provider = app.state::<SuperthreadService>().inner().clone();
             tauri::async_runtime::spawn_blocking(move || {

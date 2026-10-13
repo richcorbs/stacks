@@ -63,7 +63,7 @@ pub fn seed_development_data(production: &Path, development: &Path) -> Result<()
         .parent()
         .ok_or_else(|| "Development data directory has no parent".to_string())?;
     fs::create_dir_all(parent).map_err(io_error("Could not create the app-data parent"))?;
-    let staged = parent.join(format!(".stacks-tauri-dev-seed-{}", Uuid::new_v4()));
+    let staged = parent.join(format!(".stacks-dev-seed-{}", Uuid::new_v4()));
     fs::create_dir(&staged).map_err(io_error("Could not create the seed staging directory"))?;
 
     let result = (|| {

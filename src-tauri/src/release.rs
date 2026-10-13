@@ -13,7 +13,10 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, State};
 
-use crate::{fs_paths::app_data_dir, kanban, repository_coordinator};
+use crate::{
+    fs_paths::{app_data_dir, current_app_profile, AppProfile},
+    kanban, repository_coordinator,
+};
 
 const MAX_LOG_BYTES: usize = 2 * 1024 * 1024;
 const TRUNCATION_MARKER: &str = "\n[Stacks: earlier release output truncated]\n";
@@ -2322,12 +2325,36 @@ fn decode_operation(json: &str) -> Result<ReleaseOperation, String> {
         serde_json::from_str(json).map_err(|error| error.to_string())?;
     for stage in &mut operation.stages {
         if let Some(path) = stage.log_path.as_deref() {
-            let (log, truncated) = read_log(Path::new(path));
+            // Historical operations stored absolute paths to the old Application Support
+            // directory. Read the copied logs from the new directory, not the live old one.
+            let path = if current_app_profile() == AppProfile::Production {
+                let data_dir = app_data_dir()?;
+                relocated_release_log_path(Path::new(path), &data_dir)
+            } else {
+                PathBuf::from(path)
+            };
+            let (log, truncated) = read_log(&path);
+            stage.log_path = Some(path.to_string_lossy().into_owned());
             stage.log = log;
             stage.truncated = truncated;
         }
     }
     Ok(operation)
+}
+
+fn relocated_release_log_path(path: &Path, data_dir: &Path) -> PathBuf {
+    let Some(base) = data_dir.parent() else {
+        return path.to_path_buf();
+    };
+    let Ok(file) = path.strip_prefix(base.join("stacks-tauri").join("releases")) else {
+        return path.to_path_buf();
+    };
+    // Only remap files directly inside the old release-log directory.
+    if file.components().count() == 1 && file.extension().is_some_and(|ext| ext == "log") {
+        data_dir.join("releases").join(file)
+    } else {
+        path.to_path_buf()
+    }
 }
 fn ensure_no_active_release(identity: &str) -> Result<(), String> {
     kanban::with_read_connection(|connection| {
@@ -2452,6 +2479,18 @@ fn db_error(error: rusqlite::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copied_release_logs_use_the_new_application_support_directory() {
+        let data = Path::new("/Users/test/Library/Application Support/stacks");
+        let old = Path::new("/Users/test/Library/Application Support/stacks-tauri/releases/op-build-1.log");
+        assert_eq!(relocated_release_log_path(old, data), data.join("releases/op-build-1.log"));
+        let unrelated = Path::new("/tmp/stacks-tauri/releases/op-build-1.log");
+        assert_eq!(relocated_release_log_path(unrelated, data), unrelated);
+        let nested = Path::new("/Users/test/Library/Application Support/stacks-tauri/releases/nested/op.log");
+        assert_eq!(relocated_release_log_path(nested, data), nested);
+    }
+
     #[test]
     fn rejects_duplicate_and_empty_stages() {
         let mut config = ReleaseConfig {

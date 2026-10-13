@@ -17,7 +17,7 @@ Internally, much of the legacy code still uses `TerminalEntry`/`terminalId` for 
 - Frontend: React/TypeScript/xterm.js
 - Backend: Rust/Tauri/portable-pty
 - Current primary platform: macOS
-- Project root: `stacks-tauri`
+- Project root: `stacks`
 
 The app is inspired by `~/Code/stacks` but uses xterm.js for terminal emulation and Rust only for PTY/process/native integration.
 
@@ -250,12 +250,12 @@ Do not re-add generic `Edit`, `View`, or `Help` menus unless requested.
 
 ## Persistence
 
-User data lives under OS data dir in `stacks-tauri/`.
+User data lives under OS data dir in `stacks/` for release builds and `stacks-dev/` for debug builds. The older `stacks-tauri/` directory should be retained as a rollback copy until migration is verified.
 
 On macOS usually:
 
 ```text
-~/Library/Application Support/stacks-tauri/
+~/Library/Application Support/stacks/
 ```
 
 Files:

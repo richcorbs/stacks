@@ -152,7 +152,7 @@ npm run tauri dev
 
 The frontend is React 19 + TypeScript + Vite + xterm.js. The Tauri/Rust backend owns PTYs, Pi RPC processes, persistence, native menus, automation, and external CLI integrations.
 
-Debug builds use `stacks-tauri-dev` in the OS application-support directory; installed builds use `stacks-tauri`. Their databases, settings, sessions, process state, and automation sockets are isolated. To replace dev data with a sanitized, consistent snapshot of installed-build board/project/UI data, quit the dev app and run:
+Debug builds use `stacks-dev` in the OS application-support directory; installed builds use `stacks`. Their databases, settings, sessions, process state, and automation sockets are isolated. To replace dev data with a sanitized, consistent snapshot of installed-build board/project/UI data, quit the dev app and run:
 
 ```bash
 npm run seed:dev
@@ -183,7 +183,7 @@ open ~/Applications/Stacks.app
 Application data remains under:
 
 ```text
-~/Library/Application Support/stacks-tauri/
+~/Library/Application Support/stacks/
 ```
 
 Important files and directories include:
@@ -194,7 +194,7 @@ Important files and directories include:
 - `pi-sessions/` — durable Pi session files by terminal ID.
 - `pi-trusted-projects.json` — canonical project paths approved for project-local Pi resources.
 
-The legacy `stacks-tauri` directory name is retained so upgrades keep existing data. **Stacks → Reset Window Settings** resets saved window geometry and sidebar width. Deleting `settings.json` while Stacks is closed resets all preferences and remembered UI state.
+When upgrading from an installation that used `stacks-tauri`, quit Stacks first and copy the entire `~/Library/Application Support/stacks-tauri/` directory into the new `stacks/` directory (including `workflow.sqlite3`, any WAL files, sessions, card data, and release logs). Do not merge it with older data already in `stacks/`, and keep the old directory as a rollback copy until the new app has been verified. The installer does not migrate data. Old release-log paths are read from the copied directory. Development data in `stacks-tauri-dev` is not automatically copied into `stacks-dev`; use `npm run seed:dev` to initialize a sanitized development profile. **Stacks → Reset Window Settings** resets saved window geometry and sidebar width. Deleting `settings.json` while Stacks is closed resets all preferences and remembered UI state.
 
 ## Versioning and releases
 

@@ -39,7 +39,7 @@ mkdir -p "$DEST_DIR" 2>/dev/null || true
 DEST_APP="$DEST_DIR/$APP_NAME"
 
 stacks_is_running() {
-  pgrep -x "stacks" >/dev/null 2>&1 || pgrep -x "stacks-tauri" >/dev/null 2>&1
+  pgrep -x "stacks" >/dev/null 2>&1
 }
 
 quit_running_app() {
@@ -48,9 +48,7 @@ quit_running_app() {
   fi
 
   echo "Stacks is running; asking it to quit before installing..."
-  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 \
-    || osascript -e 'tell application id "com.richcorbs.stacks-tauri" to quit' >/dev/null 2>&1 \
-    || true
+  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
 
   for _ in {1..30}; do
     if ! stacks_is_running; then
@@ -61,7 +59,6 @@ quit_running_app() {
 
   echo "Stacks is still running; terminating it so the app bundle can be replaced..."
   pkill -x "stacks" || true
-  pkill -x "stacks-tauri" || true
   for _ in {1..20}; do
     if ! stacks_is_running; then
       return
@@ -74,11 +71,11 @@ quit_running_app() {
 }
 
 copy_app() {
-  quit_running_app
   rm -rf "$DEST_APP"
   ditto "$BUILT_APP" "$DEST_APP"
 }
 
+quit_running_app
 if [[ ! -w "$DEST_DIR" ]]; then
   echo "Installing to $DEST_DIR requires elevated permissions."
   sudo mkdir -p "$DEST_DIR"
