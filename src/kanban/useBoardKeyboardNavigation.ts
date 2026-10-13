@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { KanbanCardSummary } from './types';
+import type { DeliveryContext } from './deliveryStep';
 import { adjacentBoardCard, adjacentListCard, keyboardNavigableCards } from './boardNavigation';
 import { isEditableElement } from './boardInteractions';
 
 export function useBoardKeyboardNavigation({
   visibleCards,
+  deliveryContext = {},
   doneCollapsed,
   backlogCollapsed,
   attentionCollapsed = false,
@@ -17,6 +19,7 @@ export function useBoardKeyboardNavigation({
   openNewCard,
 }: {
   visibleCards: KanbanCardSummary[];
+  deliveryContext?: DeliveryContext;
   doneCollapsed: boolean;
   backlogCollapsed: boolean;
   attentionCollapsed?: boolean;
@@ -30,8 +33,8 @@ export function useBoardKeyboardNavigation({
 }) {
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const keyboardCards = useMemo(
-    () => keyboardNavigableCards(visibleCards, doneCollapsed, backlogCollapsed, view, attentionCollapsed, progressCollapsed),
-    [doneCollapsed, backlogCollapsed, attentionCollapsed, progressCollapsed, visibleCards, view],
+    () => keyboardNavigableCards(visibleCards, doneCollapsed, backlogCollapsed, view, attentionCollapsed, progressCollapsed, deliveryContext),
+    [doneCollapsed, backlogCollapsed, attentionCollapsed, progressCollapsed, visibleCards, view, deliveryContext],
   );
 
   useEffect(() => {
@@ -60,8 +63,8 @@ export function useBoardKeyboardNavigation({
       }
       if (view === 'list' && key !== 'j' && key !== 'k') return;
       const nextCard = view === 'list'
-        ? adjacentListCard(keyboardCards, focusedCardId, key as 'j' | 'k')
-        : adjacentBoardCard(keyboardCards, focusedCardId, key as 'h' | 'j' | 'k' | 'l');
+        ? adjacentListCard(keyboardCards, focusedCardId, key as 'j' | 'k', deliveryContext)
+        : adjacentBoardCard(keyboardCards, focusedCardId, key as 'h' | 'j' | 'k' | 'l', deliveryContext);
       if (!nextCard) return;
       event.preventDefault();
       setFocusedCardId(nextCard.id);
@@ -74,7 +77,7 @@ export function useBoardKeyboardNavigation({
     };
     window.addEventListener('keydown', handleBoardNavigation);
     return () => window.removeEventListener('keydown', handleBoardNavigation);
-  }, [keyboardCards, focusedCardId, selectedCard, view, creationAvailable, shortcutBlocked, openNewCard]);
+  }, [keyboardCards, focusedCardId, selectedCard, view, creationAvailable, shortcutBlocked, openNewCard, deliveryContext]);
 
   return { focusedCardId, setFocusedCardId };
 }

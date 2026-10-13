@@ -8,6 +8,8 @@ import type { CardServices } from '../../kanban/useCardServices';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
 import { DoneLaneMenu, KanbanCardContents, KanbanLanes, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
 import { cardServerAvailability } from './BoardCardServerServices';
+import { KanbanList } from './KanbanList';
+import { PrRefreshSchedule } from '../../kanban/prRefreshSchedule';
 import type { WorkGroup } from '../../kanban/workflowGroups';
 
 const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
@@ -77,6 +79,42 @@ function pullRequest(overrides: Partial<CardPullRequest> = {}): CardPullRequest 
     ...overrides,
   };
 }
+
+it('exposes a failed PR refresh with a keyboard-accessible retry', () => {
+  const current = card({ status: 'approved', child_count: 0, parent: null, pull_request: pullRequest() });
+  const markup = renderToStaticMarkup(<KanbanCardContents card={current} projects={[{ ...project, delivery_workflow: 'github_pull_request' }]}
+    prCheck={{ checkedAt: null, failed: true, refreshing: false }} onRetryPr={() => {}} repositoryStatus={undefined}
+    onNavigateParent={() => {}} onToggleServer={() => {}} />);
+  expect(markup).toContain('PR refresh failed · Retry');
+  expect(markup).toContain('aria-label="Retry PR status for card #128"');
+  expect(markup).toContain('last-known');
+});
+
+it('shows waiting CI and fresh merge action in the same groups and readable text in board and list', () => {
+  const prProject = { ...project, delivery_workflow: 'github_pull_request' } as Project;
+  const waiting = card({ id: 'waiting', external_id: '1', title: 'Waiting', status: 'approved', child_count: 0, parent: null, pull_request: pullRequest({ ci_status: 'pending', blockers: ['CI is pending'] }) });
+  const actionable = card({ id: 'actionable', external_id: '2', title: 'Actionable', status: 'approved', child_count: 0, parent: null, pull_request: pullRequest() });
+  const cards = [waiting, actionable];
+  const prChecks = Object.fromEntries(cards.map((item) => [item.id, { checkedAt: Date.now(), failed: false, refreshing: false, identity: new PrRefreshSchedule().identity(item, prProject) }]));
+  const board = renderToStaticMarkup(<KanbanLanes cards={cards} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
+    doneCollapsed={false} doneToggleRef={createRef<HTMLButtonElement>()} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
+    keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}} pointer={pointerStub()} onToggleDone={() => {}} onCleanupMerged={() => {}}
+    onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+  const list = renderToStaticMarkup(<KanbanList cards={cards} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
+    backlogCollapsed={false} doneCollapsed={false} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
+    keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
+    onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+  for (const markup of [board, list]) {
+    const progress = markup.match(/data-kanban-group="progress"[\s\S]*?(?=<\/section>)/)?.[0] ?? '';
+    const attention = markup.match(/data-kanban-group="attention"[\s\S]*?(?=<\/section>)/)?.[0] ?? '';
+    expect(progress).toContain('PR open · CI running');
+    expect(progress).toContain('Approved');
+    expect(progress).not.toContain('PR merge available');
+    expect(attention).toContain('PR merge available · Merge PR');
+    expect(markup.match(/PR open · CI running/g)).toHaveLength(1);
+    expect(markup.match(/PR merge available · Merge PR/g)).toHaveLength(1);
+  }
+});
 
 function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boolean; open?: boolean; cardsCount?: number }) {
   return renderToStaticMarkup(
@@ -374,7 +412,7 @@ describe('KanbanPullRequestBadge', () => {
     expect(markup).toContain(`kanbanPrBadge ${className}`);
     expect(markup).toContain(iconClass);
     expect(markup).toContain(tooltip === 'Pull request is ready to merge' ? 'open and ready to merge' : tooltip === 'CI is pending' ? 'CI running' : tooltip.replaceAll('\n', '; '));
-    expect(markup).toContain(`aria-label="Pull request #98, ${accessibleStatus}, `);
+    expect(markup).toContain(`aria-label="Pull request #98, last-known ${accessibleStatus}, `);
     expect(markup).toContain('last checked 0m ago');
     expect(markup).not.toContain('kanbanPrFreshness');
     expect(markup).not.toContain('·');
