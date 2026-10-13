@@ -19,8 +19,16 @@ describe('Kanban list keyboard focus paint order', () => {
     expect(declarationsFor('.kanbanListRows > .kanbanListRow.keyboardFocused:hover')).not.toMatch(/z-index/);
   });
 
-  it('retains padding between list rows and the scroll container edges for the outward outline', () => {
+  it('retains equal bottom and side insets around list rows for the outward outline', () => {
     expect(declarationsFor('.kanbanList')).toMatch(/padding:\s*16px .* 32px/);
-    expect(declarationsFor('.kanbanListRows')).toMatch(/padding:\s*3px 8px 6px/);
+    expect(declarationsFor('.kanbanListRows')).toMatch(/padding:\s*3px 8px 8px/);
+  });
+
+  it('accents only populated attention sections, including with a project color', () => {
+    expect(declarationsFor('.kanbanListGroup')).toMatch(/border:\s*1px solid #253546/);
+    expect(declarationsFor('.kanbanListGroup[data-kanban-group="attention"][data-populated="true"]'))
+      .toMatch(/border-color:\s*color-mix\(in srgb, #3b82f6 76%, #a3bfd3\)/);
+    expect(declarationsFor('.kanbanList[data-project-color] .kanbanListGroup[data-kanban-group="attention"][data-populated="true"]'))
+      .toMatch(/border-color:\s*color-mix\(in srgb, var\(--project-accent\) 76%, #a3bfd3\)/);
   });
 });

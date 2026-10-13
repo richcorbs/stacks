@@ -33,12 +33,32 @@ describe('Kanban list', () => {
       ['attention', 'false', 'Needs your action', '1'], ['progress', 'true', 'In progress', '1'],
       ['backlog', 'false', 'Backlog', '0'], ['done', 'false', 'Done', '0'],
     ]) {
-      expect(markup).toContain(`data-kanban-group="${group}"><header class="kanbanListGroupHeader"><button type="button" class="kanbanListGroupToggle" aria-expanded="${expanded}"`);
+      expect(markup).toContain(`data-kanban-group="${group}"${group === 'attention' ? ' data-populated="true"' : ''}><header class="kanbanListGroupHeader"><button type="button" class="kanbanListGroupToggle" aria-expanded="${expanded}"`);
       expect(markup).toContain(`${label} <span class="kanbanLaneCount">${count}</span>`);
     }
     expect(markup).not.toContain('aria-label="Open card #ready');
     expect(markup).toContain('aria-label="Open card #refining');
     expect(render([])).toContain('Needs your action <span class="kanbanLaneCount">0</span>');
+  });
+
+  it('marks attention as populated based on card count, regardless of expansion, without marking other groups', () => {
+    const markupFor = (statuses: KanbanStatus[], attentionCollapsed: boolean) => renderToStaticMarkup(<KanbanList
+      cards={statuses.map(card)} projects={[project]} attentionCollapsed={attentionCollapsed} backlogCollapsed doneCollapsed
+      repositoryStatuses={{}} serverServices={{}} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
+      keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}}
+      onCleanupMerged={() => {}} onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    for (const collapsed of [false, true]) {
+      for (const statuses of [[], ['ready'] as KanbanStatus[], ['needs_refinement'] as KanbanStatus[]]) {
+        const markup = markupFor(statuses, collapsed);
+        const groups = [...markup.matchAll(/<section class="kanbanListGroup"[^>]*>/g)].map(([tag]) => tag);
+        expect(groups).toHaveLength(4);
+        expect(groups[0]).toContain('data-kanban-group="attention"');
+        expect(groups[0].includes('data-populated="true"')).toBe(statuses.includes('ready'));
+        expect(groups.slice(1).every((tag) => !tag.includes('data-populated'))).toBe(true);
+        expect(markup).toContain(`aria-expanded="${!collapsed}"`);
+        expect(markup).toContain(`Needs your action <span class="kanbanLaneCount">${statuses.includes('ready') ? 1 : 0}</span>`);
+      }
+    }
   });
 
   it('invokes attention and progress toggles independently', () => {

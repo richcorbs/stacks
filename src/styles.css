@@ -183,8 +183,8 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanCardLocalAttribution { flex: 1 1 0; min-width: 0; }
 .kanbanList { flex: 1; min-height: 0; overflow-y: auto; padding: 16px max(16px, calc((100% - 1200px) / 2)) 32px; }
 .kanbanListGroup { margin-bottom: 16px; border: 1px solid #253546; border-radius: 9px; background: #101922; }
-.kanbanListGroup[data-kanban-group="attention"] { border-color: color-mix(in srgb, #3b82f6 76%, #a3bfd3); }
-.kanbanList[data-project-color] .kanbanListGroup[data-kanban-group="attention"] { border-color: color-mix(in srgb, var(--project-accent) 76%, #a3bfd3); }
+.kanbanListGroup[data-kanban-group="attention"][data-populated="true"] { border-color: color-mix(in srgb, #3b82f6 76%, #a3bfd3); }
+.kanbanList[data-project-color] .kanbanListGroup[data-kanban-group="attention"][data-populated="true"] { border-color: color-mix(in srgb, var(--project-accent) 76%, #a3bfd3); }
 .kanbanListGroupHeader { position: relative; min-height: 42px; display: flex; align-items: stretch; justify-content: space-between; border-bottom: 1px solid #253546; }
 .kanbanListGroupHeader .kanbanLaneMenu { align-items: stretch; }
 .kanbanListGroupHeader .kanbanLaneMenuTrigger { width: 44px; height: 100%; }
@@ -194,7 +194,7 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanListGroupToggle:focus-visible { outline: 2px solid #78a9d1; outline-offset: -2px; border-radius: 5px; }
 .kanbanListChevron { display: inline-block; width: 6px; height: 6px; margin-right: 10px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); vertical-align: 2px; }
 .kanbanListGroupToggle[aria-expanded="true"] .kanbanListChevron { transform: rotate(45deg); }
-.kanbanListRows { padding: 3px 8px 6px; }
+.kanbanListRows { padding: 3px 8px 8px; }
 .kanbanListRow.kanbanCard { width: auto; margin: 0; padding: 8px 10px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 2fr); align-items: center; gap: 12px; border: 1px solid transparent; border-bottom-color: #203040; border-radius: 5px; background: transparent; box-shadow: none; cursor: pointer; touch-action: auto; }
 .kanbanListRow.kanbanParentCard { background: #192735; }
 /* Paint the focused row's outward outline over adjacent rows, including opaque parent cards. */
