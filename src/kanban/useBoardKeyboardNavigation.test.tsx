@@ -50,6 +50,21 @@ describe.each(['board', 'list'] as const)('%s keyboard shortcut', (view) => {
     return event;
   }
 
+  it('clears focus when its list-only group collapses and restores board navigation', async () => {
+    const attention = { ...card, id: 'attention', status: 'needs_human' as const };
+    const progress = { ...card, id: 'progress', status: 'agent_working' as const };
+    await render({ visibleCards: [attention, progress] });
+    act(() => navigation.setFocusedCardId('attention'));
+    expect(navigation.focusedCardId).toBe('attention');
+    await act(async () => renderer.update(<Harness {...options(view, { visibleCards: [attention, progress], attentionCollapsed: true })} />));
+    expect(navigation.focusedCardId).toBe(view === 'list' ? null : 'attention');
+    expect(key('j').defaultPrevented).toBe(true);
+    expect(navigation.focusedCardId).toBe(view === 'list' ? 'progress' : 'attention');
+    await act(async () => renderer.update(<Harness {...options(view, { visibleCards: [attention, progress], attentionCollapsed: true, progressCollapsed: true })} />));
+    expect(navigation.focusedCardId).toBe(view === 'list' ? null : 'attention');
+    expect(key('j').defaultPrevented).toBe(view === 'board');
+  });
+
   it('opens once while unobstructed and leaves unrelated typing alone', async () => {
     await render();
     expect(key('n').defaultPrevented).toBe(true);

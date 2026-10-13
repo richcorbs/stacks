@@ -16,6 +16,10 @@ type MainWorkspaceProps = {
   onSelectProject: (projectId: string | null) => void;
   backlogCollapsed: boolean;
   onBacklogCollapsedChange: (collapsed: boolean) => void;
+  attentionCollapsed: boolean;
+  onAttentionCollapsedChange: (collapsed: boolean) => void;
+  progressCollapsed: boolean;
+  onProgressCollapsedChange: (collapsed: boolean) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
   view: 'list' | 'board';
@@ -39,6 +43,10 @@ export function MainWorkspace({
   onSelectProject,
   backlogCollapsed,
   onBacklogCollapsedChange,
+  attentionCollapsed,
+  onAttentionCollapsedChange,
+  progressCollapsed,
+  onProgressCollapsedChange,
   doneCollapsed,
   onDoneCollapsedChange,
   view,
@@ -60,6 +68,10 @@ export function MainWorkspace({
           onSelectProject={onSelectProject}
           backlogCollapsed={backlogCollapsed}
           onBacklogCollapsedChange={onBacklogCollapsedChange}
+          attentionCollapsed={attentionCollapsed}
+          onAttentionCollapsedChange={onAttentionCollapsedChange}
+          progressCollapsed={progressCollapsed}
+          onProgressCollapsedChange={onProgressCollapsedChange}
           doneCollapsed={doneCollapsed}
           onDoneCollapsedChange={onDoneCollapsedChange}
           view={view}

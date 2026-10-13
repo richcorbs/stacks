@@ -11,6 +11,9 @@ describe('settings model', () => {
     expect(settings.kanban_view).toBe('list');
     expect(settings.kanban_done_collapsed).toBe(true);
     expect(settings.kanban_backlog_collapsed).toBe(true);
+    expect(settings.kanban_attention_collapsed).toBe(false);
+    expect(settings.kanban_progress_collapsed).toBe(false);
+    expect(resolveAppSettings({ kanban_attention_collapsed: null, kanban_progress_collapsed: null })).toMatchObject({ kanban_attention_collapsed: false, kanban_progress_collapsed: false });
     expect(resolveAppSettings({ kanban_backlog_collapsed: null }).kanban_backlog_collapsed).toBe(true);
   });
   it('persists the board/list choice and rejects unknown values on load', () => {
@@ -21,6 +24,12 @@ describe('settings model', () => {
     for (const backlog of [true, false]) for (const done of [true, false]) {
       const persisted = toPersistedAppSettings({ ...DEFAULT_APP_SETTINGS, kanban_backlog_collapsed: backlog, kanban_done_collapsed: done });
       expect(resolveAppSettings(persisted)).toMatchObject({ kanban_backlog_collapsed: backlog, kanban_done_collapsed: done });
+    }
+  });
+  it('round-trips independently expanded attention and progress groups', () => {
+    for (const attention of [true, false]) for (const progress of [true, false]) {
+      const persisted = toPersistedAppSettings({ ...DEFAULT_APP_SETTINGS, kanban_attention_collapsed: attention, kanban_progress_collapsed: progress });
+      expect(resolveAppSettings(persisted)).toMatchObject({ kanban_attention_collapsed: attention, kanban_progress_collapsed: progress });
     }
   });
   it('persists no obsolete workspace UI settings', () => {

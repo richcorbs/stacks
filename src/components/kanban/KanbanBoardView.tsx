@@ -25,6 +25,8 @@ import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { startLaunchCardRecovery, startupCardRecoveryAllowed } from '../../kanban/launchRecovery';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
 import { flushProjectNotes } from '../../projectNotes';
+import { projectColorAttribute } from '../../projectColor';
+import { workGroup } from '../../kanban/workflowGroups';
 import type { NotificationRoute } from '../../appAttention';
 import { fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
 import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
@@ -35,7 +37,7 @@ import { CardServerShutdownError, findConflictingCardServer, handoffCardServer }
 import { ServerHandoffDialog } from './ServerHandoffDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
 
-export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
+export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
@@ -178,6 +180,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     visibleCards,
     doneCollapsed,
     backlogCollapsed,
+    attentionCollapsed,
+    progressCollapsed,
     selectedCard,
     openCard,
     view,
@@ -460,6 +464,15 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
 
   useEffect(() => () => onPaletteCardsChange(null), [onPaletteCardsChange]);
 
+  function toggleListGroup(group: 'attention' | 'progress', collapsed: boolean, onChange: (collapsed: boolean) => void) {
+    if (!collapsed) {
+      setKeyboardFocusedCardId((currentId) => (
+        visibleCards.some((card) => card.id === currentId && workGroup(card.status) === group) ? null : currentId
+      ));
+    }
+    onChange(!collapsed);
+  }
+
   function toggleBacklogCollapsed() {
     const collapsed = !backlogCollapsed;
     if (collapsed) {
@@ -591,11 +604,14 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       )}
       {!board.loading && view === 'list' && <KanbanList
         cards={visibleCards}
+        selectedProjectColor={projectColorAttribute(selectedProject)}
         projects={projects}
         repositoryStatuses={repositoryStatuses}
         prChecks={prChecks}
         serverServices={cardServices}
         backlogCollapsed={backlogCollapsed}
+        attentionCollapsed={attentionCollapsed}
+        progressCollapsed={progressCollapsed}
         pointer={pointerOrdering}
         doneCollapsed={doneCollapsed}
         openLaneMenu={openLaneMenu}
@@ -604,6 +620,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         keyboardFocusedCardId={keyboardFocusedCardId}
         setKeyboardFocusedCardId={setKeyboardFocusedCardId}
         onToggleBacklog={toggleBacklogCollapsed}
+        onToggleAttention={() => toggleListGroup('attention', attentionCollapsed, onAttentionCollapsedChange)}
+        onToggleProgress={() => toggleListGroup('progress', progressCollapsed, onProgressCollapsedChange)}
         onToggleDone={toggleDoneCollapsed}
         onCleanupMerged={cleanupMergedCards}
         onOpenCard={openCard}

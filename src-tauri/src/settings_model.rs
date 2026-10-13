@@ -50,6 +50,10 @@ pub struct AppSettings {
     #[serde(default)]
     pub kanban_backlog_collapsed: Option<bool>,
     #[serde(default)]
+    pub kanban_attention_collapsed: Option<bool>,
+    #[serde(default)]
+    pub kanban_progress_collapsed: Option<bool>,
+    #[serde(default)]
     pub kanban_view: Option<String>,
     #[serde(default)]
     pub activity_notifications: Option<bool>,
@@ -73,6 +77,8 @@ impl AppSettings {
                 "kanban_project_id" => self.kanban_project_id = non_empty(next.kanban_project_id.clone()),
                 "kanban_done_collapsed" => self.kanban_done_collapsed = next.kanban_done_collapsed,
                 "kanban_backlog_collapsed" => self.kanban_backlog_collapsed = next.kanban_backlog_collapsed,
+                "kanban_attention_collapsed" => self.kanban_attention_collapsed = next.kanban_attention_collapsed,
+                "kanban_progress_collapsed" => self.kanban_progress_collapsed = next.kanban_progress_collapsed,
                 "kanban_view" => self.kanban_view = valid_kanban_view(next.kanban_view.clone()),
                 "activity_notifications" => self.activity_notifications = next.activity_notifications,
                 _ => {}
@@ -97,6 +103,8 @@ impl AppSettings {
         self.kanban_project_id = non_empty(next.kanban_project_id);
         self.kanban_done_collapsed = next.kanban_done_collapsed;
         self.kanban_backlog_collapsed = next.kanban_backlog_collapsed;
+        self.kanban_attention_collapsed = next.kanban_attention_collapsed;
+        self.kanban_progress_collapsed = next.kanban_progress_collapsed;
         self.kanban_view = valid_kanban_view(next.kanban_view);
         self.activity_notifications = next.activity_notifications;
     }
@@ -191,6 +199,21 @@ mod tests {
         current.apply_user_settings(AppSettings { kanban_backlog_collapsed: Some(true), kanban_done_collapsed: Some(false), ..Default::default() });
         assert_eq!(current.kanban_backlog_collapsed, Some(true));
         assert_eq!(current.kanban_done_collapsed, Some(false));
+    }
+
+    #[test]
+    fn attention_and_progress_patch_and_serialize_independently() {
+        let mut current = AppSettings::default();
+        current.apply_patch(AppSettings { kanban_attention_collapsed: Some(true), ..Default::default() }, &["kanban_attention_collapsed".into()]);
+        assert_eq!(current.kanban_attention_collapsed, Some(true));
+        assert_eq!(current.kanban_progress_collapsed, None);
+        current.apply_patch(AppSettings { kanban_progress_collapsed: Some(false), ..Default::default() }, &["kanban_progress_collapsed".into()]);
+        let restored: AppSettings = serde_json::from_str(&serde_json::to_string(&current).unwrap()).unwrap();
+        assert_eq!(restored.kanban_attention_collapsed, Some(true));
+        assert_eq!(restored.kanban_progress_collapsed, Some(false));
+        current.apply_user_settings(AppSettings { kanban_attention_collapsed: Some(false), kanban_progress_collapsed: Some(true), ..Default::default() });
+        assert_eq!(current.kanban_attention_collapsed, Some(false));
+        assert_eq!(current.kanban_progress_collapsed, Some(true));
     }
 
     #[test]
