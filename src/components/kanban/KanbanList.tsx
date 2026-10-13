@@ -53,7 +53,7 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
     {WORK_GROUPS.map((group) => {
       const entries = groupCards(cards, group);
       const collapsed = collapsedGroups[group.id];
-      return <section className="kanbanListGroup" data-kanban-group={group.id} data-kanban-list-status={group.id === 'backlog' && !collapsed ? 'needs_refinement' : undefined} key={group.id}>
+      return <section className="kanbanListGroup" data-kanban-group={group.id} data-populated={group.id === 'attention' && entries.length > 0 ? 'true' : undefined} data-kanban-list-status={group.id === 'backlog' && !collapsed ? 'needs_refinement' : undefined} key={group.id}>
         <header className="kanbanListGroupHeader">
           <button type="button" className="kanbanListGroupToggle" aria-expanded={!collapsed}
             onClick={toggles[group.id]}>
