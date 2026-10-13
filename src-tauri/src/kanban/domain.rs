@@ -276,6 +276,8 @@ pub struct KanbanCardSummary {
     pub creation_operation: Option<CardCreationIndicator>,
     pub cleanup_operation: Option<CardCleanupIndicator>,
     pub runtime_cleanup_status: Option<String>,
+    pub delivery_operation_stage: Option<String>,
+    pub delivery_error: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub sort_order: i64,
@@ -298,6 +300,7 @@ pub struct CardPullRequestIndicator {
     pub number: u64,
     pub url: String,
     pub state: PullRequestState,
+    pub draft: bool,
     pub ci_status: String,
     pub review_state: String,
     pub has_conflicts: bool,
@@ -330,12 +333,13 @@ impl From<&KanbanCard> for KanbanCardSummary {
                 revision: value.revision, layout_revision: value.layout_revision,
             }),
             pull_request: card.pull_request.as_ref().map(|value| CardPullRequestIndicator {
-                number: value.number, url: value.url.clone(), state: value.state, ci_status: value.ci_status.clone(),
+                number: value.number, url: value.url.clone(), state: value.state, draft: value.draft, ci_status: value.ci_status.clone(),
                 review_state: value.review_state.clone(), has_conflicts: value.has_conflicts, blockers: value.blockers.clone(),
             }),
             creation_operation: card.creation_operation.as_ref().map(|value| CardCreationIndicator { phase: value.phase.clone(), error: value.error.clone() }),
             cleanup_operation: card.cleanup_operation.as_ref().map(|value| CardCleanupIndicator { status: value.status.clone() }),
             runtime_cleanup_status: card.runtime_cleanup_status.clone(),
+            delivery_operation_stage: card.delivery_operation_stage.clone(), delivery_error: card.delivery_error.clone(),
             created_at: card.created_at, updated_at: card.updated_at, sort_order: card.sort_order,
         }
     }

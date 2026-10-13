@@ -123,7 +123,7 @@ pub const STATUS_METADATA: [StatusMetadata; 8] = [
     },
     StatusMetadata {
         status: CardStatus::Approved,
-        label: "Ready to merge",
+        label: "Approved",
     },
     StatusMetadata {
         status: CardStatus::Done,

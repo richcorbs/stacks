@@ -11,7 +11,7 @@ describe('CardDetailLoadingShell', () => {
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain('Close card details');
     expect(markup).toContain('Open promptly');
-    expect(markup).toContain('Ready to merge');
+    expect(markup).toContain('Approved');
     expect(markup).toContain('kanbanDetailSkeleton');
     expect(markup).not.toContain('Edit card');
   });

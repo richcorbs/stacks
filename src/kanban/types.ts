@@ -138,7 +138,7 @@ export type CardRelationshipSummary = {
 export type CardEnvironmentIndicator = Pick<CardEnvironment,
   'id' | 'project_id' | 'worktree_path' | 'branch' | 'target_branch' | 'lifecycle_state' | 'revision' | 'layout_revision'>;
 export type CardPullRequestIndicator = Pick<CardPullRequest,
-  'number' | 'url' | 'state' | 'ci_status' | 'review_state' | 'has_conflicts' | 'blockers'>;
+  'number' | 'url' | 'state' | 'draft' | 'ci_status' | 'review_state' | 'has_conflicts' | 'blockers'>;
 
 export type KanbanCardDetail = {
   id: string;
@@ -197,6 +197,8 @@ export type KanbanCardSummary = Pick<KanbanCardDetail,
     creation_operation?: Pick<EnvironmentCreationOperation, 'phase' | 'error'> | null;
     cleanup_operation?: Pick<CardCleanupOperation, 'status'> | null;
     runtime_cleanup_status?: 'pending' | 'complete' | 'failed' | null;
+    delivery_operation_stage?: string | null;
+    delivery_error?: string | null;
   };
 
 /** Compatibility name for detail/workspace code. New board code should use KanbanCardSummary. */

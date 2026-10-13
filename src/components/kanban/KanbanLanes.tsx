@@ -9,6 +9,7 @@ import type { CardServices } from '../../kanban/useCardServices';
 import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import { hierarchyStatusLabel } from '../../kanban/hierarchy';
 import { BOARD_GROUPS, groupCards } from '../../kanban/workflowGroups';
+import { deliveryStep, type PrCheck } from '../../kanban/deliveryStep';
 import { owningProject } from '../../kanban/projectScope';
 import { pullRequestPresentation } from '../../kanban/pullRequestPresentation';
 import { environmentHealthTooltip, hasGitChanges, shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
@@ -38,8 +39,6 @@ export function shouldDismissDoneLaneMenu(wrapper: DoneLaneMenuWrapper | null, e
   return event.type === 'pointerdown' && wrapper !== null && event.target !== null && !wrapper.contains(event.target as Node);
 }
 
-type PrCheck = { checkedAt: number | null; failed: boolean; refreshing: boolean };
-
 export function KanbanPullRequestBadge({ pullRequest, check }: { pullRequest: CardPullRequestIndicator; check?: PrCheck }) {
   if (pullRequest.state !== 'open') return null;
   const presentation = pullRequestPresentation(pullRequest);
@@ -54,10 +53,11 @@ export function KanbanPullRequestBadge({ pullRequest, check }: { pullRequest: Ca
     : pullRequest.ci_status === 'failure' ? 'CI failed'
       : pullRequest.ci_status === 'pending' ? 'CI running'
         : pullRequest.ci_status === 'no_ci' ? 'no CI configured' : 'CI status unknown';
-  const label = `Pull request #${pullRequest.number}, ${presentation.status}, ${result}; ${freshness}`;
+  const label = `Pull request #${pullRequest.number}, last-known ${presentation.status}, ${result}; ${freshness}; merge requires fresh preflight`;
+  const unverified = check?.checkedAt == null || check.failed || check.refreshing || Date.now() - check.checkedAt >= 180_000;
 
   return (
-    <span className={`kanbanPrBadge ${presentation.className}`} title={label}>
+    <span className={`kanbanPrBadge ${unverified ? 'openPending' : presentation.className}`} title={label}>
       PR #{pullRequest.number}
       <GithubStatusIcon status={presentation.indicatorStatus} context="CI" label={label} />
     </span>
@@ -132,6 +132,7 @@ export function KanbanCardContents({
   projects,
   repositoryStatus,
   prCheck,
+  onRetryPr,
   serverServices,
   onNavigateParent,
   onToggleServer,
@@ -142,6 +143,7 @@ export function KanbanCardContents({
   projects: Project[];
   repositoryStatus: CardRepositoryStatus | undefined;
   prCheck?: PrCheck;
+  onRetryPr?: () => void;
   serverServices?: CardServices;
   layout?: 'board' | 'list';
   listWarning?: { tooltip: string; onOpen: () => void };
@@ -153,6 +155,7 @@ export function KanbanCardContents({
   const projectBadge = <span data-project-color={projectColorAttribute(project)} className={`kanbanProjectBadge${project ? '' : ' invalid'}`}>{project?.name ?? 'Unknown project'}</span>;
   const statusLabel = hierarchyStatusLabel(card);
   const statusBadge = <span className="kanbanCardStatusBadge" data-project-color={projectColorAttribute(project)} title={statusLabel}>{statusLabel}</span>;
+  const delivery = deliveryStep(card, { projects, prChecks: prCheck ? { [card.id]: prCheck } : undefined });
   const providerBoard = card.provider !== 'local' && card.board_title && card.board_title.trim().toLocaleLowerCase() !== 'dev - active'
     ? <span className="kanbanProviderBoardTitle">{card.board_title}</span> : null;
   const hasGitChangesBadge = repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git);
@@ -176,6 +179,7 @@ export function KanbanCardContents({
       </span>}
     </span>
     <strong>{card.title}</strong>
+    <span className="kanbanDeliveryStep">{delivery.label}{prCheck?.failed && onRetryPr && <button type="button" className="kanbanPrRetry" aria-label={`Retry PR status for card #${card.external_id}`} onClick={(event) => { event.stopPropagation(); onRetryPr(); }}>Retry</button>}</span>
     {(hasAttribution || hasIndicators) && <span className="kanbanCardMeta">
       {layout === 'board' ? (
         hasAttribution && <span className="kanbanCardBoardAttribution">
@@ -209,6 +213,7 @@ export function KanbanLanes({
   projects,
   repositoryStatuses,
   prChecks,
+  onRetryPr,
   serverServices,
   doneCollapsed,
   doneToggleRef,
@@ -229,6 +234,7 @@ export function KanbanLanes({
   repositoryStatuses: Record<string, CardRepositoryStatus>;
   prChecks?: Record<string, PrCheck>;
   serverServices: Record<string, CardServices>;
+  onRetryPr?: () => void;
   doneCollapsed: boolean;
   doneToggleRef: RefObject<HTMLButtonElement | null>;
   openLaneMenu: KanbanStatus | null;
@@ -255,7 +261,7 @@ export function KanbanLanes({
 
   return <div className="kanbanLanes">
     {BOARD_GROUPS.map((group) => {
-      const cards = groupCards(visibleCards, group);
+      const cards = groupCards(visibleCards, group, { projects, prChecks });
       return (
         <section
           className={`kanbanLane${group.id === 'done' && doneCollapsed ? ' collapsed' : ''}`}
@@ -298,7 +304,7 @@ export function KanbanLanes({
               </div>
             </header>
             <div className="kanbanLaneCards">
-              {group.statuses.map((status) => {
+              {(group.id === 'progress' ? [...group.statuses, 'approved' as const] : group.statuses).map((status) => {
                 const canonicalCards = cards.filter((card) => card.status === status);
                 if (!canonicalCards.length) return null;
                 const cardsById = new Map(canonicalCards.map((card) => [card.id, card]));
@@ -332,7 +338,7 @@ export function KanbanLanes({
                           onFocus={() => setKeyboardFocusedCardId(card.id)}
                           onClick={(event) => { event.stopPropagation(); if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                         />
-                        <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} prCheck={prChecks?.[card.id]} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
+                        <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} prCheck={prChecks?.[card.id]} onRetryPr={onRetryPr} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
                       </div>
                       {showEnvironmentWarning && environmentHealth && (
                         <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>

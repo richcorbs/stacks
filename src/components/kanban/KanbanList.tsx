@@ -13,13 +13,14 @@ import { owningProject } from '../../kanban/projectScope';
 import { projectColorAttribute } from '../../projectColor';
 import { DoneLaneMenu, KanbanCardContents, kanbanCardClassName } from './KanbanLanes';
 
-export function KanbanList({ cards, projects, selectedProjectColor, repositoryStatuses, prChecks, serverServices, backlogCollapsed, attentionCollapsed = false, progressCollapsed = false, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleAttention = () => {}, onToggleProgress = () => {}, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer }: {
+export function KanbanList({ cards, projects, selectedProjectColor, repositoryStatuses, prChecks, onRetryPr, serverServices, backlogCollapsed, attentionCollapsed = false, progressCollapsed = false, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleAttention = () => {}, onToggleProgress = () => {}, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer }: {
   cards: KanbanCardSummary[];
   projects: Project[];
   selectedProjectColor?: string;
   repositoryStatuses: Record<string, CardRepositoryStatus>;
   prChecks?: Record<string, { checkedAt: number | null; failed: boolean; refreshing: boolean }>;
   serverServices: Record<string, CardServices>;
+  onRetryPr?: () => void;
   backlogCollapsed: boolean;
   attentionCollapsed?: boolean;
   progressCollapsed?: boolean;
@@ -51,7 +52,7 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
   const toggles: Record<WorkGroup, () => void> = { attention: onToggleAttention, progress: onToggleProgress, backlog: onToggleBacklog, done: onToggleDone };
   return <div className="kanbanList" data-project-color={selectedProjectColor} role="region" aria-label="Cards by work group">
     {WORK_GROUPS.map((group) => {
-      const entries = groupCards(cards, group);
+      const entries = groupCards(cards, group, { projects, prChecks });
       const collapsed = collapsedGroups[group.id];
       return <section className="kanbanListGroup" data-kanban-group={group.id} data-populated={group.id === 'attention' && entries.length > 0 ? 'true' : undefined} data-kanban-list-status={group.id === 'backlog' && !collapsed ? 'needs_refinement' : undefined} key={group.id}>
         <header className="kanbanListGroupHeader">
@@ -86,7 +87,7 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
               onFocus={() => setKeyboardFocusedCardId(card.id)} onClick={(event) => { event.stopPropagation(); if (!pointer?.shouldSuppressCardClick()) onOpenCard(card); }} />
             <KanbanCardContents card={card} projects={projects} layout="list" repositoryStatus={repositoryStatuses[card.id]}
               listWarning={warning ? { tooltip, onOpen: () => onOpenCard(card, 'overview') } : undefined}
-              prCheck={prChecks?.[card.id]}
+              prCheck={prChecks?.[card.id]} onRetryPr={onRetryPr}
               serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined}
               onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
           </div>;

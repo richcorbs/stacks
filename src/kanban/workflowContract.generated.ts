@@ -6,7 +6,7 @@ export const KANBAN_STATUS_METADATA = [
   { status: 'ready', label: 'Ready for agent' },
   { status: 'agent_working', label: 'Agent working' },
   { status: 'needs_human', label: 'Needs you' },
-  { status: 'approved', label: 'Ready to merge' },
+  { status: 'approved', label: 'Approved' },
   { status: 'done', label: 'Done' },
 ] as const;
 
