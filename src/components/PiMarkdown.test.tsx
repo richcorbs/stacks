@@ -1,5 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import TestRenderer, { act } from 'react-test-renderer';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText: vi.fn() }));
 import { PiMarkdown } from './PiMarkdown';
 
 function render(source: string) {
@@ -45,6 +49,32 @@ describe('PiMarkdown', () => {
     expect(markup).toContain('<code class="language-html">&lt;img src=&quot;x&quot; onerror=&quot;bad()&quot;&gt;');
     expect(markup).toContain('class="piCodeCopyButton "');
     expect(markup).toContain('aria-label="Copy code"');
+  });
+
+  it.each([
+    ['single trailing LF', 'echo hello\n', 'echo hello'],
+    ['single trailing CRLF', 'echo hello\r\n', 'echo hello'],
+    ['repeated trailing line endings', 'echo hello\n\r\n\n', 'echo hello'],
+    ['internal newlines and other content', 'echo first\r\necho second\n  echo third  \n\n', 'echo first\r\necho second\n  echo third  '],
+    ['no trailing line ending', 'echo hello  ', 'echo hello  '],
+  ])('copies code correctly for %s', async (_case, code, expected) => {
+    vi.mocked(writeText).mockResolvedValue(undefined);
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<PiMarkdown>{'```sh\necho hello\n```'}</PiMarkdown>, {
+        // Supply the actual code element text, including CRLF (Markdown parsers normalize source line endings).
+        createNodeMock: (element) => element.type === 'pre'
+          ? { querySelector: () => ({ textContent: code }) }
+          : null,
+      });
+    });
+    await act(async () => {
+      renderer.root.findByProps({ 'aria-label': 'Copy code' }).props.onClick();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledWith(expected);
+    act(() => renderer.unmount());
+    vi.mocked(writeText).mockClear();
   });
 
   it('supports safe relative, web, and email links', () => {

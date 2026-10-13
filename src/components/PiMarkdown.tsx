@@ -53,7 +53,7 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   async function copyCode() {
     const code = preRef.current?.querySelector('code')?.textContent ?? preRef.current?.textContent ?? '';
     try {
-      await writeText(code);
+      await writeText(code.replace(/(?:\r?\n)+$/, ''));
       setCopied(true);
       if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200);
