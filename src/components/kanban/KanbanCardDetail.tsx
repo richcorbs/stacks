@@ -48,7 +48,7 @@ function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery'
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
-export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, requireActionPreflight, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onRefine, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onToggleServer, onWorkflowControllerChange }: {
+export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, requireActionPreflight, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onRefreshGit, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onRefine, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onToggleServer, onWorkflowControllerChange }: {
   card: KanbanCard;
   cards: KanbanCardSummary[];
   cardServices: CardServices;
@@ -66,6 +66,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   hasOlderEvents: boolean;
   onLoadOlderEvents: () => Promise<void>;
   onRecheckEnvironment: () => Promise<CardEnvironmentHealth>;
+  onRefreshGit: () => Promise<void>;
   onClose: () => void;
   onUpdate: (title: string, content: string, parentId?: string | null) => Promise<KanbanCard>;
   onAction: (action: 'return_to_refinement' | 'request_changes') => Promise<unknown>;
@@ -407,6 +408,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
           onAssignProject={onOpenChat}
           onActionError={setActionError}
           onNavigateParent={navigateToParent}
+          onRefreshGit={() => { void onRefreshGit().catch(console.error); }}
         />
         <CardLevelErrorBanner errors={cardLevelErrors} reloading={reloadingCard} onReload={reloadCard} onRetryRefresh={() => { void onRetryRefresh().catch(() => {}); }} />
         <CardDetailTabs

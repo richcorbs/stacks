@@ -277,6 +277,11 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanDetailHeaderMetaLeft > .kanbanProjectAssignment { min-width: 0; max-width: 100%; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kanbanDetailRepositoryMeta { min-width: 0; margin-top: 4px; display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; white-space: nowrap; }
 .kanbanDetailRepositoryMeta .kanbanCardHeaderBranch { flex: 0 1 auto; overflow: hidden; }
+.kanbanDetailGitChanges { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.kanbanDetailRepositoryMeta button.kanbanDetailGitRefresh { width: 20px; height: 20px; padding: 0; display: grid; place-items: center; border: 1px solid #344657; border-radius: 5px; background: #151f29; color: #73879a; cursor: pointer; }
+.kanbanDetailRepositoryMeta button.kanbanDetailGitRefresh:hover { border-color: #4a6278; color: #aabac8; }
+.kanbanDetail > header .kanbanDetailGitRefresh .diffRefreshIcon { color: inherit; }
+.kanbanDetailRepositoryMeta button.kanbanDetailGitRefresh:focus-visible { outline: 2px solid #6295c2; outline-offset: 2px; }
 .kanbanDetailRepositoryMeta .kanbanDetailRepositorySeparator,
 .kanbanDetailRepositoryMeta .kanbanCardGitSummary,
 .kanbanDetailRepositoryMeta .directWorkGitSummary,

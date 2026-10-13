@@ -1,6 +1,7 @@
 import { createRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import TestRenderer, { act } from 'react-test-renderer';
+import { describe, expect, it, vi } from 'vitest';
 import type { GitChangeSummary, Project } from '../../types';
 import type { CardPullRequest, KanbanCard } from '../../kanban/types';
 import { CardDetailHeader, CardDetailTabs } from './CardDetailChrome';
@@ -62,6 +63,7 @@ function renderHeader(currentCard: KanbanCard, gitChangeSummary: GitChangeSummar
     onAssignProject={async () => undefined}
     onActionError={() => undefined}
     onNavigateParent={() => undefined}
+    onRefreshGit={() => undefined}
   />);
 }
 
@@ -186,6 +188,23 @@ describe('CardDetailHeader', () => {
     expect(markup).not.toContain('kanbanHierarchyGroup');
   });
 
+  it('shows an accessible refresh button immediately after nonzero counts, without replacing Diff refresh', async () => {
+    const markup = renderHeader(card());
+    expect(markup).toMatch(/class="kanbanCardGitSummary"[^>]*>.*?<\/span><button class="kanbanDetailGitRefresh" type="button" aria-label="Refresh Git status" title="Refresh Git status"><span class="diffRefreshIcon" aria-hidden="true"><\/span><\/button>/);
+    const onRefreshGit = vi.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<CardDetailHeader
+      card={card()} project={project} projects={[project]} statusLabel="Ready"
+      gitChangeSummary={{ added: 1, modified: 0, deleted: 0 }} editable={false} editing={false}
+      draftTitle="" titleInputRef={createRef<HTMLInputElement>()} onDraftTitleChange={() => {}}
+      onBeginEditing={() => {}} onRequestClose={() => {}} onAssignProject={async () => {}}
+      onActionError={() => {}} onNavigateParent={() => {}} onRefreshGit={onRefreshGit}
+    />); });
+    await act(async () => { renderer.root.findByProps({ 'aria-label': 'Refresh Git status' }).props.onClick(); });
+    expect(onRefreshGit).toHaveBeenCalledTimes(1);
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('renders separators only between repository metadata items for every presence combination', () => {
     const changed: GitChangeSummary = { added: 1, modified: 2, deleted: 3 };
     const unchanged: GitChangeSummary = { added: 0, modified: 0, deleted: 0 };
@@ -248,6 +267,7 @@ describe('CardDetailHeader', () => {
     for (const { label, currentCard, summary, expected } of cases) {
       const markup = renderHeader(currentCard, summary);
       expect(repositoryTokens(markup), label).toEqual(expected);
+      expect(markup.includes('aria-label="Refresh Git status"'), label).toBe(expected.includes('kanbanCardGitSummary'));
       expect(markup.match(/class="kanbanDetailRepositorySeparator" aria-hidden="true">•<\/span>/g)?.length ?? 0, label)
         .toBe(expected.filter((token) => token === 'kanbanDetailRepositorySeparator').length);
     }
@@ -288,5 +308,7 @@ describe('CardDetailHeader', () => {
     expect(markup).not.toContain('kanbanCardHeaderBranch');
     expect(markup).not.toContain('kanbanCardGitSummary');
     expect(markup).not.toContain('kanbanCardPrLink');
+    expect(markup).not.toContain('Refresh Git status');
+    expect(renderHeader(card(), null)).not.toContain('Refresh Git status');
   });
 });
