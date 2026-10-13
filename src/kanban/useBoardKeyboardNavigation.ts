@@ -7,6 +7,8 @@ export function useBoardKeyboardNavigation({
   visibleCards,
   doneCollapsed,
   backlogCollapsed,
+  attentionCollapsed = false,
+  progressCollapsed = false,
   selectedCard,
   openCard,
   view = 'board',
@@ -17,6 +19,8 @@ export function useBoardKeyboardNavigation({
   visibleCards: KanbanCardSummary[];
   doneCollapsed: boolean;
   backlogCollapsed: boolean;
+  attentionCollapsed?: boolean;
+  progressCollapsed?: boolean;
   selectedCard: KanbanCardSummary | null;
   openCard: (card: KanbanCardSummary) => void;
   view?: 'list' | 'board';
@@ -26,18 +30,14 @@ export function useBoardKeyboardNavigation({
 }) {
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const keyboardCards = useMemo(
-    () => keyboardNavigableCards(visibleCards, doneCollapsed, backlogCollapsed, view),
-    [doneCollapsed, backlogCollapsed, visibleCards, view],
+    () => keyboardNavigableCards(visibleCards, doneCollapsed, backlogCollapsed, view, attentionCollapsed, progressCollapsed),
+    [doneCollapsed, backlogCollapsed, attentionCollapsed, progressCollapsed, visibleCards, view],
   );
 
   useEffect(() => {
-    if (!doneCollapsed && !(view === 'list' && backlogCollapsed)) return;
-    setFocusedCardId((currentId) => (
-      visibleCards.some((card) => card.id === currentId && (
-        (doneCollapsed && card.status === 'done') || (view === 'list' && backlogCollapsed && card.status === 'needs_refinement')
-      )) ? null : currentId
-    ));
-  }, [doneCollapsed, backlogCollapsed, view, visibleCards]);
+    setFocusedCardId((currentId) => currentId && visibleCards.some((card) => card.id === currentId)
+      && !keyboardCards.some((card) => card.id === currentId) ? null : currentId);
+  }, [keyboardCards, visibleCards]);
 
   useEffect(() => {
     const handleBoardNavigation = (event: KeyboardEvent) => {

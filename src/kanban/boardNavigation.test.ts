@@ -25,6 +25,15 @@ describe('Kanban board keyboard navigation', () => {
     expect(keyboardNavigableCards(grouped, true, true, 'board').map((item) => item.id)).toEqual(['backlog', 'ready', 'approved']);
   });
 
+  it('skips each hidden list group without hiding board lanes', () => {
+    const grouped = [card('attention', 'needs_human'), card('progress', 'agent_working'), card('backlog', 'needs_refinement'), card('done', 'done')];
+    expect(keyboardNavigableCards(grouped, false, false, 'list', true, false).map((item) => item.id)).toEqual(['progress', 'backlog', 'done']);
+    expect(keyboardNavigableCards(grouped, false, false, 'list', false, true).map((item) => item.id)).toEqual(['attention', 'backlog', 'done']);
+    const onlyBacklog = keyboardNavigableCards(grouped, true, false, 'list', true, true);
+    expect(adjacentListCard(onlyBacklog, null, 'j')?.id).toBe('backlog');
+    expect(keyboardNavigableCards(grouped, false, true, 'board', true, true).map((item) => item.id)).toEqual(['attention', 'progress', 'backlog', 'done']);
+  });
+
   it('navigates within four groups and through list rows in presentation order', () => {
     const grouped = [card('ready', 'ready'), card('approved', 'approved'), card('refining', 'refining'), card('backlog', 'needs_refinement')];
     expect(adjacentBoardCard(grouped, 'ready', 'j')?.id).toBe('approved');

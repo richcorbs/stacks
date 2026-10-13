@@ -16,6 +16,10 @@ export type KanbanBoardProps = {
   onSelectProject: (projectId: string | null) => void;
   backlogCollapsed: boolean;
   onBacklogCollapsedChange: (collapsed: boolean) => void;
+  attentionCollapsed: boolean;
+  onAttentionCollapsedChange: (collapsed: boolean) => void;
+  progressCollapsed: boolean;
+  onProgressCollapsedChange: (collapsed: boolean) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
   view: 'list' | 'board';

@@ -7,19 +7,22 @@ import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus'
 import type { CardServices } from '../../kanban/useCardServices';
 import type { CardView } from '../../kanban/cardView';
 import { environmentHealthTooltip, shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
-import { WORK_GROUPS, groupCards } from '../../kanban/workflowGroups';
+import { WORK_GROUPS, groupCards, type WorkGroup } from '../../kanban/workflowGroups';
 import { cardServerAvailability } from './BoardCardServerServices';
 import { owningProject } from '../../kanban/projectScope';
 import { projectColorAttribute } from '../../projectColor';
 import { DoneLaneMenu, KanbanCardContents, kanbanCardClassName } from './KanbanLanes';
 
-export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serverServices, backlogCollapsed, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer }: {
+export function KanbanList({ cards, projects, selectedProjectColor, repositoryStatuses, prChecks, serverServices, backlogCollapsed, attentionCollapsed = false, progressCollapsed = false, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleAttention = () => {}, onToggleProgress = () => {}, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer }: {
   cards: KanbanCardSummary[];
   projects: Project[];
+  selectedProjectColor?: string;
   repositoryStatuses: Record<string, CardRepositoryStatus>;
   prChecks?: Record<string, { checkedAt: number | null; failed: boolean; refreshing: boolean }>;
   serverServices: Record<string, CardServices>;
   backlogCollapsed: boolean;
+  attentionCollapsed?: boolean;
+  progressCollapsed?: boolean;
   pointer?: ReturnType<typeof usePointerCardOrdering>;
   doneCollapsed: boolean;
   openLaneMenu: KanbanStatus | null;
@@ -28,6 +31,8 @@ export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serv
   keyboardFocusedCardId: string | null;
   setKeyboardFocusedCardId: (id: string | null) => void;
   onToggleBacklog: () => void;
+  onToggleAttention?: () => void;
+  onToggleProgress?: () => void;
   onToggleDone: () => void;
   onCleanupMerged: () => void;
   onOpenCard: (card: KanbanCardSummary, initialView?: CardView) => void;
@@ -42,18 +47,18 @@ export function KanbanList({ cards, projects, repositoryStatuses, prChecks, serv
     return () => document.documentElement.classList.remove('kanbanDragging');
   }, [dragging]);
   const draggedCard = cards.find((card) => card.id === pointer?.dragPreview?.cardId);
-  return <div className="kanbanList" role="region" aria-label="Cards by work group">
+  const collapsedGroups: Record<WorkGroup, boolean> = { attention: attentionCollapsed, progress: progressCollapsed, backlog: backlogCollapsed, done: doneCollapsed };
+  const toggles: Record<WorkGroup, () => void> = { attention: onToggleAttention, progress: onToggleProgress, backlog: onToggleBacklog, done: onToggleDone };
+  return <div className="kanbanList" data-project-color={selectedProjectColor} role="region" aria-label="Cards by work group">
     {WORK_GROUPS.map((group) => {
       const entries = groupCards(cards, group);
-      const collapsed = (group.id === 'done' && doneCollapsed) || (group.id === 'backlog' && backlogCollapsed);
+      const collapsed = collapsedGroups[group.id];
       return <section className="kanbanListGroup" data-kanban-group={group.id} data-kanban-list-status={group.id === 'backlog' && !collapsed ? 'needs_refinement' : undefined} key={group.id}>
         <header className="kanbanListGroupHeader">
-          {group.id === 'done' || group.id === 'backlog'
-            ? <button type="button" className="kanbanListGroupToggle" aria-expanded={!collapsed}
-                onClick={group.id === 'done' ? onToggleDone : onToggleBacklog}>
-                <span className="kanbanListChevron" aria-hidden="true" />{group.label} <span className="kanbanLaneCount">{entries.length}</span>
-              </button>
-            : <h2>{group.label} <span className="kanbanLaneCount">{entries.length}</span></h2>}
+          <button type="button" className="kanbanListGroupToggle" aria-expanded={!collapsed}
+            onClick={toggles[group.id]}>
+            <span className="kanbanListChevron" aria-hidden="true" />{group.label} <span className="kanbanLaneCount">{entries.length}</span>
+          </button>
           {group.id === 'done' && <DoneLaneMenu
             cardsCount={entries.length} collapsed={collapsed} triggerRef={doneMenuRef}
             open={openLaneMenu === 'done'} cleaningMerged={cleaningMerged}

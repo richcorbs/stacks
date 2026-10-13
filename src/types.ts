@@ -85,6 +85,8 @@ export type AppSettings = {
   kanban_project_id?: string | null;
   kanban_done_collapsed?: boolean | null;
   kanban_backlog_collapsed?: boolean | null;
+  kanban_attention_collapsed?: boolean | null;
+  kanban_progress_collapsed?: boolean | null;
   kanban_view?: 'list' | 'board' | null;
   activity_notifications?: boolean | null;
 };

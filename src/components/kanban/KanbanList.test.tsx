@@ -21,6 +21,43 @@ function render(statuses: KanbanStatus[], collapsed = true, repositoryStatuses: 
 }
 
 describe('Kanban list', () => {
+  it('renders all four groups as independent accessible toggles even when empty or collapsed', () => {
+    const markup = renderToStaticMarkup(<KanbanList cards={[card('ready'), card('refining')]} projects={[project]}
+      selectedProjectColor="teal" attentionCollapsed progressCollapsed={false} backlogCollapsed doneCollapsed
+      repositoryStatuses={{}} serverServices={{}} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
+      keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}}
+      onToggleAttention={() => {}} onToggleProgress={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}}
+      onCleanupMerged={() => {}} onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    expect(markup).toContain('class="kanbanList" data-project-color="teal"');
+    for (const [group, expanded, label, count] of [
+      ['attention', 'false', 'Needs your action', '1'], ['progress', 'true', 'In progress', '1'],
+      ['backlog', 'false', 'Backlog', '0'], ['done', 'false', 'Done', '0'],
+    ]) {
+      expect(markup).toContain(`data-kanban-group="${group}"><header class="kanbanListGroupHeader"><button type="button" class="kanbanListGroupToggle" aria-expanded="${expanded}"`);
+      expect(markup).toContain(`${label} <span class="kanbanLaneCount">${count}</span>`);
+    }
+    expect(markup).not.toContain('aria-label="Open card #ready');
+    expect(markup).toContain('aria-label="Open card #refining');
+    expect(render([])).toContain('Needs your action <span class="kanbanLaneCount">0</span>');
+  });
+
+  it('invokes attention and progress toggles independently', () => {
+    const onAttention = vi.fn();
+    const onProgress = vi.fn();
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<KanbanList cards={[]} projects={[]} repositoryStatuses={{}} serverServices={{}}
+      attentionCollapsed={false} progressCollapsed={false} backlogCollapsed doneCollapsed openLaneMenu={null}
+      setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}}
+      onToggleAttention={onAttention} onToggleProgress={onProgress} onToggleBacklog={() => {}} onToggleDone={() => {}}
+      onCleanupMerged={() => {}} onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+    const buttons = renderer!.root.findAllByProps({ className: 'kanbanListGroupToggle' });
+    act(() => buttons[0].props.onClick());
+    expect(onAttention).toHaveBeenCalledTimes(1);
+    expect(onProgress).not.toHaveBeenCalled();
+    act(() => buttons[1].props.onClick());
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    act(() => renderer!.unmount());
+  });
   it('scopes row hover and number tokens to each card owner, including missing owners', () => {
     const teal = { ...project, color_id: 'teal' };
     const rose = { ...project, id: 'other', color_id: 'rose' };
@@ -81,10 +118,10 @@ describe('Kanban list', () => {
       setKeyboardFocusedCardId={() => {}} onToggleBacklog={toggleBacklog} onToggleDone={toggleDone} onCleanupMerged={() => {}}
       onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
     const toggles = renderer.root.findAllByProps({ className: 'kanbanListGroupToggle' });
-    expect(toggles).toHaveLength(2);
-    expect(toggles.map((button) => button.props['aria-expanded'])).toEqual([false, false]);
-    toggles[0].props.onClick();
-    toggles[1].props.onClick();
+    expect(toggles).toHaveLength(4);
+    expect(toggles.map((button) => button.props['aria-expanded'])).toEqual([true, true, false, false]);
+    toggles[2].props.onClick();
+    toggles[3].props.onClick();
     renderer.root.findByProps({ className: 'kanbanLaneMenuTrigger' }).props.onClick();
     expect(toggleBacklog).toHaveBeenCalledOnce();
     expect(toggleDone).toHaveBeenCalledOnce();
