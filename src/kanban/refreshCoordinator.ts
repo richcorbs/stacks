@@ -37,11 +37,11 @@ export function isPeriodicRefreshEligible(card: KanbanCardSummary) {
     && (Boolean(card.environment) || ENVIRONMENT_DEPENDENT_STATUSES.has(card.status));
 }
 
-export function shouldRefreshPullRequest(target: RefreshTarget) {
+export function shouldRefreshPullRequest(target: RefreshTarget, explicitCardRequest = false) {
   return !target.card.hierarchy_finalized
     && Boolean(target.card.environment)
     && target.project?.delivery_workflow === 'github_pull_request'
-    && PR_REFRESH_STATUSES.has(target.card.status);
+    && (PR_REFRESH_STATUSES.has(target.card.status) || (explicitCardRequest && Boolean(target.card.pull_request)));
 }
 
 export function targetIdentity(card: KanbanCardSummary, project: Project | null) {

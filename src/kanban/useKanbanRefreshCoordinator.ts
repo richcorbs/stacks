@@ -23,6 +23,7 @@ export type KanbanRefreshState = {
   prChecks: Record<string, { identity: string; checkedAt: number | null; failed: boolean; refreshing: boolean }>;
   recheckEnvironment: (cardId: string) => Promise<CardEnvironmentHealth>;
   refreshAll: () => Promise<void>;
+  refreshCard: (cardId: string) => Promise<void>;
 };
 
 type CachedStatus = { identity: string; value: CardRepositoryStatus };
@@ -103,7 +104,7 @@ export function useKanbanRefreshCoordinator({
       const schedule = prScheduleRef.current;
       const hidden = typeof document !== 'undefined' && document.hidden;
       const force = request.full || request.active || request.cardIds.size > 0;
-      const prTargets = plan.targets.filter((target) => shouldRefreshPullRequest(target) && schedule.due(
+      const prTargets = plan.targets.filter((target) => shouldRefreshPullRequest(target, request.cardIds.has(target.card.id)) && schedule.due(
         target, target.card.id === plan.activeCardId, hidden,
         request.full || request.cardIds.has(target.card.id) || (request.active && target.card.id === plan.activeCardId),
       ));
@@ -127,7 +128,7 @@ export function useKanbanRefreshCoordinator({
         return result;
       });
       if (import.meta.env.DEV && (prTargets.length || force)) console.debug('[kanban-pr-cycle]', {
-        eligible: plan.targets.filter(shouldRefreshPullRequest).length, requests: prTargets.length,
+        eligible: plan.targets.filter((target) => shouldRefreshPullRequest(target)).length, requests: prTargets.length,
         elapsedMs: Math.round(performance.now() - prStarted), maxConcurrency: Math.min(2, prTargets.length),
         failures: prFailures, rateLimits, hidden,
       });
@@ -236,5 +237,6 @@ export function useKanbanRefreshCoordinator({
     })),
     recheckEnvironment,
     refreshAll: () => coordinator.request({ full: true }),
+    refreshCard: (cardId) => coordinator.request({ cardIds: [cardId] }),
   };
 }

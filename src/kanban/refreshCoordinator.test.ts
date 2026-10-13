@@ -90,8 +90,15 @@ describe('Kanban refresh targets', () => {
     expect(shouldRefreshPullRequest(targetFor(card('pr'), [project]))).toBe(true);
     expect(shouldRefreshPullRequest(targetFor(card('local'), [{ ...project, delivery_workflow: 'local_merge' }]))).toBe(false);
     expect(shouldRefreshPullRequest(targetFor(card('early', 'ready'), [project]))).toBe(false);
+    const withPr = { ...card('early', 'ready'), pull_request: { number: 42 } as KanbanCard['pull_request'] };
+    expect(shouldRefreshPullRequest(targetFor(withPr, [project]))).toBe(false);
+    expect(shouldRefreshPullRequest(targetFor(withPr, [project]), true)).toBe(true);
+    expect(shouldRefreshPullRequest(targetFor({ ...withPr, pull_request: null }, [project]), true)).toBe(false);
+    expect(shouldRefreshPullRequest(targetFor(withPr, [{ ...project, delivery_workflow: 'local_merge' }]), true)).toBe(false);
+    expect(shouldRefreshPullRequest(targetFor({ ...withPr, environment: null }, [project]), true)).toBe(false);
     expect(shouldRefreshPullRequest(targetFor(card('missing', 'approved', false), [project]))).toBe(false);
     expect(shouldRefreshPullRequest(targetFor({ ...card('parent'), hierarchy_finalized: true, child_count: 1 }, [project]))).toBe(false);
+    expect(shouldRefreshPullRequest(targetFor({ ...withPr, hierarchy_finalized: true }, [project]), true)).toBe(false);
   });
 
   it('uses owning-project delivery settings in target identity and rejects obsolete result contexts', () => {

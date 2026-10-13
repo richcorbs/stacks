@@ -13,7 +13,7 @@ import { CardHierarchyBadges } from './CardHierarchyBadges';
 
 type CardServices = ReturnType<typeof useCardServices>;
 
-export function CardDetailHeader({ card, project, projects, statusLabel, gitChangeSummary, editable, editing, draftTitle, titleInputRef, onDraftTitleChange, onBeginEditing, onRequestClose, onAssignProject, onActionError, onNavigateParent }: {
+export function CardDetailHeader({ card, project, projects, statusLabel, gitChangeSummary, editable, editing, draftTitle, titleInputRef, onDraftTitleChange, onBeginEditing, onRequestClose, onAssignProject, onActionError, onNavigateParent, onRefreshGit }: {
   card: KanbanCard;
   project: Project | undefined;
   projects: Project[];
@@ -29,6 +29,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
   onAssignProject: (projectId: string) => Promise<void>;
   onActionError: (message: string) => void;
   onNavigateParent: (parentId: string) => void;
+  onRefreshGit: () => void;
 }) {
   const hasBranch = Boolean(card.environment?.branch?.trim());
   const hasGitSummary = hasGitChangeSummary(gitChangeSummary);
@@ -57,7 +58,10 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
       {hasRepositoryMetadata && <div className="kanbanDetailRepositoryMeta">
         <CardEnvironmentBranch branch={card.environment?.branch} />
         {hasBranch && (hasGitSummary || hasPullRequest) && <span className="kanbanDetailRepositorySeparator" aria-hidden="true">•</span>}
-        <CardGitSummary summary={gitChangeSummary} />
+        {hasGitSummary && <span className="kanbanDetailGitChanges">
+          <CardGitSummary summary={gitChangeSummary} />
+          <button className="kanbanDetailGitRefresh" type="button" aria-label="Refresh Git status" title="Refresh Git status" onClick={onRefreshGit}><span className="diffRefreshIcon" aria-hidden="true" /></button>
+        </span>}
         {hasGitSummary && hasPullRequest && <span className="kanbanDetailRepositorySeparator" aria-hidden="true">•</span>}
         <CardPullRequestLink pullRequest={card.pull_request} onOpen={openExternalLink} />
       </div>}

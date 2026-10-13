@@ -96,7 +96,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   useEffect(() => () => { detailCoordinatorRef.current?.select(null); }, []);
   const launchRecoveryStartedRef = useRef(false);
   const pendingNotificationRouteRef = useRef<NotificationRoute | null>(null);
-  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshAll } = useKanbanRefreshCoordinator({
+  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshAll, refreshCard } = useKanbanRefreshCoordinator({
     cards: board.cards,
     projects,
     visibleCards,
@@ -705,6 +705,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
           environmentHealth={repositoryStatuses[selectedDetail.id]?.environmentHealth}
           gitChangeSummary={gitChangeSummary}
           onRecheckEnvironment={() => recheckEnvironment(selectedDetail.id)}
+          onRefreshGit={() => refreshCard(selectedDetail.id)}
           detailLoadError={detailLoadError?.cardId === selectedDetail.id ? detailLoadError.message : null}
           detailRefreshError={detailRefreshError?.cardId === selectedDetail.id ? detailRefreshError.message : null}
           onRetryRefresh={() => hydrateCardDetails(selectedCard).then(() => undefined)}
