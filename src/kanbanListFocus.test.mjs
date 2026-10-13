@@ -24,11 +24,11 @@ describe('Kanban list keyboard focus paint order', () => {
     expect(declarationsFor('.kanbanListRows')).toMatch(/padding:\s*3px 8px 8px/);
   });
 
-  it('accents only populated attention sections, including with a project color', () => {
+  it('uses the same subdued neutral border for populated attention sections regardless of project color', () => {
     expect(declarationsFor('.kanbanListGroup')).toMatch(/border:\s*1px solid #253546/);
     expect(declarationsFor('.kanbanListGroup[data-kanban-group="attention"][data-populated="true"]'))
-      .toMatch(/border-color:\s*color-mix\(in srgb, #3b82f6 76%, #a3bfd3\)/);
+      .toMatch(/border-color:\s*#344656/);
     expect(declarationsFor('.kanbanList[data-project-color] .kanbanListGroup[data-kanban-group="attention"][data-populated="true"]'))
-      .toMatch(/border-color:\s*color-mix\(in srgb, var\(--project-accent\) 76%, #a3bfd3\)/);
+      .toMatch(/border-color:\s*#344656/);
   });
 });
