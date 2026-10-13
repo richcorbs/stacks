@@ -1302,6 +1302,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseStageDisclosure:hover { background: #152330; }
 .releaseStageDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: #152330; }
 .releaseStageIcon { width: 18px; flex: 0 0 18px; color: #708598; text-align: center; }
+.releaseStageIcon .githubCiRunning { position: relative; top: 2px; }
 .releaseStage.completed .releaseStageIcon { color: #70bd8d; }
 .releaseStageDisclosureIndicator { margin-left: 0; color: #708598; font-size: 18px; line-height: 1; transition: transform 120ms ease; }
 .releaseStageStatus + .releaseStageDisclosureIndicator { margin-left: auto; }
