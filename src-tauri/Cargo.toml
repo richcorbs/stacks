@@ -1,6 +1,6 @@
 [package]
 name = "stacks"
-version = "0.5.59"
+version = "0.5.60"
 description = "A terminal workspace app for developers"
 authors = ["rich"]
 edition = "2021"
