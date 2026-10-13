@@ -41,7 +41,7 @@ describe('Kanban List layout', () => {
     expect(declarationsFor('.kanbanListRow .kanbanCardMeta')).toContain('flex-wrap: wrap');
     expect(declarationsFor('.kanbanListRow .kanbanCardIndicators')).toContain('flex-wrap: wrap');
     expect(styles).toMatch(/@media \(max-width: 800px\)\s*\{\s*\.kanbanListRow\.kanbanCard \{ grid-template-columns: minmax\(0, 1fr\)/);
-    expect(styles).toContain('.kanbanListRow .kanbanCardMeta { grid-row: 3; }');
+    expect(styles).toContain('.kanbanListRow .kanbanCardMeta { grid-column: 1; grid-row: 4; }');
     // Board and card-detail badges retain their original single-line limits.
     expect(declarationsFor('.kanbanProjectBadge')).toContain('text-overflow: ellipsis');
     expect(declarationsFor('.kanbanHierarchyBadge')).toContain('max-width: 130px');

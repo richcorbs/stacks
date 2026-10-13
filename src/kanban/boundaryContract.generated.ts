@@ -48,7 +48,7 @@ export type BoundaryCardCleanupOperation = {
   completed_at: number | null;
 };
 
-// Rust KanbanCardSummary: id:String, provider:String, external_id:String, title:String, board_id:String, board_title:String, list_title:String, assignee_names:Vec<String>, status:CardStatus, completion_outcome:Option<CompletionOutcome>, workflow_revision:i64, record_revision:i64, project_id:Option<String>, parent:Option<CardRelationshipSummary>, child_count:u64, children:Vec<CardRelationshipSummary>, hierarchy_finalized:bool, environment:Option<CardEnvironmentIndicator>, pull_request:Option<CardPullRequestIndicator>, creation_operation:Option<CardCreationIndicator>, cleanup_operation:Option<CardCleanupIndicator>, runtime_cleanup_status:Option<String>, created_at:i64, updated_at:i64, sort_order:i64
+// Rust KanbanCardSummary: id:String, provider:String, external_id:String, title:String, board_id:String, board_title:String, list_title:String, assignee_names:Vec<String>, status:CardStatus, completion_outcome:Option<CompletionOutcome>, workflow_revision:i64, record_revision:i64, project_id:Option<String>, parent:Option<CardRelationshipSummary>, child_count:u64, children:Vec<CardRelationshipSummary>, hierarchy_finalized:bool, environment:Option<CardEnvironmentIndicator>, pull_request:Option<CardPullRequestIndicator>, creation_operation:Option<CardCreationIndicator>, cleanup_operation:Option<CardCleanupIndicator>, runtime_cleanup_status:Option<String>, delivery_operation_stage:Option<String>, delivery_error:Option<String>, created_at:i64, updated_at:i64, sort_order:i64
 export type BoundaryKanbanCardSummary = {
   id: string;
   record_revision: number;

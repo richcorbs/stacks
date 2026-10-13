@@ -1,19 +1,20 @@
 import type { KanbanCardSummary } from './types';
 import { BOARD_GROUPS, WORK_GROUPS, groupCards, workGroup } from './workflowGroups';
+import type { DeliveryContext } from './deliveryStep';
 
-export function keyboardNavigableCards(cards: KanbanCardSummary[], doneCollapsed: boolean, backlogCollapsed = false, view: 'list' | 'board' = 'board', attentionCollapsed = false, progressCollapsed = false) {
+export function keyboardNavigableCards(cards: KanbanCardSummary[], doneCollapsed: boolean, backlogCollapsed = false, view: 'list' | 'board' = 'board', attentionCollapsed = false, progressCollapsed = false, context: DeliveryContext = {}) {
   return cards.filter((card) => !(doneCollapsed && card.status === 'done')
     && !(view === 'list' && ((backlogCollapsed && card.status === 'needs_refinement')
-      || (attentionCollapsed && workGroup(card.status) === 'attention')
-      || (progressCollapsed && workGroup(card.status) === 'progress'))));
+      || (attentionCollapsed && workGroup(card, context) === 'attention')
+      || (progressCollapsed && workGroup(card, context) === 'progress'))));
 }
 
-export function adjacentBoardCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l') {
-  const lanes = BOARD_GROUPS.map((group) => groupCards(cards, group));
+export function adjacentBoardCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l', context: DeliveryContext = {}) {
+  const lanes = BOARD_GROUPS.map((group) => groupCards(cards, group, context));
   const first = lanes.find((lane) => lane.length > 0)?.[0] ?? null;
   const current = cards.find((card) => card.id === currentId);
   if (!current) return first;
-  const laneIndex = BOARD_GROUPS.findIndex((group) => group.statuses.some((status) => status === current.status));
+  const laneIndex = BOARD_GROUPS.findIndex((group) => group.id === workGroup(current, context));
   const rowIndex = lanes[laneIndex]?.findIndex((card) => card.id === current.id) ?? 0;
   if (direction === 'j' || direction === 'k') {
     const lane = lanes[laneIndex] ?? [];
@@ -26,8 +27,8 @@ export function adjacentBoardCard(cards: KanbanCardSummary[], currentId: string 
   return current;
 }
 
-export function adjacentListCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'j' | 'k') {
-  const ordered = WORK_GROUPS.flatMap((group) => groupCards(cards, group));
+export function adjacentListCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'j' | 'k', context: DeliveryContext = {}) {
+  const ordered = WORK_GROUPS.flatMap((group) => groupCards(cards, group, context));
   const index = ordered.findIndex((card) => card.id === currentId);
   if (index < 0) return ordered[0] ?? null;
   return ordered[Math.max(0, Math.min(ordered.length - 1, index + (direction === 'j' ? 1 : -1)))];

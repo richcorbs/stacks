@@ -19,6 +19,7 @@ export function hierarchyStatusLabel(card: Pick<KanbanCard, 'status' | 'hierarch
   if (card.hierarchy_finalized && card.child_count > 0 && card.children.length === card.child_count && card.children.every((child) => child.status === 'done')) {
     return 'Done · Children complete';
   }
+  if (card.child_count > 0 && card.status === 'approved') return 'Children in delivery';
   if (card.status === 'done' && !card.hierarchy_finalized) {
     return `Done · ${card.completion_outcome === 'merged' ? 'Merged' : 'Closed'}`;
   }

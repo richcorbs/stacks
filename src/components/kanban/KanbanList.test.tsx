@@ -108,7 +108,7 @@ describe('Kanban list', () => {
   it('shows all eight exact statuses in four groups and keeps Done collapsed', () => {
     const markup = render(['needs_refinement', 'refining', 'needs_refinement_input', 'ready', 'agent_working', 'needs_human', 'approved', 'done']);
     expect(markup.match(/class="kanbanListGroup"/g)).toHaveLength(4);
-    for (const label of ['Refining', 'Needs you for refinement', 'Ready for agent', 'Agent working', 'Needs you', 'Ready to merge']) {
+    for (const label of ['Refining', 'Needs you for refinement', 'Ready for agent', 'Agent working', 'Needs you', 'Approved']) {
       expect(markup).toContain(`class="kanbanCardStatusBadge" data-project-color="blue" title="${label}">${label}</span>`);
     }
     expect(markup).toContain('aria-expanded="false"');

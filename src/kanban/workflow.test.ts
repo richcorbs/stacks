@@ -10,7 +10,7 @@ describe('Kanban workflow', () => {
       ['ready', 'Ready for agent'],
       ['agent_working', 'Agent working'],
       ['needs_human', 'Needs you'],
-      ['approved', 'Ready to merge'],
+      ['approved', 'Approved'],
       ['done', 'Done'],
     ]);
   });
