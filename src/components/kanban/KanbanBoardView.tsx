@@ -96,7 +96,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   useEffect(() => () => { detailCoordinatorRef.current?.select(null); }, []);
   const launchRecoveryStartedRef = useRef(false);
   const pendingNotificationRouteRef = useRef<NotificationRoute | null>(null);
-  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshAll, refreshCard } = useKanbanRefreshCoordinator({
+  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshCard } = useKanbanRefreshCoordinator({
     cards: board.cards,
     projects,
     visibleCards,
@@ -583,7 +583,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
           cards={visibleCards}
           projects={projects}
           repositoryStatuses={repositoryStatuses}
-          prChecks={prChecks} onRetryPr={() => { void refreshAll(); }}
+          prChecks={prChecks}
           serverServices={cardServices}
           doneCollapsed={doneCollapsed}
           doneToggleRef={doneToggleRef}
@@ -608,7 +608,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         selectedProjectColor={projectColorAttribute(selectedProject)}
         projects={projects}
         repositoryStatuses={repositoryStatuses}
-        prChecks={prChecks} onRetryPr={() => { void refreshAll(); }}
+        prChecks={prChecks}
         serverServices={cardServices}
         backlogCollapsed={backlogCollapsed}
         attentionCollapsed={attentionCollapsed}

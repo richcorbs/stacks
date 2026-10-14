@@ -6,7 +6,7 @@ import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
 import type { CardServices } from '../../kanban/useCardServices';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
-import { DoneLaneMenu, KanbanCardContents, KanbanLanes, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import { deliveryBadgeLabel, DoneLaneMenu, KanbanCardContents, KanbanLanes, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
 import { cardServerAvailability } from './BoardCardServerServices';
 import { KanbanList } from './KanbanList';
 import { PrRefreshSchedule } from '../../kanban/prRefreshSchedule';
@@ -80,14 +80,15 @@ function pullRequest(overrides: Partial<CardPullRequest> = {}): CardPullRequest 
   };
 }
 
-it('exposes a failed PR refresh with a keyboard-accessible retry', () => {
+it('shows one concise failed PR refresh badge with full accessible detail', () => {
   const current = card({ status: 'approved', child_count: 0, parent: null, pull_request: pullRequest() });
   const markup = renderToStaticMarkup(<KanbanCardContents card={current} projects={[{ ...project, delivery_workflow: 'github_pull_request' }]}
-    prCheck={{ checkedAt: null, failed: true, refreshing: false }} onRetryPr={() => {}} repositoryStatus={undefined}
+    prCheck={{ checkedAt: null, failed: true, refreshing: false }} repositoryStatus={undefined}
     onNavigateParent={() => {}} onToggleServer={() => {}} />);
-  expect(markup).toContain('PR refresh failed · Retry');
-  expect(markup).toContain('aria-label="Retry PR status for card #128"');
-  expect(markup).toContain('last-known');
+  expect(markup).toContain('>PR refresh failed</span>');
+  expect(markup).toContain('title="PR refresh failed · Retry"');
+  expect(markup).toContain('aria-label="PR refresh failed · Retry"');
+  expect(markup).not.toContain('kanbanPrRetry');
 });
 
 it('shows waiting CI and fresh merge action in the same groups and readable text in board and list', () => {
@@ -107,13 +108,20 @@ it('shows waiting CI and fresh merge action in the same groups and readable text
   for (const markup of [board, list]) {
     const progress = markup.match(/data-kanban-group="progress"[\s\S]*?(?=<\/section>)/)?.[0] ?? '';
     const attention = markup.match(/data-kanban-group="attention"[\s\S]*?(?=<\/section>)/)?.[0] ?? '';
-    expect(progress).toContain('PR open · CI running');
-    expect(progress).toContain('Approved');
-    expect(progress).not.toContain('PR merge available');
-    expect(attention).toContain('PR merge available · Merge PR');
-    expect(markup.match(/PR open · CI running/g)).toHaveLength(1);
-    expect(markup.match(/PR merge available · Merge PR/g)).toHaveLength(1);
+    expect(progress).toContain('>PR open</span>');
+    expect(progress).toContain('aria-label="PR open · CI running"');
+    expect(progress).not.toContain('>Approved</span>');
+    expect(progress).not.toContain('PR merge available</span>');
+    expect(attention).toContain('>PR merge available</span>');
+    expect(markup.match(/>PR open<\/span>/g)).toHaveLength(1);
+    expect(markup.match(/>PR merge available<\/span>/g)).toHaveLength(1);
   }
+});
+
+it('splits only at the first delivery separator', () => {
+  expect(deliveryBadgeLabel('Push failed · Retry push')).toBe('Push failed');
+  expect(deliveryBadgeLabel('Blocked · reason · more')).toBe('Blocked');
+  expect(deliveryBadgeLabel('Pushed')).toBe('Pushed');
 });
 
 function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boolean; open?: boolean; cardsCount?: number }) {
@@ -513,7 +521,7 @@ describe('KanbanLanes headings', () => {
     for (const [group, [label, count]] of Object.entries(expected) as [WorkGroup, [string, number]][]) {
       expect(laneMarkup(markup, group)).toContain(`<strong class="kanbanLaneTitle">${label} <span class="kanbanLaneCount">${count}</span></strong>`);
     }
-    expect(laneMarkup(markup, 'attention')).toContain('Ready for agent');
+    expect(laneMarkup(markup, 'attention')).toContain('Start work');
     expect(laneMarkup(markup, 'progress')).toContain('Agent working');
   });
 
