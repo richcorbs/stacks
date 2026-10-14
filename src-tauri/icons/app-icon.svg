@@ -1,20 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="background" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#31577D"/>
-      <stop offset="0.52" stop-color="#244565"/>
-      <stop offset="1" stop-color="#18334F"/>
+    <linearGradient id="background" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="1" stop-color="#0C1D32"/>
     </linearGradient>
-    <linearGradient id="layers" x1="7" y1="5" x2="17" y2="19" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#F5FAFF"/>
-      <stop offset="1" stop-color="#CDE8FF"/>
+    <linearGradient id="lanes" x1="0" y1="103" x2="0" y2="409" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#355673"/>
+      <stop offset="1" stop-color="#213B55"/>
     </linearGradient>
+    <filter id="soft-shadow" x="-10%" y="-40%" width="120%" height="180%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
   </defs>
-  <g transform="translate(1.44 1.44) scale(.88)">
-    <rect x="1" y="1" width="22" height="22" rx="5.2" fill="url(#background)"/>
-    <rect x="1.18" y="1.18" width="21.64" height="21.64" rx="5.02" fill="none" stroke="#A9D8FF" stroke-width="0.28" opacity="0.28"/>
-    <g transform="translate(3.36 3.36) scale(.72)" fill="none" stroke="url(#layers)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M2 7.5l9.18 4.32a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83l-8.59-3.91a2 2 0 0 0-1.66 0L5 4.99M2 7.5v5.41l9.18 3.91a2 2 0 0 0 1.65 0l8.58-3.9v5l-8.58 3.9a2 2 0 0 1-1.65 0l-8.6-3.91A1 1 0 0 1 2 17"/>
-    </g>
+  <rect width="512" height="512" rx="106" fill="url(#background)"/>
+  <g fill="url(#lanes)">
+    <rect x="83" y="103" width="104" height="306" rx="26"/>
+    <rect x="204" y="103" width="104" height="306" rx="26"/>
+    <rect x="325" y="103" width="104" height="306" rx="26"/>
   </g>
+  <g fill="#000" opacity=".30" filter="url(#soft-shadow)">
+    <rect x="112" y="138" width="288" height="37" rx="18.5"/>
+    <rect x="112" y="209" width="288" height="37" rx="18.5"/>
+    <rect x="112" y="280" width="288" height="37" rx="18.5"/>
+    <rect x="112" y="351" width="288" height="37" rx="18.5"/>
+  </g>
+  <rect x="112" y="131" width="288" height="37" rx="18.5" fill="#EAF6FF"/>
+  <rect x="112" y="202" width="288" height="37" rx="18.5" fill="#CDE8FF"/>
+  <rect x="112" y="273" width="288" height="37" rx="18.5" fill="#A9D5F3"/>
+  <rect x="112" y="344" width="288" height="37" rx="18.5" fill="#7EAED1"/>
 </svg>
