@@ -9,7 +9,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 const RELEASES_URL = 'https://github.com/richcorbs/stacks/releases';
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
-type UpdateStatus = 'available' | 'downloading' | 'error';
+type UpdateStatus = 'available' | 'downloading' | 'waiting' | 'confirmation' | 'error';
 
 export function AppUpdater() {
   const [update, setUpdate] = useState<Update | null>(null);
@@ -59,7 +59,7 @@ export function AppUpdater() {
     };
   }, [checkForUpdates]);
 
-  async function installUpdate() {
+  async function installUpdate(deferred = false) {
     if (!update || installingRef.current) return;
     installingRef.current = true;
     setStatus('downloading');
@@ -72,12 +72,59 @@ export function AppUpdater() {
       setProgress(total ? Math.min(100, Math.round(downloaded / total * 100)) : null);
     };
     try {
+      if (deferred) {
+        await update.download(onDownload);
+        setStatus('waiting');
+        setProgress(100);
+        return;
+      }
       await update.downloadAndInstall(onDownload);
       await invoke('save_current_window_state');
       await relaunch();
     } catch (installError) {
       setStatus('error');
       setError(errorMessage(installError));
+    } finally {
+      installingRef.current = false;
+    }
+  }
+
+  useEffect(() => {
+    if (status !== 'waiting') return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const snapshot = await invoke<{ idle: boolean }>('app_idle_snapshot');
+        if (!cancelled && snapshot.idle) setStatus('confirmation');
+      } catch (idleError) {
+        console.warn('Could not query Stacks runtime idleness:', idleError);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [status]);
+
+  async function restartDeferredUpdate() {
+    if (!update || installingRef.current) return;
+    installingRef.current = true;
+    try {
+      const snapshot = await invoke<{ idle: boolean }>('app_idle_snapshot');
+      if (!snapshot.idle) { setStatus('waiting'); return; }
+      const current = await check({ timeout: 15_000 });
+      if (!current || current.version !== update.version || !isNewer(update.version, update.currentVersion)) {
+        await update.close().catch(() => {});
+        setUpdate(null);
+        setStatus('error');
+        setError('This downloaded update is no longer current. Please check for updates again.');
+        return;
+      }
+      await update.install();
+      await invoke('save_current_window_state');
+      await relaunch();
+    } catch (restartError) {
+      setStatus('error');
+      setError(errorMessage(restartError));
     } finally {
       installingRef.current = false;
     }
@@ -92,19 +139,26 @@ export function AppUpdater() {
   if (!update && status !== 'error') return null;
   const releaseUrl = update ? `${RELEASES_URL}/tag/v${update.version}` : RELEASES_URL;
 
-  return <div className="modalBackdrop" onMouseDown={status === 'downloading' ? undefined : closeDialog}>
+  return <div className="modalBackdrop" onMouseDown={status === 'downloading' || status === 'confirmation' ? undefined : closeDialog}>
     <section className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={handleDialogShortcut}>
-      <h2 id="update-dialog-title">{status === 'error' ? 'Update check failed' : `Stacks ${update?.version} is available`}</h2>
+      <h2 id="update-dialog-title">{status === 'error' ? 'Update unavailable' : `Stacks ${update?.version} is available`}</h2>
       {status === 'available' && <>
         <p>You currently have version {update?.currentVersion}.</p>
         {update?.body && <div className="updateReleaseNotes">{update.body}</div>}
       </>}
       {status === 'downloading' && <p>Downloading and installing update{progress === null ? '…' : `… ${progress}%`}</p>}
+      {status === 'waiting' && <p>Update downloaded and verified. Waiting for Stacks to become idle…</p>}
+      {status === 'confirmation' && <p>Restart with a new version of Stacks?</p>}
       {error && <p className="dialogSubmitError">{error}</p>}
       <div className="modalActions">
         {status !== 'downloading' && <button type="button" onClick={closeDialog}>Later</button>}
-        <button type="button" disabled={status === 'downloading'} onClick={() => invoke('open_url', { url: releaseUrl }).catch(console.error)}>Release Notes</button>
-        {update && status !== 'downloading' && <button className="primaryAction" type="button" onClick={() => installUpdate().catch(console.error)}>Update Now</button>}
+        <button type="button" disabled={status === 'downloading' || status === 'waiting'} onClick={() => invoke('open_url', { url: releaseUrl }).catch(console.error)}>Release Notes</button>
+        {!update && status === 'error' && <button className="primaryAction" type="button" onClick={() => checkForUpdates(true).catch(console.error)}>Retry</button>}
+        {update && (status === 'available' || status === 'error') && <>
+          <button type="button" onClick={() => installUpdate(true).catch(console.error)}>Download and restart when idle</button>
+          <button className="primaryAction" type="button" onClick={() => installUpdate().catch(console.error)}>Update Now</button>
+        </>}
+        {status === 'confirmation' && <button className="primaryAction" type="button" onClick={() => restartDeferredUpdate().catch(console.error)}>Restart</button>}
       </div>
     </section>
   </div>;
@@ -116,4 +170,14 @@ function showToast(message: string) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isNewer(version: string, current: string) {
+  const parse = (value: string) => value.replace(/^v/, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const next = parse(version);
+  const running = parse(current);
+  for (let index = 0; index < Math.max(next.length, running.length); index += 1) {
+    if ((next[index] ?? 0) !== (running[index] ?? 0)) return (next[index] ?? 0) > (running[index] ?? 0);
+  }
+  return false;
 }

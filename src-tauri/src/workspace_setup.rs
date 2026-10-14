@@ -32,6 +32,10 @@ pub struct WorkspaceSetupResult {
 }
 
 impl WorkspaceSetupState {
+    pub(crate) fn busy(&self) -> usize {
+        self.operations.lock().map(|operations| operations.len()).unwrap_or(1)
+    }
+
     pub(crate) fn begin(&self, operation_id: &str) -> Result<Arc<AtomicBool>, String> {
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut operations = self
