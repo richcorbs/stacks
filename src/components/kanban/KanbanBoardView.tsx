@@ -550,7 +550,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
           </div>
         </div>
         <div className="kanbanHeaderActions">
-          <button className="primaryAction" type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
+          <button type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
             newCard.show();
           }}>+ Add card</button>
           <button type="button" disabled={projects.length === 0} onClick={() => {
