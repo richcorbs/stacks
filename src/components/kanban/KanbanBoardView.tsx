@@ -531,7 +531,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     <div className="kanbanView">
       <header className="kanbanHeader">
         <div className="kanbanProjectTitleRow">
-          <span className="kanbanProjectTitle"><strong>Stacks</strong></span>
           <label className="kanbanProjectFilter">
             <select aria-label="Filter board by project" value={filterProjectId ?? ''} onChange={(event) => {
               onSelectProject(event.target.value || null);
