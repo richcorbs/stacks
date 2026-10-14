@@ -39,6 +39,7 @@ export function canonicalProjectSettings(draft: DialogState) {
     requireApproval: draft.requireApproval ?? false,
     releasesEnabled: draft.releasesEnabled ?? false,
     releaseConfigPath: optional(draft.releaseConfigPath) ?? '.stacks/release.json',
+    requiredCiWorkflow: optional(draft.requiredCiWorkflow) ?? '.github/workflows/ci.yml',
   };
 }
 
@@ -63,5 +64,6 @@ export function projectSettingsDraft(project: Project): Extract<DialogState, { k
     githubMergeStrategy: project.github_merge_strategy ?? 'merge', requirePassingCi: project.require_passing_ci ?? true,
     requireApproval: project.require_approval ?? false, releasesEnabled: project.releases_enabled ?? false,
     releaseConfigPath: project.release_config_path ?? '.stacks/release.json',
+    requiredCiWorkflow: project.required_ci_workflow ?? '.github/workflows/ci.yml',
   };
 }

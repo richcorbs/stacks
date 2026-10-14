@@ -26,6 +26,7 @@ const source = options.source || sourceRevision();
 const notesFile = options.notes || process.env.STACKS_RELEASE_NOTES_FILE;
 const operation = process.env.STACKS_RELEASE_OPERATION_ID || '';
 const branch = options.branch || process.env.STACKS_RELEASE_TARGET_BRANCH;
+const requiredCiWorkflow = options['ci-workflow'] || process.env.STACKS_RELEASE_REQUIRED_CI_WORKFLOW;
 const ghOptions = { cwd: root, gh: options.gh };
 
 function requireValue(value, name) { if (!value) fail(`Missing --${name} (or corresponding STACKS_RELEASE_* environment variable)`); return value; }
@@ -53,6 +54,24 @@ function verifyRemoteRevision(tag, revision) {
   assertTagRevision(tag, revision);
   const remoteTagRevision = remoteTag(tag);
   if (remoteTagRevision !== revision) fail(`Remote tag ${tag} does not point to release revision ${revision}`);
+}
+function requiredCiRun(workflow, revision) {
+  if (!workflow?.trim()) fail('Required CI workflow is not configured; configure a workflow path (for example .github/workflows/ci.yml) before publishing');
+  if (!revision?.trim()) fail('The captured release commit SHA is missing; start a new release operation');
+  const encodedWorkflow = workflow.trim().split('/').map(encodeURIComponent).join('/');
+  let response;
+  try { response = ghJson(['api', `repos/{owner}/{repo}/actions/workflows/${encodedWorkflow}/runs?head_sha=${encodeURIComponent(revision)}&per_page=100`], ghOptions); }
+  catch (error) { fail(`Could not inspect required CI workflow ${workflow} for captured SHA ${revision}: ${error.message}. Verify GitHub authentication and retry the workflow.`); }
+  const runs = Array.isArray(response?.workflow_runs) ? response.workflow_runs
+    .filter((run) => run?.head_sha === revision)
+    .sort((left, right) => (Number(right.run_number || 0) - Number(left.run_number || 0)) || String(right.created_at || '').localeCompare(String(left.created_at || '')) || (Number(right.id || 0) - Number(left.id || 0))) : [];
+  const latest = runs[0];
+  if (!latest || latest.status !== 'completed' || latest.conclusion !== 'success') {
+    const state = latest ? `status ${latest.status || 'unknown'}, conclusion ${latest.conclusion || 'none'}` : 'no run found';
+    const url = latest?.html_url ? ` Run: ${latest.html_url}` : '';
+    fail(`Required CI workflow ${workflow} for captured SHA ${revision} is not successful: ${state}.${url} Wait for CI to complete successfully or retry the workflow, then publish again.`);
+  }
+  return latest;
 }
 function validateDraft(release, revision) {
   const tag = tagFor(version);
@@ -102,6 +121,7 @@ function verifyDraft() {
 }
 function publish() {
   const tag = tagFor(version); const revision = remoteTag(tag) || prepared(); verifyRemoteRevision(tag, revision); const release = validateDraft(matchingRelease(tag), revision);
+  requiredCiRun(requiredCiWorkflow, process.env.STACKS_RELEASE_RELEASE_REVISION || revision);
   const published = ghJson(['api', '--method', 'PATCH', `repos/{owner}/{repo}/releases/${release.id}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true'], ghOptions);
   console.log(`Published ${tagFor(version)}: ${published.html_url}`);
 }

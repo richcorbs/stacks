@@ -185,6 +185,8 @@ pub struct ReleaseOperation {
     pub project_path: String,
     pub repository_identity: String,
     pub config_path: String,
+    #[serde(default)]
+    pub required_ci_workflow: String,
     pub config: ReleaseConfig,
     pub previous_version: String,
     pub version: String,
@@ -621,6 +623,7 @@ pub fn release_start(
         project_path: root.to_string_lossy().to_string(),
         repository_identity: identity,
         config_path: draft.config_path,
+        required_ci_workflow: project.required_ci_workflow.clone(),
         config: config.clone(),
         previous_version: previous,
         version,
@@ -1103,7 +1106,7 @@ fn run_stage_attempt(
     };
     repository_preflight(root, &operation.target_branch, expected)?;
     let stage = &operation.config.stages[index];
-    let env = release_env(
+    let mut env = release_env(
         &operation.version,
         &operation.previous_version,
         root,
@@ -1112,6 +1115,8 @@ fn run_stage_attempt(
         &operation.id,
         notes_path,
     );
+    env.push(("STACKS_RELEASE_REQUIRED_CI_WORKFLOW".into(), operation.required_ci_workflow.clone()));
+    env.push(("STACKS_RELEASE_RELEASE_REVISION".into(), operation.prepared_revision.clone().unwrap_or_else(|| operation.expected_revision.clone())));
     let fresh = reconcile(&operation.config, root, &env)?;
     require_action(&fresh, &["start", "resume", "approve", "complete"])?;
     let execute = || -> Result<String, String> {
@@ -1866,6 +1871,9 @@ fn inspect(project: &ProjectReleaseSettings, generate_notes: bool) -> Result<Rel
     if !project.enabled {
         return Err("Releases are not enabled for this project".into());
     }
+    if project.required_ci_workflow.trim().is_empty() {
+        return Err("Release-enabled projects require a CI workflow path, for example .github/workflows/ci.yml".into());
+    }
     let root = canonical_primary_checkout(&project.path)?;
     let config_path = confined_config_path(&root, &project.config_path)?;
     let bytes = fs::read(&config_path)
@@ -2000,10 +2008,11 @@ struct ProjectReleaseSettings {
     target_branch: String,
     enabled: bool,
     config_path: String,
+    required_ci_workflow: String,
 }
 fn project(id: &str) -> Result<ProjectReleaseSettings, String> {
     kanban::with_read_connection(|connection| {
-        connection.query_row("SELECT path,target_branch,releases_enabled,release_config_path FROM projects WHERE id=?1", [id], |row| Ok(ProjectReleaseSettings { path: row.get(0)?, target_branch: row.get(1)?, enabled: row.get::<_, i64>(2)? != 0, config_path: row.get(3)? })).map_err(|error| match error { rusqlite::Error::QueryReturnedNoRows => "Project not found".into(), other => db_error(other) })
+        connection.query_row("SELECT path,target_branch,releases_enabled,release_config_path,required_ci_workflow FROM projects WHERE id=?1", [id], |row| Ok(ProjectReleaseSettings { path: row.get(0)?, target_branch: row.get(1)?, enabled: row.get::<_, i64>(2)? != 0, config_path: row.get(3)?, required_ci_workflow: row.get(4)? })).map_err(|error| match error { rusqlite::Error::QueryReturnedNoRows => "Project not found".into(), other => db_error(other) })
     })
 }
 
@@ -3179,6 +3188,7 @@ mod tests {
             target_branch: "main".into(),
             initial_revision: "source".into(),
             expected_revision: "source".into(),
+            required_ci_workflow: ".github/workflows/ci.yml".into(),
             prepared_revision: None,
             prepared_parent: None,
             approved_paths: vec![],
