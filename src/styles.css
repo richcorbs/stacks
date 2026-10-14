@@ -1219,7 +1219,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piSendArrow { width: 14px; height: 14px; display: block; overflow: visible; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .piComposerAction:hover:not(:disabled) { background: #568ab5; background: color-mix(in srgb, var(--pi-pane-accent) 76%, #324658); }
 .piComposerAction:disabled { opacity: .35; cursor: default; }
-.piComposerAction.stop { border-color: #85515a; background: #673b42; color: #e8b5ba; }
+.piComposerAction.stop { border-color: color-mix(in srgb, var(--pi-pane-accent) 70%, #738291); background: color-mix(in srgb, var(--pi-pane-accent) 62%, #263746); color: color-mix(in srgb, var(--pi-pane-accent) 12%, #f2f6fa); }
 .piStopSquare { width: 8px; height: 8px; display: block; border-radius: 1px; background: currentColor; }
 .piSelectionPopup { position: absolute; z-index: 24; display: flex; gap: 1px; padding: 2px; border: 1px solid #3a4b5d; border-radius: 5px; background: #17212c; box-shadow: 0 4px 14px #0009; transform: translate(-50%, -100%); }
 .piSelectionPopup.below { transform: translate(-50%, 0); }
