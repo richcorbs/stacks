@@ -44,6 +44,31 @@ export function ghJson(args, options = {}) {
   const output = run(options.gh || 'gh', args, { cwd: options.cwd, env: options.env });
   try { return JSON.parse(output); } catch { fail(`gh returned invalid JSON for: gh ${args.join(' ')}`); }
 }
+// GitHub's workflow-runs endpoint accepts a workflow filename or numeric ID, not
+// the repository-relative path shown in project settings.
+export function workflowApiId(workflow) {
+  if (!workflow?.trim()) fail('Required CI workflow is not configured; configure a workflow path (for example .github/workflows/ci.yml) before publishing');
+  const match = /^(?:\.github\/workflows\/)?([\w.-]+\.ya?ml)$/i.exec(workflow.trim());
+  if (!match) fail(`Invalid required CI workflow path ${JSON.stringify(workflow)}; use a filename or .github/workflows/<filename>.yml`);
+  return encodeURIComponent(match[1]);
+}
+export function requiredCiRun(workflow, revision, options = {}) {
+  const workflowId = workflowApiId(workflow);
+  if (!revision?.trim()) fail('The captured release commit SHA is missing; start a new release operation');
+  let response;
+  try { response = ghJson(['api', `repos/{owner}/{repo}/actions/workflows/${workflowId}/runs?head_sha=${encodeURIComponent(revision)}&per_page=100`], options); }
+  catch (error) { fail(`Could not inspect required CI workflow ${workflow} for captured SHA ${revision}: ${error.message}. Verify GitHub authentication and retry the workflow.`); }
+  const runs = Array.isArray(response?.workflow_runs) ? response.workflow_runs
+    .filter((run) => run?.head_sha === revision)
+    .sort((left, right) => (Number(right.run_number || 0) - Number(left.run_number || 0)) || String(right.created_at || '').localeCompare(String(left.created_at || '')) || (Number(right.id || 0) - Number(left.id || 0))) : [];
+  const latest = runs[0];
+  if (!latest || latest.status !== 'completed' || latest.conclusion !== 'success') {
+    const state = latest ? `status ${latest.status || 'unknown'}, conclusion ${latest.conclusion || 'none'}` : 'no run found';
+    const url = latest?.html_url ? ` Run: ${latest.html_url}` : '';
+    fail(`Required CI workflow ${workflow} for captured SHA ${revision} is not successful: ${state}.${url} Wait for CI to complete successfully or retry the workflow, then publish again.`);
+  }
+  return latest;
+}
 export function uploadReleaseAsset(tag, file, options = {}) {
   return run(options.gh || 'gh', ['release', 'upload', tag, file], { cwd: options.cwd, env: options.env });
 }

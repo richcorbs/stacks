@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare, reconcileRelease,
-  releaseNotes, suggestPatch, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared,
+  releaseNotes, requiredCiRun, suggestPatch, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared,
   verifyReleaseAssets, verifyVersions, writeChecksums,
 } from './release-lib.mjs';
 
@@ -28,7 +28,7 @@ function repository() {
 }
 function fakeGh(root, response) {
   const bin = path.join(root, 'gh');
-  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(response).replaceAll("'", "'\\''")}'\n`); fs.chmodSync(bin, 0o755); return bin;
+  fs.writeFileSync(bin, `#!/bin/sh\nif [ -n "$CALLS" ]; then printf '%s\\n' "$@" > "$CALLS"; fi\nprintf '%s\\n' '${JSON.stringify(response).replaceAll("'", "'\\''")}'\n`); fs.chmodSync(bin, 0o755); return bin;
 }
 function artifacts(root, version = '1.2.4') {
   const out = path.join(root, 'release-artifacts', `v${version}`); fs.mkdirSync(out, { recursive: true });
@@ -50,6 +50,32 @@ describe('release version discovery and validation', () => {
     for (const value of ['v1.2.3', '1.2', '01.2.3', '1.2.3-beta']) expect(() => validateVersion(value)).toThrow();
     const root = temp(); const gh = fakeGh(root, { tag_name: 'v1.2.3', draft: true, prerelease: false });
     expect(() => latestPublished({ gh })).toThrow(/published stable/);
+  });
+});
+
+describe('exact-commit release CI gate', () => {
+  const revision = 'ce556e35cef9ffcb7352ba3d48d5db42937bcdeb';
+  it('queries GitHub by workflow filename for a configured path and exact commit', () => {
+    const root = temp(); const calls = path.join(root, 'calls');
+    const gh = fakeGh(root, { workflow_runs: [
+      { head_sha: 'other', status: 'completed', conclusion: 'success', run_number: 9 },
+      { head_sha: revision, status: 'completed', conclusion: 'success', run_number: 8 },
+    ] });
+    expect(requiredCiRun('.github/workflows/ci.yml', revision, { gh, env: { ...process.env, CALLS: calls } }).head_sha).toBe(revision);
+    expect(fs.readFileSync(calls, 'utf8')).toBe(`api\nrepos/{owner}/{repo}/actions/workflows/ci.yml/runs?head_sha=${revision}&per_page=100\n`);
+    expect(requiredCiRun('ci.yml', revision, { gh }).conclusion).toBe('success');
+  });
+  it('fails closed on missing or invalid workflow configuration and non-successful latest exact-SHA runs', () => {
+    const root = temp();
+    expect(() => requiredCiRun('', revision)).toThrow(/not configured/);
+    for (const value of ['.github/workflows/', 'other/ci.yml', '.github/workflows/../ci.yml'])
+      expect(() => requiredCiRun(value, revision)).toThrow(/Invalid required CI workflow path/);
+    const gh = fakeGh(root, { workflow_runs: [
+      { head_sha: revision, status: 'completed', conclusion: 'success', run_number: 1 },
+      { head_sha: revision, status: 'in_progress', conclusion: null, run_number: 2 },
+    ] });
+    expect(() => requiredCiRun('.github/workflows/ci.yml', revision, { gh })).toThrow(/not successful: status in_progress/);
+    expect(() => requiredCiRun('ci.yml', 'other', { gh })).toThrow(/no run found/);
   });
 });
 
