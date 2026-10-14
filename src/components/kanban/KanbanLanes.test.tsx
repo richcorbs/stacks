@@ -213,6 +213,18 @@ describe('kanbanCardClassName', () => {
 });
 
 describe('KanbanCardContents', () => {
+  it('shows a finalized parent with unfinished children in backlog, never as complete', () => {
+    const parent = card({ status: 'needs_refinement', parent: null, hierarchy_finalized: true, child_count: 2,
+      children: [{ id: 'first', external_id: '1', title: 'First', status: 'needs_refinement' },
+        { id: 'second', external_id: '2', title: 'Second', status: 'done' }] });
+    for (const layout of ['board', 'list'] as const) {
+      const markup = renderCardContents(parent, undefined, layout);
+      expect(markup).toContain('title="Children in backlog"');
+      expect(markup).toContain('>Children in backlog</span>');
+      expect(markup).not.toContain('Children complete');
+    }
+  });
+
   it('uses each card owner for mixed board and list badges, not the current filter', () => {
     const other = { ...project, id: 'other', name: 'Other', color_id: 'rose' };
     const first = { ...project, color_id: 'teal' };

@@ -48,10 +48,18 @@ describe('delivery-step projection', () => {
       ['uncertain', 'Deployment uncertain · Resolve', true], ['deployed', 'Deployed · Reconciling', false],
     ] as const) expect(deliveryStep({ ...card, delivery_operation_stage: stage }, { projects: [scripted] })).toEqual({ label, actionRequired });
   });
-  it('never presents an aggregate as a leaf approval gate', () => {
-    const parent = { ...card, child_count: 2, hierarchy_finalized: true };
-    expect(deliveryStep(parent, context(parent))).toEqual({ label: 'Children complete', actionRequired: false });
-    expect(deliveryStep({ ...parent, hierarchy_finalized: false }, context(parent))).toEqual({ label: 'Children in delivery', actionRequired: false });
+  it('labels finalized parents by actual child progress, not breakdown finalization', () => {
+    const backlog = { ...card, status: 'needs_refinement' as const, child_count: 2, hierarchy_finalized: true,
+      children: [{ status: 'needs_refinement' }, { status: 'done' }] } as KanbanCardSummary;
+    expect(deliveryStep(backlog, context(backlog))).toEqual({ label: 'Children in backlog', actionRequired: false });
+    expect(groupCards([backlog], BOARD_GROUPS[0], context(backlog))).toEqual([backlog]);
+    const approved = { ...backlog, status: 'approved' as const, children: [{ status: 'approved' }, { status: 'done' }] } as KanbanCardSummary;
+    expect(deliveryStep(approved, context(approved))).toEqual({ label: 'Children in delivery', actionRequired: false });
+    expect(deliveryStep({ ...approved, hierarchy_finalized: false }, context(approved))).toEqual({ label: 'Children in delivery', actionRequired: false });
+    const complete = { ...backlog, status: 'done' as const, children: [{ status: 'done' }, { status: 'done' }] } as KanbanCardSummary;
+    expect(deliveryStep(complete, context(complete))).toEqual({ label: 'Children complete', actionRequired: false });
+    expect(groupCards([complete], BOARD_GROUPS[3], context(complete))).toEqual([complete]);
+    expect(deliveryStep({ ...complete, children: [{ status: 'done' }] } as KanbanCardSummary, context(complete)).label).toBe('Child status unverified · Check hierarchy');
   });
   it('uses the same projection for board/list counts and navigation without duplicates', () => {
     const ready = { ...card, id: 'ready', status: 'ready' as const };

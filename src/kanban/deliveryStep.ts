@@ -9,8 +9,20 @@ const step = (label: string, actionRequired: boolean): DeliveryStep => ({ label,
 
 /** UI projection only. Backend capabilities and fresh preflight remain the authority for every transition. */
 export function deliveryStep(card: KanbanCardSummary, context: DeliveryContext = {}): DeliveryStep {
+  if (card.hierarchy_finalized && card.child_count > 0) {
+    // Finalized means the child breakdown is fixed, not that its work is done.
+    // The backend rolls the parent's status up from its linked children.
+    if (card.status === 'done') return step(card.children.length === card.child_count && card.children.every((child) => child.status === 'done')
+      ? 'Children complete' : 'Child status unverified · Check hierarchy', false);
+    const childSteps: Partial<Record<typeof card.status, string>> = {
+      needs_refinement: 'Children in backlog', refining: 'Children refining',
+      needs_refinement_input: 'Children need refinement input', ready: 'Children ready for agent',
+      agent_working: 'Children working', needs_human: 'Children need review',
+      approved: 'Children in delivery',
+    };
+    return step(childSteps[card.status] ?? 'Child status unknown', false);
+  }
   if (card.status === 'done') return step(card.completion_outcome === 'merged' ? 'Delivered' : 'Closed', false);
-  if (card.hierarchy_finalized && card.child_count > 0) return step('Children complete', false);
   if (card.child_count > 0 && card.status === 'approved') return step('Children in delivery', false);
   if (card.status === 'needs_refinement') return step('Awaiting refinement', false);
   if (card.status === 'refining') return step('Refining', false);
