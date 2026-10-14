@@ -74,6 +74,7 @@ pub fn spawn_pty(
             terminal_id.clone(),
             PtyHandle {
                 generation: generation.clone(),
+                managed_service: managed_service.unwrap_or(false),
                 master: pair.master,
                 writer,
                 child,

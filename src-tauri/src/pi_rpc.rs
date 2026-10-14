@@ -70,6 +70,14 @@ pub struct PiRpcRegistry {
     cancelled: HashSet<String>,
 }
 
+impl PiRpcRegistry {
+    pub(crate) fn busy_sessions(&self) -> usize {
+        self.starting.len() + self.sessions.values().filter(|handle| {
+            handle.lifecycle.lock().map(|state| !state.eligible()).unwrap_or(true)
+        }).count()
+    }
+}
+
 impl Drop for PiRpcRegistry {
     fn drop(&mut self) {
         for handle in self.sessions.values() {

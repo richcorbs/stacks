@@ -259,6 +259,10 @@ pub struct ReleaseRegistry {
 }
 
 impl ReleaseRegistry {
+    pub(crate) fn busy(&self) -> usize {
+        self.attempts.lock().map(|attempts| attempts.len()).unwrap_or(1)
+    }
+
     fn begin(&self, token: String) -> Result<(), String> {
         self.attempts
             .lock()

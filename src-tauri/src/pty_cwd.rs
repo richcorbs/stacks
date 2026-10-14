@@ -9,6 +9,7 @@ pub trait PtyProcessRegistry {
 
 pub struct PtyHandle {
     pub generation: String,
+    pub managed_service: bool,
     pub master: Box<dyn MasterPty + Send>,
     pub writer: Box<dyn std::io::Write + Send>,
     pub child: Box<dyn Child + Send + Sync>,
@@ -18,6 +19,42 @@ pub struct PtyHandle {
 pub struct PtyRegistry {
     pub terminals: HashMap<String, PtyHandle>,
 }
+
+impl PtyRegistry {
+    pub(crate) fn busy_terminals(&self) -> Vec<String> {
+        self.terminals.iter().filter_map(|(id, handle)| {
+            if handle.managed_service || foreground_child_exists(handle.child.process_id()) {
+                Some(id.clone())
+            } else { None }
+        }).collect()
+    }
+}
+
+#[cfg(unix)]
+fn foreground_child_exists(pid: Option<u32>) -> bool {
+    let Some(pid) = pid else { return false };
+    let output = Command::new("ps").args(["-axo", "pid=,ppid="]).output();
+    let Ok(output) = output else { return false };
+    let mut children = HashMap::<u32, Vec<u32>>::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(child), Some(parent)) = (fields.next(), fields.next()) else { continue };
+        if let (Ok(child), Ok(parent)) = (child.parse(), parent.parse()) {
+            children.entry(parent).or_default().push(child);
+        }
+    }
+    let mut pending = vec![pid];
+    while let Some(parent) = pending.pop() {
+        if let Some(descendants) = children.get(&parent) {
+            if !descendants.is_empty() { return true; }
+            pending.extend(descendants);
+        }
+    }
+    false
+}
+
+#[cfg(not(unix))]
+fn foreground_child_exists(_pid: Option<u32>) -> bool { false }
 
 impl PtyProcessRegistry for PtyRegistry {
     fn process_id_for_terminal(&self, terminal_id: &str) -> Result<Option<u32>, String> {

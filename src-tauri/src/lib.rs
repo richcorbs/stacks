@@ -3,6 +3,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 mod app_events;
+mod app_idle;
 mod automation;
 pub mod dev_seed;
 mod fs_paths;
@@ -144,6 +145,7 @@ pub fn run() {
             new_id,
             quit_app,
             restart_app,
+            app_idle::app_idle_snapshot,
             open_path_in_editor,
             open_url,
             spawn_pty,
