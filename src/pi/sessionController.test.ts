@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { PiSessionController, type ControllerDependencies, type PiSessionConfig } from './sessionController';
+import { effectivePickerModels, PiSessionController, type ControllerDependencies, type PiSessionConfig } from './sessionController';
 import type { PiRpcEnvelope } from './types';
 import { setPiUiRequestWorkflowHandler } from './uiRequestWorkflow';
 
@@ -47,6 +47,26 @@ async function begin(h: ReturnType<typeof harness>) {
 function respond(h: ReturnType<typeof harness>, index: number, command: string, data: Record<string, unknown>) {
   h.emit(envelope({ type: 'response', id: h.commands[index].id as string, command, success: true, data }));
 }
+
+describe('effectivePickerModels', () => {
+  const available = [
+    { provider: 'one', id: 'first', name: 'First' },
+    { provider: 'two', id: 'second', name: 'Second' },
+    { provider: 'one', id: 'third', name: 'Third' },
+  ];
+
+  it('uses the resolved scoped list and excludes the active out-of-scope model', () => {
+    expect(effectivePickerModels(available, [available[1]])).toEqual([available[1]]);
+  });
+
+  it('falls back to all available models when scope is empty', () => {
+    expect(effectivePickerModels(available, [])).toEqual(available);
+  });
+
+  it('returns an empty effective list when scope has no currently available entries', () => {
+    expect(effectivePickerModels(available, [{ provider: 'missing', id: 'model' }])).toEqual([]);
+  });
+});
 
 describe('PiSessionController', () => {
   it('shows sanitized MCP notify failures and success without writing to the transcript', async () => {

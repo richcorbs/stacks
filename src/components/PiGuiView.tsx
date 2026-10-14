@@ -803,9 +803,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           disabled={pi.starting}
           onToggle={() => setContextPicker((current) => current === 'model' ? null : 'model')}
         >
-          {pi.availableModels.length === 0
+          {pi.effectiveModels.length === 0
             ? <div className="piContextPickerEmpty">No configured models</div>
-            : pi.availableModels.map((model) => {
+            : pi.effectiveModels.map((model) => {
               const selected = model.id === pi.context.modelId && model.provider === pi.context.provider;
               return <button
                 type="button"

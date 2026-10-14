@@ -38,6 +38,8 @@ export type PiResponseEvent = {
     messages?: PiMessage[];
     model?: PiModel | null;
     models?: PiModel[];
+    /** Resolved model scope, when supported by the Pi runtime. */
+    scopedModels?: PiModel[] | Array<{ model?: PiModel }>;
     levels?: string[];
     thinkingLevel?: string;
     sessionId?: string;
