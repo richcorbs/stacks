@@ -37,7 +37,12 @@ export type PiSessionSnapshot = {
   uiRequest: PiUiRequest | null;
   editorTextRequest: { text: string } | null;
   commands: PiCommand[];
+  /** Pi's complete currently available model snapshot. */
   availableModels: PiModel[];
+  /** Pi's resolved scoped model configuration, when exposed by the runtime. */
+  scopedModels: PiModel[];
+  /** The models the GUI picker is allowed to offer. */
+  effectiveModels: PiModel[];
   availableThinkingLevels: string[];
   queuedSteering: string[];
   queuedFollowUps: string[];
@@ -63,7 +68,7 @@ export class PiSessionController {
   private snapshot: PiSessionSnapshot = {
     messages: [], context: EMPTY_CONTEXT, streamingText: '', isStreamingText: false, isStreaming: false,
     tools: [], error: null, mcpStatus: 'unknown', extensionNotice: null, starting: true, stopped: false, uiRequest: null, editorTextRequest: null,
-    commands: GUI_BUILTIN_COMMANDS, availableModels: [], availableThinkingLevels: [], queuedSteering: [], queuedFollowUps: [],
+    commands: GUI_BUILTIN_COMMANDS, availableModels: [], scopedModels: [], effectiveModels: [], availableThinkingLevels: [], queuedSteering: [], queuedFollowUps: [],
   };
   private listeners = new Set<() => void>();
   private transcriptReconciliation = createPiTranscriptReconciliation();
@@ -234,6 +239,7 @@ export class PiSessionController {
   selectModel = async (model: PiModel) => {
     await this.sendRequest({ type: 'set_model', provider: model.provider, modelId: model.id });
     await this.refreshState();
+    this.refreshAvailableModels().catch(() => this.patchModels([], []));
     this.refreshAvailableThinkingLevels().catch(() => this.patch({ availableThinkingLevels: [] }));
     this.refreshStats().catch(() => {});
   };
@@ -336,7 +342,7 @@ export class PiSessionController {
   private hydrate = async () => {
     await Promise.all([this.refreshState(), this.refreshMessages()]);
     this.refreshCommands().catch(() => this.patch({ commands: GUI_BUILTIN_COMMANDS }));
-    this.refreshAvailableModels().catch(() => this.patch({ availableModels: [] }));
+    this.refreshAvailableModels().catch(() => this.patchModels([], []));
     this.refreshAvailableThinkingLevels().catch(() => this.patch({ availableThinkingLevels: [] }));
     this.refreshStats().catch(() => {});
   };
@@ -394,6 +400,7 @@ export class PiSessionController {
     const response = await this.sendRequest({ type: 'get_state' });
     const model = response.data?.model;
     this.patch({
+      ...(Array.isArray(response.data?.scopedModels) ? (() => { const scopedModels = normalizeScopedModels(response.data.scopedModels); return { scopedModels, effectiveModels: effectivePickerModels(this.snapshot.availableModels, scopedModels) }; })() : {}),
       context: { ...this.snapshot.context, modelName: model?.name || model?.id || '', modelId: model?.id || '', provider: model?.provider || '',
         thinkingLevel: response.data?.thinkingLevel || '', sessionId: response.data?.sessionId || '', sessionName: response.data?.sessionName || '',
         supportsImages: Array.isArray(model?.input) && model.input.includes('image') },
@@ -415,7 +422,18 @@ export class PiSessionController {
   };
   private refreshAvailableModels = async () => {
     const response = await this.sendRequest({ type: 'get_available_models' });
-    this.patch({ availableModels: normalizeModels(response.data?.models) });
+    const availableModels = normalizeModels(response.data?.models);
+    // Newer Pi runtimes include the resolved scope alongside the complete
+    // availability snapshot. Older runtimes omit it, which intentionally
+    // preserves the unscoped picker fallback.
+    const scopedModels = Array.isArray(response.data?.scopedModels)
+      ? normalizeScopedModels(response.data.scopedModels)
+      : this.snapshot.scopedModels;
+    this.patchModels(availableModels, scopedModels);
+  };
+
+  private patchModels(availableModels: PiModel[], scopedModels = this.snapshot.scopedModels) {
+    this.patch({ availableModels, scopedModels, effectiveModels: effectivePickerModels(availableModels, scopedModels) });
   };
   private refreshAvailableThinkingLevels = async () => {
     const response = await this.sendRequest({ type: 'get_available_thinking_levels' });
@@ -528,6 +546,12 @@ export class PiSessionController {
       case 'auto_compaction_end': case 'session_switch': case 'session_fork':
         this.refreshMessages().catch(() => {});
         this.refreshState().catch(() => {});
+        this.refreshAvailableModels().catch(() => this.patchModels([], []));
+        break;
+      // Runtime versions that report model configuration changes use one of
+      // these notifications. Refresh rather than retaining stale scope.
+      case 'model_availability_changed': case 'model_scope_changed': case 'models_changed':
+        this.refreshAvailableModels().catch(() => this.patchModels([], []));
         break;
       case 'pi_stderr': break; // Pi or a server may write credentials to stderr.
       case 'pi_protocol_error':
@@ -680,6 +704,20 @@ function normalizeModels(value: unknown): PiModel[] {
   if (!Array.isArray(value)) return [];
   return value.filter((model): model is PiModel => Boolean(model && typeof model === 'object' && typeof (model as PiModel).id === 'string' && typeof (model as PiModel).provider === 'string'))
     .sort((left, right) => (left.name || left.id).localeCompare(right.name || right.id));
+}
+function normalizeScopedModels(value: unknown): PiModel[] {
+  if (!Array.isArray(value)) return [];
+  return normalizeModels(value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || !('model' in entry)) return entry;
+    return (entry as { model?: unknown }).model;
+  }));
+}
+
+/** Scope is resolved by Pi; never infer it from provider/model IDs. */
+export function effectivePickerModels(availableModels: PiModel[], scopedModels: PiModel[]): PiModel[] {
+  if (scopedModels.length === 0) return availableModels;
+  const scopedIds = new Set(scopedModels.map((model) => `${model.provider}\0${model.id}`));
+  return availableModels.filter((model) => scopedIds.has(`${model.provider}\0${model.id}`));
 }
 function normalizeThinkingLevels(value: unknown): string[] { return stringArray(value); }
 function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
