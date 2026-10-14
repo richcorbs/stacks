@@ -10,9 +10,21 @@ vi.mock('./PiMarkdown', () => ({
   },
 }));
 
-import { collectToolArgs, PiSettledMessages } from './PiTranscript';
+import { collectToolArgs, PiSettledMessages, PiToolCard } from './PiTranscript';
 
 describe('Pi settled transcript rendering', () => {
+  it.each(['complete', 'running', 'error'] as const)('renders the %s tool status slot without changing the card content', async (status) => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<PiToolCard name="bash" args={null} output="tool output" status={status} />);
+    });
+
+    const card = renderer.root.findByType('details');
+    expect(card.props.className.split(' ')).toEqual(expect.arrayContaining(['piToolCard', 'historical', status]));
+    expect(renderer.root.findByProps({ className: 'piToolStatus' })).toBeTruthy();
+    expect(JSON.stringify(renderer.toJSON())).toContain('tool output');
+  });
+
   it('does not rerender visible settled Markdown when older history is prepended', async () => {
     const newest: PiMessage = { role: 'assistant', content: [{ type: 'text', text: 'newest' }], timestamp: 2 };
     const older: PiMessage = { role: 'assistant', content: [{ type: 'text', text: 'older' }], timestamp: 1 };
