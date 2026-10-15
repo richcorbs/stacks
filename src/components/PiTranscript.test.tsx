@@ -10,9 +10,18 @@ vi.mock('./PiMarkdown', () => ({
   },
 }));
 
-import { collectToolArgs, PiSettledMessages, PiToolCard } from './PiTranscript';
+import { collectToolArgs, PiSessionBoundaryEntry, PiSettledMessages, PiToolCard } from './PiTranscript';
 
 describe('Pi settled transcript rendering', () => {
+  it('renders a session boundary outside user-message bubbles with the existing timestamp', async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<PiSessionBoundaryEntry boundary={{ sessionId: 'session-2', timestamp: Date.UTC(2025, 0, 2, 15, 4) }} />); });
+    expect(renderer.root.findByProps({ className: 'piSessionBoundaryCommand' }).children).toEqual(['/new']);
+    expect(renderer.root.findByProps({ className: 'piSessionBoundaryDivider' }).children).toEqual([expect.anything()]);
+    expect(renderer.root.findByType('time').props.className).toBe('piMessageTimestamp');
+    expect(renderer.root.findAllByProps({ className: 'piMessageUser' })).toHaveLength(0);
+  });
+
   it.each(['complete', 'running', 'error'] as const)('renders the %s tool status slot without changing the card content', async (status) => {
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => {

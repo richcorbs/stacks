@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import type { PiContentBlock, PiMessage as PiMessageData, PiPromptImage } from '../pi/types';
+import type { PiSessionBoundary } from '../types';
 import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentation';
 import { PiMarkdown } from './PiMarkdown';
 
@@ -14,6 +15,14 @@ export function piMessageKey(message: PiMessageData) {
     messageIdentity.set(message, identity);
   }
   return `pi-message:${identity}`;
+}
+
+export function PiSessionBoundaryEntry({ boundary }: { boundary: PiSessionBoundary }) {
+  return <div className="piSessionBoundary" aria-label="New session started">
+    <div className="piSessionBoundaryCommand">/new</div>
+    <div className="piSessionBoundaryDivider"><span>New session started</span></div>
+    <MessageTimestamp timestamp={boundary.timestamp} />
+  </div>;
 }
 
 export const PiSettledMessages = memo(function PiSettledMessages({ messages, toolArgs }: { messages: PiMessageData[]; toolArgs: Map<string, unknown> }) {
@@ -118,7 +127,7 @@ function diceSimilarity(left: string[], right: string[]) {
   return (2 * shared) / (left.length + right.length);
 }
 
-function MessageTimestamp({ timestamp }: { timestamp?: number }) {
+export function MessageTimestamp({ timestamp }: { timestamp?: number }) {
   if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return null;
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return null;

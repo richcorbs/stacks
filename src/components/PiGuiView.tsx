@@ -17,7 +17,7 @@ import { usePiSession } from '../pi/usePiSession';
 import { TerminalControls } from './TerminalControls';
 import { handleDialogShortcut } from './dialogShortcut';
 import { PiMarkdown } from './PiMarkdown';
-import { collectToolArgs, messageText, PiSettledMessages, PiToolCard } from './PiTranscript';
+import { collectToolArgs, messageText, PiSessionBoundaryEntry, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
 
 // Runtime-only: pane IDs survive Pi restarts and view remounts, but not an app restart.
@@ -583,6 +583,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           <button type="button" onClick={loadOlderMessages}>Load older messages</button>
           <span>{hiddenMessageCount} earlier {hiddenMessageCount === 1 ? 'message' : 'messages'}</span>
         </div>}
+        {pi.sessionBoundary && <PiSessionBoundaryEntry boundary={pi.sessionBoundary} />}
         <PiSettledMessages messages={visibleMessages} toolArgs={historicalToolArgs} />
         {hasStreamingText && (
           <div className="piMessage piMessageAssistant">

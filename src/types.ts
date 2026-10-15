@@ -57,6 +57,7 @@ export type TerminalEntry = PaneEntry;
 export type MaximizedWorkspaceIds = Record<string, boolean>;
 export type ToastDetail = { message: string; x?: number; y?: number };
 export type ToastState = ToastDetail;
+export type PiSessionBoundary = { sessionId: string; timestamp: number };
 export type SplitNode =
   | { kind: 'empty' }
   | { kind: 'leaf'; terminalId: string; paneKind?: PaneKind; command?: string | null }

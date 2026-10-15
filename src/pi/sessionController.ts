@@ -7,6 +7,8 @@ import { notifyPiAgentSettled, notifyPiPromptFailed } from './promptEvent';
 import { notifyPiUiRequestDismissed, notifyPiUiRequestReceived, preparePiUiRequestResponse } from './uiRequestWorkflow';
 import { parseWorkOwnerId, type AgentThread } from '../appAttention';
 import { applicationEvents, type AppEventMap, type EventBroker } from '../applicationEvents';
+import type { PiSessionBoundary } from '../types';
+import { loadPiSessionBoundary, savePiSessionBoundary } from './sessionBoundary';
 
 const EMPTY_CONTEXT: PiSessionContext = {
   modelName: '', modelId: '', provider: '', thinkingLevel: '', sessionId: '', sessionName: '',
@@ -46,6 +48,7 @@ export type PiSessionSnapshot = {
   availableThinkingLevels: string[];
   queuedSteering: string[];
   queuedFollowUps: string[];
+  sessionBoundary: PiSessionBoundary | null;
 };
 
 export type ControllerDependencies = {
@@ -69,6 +72,7 @@ export class PiSessionController {
     messages: [], context: EMPTY_CONTEXT, streamingText: '', isStreamingText: false, isStreaming: false,
     tools: [], error: null, mcpStatus: 'unknown', extensionNotice: null, starting: true, stopped: false, uiRequest: null, editorTextRequest: null,
     commands: GUI_BUILTIN_COMMANDS, availableModels: [], scopedModels: [], effectiveModels: [], availableThinkingLevels: [], queuedSteering: [], queuedFollowUps: [],
+    sessionBoundary: null,
   };
   private listeners = new Set<() => void>();
   private transcriptReconciliation = createPiTranscriptReconciliation();
@@ -85,7 +89,9 @@ export class PiSessionController {
   private stopListening?: () => void;
   private uiRequestTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(private config: PiSessionConfig, private dependencies: ControllerDependencies = defaultDependencies) {}
+  constructor(private config: PiSessionConfig, private dependencies: ControllerDependencies = defaultDependencies) {
+    this.snapshot = { ...this.snapshot, sessionBoundary: loadPiSessionBoundary(config.paneId) };
+  }
 
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => {
@@ -221,8 +227,19 @@ export class PiSessionController {
     const trimmed = input.trim();
     const command = trimmed.slice(1).split(/\s/, 1)[0].toLowerCase();
     if (command === 'new') {
+      const invokedAt = Date.now();
       const response = await this.sendRequest({ type: 'new_session' }, 60_000);
-      if (!response.data?.cancelled) await Promise.all([this.refreshMessages(), this.refreshState()]);
+      if (!response.data?.cancelled) {
+        await this.refreshMessages();
+        const sessionId = await this.refreshState();
+        // Pi does not record the /new command in the new transcript. Record the
+        // boundary only after the request succeeded and the new identity exists.
+        if (sessionId) {
+          const boundary = { sessionId, timestamp: invokedAt } satisfies PiSessionBoundary;
+          savePiSessionBoundary(this.config.paneId, boundary);
+          this.patch({ sessionBoundary: boundary });
+        }
+      }
       this.refreshStats().catch(() => {});
       return;
     }
@@ -296,6 +313,7 @@ export class PiSessionController {
     this.uiResponseEpoch += 1;
     this.clearUiRequest(true, false);
     this.deleted = true;
+    savePiSessionBoundary(this.config.paneId, null);
     this.stopListening?.();
     this.stopListening = undefined;
     viewPresence.delete(this.config.paneId);
@@ -399,13 +417,19 @@ export class PiSessionController {
     const requestedAtRevision = this.activityRevision;
     const response = await this.sendRequest({ type: 'get_state' });
     const model = response.data?.model;
+    const sessionId = response.data?.sessionId || '';
+    const boundary = this.snapshot.sessionBoundary?.sessionId === sessionId
+      ? this.snapshot.sessionBoundary : null;
+    if (this.snapshot.sessionBoundary && !boundary) savePiSessionBoundary(this.config.paneId, null);
     this.patch({
       ...(Array.isArray(response.data?.scopedModels) ? (() => { const scopedModels = normalizeScopedModels(response.data.scopedModels); return { scopedModels, effectiveModels: effectivePickerModels(this.snapshot.availableModels, scopedModels) }; })() : {}),
       context: { ...this.snapshot.context, modelName: model?.name || model?.id || '', modelId: model?.id || '', provider: model?.provider || '',
         thinkingLevel: response.data?.thinkingLevel || '', sessionId: response.data?.sessionId || '', sessionName: response.data?.sessionName || '',
         supportsImages: Array.isArray(model?.input) && model.input.includes('image') },
       ...(requestedAtRevision === this.activityRevision ? { isStreaming: Boolean(response.data?.isStreaming) } : {}),
+      sessionBoundary: boundary,
     });
+    return sessionId || null;
   };
 
   private refreshStats = async () => {

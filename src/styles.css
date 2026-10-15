@@ -1099,6 +1099,11 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piHistoryLimit button:hover { border-color: #49657d; background: #1a2936; color: #d2dde6; }
 .piHistoryLimit button:focus-visible { outline: 2px solid #6d9dc5; outline-offset: 2px; }
 .piHistoryLimit span { color: #65798d; }
+.piSessionBoundary { width: 100%; margin: 0 0 24px; padding: 12px 0 16px; color: #687b8e; text-align: center; font-size: max(9px, calc(var(--pi-font-size, 13px) - 3px)); }
+.piSessionBoundaryCommand { margin: 0 0 12px; color: #91a5b8; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; }
+.piSessionBoundaryDivider { display: flex; align-items: center; gap: 12px; color: #8294a5; white-space: nowrap; }
+.piSessionBoundaryDivider::before, .piSessionBoundaryDivider::after { content: ''; height: 1px; flex: 1; background: #344757; }
+.piSessionBoundary .piMessageTimestamp { margin-top: 8px; text-align: center; }
 .piMessage { width: 100%; margin: 0 0 24px; padding-left: 10px; }
 .piMessageText { color: #b7c3d1; font-size: var(--pi-font-size, 13px); line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; }
 .piMessageAssistant .piAssistantTextBlock + .piAssistantTextBlock { margin-top: 1.58em; }
