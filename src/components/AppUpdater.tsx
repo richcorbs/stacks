@@ -141,7 +141,10 @@ export function AppUpdater() {
 
   return <div className="modalBackdrop" onMouseDown={status === 'downloading' || status === 'confirmation' ? undefined : closeDialog}>
     <section className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={handleDialogShortcut}>
-      <h2 id="update-dialog-title">{status === 'error' ? 'Update unavailable' : `Stacks ${update?.version} is available`}</h2>
+      <header className="updateModalHeader">
+        <h2 id="update-dialog-title">{status === 'error' ? 'Update unavailable' : `Stacks ${update?.version} is available`}</h2>
+        <button className="updateReleaseNotesLink" type="button" disabled={status === 'downloading' || status === 'waiting'} onClick={() => invoke('open_url', { url: releaseUrl }).catch(console.error)}>Release Notes</button>
+      </header>
       {status === 'available' && <>
         <p>You currently have version {update?.currentVersion}.</p>
         {update?.body && <div className="updateReleaseNotes">{update.body}</div>}
@@ -152,11 +155,10 @@ export function AppUpdater() {
       {error && <p className="dialogSubmitError">{error}</p>}
       <div className="modalActions">
         {status !== 'downloading' && <button type="button" onClick={closeDialog}>Later</button>}
-        <button type="button" disabled={status === 'downloading' || status === 'waiting'} onClick={() => invoke('open_url', { url: releaseUrl }).catch(console.error)}>Release Notes</button>
         {!update && status === 'error' && <button className="primaryAction" type="button" onClick={() => checkForUpdates(true).catch(console.error)}>Retry</button>}
         {update && (status === 'available' || status === 'error') && <>
-          <button type="button" onClick={() => installUpdate(true).catch(console.error)}>Download and restart when idle</button>
-          <button className="primaryAction" type="button" onClick={() => installUpdate().catch(console.error)}>Update Now</button>
+          <button type="button" onClick={() => installUpdate(true).catch(console.error)}>Download. Restart later.</button>
+          <button className="primaryAction" type="button" onClick={() => installUpdate().catch(console.error)}>UPDATE</button>
         </>}
         {status === 'confirmation' && <button className="primaryAction" type="button" onClick={() => restartDeferredUpdate().catch(console.error)}>Restart</button>}
       </div>

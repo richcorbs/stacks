@@ -592,6 +592,12 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   padding: 18px;
 }
 .modal h2 { margin: 0 0 16px; font-size: calc(18px + var(--ui-font-delta, 0px)); }
+.updateModalHeader { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin-bottom: 16px; }
+.updateModalHeader h2 { min-width: 0; max-width: 100%; margin: 0; overflow-wrap: anywhere; }
+.updateModalHeader .updateReleaseNotesLink { max-width: 100%; padding: 2px 0; border: 0; border-radius: 2px; background: transparent; color: #8fa0b3; font-size: calc(12px + var(--ui-font-delta, 0px)); font-weight: 400; text-transform: none; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; cursor: pointer; }
+.updateModalHeader .updateReleaseNotesLink:hover:not(:disabled) { background: transparent; color: #bdd0e0; }
+.updateModalHeader .updateReleaseNotesLink:focus-visible { outline: 2px solid #78a9d1; outline-offset: 3px; }
+.updateModalHeader .updateReleaseNotesLink:disabled { opacity: .45; cursor: not-allowed; }
 .dialogFields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .dialogFields:disabled input,
 .dialogFields:disabled select,
