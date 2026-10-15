@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import TestRenderer, { act } from 'react-test-renderer';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanupSelections, CleanupPreflightDialog } from './CleanupPreflightDialog';
 import type { CleanupPreflight } from '../../kanban/types';
 
@@ -19,6 +20,97 @@ function entry(overrides: Partial<CleanupPreflight> = {}): CleanupPreflight {
 function render(entries: CleanupPreflight[], bulk = false) {
   return renderToStaticMarkup(<CleanupPreflightDialog bulk={bulk} inventory={{ entries, eligible_merged: 0, blocked: 0, closed: 0, completed: 0 }} onCancel={vi.fn()} onConfirm={vi.fn()} />);
 }
+
+describe('CleanupPreflightDialog keyboard focus', () => {
+  let renderer: TestRenderer.ReactTestRenderer | undefined;
+  afterEach(() => {
+    act(() => renderer?.unmount());
+    vi.unstubAllGlobals();
+  });
+
+  function mount({ bulk = false, entries = [entry()], onConfirm = vi.fn().mockResolvedValue(undefined) } = {}) {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    let focusFrame!: FrameRequestCallback;
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => { focusFrame = callback; return 7; }));
+    const cancelFrame = vi.fn();
+    vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+    const focus = vi.fn();
+    const onCancel = vi.fn();
+    act(() => {
+      renderer = TestRenderer.create(<CleanupPreflightDialog bulk={bulk} inventory={{ entries, eligible_merged: 0, blocked: 0, closed: 0, completed: 0 }} onCancel={onCancel} onConfirm={onConfirm} />, {
+        createNodeMock: (element) => ({ focus: () => focus((element.props as { role?: string }).role ?? element.type) }),
+      });
+    });
+    const dialog = renderer!.root.findByProps({ role: 'dialog' });
+    const buttons = () => renderer!.root.findAllByType('button');
+    const dispatch = (key: string, metaKey = false) => {
+      const click = vi.fn(() => { void buttons()[1].props.onClick(); });
+      const root = { querySelectorAll: () => [{ disabled: buttons()[1].props.disabled, closest: () => root, getClientRects: () => [1], click }] };
+      const event = { key, metaKey, ctrlKey: false, altKey: false, shiftKey: false, target: root, currentTarget: root, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+      act(() => dialog.props.onKeyDown(event));
+      return { event, click };
+    };
+    return { dialog, buttons, dispatch, focus, runFocus: () => act(() => focusFrame(0)), cancelFrame, onCancel, onConfirm };
+  }
+
+  it.each([false, true])('initially focuses only the container (bulk=%s) and leaves buttons in tab order', (bulk) => {
+    const { dialog, buttons, focus, runFocus, dispatch, onCancel } = mount({ bulk });
+    expect(dialog.props.tabIndex).toBe(-1);
+    expect(focus).not.toHaveBeenCalled();
+    runFocus();
+    expect(focus.mock.calls).toEqual([['dialog']]);
+    for (const button of buttons()) {
+      expect(button.props.autoFocus).toBeUndefined();
+      expect(button.props.tabIndex).toBeUndefined();
+      expect(button.props.disabled).toBe(false);
+    }
+    const { event, click } = dispatch('Tab');
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
+    act(() => buttons()[0].props.onClick());
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('cancels delayed focus on dismissal before the next frame', () => {
+    const { focus, runFocus, cancelFrame } = mount();
+    act(() => renderer!.unmount());
+    expect(cancelFrame).toHaveBeenCalledWith(7);
+    runFocus(); // Even a stale callback cannot focus the dismissed dialog.
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('dispatches Enter through enabled cleanup (metaKey=%s)', async (metaKey) => {
+    const { dispatch, onConfirm } = mount();
+    await act(async () => { dispatch('Enter', metaKey); });
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(onConfirm.mock.calls[0][0][0].card_id).toBe('c1');
+  });
+
+  it.each([false, true])('consumes Enter without cleaning blocked selections (metaKey=%s)', (metaKey) => {
+    const { dispatch, onConfirm } = mount({ entries: [entry({ blocked: true, eligible: false })] });
+    const { event, click } = dispatch('Enter', metaKey);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(click).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('preserves busy and synchronous duplicate-submission guards', async () => {
+    let finish!: () => void;
+    const onConfirm = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const { buttons, dispatch } = mount({ onConfirm });
+    const confirm = buttons()[1].props.onClick;
+    let pending!: Promise<void>;
+    act(() => { pending = confirm(); void confirm(); });
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(buttons().every((button) => button.props.disabled)).toBe(true);
+    expect(dispatch('Enter').click).not.toHaveBeenCalled();
+    expect(dispatch('Enter', true).click).not.toHaveBeenCalled();
+    await act(async () => { finish(); await pending; });
+    expect(buttons().every((button) => !button.props.disabled)).toBe(true);
+  });
+});
 
 describe('CleanupPreflightDialog', () => {
   it('uses the same compact card row for single and bulk cleanup', () => {
