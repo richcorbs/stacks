@@ -899,23 +899,6 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .superthreadState { padding: 14px 10px; color: #73859a; font-size: calc(12px + var(--ui-font-delta, 0px)); line-height: 1.5; }
 .superthreadError { color: #ef9a9a; overflow-wrap: anywhere; }
 
-.diffStatusHeader {
-  min-width: 0;
-  padding: 7px 10px 6px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border-bottom: 1px solid #18232e;
-  color: #718397;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: calc(10px + var(--ui-font-delta, 0px));
-  white-space: nowrap;
-}
-.diffBranch { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #91a2b4; }
-.diffSourceLabel { flex: 0 0 auto; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.diffBranch + .diffSourceLabel::before { content: '•'; margin-right: 7px; color: #455466; }
-.diffGitStats { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; font-size: calc(11px + var(--ui-font-delta, 0px)); }
-.diffFileCount { margin-left: auto; color: #64778b; }
 .diffTree { padding: 4px 0 0; }
 .diffTreeRow {
   width: 100%;
