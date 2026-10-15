@@ -1269,6 +1269,11 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseValid { color: #70bd8d; } .releaseInvalid, .releaseStageError { color: #df858b; }
 .releasePending, .releaseProgress { color: #8faec8; }
 .releaseProgress { margin: 0 0 16px; font-size: 12px; }
+.releaseCiStatus { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 9px 11px; border: 1px solid #2a4052; border-radius: 6px; color: #8faec8; font-size: 12px; }
+.releaseCiStatus[data-ci-state="success"] { color: #70bd8d; }
+.releaseCiStatus:is([data-ci-state="failure"], [data-ci-state="error"]) { color: #df858b; }
+.releaseCiStatus code { color: inherit; }
+.releaseCiStatus button { border: 0; background: none; color: #a5c3db; font: inherit; cursor: pointer; text-decoration: underline; }
 .releaseSetup { display: grid; gap: 16px; }
 .releaseSetup > label { display: grid; gap: 6px; color: #8498aa; font-size: 12px; }
 .releaseSetup input, .releaseSetup textarea { box-sizing: border-box; width: 100%; padding: 9px; border: 1px solid #2c4053; border-radius: 6px; background: #101b25; color: #c5d1dc; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }

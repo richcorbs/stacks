@@ -14,7 +14,7 @@ describe('release UI responsiveness', () => {
 
   it('runs all release IPC commands off the UI event loop', () => {
     const commands = [...backend.matchAll(/#\[tauri::command(?:\(async\))?\]\s*pub fn (release_\w+)/g)];
-    expect(commands).toHaveLength(10);
+    expect(commands).toHaveLength(11);
     for (const [declaration] of commands) expect(declaration).toContain('#[tauri::command(async)]');
   });
 

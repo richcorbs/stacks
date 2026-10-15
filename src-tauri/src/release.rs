@@ -15,7 +15,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::{
     fs_paths::{app_data_dir, current_app_profile, AppProfile},
-    kanban, repository_coordinator,
+    github, kanban, repository_coordinator,
 };
 
 const MAX_LOG_BYTES: usize = 2 * 1024 * 1024;
@@ -838,6 +838,60 @@ pub fn release_retry(
     load_operation(&operation_id)
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseCiStatus {
+    pub state: String,
+    pub revision: String,
+    pub workflow: String,
+    pub url: Option<String>,
+}
+
+fn workflow_filename(workflow: &str) -> Result<&str, String> {
+    let workflow = workflow.trim();
+    let name = workflow.strip_prefix(".github/workflows/").unwrap_or(workflow);
+    if name.is_empty()
+        || !name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+        || !(name.ends_with(".yml") || name.ends_with(".yaml"))
+        || name.starts_with('.')
+    {
+        return Err("Required CI workflow is not configured as a workflow filename or .github/workflows/<filename>.yml".into());
+    }
+    Ok(name)
+}
+
+fn parse_release_ci_status(output: &str, workflow: &str, revision: &str) -> Result<ReleaseCiStatus, String> {
+    let response: serde_json::Value = serde_json::from_str(output).map_err(|_| "GitHub returned invalid CI status JSON".to_string())?;
+    let runs = response.get("workflow_runs").and_then(|value| value.as_array()).ok_or("GitHub returned no workflow runs list")?;
+    let latest = runs.iter()
+        .filter(|run| run.get("head_sha").and_then(|value| value.as_str()) == Some(revision))
+        .max_by_key(|run| (run.get("run_number").and_then(|value| value.as_u64()).unwrap_or(0), run.get("created_at").and_then(|value| value.as_str()).unwrap_or(""), run.get("id").and_then(|value| value.as_u64()).unwrap_or(0)));
+    let state = match latest {
+        None => "missing",
+        Some(run) if run.get("status").and_then(|value| value.as_str()) != Some("completed") => "pending",
+        Some(run) if run.get("conclusion").and_then(|value| value.as_str()) == Some("success") => "success",
+        Some(_) => "failure",
+    };
+    Ok(ReleaseCiStatus { state: state.into(), revision: revision.into(), workflow: workflow.into(), url: latest.and_then(|run| run.get("html_url")).and_then(|value| value.as_str()).map(str::to_owned) })
+}
+
+fn check_release_ci(operation: &ReleaseOperation) -> Result<ReleaseCiStatus, String> {
+    let workflow = workflow_filename(&operation.required_ci_workflow)?;
+    let revision = operation.prepared_revision.as_deref().ok_or("Release commit is not prepared; CI cannot be checked")?;
+    if revision.len() != 40 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("Captured release commit SHA is invalid".into());
+    }
+    let endpoint = format!("repos/{{owner}}/{{repo}}/actions/workflows/{workflow}/runs?head_sha={revision}&per_page=100");
+    let output = github::run_gh(Some(Path::new(&operation.project_path)), &["api", &endpoint])?;
+    parse_release_ci_status(&output, &operation.required_ci_workflow, revision)
+}
+
+#[tauri::command(async)]
+pub fn release_ci_status(operation_id: String) -> Result<ReleaseCiStatus, String> {
+    let operation = load_operation(&operation_id)?;
+    check_release_ci(&operation)
+}
+
 #[tauri::command(async)]
 pub fn release_approve(
     app: AppHandle,
@@ -864,6 +918,12 @@ pub fn release_approve(
     );
     let evidence = reconcile(&operation.config, root, &env)?;
     require_action(&evidence, &["approve", "complete"])?;
+    if operation.config.stages.get(index + 1).is_some_and(|stage| stage.id == "publish") {
+        let ci = check_release_ci(&operation)?;
+        if ci.state != "success" {
+            return Err(format!("Required CI for release commit {} is {}; wait for the exact-commit workflow to succeed before approving and publishing", ci.revision, ci.state));
+        }
+    }
     if let Some(evidence) = evidence {
         operation.release_url = evidence
             .release
@@ -2492,6 +2552,25 @@ fn db_error(error: rusqlite::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_ci_requires_the_latest_run_for_the_exact_commit() {
+        let revision = "abcdef1234567890abcdef1234567890abcdef12";
+        assert_eq!(workflow_filename(".github/workflows/ci.yml").unwrap(), "ci.yml");
+        assert!(workflow_filename("other/ci.yml").is_err());
+        let response = serde_json::json!({"workflow_runs": [
+            {"head_sha": "other", "run_number": 10, "status": "completed", "conclusion": "success"},
+            {"head_sha": revision, "run_number": 1, "status": "completed", "conclusion": "success"},
+            {"head_sha": revision, "run_number": 2, "status": "in_progress", "conclusion": null, "html_url": "https://github.com/example/run"}
+        ]}).to_string();
+        let ci = parse_release_ci_status(&response, ".github/workflows/ci.yml", revision).unwrap();
+        assert_eq!(ci.state, "pending");
+        assert_eq!(ci.url.as_deref(), Some("https://github.com/example/run"));
+        assert_eq!(parse_release_ci_status(&response, "ci.yml", "missing").unwrap().state, "missing");
+        let success = serde_json::json!({"workflow_runs": [{"head_sha": revision, "run_number": 3, "status": "completed", "conclusion": "success"}]}).to_string();
+        assert_eq!(parse_release_ci_status(&success, "ci.yml", revision).unwrap().state, "success");
+        assert!(parse_release_ci_status("{}", "ci.yml", revision).is_err());
+    }
 
     #[test]
     fn copied_release_logs_use_the_new_application_support_directory() {

@@ -106,12 +106,46 @@ async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft =
   invoke.mockImplementation((command: string) => {
     if (command === 'release_inspect') return Promise.resolve(releaseDraft);
     if (command === 'release_history') return Promise.resolve(history);
+    if (command === 'release_ci_status') return Promise.resolve({ state: 'pending', revision: 'abcdef1234567890', workflow: '.github/workflows/ci.yml', url: null });
     return Promise.resolve(undefined);
   });
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => { renderer = TestRenderer.create(<ReleaseTab project={{ id: 'project', name: 'Project', path: '/repo', color_id: colorId }} />); });
   return renderer;
 }
+
+describe('release CI readiness', () => {
+  const awaiting = operation({ status: 'awaitingApproval', preparedRevision: 'abcdef1234567890', reconciliation: reconciliation(), config: config({ stages: [{ id: 'draft', name: 'Draft', run: 'draft', repositoryAccess: 'read', approval: { instructions: 'Smoke test' } }, { id: 'publish', name: 'Publish', run: 'publish', repositoryAccess: 'read' }] }), stages: [stage({ id: 'draft', status: 'awaitingApproval' }), stage({ id: 'publish', status: 'pending' })] });
+  function button(renderer: TestRenderer.ReactTestRenderer, label: string) {
+    return renderer.root.findAllByType('button').find((node) => node.children.join('') === label);
+  }
+  it('disables approval for pending CI, then enables only exact-SHA success after refreshing', async () => {
+    const renderer = await renderReleaseTab([awaiting]);
+    expect(button(renderer, 'Approve and publish')?.props.disabled).toBe(true);
+    expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).props['data-ci-state']).toBe('pending');
+    invoke.mockImplementation((command: string) => command === 'release_ci_status'
+      ? Promise.resolve({ state: 'success', revision: 'different-head', workflow: 'ci.yml', url: null }) : Promise.resolve(undefined));
+    await act(async () => button(renderer, 'Check CI again')?.props.onClick());
+    expect(button(renderer, 'Approve and publish')?.props.disabled).toBe(true);
+    invoke.mockImplementation((command: string) => command === 'release_ci_status'
+      ? Promise.resolve({ state: 'success', revision: 'abcdef1234567890', workflow: 'ci.yml', url: null }) : Promise.resolve(undefined));
+    await act(async () => button(renderer, 'Check CI again')?.props.onClick());
+    expect(button(renderer, 'Approve and publish')?.props.disabled).toBe(false);
+    expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).props['data-ci-state']).toBe('success');
+    act(() => renderer.unmount());
+  });
+  it('blocks publish retries while CI is pending or unavailable', async () => {
+    const failed = operation({ status: 'failed', preparedRevision: 'abcdef1234567890', config: config({ stages: [{ id: 'publish', name: 'Publish', run: 'publish', repositoryAccess: 'read' }] }), stages: [stage({ id: 'publish', status: 'failed' })] });
+    const renderer = await renderReleaseTab([failed]);
+    expect(button(renderer, 'Retry release')?.props.disabled).toBe(true);
+    expect(invoke).toHaveBeenCalledWith('release_ci_status', { operationId: 'operation' });
+    invoke.mockImplementation((command: string) => command === 'release_ci_status' ? Promise.reject('GitHub unavailable') : Promise.resolve(undefined));
+    await act(async () => button(renderer, 'Check CI again')?.props.onClick());
+    expect(button(renderer, 'Retry release')?.props.disabled).toBe(true);
+    expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).props['data-ci-state']).toBe('error');
+    act(() => renderer.unmount());
+  });
+});
 
 describe('release durations', () => {
   it('scopes release actions to the owning project color', async () => {

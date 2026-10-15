@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../types';
 import { projectColorAttribute } from '../projectColor';
 import { GithubStatusIcon } from './GithubStatusIcon';
-import { abandonRelease, approveRelease, cancelRelease, inspectRelease, reconcileReleasePreview, recoverPreparedRelease, refreshRelease, releaseHistory, retryRelease, startRelease, type ReleaseConfig, type ReleaseDraft, type ReleaseOperation, type ReleaseReconciliation, type ReleaseStageState } from '../releaseApi';
+import { abandonRelease, approveRelease, cancelRelease, inspectRelease, reconcileReleasePreview, recoverPreparedRelease, refreshRelease, releaseHistory, releaseCiStatus, retryRelease, startRelease, type ReleaseCiStatus, type ReleaseConfig, type ReleaseDraft, type ReleaseOperation, type ReleaseReconciliation, type ReleaseStageState } from '../releaseApi';
 
 // Keying the tab isolates pending reads, draft edits and listeners across project switches.
 export function ReleaseTab({ project }: { project: Project }) {
@@ -22,6 +22,8 @@ function ProjectReleaseTab({ project }: { project: Project }) {
   const busy = busyLabel !== null;
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [ciCheck, setCiCheck] = useState<{ id: string; revision: number; result?: ReleaseCiStatus; error?: string } | null>(null);
+  const [ciRefreshKey, setCiRefreshKey] = useState(0);
   const active = history.find((operation) => !['completed', 'abandoned'].includes(operation.status)) ?? null;
   const operationIds = useRef(new Set<string>());
   operationIds.current = new Set(history.map((item) => item.id));
@@ -89,6 +91,32 @@ function ProjectReleaseTab({ project }: { project: Project }) {
 
   useEffect(() => { void refreshDraft(); }, [refreshDraft]);
   const live = active && ['running', 'awaitingApproval'].includes(active.status);
+  const approvalIndex = active?.stages.findIndex((stage) => stage.status === 'awaitingApproval') ?? -1;
+  const publishApproval = approvalIndex >= 0 && active?.config.stages[approvalIndex + 1]?.id === 'publish';
+  const ciRelevant = active && ((active.status === 'awaitingApproval' && publishApproval) || (['failed', 'cancelled', 'interrupted'].includes(active.status) && active.stages.some((stage) => stage.id === 'publish' && stage.status !== 'completed' && stage.attempt > 0)));
+  const ciId = ciRelevant ? active.id : null;
+  const ciRevision = ciRelevant ? active.revision : null;
+  useEffect(() => {
+    if (!ciId || ciRevision === null) return;
+    let alive = true;
+    let request = 0;
+    const check = () => {
+      const current = ++request;
+      setCiCheck(null);
+      void releaseCiStatus(ciId).then((result) => {
+        if (alive && current === request) setCiCheck({ id: ciId, revision: ciRevision, result });
+      }).catch((value) => {
+        if (alive && current === request) setCiCheck({ id: ciId, revision: ciRevision, error: String(value) });
+      });
+    };
+    check();
+    const timer = window.setInterval(check, RECOVERY_INTERVAL_MS);
+    const onFocus = () => check();
+    window.addEventListener('focus', onFocus);
+    return () => { alive = false; window.clearInterval(timer); window.removeEventListener('focus', onFocus); };
+  }, [ciId, ciRevision, ciRefreshKey]);
+  const currentCi = ciRelevant && ciCheck?.id === active.id && ciCheck.revision === active.revision ? ciCheck : null;
+  const ciReady = currentCi?.result?.state === 'success' && currentCi.result.revision === active?.preparedRevision;
   useEffect(() => {
     if (!live) return;
     const timer = window.setInterval(() => void refreshHistory(true), RECOVERY_INTERVAL_MS);
@@ -133,10 +161,15 @@ function ProjectReleaseTab({ project }: { project: Project }) {
         <div className="releaseSummary"><div className="releaseSummaryMetadata"><strong>{displayed.version}</strong><span className={`releaseStatus ${displayed.status}`}>{statusLabel(displayed.status)}</span><code>{displayed.initialRevision.slice(0, 10)}</code>{displayed.adopted && <span>resumed</span>}</div><span className="releaseDuration">{duration}</span></div>
         {displayed.reconciliation && <ReconciliationSummary reconciliation={displayed.reconciliation} />}
         <div className="releaseStages">{displayed.stages.map((stage, index) => <ReleaseStage key={stage.id} stage={stage} index={index} approvalInstructions={displayed.config.stages[index].approval?.instructions} />)}</div>
+        {ciRelevant && <div className="releaseCiStatus" data-ci-state={currentCi?.result?.state || (currentCi?.error ? 'error' : 'checking')} role="status">
+          <span>Required CI · <code>{active.preparedRevision?.slice(0, 12) || 'release commit unavailable'}</code>: {currentCi?.result ? ({ success: 'Passed', pending: 'Running — wait for CI', failure: 'Failed — fix or rerun CI', missing: 'No run found yet' } as const)[currentCi.result.state] : currentCi?.error ? `Unavailable — ${currentCi.error}` : 'Checking…'}</span>
+          {currentCi?.result?.url && <button type="button" className="releaseLink" onClick={() => void invoke('open_url', { url: currentCi.result?.url })}>View CI run</button>}
+          <button type="button" onClick={() => setCiRefreshKey((key) => key + 1)}>Check CI again</button>
+        </div>}
         <div className="releaseActions">
           {displayed.status === 'running' && <button type="button" disabled={busy} onClick={() => void action('Cancelling process', () => cancelRelease(displayed.id))}>Cancel process</button>}
-          {displayed.status === 'awaitingApproval' && displayed.reconciliation?.permittedActions.includes('approve') && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action('Approving and publishing release', () => approveRelease(displayed.id))}>Approve and publish</button>}
-          {['failed', 'cancelled', 'interrupted'].includes(displayed.status) && <button className="primaryAction" type="button" disabled={busy} onClick={() => void action('Retrying release', () => retryRelease(displayed.id))}>Retry release</button>}
+          {displayed.status === 'awaitingApproval' && displayed.reconciliation?.permittedActions.includes('approve') && <button className="primaryAction" type="button" disabled={busy || (publishApproval && !ciReady)} onClick={() => void action('Approving release', () => approveRelease(displayed.id))}>{publishApproval ? 'Approve and publish' : 'Approve stage'}</button>}
+          {['failed', 'cancelled', 'interrupted'].includes(displayed.status) && <button className="primaryAction" type="button" disabled={busy || (Boolean(ciRelevant) && !ciReady)} onClick={() => void action('Retrying release', () => retryRelease(displayed.id))}>Retry release</button>}
           {displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => void action('Refreshing release status', () => refreshRelease(displayed.id))}>Refresh release status</button>}
           {displayed.status !== 'running' && displayed.reconciliation?.permittedActions.includes('recover') && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Recover this prepared checkout? Stacks will re-prove every safety condition, remove only the exact local release tag and artifact directory, and reset to the captured source revision.')) void action('Recovering prepared checkout', () => recoverPreparedRelease(displayed.id)); }}>Recover prepared checkout</button>}
           {!['completed', 'abandoned'].includes(displayed.status) && displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Abandon this release? Repository commits, tags, drafts, and artifacts remain and are not automatically undone.')) void action('Abandoning release', () => abandonRelease(displayed.id)); }}>Abandon release</button>}

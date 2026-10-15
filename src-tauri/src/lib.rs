@@ -69,7 +69,7 @@ use project_direct::{
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
 use release::{
-    release_abandon, release_approve, release_cancel, release_history, release_inspect,
+    release_abandon, release_approve, release_cancel, release_ci_status, release_history, release_inspect,
     release_reconcile_preview, release_recover_prepared, release_refresh, release_retry,
     release_start, ReleaseRegistry,
 };
@@ -231,6 +231,7 @@ pub fn run() {
             release_start,
             release_cancel,
             release_retry,
+            release_ci_status,
             release_approve,
             release_refresh,
             release_recover_prepared,
