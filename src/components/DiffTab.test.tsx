@@ -22,11 +22,57 @@ const review: DiffReviewModel = {
 };
 
 describe('DiffTab', () => {
-  it('uses a generic branch source label rather than PR discovery', () => {
-    const markup = renderToStaticMarkup(<DiffTab activePath="/repo" comparisonTarget="refs/heads/main" refreshNonce={0} review={review} />);
-    expect(markup).toContain('Branch changes');
-    expect(markup).not.toContain('PR #');
-    expect(markup).not.toContain('Working tree');
+  it('renders the populated tree first without a summary and preserves folder expansion and refresh', async () => {
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue({ files: [{ path: 'src/a.ts', status: 'M' }, { path: 'src/b.ts', status: 'A' }] });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    const render = (refreshNonce: number) => <DiffTab activePath="/repo" comparisonTarget="refs/heads/main" refreshNonce={refreshNonce} review={review} />;
+    await act(async () => { renderer = TestRenderer.create(render(0)); });
+    const tree = () => renderer.root.findByProps({ role: 'tree' });
+    expect(tree().props['aria-label']).toBe('Changed files');
+    const output = renderer.toJSON() as TestRenderer.ReactTestRendererJSON;
+    expect(output.type).toBe('div');
+    expect(output.props.className).toBe('diffTree');
+    const serialized = JSON.stringify(output);
+    for (const summary of ['diffStatusHeader', 'diffBranch', 'diffSourceLabel', 'diffFileCount', 'Branch changes', '2 files']) {
+      expect(serialized).not.toContain(summary);
+    }
+    expect(tree().findAllByProps({ className: 'diffFileOpen' })).toHaveLength(2);
+    const folder = () => tree().findByProps({ 'aria-expanded': true });
+    act(() => folder().findByProps({ className: 'diffTreeRow diffFolderRow' }).props.onClick());
+    expect(tree().findByProps({ 'aria-expanded': false })).toBeTruthy();
+    expect(tree().findAllByProps({ className: 'diffFileOpen' })).toHaveLength(0);
+    act(() => tree().findByProps({ className: 'diffTreeRow diffFolderRow' }).props.onClick());
+    expect(tree().findAllByProps({ className: 'diffFileOpen' })).toHaveLength(2);
+    await act(async () => { renderer.update(render(1)); });
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenNthCalledWith(1, 'git_diff_files', { path: '/repo', comparisonTarget: 'refs/heads/main' });
+    expect(invoke).toHaveBeenNthCalledWith(2, 'git_diff_files', { path: '/repo', comparisonTarget: 'refs/heads/main' });
+    act(() => renderer.unmount());
+  });
+
+  it('preserves loading, empty, and fetch-error states without a summary', async () => {
+    let resolveFiles!: (value: { files: [] }) => void;
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockReturnValueOnce(new Promise((resolve) => { resolveFiles = resolve; }));
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<DiffTab activePath="/repo" comparisonTarget="main" refreshNonce={0} review={review} />); });
+    expect(renderer.root.findByProps({ className: 'superthreadState' }).children).toEqual(['Loading changed files…']);
+    expect(renderer.root.findAllByProps({ className: 'diffStatusHeader' })).toHaveLength(0);
+    await act(async () => { resolveFiles({ files: [] }); });
+    expect(renderer.root.findByProps({ className: 'superthreadState' }).children).toEqual(['No changed files.']);
+    vi.mocked(invoke).mockRejectedValueOnce(new Error('Repository unavailable'));
+    await act(async () => { renderer.update(<DiffTab activePath="/repo" comparisonTarget="main" refreshNonce={1} review={review} />); });
+    expect(renderer.root.findByProps({ className: 'superthreadState superthreadError' }).children).toEqual(['Error: Repository unavailable']);
+    expect(renderer.root.findAllByProps({ role: 'tree' })).toHaveLength(0);
+    act(() => renderer.unmount());
+  });
+
+  it('preserves the missing-repository state', () => {
+    const markup = renderToStaticMarkup(<DiffTab activePath={null} comparisonTarget="main" refreshNonce={0} review={review} />);
+    expect(markup).toContain('Open a card environment in a Git repository.');
+    expect(markup).not.toContain('diffStatusHeader');
+    expect(markup).not.toContain('aria-label="Changed files"');
   });
 
   it('selects the opened file without losing reviewed marks when switching files', async () => {

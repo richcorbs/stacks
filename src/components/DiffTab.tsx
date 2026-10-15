@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { buildDiffTree, type DiffTreeNode } from '../git/diffTree';
-import type { GitDiffFile, GitDiffFilesResponse, GitFileDiff, GitInfo } from '../types';
+import type { GitDiffFile, GitDiffFilesResponse, GitFileDiff } from '../types';
 import type { DiffReviewModel } from '../diffReview/types';
 
 export function DiffTab({ activePath, comparisonTarget, refreshNonce, review }: {
@@ -11,7 +11,6 @@ export function DiffTab({ activePath, comparisonTarget, refreshNonce, review }: 
   review: DiffReviewModel;
 }) {
   const [files, setFiles] = useState<GitDiffFile[]>([]);
-  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +22,6 @@ export function DiffTab({ activePath, comparisonTarget, refreshNonce, review }: 
     setLoadingFile(null);
     if (!activePath) {
       setFiles([]);
-      setGitInfo(null);
       setError(null);
       setLoading(false);
       return;
@@ -38,9 +36,6 @@ export function DiffTab({ activePath, comparisonTarget, refreshNonce, review }: 
     setFiles([]);
     setLoading(true);
     setError(null);
-    invoke<GitInfo | null>('git_info', { path: activePath })
-      .then((info) => { if (!cancelled) setGitInfo(info); })
-      .catch(() => { if (!cancelled) setGitInfo(null); });
     invoke<GitDiffFilesResponse>('git_diff_files', { path: activePath, comparisonTarget })
       .then((response) => {
         if (cancelled) return;
@@ -74,11 +69,6 @@ export function DiffTab({ activePath, comparisonTarget, refreshNonce, review }: 
 
   if (!activePath) return <div className="superthreadState">Open a card environment in a Git repository.</div>;
   return <>
-    <div className="diffStatusHeader" title={activePath}>
-      {gitInfo && <span className="diffBranch"> {gitInfo.branch}</span>}
-      <span className="diffSourceLabel">Branch changes</span>
-      {files.length > 0 && <span className="diffFileCount">{files.length} {files.length === 1 ? 'file' : 'files'}</span>}
-    </div>
     {loading && files.length === 0 && <div className="superthreadState">Loading changed files…</div>}
     {displayError && <div className="superthreadState superthreadError">{displayError}</div>}
     {!loading && !displayError && files.length === 0 && <div className="superthreadState">No changed files.</div>}
