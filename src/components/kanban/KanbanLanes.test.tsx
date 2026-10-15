@@ -80,23 +80,31 @@ function pullRequest(overrides: Partial<CardPullRequest> = {}): CardPullRequest 
   };
 }
 
-it('shows one concise failed PR refresh badge with full accessible detail', () => {
+it('keeps the merge-ready delivery label while exposing refresh failure separately', () => {
   const current = card({ status: 'approved', child_count: 0, parent: null, pull_request: pullRequest() });
   const markup = renderToStaticMarkup(<KanbanCardContents card={current} projects={[{ ...project, delivery_workflow: 'github_pull_request' }]}
     prCheck={{ checkedAt: null, failed: true, refreshing: false }} repositoryStatus={undefined}
     onNavigateParent={() => {}} onToggleServer={() => {}} />);
-  expect(markup).toContain('>PR refresh failed</span>');
-  expect(markup).toContain('title="PR refresh failed · Retry"');
-  expect(markup).toContain('aria-label="PR refresh failed · Retry"');
+  expect(markup).toContain('>PR merge available</span>');
+  expect(markup).toContain('aria-label="PR merge available · Merge PR"');
+  expect(markup).toContain('GitHub refresh failed; retrying');
+  expect(markup).toContain('last-known result; not checked this session');
+  expect(markup).toContain('merge requires fresh preflight');
   expect(markup).not.toContain('kanbanPrRetry');
 });
 
-it('shows waiting CI and fresh merge action in the same groups and readable text in board and list', () => {
+it.each(['fresh', 'refreshing', 'expired', 'failed', 'retrying', 'reopened'] as const)(
+  'shows waiting CI and last-known merge readiness consistently in board and list (%s)', (phase) => {
   const prProject = { ...project, delivery_workflow: 'github_pull_request' } as Project;
   const waiting = card({ id: 'waiting', external_id: '1', title: 'Waiting', status: 'approved', child_count: 0, parent: null, pull_request: pullRequest({ ci_status: 'pending', blockers: ['CI is pending'] }) });
   const actionable = card({ id: 'actionable', external_id: '2', title: 'Actionable', status: 'approved', child_count: 0, parent: null, pull_request: pullRequest() });
   const cards = [waiting, actionable];
-  const prChecks = Object.fromEntries(cards.map((item) => [item.id, { checkedAt: Date.now(), failed: false, refreshing: false, identity: new PrRefreshSchedule().identity(item, prProject) }]));
+  const prChecks = phase === 'reopened' ? undefined : Object.fromEntries(cards.map((item) => [item.id, {
+    checkedAt: Date.now() - (phase === 'expired' ? 300_000 : 0),
+    failed: phase === 'failed' || phase === 'retrying',
+    refreshing: phase === 'refreshing' || phase === 'retrying',
+    identity: new PrRefreshSchedule().identity(item, prProject),
+  }]));
   const board = renderToStaticMarkup(<KanbanLanes cards={cards} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
     doneCollapsed={false} doneToggleRef={createRef<HTMLButtonElement>()} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
     keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}} pointer={pointerStub()} onToggleDone={() => {}} onCleanupMerged={() => {}}

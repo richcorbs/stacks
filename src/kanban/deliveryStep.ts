@@ -1,6 +1,6 @@
 import type { Project } from '../types';
 import type { KanbanCardSummary } from './types';
-import { PrRefreshSchedule, PR_FOREGROUND_MS } from './prRefreshSchedule';
+import { PrRefreshSchedule } from './prRefreshSchedule';
 
 export type PrCheck = { identity?: string; checkedAt: number | null; failed: boolean; refreshing: boolean };
 export type DeliveryContext = { projects?: Project[]; prChecks?: Record<string, PrCheck>; now?: number };
@@ -66,10 +66,13 @@ export function deliveryStep(card: KanbanCardSummary, context: DeliveryContext =
   if (pr.state === 'merged') return step('PR merged · Reconciling', false);
   if (pr.state === 'closed') return step('PR closed · Resolve', true);
   const check = context.prChecks?.[card.id];
-  if (check?.failed) return step('PR refresh failed · Retry', true);
-  const fresh = check?.checkedAt != null && check.identity === new PrRefreshSchedule().identity(card, project)
-    && (context.now ?? Date.now()) - check.checkedAt < PR_FOREGROUND_MS;
-  if (!fresh || check?.refreshing) return step('PR status updating · Refresh', false);
+  // Project the card's last-known PR snapshot, including after reopening. Session
+  // freshness/errors belong to the PR badge, not workflow grouping or readiness.
+  // An explicitly obsolete observation must still never lend readiness to a new
+  // card/environment/PR identity. The coordinator also rejects obsolete responses.
+  if (check?.identity != null && check.identity !== new PrRefreshSchedule().identity(card, project)) {
+    return step('PR status updating · Refresh', false);
+  }
   if (pr.has_conflicts) return step('PR blocked · Resolve conflicts', true);
   if (pr.draft) return step('PR draft · Mark ready', true);
   if (pr.ci_status === 'pending' && pr.blockers.every((blocker) => blocker === 'CI is pending' || blocker === 'GitHub merge readiness is unknown or blocked')) return step('PR open · CI running', false);
