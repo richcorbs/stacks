@@ -1325,6 +1325,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseHistory { margin-top: 14px; }
 .releaseHistory > div { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 7px 0; border-top: 1px solid #223142; color: #8094a6; font-size: 12px; }
 .cleanupPreflightModal { width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.cleanupPreflightModal:focus { outline: none; }
 .cleanupPreflightList { overflow: auto; display: grid; gap: 10px; }
 .cleanupPreflightEntry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; align-items: center; border: 1px solid #2d3d4f; border-radius: 8px; padding: 12px; background: rgba(8, 14, 24, .55); }
 .cleanupPreflightEntry.blocked { border-color: rgba(211, 99, 99, .55); }

@@ -33,11 +33,14 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [overrides, setOverrides] = useState<Set<string>>(() => new Set());
-  const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const confirmable = useMemo(() => cleanupSelections(inventory.entries, overrides), [inventory, overrides]);
-  useEffect(() => { requestAnimationFrame(() => cancelRef.current?.focus()); }, []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => dialogRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
   return <div className="modalBackdrop" onMouseDown={busy ? undefined : onCancel}>
-    <div className="modal cleanupPreflightModal" role="dialog" aria-modal="true" aria-labelledby="cleanup-preflight-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => handleDialogShortcut(event, true)}>
+    <div ref={dialogRef} tabIndex={-1} className="modal cleanupPreflightModal" role="dialog" aria-modal="true" aria-labelledby="cleanup-preflight-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => handleDialogShortcut(event, true)}>
       <h2 id="cleanup-preflight-title">Confirm cleanup</h2>
       <div className="cleanupPreflightList">{inventory.entries.map((entry) => <CleanupPreflightEntry
         key={entry.card_id}
@@ -50,7 +53,7 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
         })}
       />)}</div>
       <div className="modalActions">
-        <button ref={cancelRef} type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
         <button className="danger primaryAction" type="button" disabled={busy || confirmable.length === 0} onClick={async () => { if (busyRef.current) return; busyRef.current = true; setBusy(true); try { await onConfirm(confirmable); } finally { busyRef.current = false; setBusy(false); } }}>
           <AsyncButtonLabel idle={bulk ? `Clean up ${confirmable.length}` : 'Clean up'} busy="Cleaning up…" isBusy={busy} />
         </button>
