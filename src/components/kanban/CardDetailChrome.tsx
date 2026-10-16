@@ -1,5 +1,5 @@
-import type { RefObject, SyntheticEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import type { RefObject } from 'react';
+import { ExternalLink } from '../ExternalLink';
 import type { GitChangeSummary, Project } from '../../types';
 import type { KanbanCard } from '../../kanban/types';
 import type { CardView } from '../../kanban/cardView';
@@ -41,7 +41,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
     <div className="kanbanDetailHeading">
       <div className="kanbanDetailHeaderMeta">
         <div className="kanbanDetailHeaderMetaLeft">
-          <a className="kanbanDetailNumber" href={card.card_url || undefined} onClick={(event) => card.card_url && openExternalLink(event, card.card_url)}>#{card.external_id}</a>
+          <ExternalLink className="kanbanDetailNumber" href={card.card_url || undefined}>#{card.external_id}</ExternalLink>
           <CardProjectAssignment card={card} project={project ?? null} projects={projects} onChange={(nextProjectId) => {
             onAssignProject(nextProjectId).catch((error) => onActionError(error instanceof Error ? error.message : String(error)));
           }} />
@@ -63,7 +63,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
           <button className="kanbanDetailGitRefresh" type="button" aria-label="Refresh Git status" title="Refresh Git status" onClick={onRefreshGit}><span className="diffRefreshIcon" aria-hidden="true" /></button>
         </span>}
         {hasGitSummary && hasPullRequest && <span className="kanbanDetailRepositorySeparator" aria-hidden="true">•</span>}
-        <CardPullRequestLink pullRequest={card.pull_request} onOpen={openExternalLink} />
+        <CardPullRequestLink pullRequest={card.pull_request} />
       </div>}
     </div>
     <button className="kanbanDetailClose" type="button" aria-label="Close card details" onClick={onRequestClose} />
@@ -106,9 +106,4 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
       </span>}
     </>}
   </nav>;
-}
-
-function openExternalLink(event: SyntheticEvent, url: string) {
-  event.preventDefault();
-  if (url.startsWith('http://') || url.startsWith('https://')) invoke('open_url', { url }).catch(console.error);
 }

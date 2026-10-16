@@ -1,5 +1,5 @@
 import '@xterm/xterm/css/xterm.css';
-import { invoke } from '@tauri-apps/api/core';
+import { openExternalUrl } from './externalLinks';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -72,7 +72,7 @@ export function createTerminalSession({
     if (!event.metaKey) return;
     event.preventDefault();
     event.stopPropagation();
-    invoke('open_url', { url: uri }).catch(console.error);
+    void openExternalUrl(uri);
   }, { urlRegex: /https?:\/\/[^\s"']+/i });
   term.loadAddon(fit);
   term.loadAddon(search);

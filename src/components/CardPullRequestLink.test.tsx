@@ -1,9 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import TestRenderer, { act } from 'react-test-renderer';
+import { invoke } from '@tauri-apps/api/core';
+import { applicationEvents } from '../applicationEvents';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 import type { CardPullRequest } from '../kanban/types';
 import { CardPullRequestLink } from './CardPullRequestLink';
-
-const onOpen = () => undefined;
 
 function pullRequest(overrides: Partial<CardPullRequest> = {}): CardPullRequest {
   return {
@@ -23,7 +26,7 @@ function pullRequest(overrides: Partial<CardPullRequest> = {}): CardPullRequest 
 }
 
 function render(pr: CardPullRequest | null | undefined) {
-  return renderToStaticMarkup(<CardPullRequestLink pullRequest={pr} onOpen={onOpen} />);
+  return renderToStaticMarkup(<CardPullRequestLink pullRequest={pr} />);
 }
 
 describe('CardPullRequestLink', () => {
@@ -54,6 +57,22 @@ describe('CardPullRequestLink', () => {
   it('includes every blocker detail for an open blocked PR', () => {
     const markup = render(pullRequest({ blockers: ['CI is failing', 'Changes requested'] }));
     expect(markup).toContain('CI is failing; Changes requested');
+  });
+
+  it('prevents navigation for middle-clicks and reports launch failures', async () => {
+    vi.mocked(invoke).mockReset().mockRejectedValueOnce('failed');
+    const toast = vi.fn();
+    const unsubscribe = applicationEvents.subscribe('toast', toast);
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<CardPullRequestLink pullRequest={pullRequest()} />); });
+    const event = { button: 1, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    await act(async () => renderer.root.findByType('a').props.onAuxClick(event));
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('open_url', { url: pullRequest().url });
+    expect(toast).toHaveBeenCalledWith({ message: 'Could not open link: failed', duration: 5000 });
+    unsubscribe();
+    act(() => renderer.unmount());
   });
 
   it('renders nothing without an associated PR', () => {

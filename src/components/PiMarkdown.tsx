@@ -5,6 +5,7 @@ import Markdown, { type Components } from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
+import { ExternalLink } from './ExternalLink';
 
 const chatSanitizationSchema: NonNullable<Parameters<typeof rehypeSanitize>[0]> = {
   tagNames: [
@@ -30,6 +31,7 @@ const chatSanitizationSchema: NonNullable<Parameters<typeof rehypeSanitize>[0]> 
 };
 
 const markdownComponents: Components = {
+  a: ({ node: _node, ...props }) => <ExternalLink {...props} />,
   pre: ({ children }) => <MarkdownCodeBlock>{children}</MarkdownCodeBlock>,
 };
 
