@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
-import { useMemo, useState, type Dispatch, type SetStateAction, type SyntheticEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { ExternalHtmlLinks, ExternalLink } from '../ExternalLink';
 import type { Project } from '../../types';
 import type { CardEnvironmentHealth, KanbanCard, KanbanCardSummary } from '../../kanban/types';
 import { candidateParents, childCountLabel, statusLabel as childStatusLabel } from '../../kanban/hierarchy';
@@ -94,7 +94,7 @@ export function CardOverview({
     ) : card.content
       ? card.provider === 'local'
         ? <div className="kanbanCardDescription kanbanLocalDescription">{card.content}</div>
-        : <div className="kanbanCardDescription" dangerouslySetInnerHTML={{ __html: sanitizedContent }} />
+        : <ExternalHtmlLinks className="kanbanCardDescription" html={sanitizedContent} />
       : <p className="kanbanMuted">No description.</p>}
     {!editing && card.children.length > 0 && <section className="kanbanChildList" aria-label="Child cards">
       <h3>{childCountLabel(card.child_count)}</h3>
@@ -106,7 +106,7 @@ export function CardOverview({
     </section>}
     {!editing && card.pull_request && <aside className="cardEnvironmentWarningPanel cardPullRequestStatus">
       <div><strong>Pull request #{card.pull_request.number}</strong><span>{card.pull_request.state}</span></div>
-      <a href={card.pull_request.url} onClick={(event) => openExternalLink(event, card.pull_request!.url)}>{card.pull_request.title}</a>
+      <ExternalLink href={card.pull_request.url}>{card.pull_request.title}</ExternalLink>
       <ul>
         <li><span>CI: {card.pull_request.ci_status}</span></li>
         <li><span>Review: {card.pull_request.review_state}</span></li>
@@ -150,9 +150,4 @@ export function CardOverview({
 function cleanupPhaseFromErrorCode(code: string): string {
   const phase = code.replace(/^cleanup_/, '').replace(/_failed$/, '') as NonNullable<KanbanCard['cleanup_operation']>['phase'];
   return cleanupPhaseLabel(phase) ?? phase.replaceAll('_', ' ');
-}
-
-function openExternalLink(event: SyntheticEvent, url: string) {
-  event.preventDefault();
-  if (url.startsWith('http://') || url.startsWith('https://')) invoke('open_url', { url }).catch(console.error);
 }

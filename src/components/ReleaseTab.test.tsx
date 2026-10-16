@@ -420,7 +420,7 @@ describe('ReleaseStage', () => {
 
     const preventDefault = vi.fn();
     const stopPropagation = vi.fn();
-    act(() => renderer.root.findByType('a').props.onClick({ preventDefault, stopPropagation }));
+    act(() => renderer.root.findByType('a').props.onClick({ button: 0, preventDefault, stopPropagation }));
 
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(stopPropagation).toHaveBeenCalledOnce();

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { openExternalUrl } from '../externalLinks';
+import { ExternalLink } from './ExternalLink';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../types';
 import { projectColorAttribute } from '../projectColor';
@@ -163,7 +165,7 @@ function ProjectReleaseTab({ project }: { project: Project }) {
         <div className="releaseStages">{displayed.stages.map((stage, index) => <ReleaseStage key={stage.id} stage={stage} index={index} approvalInstructions={displayed.config.stages[index].approval?.instructions} />)}</div>
         {ciRelevant && <div className="releaseCiStatus" data-ci-state={currentCi?.result?.state || (currentCi?.error ? 'error' : 'checking')} role="status">
           <span>Required CI · <code>{active.preparedRevision?.slice(0, 12) || 'release commit unavailable'}</code>: {currentCi?.result ? ({ success: 'Passed', pending: 'Running — wait for CI', failure: 'Failed — fix or rerun CI', missing: 'No run found yet' } as const)[currentCi.result.state] : currentCi?.error ? `Unavailable — ${currentCi.error}` : 'Checking…'}</span>
-          {currentCi?.result?.url && <button type="button" className="releaseLink" onClick={() => void invoke('open_url', { url: currentCi.result?.url })}>View CI run</button>}
+          {currentCi?.result?.url && <button type="button" className="releaseLink" onClick={() => void openExternalUrl(currentCi.result?.url)}>View CI run</button>}
           <button type="button" onClick={() => setCiRefreshKey((key) => key + 1)}>Check CI again</button>
         </div>}
         <div className="releaseActions">
@@ -235,7 +237,7 @@ export function ReleaseStage({ stage, index, approvalInstructions }: { stage: Re
 export function ReconciliationSummary({ reconciliation }: { reconciliation: ReleaseReconciliation }) {
   const label = ({ available: 'Available', resumablePrepared: 'Prepared release found', resumableDraft: 'Draft release found', published: 'Already published', conflict: 'Release conflict', recoveryRequired: 'Recovery required' } as Record<string, string>)[reconciliation.disposition] || reconciliation.disposition;
   return <section className={`releaseReconciliation ${reconciliation.disposition}`}>
-    <div><strong>{label}</strong>{reconciliation.release?.url && <button type="button" className="releaseLink" onClick={() => void invoke('open_url', { url: reconciliation.release?.url })}>Open on GitHub</button>}</div>
+    <div><strong>{label}</strong>{reconciliation.release?.url && <button type="button" className="releaseLink" onClick={() => void openExternalUrl(reconciliation.release?.url)}>Open on GitHub</button>}</div>
     <div className="releaseEvidence">
       {Boolean(reconciliation.identity) && <span>Tag <code>{(reconciliation.identity as { tag?: string }).tag || '—'}</code></span>}
       {reconciliation.preparedRevision && <span>Prepared <code>{reconciliation.preparedRevision.slice(0, 12)}</code></span>}
@@ -253,5 +255,5 @@ function statusLabel(value: string) { return value === 'awaitingApproval' ? 'Awa
 function formatDuration(seconds: number) { const safe = Math.max(0, seconds); return safe < 60 ? `${safe}s` : `${Math.floor(safe / 60)}m${safe % 60}s`; }
 function LinkedLog({ text }: { text: string }) {
   const parts = useMemo(() => text.split(/(https?:\/\/[^\s]+)/g), [text]);
-  return <pre className="releaseLog">{parts.map((part, index) => /^https?:\/\//.test(part) ? <a key={index} href={part} onClick={(event) => { event.preventDefault(); event.stopPropagation(); void invoke('open_url', { url: part }); }}>{part}</a> : part)}</pre>;
+  return <pre className="releaseLog">{parts.map((part, index) => /^https?:\/\//.test(part) ? <ExternalLink key={index} href={part}>{part}</ExternalLink> : part)}</pre>;
 }

@@ -1,4 +1,5 @@
 import { showAppToast } from '../applicationEvents';
+import { openExternalUrl } from '../externalLinks';
 import { handleDialogShortcut } from './dialogShortcut';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -143,7 +144,7 @@ export function AppUpdater() {
     <section className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={handleDialogShortcut}>
       <header className="updateModalHeader">
         <h2 id="update-dialog-title">{status === 'error' ? 'Update unavailable' : `Stacks ${update?.version} is available`}</h2>
-        <button className="updateReleaseNotesLink" type="button" disabled={status === 'downloading' || status === 'waiting'} onClick={() => invoke('open_url', { url: releaseUrl }).catch(console.error)}>Release Notes</button>
+        <button className="updateReleaseNotesLink" type="button" disabled={status === 'downloading' || status === 'waiting'} onClick={() => void openExternalUrl(releaseUrl)}>Release Notes</button>
       </header>
       {status === 'available' && <>
         <p>You currently have version {update?.currentVersion}.</p>

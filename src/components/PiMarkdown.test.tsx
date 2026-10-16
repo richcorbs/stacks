@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import { applicationEvents } from '../applicationEvents';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText: vi.fn() }));
 import { PiMarkdown } from './PiMarkdown';
@@ -11,6 +15,7 @@ function render(source: string) {
 }
 
 describe('PiMarkdown', () => {
+  beforeEach(() => { vi.mocked(invoke).mockReset().mockResolvedValue(undefined); });
   it('renders Markdown, safe HTML, and mixed content together', () => {
     const markup = render('# Markdown\n\n<section><h2>HTML heading</h2><p>A <strong>mixed</strong> paragraph.</p></section>\n\n| A | B |\n| - | - |\n| 1 | 2 |');
 
@@ -37,9 +42,9 @@ describe('PiMarkdown', () => {
 
     expect(markup).not.toMatch(/script|style=|onclick|onmouseover|<img|iframe|alert\(|data:text/);
     expect(markup).toContain('<p>Safe text</p>');
-    expect(markup).toContain('<a>unsafe</a>');
-    expect(markup).toContain('<a>data</a>');
-    expect(markup).toContain('<a href="https://example.com/path" title="Safe">safe</a>');
+    expect(markup).toContain('>unsafe</a>');
+    expect(markup).toContain('>data</a>');
+    expect(markup).toContain('title="Safe" href="https://example.com/path"');
   });
 
   it('keeps HTML inside inline and fenced code literal and retains code-block copy UI', () => {
@@ -77,11 +82,77 @@ describe('PiMarkdown', () => {
     vi.mocked(writeText).mockClear();
   });
 
-  it('supports safe relative, web, and email links', () => {
+  it.each([
+    '[link](https://example.com/path "Title")',
+    '<https://example.com/path>',
+    'https://example.com/path',
+    '<a href="https://example.com/path" title="Title" onclick="bad()">link</a>',
+  ])('opens supported links externally for every activation: %s', async (source) => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<PiMarkdown>{source}</PiMarkdown>); });
+    const link = renderer.root.findByType('a');
+    const activations: [string, Record<string, unknown>][] = [
+      ['onClick', { button: 0 }],
+      ...['metaKey', 'ctrlKey', 'shiftKey', 'altKey'].map((modifier): [string, Record<string, unknown>] => ['onClick', { button: 0, [modifier]: true }]),
+      ['onAuxClick', { button: 1 }],
+      ['onKeyDown', { key: 'Enter', repeat: false }],
+    ];
+    for (const [handler, fields] of activations) {
+      vi.mocked(invoke).mockClear();
+      const event = { ...fields, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+      await act(async () => { link.props[handler](event); });
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(invoke).toHaveBeenCalledExactlyOnceWith('open_url', { url: 'https://example.com/path' });
+    }
+    vi.mocked(invoke).mockClear();
+    const event = { button: 1, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    link.props.onMouseDown(event);
+    link.props.onClick(event); // Legacy engines may also dispatch click for middle button.
+    link.props.onAuxClick(event);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledTimes(1);
+    link.props.onAuxClick({ ...event, button: 2 });
+    link.props.onKeyDown({ ...event, key: 'Enter', repeat: true });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    act(() => renderer.unmount());
+  });
+
+  it.each(['/docs', '#heading', '//example.com', 'mailto:test@example.com', 'javascript:alert(1)', 'data:text/html,bad', 'file:///tmp/test'])('never navigates or launches unsupported links: %s', async (href) => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<PiMarkdown>{`<a href="${href}">text</a>`}</PiMarkdown>); });
+    const link = renderer.root.findByType('a');
+    expect(link.props.href).toBeUndefined();
+    for (const [handler, fields] of [['onClick', { button: 0 }], ['onAuxClick', { button: 1 }], ['onKeyDown', { key: 'Enter' }]] as const) {
+      const event = { ...fields, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+      await act(async () => { link.props[handler](event); });
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+    }
+    expect(invoke).not.toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+
+  it('uses updated streaming destinations and reports launch failures without navigating', async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<PiMarkdown>{'[link](https://example.com/old)'}</PiMarkdown>); });
+    act(() => renderer.update(<PiMarkdown>{'[link](https://example.com/new)'}</PiMarkdown>));
+    vi.mocked(invoke).mockRejectedValueOnce('browser unavailable');
+    const toast = vi.fn();
+    const unsubscribe = applicationEvents.subscribe('toast', toast);
+    const event = { button: 0, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    await act(async () => { renderer.root.findByType('a').props.onClick(event); });
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('open_url', { url: 'https://example.com/new' });
+    expect(toast).toHaveBeenCalledWith({ message: 'Could not open link: browser unavailable', duration: 5000 });
+    expect(renderer.root.findByType('a').children).toEqual(['link']);
+    unsubscribe();
+    act(() => renderer.unmount());
+  });
+
+  it('keeps unsupported link text but removes navigable destinations', () => {
     const markup = render('[relative](/docs) <a href="mailto:test@example.com">email</a> <a href="http://example.com">web</a>');
 
-    expect(markup).toContain('href="/docs"');
-    expect(markup).toContain('href="mailto:test@example.com"');
+    expect(markup).not.toContain('href="/docs"');
+    expect(markup).not.toContain('href="mailto:test@example.com"');
     expect(markup).toContain('href="http://example.com"');
   });
 });

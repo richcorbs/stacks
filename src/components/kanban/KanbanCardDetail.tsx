@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { applicationEvents, showAppToast } from '../../applicationEvents';
 import { invoke } from '@tauri-apps/api/core';
+import { openExternalUrl } from '../../externalLinks';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../../types';
 import { projectColorAttribute } from '../../projectColor';
@@ -303,7 +304,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
     cancelDeployment: () => cancelScriptedDeployment(card.id),
     confirmDeployed: async () => { const result = await confirmScriptedDeployed(card.id); onCardUpdatedRef.current(preserveRevisionValues(result.card)); },
     createPullRequest: async (withFrontendEngineer) => { await sendPromptToPiAndWait(cardPaneId(card.id, 'work'), GENERATE_PR_METADATA_PROMPT); onCardUpdatedRef.current(preserveRevisionValues(await createKanbanPullRequest(card.id, card.workflow_revision, withFrontendEngineer))); },
-    openPullRequest: async () => { if (card.pull_request?.url) await invoke('open_url', { url: card.pull_request.url }); },
+    openPullRequest: () => openExternalUrl(card.pull_request?.url),
     mergePullRequest: async () => { onCardUpdatedRef.current(preserveRevisionValues(await mergeKanbanPullRequest(card.id, card.workflow_revision))); },
     cleanup: async () => {
       const entry = await fetchCleanupPreflight(card.id);

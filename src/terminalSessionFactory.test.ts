@@ -2,13 +2,24 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ readText: vi.fn() }));
-vi.mock('@xterm/xterm', () => ({ Terminal: class {} }));
+vi.mock('@xterm/xterm', () => ({ Terminal: class {
+  unicode = { activeVersion: '6' };
+  loadAddon() {}
+  attachCustomKeyEventHandler() {}
+  open() {}
+  onData() { return { dispose() {} }; }
+  onSelectionChange() { return { dispose() {} }; }
+} }));
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class {} }));
 vi.mock('@xterm/addon-search', () => ({ SearchAddon: class {} }));
 vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: class {} }));
-vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }));
+vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {
+  constructor(public activate: (event: MouseEvent, uri: string) => void) {}
+} }));
 
-import { handleTerminalPasteShortcut } from './terminalSessionFactory';
+import { createTerminalSession, handleTerminalPasteShortcut } from './terminalSessionFactory';
+import { invoke } from '@tauri-apps/api/core';
+import { applicationEvents } from './applicationEvents';
 
 function keyEvent(overrides: Partial<KeyboardEvent> = {}) {
   return {
@@ -31,6 +42,26 @@ function setup(overrides: Partial<KeyboardEvent> = {}, clipboardText = 'clipboar
   const handled = handleTerminalPasteShortcut(event, { paste }, readText);
   return { event, handled, paste, readText };
 }
+
+describe('terminal web links', () => {
+  it('requires Cmd-click and reports browser failures without changing the session', async () => {
+    const session = createTerminalSession({ terminalId: 'terminal', host: {} as HTMLElement, terminalFontFamily: 'monospace', terminalFontSize: 14, terminalScrollback: 100, onInput: vi.fn() });
+    const { activate } = session.webLinks as unknown as { activate: (event: MouseEvent, uri: string) => void };
+    vi.mocked(invoke).mockReset().mockRejectedValueOnce('launch failed');
+    const toast = vi.fn();
+    const unsubscribe = applicationEvents.subscribe('toast', toast);
+    const event = { metaKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    activate(event as unknown as MouseEvent, 'https://example.com');
+    expect(invoke).not.toHaveBeenCalled();
+    activate({ ...event, metaKey: true } as unknown as MouseEvent, 'https://example.com');
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('open_url', { url: 'https://example.com' });
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith({ message: 'Could not open link: launch failed', duration: 5000 }));
+    expect(session.running).toBe(false);
+    unsubscribe();
+  });
+});
 
 describe('terminal paste shortcut', () => {
   it('recognizes only an unmodified Cmd+V keydown', () => {
