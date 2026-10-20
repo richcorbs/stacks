@@ -17,6 +17,9 @@ it('identifies the captured card and PR in an accessible confirmation', () => {
   expect(markup).toContain('Merge PR #98?');
   expect(markup).toContain('Card #265: Target card');
   expect(markup).toContain('https://github.com/a/b/pull/98');
+  expect(markup).toContain('class="primaryAction" type="submit"');
+  expect(markup).toContain('MERGE &amp; CLEANUP');
+  expect(markup).toContain('confirm local environment cleanup separately');
 });
 
 it('focuses confirmation, cancels on Escape, and prevents submission while busy or after failure', () => {
@@ -25,12 +28,20 @@ it('focuses confirmation, cancels on Escape, and prevents submission while busy 
   const focus = vi.fn();
   let renderer!: TestRenderer.ReactTestRenderer;
   const component = (busy = false, error: string | null = null) => <BoardPrMergeDialog card={card} busy={busy} error={error} onCancel={onCancel} onConfirm={onConfirm} />;
-  act(() => { renderer = TestRenderer.create(component(), { createNodeMock: () => ({ focus }) }); });
-  expect(focus).toHaveBeenCalled();
+  act(() => { renderer = TestRenderer.create(component(), { createNodeMock: (element) => ({ focus: () => focus((element.props as { className?: string }).className) }) }); });
+  expect(focus).toHaveBeenCalledExactlyOnceWith('primaryAction');
   const event = { key: 'Escape', preventDefault: vi.fn(), stopPropagation: vi.fn() };
   renderer.root.findByType('form').props.onKeyDown(event);
   expect(onCancel).toHaveBeenCalledOnce();
   expect(onConfirm).not.toHaveBeenCalled();
+  const firstFocus = vi.fn();
+  const lastFocus = vi.fn();
+  const controls = [{ focus: firstFocus }, { focus: vi.fn() }, { focus: lastFocus }];
+  const tab = { key: 'Tab', target: controls[2], currentTarget: { querySelectorAll: () => controls }, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+  renderer.root.findByType('form').props.onKeyDown(tab);
+  expect(firstFocus).toHaveBeenCalledOnce();
+  renderer.root.findByType('form').props.onKeyDown({ ...tab, target: controls[0], shiftKey: true });
+  expect(lastFocus).toHaveBeenCalledOnce();
   const cancelButton = renderer.root.findAllByType('button')[0];
   const cancelEnter = { key: 'Enter', target: { closest: () => ({}) }, preventDefault: vi.fn(), stopPropagation: vi.fn() };
   renderer.root.findByType('form').props.onKeyDown(cancelEnter);
@@ -39,17 +50,21 @@ it('focuses confirmation, cancels on Escape, and prevents submission while busy 
   cancelButton.props.onClick();
   expect(onCancel).toHaveBeenCalledTimes(2);
   renderer.root.findByType('form').props.onSubmit(event);
-  expect(onConfirm).toHaveBeenCalledOnce();
+  expect(onConfirm).toHaveBeenCalledExactlyOnceWith('merge-and-cleanup');
+  expect(renderer.root.findAllByType('button')[1].props.className).toBeUndefined();
+  renderer.root.findAllByType('button')[1].props.onClick();
+  expect(onConfirm).toHaveBeenLastCalledWith('merge');
+  onConfirm.mockClear();
   act(() => renderer.update(component(true)));
   renderer.root.findByType('form').props.onKeyDown(event);
   renderer.root.findByType('form').props.onSubmit(event);
   expect(onCancel).toHaveBeenCalledTimes(2);
-  expect(onConfirm).toHaveBeenCalledOnce();
+  expect(onConfirm).not.toHaveBeenCalled();
   expect(renderer.root.findAllByType('button').every((button) => button.props.disabled)).toBe(true);
   act(() => renderer.update(component(false, 'PR merged, but branch deletion failed')));
   expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('PR merged');
   expect(renderer.root.findAllByType('button')).toHaveLength(1);
   renderer.root.findByType('form').props.onSubmit(event);
-  expect(onConfirm).toHaveBeenCalledOnce();
+  expect(onConfirm).not.toHaveBeenCalled();
   act(() => renderer.unmount());
 });

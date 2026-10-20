@@ -40,7 +40,20 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
     return () => cancelAnimationFrame(frame);
   }, []);
   return <div className="modalBackdrop" onMouseDown={busy ? undefined : onCancel}>
-    <div ref={dialogRef} tabIndex={-1} className="modal cleanupPreflightModal" role="dialog" aria-modal="true" aria-labelledby="cleanup-preflight-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => handleDialogShortcut(event, true)}>
+    <div ref={dialogRef} tabIndex={-1} className="modal cleanupPreflightModal" role="dialog" aria-modal="true" aria-labelledby="cleanup-preflight-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => {
+      if (!(event.target as HTMLElement | null)?.closest?.('button, input')) handleDialogShortcut(event, true);
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); if (!busyRef.current) onCancel(); }
+      if (event.key === 'Tab') {
+        const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')];
+        const first = controls[0];
+        const last = controls.at(-1);
+        if (!controls.length || event.target === event.currentTarget || event.target === (event.shiftKey ? first : last)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first)?.focus();
+        }
+      }
+    }}>
       <h2 id="cleanup-preflight-title">Confirm cleanup</h2>
       <div className="cleanupPreflightList">{inventory.entries.map((entry) => <CleanupPreflightEntry
         key={entry.card_id}

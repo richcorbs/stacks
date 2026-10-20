@@ -45,7 +45,7 @@ describe('CleanupPreflightDialog keyboard focus', () => {
     const buttons = () => renderer!.root.findAllByType('button');
     const dispatch = (key: string, metaKey = false) => {
       const click = vi.fn(() => { void buttons()[1].props.onClick(); });
-      const root = { querySelectorAll: () => [{ disabled: buttons()[1].props.disabled, closest: () => root, getClientRects: () => [1], click }] };
+      const root = { querySelectorAll: () => [{ disabled: buttons()[1].props.disabled, closest: () => root, getClientRects: () => [1], click, focus: () => focus('control') }] };
       const event = { key, metaKey, ctrlKey: false, altKey: false, shiftKey: false, target: root, currentTarget: root, preventDefault: vi.fn(), stopPropagation: vi.fn() };
       act(() => dialog.props.onKeyDown(event));
       return { event, click };
@@ -53,7 +53,7 @@ describe('CleanupPreflightDialog keyboard focus', () => {
     return { dialog, buttons, dispatch, focus, runFocus: () => act(() => focusFrame(0)), cancelFrame, onCancel, onConfirm };
   }
 
-  it.each([false, true])('initially focuses only the container (bulk=%s) and leaves buttons in tab order', (bulk) => {
+  it.each([false, true])('initially focuses the container (bulk=%s) and traps Tab within controls', (bulk) => {
     const { dialog, buttons, focus, runFocus, dispatch, onCancel } = mount({ bulk });
     expect(dialog.props.tabIndex).toBe(-1);
     expect(focus).not.toHaveBeenCalled();
@@ -65,8 +65,9 @@ describe('CleanupPreflightDialog keyboard focus', () => {
       expect(button.props.disabled).toBe(false);
     }
     const { event, click } = dispatch('Tab');
-    expect(event.preventDefault).not.toHaveBeenCalled();
-    expect(event.stopPropagation).not.toHaveBeenCalled();
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(event.stopPropagation).toHaveBeenCalled();
+    expect(focus).toHaveBeenLastCalledWith('control');
     expect(click).not.toHaveBeenCalled();
     act(() => buttons()[0].props.onClick());
     expect(onCancel).toHaveBeenCalledOnce();
@@ -91,9 +92,15 @@ describe('CleanupPreflightDialog keyboard focus', () => {
     const { dispatch, onConfirm } = mount({ entries: [entry({ blocked: true, eligible: false })] });
     const { event, click } = dispatch('Enter', metaKey);
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalled();
     expect(click).not.toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('cancels on Escape', () => {
+    const { dispatch, onCancel } = mount();
+    dispatch('Escape');
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 
   it('preserves busy and synchronous duplicate-submission guards', async () => {
