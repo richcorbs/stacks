@@ -5,20 +5,25 @@ import { mergeKanbanPullRequest } from './api';
 import { deliveryStep, type PrCheck } from './deliveryStep';
 import { PrRefreshSchedule } from './prRefreshSchedule';
 
+export type BoardPrMergeIntent = 'merge' | 'merge-and-cleanup';
+
 export type BoardPrMergeProps = {
   onMergePullRequest?: (card: KanbanCardSummary, trigger: HTMLButtonElement) => void;
   mergingCardId?: string | null;
 };
 
-export function useBoardPrMerge({ cards, projects, prChecks, reconcile, reload }: {
+export function useBoardPrMerge({ cards, projects, prChecks, reconcile, reload, prepareCleanup }: {
   cards: KanbanCardSummary[];
   projects: Project[];
   prChecks: Record<string, PrCheck>;
   reconcile: (card: KanbanCard) => void;
   reload: (id: string) => Promise<KanbanCard>;
+  // Fetch evidence while busy; return a presenter to run only after closing merge without restoring focus.
+  prepareCleanup?: (card: KanbanCard, restoreFocus: () => void) => Promise<() => void>;
 }) {
   const [target, setTarget] = useState<{ card: KanbanCardSummary; identity: string; trigger: HTMLButtonElement } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [intent, setIntent] = useState<BoardPrMergeIntent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const submitting = useRef(false);
   const attempted = useRef(false);
@@ -26,10 +31,8 @@ export function useBoardPrMerge({ cards, projects, prChecks, reconcile, reload }
     new PrRefreshSchedule().identity(card, projects.find((project) => project.id === card.project_id) ?? null),
     card.pull_request?.url,
   ]);
-  function close() {
-    if (submitting.current) return;
+  function restoreFocus() {
     const trigger = target?.trigger;
-    setTarget(null);
     requestAnimationFrame(() => {
       if (trigger?.isConnected) trigger.focus();
       else {
@@ -40,8 +43,13 @@ export function useBoardPrMerge({ cards, projects, prChecks, reconcile, reload }
       }
     });
   }
+  function close() {
+    if (submitting.current) return;
+    setTarget(null);
+    restoreFocus();
+  }
   return {
-    target, busy, error,
+    target, busy, error, intent,
     mergingCardId: busy ? target?.card.id : null,
     request(card: KanbanCardSummary, trigger: HTMLButtonElement) {
       if (submitting.current || target || !deliveryStep(card, { projects, prChecks }).prMergeReady) return;
@@ -50,12 +58,14 @@ export function useBoardPrMerge({ cards, projects, prChecks, reconcile, reload }
       setTarget({ card, identity: identity(card), trigger });
     },
     close,
-    async confirm() {
+    async confirm(action: BoardPrMergeIntent = 'merge') {
       if (!target || submitting.current || attempted.current) return;
       submitting.current = true;
       attempted.current = true;
       setBusy(true);
+      setIntent(action);
       let message: string | null = null;
+      let openCleanup: (() => void) | undefined;
       try {
         const current = cards.find((card) => card.id === target.card.id);
         if (!current || identity(current) !== target.identity || !deliveryStep(current, { projects, prChecks }).prMergeReady) {
@@ -64,6 +74,14 @@ export function useBoardPrMerge({ cards, projects, prChecks, reconcile, reload }
         const updated = await mergeKanbanPullRequest(target.card.id, target.card.workflow_revision);
         reconcile(updated);
         message = updated.delivery_error ?? null;
+        if (!message && action === 'merge-and-cleanup') {
+          try {
+            if (!prepareCleanup) throw new Error('Cleanup is unavailable.');
+            openCleanup = await prepareCleanup(updated, restoreFocus);
+          } catch (failure) {
+            message = `PR merged successfully, but cleanup could not begin: ${failure instanceof Error ? failure.message : String(failure)}`;
+          }
+        }
       } catch (failure) {
         message = failure instanceof Error ? failure.message : String(failure);
         try { reconcile(await reload(target.card.id)); }
@@ -73,7 +91,10 @@ export function useBoardPrMerge({ cards, projects, prChecks, reconcile, reload }
         setBusy(false);
       }
       if (message) setError(message);
-      else close();
+      else if (openCleanup) {
+        setTarget(null);
+        openCleanup();
+      } else close();
     },
   };
 }

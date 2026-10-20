@@ -28,7 +28,7 @@ import { flushProjectNotes } from '../../projectNotes';
 import { projectColorAttribute } from '../../projectColor';
 import { workGroup } from '../../kanban/workflowGroups';
 import type { NotificationRoute } from '../../appAttention';
-import { fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
+import { fetchCleanupPreflight, fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
 import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
 import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 import { useLoadingCoordinator } from '../../loadingState';
@@ -105,6 +105,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     activeCardId: selectedCardId,
     patchCard: board.patchCard,
   });
+  const [mergeCleanup, setMergeCleanup] = useState<{ card: KanbanCard; inventory: CleanupInventory; restoreFocus: () => void } | null>(null);
   const prMerge = useBoardPrMerge({
     cards: board.cards, projects, prChecks,
     reconcile: (updated) => {
@@ -113,6 +114,16 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       projectSelectedDetail(updated, updated.events, canonical);
     },
     reload: board.loadPersistedDetails,
+    prepareCleanup: async (card, restoreFocus) => {
+      const entry = await fetchCleanupPreflight(card.id);
+      if (entry.card_id !== card.id) throw new Error('Cleanup evidence does not match the merged card.');
+      if (!entry.has_resources) return () => {
+        showAppToast('PR merged successfully; nothing remains to clean up');
+        restoreFocus();
+      };
+      const inventory = { entries: [entry], eligible_merged: Number(entry.merged && !entry.blocked), blocked: Number(entry.blocked), closed: 0, completed: 0 };
+      return () => setMergeCleanup({ card, inventory, restoreFocus });
+    },
   });
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
   const directWorkProjectIdRef = useRef<string | null>(null);
@@ -198,7 +209,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     openCard,
     view,
     creationAvailable: !creationAvailability.disabled,
-    shortcutBlocked: boardShortcutBlocked || board.loading || !projectsHydrated || Boolean(prMerge.target || selectedCardId || projectSwitcherOpen || newCard.open || openLaneMenu || serverHandoff || cleanupInventory || directWorkProjectId || cleaningMerged),
+    shortcutBlocked: boardShortcutBlocked || board.loading || !projectsHydrated || Boolean(prMerge.target || mergeCleanup || selectedCardId || projectSwitcherOpen || newCard.open || openLaneMenu || serverHandoff || cleanupInventory || directWorkProjectId || cleaningMerged),
     openNewCard: newCard.show,
   });
   const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder, view, backlogCollapsed });
@@ -507,6 +518,32 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     requestAnimationFrame(() => doneToggleRef.current?.focus());
   }
 
+  function closeMergeCleanup() {
+    const restoreFocus = mergeCleanup?.restoreFocus;
+    setMergeCleanup(null);
+    restoreFocus?.();
+  }
+
+  async function confirmMergeCleanup([entry]: CleanupPreflight[]) {
+    if (!mergeCleanup || !entry || entry.card_id !== mergeCleanup.card.id) return;
+    const cardId = mergeCleanup.card.id;
+    try {
+      const current = await board.loadPersistedDetails(cardId);
+      const cleaned = await onCleanupCard(current, entry);
+      showAppToast(cleaned ? 'PR merged successfully; cleanup complete' : 'PR merged successfully; local environment retained after cleanup revalidation');
+    } catch (error) {
+      showAppToast(`PR merged successfully, but cleanup failed: ${String(error)}`);
+    } finally {
+      try {
+        const updated = await board.loadPersistedDetails(cardId);
+        const canonical = board.applyCardSnapshot(updated);
+        detailCacheRef.current.remove(cardId);
+        projectSelectedDetail(updated, updated.events, canonical);
+      } catch (error) { showAppToast(`PR remains merged. Could not reload cleanup state: ${String(error)}`); }
+      closeMergeCleanup();
+    }
+  }
+
   async function cleanupMergedCards() {
     setOpenLaneMenu(null);
     setCleaningMerged(true);
@@ -675,8 +712,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         }}
       />
       <NewCardDialog model={newCard} creationProjects={creationProjects} cards={board.cards} />
-      {prMerge.target && <BoardPrMergeDialog card={prMerge.target.card} busy={prMerge.busy} error={prMerge.error}
-        onCancel={prMerge.close} onConfirm={() => { void prMerge.confirm(); }} />}
+      {prMerge.target && <BoardPrMergeDialog card={prMerge.target.card} busy={prMerge.busy} intent={prMerge.intent} error={prMerge.error}
+        onCancel={prMerge.close} onConfirm={(intent) => { void prMerge.confirm(intent); }} />}
       {serverHandoff && <ServerHandoffDialog
         externalId={serverHandoff.externalId}
         busy={serverActionPending}
@@ -687,6 +724,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
           void runServerAction(targetCardId).finally(() => setServerHandoff(null));
         }}
       />}
+      {mergeCleanup && <CleanupPreflightDialog inventory={mergeCleanup.inventory} onCancel={closeMergeCleanup} onConfirm={confirmMergeCleanup} />}
       {cleanupInventory && <CleanupPreflightDialog bulk inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={confirmBulkCleanup} />}
       {directWorkProjectId && projects.find((project) => project.id === directWorkProjectId) && (
         <DirectProjectWork
