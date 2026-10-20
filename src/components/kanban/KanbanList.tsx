@@ -11,14 +11,16 @@ import { WORK_GROUPS, groupCards, type WorkGroup } from '../../kanban/workflowGr
 import { cardServerAvailability } from './BoardCardServerServices';
 import { owningProject } from '../../kanban/projectScope';
 import { projectColorAttribute } from '../../projectColor';
+import type { BoardPrMergeProps } from '../../kanban/useBoardPrMerge';
+import type { PrCheck } from '../../kanban/deliveryStep';
 import { DoneLaneMenu, KanbanCardContents, kanbanCardClassName } from './KanbanLanes';
 
-export function KanbanList({ cards, projects, selectedProjectColor, repositoryStatuses, prChecks, serverServices, backlogCollapsed, attentionCollapsed = false, progressCollapsed = false, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleAttention = () => {}, onToggleProgress = () => {}, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer }: {
+export function KanbanList({ cards, projects, selectedProjectColor, repositoryStatuses, prChecks, serverServices, backlogCollapsed, attentionCollapsed = false, progressCollapsed = false, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleAttention = () => {}, onToggleProgress = () => {}, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer, onMergePullRequest, mergingCardId }: BoardPrMergeProps & {
   cards: KanbanCardSummary[];
   projects: Project[];
   selectedProjectColor?: string;
   repositoryStatuses: Record<string, CardRepositoryStatus>;
-  prChecks?: Record<string, { checkedAt: number | null; failed: boolean; refreshing: boolean }>;
+  prChecks?: Record<string, PrCheck>;
   serverServices: Record<string, CardServices>;
   backlogCollapsed: boolean;
   attentionCollapsed?: boolean;
@@ -81,10 +83,10 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
               onPointerUp={draggable ? pointer?.finishPointerDrag : undefined}
               onPointerCancel={draggable ? pointer?.cancelPointerDrag : undefined}
               onClick={() => { if (!pointer?.shouldSuppressCardClick()) onOpenCard(card); }}>
-            <button type="button" className="kanbanCardOpen"
+            <button type="button" className="kanbanCardOpen" data-kanban-open-card-id={card.id}
               aria-label={`Open card #${card.external_id}: ${card.title}`}
               onFocus={() => setKeyboardFocusedCardId(card.id)} onClick={(event) => { event.stopPropagation(); if (!pointer?.shouldSuppressCardClick()) onOpenCard(card); }} />
-            <KanbanCardContents card={card} projects={projects} layout="list" repositoryStatus={repositoryStatuses[card.id]}
+            <KanbanCardContents card={card} onMergePullRequest={onMergePullRequest} mergingCardId={mergingCardId} projects={projects} layout="list" repositoryStatus={repositoryStatuses[card.id]}
               listWarning={warning ? { tooltip, onOpen: () => onOpenCard(card, 'overview') } : undefined}
               prCheck={prChecks?.[card.id]}
               serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined}

@@ -17,6 +17,8 @@ import { GithubStatusIcon } from '../GithubStatusIcon';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
 import { cardServerAvailability } from './BoardCardServerServices';
 
+import type { BoardPrMergeProps } from '../../kanban/useBoardPrMerge';
+
 type PointerOrdering = ReturnType<typeof usePointerCardOrdering>;
 
 type DoneLaneMenuProps = {
@@ -142,7 +144,9 @@ export function KanbanCardContents({
   onToggleServer,
   layout = 'board',
   listWarning,
-}: {
+  onMergePullRequest,
+  mergingCardId,
+}: BoardPrMergeProps & {
   card: KanbanCardSummary;
   projects: Project[];
   repositoryStatus: CardRepositoryStatus | undefined;
@@ -203,6 +207,18 @@ export function KanbanCardContents({
           </span>
         )}
         {card.pull_request && <KanbanPullRequestBadge pullRequest={card.pull_request} check={prCheck} />}
+        {onMergePullRequest && (delivery.prMergeReady || mergingCardId === card.id) && <button
+          className="kanbanServerToggle kanbanPrMerge" type="button"
+          aria-label={`Merge PR #${card.pull_request?.number} for card #${card.external_id}`}
+          title={mergingCardId === card.id ? 'Merging PR…' : `Merge PR #${card.pull_request?.number}`}
+          disabled={mergingCardId === card.id} aria-busy={mergingCardId === card.id}
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerUp={(event) => event.stopPropagation()}
+          onPointerCancel={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          onKeyUp={(event) => event.stopPropagation()}
+          onClick={(event) => { event.stopPropagation(); onMergePullRequest(card, event.currentTarget); }}
+        >{mergingCardId === card.id ? <span className="asyncButtonSpinner" aria-hidden="true" /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="6" cy="4" r="2" /><circle cx="6" cy="20" r="2" /><circle cx="18" cy="4" r="2" /><path d="M6 6v12M18 6c0 7-12 4-12 10" /></svg>}</button>}
         {serverServices && <KanbanServerControl services={serverServices} onToggle={() => onToggleServer(card.id)} />}
       </span>
     </span>}
@@ -228,7 +244,9 @@ export function KanbanLanes({
   onOpenCard,
   onNavigateParent,
   onToggleServer,
-}: {
+  onMergePullRequest,
+  mergingCardId,
+}: BoardPrMergeProps & {
   cards: KanbanCardSummary[];
   projects: Project[];
   repositoryStatuses: Record<string, CardRepositoryStatus>;
@@ -331,13 +349,14 @@ export function KanbanLanes({
                       >
                         <button
                           className="kanbanCardOpen"
+                          data-kanban-open-card-id={card.id}
                           type="button"
                           data-kanban-card-id={card.id}
                           aria-label={`Open card #${card.external_id}: ${card.title}`}
                           onFocus={() => setKeyboardFocusedCardId(card.id)}
                           onClick={(event) => { event.stopPropagation(); if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
                         />
-                        <KanbanCardContents card={card} projects={projects} repositoryStatus={repositoryStatus} prCheck={prChecks?.[card.id]} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
+                        <KanbanCardContents card={card} onMergePullRequest={onMergePullRequest} mergingCardId={mergingCardId} projects={projects} repositoryStatus={repositoryStatus} prCheck={prChecks?.[card.id]} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
                       </div>
                       {showEnvironmentWarning && environmentHealth && (
                         <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>

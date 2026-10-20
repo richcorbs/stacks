@@ -35,6 +35,8 @@ import { useLoadingCoordinator } from '../../loadingState';
 import { launchPlanningAgent } from '../../kanban/planningLauncher';
 import { CardServerShutdownError, findConflictingCardServer, handoffCardServer } from '../../kanban/cardServerHandoff';
 import { ServerHandoffDialog } from './ServerHandoffDialog';
+import { useBoardPrMerge } from '../../kanban/useBoardPrMerge';
+import { BoardPrMergeDialog } from './BoardPrMergeDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
 
 export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
@@ -102,6 +104,15 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     visibleCards,
     activeCardId: selectedCardId,
     patchCard: board.patchCard,
+  });
+  const prMerge = useBoardPrMerge({
+    cards: board.cards, projects, prChecks,
+    reconcile: (updated) => {
+      const canonical = board.applyCardSnapshot(updated);
+      detailCacheRef.current.remove(updated.id);
+      projectSelectedDetail(updated, updated.events, canonical);
+    },
+    reload: board.loadPersistedDetails,
   });
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
   const directWorkProjectIdRef = useRef<string | null>(null);
@@ -187,7 +198,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     openCard,
     view,
     creationAvailable: !creationAvailability.disabled,
-    shortcutBlocked: boardShortcutBlocked || board.loading || !projectsHydrated || Boolean(selectedCardId || projectSwitcherOpen || newCard.open || openLaneMenu || serverHandoff || cleanupInventory || directWorkProjectId || cleaningMerged),
+    shortcutBlocked: boardShortcutBlocked || board.loading || !projectsHydrated || Boolean(prMerge.target || selectedCardId || projectSwitcherOpen || newCard.open || openLaneMenu || serverHandoff || cleanupInventory || directWorkProjectId || cleaningMerged),
     openNewCard: newCard.show,
   });
   const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder, view, backlogCollapsed });
@@ -580,6 +591,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       {!board.loading && view === 'board' && (
         <KanbanLanes
           cards={visibleCards}
+          onMergePullRequest={prMerge.request}
+          mergingCardId={prMerge.mergingCardId}
           projects={projects}
           repositoryStatuses={repositoryStatuses}
           prChecks={prChecks}
@@ -604,6 +617,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       )}
       {!board.loading && view === 'list' && <KanbanList
         cards={visibleCards}
+        onMergePullRequest={prMerge.request}
+        mergingCardId={prMerge.mergingCardId}
         selectedProjectColor={projectColorAttribute(selectedProject)}
         projects={projects}
         repositoryStatuses={repositoryStatuses}
@@ -660,6 +675,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         }}
       />
       <NewCardDialog model={newCard} creationProjects={creationProjects} cards={board.cards} />
+      {prMerge.target && <BoardPrMergeDialog card={prMerge.target.card} busy={prMerge.busy} error={prMerge.error}
+        onCancel={prMerge.close} onConfirm={() => { void prMerge.confirm(); }} />}
       {serverHandoff && <ServerHandoffDialog
         externalId={serverHandoff.externalId}
         busy={serverActionPending}

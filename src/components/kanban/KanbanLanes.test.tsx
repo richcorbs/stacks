@@ -105,17 +105,21 @@ it.each(['fresh', 'refreshing', 'expired', 'failed', 'retrying', 'reopened'] as 
     refreshing: phase === 'refreshing' || phase === 'retrying',
     identity: new PrRefreshSchedule().identity(item, prProject),
   }]));
-  const board = renderToStaticMarkup(<KanbanLanes cards={cards} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
+  const board = renderToStaticMarkup(<KanbanLanes cards={cards} onMergePullRequest={() => {}} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
     doneCollapsed={false} doneToggleRef={createRef<HTMLButtonElement>()} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
     keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}} pointer={pointerStub()} onToggleDone={() => {}} onCleanupMerged={() => {}}
     onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
-  const list = renderToStaticMarkup(<KanbanList cards={cards} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
+  const list = renderToStaticMarkup(<KanbanList cards={cards} onMergePullRequest={() => {}} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
     backlogCollapsed={false} doneCollapsed={false} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
     keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
     onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
   for (const markup of [board, list]) {
     const progress = markup.match(/data-kanban-group="progress"[\s\S]*?(?=<\/section>)/)?.[0] ?? '';
     const attention = markup.match(/data-kanban-group="attention"[\s\S]*?(?=<\/section>)/)?.[0] ?? '';
+    expect(markup.match(/class="kanbanServerToggle kanbanPrMerge"/g)).toHaveLength(1);
+    expect(attention).toContain('Merge PR #98 for card #2');
+    expect(attention).toContain('PR #98');
+    expect(progress).not.toContain('kanbanPrMerge');
     expect(progress).toContain('>PR open</span>');
     expect(progress).toContain('aria-label="PR open · CI running"');
     expect(progress).not.toContain('>Approved</span>');
@@ -615,5 +619,61 @@ describe('DoneLaneMenu', () => {
 
     const openMarkup = renderMenu({ collapsed: true, cardsCount: 0 });
     expect(openMarkup).toMatch(/<button class="danger"[^>]*disabled=""[^>]*>/);
+  });
+});
+
+
+describe('board/list merge control', () => {
+  const prProject: Project = { ...project, delivery_workflow: 'github_pull_request' };
+  it.each([
+    { pull_request: pullRequest({ draft: true }) },
+    { pull_request: pullRequest({ state: 'closed' }) },
+    { pull_request: pullRequest({ state: 'merged' }) },
+    { pull_request: pullRequest({ blockers: ['Changes requested'] }) },
+    { pull_request: pullRequest({ has_conflicts: true }) },
+    { pull_request: pullRequest({ ci_status: 'unknown' }) },
+    { pull_request: pullRequest({ ci_status: 'pending', blockers: ['CI is pending'] }) },
+    { delivery_error: 'Blocked' },
+    { delivery_operation_stage: 'merging_pr' },
+    { delivery_operation_stage: 'deleting_remote_branch' },
+    { status: 'agent_working' as const },
+  ])('does not offer merging for a non-ready projection (%j)', (overrides) => {
+    const current = card({ status: 'approved', child_count: 0, pull_request: pullRequest(), ...overrides });
+    for (const layout of ['board', 'list'] as const) {
+      const markup = renderToStaticMarkup(<KanbanCardContents card={current} projects={[prProject]} layout={layout}
+        repositoryStatus={undefined} onMergePullRequest={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+      expect(markup).not.toContain('kanbanPrMerge');
+    }
+  });
+  it('rejects an explicitly obsolete PR observation', () => {
+    const markup = renderToStaticMarkup(<KanbanCardContents card={card({ status: 'approved', child_count: 0, pull_request: pullRequest() })}
+      projects={[prProject]} repositoryStatus={undefined} onMergePullRequest={() => {}}
+      prCheck={{ identity: 'obsolete', checkedAt: Date.now(), failed: false, refreshing: false }}
+      onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    expect(markup).not.toContain('kanbanPrMerge');
+  });
+  it('isolates pointer and keyboard events and captures the exact card and trigger', async () => {
+    const current = card({ status: 'approved', child_count: 0, pull_request: pullRequest() });
+    const request = vi.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<KanbanCardContents card={current} projects={[prProject]}
+      repositoryStatus={undefined} onMergePullRequest={request} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+    const button = renderer.root.findByProps({ className: 'kanbanServerToggle kanbanPrMerge' });
+    for (const handler of ['onPointerDown', 'onPointerUp', 'onPointerCancel', 'onKeyDown', 'onKeyUp']) {
+      const stopPropagation = vi.fn();
+      button.props[handler]({ stopPropagation });
+      expect(stopPropagation).toHaveBeenCalledOnce();
+      expect(request).not.toHaveBeenCalled();
+    }
+    const trigger = {};
+    const stopPropagation = vi.fn();
+    button.props.onClick({ stopPropagation, currentTarget: trigger });
+    expect(stopPropagation).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith(current, trigger);
+    await act(async () => { renderer.update(<KanbanCardContents card={current} projects={[prProject]} mergingCardId={current.id}
+      repositoryStatus={undefined} onMergePullRequest={request} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+    expect(renderer.root.findByProps({ className: 'kanbanServerToggle kanbanPrMerge' }).props.disabled).toBe(true);
+    expect(renderer.root.findByProps({ className: 'kanbanServerToggle kanbanPrMerge' }).props['aria-busy']).toBe(true);
+    act(() => renderer.unmount());
   });
 });
