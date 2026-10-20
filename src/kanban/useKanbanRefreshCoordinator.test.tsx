@@ -99,7 +99,7 @@ describe('explicit card Git refresh', () => {
     const { renderer, patchCard } = await mount([one]);
     const projectStep = () => deliveryStep(one, { projects: [project], prChecks: state.prChecks });
     expect(state.prChecks.one).toMatchObject({ checkedAt: null, refreshing: true });
-    expect(projectStep()).toEqual({ label: 'PR merge available · Merge PR', actionRequired: true });
+    expect(projectStep()).toEqual({ label: 'PR merge available · Merge PR', actionRequired: true, prMergeReady: true });
     await act(async () => { resolve({ card: one, error: 'rate limit' }); });
     expect(state.prChecks.one).toMatchObject({ checkedAt: null, failed: true, refreshing: false });
     expect(projectStep().label).toBe('PR merge available · Merge PR');

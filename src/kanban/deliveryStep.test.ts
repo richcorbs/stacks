@@ -17,8 +17,8 @@ describe('delivery-step projection', () => {
   it('keeps waiting CI in progress and last-known unblocked readiness actionable independently of freshness', () => {
     expect(deliveryStep(card, context())).toEqual({ label: 'PR open · CI running', actionRequired: false });
     const clear = { ...card, pull_request: { ...card.pull_request!, ci_status: 'success' as const, blockers: [] } };
-    expect(deliveryStep(clear, context(clear))).toEqual({ label: 'PR merge available · Merge PR', actionRequired: true });
-    const expected = { label: 'PR merge available · Merge PR', actionRequired: true };
+    expect(deliveryStep(clear, context(clear))).toEqual({ label: 'PR merge available · Merge PR', actionRequired: true, prMergeReady: true });
+    const expected = { label: 'PR merge available · Merge PR', actionRequired: true, prMergeReady: true };
     expect(deliveryStep(clear, { projects: [project] })).toEqual(expected);
     expect(deliveryStep(clear, { ...context(clear), now: 300_000 })).toEqual(expected);
     for (const flags of [{ refreshing: true }, { failed: true }, { refreshing: true, failed: true }, { checkedAt: null }]) {

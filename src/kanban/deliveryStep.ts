@@ -4,7 +4,7 @@ import { PrRefreshSchedule } from './prRefreshSchedule';
 
 export type PrCheck = { identity?: string; checkedAt: number | null; failed: boolean; refreshing: boolean };
 export type DeliveryContext = { projects?: Project[]; prChecks?: Record<string, PrCheck>; now?: number };
-export type DeliveryStep = { label: string; actionRequired: boolean };
+export type DeliveryStep = { label: string; actionRequired: boolean; prMergeReady?: boolean };
 const step = (label: string, actionRequired: boolean): DeliveryStep => ({ label, actionRequired });
 
 /** UI projection only. Backend capabilities and fresh preflight remain the authority for every transition. */
@@ -78,5 +78,5 @@ export function deliveryStep(card: KanbanCardSummary, context: DeliveryContext =
   if (pr.ci_status === 'pending' && pr.blockers.every((blocker) => blocker === 'CI is pending' || blocker === 'GitHub merge readiness is unknown or blocked')) return step('PR open · CI running', false);
   if (pr.ci_status === 'unknown') return step('PR checks unknown · Inspect', true);
   if (pr.blockers.length) return step(`PR blocked · ${pr.blockers[0]}`, true);
-  return step('PR merge available · Merge PR', true);
+  return { ...step('PR merge available · Merge PR', true), prMergeReady: true };
 }
