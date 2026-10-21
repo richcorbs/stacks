@@ -270,12 +270,18 @@ fn tracked_ids(connection: &Connection, table: &str) -> Result<Vec<String>, Stri
 pub(crate) fn with_board_mutation<T>(
     work: impl FnOnce(&mut Connection) -> Result<T, String>,
 ) -> Result<T, String> {
+    let waiting = std::time::Instant::now();
     let _guard = BOARD_OPERATION_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .map_err(|_| "Kanban board operation lock failed".to_string())?;
+    let acquired = std::time::Instant::now();
     let mut connection = open_connection(false)?;
-    let (result, change) = execute_board_mutation(&mut connection, work)?;
+    let result = execute_board_mutation(&mut connection, work);
+    if std::env::var_os("STACKS_PROFILE_KANBAN").is_some() {
+        eprintln!("Kanban mutation: wait_ms={} hold_ms={}", waiting.elapsed().saturating_sub(acquired.elapsed()).as_millis(), acquired.elapsed().as_millis());
+    }
+    let (result, change) = result?;
     if let (Some(app), Some(change)) = (APP_HANDLE.get(), change) {
         if let Err(error) = app.emit("kanban-board-changed", &change) {
             eprintln!("Kanban mutation committed at board revision {}, but event delivery failed: {error}", change.board_revision);
