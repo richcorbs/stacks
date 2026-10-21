@@ -4,6 +4,12 @@ import type { KeyboardEvent } from 'react';
 export function handleDialogShortcut(event: KeyboardEvent<HTMLElement>, confirmOnEnter = false) {
   if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.shiftKey
     || (!event.metaKey && (!confirmOnEnter || (event.target as HTMLElement | null)?.closest?.('textarea, [contenteditable="true"]')))) return;
+  // Plain Enter on a focused button must keep native activation (not turn
+  // Cancel into confirmation). Cmd-Enter still routes to the enabled primary.
+  if (!event.metaKey && (event.target as HTMLElement | null)?.closest?.('button')) {
+    event.stopPropagation();
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
   const root = event.currentTarget;

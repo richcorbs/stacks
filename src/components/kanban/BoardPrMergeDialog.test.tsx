@@ -6,10 +6,11 @@ import { BoardPrMergeDialog } from './BoardPrMergeDialog';
 
 const card = { external_id: '265', title: 'Target card', pull_request: { number: 98, url: 'https://github.com/a/b/pull/98' } } as KanbanCardSummary;
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { callback(); return 1; });
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it('identifies the captured card and PR in an accessible confirmation', () => {
   const markup = renderToStaticMarkup(<BoardPrMergeDialog card={card} busy={false} error={null} onCancel={() => {}} onConfirm={() => {}} />);
@@ -22,14 +23,37 @@ it('identifies the captured card and PR in an accessible confirmation', () => {
   expect(markup).toContain('confirm local environment cleanup separately');
 });
 
-it('focuses confirmation, cancels on Escape, and prevents submission while busy or after failure', () => {
+it('delays alternate retry cleanup while preserving error and busy guards', () => {
+  const retry = vi.fn();
+  let renderer!: TestRenderer.ReactTestRenderer;
+  const dialog = (busy = false) => <BoardPrMergeDialog card={card} busy={busy} error="PR merged; cleanup failed" onCancel={() => {}} onConfirm={() => {}} onRetryCleanup={retry} />;
+  act(() => { renderer = TestRenderer.create(dialog()); });
+  const action = () => renderer.root.findAllByType('button')[1];
+  expect(action().props.disabled).toBe(true);
+  action().props.onClick();
+  expect(retry).not.toHaveBeenCalled();
+  act(() => { vi.advanceTimersByTime(2000); });
+  expect(retry).not.toHaveBeenCalled();
+  action().props.onClick();
+  expect(retry).toHaveBeenCalledOnce();
+  act(() => { renderer.update(dialog(true)); });
+  action().props.onClick();
+  expect(retry).toHaveBeenCalledOnce();
+  act(() => renderer.unmount());
+});
+
+it('delays both merge actions, cancels on Escape, and prevents submission while busy or after failure', () => {
   const onCancel = vi.fn();
   const onConfirm = vi.fn();
   const focus = vi.fn();
   let renderer!: TestRenderer.ReactTestRenderer;
   const component = (busy = false, error: string | null = null) => <BoardPrMergeDialog card={card} busy={busy} error={error} onCancel={onCancel} onConfirm={onConfirm} />;
   act(() => { renderer = TestRenderer.create(component(), { createNodeMock: (element) => ({ focus: () => focus((element.props as { className?: string }).className) }) }); });
-  expect(focus).toHaveBeenCalledExactlyOnceWith('primaryAction');
+  expect(renderer.root.findAllByType('button').map((button) => button.props.disabled)).toEqual([false, true, true]);
+  renderer.root.findByType('form').props.onSubmit({ preventDefault: vi.fn() });
+  renderer.root.findAllByType('button')[1].props.onClick();
+  expect(onConfirm).not.toHaveBeenCalled();
+  act(() => { vi.advanceTimersByTime(2000); });
   const event = { key: 'Escape', preventDefault: vi.fn(), stopPropagation: vi.fn() };
   renderer.root.findByType('form').props.onKeyDown(event);
   expect(onCancel).toHaveBeenCalledOnce();

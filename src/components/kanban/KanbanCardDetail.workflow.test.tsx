@@ -1,7 +1,10 @@
+import type { ComponentProps } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KanbanCardDetail } from './KanbanCardDetail';
 import { CardDetailTabs } from './CardDetailChrome';
+import { ConfirmDialog } from '../ConfirmDialogs';
 import { WorkflowShortcutConfirmDialog } from './WorkflowShortcutConfirmDialog';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
@@ -19,12 +22,13 @@ const baseCard = { id: 'local:1', provider: 'local', external_id: '1', title: 'C
 let keyboard: (event: KeyboardEvent) => void;
 let modalOpen = false;
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.stubGlobal('window', { addEventListener: (type: string, listener: typeof keyboard) => { if (type === 'keydown') keyboard = listener; }, removeEventListener: vi.fn(), confirm: vi.fn(() => true) });
   vi.stubGlobal('document', { querySelector: () => modalOpen ? {} : null, activeElement: null });
   vi.stubGlobal('requestAnimationFrame', () => 1);
   modalOpen = false;
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 async function mount(options: { initialView?: 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console'; capabilities?: { action: string; available: boolean; disabled_reason?: string }[]; onStartWork?: () => Promise<boolean>; onUpdate?: () => Promise<never> } = {}) {
   const card = { ...baseCard, capabilities: options.capabilities ?? [{ action: 'return_to_refinement', available: true }, { action: 'start_work', available: true }] };
@@ -51,7 +55,10 @@ describe('card workflow shortcut', () => {
     expect(onStartWork).not.toHaveBeenCalled();
     const prompt = renderer.root.findByType(WorkflowShortcutConfirmDialog);
     expect(prompt.props.label).toBe('Start work');
-    await act(async () => { prompt.props.onConfirm(); await Promise.resolve(); });
+    act(() => { prompt.findByType('form').props.onSubmit({ preventDefault: vi.fn() }); });
+    expect(onStartWork).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(2000); });
+    await act(async () => { prompt.findByType('form').props.onSubmit({ preventDefault: vi.fn() }); await Promise.resolve(); });
     expect(onStartWork).toHaveBeenCalledOnce();
     act(() => renderer.unmount());
   });
@@ -84,7 +91,8 @@ describe('card workflow shortcut', () => {
     act(() => { key(); key(); });
     expect(onStartWork).not.toHaveBeenCalled();
     const prompt = renderer.root.findByType(WorkflowShortcutConfirmDialog);
-    await act(async () => { prompt.props.onConfirm(); prompt.props.onConfirm(); await Promise.resolve(); });
+    act(() => { vi.advanceTimersByTime(2000); });
+    await act(async () => { const form = prompt.findByType('form'); form.props.onSubmit({ preventDefault: vi.fn() }); form.props.onSubmit({ preventDefault: vi.fn() }); await Promise.resolve(); });
     expect(onStartWork).toHaveBeenCalledOnce();
     await act(async () => { finish(false); await Promise.resolve(); });
     act(() => renderer.unmount());
@@ -110,7 +118,8 @@ describe('card workflow shortcut', () => {
     expect(onStartWork).not.toHaveBeenCalled();
     act(() => { key(); });
     const stalePrompt = renderer.root.findByType(WorkflowShortcutConfirmDialog);
-    await act(async () => { stalePrompt.props.onConfirm(); await Promise.resolve(); });
+    act(() => { vi.advanceTimersByTime(2000); });
+    await act(async () => { stalePrompt.findByType('form').props.onSubmit({ preventDefault: vi.fn() }); await Promise.resolve(); });
     expect(onStartWork).toHaveBeenCalledOnce();
     act(() => renderer.unmount());
   });
@@ -131,9 +140,27 @@ describe('card workflow shortcut', () => {
     const button = renderer.root.findAllByType('button').find((item) => item.props['aria-label'] === 'Close without delivery')!;
     expect(button.props.className).toContain('primaryAction');
     await act(async () => { button.props.onClick(); await Promise.resolve(); });
-    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(renderer.root.findAllByType(ConfirmDialog)).toHaveLength(1);
+    expect(renderer.root.findByType(ConfirmDialog).props.title).toBe('Close without delivery?');
     await act(async () => { key(); await Promise.resolve(); });
-    expect(window.confirm).toHaveBeenCalledTimes(2);
+    expect(renderer.root.findAllByType(ConfirmDialog)).toHaveLength(1);
+    await act(async () => { renderer.root.findByType(ConfirmDialog).props.onCancel(); await Promise.resolve(); });
+    await act(async () => { key(); await Promise.resolve(); });
+    expect(renderer.root.findAllByType(ConfirmDialog)).toHaveLength(1);
+    expect(window.confirm).not.toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+
+  it('revalidates action eligibility after awaiting an explicit confirmation', async () => {
+    const { renderer } = await mount({ capabilities: [{ action: 'close', available: true }] });
+    const button = renderer.root.findAllByType('button').find((item) => item.props['aria-label'] === 'Close without delivery')!;
+    await act(async () => { button.props.onClick(); await Promise.resolve(); });
+    const props = renderer.root.findByType(KanbanCardDetail).props as ComponentProps<typeof KanbanCardDetail>;
+    act(() => { renderer.update(<KanbanCardDetail {...props} card={{ ...props.card, capabilities: [{ action: 'close', available: false, disabled_reason: 'Changed eligibility' }] }} />); });
+    act(() => { vi.advanceTimersByTime(2000); });
+    vi.mocked(invoke).mockClear();
+    await act(async () => { renderer.root.findByType(ConfirmDialog).findByType('form').props.onSubmit({ preventDefault: vi.fn() }); await Promise.resolve(); });
+    expect(invoke).not.toHaveBeenCalled();
     act(() => renderer.unmount());
   });
 

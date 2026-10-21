@@ -136,7 +136,7 @@ export function GlobalTerminal({ visible, newTabNonce, settings, onVisibleChange
         {state.tabs.map((tab) => <GlobalTab key={tab.id} tab={tab} home={state.home_dir} selected={tab.id === state.selected_tab_id} visible={visible} settings={settings} temporaryCwds={temporaryCwds} searchRequest={searchRequest} canClose={state.tabs.length > 1 || collectLeafTerminalIds(tab.split_layout).length > 1} update={(change) => setState((current) => current ? { ...current, tabs: current.tabs.map((item) => item.id === tab.id ? change(item) : item) } : current)} onClose={(id) => setPendingClose({ kind: 'pane', id })} onSplit={(direction) => void split(direction)} />)}
       </div>
     </section>
-    {pendingClose && <ConfirmCloseTerminalDialog onCancel={() => setPendingClose(null)} onConfirm={closeConfirmed} />}
+    {pendingClose && <ConfirmCloseTerminalDialog key={`${pendingClose.kind}:${pendingClose.id}`} onCancel={() => setPendingClose(null)} onConfirm={closeConfirmed} />}
   </>;
 }
 

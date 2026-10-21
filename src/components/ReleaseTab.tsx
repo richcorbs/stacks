@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openExternalUrl } from '../externalLinks';
+import { useConfirmation } from './ConfirmDialogs';
 import { ExternalLink } from './ExternalLink';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../types';
@@ -27,6 +28,19 @@ function ProjectReleaseTab({ project }: { project: Project }) {
   const [ciCheck, setCiCheck] = useState<{ id: string; revision: number; result?: ReleaseCiStatus; error?: string } | null>(null);
   const [ciRefreshKey, setCiRefreshKey] = useState(0);
   const active = history.find((operation) => !['completed', 'abandoned'].includes(operation.status)) ?? null;
+  const confirmation = useConfirmation(`${project.id}:${active?.id}:${active?.revision}`);
+  const currentRelease = useRef({ active, busy });
+  currentRelease.current = { active, busy };
+  async function confirmRelease(kind: 'recover' | 'abandon', target: ReleaseOperation) {
+    const text = kind === 'recover'
+      ? 'Recover this prepared checkout? Stacks will re-prove every safety condition, remove only the exact local release tag and artifact directory, and reset to the captured source revision.'
+      : 'Abandon this release? Repository commits, tags, drafts, and artifacts remain and are not automatically undone.';
+    if (!await confirmation.confirm(text, '', kind === 'recover' ? 'Recover' : 'Abandon')) return;
+    const { active: current, busy: running } = currentRelease.current;
+    if (running || current?.id !== target.id || current.revision !== target.revision || current.status === 'running') return;
+    if (kind === 'recover' && !current.reconciliation?.permittedActions.includes('recover')) return;
+    await action(kind === 'recover' ? 'Recovering prepared checkout' : 'Abandoning release', () => kind === 'recover' ? recoverPreparedRelease(target.id) : abandonRelease(target.id));
+  }
   const operationIds = useRef(new Set<string>());
   operationIds.current = new Set(history.map((item) => item.id));
   const refreshRef = useRef<(recover?: boolean) => Promise<void>>(async () => {});
@@ -141,7 +155,7 @@ function ProjectReleaseTab({ project }: { project: Project }) {
   const displayed = active;
   const duration = displayed ? formatDuration((displayed.completedAt ?? nowSeconds) - displayed.createdAt) : null;
   const envNames = 'STACKS_RELEASE_VERSION, STACKS_RELEASE_PREVIOUS_VERSION, STACKS_RELEASE_PROJECT_PATH, STACKS_RELEASE_TARGET_BRANCH, STACKS_RELEASE_INITIAL_REVISION, STACKS_RELEASE_OPERATION_ID, STACKS_RELEASE_NOTES_FILE';
-  return <section className="releaseView cardView active" data-project-color={projectColorAttribute(project)} aria-label="Release pipeline">
+  return <>{confirmation.dialog}<section className="releaseView cardView active" data-project-color={projectColorAttribute(project)} aria-label="Release pipeline">
     <div className="releaseScroll">
       <header className="releaseHeader">
         <div><h3>Release pipeline</h3><span className={draft ? draft.valid ? 'releaseValid' : 'releaseInvalid' : error ? 'releaseInvalid' : 'releasePending'}>{draft ? draft.valid ? 'Configuration valid' : draft.error : error ? 'Could not load release' : 'Checking repository and release provider…'}</span></div>
@@ -173,13 +187,13 @@ function ProjectReleaseTab({ project }: { project: Project }) {
           {displayed.status === 'awaitingApproval' && displayed.reconciliation?.permittedActions.includes('approve') && <button className="primaryAction" type="button" disabled={busy || (publishApproval && !ciReady)} onClick={() => void action('Approving release', () => approveRelease(displayed.id))}>{publishApproval ? 'Approve and publish' : 'Approve stage'}</button>}
           {['failed', 'cancelled', 'interrupted'].includes(displayed.status) && <button className="primaryAction" type="button" disabled={busy || (Boolean(ciRelevant) && !ciReady)} onClick={() => void action('Retrying release', () => retryRelease(displayed.id))}>Retry release</button>}
           {displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => void action('Refreshing release status', () => refreshRelease(displayed.id))}>Refresh release status</button>}
-          {displayed.status !== 'running' && displayed.reconciliation?.permittedActions.includes('recover') && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Recover this prepared checkout? Stacks will re-prove every safety condition, remove only the exact local release tag and artifact directory, and reset to the captured source revision.')) void action('Recovering prepared checkout', () => recoverPreparedRelease(displayed.id)); }}>Recover prepared checkout</button>}
-          {!['completed', 'abandoned'].includes(displayed.status) && displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Abandon this release? Repository commits, tags, drafts, and artifacts remain and are not automatically undone.')) void action('Abandoning release', () => abandonRelease(displayed.id)); }}>Abandon release</button>}
+          {displayed.status !== 'running' && displayed.reconciliation?.permittedActions.includes('recover') && <button type="button" disabled={busy} onClick={() => { void confirmRelease('recover', displayed); }}>Recover prepared checkout</button>}
+          {!['completed', 'abandoned'].includes(displayed.status) && displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => { void confirmRelease('abandon', displayed); }}>Abandon release</button>}
         </div>
       </div>}
       {history.some((item) => ['completed', 'abandoned'].includes(item.status)) && <section className="releaseHistory"><h4>Release history</h4>{history.filter((item) => ['completed', 'abandoned'].includes(item.status)).map((item) => <div key={item.id}><strong>{item.version}</strong><span>{statusLabel(item.status)}</span><span className="releaseDuration">{formatDuration((item.completedAt ?? item.updatedAt) - item.createdAt)}</span><span>{item.stages.length} stages</span></div>)}</section>}
     </div>
-  </section>;
+  </section></>;
 }
 
 export function CommandPreview({ config }: { config: ReleaseConfig }) {

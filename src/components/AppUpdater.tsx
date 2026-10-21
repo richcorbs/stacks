@@ -1,3 +1,5 @@
+import { ConfirmationBoundary } from './ConfirmationBoundary';
+import { Fragment } from 'react';
 import { showAppToast } from '../applicationEvents';
 import { openExternalUrl } from '../externalLinks';
 import { handleDialogShortcut } from './dialogShortcut';
@@ -140,8 +142,9 @@ export function AppUpdater() {
   if (!update && status !== 'error') return null;
   const releaseUrl = update ? `${RELEASES_URL}/tag/v${update.version}` : RELEASES_URL;
 
+  const Boundary = status === 'confirmation' ? ConfirmationBoundary : Fragment;
   return <div className="modalBackdrop" onMouseDown={status === 'downloading' || status === 'confirmation' ? undefined : closeDialog}>
-    <section className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={handleDialogShortcut}>
+    <section className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()} onKeyDownCapture={(event) => { handleDialogShortcut(event); if (status === 'confirmation' && event.key === 'Escape') { event.preventDefault(); closeDialog(); } }}>
       <header className="updateModalHeader">
         <h2 id="update-dialog-title">{status === 'error' ? 'Update unavailable' : `Stacks ${update?.version} is available`}</h2>
         <button className="updateReleaseNotesLink" type="button" disabled={status === 'downloading' || status === 'waiting'} onClick={() => void openExternalUrl(releaseUrl)}>Release Notes</button>
@@ -154,15 +157,15 @@ export function AppUpdater() {
       {status === 'waiting' && <p>Update downloaded and verified. Waiting for Stacks to become idle…</p>}
       {status === 'confirmation' && <p>Restart with a new version of Stacks?</p>}
       {error && <p className="dialogSubmitError">{error}</p>}
-      <div className="modalActions">
-        {status !== 'downloading' && <button type="button" onClick={closeDialog}>Later</button>}
+      <Boundary><div className="modalActions">
+        {status !== 'downloading' && <button data-confirm-cancel type="button" onClick={closeDialog}>Later</button>}
         {!update && status === 'error' && <button className="primaryAction" type="button" onClick={() => checkForUpdates(true).catch(console.error)}>Retry</button>}
         {update && (status === 'available' || status === 'error') && <>
           <button type="button" onClick={() => installUpdate(true).catch(console.error)}>Download. Restart later.</button>
           <button className="primaryAction" type="button" onClick={() => installUpdate().catch(console.error)}>UPDATE</button>
         </>}
         {status === 'confirmation' && <button className="primaryAction" type="button" onClick={() => restartDeferredUpdate().catch(console.error)}>Restart</button>}
-      </div>
+      </div></Boundary>
     </section>
   </div>;
 }

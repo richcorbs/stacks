@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleDialogShortcut } from './dialogShortcut';
 
-function shortcut({ enabled = true, visible = true, key = 'Enter', metaKey = true, shiftKey = false, confirmOnEnter = false, textarea = false } = {}) {
+function shortcut({ enabled = true, visible = true, key = 'Enter', metaKey = true, shiftKey = false, confirmOnEnter = false, textarea = false, focusedButton = false } = {}) {
   const click = vi.fn();
   const root = {};
   const button = { disabled: !enabled, closest: () => root, getClientRects: () => visible ? [1] : [], click };
   Object.assign(root, { querySelectorAll: () => [button] });
-  const event = { key, metaKey, ctrlKey: false, altKey: false, shiftKey, currentTarget: root, target: { closest: () => textarea ? {} : null }, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+  const event = { key, metaKey, ctrlKey: false, altKey: false, shiftKey, currentTarget: root, target: { closest: (selector: string) => (selector === 'button' ? focusedButton : textarea) ? {} : null }, preventDefault: vi.fn(), stopPropagation: vi.fn() };
   handleDialogShortcut(event as never, confirmOnEnter);
   return { event, click };
 }
@@ -22,6 +22,13 @@ describe('dialog primary shortcut', () => {
     const { event, click } = shortcut(options);
     expect(event.stopPropagation).toHaveBeenCalledOnce();
     expect(click).not.toHaveBeenCalled();
+  });
+  it('keeps plain Enter on Cancel native, but routes Cmd-Enter to an enabled primary', () => {
+    const plain = shortcut({ focusedButton: true, metaKey: false, confirmOnEnter: true });
+    expect(plain.event.preventDefault).not.toHaveBeenCalled();
+    expect(plain.event.stopPropagation).toHaveBeenCalledOnce();
+    expect(plain.click).not.toHaveBeenCalled();
+    expect(shortcut({ focusedButton: true, confirmOnEnter: true }).click).toHaveBeenCalledOnce();
   });
   it('confirms plain Enter in confirmations, but not in a textarea', () => {
     expect(shortcut({ metaKey: false, confirmOnEnter: true }).click).toHaveBeenCalledOnce();

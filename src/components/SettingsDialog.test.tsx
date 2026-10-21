@@ -38,8 +38,8 @@ function button(root: TestRenderer.ReactTestInstance, text: string) {
 }
 
 describe('SettingsDialog', () => {
-  beforeEach(() => vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; }));
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; }); });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
   it('exposes global navigation and an accessible right-chevron Projects disclosure', () => {
     const { renderer } = render();
@@ -68,6 +68,49 @@ describe('SettingsDialog', () => {
     act(() => button(renderer.root, 'Cancel').props.onClick());
     expect(renderer.root.findAllByProps({ role: 'alertdialog' })).toHaveLength(0);
     expect(renderer.root.findByProps({ id: 'settings-page-heading' }).children).toEqual(['Interface']);
+  });
+
+  it.each(['Save', 'Discard'])('delays unsaved-changes %s, preserving pending navigation and save failures', async (action) => {
+    const { renderer, onPageChange, onSaveSettings } = render();
+    act(() => renderer.root.findByProps({ type: 'number' }).props.onChange({ target: { value: '17' } }));
+    act(() => button(renderer.root, 'Terminal').props.onClick());
+    const prompt = () => renderer.root.findByProps({ role: 'alertdialog' });
+    const actions = () => prompt().findAllByType('button');
+    expect(actions().map((node) => node.children.join(''))).toEqual(['Cancel', 'Discard (2)', 'Save (2)']);
+    actions()[1].props.onClick(); actions()[2].props.onClick();
+    expect(onPageChange).not.toHaveBeenCalled(); expect(onSaveSettings).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(actions()[2].children.join('')).toBe('Save (1)');
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(onPageChange).not.toHaveBeenCalled();
+    if (action === 'Save') {
+      onSaveSettings.mockRejectedValueOnce(new Error('Save failed'));
+      await act(async () => { await button(prompt(), 'Save').props.onClick(); });
+      expect(onPageChange).not.toHaveBeenCalled();
+      expect(button(prompt(), 'Save').props.disabled).toBe(false);
+      expect(prompt().findByProps({ role: 'alert' }).children).toEqual(['Save failed']);
+    }
+    await act(async () => { await button(prompt(), action).props.onClick(); });
+    expect(onPageChange).toHaveBeenCalledWith('global:terminal');
+    expect(renderer.root.findAllByProps({ role: 'alertdialog' })).toHaveLength(0);
+    act(() => renderer.unmount());
+  });
+
+  it('guards project-delete form submission and restarts the timer after cancellation', async () => {
+    const { renderer, onDeleteProject } = render('project:one');
+    act(() => button(renderer.root, 'Delete Project').props.onClick());
+    const prompt = () => renderer.root.findByProps({ role: 'alertdialog' });
+    const submit = () => prompt().props.onSubmit({ preventDefault: vi.fn() });
+    submit();
+    expect(onDeleteProject).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(1000); button(prompt(), 'Cancel').props.onClick(); });
+    act(() => button(renderer.root, 'Delete Project').props.onClick());
+    expect(prompt().findAllByType('button')[1].children.join('')).toBe('Delete (2)');
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(onDeleteProject).not.toHaveBeenCalled();
+    await act(async () => { await submit(); });
+    expect(onDeleteProject).toHaveBeenCalledExactlyOnceWith('one');
+    act(() => renderer.unmount());
   });
 
   it('keeps MCP off by default and saves the project-only toggle without treating it as provider mapping', async () => {

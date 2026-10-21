@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
+import { ConfirmationBoundary } from './ConfirmationBoundary';
 import { handleDialogShortcut } from './dialogShortcut';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { DialogState, Project } from '../types';
@@ -140,11 +141,13 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
   }
 
   function cancelPending() {
+    if (savingRef.current) return;
     setPending(null);
     requestAnimationFrame(() => navRefs.current.get(activePage)?.focus());
   }
 
   function finishPending() {
+    if (savingRef.current) return;
     const action = pending;
     setPending(null);
     if (action?.type === 'page') activate(action.page);
@@ -261,14 +264,14 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
             </div>
           </main>
         </div>
-        {pending && <div className="settingsPromptBackdrop" onMouseDown={(event) => event.stopPropagation()}>
-          <div className="settingsPrompt" data-project-color={project && projectPageDraft ? projectColor(projectPageDraft.colorId) : undefined} role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title" onKeyDown={(event) => handleDialogShortcut(event, true)}>
+        {pending && <ConfirmationBoundary><div className="settingsPromptBackdrop" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="settingsPrompt" data-project-color={project && projectPageDraft ? projectColor(projectPageDraft.colorId) : undefined} role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title" onKeyDown={(event) => { handleDialogShortcut(event, true); if (event.key === 'Escape' && !saving) { event.preventDefault(); cancelPending(); } }}>
             <h3 id="unsaved-title">Save changes?</h3><p>This page has unsaved changes.</p>
             {pageError && <div className="dialogSubmitError" role="alert">{pageError}</div>}
             <div className="modalActions"><button type="button" disabled={saving} onClick={cancelPending}>Cancel</button><button type="button" disabled={saving} onClick={finishPending}>Discard</button><button type="button" className="primaryAction" disabled={saving} autoFocus onClick={async () => { if (await save()) finishPending(); }}>Save</button></div>
           </div>
-        </div>}
-        {deleteConfirm && <div className="settingsPromptBackdrop" onMouseDown={() => setDeleteConfirm(false)}><form className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => handleDialogShortcut(event, true)} onSubmit={(event) => { event.preventDefault(); void confirmDelete(); }}><h3 id="delete-project-title">Delete project?</h3><p>This will remove “{project?.name}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p><div className="modalActions"><button type="button" disabled={saving} onClick={() => setDeleteConfirm(false)}>Cancel</button><button type="submit" className="dangerAction" data-dialog-primary disabled={saving} autoFocus>Delete</button></div></form></div>}
+        </div></ConfirmationBoundary>}
+        {deleteConfirm && <ConfirmationBoundary key={project?.id}><div className="settingsPromptBackdrop" onMouseDown={() => setDeleteConfirm(false)}><form className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { handleDialogShortcut(event, true); if (event.key === 'Escape' && !saving) { event.preventDefault(); setDeleteConfirm(false); } }} onSubmit={(event) => { event.preventDefault(); void confirmDelete(); }}><h3 id="delete-project-title">Delete project?</h3><p>This will remove “{project?.name}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p><div className="modalActions"><button type="button" disabled={saving} onClick={() => setDeleteConfirm(false)}>Cancel</button><button type="submit" className="dangerAction" data-dialog-primary disabled={saving} autoFocus>Delete</button></div></form></div></ConfirmationBoundary>}
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import type { CardWorkflowAction } from './workflowActions';
 import type { KanbanCard } from './types';
 
 export type CardWorkflowExecutorDependencies = {
-  confirm: (title: string, detail: string) => boolean;
+  confirm: (title: string, detail: string, action: CardWorkflowAction) => boolean | Promise<boolean>;
   isRunning: () => boolean;
   runExclusive: (kind: CardWorkflowAction['kind'], operation: () => Promise<void>) => Promise<boolean>;
   setError: (error: string | null) => void;
@@ -44,7 +44,8 @@ export async function executeCardWorkflowAction(action: CardWorkflowAction, card
     return true;
   }
   if (d.isRunning()) return false;
-  if (action.confirmation && !d.confirm(action.confirmation.title, action.confirmation.detail)) return false;
+  if (action.confirmation && !await d.confirm(action.confirmation.title, action.confirmation.detail, action)) return false;
+  if (d.isRunning()) return false;
   d.setError(null);
   try {
     const started = await d.runExclusive(action.kind, async () => {

@@ -7,7 +7,7 @@ describe('ServerHandoffDialog', () => {
     const markup = renderToStaticMarkup(<ServerHandoffDialog externalId="184" busy={false} onCancel={vi.fn()} onConfirm={vi.fn()} />);
     expect(markup).toContain('Shutdown the server running on card #184?');
     expect(markup).toContain('>Cancel</button>');
-    expect(markup).toContain('>Shutdown and start</button>');
+    expect(markup).toContain('>Shutdown and start (2)</button>');
     expect(markup).toContain('role="alertdialog"');
   });
 });

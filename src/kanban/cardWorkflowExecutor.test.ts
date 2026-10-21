@@ -51,6 +51,19 @@ describe('executeCardWorkflowAction', () => {
     expect(disabled.dependencies.isRunning).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])('awaits asynchronous confirmation and rechecks operation exclusion (busy=%s)', async (busy) => {
+    const { dependencies, calls } = setup();
+    let accept!: (value: boolean) => void;
+    dependencies.confirm = () => new Promise<boolean>((resolve) => { accept = resolve; });
+    const pending = executeCardWorkflowAction(action('delete', { confirmation: { title: 'Delete?', detail: 'Forever' } }), { status: 'ready' }, dependencies);
+    expect(calls).toEqual([]);
+    expect(dependencies.runExclusive).not.toHaveBeenCalled();
+    dependencies.isRunning = () => busy;
+    accept(true);
+    expect(await pending).toBe(!busy);
+    expect(calls).toEqual(busy ? [] : ['delete']);
+  });
+
   it('reports errors and handles deployment cancellation outside the exclusive operation', async () => {
     const failed = setup(); failed.dependencies.mergeLocal = vi.fn(async () => { throw new Error('merge failed'); });
     expect(await executeCardWorkflowAction(action('merge_local'), { status: 'approved' }, failed.dependencies)).toBe(false);

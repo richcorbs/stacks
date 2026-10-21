@@ -103,12 +103,31 @@ describe('AppUpdater dialog', () => {
     vi.mocked(invoke).mockResolvedValue({ idle: true });
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     assertHeader(false);
-    expect(button('Restart')).toBeDefined();
+    expect(button('Restart (2)').props.disabled).toBe(true);
+    await click('Restart (2)');
+    const dialog = renderer.root.findByProps({ role: 'dialog' });
+    const primary = () => dialog.findAllByType('button').find((node) => node.props.className === 'primaryAction')!;
+    const root = { querySelectorAll: () => [{ disabled: primary().props.disabled, closest: () => root, getClientRects: () => [1], click: () => primary().props.onClick() }] };
+    const press = () => dialog.props.onKeyDownCapture({ key: 'Enter', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, currentTarget: root, preventDefault: vi.fn(), stopPropagation: vi.fn() });
+    await act(async () => { press(); });
     expect(available.install).not.toHaveBeenCalled();
-    await click('Restart');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await act(async () => { press(); });
     expect(available.install).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith('save_current_window_state');
     expect(relaunch).toHaveBeenCalledOnce();
+  });
+
+  it('handles Escape in capture before the action boundary stops bubbling during the countdown', async () => {
+    const available = await renderUpdate();
+    await click('Download. Restart later.');
+    vi.mocked(invoke).mockResolvedValue({ idle: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(button('Restart (2)').props.disabled).toBe(true);
+    await act(async () => { renderer.root.findByProps({ role: 'dialog' }).props.onKeyDownCapture({ key: 'Escape', preventDefault: vi.fn() }); });
+    expect(available.close).toHaveBeenCalled();
+    expect(available.install).not.toHaveBeenCalled();
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0);
   });
 
   it('enables release notes after an install error and keeps the version-specific URL', async () => {

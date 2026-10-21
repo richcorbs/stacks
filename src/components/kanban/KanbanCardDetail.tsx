@@ -19,6 +19,7 @@ import { runWritePlanAndFinishRefinement } from '../../kanban/writePlanAndFinish
 import { GENERATE_PR_METADATA_PROMPT } from '../../kanban/pullRequestMetadata';
 import { sendPromptToPiAndWait } from '../../pi/promptEvent';
 import { ConfirmCloseTerminalDialog } from '../ConfirmDialogs';
+import { useConfirmation } from '../ConfirmDialogs';
 import { WorkflowShortcutConfirmDialog } from './WorkflowShortcutConfirmDialog';
 import { disposeTerminalSession } from '../../terminalSessionManager';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
@@ -111,8 +112,11 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const cancelEditing = detail.cancel;
   const saveEdit = detail.save;
   const requestView = (view: CardView) => detail.command({ type: 'select', view });
-  const requestClose = () => { if (detail.mayLeave()) onClose(); };
-  const navigateToParent = (parentId: string) => { if (detail.mayLeave()) { detail.cancel(); setActiveView('overview'); onNavigate(parentId, 'overview'); } };
+  const requestClose = async () => { if (await detail.mayLeave()) onClose(); };
+  const navigateToParent = async (parentId: string) => { if (await detail.mayLeave()) { detail.cancel(); setActiveView('overview'); onNavigate(parentId, 'overview'); } };
+  const confirmation = useConfirmation(`${card.id}:${card.record_revision}:${card.workflow_revision}:${card.environment?.revision}`);
+  const currentCardRef = useRef(card);
+  currentCardRef.current = card;
   const workflow = useWorkflowOperation();
   const { operation: workflowOperation, working } = workflow;
   const [actionError, setActionError] = useState<string | null>(null);
@@ -204,7 +208,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
 
   useEffect(() => {
     const handleDetailKeyboard = (event: KeyboardEvent) => {
-      if (pendingCloseShellPane || cleanupInventory || shortcutConfirmation || document.querySelector('.modalBackdrop:not(.kanbanDetailBackdrop), .settingsPrompt, [role="dialog"][aria-modal="true"]')) return;
+      if ((event.target as HTMLElement | null)?.closest?.('[data-confirmation-boundary]') || pendingCloseShellPane || cleanupInventory || shortcutConfirmation || document.querySelector('.modalBackdrop:not(.kanbanDetailBackdrop), .settingsPrompt, [role="dialog"][aria-modal="true"]')) return;
       if (editing && event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -261,7 +265,12 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   }, [detail.command]);
 
   const workflowDependencies: CardWorkflowExecutorDependencies = {
-    confirm: (title, detailText) => window.confirm(`${title}\n\n${detailText}`),
+    confirm: async (title, detailText, requested) => {
+      const accepted = await confirmation.confirm(title, detailText);
+      const current = currentCardRef.current;
+      const eligible = workflowActionsRef.current.some((action) => action.kind === requested.kind && !action.disabledReason && action.confirmation?.title === title && action.confirmation.detail === detailText);
+      return accepted && eligible && sameActionRevisions(card, current) && card.record_revision === current.record_revision;
+    },
     isRunning: workflow.isRunning,
     runExclusive: (kind, operation) => workflow.run(kind, operation),
     setError: setActionError,
@@ -493,10 +502,12 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
       setCleanupInventory(null);
     }} />}
     {pendingCloseShellPane && (
-      <ConfirmCloseTerminalDialog
+      <ConfirmCloseTerminalDialog key={pendingCloseShellPane}
         onCancel={() => setPendingCloseShellPane(null)}
         onConfirm={() => closeShellPane(pendingCloseShellPane)}
       />
     )}
+    {confirmation.dialog}
+    {detail.confirmationDialog}
   </>;
 }

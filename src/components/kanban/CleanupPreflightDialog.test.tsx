@@ -25,15 +25,13 @@ describe('CleanupPreflightDialog keyboard focus', () => {
   let renderer: TestRenderer.ReactTestRenderer | undefined;
   afterEach(() => {
     act(() => renderer?.unmount());
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
   function mount({ bulk = false, entries = [entry()], onConfirm = vi.fn().mockResolvedValue(undefined) } = {}) {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    let focusFrame!: FrameRequestCallback;
-    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => { focusFrame = callback; return 7; }));
-    const cancelFrame = vi.fn();
-    vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+    vi.useFakeTimers();
     const focus = vi.fn();
     const onCancel = vi.fn();
     act(() => {
@@ -50,19 +48,17 @@ describe('CleanupPreflightDialog keyboard focus', () => {
       act(() => dialog.props.onKeyDown(event));
       return { event, click };
     };
-    return { dialog, buttons, dispatch, focus, runFocus: () => act(() => focusFrame(0)), cancelFrame, onCancel, onConfirm };
+    return { dialog, buttons, dispatch, focus, onCancel, onConfirm };
   }
 
-  it.each([false, true])('initially focuses the container (bulk=%s) and traps Tab within controls', (bulk) => {
-    const { dialog, buttons, focus, runFocus, dispatch, onCancel } = mount({ bulk });
+  it.each([false, true])('initially gates cleanup (bulk=%s) and traps Tab within controls', (bulk) => {
+    const { dialog, buttons, focus, dispatch, onCancel } = mount({ bulk });
     expect(dialog.props.tabIndex).toBe(-1);
-    expect(focus).not.toHaveBeenCalled();
-    runFocus();
-    expect(focus.mock.calls).toEqual([['dialog']]);
+    expect(buttons()[0].props.disabled).toBe(false);
+    expect(buttons()[1].props.disabled).toBe(true);
     for (const button of buttons()) {
-      expect(button.props.autoFocus).toBeUndefined();
+      expect(button.props.autoFocus).toBe(false);
       expect(button.props.tabIndex).toBeUndefined();
-      expect(button.props.disabled).toBe(false);
     }
     const { event, click } = dispatch('Tab');
     expect(event.preventDefault).toHaveBeenCalled();
@@ -73,16 +69,18 @@ describe('CleanupPreflightDialog keyboard focus', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it('cancels delayed focus on dismissal before the next frame', () => {
-    const { focus, runFocus, cancelFrame } = mount();
+  it('cancels timers and stale handlers on dismissal', () => {
+    const { buttons, onConfirm } = mount();
+    const staleConfirm = buttons()[1].props.onClick;
     act(() => renderer!.unmount());
-    expect(cancelFrame).toHaveBeenCalledWith(7);
-    runFocus(); // Even a stale callback cannot focus the dismissed dialog.
-    expect(focus).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => { vi.advanceTimersByTime(3000); staleConfirm(); });
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it.each([false, true])('dispatches Enter through enabled cleanup (metaKey=%s)', async (metaKey) => {
     const { dispatch, onConfirm } = mount();
+    act(() => { vi.advanceTimersByTime(2000); });
     await act(async () => { dispatch('Enter', metaKey); });
     expect(onConfirm).toHaveBeenCalledOnce();
     expect(onConfirm.mock.calls[0][0][0].card_id).toBe('c1');
@@ -107,6 +105,7 @@ describe('CleanupPreflightDialog keyboard focus', () => {
     let finish!: () => void;
     const onConfirm = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
     const { buttons, dispatch } = mount({ onConfirm });
+    act(() => { vi.advanceTimersByTime(2000); });
     const confirm = buttons()[1].props.onClick;
     let pending!: Promise<void>;
     act(() => { pending = confirm(); void confirm(); });
