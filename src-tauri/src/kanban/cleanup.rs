@@ -401,7 +401,7 @@ fn refresh_cleanup_pr_evidence(id: &str) -> Option<String> {
     if workflow.as_deref() != Ok("github_pull_request") {
         return None;
     }
-    with_board_mutation(|connection| refresh_pull_request(connection, id).map(|_| ())).err()
+    coordinate_card_repository(id, true, || refresh_pull_request(id)).err()
 }
 
 pub(in crate::kanban) async fn kanban_cleanup_preflight_operation(
