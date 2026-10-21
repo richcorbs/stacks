@@ -78,6 +78,38 @@ describe('explicit card Git refresh', () => {
     await act(async () => { renderer.unmount(); });
   });
 
+  it('discards slow Git results after a worktree identity changes', async () => {
+    const one = { ...card('one'), pull_request: null };
+    invoke.mockResolvedValue(null);
+    fetchHealth.mockResolvedValue([]);
+    const { renderer, patchCard } = await mount([one]);
+    let resolveGit!: (result: unknown) => void;
+    invoke.mockImplementation((command: string) => command === 'git_info'
+      ? new Promise((resolve) => { resolveGit = resolve; }) : Promise.resolve(null));
+    let pending!: Promise<void>;
+    await act(async () => { pending = state.refreshCard('one'); await Promise.resolve(); });
+    const newer = { ...one, environment: { ...one.environment!, revision: 2, worktree_path: '/repo/replacement' } };
+    await act(async () => { renderer.update(<Harness cards={[newer]} patchCard={patchCard} />); });
+    await act(async () => {
+      resolveGit({ branch: 'obsolete', status: 'ok', created: 0, changed: 0, deleted: 0 });
+      await pending;
+    });
+    expect(state.statuses.one).toBeUndefined();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('redacts rejected Git commands rather than displaying clean counts', async () => {
+    const one = { ...card('one'), pull_request: null };
+    invoke.mockResolvedValue(null);
+    fetchHealth.mockResolvedValue([]);
+    const { renderer } = await mount([one]);
+    invoke.mockRejectedValue(new Error('/private/repository secret'));
+    await act(async () => { await state.refreshCard('one'); });
+    expect(state.statuses.one.git).toMatchObject({ status: 'error' });
+    expect(JSON.stringify(state.statuses.one.git)).not.toContain('secret');
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('does not fetch a PR for an ineligible card without one', async () => {
     const one = { ...card('one'), pull_request: null };
     invoke.mockResolvedValue(null);

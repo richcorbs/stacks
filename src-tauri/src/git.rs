@@ -94,11 +94,23 @@ fn parse_git_status(text: &str) -> (u32, u32, u32) {
 }
 
 #[tauri::command]
-pub fn git_info(path: String) -> Result<Option<GitInfo>, String> {
-    let output = Command::new("git")
-        .args(["-C", &path, "branch", "--show-current"])
+pub async fn git_info(path: String) -> Result<Option<GitInfo>, String> {
+    read_git_info(path, "git".into()).await
+}
+
+async fn read_git_info(path: String, executable: String) -> Result<Option<GitInfo>, String> {
+    // Keep the entire subprocess sequence off both the IPC thread and async executor.
+    // The board's runGitBatch still bounds per-cycle concurrency.
+    tauri::async_runtime::spawn_blocking(move || load_git_info(&path, &executable))
+        .await
+        .map_err(|_| "Git information could not be read. Retry refresh.".to_string())?
+}
+
+fn load_git_info(path: &str, executable: &str) -> Result<Option<GitInfo>, String> {
+    let output = Command::new(executable)
+        .args(["-C", path, "branch", "--show-current"])
         .output()
-        .map_err(|err| err.to_string())?;
+        .map_err(|_| "Git information could not be read. Retry refresh.".to_string())?;
 
     if !output.status.success() {
         return Ok(None);
@@ -106,10 +118,10 @@ pub fn git_info(path: String) -> Result<Option<GitInfo>, String> {
 
     let mut branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if branch.is_empty() {
-        let output = Command::new("git")
-            .args(["-C", &path, "rev-parse", "--short", "HEAD"])
+        let output = Command::new(executable)
+            .args(["-C", path, "rev-parse", "--short", "HEAD"])
             .output()
-            .map_err(|err| err.to_string())?;
+            .map_err(|_| "Git information could not be read. Retry refresh.".to_string())?;
         if !output.status.success() {
             return Ok(None);
         }
@@ -120,7 +132,7 @@ pub fn git_info(path: String) -> Result<Option<GitInfo>, String> {
         return Ok(None);
     }
 
-    let status = load_git_status(&path, "git");
+    let status = load_git_status(path, executable);
     Ok(Some(GitInfo { branch, status }))
 }
 
@@ -857,6 +869,96 @@ mod tests {
 
     fn clean_up(repository: &Path) {
         fs::remove_dir_all(repository.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn git_info_worker_preserves_branch_detached_and_missing_repository_results() {
+        let (repository, worktree) = test_repository("info-worker");
+        let read = |path: &Path| {
+            tauri::async_runtime::block_on(git_info(path.to_string_lossy().into_owned())).unwrap()
+        };
+        assert_eq!(read(&worktree).unwrap().branch, "feature");
+        git(&worktree, &["checkout", "--detach"]);
+        let detached = read(&worktree).unwrap();
+        assert!(!detached.branch.is_empty());
+        assert_ne!(detached.branch, "feature");
+        assert!(matches!(
+            detached.status,
+            GitStatus::Ok {
+                created: 0,
+                changed: 0,
+                deleted: 0
+            }
+        ));
+        assert!(read(&repository.join("missing-private-path")).is_none());
+        let error = tauri::async_runtime::block_on(read_git_info(
+            worktree.to_string_lossy().into_owned(),
+            "/missing-private-path/git".into(),
+        ))
+        .unwrap_err();
+        assert!(!error.contains("private-path"));
+        clean_up(&repository);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn slow_git_yields_before_subprocess_completion_and_redacts_status_failure() {
+        use std::{
+            future::Future,
+            os::unix::fs::PermissionsExt,
+            sync::Arc,
+            task::{Context, Poll, Wake, Waker},
+            time::{Duration, Instant},
+        };
+        struct NoopWake;
+        impl Wake for NoopWake {
+            fn wake(self: Arc<Self>) {}
+        }
+
+        let (repository, worktree) = test_repository("info-slow");
+        let executable = repository.parent().unwrap().join("slow-git");
+        // Gate branch discovery until the caller releases it. Fail status with sensitive stderr.
+        fs::write(
+            &executable,
+            r##"#!/bin/sh
+if [ "$3" = branch ]; then
+  touch "$2/started"
+  i=0
+  while [ ! -f "$2/release" ] && [ "$i" -lt 500 ]; do sleep 0.01; i=$((i+1)); done
+  printf 'feature\n'
+else
+  printf 'private repository data and paths\n' >&2
+  exit 1
+fi
+"##,
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        let mut pending = Box::pin(read_git_info(
+            worktree.to_string_lossy().into_owned(),
+            executable.to_string_lossy().into_owned(),
+        ));
+        let waker = Waker::from(Arc::new(NoopWake));
+        assert!(matches!(
+            pending.as_mut().poll(&mut Context::from_waker(&waker)),
+            Poll::Pending
+        ));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !worktree.join("started").exists() {
+            assert!(Instant::now() < deadline, "blocking worker did not start");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // A separate runtime task can complete while the subprocess is still blocked.
+        assert_eq!(
+            tauri::async_runtime::block_on(tauri::async_runtime::spawn(async { 42 })).unwrap(),
+            42
+        );
+        fs::write(worktree.join("release"), "").unwrap();
+        let info = tauri::async_runtime::block_on(pending).unwrap().unwrap();
+        assert_eq!(info.branch, "feature");
+        assert!(matches!(info.status, GitStatus::Error { .. }));
+        assert!(!serde_json::to_string(&info).unwrap().contains("private"));
+        clean_up(&repository);
     }
 
     #[test]
