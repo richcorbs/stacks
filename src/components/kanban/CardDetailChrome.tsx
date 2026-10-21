@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { ManagedServiceControl } from '../ManagedServiceControl';
 import { ExternalLink } from '../ExternalLink';
 import type { GitChangeSummary, Project } from '../../types';
 import type { KanbanCard } from '../../kanban/types';
@@ -97,11 +98,11 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
       {(displayedTabs.includes('server') || displayedTabs.includes('console')) && <span className="cardServiceTabs" aria-label="Card services">
         {displayedTabs.includes('server') && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
           <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('server')}>Server</button>
-          <button className={`cardServiceToggle${serverServices.serverActive ? ' running' : ''}`} type="button" onClick={onToggleServer} aria-label={serverServices.serverActive ? 'Stop server' : 'Start server'} aria-pressed={serverServices.serverActive}><span className={serverServices.serverActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
+          <ManagedServiceControl services={serverServices} mode="server" className="cardServiceToggle" onToggle={onToggleServer} />
         </span>}
         {displayedTabs.includes('console') && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
           <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('console')}>Console</button>
-          <button className={`cardServiceToggle${serverServices.consoleActive ? ' running' : ''}`} type="button" onClick={() => serverServices.toggle('console')} aria-label={serverServices.consoleActive ? 'Stop console' : 'Start console'} aria-pressed={serverServices.consoleActive}><span className={serverServices.consoleActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button>
+          <ManagedServiceControl services={serverServices} mode="console" className="cardServiceToggle" onToggle={() => serverServices.toggle('console')} />
         </span>}
       </span>}
     </>}

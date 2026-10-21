@@ -16,7 +16,7 @@ type ServiceStates = Record<ManagedServiceMode, ManagedServiceState>;
 type ServiceConfigs = Record<ManagedServiceMode, ManagedServiceConfig>;
 
 function inactiveState(identity: string, restartNonce = 0): ManagedServiceState {
-  return { mounted: false, starting: false, running: false, restartNonce, identity };
+  return { actionPending: null, error: null, mounted: false, starting: false, running: false, restartNonce, identity };
 }
 
 export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: (terminalId: string) => void) {
@@ -77,6 +77,8 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
           mounted: true,
           starting: false,
           running,
+          error: !running && current[mode].starting && !session?.managedStopRequested
+            ? `Could not start ${mode}; see terminal output.` : current[mode].error,
         },
       }));
       if (!running) onTerminalStopped?.(config.terminalId);
@@ -92,13 +94,16 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
     if (state.starting || state.running || !config.command.trim() || !config.cwd) return;
 
     pendingActionsRef.current.add(mode);
+    setStates((current) => ({ ...current, [mode]: { ...current[mode], mounted: false, actionPending: 'start', error: null } }));
     try {
       // A stopped xterm intentionally remains cached. Replace it only for an
       // explicit Play request so each run starts with fresh output.
       await disposeManagedService(config);
-      setStates((current) => ({
+      setStates((current) => current[mode].identity !== identity ? current : ({
         ...current,
         [mode]: {
+          actionPending: null,
+          error: null,
           mounted: true,
           starting: true,
           running: false,
@@ -106,8 +111,16 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
           identity,
         },
       }));
+    } catch (error) {
+      setStates((current) => current[mode].identity !== identity ? current : ({
+        ...current, [mode]: { ...current[mode], error: String(error) },
+      }));
+      throw error;
     } finally {
       pendingActionsRef.current.delete(mode);
+      setStates((current) => current[mode].identity !== identity ? current : ({
+        ...current, [mode]: { ...current[mode], actionPending: null },
+      }));
     }
   }, [stableConfigs, states]);
 
@@ -119,10 +132,19 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
     if (!state.starting && !state.running) return;
 
     pendingActionsRef.current.add(mode);
+    setStates((current) => ({ ...current, [mode]: { ...current[mode], actionPending: 'stop', error: null } }));
     try {
       await stopManagedService(config);
+    } catch (error) {
+      setStates((current) => current[mode].identity !== identity ? current : ({
+        ...current, [mode]: { ...current[mode], error: String(error) },
+      }));
+      throw error;
     } finally {
       pendingActionsRef.current.delete(mode);
+      setStates((current) => current[mode].identity !== identity ? current : ({
+        ...current, [mode]: { ...current[mode], actionPending: null },
+      }));
     }
   }, [stableConfigs, states]);
 
@@ -140,6 +162,10 @@ export function useManagedServices(configs: ServiceConfigs, onTerminalStopped?: 
   const serverActive = currentStates.server.starting || currentStates.server.running;
   const consoleActive = currentStates.console.starting || currentStates.console.running;
   return {
+    serverActionPending: currentStates.server.actionPending,
+    consoleActionPending: currentStates.console.actionPending,
+    serverError: currentStates.server.error,
+    consoleError: currentStates.console.error,
     serverEnabled: currentStates.server.mounted,
     consoleEnabled: currentStates.console.mounted,
     serverStarting: currentStates.server.starting,

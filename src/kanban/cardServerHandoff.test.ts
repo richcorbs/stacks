@@ -62,6 +62,23 @@ describe('card server handoff', () => {
     expect(order).toEqual(['stop', 'start']);
   });
 
+  it('keeps the target unstarted through a slow shutdown and allows retry after failure', async () => {
+    const cards = [card('target', 'project-1'), card('conflict', 'project-1')];
+    const target = services();
+    const conflict = services({ running: true });
+    let fail!: (error: Error) => void;
+    conflict.stop.mockImplementationOnce(() => new Promise<void>((_, reject) => { fail = reject; }));
+    const request = handoffCardServer('target', cards, { target, conflict });
+    expect(target.start).not.toHaveBeenCalled();
+    const rejected = expect(request).rejects.toBeInstanceOf(CardServerShutdownError);
+    fail(new Error('slow shutdown failed'));
+    await rejected;
+    expect(target.start).not.toHaveBeenCalled();
+    await handoffCardServer('target', cards, { target, conflict });
+    expect(conflict.stop).toHaveBeenCalledTimes(2);
+    expect(target.start).toHaveBeenCalledOnce();
+  });
+
   it('propagates shutdown failure and does not start the target', async () => {
     const cards = [card('target', 'project-1'), card('conflict', 'project-1')];
     const target = services();

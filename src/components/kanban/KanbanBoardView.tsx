@@ -136,7 +136,17 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   const cardServicesRef = useRef(cardServices);
   cardServicesRef.current = cardServices;
   const [serverHandoff, setServerHandoff] = useState<{ targetCardId: string; externalId: string } | null>(null);
-  const [serverActionPending, setServerActionPending] = useState(false);
+  const [serverAction, setServerAction] = useState<{ cardId: string; pending: 'start' | 'stop' | null; error: string | null } | null>(null);
+  const serverActionPending = Boolean(serverAction?.pending);
+  const displayedCardServices = { ...cardServices };
+  if (serverAction && displayedCardServices[serverAction.cardId]) {
+    const services = displayedCardServices[serverAction.cardId];
+    displayedCardServices[serverAction.cardId] = {
+      ...services,
+      serverActionPending: serverAction.pending ?? services.serverActionPending,
+      serverError: serverAction.error ?? services.serverError,
+    };
+  }
   const serverActionPendingRef = useRef(false);
   const updateCardServices = useCallback((cardId: string, services: CardServices | null) => {
     setCardServices((current) => {
@@ -148,6 +158,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       }
       const existing = current[cardId];
       if (existing && existing.start === services.start && existing.stop === services.stop && existing.toggle === services.toggle
+        && existing.serverActionPending === services.serverActionPending && existing.serverError === services.serverError
+        && existing.consoleActionPending === services.consoleActionPending && existing.consoleError === services.consoleError
         && existing.serverActive === services.serverActive && existing.serverEnabled === services.serverEnabled
         && existing.serverStarting === services.serverStarting && existing.serverRunning === services.serverRunning
         && existing.serverRestartNonce === services.serverRestartNonce
@@ -160,17 +172,18 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   const runServerAction = useCallback(async (targetCardId: string) => {
     if (serverActionPendingRef.current) return;
     serverActionPendingRef.current = true;
-    setServerActionPending(true);
+    setServerAction({ cardId: targetCardId, pending: cardServicesRef.current[targetCardId]?.serverActive ? 'stop' : 'start', error: null });
     try {
       await handoffCardServer(targetCardId, boardCardsRef.current, cardServicesRef.current);
+      setServerAction(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      setServerAction({ cardId: targetCardId, pending: null, error: message });
       showAppToast(error instanceof CardServerShutdownError
         ? `Could not shut down server: ${message}`
         : `Could not start server: ${message}`);
     } finally {
       serverActionPendingRef.current = false;
-      setServerActionPending(false);
     }
   }, []);
 
@@ -633,7 +646,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
           projects={projects}
           repositoryStatuses={repositoryStatuses}
           prChecks={prChecks}
-          serverServices={cardServices}
+          serverServices={displayedCardServices}
           doneCollapsed={doneCollapsed}
           doneToggleRef={doneToggleRef}
           openLaneMenu={openLaneMenu}
@@ -660,7 +673,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         projects={projects}
         repositoryStatuses={repositoryStatuses}
         prChecks={prChecks}
-        serverServices={cardServices}
+        serverServices={displayedCardServices}
         backlogCollapsed={backlogCollapsed}
         attentionCollapsed={attentionCollapsed}
         progressCollapsed={progressCollapsed}
@@ -749,7 +762,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
           key={selectedDetail.id}
           card={selectedDetail}
           cards={board.cards}
-          cardServices={cardServices[selectedDetail.id]}
+          cardServices={displayedCardServices[selectedDetail.id]}
           projects={projects}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}

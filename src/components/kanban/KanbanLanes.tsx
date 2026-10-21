@@ -1,4 +1,4 @@
-import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction, type SyntheticEvent } from 'react';
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project } from '../../types';
 import { projectColorAttribute } from '../../projectColor';
@@ -12,6 +12,7 @@ import { deliveryStep, type PrCheck } from '../../kanban/deliveryStep';
 import { owningProject } from '../../kanban/projectScope';
 import { pullRequestPresentation } from '../../kanban/pullRequestPresentation';
 import { environmentHealthTooltip, hasGitChanges, shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
+import { ManagedServiceControl } from '../ManagedServiceControl';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { GithubStatusIcon } from '../GithubStatusIcon';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
@@ -113,19 +114,7 @@ export function kanbanCardClassName(card: Pick<KanbanCardSummary, 'child_count'>
 }
 
 export function KanbanServerControl({ services, onToggle }: { services: CardServices; onToggle: () => void }) {
-  const active = services.serverActive;
-  const stopPropagation = (event: SyntheticEvent) => event.stopPropagation();
-  return <button
-    className={`kanbanServerToggle${active ? ' running' : ''}`}
-    type="button"
-    aria-label={active ? 'Stop server' : 'Start server'}
-    aria-pressed={active}
-    title={active ? 'Stop server' : 'Start server'}
-    onPointerDown={stopPropagation}
-    onPointerUp={stopPropagation}
-    onPointerCancel={stopPropagation}
-    onClick={(event) => { event.stopPropagation(); onToggle(); }}
-  ><span className={active ? 'serviceStopIcon' : 'servicePlayIcon'} aria-hidden="true" /></button>;
+  return <ManagedServiceControl services={services} mode="server" className="kanbanServerToggle" onToggle={onToggle} isolate />;
 }
 
 export function deliveryBadgeLabel(label: string) {
