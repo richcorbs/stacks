@@ -2,14 +2,17 @@ import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { fitSessionPreservingBottom, getTerminalSession, isSessionAtBottom, jumpSessionToBottom } from '../terminalSessionManager';
 import { safeTermSize } from '../terminalSizing';
+import { applyTerminalAppearance } from '../terminalAppearance';
 
 export function useTerminalOptions({
   terminalId,
+  active,
   terminalFontSize,
   terminalFontFamily,
   terminalScrollback,
 }: {
   terminalId: string;
+  active: boolean;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -17,6 +20,7 @@ export function useTerminalOptions({
   useEffect(() => {
     const session = getTerminalSession(terminalId);
     if (!session) return;
+    applyTerminalAppearance(session.term, active);
     const fontSizeChanged = session.term.options.fontSize !== terminalFontSize;
     const fontFamilyChanged = session.term.options.fontFamily !== terminalFontFamily;
     const scrollbackChanged = session.term.options.scrollback !== terminalScrollback;
@@ -34,5 +38,5 @@ export function useTerminalOptions({
       }
       if (wasAtBottom) jumpSessionToBottom(session);
     });
-  }, [terminalId, terminalFontSize, terminalFontFamily, terminalScrollback]);
+  }, [terminalId, active, terminalFontSize, terminalFontFamily, terminalScrollback]);
 }

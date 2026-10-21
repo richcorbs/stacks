@@ -8,6 +8,7 @@ import { attachTerminalPtyListeners, spawnTerminalPty } from '../terminalPty';
 import { attachTerminalResizeObserver } from '../terminalResizeObserver';
 import { notifyTerminalStartup } from '../terminalStartup';
 import { applicationEvents } from '../applicationEvents';
+import { applyTerminalAppearance } from '../terminalAppearance';
 
 const PROMPT_RENDER_SETTLE_MS = 100;
 const PROMPT_RENDER_TIMEOUT_MS = 30_000;
@@ -49,6 +50,8 @@ export function useTerminalSession({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [sessionRestartNonce, setSessionRestartNonce] = useState(0);
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   const restartTerminalSessionIfDead = useCallback(() => {
     const session = getTerminalSession(terminal.id);
@@ -88,6 +91,9 @@ export function useTerminalSession({
 
     const attachSession = (session: TerminalSession) => {
       if (cancelled) return;
+      // Attachment can happen after the options effect (lazy runtime import),
+      // or reuse a session last rendered with another focus state.
+      applyTerminalAppearance(session.term, activeRef.current);
       if (session.term.element && session.term.element.parentElement !== host) host.replaceChildren(session.term.element);
       session.inputHandler = (data) => onInput(terminal.id, data);
       termRef.current = session.term;

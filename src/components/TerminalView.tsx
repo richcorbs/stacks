@@ -47,7 +47,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
     managedService,
   });
   const { beginSelectionCopy } = useTerminalSelectionCopy(termRef, copyOnSelect);
-  useTerminalOptions({ terminalId: terminal.id, terminalFontSize, terminalFontFamily, terminalScrollback });
+  useTerminalOptions({ terminalId: terminal.id, active, terminalFontSize, terminalFontFamily, terminalScrollback });
   useTerminalRestartRequest(restartRequestNonce, restartTerminalSessionIfDead);
   useTerminalActivation({ terminalId: terminal.id, active, visible, maximized, termRef, fitRef, restartTerminalSessionIfDead, restartIfDead: !managedService });
 

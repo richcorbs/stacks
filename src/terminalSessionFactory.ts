@@ -7,6 +7,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { TerminalSession } from './types';
+import { terminalAppearanceOptions } from './terminalAppearance';
 
 type TerminalPasteKeyEvent = Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'preventDefault' | 'shiftKey' | 'stopPropagation' | 'type'>;
 type TerminalPasteTarget = Pick<Terminal, 'paste'>;
@@ -53,14 +54,7 @@ export function createTerminalSession({
     cursorBlink: true,
     fontFamily: terminalFontFamily,
     fontSize: terminalFontSize,
-    theme: {
-      background: '#0f141b',
-      foreground: '#d6deeb',
-      cursor: '#80cbc4',
-      selectionBackground: '#fff7ed',
-      selectionForeground: '#111827',
-      selectionInactiveBackground: '#fed7aa',
-    },
+    ...terminalAppearanceOptions(false),
     scrollback: terminalScrollback,
     smoothScrollDuration: 0,
   });
