@@ -20,11 +20,11 @@ vi.mock('./KanbanLanes', () => ({ KanbanLanes: (props: object) => <div data-entr
 vi.mock('./KanbanList', () => ({ KanbanList: (props: object) => <div data-entry="list" {...props} /> }));
 
 const card = { id: 'c', external_id: '266', title: 'Merge me', project_id: 'p', status: 'approved', workflow_revision: 7,
-  child_count: 0, children: [], pull_request: { number: 98, url: 'https://github.com/a/b/pull/98', state: 'open',
+  child_count: 0, children: [], environment: { id: 'env-c', revision: 12, worktree_path: '/project/card-c', branch: 'card-c' }, pull_request: { number: 98, url: 'https://github.com/a/b/pull/98', state: 'open',
     draft: false, ci_status: 'success', review_state: 'approved', blockers: [], has_conflicts: false } } as unknown as KanbanCard;
 const merged = { ...card, status: 'done', workflow_revision: 8, completion_outcome: 'merged' } as KanbanCard;
-const evidence = { card_id: 'c', card_number: '266', card_title: 'Merge me', merged: true, has_resources: true,
-  blocked: false, environment_revision: 12 } as CleanupPreflight;
+const evidence = { card_id: 'c', project_id: 'p', source_path: '/project/card-c', source_branch: 'card-c', card_number: '266', card_title: 'Merge me', merged: true, has_resources: true,
+  blocked: false, workflow_revision: 8, environment_revision: 12 } as CleanupPreflight;
 
 describe.each(['board', 'list'] as const)('%s merge cleanup handoff', (view) => {
   let renderer: TestRenderer.ReactTestRenderer;
@@ -89,6 +89,30 @@ describe.each(['board', 'list'] as const)('%s merge cleanup handoff', (view) => 
     expect(renderer.root.findByType(BoardPrMergeDialog).props.error).toContain('PR merged successfully, but cleanup could not begin');
     expect(renderer.root.findAllByType(CleanupPreflightDialog)).toHaveLength(0);
   });
+  it('continues immediately when GitHub already deleted the remote branch after merging', async () => {
+    vi.mocked(mergeKanbanPullRequest).mockResolvedValueOnce({ ...merged,
+      delivery_operation_stage: 'deleting_remote_branch', delivery_error: 'PR merged, but remote branch deletion needs retry: unable to resolve reference' });
+    // Preflight refresh publishes a newer persisted snapshot, just as the backend does.
+    const refreshed = { ...merged, record_revision: 30 };
+    vi.mocked(fetchCleanupPreflight).mockImplementationOnce(async () => {
+      reload.mockResolvedValue(refreshed);
+      return evidence;
+    });
+    await confirm();
+    expect(renderer.root.findAllByType(BoardPrMergeDialog)).toHaveLength(0);
+    expect(renderer.root.findByType(CleanupPreflightDialog).props.inventory.entries).toEqual([evidence]);
+    await act(async () => renderer.root.findByType(CleanupPreflightDialog).props.onConfirm([evidence]));
+    expect(cleanup).toHaveBeenCalledExactlyOnceWith(refreshed, evidence);
+  });
+  it.each([{ workflow_revision: 7 }, { environment_revision: 99 }, { project_id: 'other' }, { source_path: '/project/unrelated' }])('rejects stale evidence %j and can recover without another merge', async (stale) => {
+    vi.mocked(fetchCleanupPreflight).mockResolvedValueOnce({ ...evidence, ...stale });
+    await confirm();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(renderer.root.findByType(BoardPrMergeDialog).props.error).toContain('revision');
+    await act(async () => renderer.root.findByType(BoardPrMergeDialog).props.onRetryCleanup());
+    expect(renderer.root.findAllByType(CleanupPreflightDialog)).toHaveLength(1);
+    expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
+  });
   it('merge-only retains the environment without fetching cleanup evidence', async () => {
     await confirm('merge');
     expect(fetchCleanupPreflight).not.toHaveBeenCalled();
@@ -103,6 +127,55 @@ describe.each(['board', 'list'] as const)('%s merge cleanup handoff', (view) => 
     await confirm();
     expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
   });
+  it('shows safety blockers with cleanup-only recovery instead of bypassing them', async () => {
+    vi.mocked(fetchCleanupPreflight).mockResolvedValueOnce({ ...evidence, blocked: true, override_available: false,
+      blockers: ['Source path is not a registered worktree.'] });
+    await confirm();
+    expect(renderer.root.findAllByType(CleanupPreflightDialog)).toHaveLength(0);
+    expect(renderer.root.findByType(BoardPrMergeDialog).props.error).toContain('not a registered worktree');
+    expect(renderer.root.findByType(BoardPrMergeDialog).props.onRetryCleanup).toBeTypeOf('function');
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+  it('preserves explicitly authorized override confirmation', async () => {
+    vi.mocked(fetchCleanupPreflight).mockResolvedValueOnce({ ...evidence, blocked: true, override_available: true,
+      blockers: ['Source worktree is dirty'] });
+    await confirm();
+    expect(renderer.root.findByType(CleanupPreflightDialog).props.inventory.entries[0].override_available).toBe(true);
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+  it('does not clean a replacement environment during cleanup-only recovery', async () => {
+    vi.mocked(fetchCleanupPreflight).mockRejectedValueOnce(new Error('Offline'));
+    await confirm();
+    reload.mockResolvedValue({ ...merged, environment: { ...merged.environment, id: 'replacement' } });
+    await act(async () => renderer.root.findByType(BoardPrMergeDialog).props.onRetryCleanup());
+    expect(renderer.root.findAllByType(CleanupPreflightDialog)).toHaveLength(0);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { workflow_revision: 9 },
+    { environment: { ...merged.environment, revision: 13 } },
+    { environment: { ...merged.environment, id: 'other-environment' } },
+    { id: 'other-card' },
+  ])('retains resources when confirmation reload changed: %j', async (change) => {
+    await confirm();
+    reload.mockResolvedValueOnce({ ...merged, ...change });
+    await act(async () => renderer.root.findByType(CleanupPreflightDialog).props.onConfirm([evidence]));
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(renderer.root.findByType(BoardPrMergeDialog).props.error).toContain('changed after cleanup confirmation');
+    expect(renderer.root.findByType(BoardPrMergeDialog).props.onRetryCleanup).toBeTypeOf('function');
+    expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
+  });
+  it('guards duplicate cleanup confirmation before the persisted reload completes', async () => {
+    await confirm();
+    let finish!: (value: KanbanCard) => void;
+    reload.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const dialog = renderer.root.findByType(CleanupPreflightDialog);
+    let pending!: Promise<void>;
+    act(() => { pending = dialog.props.onConfirm([evidence]); void dialog.props.onConfirm([evidence]); });
+    await act(async () => { finish(merged); await pending; });
+    expect(cleanup).toHaveBeenCalledExactlyOnceWith(merged, evidence);
+  });
   it.each([true, false, 'failure'])('cleans the exact merged card and reconciles even after cleanup outcome %s', async (outcome) => {
     await confirm();
     const fresh = { ...merged, record_revision: 22 };
@@ -115,7 +188,14 @@ describe.each(['board', 'list'] as const)('%s merge cleanup handoff', (view) => 
     expect(reconcile).toHaveBeenLastCalledWith(fresh);
     expect(renderer.root.findAllByType(CleanupPreflightDialog)).toHaveLength(0);
     expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
-    expect(focus).toHaveBeenCalledOnce();
+    if (outcome === true) expect(focus).toHaveBeenCalledOnce();
+    else {
+      expect(renderer.root.findByType(BoardPrMergeDialog).props.onRetryCleanup).toBeTypeOf('function');
+      expect(focus).not.toHaveBeenCalled();
+      await act(async () => renderer.root.findByType(BoardPrMergeDialog).props.onRetryCleanup());
+      expect(renderer.root.findAllByType(CleanupPreflightDialog)).toHaveLength(1);
+      expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
+    }
     if (outcome === 'failure') expect(showAppToast).toHaveBeenCalledWith(expect.stringContaining('PR merged successfully, but cleanup failed'));
   });
 });
