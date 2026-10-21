@@ -35,6 +35,9 @@ mod cards;
 mod cleanup;
 mod commands;
 mod domain;
+mod done_retention;
+pub(crate) use done_retention::CARD_RESOURCE_START_LOCK;
+pub use done_retention::{DoneCleanupCandidate, DoneCleanupPreview, DoneCleanupResult};
 mod environment;
 mod git_effects;
 mod github_delivery;
@@ -67,7 +70,7 @@ pub(crate) use provider_sync::{
 #[cfg(test)]
 pub(crate) use repository::{initialize_connection, migrate};
 pub(crate) use repository::{
-    affect_project_cards, initialize_database, with_board_mutation, with_read_connection,
+    affect_project_cards, initialize_database, migrate_done_retention, with_board_mutation, with_read_connection,
     with_write_connection,
 };
 pub(crate) use superthread_refinement::finish_superthread_refinement;

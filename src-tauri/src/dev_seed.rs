@@ -15,7 +15,7 @@ use uuid::Uuid;
 const DATABASE_FILE: &str = "workflow.sqlite3";
 const SETTINGS_FILE: &str = "settings.json";
 const SEEDED_MARKER_FILE: &str = "seeded-from-production";
-const MAX_SUPPORTED_SCHEMA_MIGRATION: i64 = 77;
+const MAX_SUPPORTED_SCHEMA_MIGRATION: i64 = 78;
 
 const EXPECTED_TABLES: &[&str] = &[
     "card_cleanup_evidence",
@@ -36,6 +36,7 @@ const EXPECTED_TABLES: &[&str] = &[
     "kanban_cards",
     "kanban_project_sequences",
     "legacy_workspaces",
+    "local_card_purge_jobs",
     "project_direct_panes",
     "project_direct_work",
     "projects",
@@ -121,6 +122,9 @@ fn sanitize_database(path: &Path) -> Result<(), String> {
     let transaction = connection
         .transaction()
         .map_err(db_error("Could not begin seed sanitization"))?;
+    // Pending purge jobs refer to production-owned storage, never seed them.
+    let has_purge_jobs: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_card_purge_jobs')", [], |row| row.get(0)).map_err(db_error("Could not inspect purge jobs"))?;
+    if has_purge_jobs { transaction.execute("DELETE FROM local_card_purge_jobs", []).map_err(db_error("Could not clear production purge jobs"))?; }
     transaction
         .execute_batch(
             "DELETE FROM card_cleanup_evidence;
@@ -179,6 +183,7 @@ fn validate_schema(connection: &Connection) -> Result<(), String> {
         .map_err(db_error("Could not read production table names"))?;
     let expected = EXPECTED_TABLES
         .iter()
+        .filter(|name| migration >= 78 || **name != "local_card_purge_jobs")
         .map(|name| (*name).to_string())
         .collect::<BTreeSet<_>>();
     if actual != expected {

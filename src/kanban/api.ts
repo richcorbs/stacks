@@ -39,6 +39,18 @@ export function openKanbanCard(id: string) {
   return invoke<string>('kanban_open_card', { id });
 }
 
+export type DoneCleanupCandidate = { id: string; done_entered_at: number };
+export type DoneCleanupPreview = { candidates: DoneCleanupCandidate[]; pending_artifacts: number };
+export type DoneCleanupResult = { deleted: number; removed_ids: string[]; skipped: number; failed: number; details: string[] };
+
+export function previewDoneCleanup() {
+  return invoke<DoneCleanupPreview>('kanban_preview_done_cleanup');
+}
+
+export function cleanUpDoneCards(candidates: DoneCleanupCandidate[]) {
+  return invoke<DoneCleanupResult>('kanban_clean_up_done_cards', { candidates });
+}
+
 export function deleteKanbanCard(id: string) {
   return invoke<BoardChange>('kanban_delete_card', { id });
 }

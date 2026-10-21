@@ -1868,6 +1868,33 @@ fn imports_cards_without_disconnected_cleaned_tombstones() {
 }
 
 #[test]
+fn manual_done_cleanup_emits_removals_and_does_not_suppress_superthread_reimport() {
+    let mut db = Connection::open_in_memory().unwrap();
+    configure_connection(&db).unwrap();
+    migrate(&db).unwrap();
+    test_project(&db,"owner","superthread","/tmp/project");
+    let import = || test_superthread_snapshot(vec![superthread_card("42",Some("Brief"),"board","Doing",true)],false);
+    let cards = sync_cards(&mut db,"owner",import()).unwrap();
+    let id = cards[0].id.clone();
+    let old = unix_timestamp()-8*24*60*60;
+    db.execute("UPDATE kanban_cards SET status='done',completion_outcome='closed' WHERE id=?1", [&id]).unwrap();
+    db.execute("UPDATE kanban_cards SET done_entered_at=?2 WHERE id=?1", params![id,old]).unwrap();
+    // Re-importing/editing a retained Done card must not reset its retention.
+    sync_cards(&mut db,"owner",import()).unwrap();
+    assert_eq!(db.query_row("SELECT done_entered_at FROM kanban_cards WHERE id=?1", [&id], |row| row.get::<_,i64>(0)).unwrap(),old);
+    let preview = super::done_retention::preview(&db,unix_timestamp()).unwrap();
+    let (result, change) = execute_board_mutation(&mut db, |db| super::done_retention::delete_candidates(db,&preview.candidates,unix_timestamp(), |_| Ok(()), |db,id| db.execute("DELETE FROM kanban_cards WHERE id=?1", [id]).map(|_| ()).map_err(db_error))).unwrap();
+    assert_eq!(result.deleted,1);
+    assert_eq!(change.unwrap().removed_ids,vec![id.clone()]);
+    // Normal import rules still apply when the remote card moves backwards.
+    let imported = sync_cards(&mut db,"owner",import()).unwrap();
+    assert_eq!(imported.len(),1);
+    assert_eq!(imported[0].id,id);
+    assert_eq!(imported[0].status,"needs_refinement");
+    assert_eq!(db.query_row("SELECT done_entered_at FROM kanban_cards WHERE id=?1", [&id], |row| row.get::<_,Option<i64>>(0)).unwrap(),None);
+}
+
+#[test]
 fn local_card_numbers_are_monotonic_per_project() {
     let connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();

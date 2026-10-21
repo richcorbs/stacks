@@ -308,10 +308,10 @@ export class PiSessionController {
   };
 
   /** Permanently removes frontend ownership. Backend deletion remains explicit at the caller. */
-  delete() {
+  delete(reconcile = true) {
     if (this.deleted) return;
     this.uiResponseEpoch += 1;
-    this.clearUiRequest(true, false);
+    this.clearUiRequest(reconcile, false);
     this.deleted = true;
     savePiSessionBoundary(this.config.paneId, null);
     this.stopListening?.();
@@ -697,8 +697,8 @@ export function getRetainedPiSessionController(paneId: string) {
   return controllers.get(paneId) ?? null;
 }
 
-export function deletePiSessionController(paneId: string) {
-  controllers.get(paneId)?.delete();
+export function deletePiSessionController(paneId: string, reconcile = true) {
+  controllers.get(paneId)?.delete(reconcile);
   controllers.delete(paneId);
 }
 

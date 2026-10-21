@@ -968,8 +968,44 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     // databases may have been partially hydrated; only verified provider detail
     // (sync/refinement) may restore leaf eligibility.
     connection.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (77,unixepoch())", []).map_err(db_error)?;
+    migrate_done_retention(connection)?;
     provider_sync::recover_interrupted(connection)?;
     Ok(())
+}
+
+// Triggers cover workflow transitions, provider scope suspension/restoration and
+// hierarchy reconciliation alike. Content edits and Done-to-Done syncs do not age cards.
+pub(crate) fn migrate_done_retention(connection: &Connection) -> Result<(), String> {
+    let columns = connection.prepare("PRAGMA table_info(kanban_cards)").map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1)).map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>().map_err(db_error)?;
+    if !columns.iter().any(|column| column == "done_entered_at") {
+        connection.execute_batch("SAVEPOINT done_retention;
+            ALTER TABLE kanban_cards ADD COLUMN done_entered_at INTEGER;
+            UPDATE kanban_cards SET done_entered_at=COALESCE((
+                SELECT e.created_at FROM card_events e
+                WHERE e.card_id=kanban_cards.id AND e.outcome='success'
+                  AND e.to_status='done' AND e.from_status IS NOT NULL AND e.from_status!='done'
+                  AND NOT EXISTS (SELECT 1 FROM card_events later
+                    WHERE later.card_id=e.card_id AND later.outcome='success'
+                      AND later.to_status IS NOT NULL AND later.to_status!='done'
+                      AND (later.created_at>e.created_at OR (later.created_at=e.created_at AND later.id>e.id)))
+                ORDER BY e.created_at DESC,e.id DESC LIMIT 1),unixepoch()) WHERE status='done';
+            INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (78,unixepoch());
+            RELEASE done_retention;").map_err(db_error)?;
+    }
+    connection.execute_batch("CREATE TRIGGER IF NOT EXISTS card_done_insert AFTER INSERT ON kanban_cards
+        WHEN NEW.status='done' BEGIN
+          UPDATE kanban_cards SET done_entered_at=unixepoch() WHERE id=NEW.id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS card_done_transition AFTER UPDATE OF status ON kanban_cards
+        WHEN OLD.status IS NOT NEW.status BEGIN
+          UPDATE kanban_cards SET done_entered_at=CASE WHEN NEW.status='done' THEN unixepoch() ELSE NULL END WHERE id=NEW.id;
+        END;
+        CREATE INDEX IF NOT EXISTS kanban_done_retention_idx ON kanban_cards(status,done_entered_at);
+        CREATE TABLE IF NOT EXISTS local_card_purge_jobs (
+          card_id TEXT PRIMARY KEY, storage_key TEXT NOT NULL UNIQUE
+        );").map_err(db_error)
 }
 
 pub(in crate::kanban) fn migrate_done_status(connection: &Connection) -> Result<(), String> {

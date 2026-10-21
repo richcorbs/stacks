@@ -298,6 +298,9 @@ fn start_pi_session_operation(
     project_path: Option<String>,
     project_id: String,
 ) -> Result<String, String> {
+    let _card_resource_guard = if crate::kanban::card_pi_owner(&pane_id).is_some() {
+        Some(crate::kanban::CARD_RESOURCE_START_LOCK.lock().map_err(|_| "Card resource lock failed".to_string())?)
+    } else { None };
     if pane_id.trim().is_empty() {
         return Err("Pi pane ID is required".to_string());
     }
@@ -307,8 +310,10 @@ fn start_pi_session_operation(
         .map(canonical_project_path)
         .transpose()?;
     let project = crate::store::pi_project_scope(&project_id)?;
-    if let Some(owner) = crate::kanban::card_pi_session(&pane_id)? {
-        let card_project_id = crate::kanban::card_project_id(&owner.card_id)?.ok_or_else(|| {
+    if let Some(card_id) = crate::kanban::card_pi_owner(&pane_id) {
+        // Prove ownership before card_pi_session creates any directories. A
+        // startup queued behind retention must not recreate a deleted card's files.
+        let card_project_id = crate::kanban::card_project_id(&card_id)?.ok_or_else(|| {
             "The card-scoped Pi session's owning project was not found".to_string()
         })?;
         if card_project_id != project.id {
@@ -317,6 +322,8 @@ fn start_pi_session_operation(
                     .to_string(),
             );
         }
+        let owner = crate::kanban::card_pi_session(&pane_id)?
+            .ok_or_else(|| "Card Pi session identity was not found".to_string())?;
         crate::kanban::validate_card_pi_start(&owner.card_id, &owner.thread, &cwd, &project.id)?;
     }
     if let Some(owner_project_id) = crate::project_direct::project_direct_owner(&pane_id) {
