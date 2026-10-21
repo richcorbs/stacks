@@ -4,6 +4,13 @@ import type { DeliveryContext } from './deliveryStep';
 import { adjacentBoardCard, adjacentListCard, keyboardNavigableCards } from './boardNavigation';
 import { isEditableElement } from './boardInteractions';
 
+const arrowDirections: Partial<Record<string, 'h' | 'j' | 'k' | 'l'>> = {
+  ArrowLeft: 'h',
+  ArrowDown: 'j',
+  ArrowUp: 'k',
+  ArrowRight: 'l',
+};
+
 export function useBoardKeyboardNavigation({
   visibleCards,
   deliveryContext = {},
@@ -52,7 +59,9 @@ export function useBoardKeyboardNavigation({
         return;
       }
       if (selectedCard || (view === 'list' && (event.target as Element | null)?.closest?.('.kanbanListGroupHeader'))) return;
-      const key = event.key.toLocaleLowerCase();
+      const arrowDirection = arrowDirections[event.key];
+      if (arrowDirection && event.shiftKey) return;
+      const key = arrowDirection ?? event.key.toLocaleLowerCase();
       if (!['h', 'j', 'k', 'l', 'enter'].includes(key)) return;
       if (key === 'enter') {
         const card = keyboardCards.find((candidate) => candidate.id === focusedCardId);

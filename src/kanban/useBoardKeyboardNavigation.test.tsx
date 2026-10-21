@@ -50,6 +50,141 @@ describe.each(['board', 'list'] as const)('%s keyboard shortcut', (view) => {
     return event;
   }
 
+  const arrows = ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight'];
+  const directions = { ArrowLeft: 'h', ArrowDown: 'j', ArrowUp: 'k', ArrowRight: 'l' };
+  // Deliberately not in presentation order; the progress column is empty.
+  const cards = [
+    { ...card, id: 'ready-1', status: 'ready' as const },
+    { ...card, id: 'backlog-1' },
+    { ...card, id: 'done', status: 'done' as const },
+    { ...card, id: 'ready-2', status: 'ready' as const },
+    { ...card, id: 'backlog-2' },
+  ];
+
+  it.each(Object.entries(directions))('matches %s to %s for initial selection and every card', async (arrow, vim) => {
+    await render({ visibleCards: cards });
+    for (const start of [null, ...cards.map((candidate) => candidate.id)]) {
+      act(() => navigation.setFocusedCardId(start));
+      const vimHandled = key(vim).defaultPrevented;
+      const vimFocus = navigation.focusedCardId;
+      act(() => navigation.setFocusedCardId(start));
+      expect(key(arrow).defaultPrevented).toBe(vimHandled);
+      expect(navigation.focusedCardId).toBe(vimFocus);
+      if (view === 'list' && ['ArrowLeft', 'ArrowRight'].includes(arrow)) {
+        expect(vimHandled).toBe(false);
+        expect(navigation.focusedCardId).toBe(start);
+      }
+    }
+  });
+
+  it('preserves ordering, boundaries, empty-column skipping and Enter after arrows', async () => {
+    await render({ visibleCards: cards });
+    const steps = view === 'board'
+      ? [
+        ['ArrowUp', 'backlog-1'], ['ArrowLeft', 'backlog-1'],
+        ['ArrowDown', 'backlog-2'], ['ArrowDown', 'backlog-2'],
+        ['ArrowRight', 'ready-2'], ['ArrowRight', 'done'], ['ArrowRight', 'done'],
+        ['ArrowLeft', 'ready-1'], ['ArrowLeft', 'backlog-1'],
+      ]
+      : [
+        ['ArrowUp', 'ready-1'], ['ArrowUp', 'ready-1'],
+        ['ArrowDown', 'ready-2'], ['ArrowDown', 'backlog-1'],
+        ['ArrowDown', 'backlog-2'], ['ArrowDown', 'done'], ['ArrowDown', 'done'],
+        ['ArrowUp', 'backlog-2'],
+      ];
+    for (const [arrow, expected] of steps) {
+      expect(key(arrow).defaultPrevented).toBe(true);
+      expect(navigation.focusedCardId).toBe(expected);
+    }
+    expect(key('Enter').defaultPrevented).toBe(true);
+    expect(openCard).toHaveBeenCalledExactlyOnceWith(cards.find((candidate) => candidate.id === navigation.focusedCardId));
+  });
+
+  it('focuses the destination without jumping, then scrolls it into view', async () => {
+    const elements = cards.map((candidate) => ({
+      dataset: { kanbanCardId: candidate.id }, focus: vi.fn(), scrollIntoView: vi.fn(),
+    }));
+    vi.stubGlobal('document', { querySelectorAll: vi.fn(() => elements) });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
+    await render({ visibleCards: cards });
+    for (const arrow of ['ArrowDown', 'ArrowDown', 'ArrowUp']) {
+      expect(key(arrow).defaultPrevented).toBe(true);
+      const destination = elements.find((element) => element.dataset.kanbanCardId === navigation.focusedCardId)!;
+      expect(destination.focus).toHaveBeenLastCalledWith({ preventScroll: true });
+      expect(destination.scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest', inline: 'nearest' });
+      expect(destination.focus.mock.invocationCallOrder.at(-1)).toBeLessThan(destination.scrollIntoView.mock.invocationCallOrder.at(-1)!);
+    }
+  });
+
+  it.each(['metaKey', 'ctrlKey', 'altKey', 'shiftKey'])('leaves all arrows with %s unhandled', async (modifier) => {
+    await render({ visibleCards: cards });
+    act(() => navigation.setFocusedCardId('ready-1'));
+    for (const arrow of arrows) {
+      expect(key(arrow, { [modifier]: true }).defaultPrevented).toBe(false);
+      expect(navigation.focusedCardId).toBe('ready-1');
+    }
+  });
+
+  it.each(['input', 'textarea', 'select', '[contenteditable="true"]'])('leaves arrows in %s unhandled', async (selector) => {
+    await render();
+    for (const arrow of arrows) {
+      expect(key(arrow, { target: { closest: () => selector } }).defaultPrevented).toBe(false);
+    }
+    expect(navigation.focusedCardId).toBeNull();
+  });
+
+  it.each([{ selectedCard: card }, { shortcutBlocked: true }])('respects navigation guards %j', async (guard) => {
+    await render({ visibleCards: cards, ...guard });
+    act(() => navigation.setFocusedCardId('ready-1'));
+    for (const arrow of arrows) {
+      expect(key(arrow).defaultPrevented).toBe(false);
+      expect(navigation.focusedCardId).toBe('ready-1');
+    }
+  });
+
+  it('leaves list group-header arrows alone without blocking board navigation', async () => {
+    await render();
+    const target = { closest: (selector: string) => selector === '.kanbanListGroupHeader' ? {} : null };
+    for (const arrow of arrows) {
+      expect(key(arrow, { target }).defaultPrevented).toBe(view === 'board');
+    }
+    expect(navigation.focusedCardId).toBe(view === 'board' ? 'a' : null);
+  });
+
+  it('does not consume navigation keys in an empty view', async () => {
+    await render({ visibleCards: [] });
+    for (const value of [...arrows, ...Object.values(directions), 'Enter']) {
+      expect(key(value).defaultPrevented).toBe(false);
+    }
+    expect(navigation.focusedCardId).toBeNull();
+  });
+
+  it('excludes collapsed groups from arrow navigation', async () => {
+    const grouped = [...cards, { ...card, id: 'progress', status: 'agent_working' as const }];
+    await render({ visibleCards: grouped, doneCollapsed: true, backlogCollapsed: true, attentionCollapsed: true });
+    expect(key('ArrowDown').defaultPrevented).toBe(true);
+    expect(navigation.focusedCardId).toBe(view === 'list' ? 'progress' : 'backlog-1');
+    expect(key(view === 'list' ? 'ArrowDown' : 'ArrowRight').defaultPrevented).toBe(true);
+    expect(navigation.focusedCardId).toBe('progress');
+    await act(async () => renderer.update(<Harness {...options(view, {
+      visibleCards: grouped, doneCollapsed: true, backlogCollapsed: true, attentionCollapsed: true, progressCollapsed: true,
+    })} />));
+    expect(navigation.focusedCardId).toBe(view === 'list' ? null : 'progress');
+    expect(key('ArrowDown').defaultPrevented).toBe(view === 'board');
+    if (view === 'board') {
+      expect(key('ArrowRight').defaultPrevented).toBe(true);
+      expect(navigation.focusedCardId).toBe('ready-1');
+      expect(key('ArrowRight').defaultPrevented).toBe(true);
+      expect(navigation.focusedCardId).toBe('ready-1'); // Done remains excluded.
+    }
+  });
+
+  it('keeps Shift+Vim navigation unchanged', async () => {
+    await render();
+    expect(key('J', { shiftKey: true }).defaultPrevented).toBe(true);
+    expect(navigation.focusedCardId).toBe('a');
+  });
+
   it('clears focus when its list-only group collapses and restores board navigation', async () => {
     const attention = { ...card, id: 'attention', status: 'needs_human' as const };
     const progress = { ...card, id: 'progress', status: 'agent_working' as const };
