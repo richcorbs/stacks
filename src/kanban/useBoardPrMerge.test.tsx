@@ -32,7 +32,7 @@ describe('board PR merge orchestration', () => {
     vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { callback(); return 1; });
     prepareCleanup.mockReset().mockResolvedValue(openCleanup);
     cards = [card];
-    reload.mockResolvedValue({ ...card, workflow_revision: 8 });
+    reload.mockResolvedValue({ ...card, workflow_revision: 8, status: 'done', completion_outcome: 'merged' });
     await act(async () => { renderer = TestRenderer.create(<Harness />); });
     act(() => model.request(card, trigger));
   });
@@ -73,12 +73,12 @@ describe('board PR merge orchestration', () => {
     expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
   });
   it('reports cleanup preflight failure as merge success and never retries the merge', async () => {
-    vi.mocked(mergeKanbanPullRequest).mockResolvedValue({ ...card, status: 'done' } as KanbanCard);
+    vi.mocked(mergeKanbanPullRequest).mockResolvedValue({ ...card, status: 'done', completion_outcome: 'merged' } as KanbanCard);
     prepareCleanup.mockRejectedValue(new Error('Preflight offline'));
     await act(async () => { await model.confirm('merge-and-cleanup'); });
     expect(model.error).toContain('PR merged successfully, but cleanup could not begin: Preflight offline');
     expect(openCleanup).not.toHaveBeenCalled();
-    expect(reload).not.toHaveBeenCalled();
+    expect(reload).toHaveBeenCalledWith('c');
     await act(async () => { await model.confirm('merge-and-cleanup'); });
     expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
   });
@@ -101,7 +101,7 @@ describe('board PR merge orchestration', () => {
     vi.mocked(mergeKanbanPullRequest).mockRejectedValue(new Error(message));
     await act(async () => { await model.confirm(); });
     expect(prepareCleanup).not.toHaveBeenCalled();
-    expect(model.error).toBe(message);
+    expect(model.error).toContain(message);
     expect(reload).toHaveBeenCalledWith('c');
     expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({ workflow_revision: 8 }));
     await act(async () => { await model.confirm(); });
@@ -115,6 +115,27 @@ describe('board PR merge orchestration', () => {
     expect(model.error).toBe(merged.delivery_error);
     expect(model.target).not.toBeNull();
     expect(reload).not.toHaveBeenCalled();
+  });
+  it('prepares cleanup despite the diagnosed post-merge branch deletion error and reloads before handoff', async () => {
+    const warning = { ...card, status: 'done', completion_outcome: 'merged', delivery_operation_stage: 'deleting_remote_branch',
+      delivery_error: 'PR merged, but remote branch deletion needs retry: unable to resolve reference' } as KanbanCard;
+    vi.mocked(mergeKanbanPullRequest).mockResolvedValue(warning);
+    await act(async () => { await model.confirm('merge-and-cleanup'); });
+    expect(reload).toHaveBeenCalledExactlyOnceWith('c');
+    expect(prepareCleanup).toHaveBeenCalledWith(await reload.mock.results[0].value, expect.any(Function));
+    expect(openCleanup).toHaveBeenCalledOnce();
+    expect(model.error).toBeNull();
+  });
+  it('recovers preflight failure with fresh state and evidence without repeating merge, including duplicate retries', async () => {
+    vi.mocked(mergeKanbanPullRequest).mockResolvedValue({ ...card, completion_outcome: 'merged' } as KanbanCard);
+    prepareCleanup.mockRejectedValueOnce(new Error('Offline'));
+    await act(async () => { await model.confirm('merge-and-cleanup'); });
+    expect(model.canRetryCleanup).toBe(true);
+    await act(async () => { await Promise.all([model.retryCleanup(), model.retryCleanup()]); });
+    expect(mergeKanbanPullRequest).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledTimes(2);
+    expect(prepareCleanup).toHaveBeenCalledTimes(2);
+    expect(openCleanup).toHaveBeenCalledOnce();
   });
   it('keeps both operation and reconciliation failures visible', async () => {
     vi.mocked(mergeKanbanPullRequest).mockRejectedValue(new Error('Offline'));
