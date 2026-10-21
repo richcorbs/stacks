@@ -9,6 +9,8 @@ export type ManagedServiceConfig = {
   cwd: string | null;
 };
 export type ManagedServiceState = {
+  actionPending: 'start' | 'stop' | null;
+  error: string | null;
   mounted: boolean;
   starting: boolean;
   running: boolean;
@@ -34,6 +36,8 @@ export function initialManagedServiceState(config: ManagedServiceConfig): Manage
   const session = getTerminalSession(config.terminalId);
   const matches = terminalSessionMatchesManagedService(session, config);
   return {
+    actionPending: null,
+    error: null,
     mounted: matches,
     starting: Boolean(matches && session?.starting),
     running: Boolean(matches && session?.running),

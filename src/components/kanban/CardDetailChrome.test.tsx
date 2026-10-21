@@ -89,6 +89,7 @@ describe('CardDetailTabs', () => {
       serverCommand=""
       consoleCommand=""
       serverServices={{
+        serverActionPending: null, consoleActionPending: null, serverError: null, consoleError: null,
         serverEnabled: false,
         consoleEnabled: false,
         serverStarting: false,
@@ -123,6 +124,7 @@ describe('CardDetailTabs', () => {
       serverCommand="bin/dev"
       consoleCommand="bin/console"
       serverServices={{
+        serverActionPending: null, consoleActionPending: null, serverError: null, consoleError: null,
         serverEnabled: true,
         consoleEnabled: true,
         serverStarting: true,
@@ -142,7 +144,8 @@ describe('CardDetailTabs', () => {
     />);
 
     expect(markup).toContain('aria-label="Stop server" aria-pressed="true"');
-    expect(markup).toContain('class="serviceStopIcon"');
+    expect(markup).toContain('class="serviceBusyIcon"');
+    expect(markup).toContain('Starting…');
     expect(markup).toContain('aria-label="Start console" aria-pressed="false"');
     expect(markup).toContain('class="servicePlayIcon"');
   });

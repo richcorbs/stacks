@@ -420,6 +420,14 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardWorkspaceTabs button.cardServiceToggle.running { border-color: #416b55; background: #15271e; color: #70bd8d; }
 .servicePlayIcon { width: 0; height: 0; margin-left: 1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid currentColor; }
 .serviceStopIcon { width: 8px; height: 8px; border-radius: 1px; background: currentColor; }
+.managedServiceControl { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.managedServiceStatus { font-size: 10px; color: #aabac8; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.managedServiceStatus.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.managedServiceControl button:disabled { cursor: wait; opacity: 0.8; }
+.managedServiceControl button.failed { color: #db9696; border-color: #875555; }
+.serviceBusyIcon { width: 9px; height: 9px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: serviceBusySpin 0.8s linear infinite; }
+@keyframes serviceBusySpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .serviceBusyIcon { animation: none; } }
 .diffRefreshIcon { position: relative; width: 11px; height: 11px; }
 .diffRefreshIcon::before { content: ''; position: absolute; inset: 1px; border: 1.5px solid currentColor; border-left-color: transparent; border-radius: 50%; }
 .diffRefreshIcon::after { content: ''; position: absolute; left: 0; top: 1px; width: 0; height: 0; border-top: 2.5px solid transparent; border-bottom: 2.5px solid transparent; border-right: 4px solid currentColor; transform: rotate(-25deg); }

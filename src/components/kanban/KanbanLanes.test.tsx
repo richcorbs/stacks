@@ -28,6 +28,7 @@ function card(overrides: Partial<KanbanCard> = {}): KanbanCard {
 
 function services(active = false, toggle = vi.fn()): CardServices {
   return {
+    serverActionPending: null, consoleActionPending: null, serverError: null, consoleError: null,
     serverEnabled: active, consoleEnabled: false,
     serverStarting: active, consoleStarting: false,
     serverRunning: false, consoleRunning: false,
@@ -405,12 +406,26 @@ describe('board server control', () => {
 
   it.each([
     [false, 'Start server', 'servicePlayIcon'],
-    [true, 'Stop server', 'serviceStopIcon'],
+    [true, 'Stop server', 'serviceBusyIcon'],
   ])('renders active=%s with the accessible %s state', (active, label, icon) => {
     const markup = renderToStaticMarkup(<KanbanServerControl services={services(active)} onToggle={() => {}} />);
     expect(markup).toContain(`aria-label="${label}"`);
     expect(markup).toContain(`aria-pressed="${active}"`);
     expect(markup).toContain(icon);
+  });
+
+  it.each(['start', 'stop'] as const)('renders a disabled per-card %s request without claiming startup', (pending) => {
+    const markup = renderToStaticMarkup(<KanbanServerControl services={{ ...services(false), serverActionPending: pending }} onToggle={() => {}} />);
+    expect(markup).toContain('disabled=""');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain(pending === 'start' ? 'Start requested…' : 'Stop requested…');
+    expect(markup).not.toContain('Starting…');
+  });
+
+  it('renders failure feedback with an enabled retry', () => {
+    const markup = renderToStaticMarkup(<KanbanServerControl services={{ ...services(false), serverError: 'kill failed' }} onToggle={() => {}} />);
+    expect(markup).toContain('Failed: kill failed');
+    expect(markup).not.toContain('disabled=""');
   });
 
   it('handles pointer and click interaction without propagating to card open or drag handlers', async () => {
