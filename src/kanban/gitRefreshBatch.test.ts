@@ -4,6 +4,26 @@ import { runGitBatch } from './gitRefreshBatch';
 const clean = { branch: 'main', status: 'ok' as const, created: 0, changed: 0, deleted: 0 };
 
 describe('Git refresh batch', () => {
+  it('keeps the default four-read limit even while commands are slow', async () => {
+    const release: Array<() => void> = [];
+    let running = 0;
+    let peak = 0;
+    const batch = runGitBatch(Array.from({ length: 9 }, (_, i) => i), async () => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise<void>((resolve) => release.push(resolve));
+      running--;
+      return clean;
+    });
+    expect(running).toBe(4);
+    while (release.length) {
+      release.shift()!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(await batch).toEqual(Array(9).fill(clean));
+    expect(peak).toBe(4);
+  });
+
   it('bounds concurrency, retains input order and never turns errors into clean counts', async () => {
     let running = 0;
     let peak = 0;
