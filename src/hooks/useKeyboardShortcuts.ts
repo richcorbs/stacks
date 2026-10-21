@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { hasActiveConfirmation } from '../components/ConfirmationBoundary';
 import { handleMetaShortcutKeyDown } from '../keyboardShortcutRouter';
 import type { ShortcutHandlers } from '../shortcutTypes';
 
@@ -15,7 +16,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, isInteractionBl
         event.stopImmediatePropagation();
         return;
       }
-      handleMetaShortcutKeyDown(event, handlersRef.current);
+      if (!hasActiveConfirmation()) handleMetaShortcutKeyDown(event, handlersRef.current);
     };
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'Meta') handlersRef.current.setMetaKeyDown(false);

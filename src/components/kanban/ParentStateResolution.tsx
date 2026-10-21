@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ConfirmationBoundary } from '../ConfirmationBoundary';
 import { invoke } from '@tauri-apps/api/core';
 import type { KanbanCard } from '../../kanban/types';
 
@@ -39,11 +40,11 @@ export function ParentStateResolution({ card, onReload }: { card: KanbanCard; on
       {[...evidence.blockers, ...evidence.uncertainty].map((reason, index) => <p key={index}>{reason}</p>)}
       {evidence.repair_available && <>
         <p>Only local aggregate metadata will be corrected. Children, provider data, sessions and remote resources will be preserved. Any changed evidence will stop the repair.</p>
-        {!confirming ? <button type="button" onClick={() => setConfirming(true)}>Resolve parent state</button> : <div>
+        {!confirming ? <button type="button" onClick={() => setConfirming(true)}>Resolve parent state</button> : <ConfirmationBoundary><div role="alertdialog" aria-label="Confirm parent repair" onKeyDown={(event) => { if (event.key === 'Escape') setConfirming(false); }}>
           <strong>Confirm metadata-only parent repair for {evidence.remote_child_ids.length} verified children?</strong>{' '}
-          <button type="button" disabled={busy} onClick={() => void resolve()}>Confirm repair</button>{' '}
+          <button className="primaryAction" type="button" disabled={busy} onClick={() => void resolve()}>Confirm repair</button>{' '}
           <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
-        </div>}
+        </div></ConfirmationBoundary>}
       </>}
     </>}
   </section>;

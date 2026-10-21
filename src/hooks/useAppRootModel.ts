@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { hasActiveConfirmation } from '../components/ConfirmationBoundary';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, ask, message } from '@tauri-apps/plugin-dialog';
 import { runDoneCleanup } from '../kanban/doneCleanup';
@@ -331,7 +332,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
   const shortcutRef = useRef(shortcutHandlers); shortcutRef.current = shortcutHandlers;
   useEffect(() => {
     const listener = getCurrentWindow().listen<string>('menu-shortcut', (event) => {
-      if (!loading.isInteractionBlocked()) runShortcutAction(event.payload as ShortcutAction, shortcutRef.current);
+      if (!loading.isInteractionBlocked() && !hasActiveConfirmation()) runShortcutAction(event.payload as ShortcutAction, shortcutRef.current);
     });
     return () => { listener.then((unlisten) => unlisten()).catch(console.error); };
   }, [loading]);

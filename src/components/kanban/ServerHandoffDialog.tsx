@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { ConfirmationBoundary } from '../ConfirmationBoundary';
 import { handleDialogShortcut } from '../dialogShortcut';
 
 export function ServerHandoffDialog({ externalId, busy, onCancel, onConfirm }: {
@@ -7,10 +7,7 @@ export function ServerHandoffDialog({ externalId, busy, onCancel, onConfirm }: {
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const confirmRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { requestAnimationFrame(() => confirmRef.current?.focus()); }, []);
-
-  return <div className="modalBackdrop" onMouseDown={busy ? undefined : onCancel}>
+  return <ConfirmationBoundary key={externalId}><div className="modalBackdrop" onMouseDown={busy ? undefined : onCancel}>
     <form
       className="modal confirmModal"
       role="alertdialog"
@@ -29,8 +26,8 @@ export function ServerHandoffDialog({ externalId, busy, onCancel, onConfirm }: {
       <p>Shutdown the server running on card #{externalId}?</p>
       <div className="modalActions">
         <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button ref={confirmRef} className="primaryAction" type="submit" disabled={busy}>Shutdown and start</button>
+        <button className="primaryAction" type="submit" disabled={busy}>Shutdown and start</button>
       </div>
     </form>
-  </div>;
+  </div></ConfirmationBoundary>;
 }

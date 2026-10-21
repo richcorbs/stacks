@@ -1,51 +1,39 @@
-import { renderToStaticMarkup } from 'react-dom/server';
-import type { ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import TestRenderer, { act } from 'react-test-renderer';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PiUiRequest } from '../pi/types';
 import { PiStructuredRequest } from './PiStructuredRequest';
 
 function request(method: 'confirm' | 'select', options: string[] = []): PiUiRequest & { method: 'confirm' | 'select' } {
   return { id: `request-${method}`, method, title: 'Choose wisely', message: 'A little context', prefill: '', options };
 }
-
-function actionButtons(element: ReactElement<Record<string, any>>) {
-  const found: ReactElement<Record<string, any>>[] = [];
-  function visit(value: any) {
-    if (Array.isArray(value)) return value.forEach(visit);
-    if (!value || typeof value !== 'object') return;
-    if (value.type === 'button') found.push(value);
-    else visit(value.props?.children);
-  }
-  visit(element);
-  return found;
-}
+let renderer: TestRenderer.ReactTestRenderer;
+beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); });
+afterEach(() => { act(() => renderer?.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('PiStructuredRequest', () => {
-  it('renders an inline confirm with accessible Yes and No actions and exact payloads', () => {
+  it('delays Yes, leaves No and Escape available, and preserves exact payloads', () => {
     const onRespond = vi.fn();
-    const value = request('confirm');
-    const element = PiStructuredRequest({ request: value, onRespond });
-    const markup = renderToStaticMarkup(element);
-    const buttons = actionButtons(element);
-
-    expect(markup).toContain('<section class="piStructuredRequest" aria-label="Choose wisely">');
-    expect(markup).toContain('aria-label="Choose wisely: Yes"');
-    expect(markup).toContain('aria-label="Choose wisely: No"');
-    expect(markup).not.toContain('autofocus');
-    buttons[0].props.onClick();
-    buttons[1].props.onClick();
-    expect(onRespond.mock.calls).toEqual([
-      ['request-confirm', { confirmed: true }],
-      ['request-confirm', { confirmed: false }],
-    ]);
+    act(() => { renderer = TestRenderer.create(<PiStructuredRequest request={request('confirm')} onRespond={onRespond} />); });
+    const buttons = () => renderer.root.findAllByType('button');
+    expect(buttons()[0].props['aria-label']).toBe('Choose wisely: Yes (2)');
+    expect(buttons()[0].props.disabled).toBe(true);
+    buttons()[0].props.onClick();
+    expect(onRespond).not.toHaveBeenCalled();
+    buttons()[1].props.onClick();
+    expect(onRespond).toHaveBeenLastCalledWith('request-confirm', { confirmed: false });
+    act(() => { vi.advanceTimersByTime(2000); });
+    buttons()[0].props.onClick();
+    expect(onRespond).toHaveBeenLastCalledWith('request-confirm', { confirmed: true });
+    renderer.root.findByType('section').props.onKeyDown({ key: 'Escape', preventDefault: vi.fn() });
+    expect(onRespond).toHaveBeenLastCalledWith('request-confirm', { confirmed: false });
+    act(() => { renderer.update(<PiStructuredRequest request={{ ...request('confirm'), id: 'new' }} onRespond={onRespond} />); });
+    expect(buttons()[0].props.disabled).toBe(true);
   });
 
-  it('renders and responds with every supplied select option', () => {
+  it('does not delay ordinary select options', () => {
     const onRespond = vi.fn();
-    const value = request('select', ['Alpha', 'Beta']);
-    const element = PiStructuredRequest({ request: value, onRespond });
-    const buttons = actionButtons(element);
-
+    act(() => { renderer = TestRenderer.create(<PiStructuredRequest request={request('select', ['Alpha', 'Beta'])} onRespond={onRespond} />); });
+    const buttons = renderer.root.findAllByType('button');
     expect(buttons.map((button) => button.props.children)).toEqual(['Alpha', 'Beta']);
     buttons[1].props.onClick();
     expect(onRespond).toHaveBeenCalledWith('request-select', { value: 'Beta' });

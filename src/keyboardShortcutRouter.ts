@@ -5,6 +5,8 @@ import { applicationEvents } from './applicationEvents';
 
 export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: ShortcutHandlers) {
   handlers.setMetaKeyDown(event.metaKey);
+  // Confirmation keys belong to the dialog, including Cmd-Enter and Escape.
+  if ((event.target as Element | null)?.closest?.('[data-confirmation-boundary]')) return;
   if (!event.metaKey || event.ctrlKey) return;
   const key = event.key.toLowerCase();
   if (event.altKey) {

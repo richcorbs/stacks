@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { ConfirmationBoundary } from '../ConfirmationBoundary';
 import type { KanbanCardSummary } from '../../kanban/types';
 import { handleDialogShortcut } from '../dialogShortcut';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
@@ -15,12 +16,8 @@ export function BoardPrMergeDialog({ card, busy, intent, error, onCancel, onConf
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => confirmRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, []);
   useEffect(() => { if (error) closeRef.current?.focus(); }, [error]);
-  return <div className="modalBackdrop" onMouseDown={busy ? undefined : onCancel}>
+  return <ConfirmationBoundary key={`${card.id}:${card.pull_request?.number}`}><div className="modalBackdrop" onMouseDown={busy ? undefined : onCancel}>
     <form className="modal confirmModal" role="alertdialog" aria-modal="true" aria-labelledby="board-pr-merge-title"
       onMouseDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
@@ -58,5 +55,5 @@ export function BoardPrMergeDialog({ card, busy, intent, error, onCancel, onConf
         </>}
       </div>
     </form>
-  </div>;
+  </div></ConfirmationBoundary>;
 }

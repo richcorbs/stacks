@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReleaseConfig, ReleaseDraft, ReleaseOperation, ReleaseReconciliation, ReleaseStageState } from '../releaseApi';
 import { CommandPreview, ReconciliationSummary, ReleaseStage, ReleaseTab } from './ReleaseTab';
 
@@ -113,6 +113,39 @@ async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft =
   await act(async () => { renderer = TestRenderer.create(<ReleaseTab project={{ id: 'project', name: 'Project', path: '/repo', color_id: colorId }} />); });
   return renderer;
 }
+
+describe('release recovery and abandonment confirmation', () => {
+  let renderer: TestRenderer.ReactTestRenderer;
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { act(() => renderer?.unmount()); vi.useRealTimers(); });
+  const button = (label: string) => renderer.root.findAllByType('button').find((node) => node.children.join('') === label)!;
+  const submit = () => renderer.root.findByType('form').props.onSubmit({ preventDefault: vi.fn() });
+
+  it.each(['recover', 'abandon'] as const)('awaits %s and never executes from countdown expiration', async (kind) => {
+    renderer = await renderReleaseTab([operation({ reconciliation: reconciliation({ permittedActions: ['recover'] }) })]);
+    const command = kind === 'recover' ? 'release_recover_prepared' : 'release_abandon';
+    const label = kind === 'recover' ? 'Recover prepared checkout' : 'Abandon release';
+    act(() => { button(label).props.onClick(); button(label).props.onClick(); });
+    expect(renderer.root.findAllByType('form')).toHaveLength(1);
+    submit();
+    expect(invoke.mock.calls.some(([name]) => name === command)).toBe(false);
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(invoke.mock.calls.some(([name]) => name === command)).toBe(false);
+    await act(async () => { submit(); });
+    expect(invoke).toHaveBeenCalledWith(command, { operationId: 'operation' });
+  });
+
+  it('cancels stale release intent when refreshed evidence changes', async () => {
+    renderer = await renderReleaseTab([operation()]);
+    act(() => { button('Abandon release').props.onClick(); });
+    const staleSubmit = renderer.root.findByType('form').props.onSubmit;
+    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([operation({ revision: 2, status: 'running' })]) : Promise.resolve(draft()));
+    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: 'operation' }); });
+    expect(renderer.root.findAllByType('form')).toHaveLength(0);
+    act(() => { vi.advanceTimersByTime(2000); staleSubmit({ preventDefault: vi.fn() }); });
+    expect(invoke.mock.calls.some(([name]) => name === 'release_abandon')).toBe(false);
+  });
+});
 
 describe('release CI readiness', () => {
   const awaiting = operation({ status: 'awaitingApproval', preparedRevision: 'abcdef1234567890', reconciliation: reconciliation(), config: config({ stages: [{ id: 'draft', name: 'Draft', run: 'draft', repositoryAccess: 'read', approval: { instructions: 'Smoke test' } }, { id: 'publish', name: 'Publish', run: 'publish', repositoryAccess: 'read' }] }), stages: [stage({ id: 'draft', status: 'awaitingApproval' }), stage({ id: 'publish', status: 'pending' })] });

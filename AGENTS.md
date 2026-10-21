@@ -232,7 +232,7 @@ Do not re-add generic `Edit`, `View`, or `Help` menus unless requested.
 - Project titles toggle collapse and are not selectable workspaces.
 - Right-click project menu includes `New Workspace`, `Edit`, `Delete`.
 - Deleting a project requires confirmation.
-- Closing a pane requires confirmation, with “Yes” focused by default.
+- Closing a pane requires confirmation. All confirmation layouts use `ConfirmationBoundary` (or the shared `ConfirmDialog`): focus Cancel/No initially, delay every non-cancel action for two seconds with a visible countdown, then focus the enabled primary action. Preserve validation/busy guards and do not delay ordinary edit/create dialogs. Keep action buttons intrinsic within the boundary so its callback and submission guards apply. Use `useConfirmation` for awaited prompts, never native `window.confirm`.
 - New project flow:
   1. User picks directory.
   2. Show Add Project dialog with name prefilled from basename and path prefilled.

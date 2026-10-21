@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { ConfirmationBoundary } from '../ConfirmationBoundary';
 import type { CleanupInventory, CleanupPreflight } from '../../kanban/types';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { handleDialogShortcut } from '../dialogShortcut';
@@ -35,11 +36,7 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
   const [overrides, setOverrides] = useState<Set<string>>(() => new Set());
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmable = useMemo(() => cleanupSelections(inventory.entries, overrides), [inventory, overrides]);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => dialogRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, []);
-  return <div className="modalBackdrop" onMouseDown={busy ? undefined : onCancel}>
+  return <ConfirmationBoundary key={inventory.entries.map((entry) => `${entry.card_id}:${entry.workflow_revision}:${entry.environment_revision}`).join('|')}><div className="modalBackdrop" onMouseDown={busy ? undefined : onCancel}>
     <div ref={dialogRef} tabIndex={-1} className="modal cleanupPreflightModal" role="dialog" aria-modal="true" aria-labelledby="cleanup-preflight-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => {
       if (!(event.target as HTMLElement | null)?.closest?.('button, input')) handleDialogShortcut(event, true);
       event.stopPropagation();
@@ -72,5 +69,5 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
         </button>
       </div>
     </div>
-  </div>;
+  </div></ConfirmationBoundary>;
 }

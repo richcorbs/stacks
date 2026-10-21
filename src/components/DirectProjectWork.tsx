@@ -164,7 +164,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         {serviceConfigs.console.command && <DirectServiceTerminal mode="console" command={serviceConfigs.console.command} enabled={consoleEnabled} active={activeView === 'console'} restartRequestNonce={consoleRestartNonce} project={project} workspaceId={workspaceId} terminalId={serviceConfigs.console.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
       </article>
     </div>
-    {shell.pendingClosePaneId && <ConfirmCloseTerminalDialog onCancel={() => shellController.cancelClose()} onConfirm={() => shellController.close(shell.pendingClosePaneId!)} />}
+    {shell.pendingClosePaneId && <ConfirmCloseTerminalDialog key={shell.pendingClosePaneId} onCancel={() => shellController.cancelClose()} onConfirm={() => shellController.close(shell.pendingClosePaneId!)} />}
   </>;
 }
 

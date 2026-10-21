@@ -1,3 +1,4 @@
+import { ConfirmationBoundary } from './ConfirmationBoundary';
 import { applicationEvents, showAppToast } from '../applicationEvents';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -628,13 +629,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           else void pi.restart().catch(() => {});
         }}>Restart Pi to apply setting</button>}
       </div>}
-      {confirmMcpTrust && <div className="piMcpRestartConfirm" role="alertdialog" aria-label="Trust this directory for Pi?"><span>Trust grants Pi access to project-local settings and resources, not only MCP servers. Trust this working directory?</span><button type="button" onClick={() => setConfirmMcpTrust(false)}>Cancel</button><button type="button" onClick={() => {
+      {confirmMcpTrust && <ConfirmationBoundary key={cwd}><div onKeyDown={(e) => { if (e.key === 'Escape') setConfirmMcpTrust(false); }} className="piMcpRestartConfirm" role="alertdialog" aria-label="Trust this directory for Pi?"><span>Trust grants Pi access to project-local settings and resources, not only MCP servers. Trust this working directory?</span><button type="button" onClick={() => setConfirmMcpTrust(false)}>Cancel</button><button type="button" onClick={() => {
         setConfirmMcpTrust(false);
         void invoke('set_pi_project_trusted', { cwd, projectPath: null, trusted: true })
           .then(() => { setMcpLocal((current) => current && { ...current, trusted: true }); setMcpTrustChanged(true); })
           .catch((error) => setComposerError(String(error)));
-      }}>Trust directory</button></div>}
-      {confirmMcpRestart && <div className="piMcpRestartConfirm" role="alertdialog" aria-label="Restart active Pi session?"><span>Pi is running or has pending work. Restarting will interrupt it; the saved conversation will be resumed. Restart now?</span><button type="button" onClick={() => setConfirmMcpRestart(false)}>Cancel</button><button type="button" onClick={() => { setConfirmMcpRestart(false); void pi.restart().catch(() => {}); }}>Restart Pi</button></div>}
+      }} className="primaryAction">Trust directory</button></div></ConfirmationBoundary>}
+      {confirmMcpRestart && <ConfirmationBoundary key={terminal.id}><div onKeyDown={(e) => { if (e.key === 'Escape') setConfirmMcpRestart(false); }} className="piMcpRestartConfirm" role="alertdialog" aria-label="Restart active Pi session?"><span>Pi is running or has pending work. Restarting will interrupt it; the saved conversation will be resumed. Restart now?</span><button type="button" onClick={() => setConfirmMcpRestart(false)}>Cancel</button><button type="button" onClick={() => { setConfirmMcpRestart(false); void pi.restart().catch(() => {}); }} className="primaryAction">Restart Pi</button></div></ConfirmationBoundary>}
       {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => {
         if (pi.isStreaming || pi.queuedFollowUps.length || pi.queuedSteering.length || pi.uiRequest) setConfirmMcpRestart(true);
         else void pi.restart().catch(() => {});
