@@ -69,6 +69,20 @@ describe('effectivePickerModels', () => {
 });
 
 describe('PiSessionController', () => {
+  it('retires deleted-card frontend state without reconciling workflow or invoking backend mutations', async () => {
+    const h = harness();
+    await begin(h);
+    const dismissed = vi.fn();
+    const unset = setPiUiRequestWorkflowHandler({ received: vi.fn(), beforeResponse: vi.fn(), dismissed });
+    h.controller.project(envelope({ type: 'extension_ui_request', id: 'retired', method: 'select', options: ['Go'] }));
+    const calls = vi.mocked(h.dependencies.invoke).mock.calls.length;
+    h.controller.delete(false);
+    expect(dismissed).not.toHaveBeenCalled();
+    expect(h.dependencies.invoke).toHaveBeenCalledTimes(calls);
+    expect(h.stop).toHaveBeenCalledOnce();
+    unset();
+  });
+
   it('shows sanitized MCP notify failures and success without writing to the transcript', async () => {
     const h = harness();
     await begin(h);

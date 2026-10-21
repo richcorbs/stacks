@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, ask, message } from '@tauri-apps/plugin-dialog';
+import { runDoneCleanup } from '../kanban/doneCleanup';
+import { previewDoneCleanup, cleanUpDoneCards } from '../kanban/api';
 import type { AppSettings, DialogState, Project, Store } from '../types';
 import { DEFAULT_APP_SETTINGS, resolveAppSettings, toPersistedAppSettings, type ResolvedAppSettings } from '../settingsModel';
 import { useWindowStatePersistence } from './useWindowStatePersistence';
@@ -17,10 +19,10 @@ import { selectedKanbanProject } from '../kanban/providerSelection';
 import { canOpenProjectSwitcher } from '../projectSwitcher';
 import type { CardTerminalContext } from '../cardTerminalCommands';
 import { fetchKanbanCard, fetchKanbanEnvironmentHealth, skipKanbanRefinement, startKanbanEnvironment } from '../kanban/api';
-import { getRetainedPiSessionController } from '../pi/sessionController';
+import { deletePiSessionController, getRetainedPiSessionController } from '../pi/sessionController';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
-import { disposeTerminalSessions } from '../terminalSessionManager';
+import { disposeTerminalSessions, disposeTerminalSessionsWithPrefix } from '../terminalSessionManager';
 import { runShortcutAction } from '../shortcutActions';
 import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
 import { buildCardPaletteItems, workspaceEditorDirectory, type CardPaletteRegistration } from '../commandPaletteCards';
@@ -92,6 +94,27 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
   const [paletteCards, setPaletteCards] = useState<CardPaletteRegistration | null>(null);
   const [, setMetaKeyDown] = useState(false);
   const startingCardIds = useRef(new Set<string>());
+  const doneCleanupRunning = useRef(false);
+  const cleanUpDone = useCallback(async () => {
+    if (doneCleanupRunning.current) return;
+    doneCleanupRunning.current = true;
+    try {
+      await runDoneCleanup({
+        preview: previewDoneCleanup, execute: cleanUpDoneCards,
+        retireLocalState: (ids) => {
+          for (const id of ids) {
+            // The backend already removed storage. Do not reconcile workflow or
+            // invoke session/provider mutations while retiring frontend caches.
+            deletePiSessionController(`kanban-card:${id}:planning`, false);
+            deletePiSessionController(`kanban-card:${id}:work`, false);
+            disposeTerminalSessionsWithPrefix(`kanban-card:${id}:terminal:`);
+          }
+        },
+        confirm: (detail) => ask(detail, { title: 'Clean up Done cards', kind: 'warning', okLabel: 'Delete local copies', cancelLabel: 'Cancel' }),
+        report: async (detail) => { await message(detail, { title: 'Done card cleanup' }); },
+      });
+    } finally { doneCleanupRunning.current = false; }
+  }, []);
   const { toast, showToast } = useToast();
   const flushAndQuit = useCallback(async () => {
     try {
@@ -272,6 +295,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     onNewProject: () => { void openProjectDialog(); }, onEditProject: editProject,
     onDeleteProject: setConfirmDeleteProjectId, onOpenSettings: () => setSettingsOpen(true),
     onRestartApp: () => { void invoke('restart_app'); },
+    onCleanUpDoneCards: () => { void cleanUpDone(); },
     onOpenDirectoryInEditor: (path) => { void invoke('open_path_in_editor', { path, editor: appSettings.editor_app }); },
     onRunOneTimeCommand: () => setOneTimeCommandOpen(true),
     onNewCard: (project) => events.publish('new-card', { projectId: project?.id }),
@@ -280,7 +304,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     onRelease: (project) => events.publish('open-direct-work', { projectId: project?.id, view: 'release' }),
     onCardTerminalCommand: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
     onFocusCardTerminalPane: (paneId) => events.publish('card-terminal-command', { type: 'focus', paneId }),
-  }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, events, selectedProject, store, workspaceDirectory]);
+  }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, cleanUpDone, events, selectedProject, store, workspaceDirectory]);
 
   const paletteCardItems = useMemo(
     () => paletteCards ? buildCardPaletteItems(paletteCards) : [],

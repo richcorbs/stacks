@@ -20,6 +20,7 @@ export type CommandPaletteItemOptions = {
   onDirectProjectWork: (project: Project | null) => void;
   onAddProjectNote: (project: Project | null) => void;
   onRelease?: (project: Project | null) => void;
+  onCleanUpDoneCards: () => void;
   onCardTerminalCommand: (command: 'split-right' | 'split-down' | 'search' | 'clear' | 'restart' | 'stop' | 'close' | 'toggle-maximize') => void;
   onFocusCardTerminalPane: (paneId: string) => void;
 };
@@ -29,6 +30,7 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
   const eligibleProjects = cardCreationProjects(options.store.projects, options.superthreadEnabled);
   const cardProject = project && eligibleProjects.some((candidate) => candidate.id === project.id) ? project : null;
   const items: PaletteItem[] = [
+    { id: 'clean-up-done-cards', title: 'Clean up all Done cards completed more than 7 days ago', subtitle: 'All projects · permanent local deletion only', keywords: 'cleanup clean remove delete old completed done cards retention seven days', danger: true, action: options.onCleanUpDoneCards },
     { id: 'new-card', title: 'New card', subtitle: cardProject ? `Add to ${cardProject.name}` : 'Choose a project', keywords: 'new add create local superthread kanban card', action: () => options.onNewCard(cardProject) },
     { id: 'direct-project-work', title: 'Open Project Workspace', subtitle: project ? `Work in ${project.name}` : 'Choose a project', keywords: 'project workspace primary checkout agent terminal diff', action: () => options.onDirectProjectWork(project) },
     { id: 'add-project-note', title: 'Add project note', subtitle: project ? `Choose a project (${project.name} selected)` : 'Choose a project', keywords: 'add write project note notes scratch pad', action: () => options.onAddProjectNote(project) },

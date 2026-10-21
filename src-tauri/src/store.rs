@@ -326,10 +326,10 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
                project_id TEXT, workspace_id TEXT, parent_id TEXT, hierarchy_finalized INTEGER NOT NULL DEFAULT 0,
                provider_child_count INTEGER NOT NULL DEFAULT 0, provider_parent_title TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
                sort_order INTEGER NOT NULL DEFAULT 0, in_scope INTEGER NOT NULL DEFAULT 1, scope_suspended INTEGER NOT NULL DEFAULT 0,
-               scope_prior_status TEXT, binding_id TEXT
+               scope_prior_status TEXT, binding_id TEXT, done_entered_at INTEGER
              );
-             INSERT INTO kanban_cards(id,external_provider,external_id,title,content,board_id,board_title,list_id,list_title,card_url,assignee_names,status,completion_outcome,feature_environment,delivery_operation_stage,delivery_error,runtime_cleanup_status,runtime_cleanup_error,workflow_revision,record_revision,project_id,workspace_id,parent_id,hierarchy_finalized,provider_child_count,provider_parent_title,created_at,updated_at,sort_order,in_scope,scope_suspended,scope_prior_status,binding_id)
-             SELECT id,external_provider,external_id,title,content,board_id,board_title,list_id,list_title,card_url,assignee_names,status,completion_outcome,feature_environment,delivery_operation_stage,delivery_error,runtime_cleanup_status,runtime_cleanup_error,workflow_revision,record_revision,project_id,workspace_id,parent_id,hierarchy_finalized,provider_child_count,provider_parent_title,created_at,updated_at,sort_order,in_scope,scope_suspended,scope_prior_status,binding_id FROM kanban_cards_global_identity;
+             INSERT INTO kanban_cards(id,external_provider,external_id,title,content,board_id,board_title,list_id,list_title,card_url,assignee_names,status,completion_outcome,feature_environment,delivery_operation_stage,delivery_error,runtime_cleanup_status,runtime_cleanup_error,workflow_revision,record_revision,project_id,workspace_id,parent_id,hierarchy_finalized,provider_child_count,provider_parent_title,created_at,updated_at,sort_order,in_scope,scope_suspended,scope_prior_status,binding_id,done_entered_at)
+             SELECT id,external_provider,external_id,title,content,board_id,board_title,list_id,list_title,card_url,assignee_names,status,completion_outcome,feature_environment,delivery_operation_stage,delivery_error,runtime_cleanup_status,runtime_cleanup_error,workflow_revision,record_revision,project_id,workspace_id,parent_id,hierarchy_finalized,provider_child_count,provider_parent_title,created_at,updated_at,sort_order,in_scope,scope_suspended,scope_prior_status,binding_id,done_entered_at FROM kanban_cards_global_identity;
              DROP TABLE kanban_cards_global_identity;
              CREATE INDEX kanban_cards_status_idx ON kanban_cards(status,updated_at);
              CREATE INDEX kanban_cards_parent_idx ON kanban_cards(parent_id);
@@ -345,6 +345,8 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
         connection.execute("ALTER TABLE provider_sync_operations ADD COLUMN binding_id TEXT", []).map_err(db_error)?;
     }
     connection.execute("UPDATE provider_sync_operations SET binding_id=(SELECT binding_id FROM kanban_cards WHERE kanban_cards.id=provider_sync_operations.card_id) WHERE binding_id IS NULL", []).map_err(db_error)?;
+    // The identity migration can rebuild kanban_cards, dropping its triggers.
+    crate::kanban::migrate_done_retention(connection)?;
     Ok(())
 }
 

@@ -37,6 +37,9 @@ pub fn spawn_pty(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    let _card_resource_guard = if crate::kanban::card_terminal_owner(&terminal_id).is_some() {
+        Some(crate::kanban::CARD_RESOURCE_START_LOCK.lock().map_err(|_| "Card resource lock failed".to_string())?)
+    } else { None };
     let generation =
         generation.unwrap_or_else(|| format!("{}:{}", terminal_id, uuid::Uuid::new_v4()));
     let command = crate::kanban::validate_card_terminal_start(&terminal_id, &cwd, command)?;

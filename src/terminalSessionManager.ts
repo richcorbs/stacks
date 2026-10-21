@@ -181,6 +181,10 @@ export function disposeTerminalSession(terminalId: string) {
   terminalSessions.delete(terminalId);
 }
 
+export function disposeTerminalSessionsWithPrefix(prefix: string) {
+  disposeTerminalSessions([...terminalSessions.keys()].filter((id) => id.startsWith(prefix)));
+}
+
 export function disposeTerminalSessions(terminalIds: string[]) {
   terminalIds.forEach(disposeTerminalSession);
 }

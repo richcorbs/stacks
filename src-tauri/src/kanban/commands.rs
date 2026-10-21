@@ -81,6 +81,21 @@ pub fn kanban_delete_project_records(project_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn kanban_preview_done_cleanup() -> Result<DoneCleanupPreview, String> {
+    with_read_connection(|connection| super::done_retention::preview(connection, super::health::unix_timestamp()))
+}
+
+#[tauri::command]
+pub async fn kanban_clean_up_done_cards(
+    candidates: Vec<DoneCleanupCandidate>,
+    app: AppHandle,
+) -> Result<DoneCleanupResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        super::done_retention::execute(candidates, app.state::<Mutex<PiRpcRegistry>>().inner(), app.state::<Mutex<PtyRegistry>>().inner())
+    }).await.map_err(|error| format!("Done cleanup worker failed: {error}"))?
+}
+
+#[tauri::command]
 pub fn kanban_delete_card(id: String) -> Result<BoardChange, String> {
     kanban_delete_card_operation(id)
 }

@@ -5,7 +5,7 @@ const project = { id: 'p1', name: 'Stacks', path: '/repo', workspaces: [], kanba
 function options(overrides: Partial<CommandPaletteItemOptions> = {}): CommandPaletteItemOptions {
   return {
     store: { projects: [project] }, selectedKanbanProject: project, superthreadEnabled: true, cardTerminal: null, workspaceDirectory: null,
-    onNewProject: vi.fn(), onEditProject: vi.fn(), onDeleteProject: vi.fn(), onOpenSettings: vi.fn(), onRestartApp: vi.fn(),
+    onCleanUpDoneCards: vi.fn(), onNewProject: vi.fn(), onEditProject: vi.fn(), onDeleteProject: vi.fn(), onOpenSettings: vi.fn(), onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(), onRunOneTimeCommand: vi.fn(), onNewCard: vi.fn(), onDirectProjectWork: vi.fn(),
     onAddProjectNote: vi.fn(), onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), ...overrides,
   };
@@ -14,8 +14,19 @@ function options(overrides: Partial<CommandPaletteItemOptions> = {}): CommandPal
 describe('command palette items', () => {
   it('contains only board/project commands without a card terminal', () => {
     expect(buildCommandPaletteItems(options()).map((item) => item.id)).toEqual([
-      'new-card', 'direct-project-work', 'add-project-note', 'release-project', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks',
+      'clean-up-done-cards', 'new-card', 'direct-project-work', 'add-project-note', 'release-project', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks',
     ]);
+  });
+
+  it('offers global Done cleanup regardless of project, provider or terminal selection', () => {
+    for (const selectedKanbanProject of [null, project, { ...project, kanban_source: 'superthread' as const }]) {
+      const onCleanUpDoneCards = vi.fn();
+      const item = buildCommandPaletteItems(options({ selectedKanbanProject, superthreadEnabled: false, onCleanUpDoneCards }))
+        .find((candidate) => candidate.id === 'clean-up-done-cards');
+      expect(item).toMatchObject({ title: 'Clean up all Done cards completed more than 7 days ago', danger: true });
+      item?.action();
+      expect(onCleanUpDoneCards).toHaveBeenCalledOnce();
+    }
   });
 
   it('uses Project Workspace terminology for the primary project checkout action', () => {
