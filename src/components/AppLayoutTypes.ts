@@ -22,6 +22,7 @@ export type MainLayoutProps = {
 };
 
 export type OverlayLayoutProps = {
+  doneCleanupDialogs: React.ReactNode;
   appSettings: ResolvedAppSettings;
   setAppSettings: React.Dispatch<React.SetStateAction<ResolvedAppSettings>>;
   projects: Project[];

@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { hasActiveConfirmation } from '../components/ConfirmationBoundary';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { open, ask, message } from '@tauri-apps/plugin-dialog';
-import { runDoneCleanup } from '../kanban/doneCleanup';
+import { open } from '@tauri-apps/plugin-dialog';
+import { useDoneCleanup } from './useDoneCleanup';
 import { previewDoneCleanup, cleanUpDoneCards } from '../kanban/api';
 import type { AppSettings, DialogState, Project, Store } from '../types';
 import { DEFAULT_APP_SETTINGS, resolveAppSettings, toPersistedAppSettings, type ResolvedAppSettings } from '../settingsModel';
@@ -95,27 +95,18 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
   const [paletteCards, setPaletteCards] = useState<CardPaletteRegistration | null>(null);
   const [, setMetaKeyDown] = useState(false);
   const startingCardIds = useRef(new Set<string>());
-  const doneCleanupRunning = useRef(false);
-  const cleanUpDone = useCallback(async () => {
-    if (doneCleanupRunning.current) return;
-    doneCleanupRunning.current = true;
-    try {
-      await runDoneCleanup({
-        preview: previewDoneCleanup, execute: cleanUpDoneCards,
-        retireLocalState: (ids) => {
-          for (const id of ids) {
-            // The backend already removed storage. Do not reconcile workflow or
-            // invoke session/provider mutations while retiring frontend caches.
-            deletePiSessionController(`kanban-card:${id}:planning`, false);
-            deletePiSessionController(`kanban-card:${id}:work`, false);
-            disposeTerminalSessionsWithPrefix(`kanban-card:${id}:terminal:`);
-          }
-        },
-        confirm: (detail) => ask(detail, { title: 'Clean up Done cards', kind: 'warning', okLabel: 'Delete local copies', cancelLabel: 'Cancel' }),
-        report: async (detail) => { await message(detail, { title: 'Done card cleanup' }); },
-      });
-    } finally { doneCleanupRunning.current = false; }
-  }, []);
+  const { cleanUpDone, dialogs: doneCleanupDialogs, dialogOpen: doneCleanupDialogOpen } = useDoneCleanup({
+    preview: previewDoneCleanup, execute: cleanUpDoneCards,
+    retireLocalState: (ids) => {
+      for (const id of ids) {
+        // The backend already removed storage. Do not reconcile workflow or
+        // invoke session/provider mutations while retiring frontend caches.
+        deletePiSessionController(`kanban-card:${id}:planning`, false);
+        deletePiSessionController(`kanban-card:${id}:work`, false);
+        disposeTerminalSessionsWithPrefix(`kanban-card:${id}:terminal:`);
+      }
+    },
+  });
   const { toast, showToast } = useToast();
   const flushAndQuit = useCallback(async () => {
     try {
@@ -340,9 +331,9 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
   return {
     appStyle: useAppStyle(appSettings),
     globalTerminal: { visible: globalTerminalVisible, newTabNonce: globalTerminalNewTabNonce, setVisible: setGlobalTerminalVisible },
-    main: { boardShortcutBlocked: Boolean(commandPaletteOpen || settingsOpen || oneTimeCommandOpen || dialog || confirmDeleteProjectId || confirmQuitOpen || globalTerminalVisible || loadingSnapshot.interactionBlocked), projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), setKanbanBacklogCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_backlog_collapsed: collapsed })), setKanbanAttentionCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_attention_collapsed: collapsed })), setKanbanProgressCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_progress_collapsed: collapsed })), setKanbanView: (view: 'list' | 'board') => setAppSettings((current) => ({ ...current, kanban_view: view })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork, onPaletteCardsChange: setPaletteCards },
+    main: { boardShortcutBlocked: Boolean(commandPaletteOpen || settingsOpen || oneTimeCommandOpen || dialog || confirmDeleteProjectId || confirmQuitOpen || doneCleanupDialogOpen || globalTerminalVisible || loadingSnapshot.interactionBlocked), projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), setKanbanBacklogCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_backlog_collapsed: collapsed })), setKanbanAttentionCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_attention_collapsed: collapsed })), setKanbanProgressCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_progress_collapsed: collapsed })), setKanbanView: (view: 'list' | 'board') => setAppSettings((current) => ({ ...current, kanban_view: view })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork, onPaletteCardsChange: setPaletteCards },
     overlays: {
-      appSettings, setAppSettings, projects: store.projects, settingsPage, setSettingsPage,
+      appSettings, setAppSettings, projects: store.projects, settingsPage, setSettingsPage, doneCleanupDialogs,
       saveSettingsSection: async (_section: GlobalSettingsSection, patch: Partial<ResolvedAppSettings>) => {
         const next = { ...appSettings, ...patch };
         const save = settingsSaveChainRef.current.catch(() => undefined)

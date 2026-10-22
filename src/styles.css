@@ -670,6 +670,11 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   color: #b9c5d3;
   font-size: calc(14px + var(--ui-font-delta, 0px));
 }
+.doneCleanupDialogs .modal { max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+.doneCleanupDialogs .modal h2,
+.doneCleanupDialogs .modalActions { flex-shrink: 0; }
+.doneCleanupDialogs .modal p { min-height: 0; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #b9c5d3; }
+
 .confirmModal .confirmHint {
   margin: 0 0 16px;
   color: #74869b;
