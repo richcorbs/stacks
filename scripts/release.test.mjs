@@ -127,8 +127,14 @@ describe('structured release reconciliation', () => {
     const draft = { id: 7, tag_name: 'v1.2.4', target_commitish: revision, name: 'Stacks v1.2.4', body: '# Approved\n', draft: true, prerelease: false, html_url: 'https://example.test/draft', assets };
     const remoteRefs = { 'refs/tags/v1.2.4': revision };
     expect(reconcileRelease(root, { ...input, releases: [draft], remoteRefs })).toMatchObject({ disposition: 'resumableDraft', missingAssets: [], provenStages: ['prepare', 'build', 'draft'] });
-    expect(reconcileRelease(root, { ...input, releases: [{ ...draft, draft: false }], remoteRefs }).disposition).toBe('published');
-    expect(reconcileRelease(root, { ...input, releases: [{ ...draft, name: 'Wrong title' }], remoteRefs })).toMatchObject({ disposition: 'conflict', permittedActions: ['refresh'] });
+    run(root, 'git', ['tag', 'v1.2.4', revision]);
+    fs.writeFileSync(path.join(root, 'later'), 'new work'); run(root, 'git', ['add', 'later']); run(root, 'git', ['commit', '-m', 'Later change']);
+    const laterHead = run(root, 'git', ['rev-parse', 'HEAD']);
+    expect(reconcileRelease(root, { ...input, source: laterHead, releases: [draft], remoteRefs })).toMatchObject({ disposition: 'resumableDraft', sourceRevision: source, headRevision: laterHead, preparedRevision: revision, missingAssets: [], provenStages: ['prepare', 'build', 'draft'] });
+    expect(reconcileRelease(root, { ...input, source: laterHead, releases: [{ ...draft, body: '# Altered\n' }], remoteRefs })).toMatchObject({ disposition: 'conflict', permittedActions: ['refresh'] });
+    expect(reconcileRelease(root, { ...input, source: laterHead, notes: { ...input.notes, text: '# Altered\n' }, releases: [draft], remoteRefs })).toMatchObject({ disposition: 'conflict', permittedActions: ['refresh'] });
+    expect(reconcileRelease(root, { ...input, source: laterHead, releases: [{ ...draft, draft: false }], remoteRefs }).disposition).toBe('published');
+    expect(reconcileRelease(root, { ...input, source: laterHead, releases: [{ ...draft, name: 'Wrong title' }], remoteRefs })).toMatchObject({ disposition: 'conflict', permittedActions: ['refresh'] });
   });
 });
 

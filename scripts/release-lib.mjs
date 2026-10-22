@@ -217,6 +217,29 @@ function remoteTagRevision(remoteRefs, tag) {
   const peeled = remoteRefs[`refs/tags/${tag}^{}`];
   return peeled || remoteRefs[`refs/tags/${tag}`] || null;
 }
+function verifyHistoricalPrepared(root, { version, revision, notes }) {
+  const tag = tagFor(version);
+  const commit = git(root, 'rev-parse', '--verify', `${revision}^{commit}`);
+  if (commit !== revision || git(root, 'show', '-s', '--format=%s', commit) !== `Release Stacks ${tag}`) fail(`Remote tag is not the intended release commit for ${tag}`);
+  const parent = git(root, 'rev-parse', `${commit}^`);
+  if (spawnSync('git', ['merge-base', '--is-ancestor', commit, 'HEAD'], { cwd: root }).status !== 0) fail('Historical release commit is not an ancestor of the target checkout');
+  const allowed = new Set([...VERSION_FILES, `releases/${tag}.md`]);
+  const changed = git(root, 'diff', '--name-only', parent, commit).split('\n').filter(Boolean);
+  if (changed.some(file => !allowed.has(file)) || !changed.includes(`releases/${tag}.md`)) fail('Historical release commit changes unexpected paths or lacks release notes');
+  const savedNotes = spawnSync('git', ['show', `${commit}:releases/${tag}.md`], { cwd: root, encoding: 'utf8' });
+  if (savedNotes.status !== 0 || savedNotes.stdout !== notes) fail('Historical release commit notes differ from approved notes');
+  const content = relative => git(root, 'show', `${commit}:${relative}`);
+  const versionsAtCommit = [
+    JSON.parse(content('package.json')).version,
+    JSON.parse(content('package-lock.json')).packages?.['']?.version,
+    JSON.parse(content('src-tauri/tauri.conf.json')).version,
+    content('src-tauri/Cargo.toml').match(/^\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m)?.[1],
+    content('src-tauri/Cargo.lock').match(/^\[\[package\]\]\nname = "stacks"\nversion = "([^"]+)"/m)?.[1],
+  ];
+  if (versionsAtCommit.some(value => value !== version)) fail(`Historical release commit versions differ from ${version}`);
+  return parent;
+}
+
 export function reconcileRelease(root, { version, previousVersion, source, notes, branch, releases, latest, remoteRefs = {} }) {
   validateVersion(version); validateVersion(previousVersion);
   const tag = tagFor(version); const title = `Stacks ${tag}`; const expectedNotes = notes;
@@ -229,14 +252,18 @@ export function reconcileRelease(root, { version, previousVersion, source, notes
   if (matching.length > 1) issues.push(`Multiple GitHub releases claim ${tag}.`);
   let preparedRevision = null; let preparedParent = null; let preparedValid = false;
   try { preparedRevision = verifyPrepared(root, { version, notesFile: notes.file, source }); preparedParent = git(root, 'rev-parse', `${preparedRevision}^`); preparedValid = true; } catch (error) {
-    const manifestPrepared = Object.values(versions(root)).every(value => value === version) || fs.existsSync(path.join(root, 'releases', `${tag}.md`));
-    if (manifestPrepared || git(root, 'show', '-s', '--format=%s', head) === `Release Stacks ${tag}`) issues.push(`Prepared release state is not safely resumable: ${error.message}`);
+    if (release && remoteTag && remoteTag === localTagRevision) {
+      try {
+        preparedParent = verifyHistoricalPrepared(root, { version, revision: remoteTag, notes: notes.text });
+        preparedRevision = remoteTag;
+        preparedValid = true;
+      } catch (historicalError) { issues.push(`Historical release commit is not safely resumable: ${historicalError.message}`); }
+    } else {
+      const manifestPrepared = Object.values(versions(root)).every(value => value === version) || fs.existsSync(path.join(root, 'releases', `${tag}.md`));
+      if (manifestPrepared || git(root, 'show', '-s', '--format=%s', head) === `Release Stacks ${tag}`) issues.push(`Prepared release state is not safely resumable: ${error.message}`);
+    }
   }
   const intendedRevision = preparedRevision || (release ? (remoteTag || localTagRevision) : source);
-  if (!preparedRevision && release && intendedRevision && resolveOptional(root, intendedRevision)) {
-    preparedRevision = intendedRevision;
-    try { preparedParent = git(root, 'rev-parse', `${intendedRevision}^`); } catch {}
-  }
   const actualSource = preparedParent || source;
   if (localTagRevision && localTagRevision !== intendedRevision) issues.push(`Local tag ${tag} resolves to ${localTagRevision}, expected ${intendedRevision}. Existing tags are never moved.`);
   if (remoteTag && remoteTag !== intendedRevision) issues.push(`Remote tag ${tag} resolves to ${remoteTag}, expected ${intendedRevision}. Remove the conflicting remote release/tag manually, then refresh reconciliation.`);

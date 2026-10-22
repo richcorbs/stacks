@@ -899,6 +899,9 @@ pub fn release_approve(
     operation_id: String,
 ) -> Result<ReleaseOperation, String> {
     let mut operation = load_operation(&operation_id)?;
+    if operation.status != "awaitingApproval" {
+        return Err("Only an active release awaiting approval can be published".into());
+    }
     let index = operation
         .stages
         .iter()
@@ -918,6 +921,9 @@ pub fn release_approve(
     );
     let evidence = reconcile(&operation.config, root, &env)?;
     require_action(&evidence, &["approve", "complete"])?;
+    if let Some(fresh) = evidence.as_ref() {
+        validate_recovery_evidence(&operation, fresh)?;
+    }
     if operation.config.stages.get(index + 1).is_some_and(|stage| stage.id == "publish") {
         let ci = check_release_ci(&operation)?;
         if ci.state != "success" {
@@ -1183,6 +1189,11 @@ fn run_stage_attempt(
     env.push(("STACKS_RELEASE_RELEASE_REVISION".into(), operation.prepared_revision.clone().unwrap_or_else(|| operation.expected_revision.clone())));
     let fresh = reconcile(&operation.config, root, &env)?;
     require_action(&fresh, &["start", "resume", "approve", "complete"])?;
+    if stage.id == "publish" {
+        if let Some(evidence) = fresh.as_ref() {
+            validate_recovery_evidence(operation, evidence)?;
+        }
+    }
     let execute = || -> Result<String, String> {
         if retry {
             if let Some(verify) = stage.verify.as_deref() {
@@ -1988,7 +1999,28 @@ fn inspect(project: &ProjectReleaseSettings, generate_notes: bool) -> Result<Rel
                 "inspection",
                 notes_path.to_string_lossy().as_ref(),
             );
-            reconcile(&config, &root, &reconciliation_env)?
+            let mut evidence = reconcile(&config, &root, &reconciliation_env)?;
+            // Later main commits change generated notes. Offer the existing draft's
+            // exact approved notes only after re-proving its immutable identity.
+            if let Some(existing_notes) = evidence.as_ref()
+                .filter(|item| item.disposition == "conflict")
+                .and_then(|item| item.release.as_ref())
+                .filter(|release| release.draft)
+                .map(|release| release.notes.clone())
+                .filter(|approved| Some(approved.as_str()) != notes.as_deref())
+            {
+                let approved_path = write_notes("preview", &existing_notes)?;
+                let approved_env = release_env(
+                    version, &current, &root, &project.target_branch, &head,
+                    "inspection", approved_path.to_string_lossy().as_ref(),
+                );
+                let refreshed = reconcile(&config, &root, &approved_env)?;
+                if refreshed.as_ref().is_some_and(|item| item.disposition == "resumableDraft") {
+                    notes = Some(existing_notes);
+                    evidence = refreshed;
+                }
+            }
+            evidence
         } else {
             None
         }
