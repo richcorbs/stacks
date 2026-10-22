@@ -203,9 +203,12 @@ describe('card owner accents', () => {
       card({ id: 'rose-card', project_id: rose.id, status: 'ready', parent: null, child_count: 0 }),
       card({ id: 'unowned-card', project_id: 'missing', status: 'ready', parent: null, child_count: 0 }),
     ], false, [teal, rose]);
-    expect(markup).toMatch(/class="kanbanCard" data-project-color="teal"/);
-    expect(markup).toMatch(/class="kanbanCard" data-project-color="rose"/);
-    expect(markup).toMatch(/class="kanbanCard"[^>]*><button[^>]*data-kanban-card-id="unowned-card"/);
+    expect(markup).toMatch(/class="kanbanCard" data-kanban-navigation-card-id="teal-card" data-project-color="teal"/);
+    expect(markup).toMatch(/class="kanbanCard" data-kanban-navigation-card-id="rose-card" data-project-color="rose"/);
+    expect(markup).toMatch(/class="kanbanCard" data-kanban-navigation-card-id="unowned-card"><button[^>]*data-kanban-card-id="unowned-card"/);
+    for (const id of ['teal-card', 'rose-card', 'unowned-card']) {
+      expect(markup.match(new RegExp(`data-kanban-navigation-card-id="${id}"`, 'g'))).toHaveLength(1);
+    }
   });
 });
 

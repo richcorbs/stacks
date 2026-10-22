@@ -77,6 +77,7 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
             const warning = shouldShowEnvironmentWarning(card, health);
             const tooltip = environmentHealthTooltip(health);
             return <div className={`${kanbanCardClassName(card, keyboardFocusedCardId === card.id)} kanbanListRow${placeholder ? ' kanbanListPlaceholder' : ''}`} key={card.id}
+              data-kanban-navigation-card-id={card.id}
               data-kanban-card-id={draggable ? card.id : undefined}
               data-project-color={projectColorAttribute(owningProject(card, projects))}
               onPointerDown={draggable ? (event) => pointer?.beginPointerDrag(event, card, 'list') : undefined}

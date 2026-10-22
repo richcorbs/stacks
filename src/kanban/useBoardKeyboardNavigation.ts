@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KanbanCardSummary } from './types';
 import type { DeliveryContext } from './deliveryStep';
 import { adjacentBoardCard, adjacentListCard, keyboardNavigableCards } from './boardNavigation';
@@ -39,6 +39,11 @@ export function useBoardKeyboardNavigation({
   openNewCard: () => void;
 }) {
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+  const navigationRootRef = useRef<HTMLDivElement>(null);
+  const focusedCardIdRef = useRef(focusedCardId);
+  focusedCardIdRef.current = focusedCardId;
+  const [revealRequest, setRevealRequest] = useState<{ cardId: string; view: 'list' | 'board' } | null>(null);
+  const handledRevealRequest = useRef(revealRequest);
   const keyboardCards = useMemo(
     () => keyboardNavigableCards(visibleCards, doneCollapsed, backlogCollapsed, view, attentionCollapsed, progressCollapsed, deliveryContext),
     [doneCollapsed, backlogCollapsed, attentionCollapsed, progressCollapsed, visibleCards, view, deliveryContext],
@@ -48,6 +53,24 @@ export function useBoardKeyboardNavigation({
     setFocusedCardId((currentId) => currentId && visibleCards.some((card) => card.id === currentId)
       && !keyboardCards.some((card) => card.id === currentId) ? null : currentId);
   }, [keyboardCards, visibleCards]);
+
+  // Only keyboard navigation requests a reveal. Focus/pointer changes and background
+  // updates must not snap the user's manually scrolled viewport back to a card.
+  useLayoutEffect(() => {
+    // Guard changes may cancel pending work, but must never replay an old request.
+    if (!revealRequest || handledRevealRequest.current === revealRequest) return;
+    handledRevealRequest.current = revealRequest;
+    if (revealRequest.view !== view || shortcutBlocked || selectedCard) return;
+    const frame = requestAnimationFrame(() => {
+      const layout = navigationRootRef.current?.querySelector(view === 'list' ? '.kanbanList' : '.kanbanLanes');
+      const target = [...(layout?.querySelectorAll<HTMLElement>('[data-kanban-navigation-card-id]') ?? [])]
+        .find((candidate) => candidate.dataset.kanbanNavigationCardId === revealRequest.cardId);
+      if (!target) return;
+      target.querySelector<HTMLElement>('.kanbanCardOpen')?.focus({ preventScroll: true });
+      target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [revealRequest, view, shortcutBlocked, selectedCard]);
 
   useEffect(() => {
     const handleBoardNavigation = (event: KeyboardEvent) => {
@@ -64,7 +87,7 @@ export function useBoardKeyboardNavigation({
       const key = arrowDirection ?? event.key.toLocaleLowerCase();
       if (!['h', 'j', 'k', 'l', 'enter'].includes(key)) return;
       if (key === 'enter') {
-        const card = keyboardCards.find((candidate) => candidate.id === focusedCardId);
+        const card = keyboardCards.find((candidate) => candidate.id === focusedCardIdRef.current);
         if (!card) return;
         event.preventDefault();
         openCard(card);
@@ -72,21 +95,17 @@ export function useBoardKeyboardNavigation({
       }
       if (view === 'list' && key !== 'j' && key !== 'k') return;
       const nextCard = view === 'list'
-        ? adjacentListCard(keyboardCards, focusedCardId, key as 'j' | 'k', deliveryContext)
-        : adjacentBoardCard(keyboardCards, focusedCardId, key as 'h' | 'j' | 'k' | 'l', deliveryContext);
+        ? adjacentListCard(keyboardCards, focusedCardIdRef.current, key as 'j' | 'k', deliveryContext)
+        : adjacentBoardCard(keyboardCards, focusedCardIdRef.current, key as 'h' | 'j' | 'k' | 'l', deliveryContext);
       if (!nextCard) return;
       event.preventDefault();
+      focusedCardIdRef.current = nextCard.id;
       setFocusedCardId(nextCard.id);
-      requestAnimationFrame(() => {
-        const element = [...document.querySelectorAll<HTMLElement>('[data-kanban-card-id]')]
-          .find((candidate) => candidate.dataset.kanbanCardId === nextCard.id);
-        element?.focus({ preventScroll: true });
-        element?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      });
+      setRevealRequest({ cardId: nextCard.id, view });
     };
     window.addEventListener('keydown', handleBoardNavigation);
     return () => window.removeEventListener('keydown', handleBoardNavigation);
-  }, [keyboardCards, focusedCardId, selectedCard, view, creationAvailable, shortcutBlocked, openNewCard, deliveryContext]);
+  }, [keyboardCards, focusedCardId, selectedCard, view, creationAvailable, shortcutBlocked, openNewCard, openCard, deliveryContext]);
 
-  return { focusedCardId, setFocusedCardId };
+  return { focusedCardId, setFocusedCardId, navigationRootRef };
 }

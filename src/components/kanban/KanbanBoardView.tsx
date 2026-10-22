@@ -224,7 +224,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     create: board.create,
     refine: (card) => launchPlanningAgent(card.id, projects, board.applyCardSnapshot),
   });
-  const { focusedCardId: keyboardFocusedCardId, setFocusedCardId: setKeyboardFocusedCardId } = useBoardKeyboardNavigation({
+  const { focusedCardId: keyboardFocusedCardId, setFocusedCardId: setKeyboardFocusedCardId, navigationRootRef } = useBoardKeyboardNavigation({
     visibleCards,
     deliveryContext: { projects, prChecks },
     doneCollapsed,
@@ -620,7 +620,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   }
 
   return (
-    <div className="kanbanView">
+    <div className="kanbanView" ref={navigationRootRef}>
       <header className="kanbanHeader">
         <div className="kanbanProjectTitleRow">
           <label className="kanbanProjectFilter">

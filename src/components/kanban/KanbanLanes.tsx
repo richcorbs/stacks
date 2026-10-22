@@ -330,6 +330,7 @@ export function KanbanLanes({
                     >
                       <div
                         className={kanbanCardClassName(card, keyboardFocusedCardId === card.id)}
+                        data-kanban-navigation-card-id={card.id}
                         data-project-color={projectColorAttribute(owningProject(card, projects))}
                         onPointerDown={(event) => pointer.beginPointerDrag(event, card)}
                         onPointerUp={pointer.finishPointerDrag}
