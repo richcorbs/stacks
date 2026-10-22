@@ -16,6 +16,7 @@ import { useAppStyle } from './useAppStyle';
 import { useNativeFileDropRouter } from './useNativeFileDropRouter';
 import { clampTerminalFontSize, clampUiFontSize } from '../settings';
 import { buildCommandPaletteItems } from '../commandPaletteItems';
+import { incrementCommandUsage } from '../commandPaletteUsage';
 import { selectedKanbanProject } from '../kanban/providerSelection';
 import { canOpenProjectSwitcher } from '../projectSwitcher';
 import type { CardTerminalContext } from '../cardTerminalCommands';
@@ -134,9 +135,10 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     if (!loaded) return;
     const previous = persistedSettingsRef.current;
     persistedSettingsRef.current = appSettings;
-    if (!previous) return;
+    // Persist the resolved initial history too, so missing data is seeded only once.
+    if (!previous) pendingSettingsFieldsRef.current.add('command_usage_counts');
     (Object.keys(appSettings) as Array<keyof ResolvedAppSettings>)
-      .filter((key) => appSettings[key] !== previous[key])
+      .filter((key) => previous && appSettings[key] !== previous[key])
       .forEach((key) => pendingSettingsFieldsRef.current.add(key));
     if (!pendingSettingsFieldsRef.current.size) return;
     const timer = window.setTimeout(() => {
@@ -356,6 +358,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
         const saved = await invoke<Store>('delete_project', { projectId }); setStore(saved);
         if (appSettings.kanban_project_id === projectId) setAppSettings((current) => ({ ...current, kanban_project_id: null }));
       },
+      selectPaletteCommand: (id: string) => setAppSettings((current) => ({ ...current, command_usage_counts: incrementCommandUsage(current.command_usage_counts, id) })),
       commandPaletteOpen, commandPaletteItems: paletteItems, commandPaletteCardItems: paletteCardItems, settingsOpen, oneTimeCommandOpen, oneTimeCommandCwd: cardTerminal?.cwd ?? null,
       dialog, confirmDeleteProject: store.projects.find((project) => project.id === confirmDeleteProjectId) ?? null, confirmQuitOpen,
       toast: presentedToast(toast, loadingSnapshot.operation), interactionBlocked: loadingSnapshot.interactionBlocked, setDialog,

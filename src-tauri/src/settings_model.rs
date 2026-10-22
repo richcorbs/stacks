@@ -1,4 +1,25 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+// Decode this field independently: bad usage data must not discard unrelated settings.
+fn deserialize_command_usage<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<BTreeMap<String, u64>>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Ok(None);
+    }
+    let counts = value.as_object().map(|object| {
+        object.iter().map(|(id, value)| {
+            let count = value.as_f64()
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .map(|n| n.floor().min(9_007_199_254_740_991.0) as u64)
+                .unwrap_or(0);
+            (id.clone(), count)
+        }).collect()
+    }).unwrap_or_default();
+    Ok(Some(counts))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowState {
@@ -12,6 +33,8 @@ pub struct WindowState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppSettings {
+    #[serde(default, deserialize_with = "deserialize_command_usage")]
+    pub command_usage_counts: Option<BTreeMap<String, u64>>,
     #[serde(default)]
     pub window: Option<WindowState>,
     #[serde(default)]
@@ -81,6 +104,7 @@ impl AppSettings {
                 "kanban_progress_collapsed" => self.kanban_progress_collapsed = next.kanban_progress_collapsed,
                 "kanban_view" => self.kanban_view = valid_kanban_view(next.kanban_view.clone()),
                 "activity_notifications" => self.activity_notifications = next.activity_notifications,
+                "command_usage_counts" => self.command_usage_counts = next.command_usage_counts.clone(),
                 _ => {}
             }
         }
@@ -107,6 +131,7 @@ impl AppSettings {
         self.kanban_progress_collapsed = next.kanban_progress_collapsed;
         self.kanban_view = valid_kanban_view(next.kanban_view);
         self.activity_notifications = next.activity_notifications;
+        self.command_usage_counts = next.command_usage_counts;
     }
 }
 
@@ -154,6 +179,33 @@ fn valid_kanban_view(value: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_usage_normalizes_without_discarding_settings_or_reseeding() {
+        let missing: AppSettings = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(missing.command_usage_counts, None);
+        for json in [r#"{}"#, r#"[]"#, r#""bad""#] {
+            let settings: AppSettings = serde_json::from_str(&format!(r#"{{"editor_app":"custom","command_usage_counts":{json}}}"#)).unwrap();
+            assert_eq!(settings.editor_app.as_deref(), Some("custom"));
+            assert_eq!(settings.command_usage_counts, Some(BTreeMap::new()));
+        }
+        let mut current: AppSettings = serde_json::from_str(r#"{"editor_app":"custom","command_usage_counts":{"unavailable":9,"negative":-1,"fraction":2.9,"text":"4","null":null,"huge":1e30}}"#).unwrap();
+        let counts = current.command_usage_counts.as_ref().unwrap();
+        assert_eq!(counts["negative"], 0);
+        assert_eq!(counts["fraction"], 2);
+        assert_eq!(counts["text"], 0);
+        assert_eq!(counts["null"], 0);
+        assert_eq!(counts["huge"], 9_007_199_254_740_991);
+        let restored: AppSettings = serde_json::from_str(&serde_json::to_string(&current).unwrap()).unwrap();
+        assert_eq!(restored.command_usage_counts, current.command_usage_counts);
+        current.apply_patch(AppSettings { ui_font_size: Some(14), ..Default::default() }, &["ui_font_size".into()]);
+        assert_eq!(current.command_usage_counts.as_ref().unwrap()["unavailable"], 9);
+        current.apply_patch(AppSettings { command_usage_counts: Some(BTreeMap::new()), ..Default::default() }, &["command_usage_counts".into()]);
+        assert_eq!(current.command_usage_counts, Some(BTreeMap::new()));
+        assert_eq!(current.editor_app.as_deref(), Some("custom"));
+        current.apply_user_settings(restored);
+        assert_eq!(current.command_usage_counts.as_ref().unwrap()["unavailable"], 9);
+    }
 
     #[test]
     fn patch_changes_only_named_settings_and_normalizes_values() {

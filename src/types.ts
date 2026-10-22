@@ -72,6 +72,7 @@ export type GitDiffFilesResponse = { files: GitDiffFile[] };
 export type GitFileDiff = { path: string; patch: string };
 export type WindowState = { width: number; height: number; x?: number | null; y?: number | null };
 export type AppSettings = {
+  command_usage_counts?: Record<string, number> | null;
   window?: WindowState | null;
   ui_font_size?: number | null;
   terminal_font_size?: number | null;

@@ -4,14 +4,12 @@ export function CommandPaletteResults({
   items,
   selectedIndex,
   setSelectedIndex,
-  onRunItem,
-  onClose,
+  onSelectItem,
 }: {
   items: PaletteItem[];
   selectedIndex: number;
   setSelectedIndex: (index: number) => void;
-  onRunItem?: () => void;
-  onClose: () => void;
+  onSelectItem: (item: PaletteItem) => void;
 }) {
   if (items.length === 0) return <div className="paletteEmpty">No matches</div>;
 
@@ -21,11 +19,7 @@ export function CommandPaletteResults({
       type="button"
       className={`${index === selectedIndex ? 'selected' : ''} ${item.danger ? 'danger' : ''}`}
       onMouseEnter={() => setSelectedIndex(index)}
-      onClick={() => {
-        onRunItem?.();
-        if (!onRunItem) onClose();
-        item.action();
-      }}
+      onClick={() => onSelectItem(item)}
     >
       <span>{item.title}</span>
       {item.subtitle && <small>{item.subtitle}</small>}
