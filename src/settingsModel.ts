@@ -1,4 +1,5 @@
 import type { AppSettings } from './types';
+import { normalizeCommandUsage, type CommandUsageCounts } from './commandPaletteUsage';
 import {
   clampUiFontSize,
   clampTerminalFontSize,
@@ -17,6 +18,7 @@ import {
 } from './settings';
 
 export type ResolvedAppSettings = {
+  command_usage_counts: CommandUsageCounts;
   ui_font_size: number;
   terminal_font_size: number;
   terminal_font_family: string;
@@ -38,6 +40,7 @@ export type ResolvedAppSettings = {
 };
 
 export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
+  command_usage_counts: normalizeCommandUsage(undefined),
   ui_font_size: DEFAULT_UI_FONT_SIZE,
   terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
   terminal_font_family: DEFAULT_TERMINAL_FONT_FAMILY,
@@ -78,6 +81,7 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     kanban_progress_collapsed: settings?.kanban_progress_collapsed ?? DEFAULT_APP_SETTINGS.kanban_progress_collapsed,
     kanban_view: settings?.kanban_view === 'board' ? 'board' : 'list',
     activity_notifications: settings?.activity_notifications ?? DEFAULT_APP_SETTINGS.activity_notifications,
+    command_usage_counts: normalizeCommandUsage(settings?.command_usage_counts),
   };
 }
 
@@ -101,5 +105,6 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     kanban_progress_collapsed: settings.kanban_progress_collapsed,
     kanban_view: settings.kanban_view,
     activity_notifications: settings.activity_notifications,
+    command_usage_counts: normalizeCommandUsage(settings.command_usage_counts),
   };
 }

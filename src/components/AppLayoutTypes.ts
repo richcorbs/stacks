@@ -32,6 +32,7 @@ export type OverlayLayoutProps = {
   saveProjectConfiguration: (projectId: string, draft: import('../types').DialogState, expectedRevision: number) => Promise<Project>;
   deleteSettingsProject: (projectId: string) => Promise<void>;
   commandPaletteOpen: boolean;
+  selectPaletteCommand: (id: string) => void;
   commandPaletteItems: PaletteItem[];
   commandPaletteCardItems: PaletteItem[];
   settingsOpen: boolean;
