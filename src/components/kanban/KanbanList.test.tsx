@@ -87,9 +87,9 @@ describe('Kanban list', () => {
       setOpenLaneMenu={() => {}} cleaningMerged={false} keyboardFocusedCardId={null}
       setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
       onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
-    expect(markup).toMatch(/class="kanbanCard kanbanListRow" data-project-color="teal"/);
-    expect(markup).toMatch(/class="kanbanCard kanbanListRow" data-project-color="rose"/);
-    expect(markup).toMatch(/class="kanbanCard kanbanListRow"><button[^>]*aria-label="Open card #approved/);
+    expect(markup).toMatch(/class="kanbanCard kanbanListRow" data-kanban-navigation-card-id="ready" data-project-color="teal"/);
+    expect(markup).toMatch(/class="kanbanCard kanbanListRow" data-kanban-navigation-card-id="other-card" data-project-color="rose"/);
+    expect(markup).toMatch(/class="kanbanCard kanbanListRow" data-kanban-navigation-card-id="missing-card"><button[^>]*aria-label="Open card #approved/);
   });
   it('marks only the keyboard-focused row above a parent card, regardless of navigation direction', () => {
     const ordinary = { ...card('ready'), id: 'ordinary' };
@@ -262,6 +262,7 @@ describe('Kanban list', () => {
     await act(async () => { renderer = TestRenderer.create(component(false)); });
     const rows = renderer.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.split(' ').includes('kanbanListRow'));
     expect(rows.map((row) => row.props['data-kanban-card-id'])).toEqual([undefined, 'needs_refinement', undefined]);
+    expect(rows.map((row) => row.props['data-kanban-navigation-card-id'])).toEqual(['ready', 'needs_refinement', 'done']);
     const backlogRow = rows[1];
     backlogRow.props.onPointerDown({ button: 0 });
     expect(begin).toHaveBeenCalledWith({ button: 0 }, cards[0], 'list');
@@ -280,6 +281,19 @@ describe('Kanban list', () => {
     await act(async () => renderer.update(component(true)));
     expect(renderer.root.findAll((node) => node.props['data-kanban-card-id'] === 'needs_refinement')).toHaveLength(0);
     await act(async () => renderer.unmount());
+  });
+
+  it('gives every expanded row a unique navigation target without requiring drag eligibility', () => {
+    const statuses: KanbanStatus[] = ['needs_refinement', 'refining', 'ready', 'agent_working', 'needs_human', 'done'];
+    const markup = render(statuses, false, {}, false);
+    for (const status of statuses) {
+      expect(markup.match(new RegExp(`data-kanban-navigation-card-id="${status}"`, 'g'))).toHaveLength(1);
+      expect(markup).toContain(`data-kanban-open-card-id="${status}"`);
+    }
+    expect(markup).not.toContain('data-kanban-card-id=');
+    const collapsed = render(statuses, true, {}, true);
+    expect(collapsed).not.toContain('data-kanban-navigation-card-id="needs_refinement"');
+    expect(collapsed).not.toContain('data-kanban-navigation-card-id="done"');
   });
 
   it('shows Done rows when expanded, with accessible card open controls', () => {

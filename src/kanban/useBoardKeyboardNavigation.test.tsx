@@ -31,6 +31,7 @@ describe.each(['board', 'list'] as const)('%s keyboard shortcut', (view) => {
     vi.stubGlobal('window', fakeWindow);
     vi.stubGlobal('document', { querySelectorAll: () => [] });
     vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
   afterEach(async () => {
     if (renderer) await act(async () => renderer.unmount());
@@ -101,19 +102,87 @@ describe.each(['board', 'list'] as const)('%s keyboard shortcut', (view) => {
   });
 
   it('focuses the destination without jumping, then scrolls it into view', async () => {
-    const elements = cards.map((candidate) => ({
-      dataset: { kanbanCardId: candidate.id }, focus: vi.fn(), scrollIntoView: vi.fn(),
-    }));
-    vi.stubGlobal('document', { querySelectorAll: vi.fn(() => elements) });
+    const elements = cards.map((candidate) => {
+      const control = { focus: vi.fn() };
+      return { dataset: { kanbanNavigationCardId: candidate.id }, control,
+        querySelector: vi.fn(() => control), scrollIntoView: vi.fn() };
+    });
+    const querySelector = vi.fn(() => ({ querySelectorAll: vi.fn(() => elements) }));
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
     await render({ visibleCards: cards });
+    navigation.navigationRootRef.current = { querySelector } as unknown as HTMLDivElement;
     for (const arrow of ['ArrowDown', 'ArrowDown', 'ArrowUp']) {
       expect(key(arrow).defaultPrevented).toBe(true);
-      const destination = elements.find((element) => element.dataset.kanbanCardId === navigation.focusedCardId)!;
-      expect(destination.focus).toHaveBeenLastCalledWith({ preventScroll: true });
-      expect(destination.scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest', inline: 'nearest' });
-      expect(destination.focus.mock.invocationCallOrder.at(-1)).toBeLessThan(destination.scrollIntoView.mock.invocationCallOrder.at(-1)!);
+      const destination = elements.find((element) => element.dataset.kanbanNavigationCardId === navigation.focusedCardId)!;
+      expect(querySelector).toHaveBeenLastCalledWith(view === 'list' ? '.kanbanList' : '.kanbanLanes');
+      expect(destination.querySelector).toHaveBeenCalledWith('.kanbanCardOpen');
+      expect(destination.control.focus).toHaveBeenLastCalledWith({ preventScroll: true });
+      expect(destination.scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      expect(destination.control.focus.mock.invocationCallOrder.at(-1)).toBeLessThan(destination.scrollIntoView.mock.invocationCallOrder.at(-1)!);
     }
+  });
+
+  it('ignores missing targets and never searches the document or drag overlays', async () => {
+    const globalLookup = vi.fn();
+    vi.stubGlobal('document', { querySelectorAll: globalLookup });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
+    await render();
+    expect(() => key('j')).not.toThrow(); // No mounted layout.
+    navigation.navigationRootRef.current = { querySelector: () => ({ querySelectorAll: () => [] }) } as unknown as HTMLDivElement;
+    expect(() => key('j')).not.toThrow(); // Card removed before reveal.
+    expect(globalLookup).not.toHaveBeenCalled();
+  });
+
+  it('cancels stale reveals, advances rapid keys, and does not reveal on unrelated updates', async () => {
+    let nextFrame = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const control = { focus: vi.fn() };
+    const target = { dataset: { kanbanNavigationCardId: 'backlog-2' }, querySelector: () => control, scrollIntoView: vi.fn() };
+    await render({ visibleCards: cards });
+    navigation.navigationRootRef.current = { querySelector: () => ({ querySelectorAll: () => [target] }) } as unknown as HTMLDivElement;
+    act(() => navigation.setFocusedCardId('backlog-1'));
+    key('j');
+    key('k');
+    // Two keys before a render must advance from the latest keyboard selection.
+    act(() => { key('j'); key('k'); key('j'); });
+    expect(navigation.focusedCardId).toBe('backlog-2');
+    expect(frames.size).toBe(1);
+    act(() => { for (const callback of frames.values()) callback(0); frames.clear(); });
+    expect(control.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    expect(target.scrollIntoView).toHaveBeenCalledTimes(1);
+    act(() => navigation.setFocusedCardId('backlog-1'));
+    await act(async () => renderer.update(<Harness {...options(view, { visibleCards: [...cards] })} />));
+    // Opening/closing an overlay must not replay the last keyboard request either.
+    await act(async () => renderer.update(<Harness {...options(view, { visibleCards: cards, shortcutBlocked: true })} />));
+    await act(async () => renderer.update(<Harness {...options(view, { visibleCards: cards })} />));
+    expect(frames.size).toBe(0);
+    expect(target.scrollIntoView).toHaveBeenCalledTimes(1);
+    key('j');
+    expect(frames.size).toBe(1);
+    await act(async () => renderer.unmount());
+    expect(frames.size).toBe(0);
+  });
+
+  it('cancels a pending reveal when shortcuts become blocked or the active view changes', async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    await render();
+    key('j');
+    expect(frames.size).toBe(1);
+    await act(async () => renderer.update(<Harness {...options(view, { shortcutBlocked: true })} />));
+    expect(frames.size).toBe(0);
+    await act(async () => renderer.update(<Harness {...options(view)} />));
+    expect(frames.size).toBe(0);
+    key('j');
+    expect(frames.size).toBe(1);
+    await act(async () => renderer.update(<Harness {...options(view === 'board' ? 'list' : 'board')} />));
+    expect(frames.size).toBe(0);
+    await act(async () => renderer.update(<Harness {...options(view)} />));
+    expect(frames.size).toBe(0);
   });
 
   it.each(['metaKey', 'ctrlKey', 'altKey', 'shiftKey'])('leaves all arrows with %s unhandled', async (modifier) => {
