@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { openExternalUrl } from '../externalLinks';
 import { useConfirmation } from './ConfirmDialogs';
 import { ExternalLink } from './ExternalLink';
@@ -166,11 +167,11 @@ function ProjectReleaseTab({ project }: { project: Project }) {
       {error && <div className="kanbanActionError" role="alert">{error}{!draft && <button type="button" onClick={() => void refreshDraft()}>Retry loading</button>}</div>}
       {historyError && <div className="kanbanActionError" role="alert">{historyError} <button type="button" onClick={() => void refreshHistory(true)}>Retry history check</button></div>}
       {draft?.valid && !active && <div className="releaseSetup">
-        <div className="releaseFacts"><Fact label="Latest published" value={draft.reconciliation?.latestPublishedVersion || draft.currentVersion} /><Fact label="Target branch" value={draft.targetBranch} /><Fact label="Source revision" value={draft.reconciliation?.sourceRevision || draft.sourceRevision} mono /></div>
+        <div className="releaseFacts"><Fact label="Latest published" value={draft.reconciliation?.latestPublishedVersion || draft.currentVersion} /><Fact label="Target" value={draft.targetBranch} /><Fact label="Checkout HEAD" value={draft.reconciliation?.headRevision || draft.sourceRevision} mono /></div>
         {draft.reconciliation && <ReconciliationSummary reconciliation={draft.reconciliation} />}
         <label>New version<input value={version} onChange={(event) => { setVersion(event.target.value); setDraft((current) => current ? { ...current, reconciliation: null } : current); }} placeholder="Opaque version supplied to scripts" /></label>
         {draft.config?.generateNotes && <label>Approved release notes<textarea rows={8} value={notes} onChange={(event) => { setNotes(event.target.value); setDraft((current) => current ? { ...current, reconciliation: null } : current); }} /></label>}
-        <section className="releasePreview"><h4>Command preview</h4>{draft.config && <CommandPreview config={draft.config} />}<small>Release data is supplied only through: {envNames}</small></section>
+        {draft.config && <CommandPreview config={draft.config}><small>Release data is supplied only through: {envNames}</small></CommandPreview>}
         <button className="primaryAction releaseStart" type="button" disabled={busy || !version.trim() || !draft.reconciliation || !draft.reconciliation.permittedActions.some((item) => ['start', 'resume', 'approve', 'complete'].includes(item))} onClick={() => void action('Starting release', () => startRelease(project.id, version, notes))}>{draft.reconciliation && ['resumablePrepared', 'resumableDraft', 'published'].includes(draft.reconciliation.disposition) ? 'Resume release' : 'Start release'}</button>
       </div>}
       {displayed && <div className="releaseOperation">
@@ -196,8 +197,13 @@ function ProjectReleaseTab({ project }: { project: Project }) {
   </section></>;
 }
 
-export function CommandPreview({ config }: { config: ReleaseConfig }) {
-  return <div className="releasePreviewSteps">
+export function CommandPreview({ config, children }: { config: ReleaseConfig; children?: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const contentId = `release-commands-${useId().replace(/:/g, '')}`;
+  return <section className="releasePreview">
+    <button className="releasePreviewDisclosure" type="button" aria-expanded={open} aria-controls={contentId} onClick={() => setOpen((current) => !current)}>{open ? 'Hide release commands' : 'Show release commands'}</button>
+    <div id={contentId} hidden={!open}>
+    <div className="releasePreviewSteps">
     {config.preflight && <CommandPreviewStep title="0. Preflight">
       <Command label="Run" value={config.preflight} />
     </CommandPreviewStep>}
@@ -206,18 +212,16 @@ export function CommandPreview({ config }: { config: ReleaseConfig }) {
       <Command label="Run" value={stage.run} />
       {stage.verify && <Command label="Verify" value={stage.verify} />}
     </CommandPreviewStep>)}
-  </div>;
+    </div>
+    {children}
+    </div>
+  </section>;
 }
 
 function CommandPreviewStep({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const reactId = useId();
-  const contentId = `release-preview-step-${reactId.replace(/:/g, '')}`;
   return <div className="releasePreviewStep">
-    <button className="releasePreviewDisclosure" type="button" aria-expanded={open} aria-controls={contentId} onClick={() => setOpen((current) => !current)}>
-      <strong>{title}</strong>
-    </button>
-    {open && <div className="releasePreviewDetails" id={contentId}>{children}</div>}
+    <h4>{title}</h4>
+    <div className="releasePreviewDetails">{children}</div>
   </div>;
 }
 
@@ -249,21 +253,34 @@ export function ReleaseStage({ stage, index, approvalInstructions }: { stage: Re
 }
 
 export function ReconciliationSummary({ reconciliation }: { reconciliation: ReleaseReconciliation }) {
-  const label = ({ available: 'Available', resumablePrepared: 'Prepared release found', resumableDraft: 'Draft release found', published: 'Already published', conflict: 'Release conflict', recoveryRequired: 'Recovery required' } as Record<string, string>)[reconciliation.disposition] || reconciliation.disposition;
+  if (reconciliation.disposition === 'available' && !reconciliation.issues.length && !reconciliation.missingAssets.length && !reconciliation.conflictingAssets.length && !reconciliation.release && !reconciliation.preparedRevision && !reconciliation.localTagRevision && !reconciliation.remoteTagRevision) return null;
+  const label = ({ available: 'Release status', resumablePrepared: 'Prepared release found', resumableDraft: 'Draft release found', published: 'Already published', conflict: 'Release conflict', recoveryRequired: 'Recovery required' } as Record<string, string>)[reconciliation.disposition] || reconciliation.disposition;
   return <section className={`releaseReconciliation ${reconciliation.disposition}`}>
     <div><strong>{label}</strong>{reconciliation.release?.url && <button type="button" className="releaseLink" onClick={() => void openExternalUrl(reconciliation.release?.url)}>Open on GitHub</button>}</div>
     <div className="releaseEvidence">
-      {Boolean(reconciliation.identity) && <span>Tag <code>{(reconciliation.identity as { tag?: string }).tag || '—'}</code></span>}
-      {reconciliation.preparedRevision && <span>Prepared <code>{reconciliation.preparedRevision.slice(0, 12)}</code></span>}
-      {reconciliation.localTagRevision && <span>Local tag <code>{reconciliation.localTagRevision.slice(0, 12)}</code></span>}
-      {reconciliation.remoteTagRevision && <span>Remote tag <code>{reconciliation.remoteTagRevision.slice(0, 12)}</code></span>}
-      {!!reconciliation.missingAssets.length && <span>Missing assets: {reconciliation.missingAssets.join(', ')}</span>}
+      {Boolean(reconciliation.identity) && <span>Release tag <code>{(reconciliation.identity as { tag?: string }).tag || '—'}</code></span>}
+      {reconciliation.preparedRevision && <span>Release SHA <Revision value={reconciliation.preparedRevision} label="release SHA" /></span>}
     </div>
+    {!!reconciliation.missingAssets.length && <p>Missing assets: {reconciliation.missingAssets.join(', ')}</p>}
+    {!!reconciliation.conflictingAssets.length && <p>Conflicting assets: {reconciliation.conflictingAssets.join(', ')}</p>}
+    <details className="releaseVerification"><summary>Show verification details</summary>
+      <dl>{([
+        ['Checkout HEAD', reconciliation.headRevision],
+        ['Source revision', reconciliation.sourceRevision],
+        ['Prepared release SHA', reconciliation.preparedRevision],
+        ['Local tag SHA', reconciliation.localTagRevision],
+        ['Remote tag SHA', reconciliation.remoteTagRevision],
+      ] as const).map(([name, revision]) => <div key={name}><dt>{name}</dt><dd><code>{revision || '—'}</code></dd></div>)}</dl>
+    </details>
     {reconciliation.issues.map((issue) => <p key={issue}>{issue}</p>)}
   </section>;
 }
 
-function Fact({ label, value, mono = false }: { label: string; value: string | null; mono?: boolean }) { return <div><span>{label}</span><strong className={mono ? 'mono' : ''}>{value || '—'}</strong></div>; }
+function Fact({ label, value, mono = false }: { label: string; value: string | null; mono?: boolean }) { return <div><span>{label}: </span>{mono && value ? <Revision value={value} label={label} /> : <span className="releaseFactValue">{value || '—'}</span>}</div>; }
+function Revision({ value, label }: { value: string; label: string }) {
+  const [message, setMessage] = useState('');
+  return <><button type="button" className="releaseRevision" title={value} aria-label={`Copy ${label}: ${value}`} onClick={() => { void writeText(value).then(() => setMessage('SHA copied to clipboard'), () => setMessage('Could not copy SHA')); }}><code>{value.slice(0, 12)}</code></button><span className="releaseCopyStatus" role="status">{message}</span></>;
+}
 function Command({ label, value }: { label: string; value: string }) { return <div className="releaseCommand"><span>{label}</span><code>{value}</code></div>; }
 function statusLabel(value: string) { return value === 'awaitingApproval' ? 'Awaiting smoke-test approval' : value.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase()); }
 function formatDuration(seconds: number) { const safe = Math.max(0, seconds); return safe < 60 ? `${safe}s` : `${Math.floor(safe / 60)}m${safe % 60}s`; }

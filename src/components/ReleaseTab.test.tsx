@@ -5,6 +5,8 @@ import type { ReleaseConfig, ReleaseDraft, ReleaseOperation, ReleaseReconciliati
 import { CommandPreview, ReconciliationSummary, ReleaseStage, ReleaseTab } from './ReleaseTab';
 
 const invoke = vi.hoisted(() => vi.fn());
+const writeText = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText }));
 const eventListeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 const polling = vi.hoisted(() => ({ timers: new Map<number, { callback: () => void; ms: number }>(), nextId: 0, focus: null as null | (() => void) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
@@ -58,17 +60,17 @@ function config(overrides: Partial<ReleaseConfig> = {}): ReleaseConfig {
 }
 
 describe('command preview', () => {
-  it('renders independently accessible steps collapsed by default', () => {
+  it('renders one accessible disclosure collapsed by default', () => {
     const markup = renderToStaticMarkup(<CommandPreview config={config()} />);
 
     expect(markup).toContain('0. Preflight');
     expect(markup).toContain('1. Prepare');
     expect(markup).toContain('2. Publish');
-    expect(markup.match(/aria-expanded="false"/g)).toHaveLength(3);
-    expect(markup.match(/aria-controls="release-preview-step-/g)).toHaveLength(3);
-    expect(markup).not.toContain('check-project');
-    expect(markup).not.toContain('repository access');
-    expect(markup).not.toContain('run-prepare');
+    expect(markup).toContain('Show release commands');
+    expect(markup.match(/aria-expanded="false"/g)).toHaveLength(1);
+    expect(markup.match(/aria-controls="release-commands-/g)).toHaveLength(1);
+    expect(markup).toContain('hidden=""');
+    expect(markup).not.toContain('<strong>');
   });
 
   it('omits preflight when it is not configured', () => {
@@ -77,20 +79,23 @@ describe('command preview', () => {
     expect(markup).toContain('1. Prepare');
   });
 
-  it('shows preflight and stage details while keeping multiple steps open', () => {
+  it('reveals every preflight, run, and verify command with one disclosure', () => {
     let renderer!: TestRenderer.ReactTestRenderer;
     act(() => { renderer = TestRenderer.create(<CommandPreview config={config()} />); });
     const buttons = renderer.root.findAllByType('button');
 
     act(() => buttons[0].props.onClick());
-    act(() => buttons[1].props.onClick());
 
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].props.type).toBe('button');
     expect(buttons[0].props['aria-expanded']).toBe(true);
-    expect(buttons[1].props['aria-expanded']).toBe(true);
-    expect(renderer.root.findAllByProps({ className: 'releasePreviewDetails' })).toHaveLength(2);
-    expect(renderer.root.findAllByType('code').map((node) => node.children.join(''))).toEqual(['check-project', 'run-prepare', 'verify-prepare']);
-    expect(renderer.root.findByProps({ className: 'releasePreviewMetadata' }).children.join('')).toBe('exclusive repository access · approval required');
-    expect(renderer.root.findAllByProps({ className: 'releasePreviewDetails' })[0].props.id).toBe(buttons[0].props['aria-controls']);
+    expect(renderer.root.findByProps({ id: buttons[0].props['aria-controls'] }).props.hidden).toBe(false);
+    expect(renderer.root.findAllByProps({ className: 'releasePreviewDetails' })).toHaveLength(3);
+    expect(renderer.root.findAllByType('code').map((node) => node.children.join(''))).toEqual(['check-project', 'run-prepare', 'verify-prepare', 'run-publish']);
+    expect(renderer.root.findAllByProps({ className: 'releasePreviewMetadata' })[0].children.join('')).toBe('exclusive repository access · approval required');
+    act(() => buttons[0].props.onClick());
+    expect(renderer.root.findByProps({ id: buttons[0].props['aria-controls'] }).props.hidden).toBe(true);
+    act(() => renderer.unmount());
   });
 });
 
@@ -113,6 +118,37 @@ async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft =
   await act(async () => { renderer = TestRenderer.create(<ReleaseTab project={{ id: 'project', name: 'Project', path: '/repo', color_id: colorId }} />); });
   return renderer;
 }
+
+describe('release setup facts', () => {
+  it('omits clean readiness evidence, preserves Start, and copies the actual checkout HEAD', async () => {
+    const clean = reconciliation({ disposition: 'available', preparedRevision: null, localTagRevision: null, remoteTagRevision: null, release: null, headRevision: '123455567890abcdef', sourceRevision: 'older-source', permittedActions: ['start'] });
+    const renderer = await renderReleaseTab([], draft({ reconciliation: clean }));
+    expect(renderer.root.findAllByProps({ className: 'releaseReconciliation available' })).toHaveLength(0);
+    const start = renderer.root.findAllByType('button').find((node) => node.children.join('') === 'Start release')!;
+    expect(start.props.disabled).toBe(false);
+    const copy = renderer.root.findByProps({ 'aria-label': 'Copy Checkout HEAD: 123455567890abcdef' });
+    await act(async () => copy.props.onClick());
+    expect(writeText).toHaveBeenCalledWith('123455567890abcdef');
+    expect(renderer.root.findByProps({ className: 'releaseFacts' }).children).toHaveLength(3);
+    act(() => renderer.unmount());
+  });
+
+  it('keeps missing assets and issues visible even for available disposition', () => {
+    const markup = renderToStaticMarkup(<ReconciliationSummary reconciliation={reconciliation({ disposition: 'available', missingAssets: ['app.zip'], issues: ['Repair evidence'] })} />);
+    expect(markup).toContain('Missing assets: app.zip');
+    expect(markup).toContain('Repair evidence');
+  });
+
+  it('keeps resume and conflict actions truthful', async () => {
+    const renderer = await renderReleaseTab([], draft({ reconciliation: reconciliation({ permittedActions: ['resume'] }) }));
+    expect(renderer.root.findAllByType('button').find((node) => node.children.join('') === 'Resume release')?.props.disabled).toBe(false);
+    act(() => renderer.unmount());
+    const conflict = await renderReleaseTab([], draft({ reconciliation: reconciliation({ disposition: 'conflict', issues: ['Remote tag points elsewhere.'], permittedActions: ['refresh'] }) }));
+    expect(conflict.root.findAllByType('button').find((node) => node.children.join('') === 'Start release')?.props.disabled).toBe(true);
+    expect(conflict.root.findAllByType('p').some((node) => node.children.join('') === 'Remote tag points elsewhere.')).toBe(true);
+    act(() => conflict.unmount());
+  });
+});
 
 describe('release recovery and abandonment confirmation', () => {
   let renderer: TestRenderer.ReactTestRenderer;
@@ -156,6 +192,8 @@ describe('release CI readiness', () => {
     const renderer = await renderReleaseTab([awaiting]);
     expect(button(renderer, 'Approve and publish')?.props.disabled).toBe(true);
     expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).props['data-ci-state']).toBe('pending');
+    expect(renderer.root.findAllByType('p').some((node) => node.children.join('') === 'Smoke test')).toBe(true);
+    expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).findByType('code').children.join('')).toBe('abcdef123456');
     invoke.mockImplementation((command: string) => command === 'release_ci_status'
       ? Promise.resolve({ state: 'success', revision: 'different-head', workflow: 'ci.yml', url: null }) : Promise.resolve(undefined));
     await act(async () => button(renderer, 'Check CI again')?.props.onClick());
@@ -382,6 +420,15 @@ describe('release reconciliation summary', () => {
     expect(renderer.root.findByType('strong').children.join('')).toBe('Draft release found');
     act(() => renderer.root.findByProps({ className: 'releaseLink' }).props.onClick());
     expect(invoke).toHaveBeenCalledWith('open_url', { url: 'https://example.com/draft' });
+  });
+  it('condenses tag evidence while retaining full verification revisions in a native disclosure', () => {
+    const markup = renderToStaticMarkup(<ReconciliationSummary reconciliation={reconciliation({ localTagRevision: 'local-conflicting-sha' })} />);
+    expect(markup).toContain('Release SHA');
+    expect(markup).toContain('<summary>Show verification details</summary>');
+    expect(markup).not.toContain('<details class="releaseVerification" open');
+    expect(markup).toContain('local-conflicting-sha');
+    expect(markup).toContain('Remote tag SHA');
+    expect(markup).toContain('abcdef1234567890');
   });
   it('renders actionable conflict details and revisions', () => {
     const markup = renderToStaticMarkup(<ReconciliationSummary reconciliation={reconciliation({ disposition: 'conflict', issues: ['Remote tag points elsewhere.'], permittedActions: ['refresh'] })} />);

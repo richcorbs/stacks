@@ -1312,22 +1312,32 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseSetup { display: grid; gap: 16px; }
 .releaseSetup > label { display: grid; gap: 6px; color: #8498aa; font-size: 12px; }
 .releaseSetup input, .releaseSetup textarea { box-sizing: border-box; width: 100%; padding: 9px; border: 1px solid #2c4053; border-radius: 6px; background: #101b25; color: #c5d1dc; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.releaseFacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.releaseFacts > div { min-width: 0; padding: 11px; border: 1px solid #223547; border-radius: 7px; background: #101a24; }
-.releaseFacts span, .releaseCommand span { display: block; color: #708598; font-size: 11px; }
-.releaseFacts strong { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c4d0db; }
-.releaseFacts .mono, .releaseCommand code, .releaseSummary code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.releasePreview, .releaseOperation, .releaseHistory { padding: 14px; border: 1px solid #25384a; border-radius: 8px; background: #0f1922; }
+.releaseFacts { display: flex; flex-wrap: wrap; gap: 6px 10px; color: #8498aa; font-size: 12px; }
+.releaseFacts > div { min-width: 0; overflow-wrap: anywhere; }
+.releaseFacts > div:not(:last-child)::after { content: ' ·'; margin-left: 10px; color: #708598; }
+.releaseFacts .releaseFactValue { color: #c4d0db; }
+.releaseRevision { padding: 0; border: 0; background: none; color: #c4d0db; font: inherit; text-transform: none; cursor: pointer; }
+.releaseRevision:focus-visible { outline: 2px solid #527b9e; outline-offset: 3px; }
+.releaseCopyStatus { font-size: 11px; color: #8498aa; }
+.releaseCommand span { display: block; color: #708598; font-size: 11px; }
+.releaseCommand code, .releaseSummary code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.releasePreview { min-width: 0; }
+.releaseOperation, .releaseHistory { padding: 14px; border: 1px solid #25384a; border-radius: 8px; background: #0f1922; }
 .releasePreviewSteps { margin-top: 8px; }
-.releasePreviewStep { border-top: 1px solid #223142; }
-.releasePreviewDisclosure { display: flex; width: 100%; box-sizing: border-box; align-items: center; justify-content: space-between; padding: 10px 6px; border: 0; border-radius: 5px; outline: none; background: transparent; color: #c4d0db; font: inherit; text-align: left; cursor: pointer; }
+.releasePreviewStep { min-width: 0; border-top: 1px solid #223142; }
+.releasePreviewStep h4 { padding: 10px 6px 0; font-weight: 400; text-transform: none; letter-spacing: normal; }
+.releasePreviewDisclosure { display: flex; width: 100%; box-sizing: border-box; align-items: center; justify-content: space-between; padding: 10px 6px; border: 0; border-radius: 5px; outline: none; background: transparent; color: #c4d0db; font: inherit; font-weight: 400; text-transform: none; letter-spacing: normal; text-align: left; cursor: pointer; }
 .releasePreviewDisclosure:hover { background: #152330; }
 .releasePreviewDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: #152330; }
 .releasePreviewDetails { padding: 0 6px 10px; }
 .releasePreviewMetadata { color: #708598; font-size: 11px; }
-.releasePreview > small { display: block; margin-top: 10px; color: #708598; }
+.releasePreview small { display: block; margin-top: 10px; color: #708598; }
 .releaseCommand { margin-top: 7px; }
-.releaseCommand code { display: block; margin-top: 3px; padding: 7px; overflow-x: auto; background: #0a1118; color: #aebdcb; white-space: pre-wrap; }
+.releaseCommand code { display: block; margin-top: 3px; padding: 7px; overflow-x: auto; background: #0a1118; color: #aebdcb; white-space: pre-wrap; overflow-wrap: anywhere; }
+.releaseVerification { margin-top: 8px; color: #8498aa; font-size: 12px; }
+.releaseVerification summary { cursor: pointer; }
+.releaseVerification dl { margin-bottom: 0; }
+.releaseVerification dd { margin: 3px 0 8px; overflow-wrap: anywhere; color: #c4d0db; }
 .releaseStart { justify-self: start; }
 .releaseReconciliation { padding: 11px; border: 1px solid #2a4053; border-radius: 7px; background: #101c27; }
 .releaseReconciliation > div:first-child { display: flex; align-items: center; justify-content: space-between; color: #c3d0dc; }
