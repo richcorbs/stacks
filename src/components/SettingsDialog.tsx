@@ -246,6 +246,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
           </nav>
           <main className="settingsContent" data-project-color={project && projectPageDraft ? projectColor(projectPageDraft.colorId) : undefined} aria-labelledby="settings-page-heading">
             <h2 id="settings-page-heading" ref={headingRef} tabIndex={-1}>{title}</h2>
+            <div className="dialogBody settingsPageBody">
             <fieldset disabled={saving} className="settingsPageFields">
               {section === 'interface' && <InterfaceSettingsSection draft={globalDraft} firstInputRef={firstInputRef} update={(patch) => setGlobalDraft((current) => ({ ...current, ...patch }))} />}
               {section === 'terminal' && <TerminalSettingsSection draft={globalDraft} update={(patch) => setGlobalDraft((current) => ({ ...current, ...patch }))} />}
@@ -256,6 +257,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
               {projectPageDraft && <div className="dialogFields settingsProjectFields"><DialogFields dialog={projectPageDraft} setDialog={setProjectDraft} firstInputRef={firstInputRef} showHeading={false} /></div>}
             </fieldset>
             {pageError && <div className="dialogSubmitError" role="alert">{pageError}</div>}
+            </div>
             <div className="settingsPageActions">
               {project && <button type="button" className="dangerAction" disabled={saving} onClick={() => setDeleteConfirm(true)}>Delete Project</button>}
               <span />
@@ -266,12 +268,13 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
         </div>
         {pending && <ConfirmationBoundary><div className="settingsPromptBackdrop" onMouseDown={(event) => event.stopPropagation()}>
           <div className="settingsPrompt" data-project-color={project && projectPageDraft ? projectColor(projectPageDraft.colorId) : undefined} role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title" onKeyDown={(event) => { handleDialogShortcut(event, true); if (event.key === 'Escape' && !saving) { event.preventDefault(); cancelPending(); } }}>
-            <h3 id="unsaved-title">Save changes?</h3><p>This page has unsaved changes.</p>
+            <h3 id="unsaved-title">Save changes?</h3><div className="dialogBody"><p>This page has unsaved changes.</p>
             {pageError && <div className="dialogSubmitError" role="alert">{pageError}</div>}
+            </div>
             <div className="modalActions"><button type="button" disabled={saving} onClick={cancelPending}>Cancel</button><button type="button" disabled={saving} onClick={finishPending}>Discard</button><button type="button" className="primaryAction" disabled={saving} autoFocus onClick={async () => { if (await save()) finishPending(); }}>Save</button></div>
           </div>
         </div></ConfirmationBoundary>}
-        {deleteConfirm && <ConfirmationBoundary key={project?.id}><div className="settingsPromptBackdrop" onMouseDown={() => setDeleteConfirm(false)}><form className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { handleDialogShortcut(event, true); if (event.key === 'Escape' && !saving) { event.preventDefault(); setDeleteConfirm(false); } }} onSubmit={(event) => { event.preventDefault(); void confirmDelete(); }}><h3 id="delete-project-title">Delete project?</h3><p>This will remove “{project?.name}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p><div className="modalActions"><button type="button" disabled={saving} onClick={() => setDeleteConfirm(false)}>Cancel</button><button type="submit" className="dangerAction" data-dialog-primary disabled={saving} autoFocus>Delete</button></div></form></div></ConfirmationBoundary>}
+        {deleteConfirm && <ConfirmationBoundary key={project?.id}><div className="settingsPromptBackdrop" onMouseDown={() => setDeleteConfirm(false)}><form className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { handleDialogShortcut(event, true); if (event.key === 'Escape' && !saving) { event.preventDefault(); setDeleteConfirm(false); } }} onSubmit={(event) => { event.preventDefault(); void confirmDelete(); }}><h3 id="delete-project-title">Delete project?</h3><div className="dialogBody"><p>This will remove “{project?.name}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p></div><div className="modalActions"><button type="button" disabled={saving} onClick={() => setDeleteConfirm(false)}>Cancel</button><button type="submit" className="dangerAction" data-dialog-primary disabled={saving} autoFocus>Delete</button></div></form></div></ConfirmationBoundary>}
       </div>
     </div>
   );

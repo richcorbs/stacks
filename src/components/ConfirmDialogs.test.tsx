@@ -44,6 +44,10 @@ describe('shared confirmation gate', () => {
     const cancel = vi.fn();
     const dialog = () => <ConfirmDialog title="Test" cancelLabel="Cancel" onCancel={cancel} onConfirm={confirm}><p>Detail</p></ConfirmDialog>;
     act(() => { renderer = TestRenderer.create(dialog(), { createNodeMock: nodeMock }); });
+    const body = renderer!.root.findByProps({ className: 'dialogBody' });
+    expect(body.findByType('p').children).toEqual(['Detail']);
+    expect(body.findAllByType('button')).toHaveLength(0);
+    expect(renderer!.root.findByType('form').findByProps({ className: 'modalActions' }).findAllByType('button')).toHaveLength(2);
     expect(label()).toBe('Yes (2)');
     expect(cancelFocus).toHaveBeenCalledOnce();
     expect(primaryFocus).not.toHaveBeenCalled();

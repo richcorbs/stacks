@@ -29,6 +29,7 @@ export function NewCardDialog({
         model.submit('refining');
       }}>
         <h2>Add card</h2>
+        <div className="dialogBody">
         <label>Project<select autoFocus={!model.projectId} value={model.projectId} disabled={model.creating} required onChange={(event) => {
           model.setProjectId(event.target.value);
           model.setParentId('');
@@ -46,6 +47,7 @@ export function NewCardDialog({
         <label>Title<input ref={model.titleRef} autoFocus={Boolean(model.projectId)} disabled={model.creating} value={model.title} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setTitle(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setTitle)} /></label>
         <label>Description<textarea rows={8} disabled={model.creating} value={model.description} onChange={(event) => { model.invalidateClipboardOperation(event.currentTarget); model.setDescription(event.target.value); }} onKeyDown={(event) => model.handleClipboard(event, model.setDescription)} /></label>
         {model.error && <div className="kanbanEditError" role="alert">{model.error}</div>}
+        </div>
         <div className="modalActions kanbanNewCardActions">
           <label className="checkboxLabel"><input type="checkbox" checked={model.addMore} disabled={model.creating} onChange={(event) => model.setAddMore(event.target.checked)} />Add more</label>
           <div className="kanbanNewCardActionButtons">

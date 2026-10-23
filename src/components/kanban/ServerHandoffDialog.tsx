@@ -23,7 +23,7 @@ export function ServerHandoffDialog({ externalId, busy, onCancel, onConfirm }: {
       onSubmit={(event) => { event.preventDefault(); if (!busy) onConfirm(); }}
     >
       <h2 id="server-handoff-title">Start this server?</h2>
-      <p>Shutdown the server running on card #{externalId}?</p>
+      <div className="dialogBody"><p>Shutdown the server running on card #{externalId}?</p></div>
       <div className="modalActions">
         <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
         <button className="primaryAction" type="submit" disabled={busy}>Shutdown and start</button>

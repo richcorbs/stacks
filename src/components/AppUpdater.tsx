@@ -149,6 +149,7 @@ export function AppUpdater() {
         <h2 id="update-dialog-title">{status === 'error' ? 'Update unavailable' : `Stacks ${update?.version} is available`}</h2>
         <button className="updateReleaseNotesLink" type="button" disabled={status === 'downloading' || status === 'waiting'} onClick={() => void openExternalUrl(releaseUrl)}>Release Notes</button>
       </header>
+      <div className="dialogBody">
       {status === 'available' && <>
         <p>You currently have version {update?.currentVersion}.</p>
         {update?.body && <div className="updateReleaseNotes">{update.body}</div>}
@@ -157,6 +158,7 @@ export function AppUpdater() {
       {status === 'waiting' && <p>Update downloaded and verified. Waiting for Stacks to become idle…</p>}
       {status === 'confirmation' && <p>Restart with a new version of Stacks?</p>}
       {error && <p className="dialogSubmitError">{error}</p>}
+      </div>
       <Boundary><div className="modalActions">
         {status !== 'downloading' && <button data-confirm-cancel type="button" onClick={closeDialog}>Later</button>}
         {!update && status === 'error' && <button className="primaryAction" type="button" onClick={() => checkForUpdates(true).catch(console.error)}>Retry</button>}

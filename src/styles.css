@@ -248,9 +248,9 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanNewCardDialog textarea { box-sizing: border-box; width: 100%; resize: vertical; }
 .modalActions.kanbanNewCardActions { align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .modal .kanbanNewCardActions .checkboxLabel { margin-bottom: 0; }
-.kanbanNewCardActionButtons { display: flex; flex: 0 0 auto; gap: 8px; margin-left: auto; }
+.kanbanNewCardActionButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; min-width: 0; max-width: 100%; flex: 0 1 auto; gap: 8px; margin-left: auto; }
 .projectSwitcherDialog { width: min(460px, calc(100vw - 32px)); outline: none; }
-.projectSwitcherList { max-height: min(440px, 60vh); padding: 4px; overflow-y: auto; border: 1px solid #27394b; border-radius: 9px; background: #0d141c; }
+.projectSwitcherList { min-height: 0; max-height: 440px; padding: 4px; overflow-y: auto; border: 1px solid #27394b; border-radius: 9px; background: #0d141c; }
 .projectSwitcherList button { box-sizing: border-box; width: 100%; padding: 10px 11px; border: 0; border-radius: 6px; background: transparent; color: #aab9c8; display: flex; text-align: left; cursor: pointer; }
 .projectSwitcherList button.highlighted { background: #1b2b3a; color: #d5dfe8; outline: none; }
 .projectSwitcherList button > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
@@ -596,7 +596,22 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   place-items: center;
   z-index: 100;
 }
+/* Card-detail backdrops deliberately retain their independent layout. */
+.modalBackdrop:not(.kanbanDetailBackdrop) {
+  padding: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
 .modal {
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: min(80dvh, 100%);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overflow-wrap: anywhere;
   width: min(520px, calc(100vw - 32px));
   border: 1px solid #304154;
   border-radius: 14px;
@@ -604,6 +619,18 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   box-shadow: 0 24px 80px #000b;
   padding: 18px;
 }
+.dialogBody {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+  /* Leave room for focus outlines inside the scrollport. */
+  padding: 3px;
+}
+.modal > :not(.dialogBody):not(.settingsWorkspace):not(.projectSwitcherList),
+.settingsPrompt > :not(.dialogBody),
+.piExtensionDialog > :not(.dialogBody) { flex-shrink: 0; }
 .modal h2 { margin: 0 0 16px; font-size: calc(18px + var(--ui-font-delta, 0px)); }
 .updateModalHeader { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin-bottom: 16px; }
 .updateModalHeader h2 { min-width: 0; max-width: 100%; margin: 0; overflow-wrap: anywhere; }
@@ -644,7 +671,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.modalActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modalActions { display: flex; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+:is(.modalActions, .settingsPageActions, .piExtensionActions, .kanbanNewCardActionButtons) button { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .modalActions button {
   border: 1px solid #2d3d4f;
   background: #1a2531;
@@ -671,10 +699,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   color: #b9c5d3;
   font-size: calc(14px + var(--ui-font-delta, 0px));
 }
-.doneCleanupDialogs .modal { max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
-.doneCleanupDialogs .modal h2,
-.doneCleanupDialogs .modalActions { flex-shrink: 0; }
-.doneCleanupDialogs .modal p { min-height: 0; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #b9c5d3; }
+.doneCleanupDialogs .dialogBody { white-space: pre-wrap; color: #b9c5d3; }
+
+.confirmModal .dialogBody > p:first-child { margin-top: 0; }
 
 .confirmModal .confirmHint {
   margin: 0 0 16px;
@@ -817,8 +844,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .settingsModal {
   position: relative;
   width: min(900px, calc(100vw - 32px));
-  height: min(720px, calc(100vh - 32px));
-  max-height: none;
+  height: min(720px, 80dvh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -828,8 +854,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .settingsDisclosureChevron { width: 7px; height: 7px; margin-right: 3px; border-right: 1.5px solid #7e91a7; border-bottom: 1.5px solid #7e91a7; transform: rotate(-45deg); transition: transform 120ms ease; }
 .settingsProjectsDisclosure[aria-expanded="true"] .settingsDisclosureChevron { transform: rotate(45deg); }
 .settingsProjectNav { padding-left: 30px !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settingsContent { min-width: 0; min-height: 0; overflow-y: auto; padding: 16px 0 8px 20px; }
-.settingsContent > h2 { margin-bottom: 4px; }
+.settingsContent { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; padding: 16px 0 8px 20px; }
+.settingsPageBody { flex: 1; }
+.settingsContent > h2 { flex-shrink: 0; margin-bottom: 4px; }
 .settingsContent fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .settingsContent .settingsSection { border-top: 0; margin-top: 0; }
 .settingsContent .settingsSection > h3 { display: none; }
@@ -849,12 +876,13 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .settingsProjectList { padding-left: 18px; }
 .settingsProjectList[hidden] { display: none; }
 .settingsPageFields { min-width: 0; margin: 0; padding: 0; border: 0; }
-.settingsPageActions { position: sticky; bottom: -8px; display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; margin-top: auto; padding: 12px 0 8px; background: linear-gradient(transparent, #111821 18%); }
+.settingsPageActions { flex-shrink: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; align-items: center; padding: 12px 0 8px; }
+.settingsPageActions > span { flex: 1; }
 .settingsPageActions button, .settingsPrompt button { border: 1px solid #2d3d4f; background: #1a2531; color: inherit; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 .settingsPageActions .primaryAction, .settingsPrompt .primaryAction { background: #354a5e; border-color: #657c91; }
 .settingsPageActions .dangerAction, .settingsPrompt .dangerAction { border-color: #7f3434; color: #f0a0a0; }
-.settingsPromptBackdrop { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: 18px; background: #0009; }
-.settingsPrompt { z-index: 3; width: min(420px, calc(100% - 36px)); padding: 18px; border: 1px solid #40546b; border-radius: 12px; background: #172230; box-shadow: 0 16px 60px #000d; }
+.settingsPromptBackdrop { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; grid-template: minmax(0, 1fr) / minmax(0, 1fr); padding: 12px; background: #0009; }
+.settingsPrompt { box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; min-height: 0; max-width: 100%; max-height: min(80dvh, 100%); overflow: hidden; overflow-wrap: anywhere; z-index: 3; width: min(420px, 100%); padding: 18px; border: 1px solid #40546b; border-radius: 12px; background: #172230; box-shadow: 0 16px 60px #000d; }
 .settingsPrompt h3 { margin: 0 0 8px; }
 .settingsPrompt p { color: #9aa9ba; }
 @media (max-width: 680px) {
@@ -1241,8 +1269,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piStructuredRequestActions { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px; }
 .piStructuredRequestActions button { padding: 5px 10px; border: 1px solid #38536b; border-radius: 6px; background: #172634; color: #aebdca; cursor: pointer; font: calc(10px + var(--ui-font-delta, 0px)) inherit; }
 .piStructuredRequestActions button:hover, .piStructuredRequestActions button:focus-visible { border-color: #557a99; background: #203446; color: #d5e0e9; outline: none; }
-.piExtensionOverlay { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: #05090db8; backdrop-filter: blur(2px); }
-.piExtensionDialog { width: min(460px, 100%); max-height: 80%; overflow: auto; padding: 17px; border: 1px solid #35495d; border-radius: 10px; background: #111b25; box-shadow: 0 16px 50px #0009; }
+.piExtensionOverlay { position: absolute; inset: 0; z-index: 20; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; padding: 12px; background: #05090db8; backdrop-filter: blur(2px); }
+.piExtensionDialog { box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; min-height: 0; width: min(460px, 100%); max-height: min(80dvh, 100%); overflow: hidden; overflow-wrap: anywhere; padding: 17px; border: 1px solid #35495d; border-radius: 10px; background: #111b25; box-shadow: 0 16px 50px #0009; }
 .piExtensionDialog > strong { display: block; color: #d0dae5; font-size: calc(13px + var(--ui-font-delta, 0px)); }
 .piExtensionDialog p { margin: 9px 0 14px; color: #8496a8; font-size: calc(11px + var(--ui-font-delta, 0px)); line-height: 1.5; white-space: pre-wrap; }
 .piExtensionDialog input, .piExtensionDialog textarea { box-sizing: border-box; width: 100%; margin-top: 12px; padding: 8px 9px; border: 1px solid #304357; border-radius: 6px; outline: 0; resize: vertical; background: #0b131c; color: #c3ceda; font: calc(12px + var(--ui-font-delta, 0px))/1.45 inherit; }
@@ -1257,7 +1285,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .scriptedDeliveryOutput summary { cursor: pointer; padding: 8px 10px; color: #91a9bc; }
 .scriptedDeliveryOutput pre { margin: 0; padding: 10px; border-top: 1px solid #263746; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-.piExtensionActions { margin-top: 14px; display: flex; justify-content: flex-end; gap: 7px; }
+.piExtensionActions { margin-top: 14px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .piExtensionActions button { padding: 6px 10px; border: 1px solid #33475a; border-radius: 6px; background: #17232f; color: #9dadbd; cursor: pointer; }
 .piExtensionActions button.primary { border-color: #49779e; background: #315f85; color: #eef6fc; }
 
@@ -1336,12 +1364,12 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseActions { margin-top: 14px; }
 .releaseHistory { margin-top: 14px; }
 .releaseHistory > div { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 7px 0; border-top: 1px solid #223142; color: #8094a6; font-size: 12px; }
-.cleanupPreflightModal { width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.cleanupPreflightModal { width: min(560px, 100%); }
 .cleanupPreflightModal:focus { outline: none; }
 .cleanupPreflightList { overflow: auto; display: grid; gap: 10px; }
-.cleanupPreflightEntry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; align-items: center; border: 1px solid #2d3d4f; border-radius: 8px; padding: 12px; background: rgba(8, 14, 24, .55); }
+.cleanupPreflightEntry { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; border: 1px solid #2d3d4f; border-radius: 8px; padding: 12px; background: rgba(8, 14, 24, .55); }
 .cleanupPreflightEntry.blocked { border-color: rgba(211, 99, 99, .55); }
-.cleanupPreflightStatus { display: flex; gap: 12px; color: #8091a5; white-space: nowrap; }
+.cleanupPreflightStatus { display: flex; flex-wrap: wrap; gap: 12px; color: #8091a5; }
 .cleanupOverride { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; color: #d9a1a1; }
 .cleanupOverride input { margin: 0; }
 

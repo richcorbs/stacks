@@ -34,12 +34,14 @@ export function BoardPrMergeDialog({ card, busy, intent, error, onCancel, onConf
       }}
       onSubmit={(event) => { event.preventDefault(); if (!busy && !error) onConfirm('merge-and-cleanup'); }}>
       <h2 id="board-pr-merge-title">{onRetryCleanup ? `PR #${card.pull_request?.number} merged` : `Merge PR #${card.pull_request?.number}?`}</h2>
+      <div className="dialogBody">
       <p>Card #{card.external_id}: {card.title}</p>
       {onRetryCleanup ? <p>The PR remains merged. Retry cleanup to fetch fresh evidence and confirm local environment cleanup separately. Closing keeps local resources intact.</p> : <>
         <p>Merge PR #{card.pull_request?.number} ({card.pull_request?.url}) using the project’s configured merge strategy. Fresh GitHub checks run before merging.</p>
         <p>MERGE &amp; CLEANUP merges first, then asks you to confirm local environment cleanup separately. Cancelling cleanup keeps the PR merged and the local environment intact. MERGE keeps the local environment.</p>
       </>}
       {error && <p className="kanbanNotice" role="alert">{error} {onRetryCleanup ? 'Retry cleanup without merging again.' : 'Close to review the updated PR status.'}</p>}
+      </div>
       <div className="modalActions">
         <button ref={closeRef} type="button" disabled={busy} onClick={onCancel}>{error ? 'Close' : 'Cancel'}</button>
         {onRetryCleanup && <button className="primaryAction" type="button" disabled={busy} onClick={onRetryCleanup}>
