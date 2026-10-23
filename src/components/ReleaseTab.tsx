@@ -171,7 +171,6 @@ function ProjectReleaseTab({ project }: { project: Project }) {
         {draft.reconciliation && <ReconciliationSummary reconciliation={draft.reconciliation} />}
         <label>New version<input value={version} onChange={(event) => { setVersion(event.target.value); setDraft((current) => current ? { ...current, reconciliation: null } : current); }} placeholder="Opaque version supplied to scripts" /></label>
         {draft.config?.generateNotes && <label>Approved release notes<textarea rows={8} value={notes} onChange={(event) => { setNotes(event.target.value); setDraft((current) => current ? { ...current, reconciliation: null } : current); }} /></label>}
-        {draft.config && <CommandPreview config={draft.config}><small>Release data is supplied only through: {envNames}</small></CommandPreview>}
         <button className="primaryAction releaseStart" type="button" disabled={busy || !version.trim() || !draft.reconciliation || !draft.reconciliation.permittedActions.some((item) => ['start', 'resume', 'approve', 'complete'].includes(item))} onClick={() => void action('Starting release', () => startRelease(project.id, version, notes))}>{draft.reconciliation && ['resumablePrepared', 'resumableDraft', 'published'].includes(draft.reconciliation.disposition) ? 'Resume release' : 'Start release'}</button>
       </div>}
       {displayed && <div className="releaseOperation">
@@ -192,17 +191,25 @@ function ProjectReleaseTab({ project }: { project: Project }) {
           {!['completed', 'abandoned'].includes(displayed.status) && displayed.status !== 'running' && <button type="button" disabled={busy} onClick={() => { void confirmRelease('abandon', displayed); }}>Abandon release</button>}
         </div>
       </div>}
-      {history.some((item) => ['completed', 'abandoned'].includes(item.status)) && <section className="releaseHistory"><h4>Release history</h4>{history.filter((item) => ['completed', 'abandoned'].includes(item.status)).map((item) => <div key={item.id}><strong>{item.version}</strong><span>{statusLabel(item.status)}</span><span className="releaseDuration">{formatDuration((item.completedAt ?? item.updatedAt) - item.createdAt)}</span><span>{item.stages.length} stages</span></div>)}</section>}
+      {draft?.valid && draft.config && !active && <CommandPreview config={draft.config}><small>Release data is supplied only through: {envNames}</small></CommandPreview>}
+      {history.some((item) => ['completed', 'abandoned'].includes(item.status)) && <ReleaseDisclosure title="Release history" className="releaseHistory">{history.filter((item) => ['completed', 'abandoned'].includes(item.status)).map((item) => <div className="releaseHistoryRow" key={item.id}><strong>{item.version}</strong><span>{statusLabel(item.status)}</span><span className="releaseDuration">{formatDuration((item.completedAt ?? item.updatedAt) - item.createdAt)}</span><span>{item.stages.length} stages</span></div>)}</ReleaseDisclosure>}
     </div>
   </section></>;
 }
 
-export function CommandPreview({ config, children }: { config: ReleaseConfig; children?: ReactNode }) {
+function ReleaseDisclosure({ title, className, children }: { title: string; className: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const contentId = `release-commands-${useId().replace(/:/g, '')}`;
-  return <section className="releasePreview">
-    <button className="releasePreviewDisclosure" type="button" aria-expanded={open} aria-controls={contentId} onClick={() => setOpen((current) => !current)}>{open ? 'Hide release commands' : 'Show release commands'}</button>
-    <div id={contentId} hidden={!open}>
+  const id = `release-disclosure-${useId().replace(/:/g, '')}`;
+  return <section className={`releaseDisclosureCard ${className}`}>
+    <h4 className="releaseDisclosureHeading"><button id={`${id}-header`} className="releaseDisclosure" type="button" aria-expanded={open} aria-controls={`${id}-content`} onClick={() => setOpen((current) => !current)}>
+      {title}<span className="releaseDisclosureIndicator" aria-hidden="true">›</span>
+    </button></h4>
+    <div className="releaseDisclosureContent" id={`${id}-content`} aria-labelledby={`${id}-header`} hidden={!open}>{children}</div>
+  </section>;
+}
+
+export function CommandPreview({ config, children }: { config: ReleaseConfig; children?: ReactNode }) {
+  return <ReleaseDisclosure title="Command preview" className="releasePreview">
     <div className="releasePreviewSteps">
     {config.preflight && <CommandPreviewStep title="0. Preflight">
       <Command label="Run" value={config.preflight} />
@@ -214,8 +221,7 @@ export function CommandPreview({ config, children }: { config: ReleaseConfig; ch
     </CommandPreviewStep>)}
     </div>
     {children}
-    </div>
-  </section>;
+  </ReleaseDisclosure>;
 }
 
 function CommandPreviewStep({ title, children }: { title: string; children: ReactNode }) {

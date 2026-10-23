@@ -66,9 +66,10 @@ describe('command preview', () => {
     expect(markup).toContain('0. Preflight');
     expect(markup).toContain('1. Prepare');
     expect(markup).toContain('2. Publish');
-    expect(markup).toContain('Show release commands');
+    expect(markup).toContain('Command preview');
+    expect(markup).toContain('class="releaseDisclosureIndicator" aria-hidden="true"');
     expect(markup.match(/aria-expanded="false"/g)).toHaveLength(1);
-    expect(markup.match(/aria-controls="release-commands-/g)).toHaveLength(1);
+    expect(markup.match(/aria-controls="release-disclosure-/g)).toHaveLength(1);
     expect(markup).toContain('hidden=""');
     expect(markup).not.toContain('<strong>');
   });
@@ -118,6 +119,99 @@ async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft =
   await act(async () => { renderer = TestRenderer.create(<ReleaseTab project={{ id: 'project', name: 'Project', path: '/repo', color_id: colorId }} />); });
   return renderer;
 }
+
+describe('release disclosure cards', () => {
+  function disclosure(renderer: TestRenderer.ReactTestRenderer, title: string) {
+    return renderer.root.findAllByProps({ className: 'releaseDisclosure' }).find((node) => node.children[0] === title)!;
+  }
+  function content(renderer: TestRenderer.ReactTestRenderer, title: string) {
+    return renderer.root.findByProps({ id: disclosure(renderer, title).props['aria-controls'] });
+  }
+  const completed = operation({ id: 'completed', status: 'completed', version: '1.2.3', completedAt: 163, stages: [stage()] });
+  const abandoned = operation({ id: 'abandoned', status: 'abandoned', version: '1.2.2', updatedAt: 109 });
+
+  it.each(['available', 'resumableDraft'] as const)('places matching collapsed cards after the %s setup action', async (disposition) => {
+    const renderer = await renderReleaseTab([completed], draft({ reconciliation: reconciliation({ disposition }) }));
+    const scroll = renderer.root.findByProps({ className: 'releaseScroll' });
+    const setup = renderer.root.findByProps({ className: 'releaseSetup' });
+    expect(setup.findAllByProps({ className: 'releaseDisclosure' })).toHaveLength(0);
+    expect(setup.findByProps({ className: 'primaryAction releaseStart' }).children).toEqual([disposition === 'available' ? 'Start release' : 'Resume release']);
+    expect(scroll.findAllByProps({ className: 'releaseDisclosure' }).map((node) => node.children[0])).toEqual(['Command preview', 'Release history']);
+    const previewCard = renderer.root.findByProps({ className: 'releaseDisclosureCard releasePreview' });
+    const historyCard = renderer.root.findByProps({ className: 'releaseDisclosureCard releaseHistory' });
+    expect(scroll.findAll((node) => node === setup || node === previewCard || node === historyCard)).toEqual([setup, previewCard, historyCard]);
+    for (const title of ['Command preview', 'Release history']) {
+      const header = disclosure(renderer, title);
+      expect(header.type).toBe('button'); // Native Enter/Space activation and tab focus.
+      expect(header.props.type).toBe('button');
+      expect(header.props['aria-expanded']).toBe(false);
+      expect(content(renderer, title).props.hidden).toBe(true);
+      expect(content(renderer, title).props['aria-labelledby']).toBe(header.props.id);
+      expect(header.findByProps({ className: 'releaseDisclosureIndicator' }).props['aria-hidden']).toBe('true');
+    }
+    expect(content(renderer, 'Command preview').findByType('small').children.join('')).toBe('Release data is supplied only through: STACKS_RELEASE_VERSION, STACKS_RELEASE_PREVIOUS_VERSION, STACKS_RELEASE_PROJECT_PATH, STACKS_RELEASE_TARGET_BRANCH, STACKS_RELEASE_INITIAL_REVISION, STACKS_RELEASE_OPERATION_ID, STACKS_RELEASE_NOTES_FILE');
+    act(() => renderer.unmount());
+  });
+
+  it('expands independently and retains state and associations through background refreshes', async () => {
+    const renderer = await renderReleaseTab([completed, abandoned]);
+    const previewId = content(renderer, 'Command preview').props.id;
+    const historyId = content(renderer, 'Release history').props.id;
+    act(() => disclosure(renderer, 'Command preview').props.onClick());
+    expect(content(renderer, 'Command preview').props.hidden).toBe(false);
+    expect(content(renderer, 'Release history').props.hidden).toBe(true);
+    act(() => disclosure(renderer, 'Release history').props.onClick());
+    expect(content(renderer, 'Command preview').props.hidden).toBe(false);
+    expect(content(renderer, 'Release history').props.hidden).toBe(false);
+    const updated = { ...completed, version: '1.2.3-refreshed', revision: 2 };
+    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([updated, abandoned]) : Promise.resolve(draft()));
+    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: completed.id }); });
+    expect(content(renderer, 'Command preview').props.id).toBe(previewId);
+    expect(content(renderer, 'Release history').props.id).toBe(historyId);
+    expect(content(renderer, 'Command preview').props.hidden).toBe(false);
+    expect(content(renderer, 'Release history').props.hidden).toBe(false);
+    expect(content(renderer, 'Release history').findAllByType('strong').map((node) => node.children.join(''))).toEqual(['1.2.3-refreshed', '1.2.2']);
+    act(() => disclosure(renderer, 'Command preview').props.onClick());
+    expect(content(renderer, 'Command preview').props.hidden).toBe(true);
+    expect(content(renderer, 'Release history').props.hidden).toBe(false);
+    act(() => disclosure(renderer, 'Release history').props.onClick());
+    expect(content(renderer, 'Release history').props.hidden).toBe(true);
+    act(() => renderer.unmount());
+  });
+
+  it('preserves history order, statuses, durations, and stage counts while excluding active operations', async () => {
+    const renderer = await renderReleaseTab([abandoned, operation(), completed]);
+    expect(renderer.root.findAllByType(CommandPreview)).toHaveLength(0);
+    act(() => disclosure(renderer, 'Release history').props.onClick());
+    const rows = content(renderer, 'Release history').findAllByProps({ className: 'releaseHistoryRow' });
+    expect(rows.map((row) => row.children.map((node) => typeof node === 'string' ? node : node.children.join('')))).toEqual([
+      ['1.2.2', 'Abandoned', '9s', '0 stages'],
+      ['1.2.3', 'Completed', '1m3s', '1 stages'],
+    ]);
+    act(() => renderer.unmount());
+  });
+
+  it.each(['running', 'awaitingApproval', 'failed', 'cancelled', 'interrupted'] as const)('hides preview and empty history for an active %s release', async (status) => {
+    const renderer = await renderReleaseTab([operation({ status })]);
+    expect(renderer.root.findAllByType(CommandPreview)).toHaveLength(0);
+    expect(renderer.root.findAllByProps({ className: 'releaseDisclosure' })).toHaveLength(0);
+    act(() => renderer.unmount());
+  });
+
+  it.each([draft({ valid: false }), draft({ config: null })])('hides preview without valid configured setup', async (releaseDraft) => {
+    const renderer = await renderReleaseTab([], releaseDraft);
+    expect(renderer.root.findAllByType(CommandPreview)).toHaveLength(0);
+    expect(renderer.root.findAllByProps({ className: 'releaseDisclosure' })).toHaveLength(0);
+    act(() => renderer.unmount());
+  });
+
+  it('hides empty history while preserving setup preview', async () => {
+    const renderer = await renderReleaseTab();
+    expect(disclosure(renderer, 'Command preview')).toBeDefined();
+    expect(renderer.root.findAllByProps({ className: 'releaseDisclosureCard releaseHistory' })).toHaveLength(0);
+    act(() => renderer.unmount());
+  });
+});
 
 describe('release setup facts', () => {
   it('omits clean readiness evidence, preserves Start, and copies the actual checkout HEAD', async () => {
