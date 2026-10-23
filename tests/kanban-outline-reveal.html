@@ -1,0 +1,147 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Kanban outline reveal layout regression</title>
+<link rel="stylesheet" href="../src/styles.css">
+<style>
+  body { overflow: auto; padding: 12px; }
+  #fixture { display: flex; width: min(720px, 95vw); height: 280px; }
+  #results { white-space: pre-wrap; }
+</style>
+<div id="fixture"></div>
+<pre id="results">Running…</pre>
+<script type="module">
+// Real layout/scrollIntoView checks, intentionally separate from mocked hook tests.
+// Uses the production stylesheet and the list/board scroll-container hierarchy.
+// WebKit may execute modules before the linked stylesheet has finished loading.
+if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
+const fixture = document.querySelector('#fixture');
+const results = [];
+function check(condition, message) {
+  if (!condition) throw new Error(message);
+}
+function row(index, list) {
+  const card = document.createElement('article');
+  card.className = `kanbanCard${list ? ' kanbanListRow' : ''}`;
+  card.dataset.kanbanNavigationCardId = String(index);
+  card.innerHTML = `<button class="kanbanCardOpen" aria-label="Open ${index}"></button><strong>Card ${index}: a title that wraps with larger interface text</strong><span class="kanbanCardMeta">Metadata</span>`;
+  return card;
+}
+function mount(list) {
+  fixture.replaceChildren();
+  const layout = document.createElement('div');
+  layout.className = list ? 'kanbanList' : 'kanbanLanes';
+  fixture.append(layout);
+  for (let lane = 0; lane < (list ? 1 : 5); lane++) {
+    const group = document.createElement('section');
+    group.className = list ? 'kanbanListGroup' : 'kanbanLane';
+    group.innerHTML = list
+      ? `<div class="kanbanListGroupHeader"><h2>Group ${lane}</h2></div>`
+      : `<header><div class="kanbanLaneHeader"><span class="kanbanLaneTitle">Group ${lane}</span></div></header>`;
+    const cards = document.createElement('div');
+    cards.className = list ? 'kanbanListRows' : 'kanbanLaneCards';
+    for (let i = 0; i < 24; i++) {
+      const card = row(i, list);
+      if (list) cards.append(card);
+      else {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'kanbanCardWrapper';
+        wrapper.append(card);
+        cards.append(wrapper);
+      }
+    }
+    group.append(cards);
+    layout.append(group);
+  }
+  return layout;
+}
+function reveal(card) {
+  fixture.querySelector('.keyboardFocused')?.classList.remove('keyboardFocused');
+  card.classList.add('keyboardFocused');
+  card.querySelector('.kanbanCardOpen').focus({ preventScroll: true });
+  card.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+}
+function visible(card, containers) {
+  const rect = card.getBoundingClientRect();
+  for (const container of containers) {
+    const clip = container.getBoundingClientRect();
+    const left = clip.left + container.clientLeft;
+    const top = clip.top + container.clientTop;
+    check(rect.top - 3 >= top - 0.5 && rect.bottom + 3 <= top + container.clientHeight + 0.5,
+      `${container.className}: vertical outline clipped (${rect.top}, ${rect.bottom}; viewport ${top}–${top + container.clientHeight})`);
+    check(rect.left - 3 >= left - 0.5 && rect.right + 3 <= left + container.clientWidth + 0.5,
+      `${container.className}: horizontal outline clipped (${rect.left}, ${rect.right}; viewport ${left}–${left + container.clientWidth})`);
+  }
+}
+function position(containers) {
+  return containers.flatMap(container => [container.scrollTop, container.scrollLeft]);
+}
+function unchanged(before, containers, message) {
+  check(JSON.stringify(before) === JSON.stringify(position(containers)), message);
+}
+try {
+  for (const enlarged of [false, true]) {
+    fixture.style.width = enlarged ? '360px' : '720px';
+    fixture.style.height = enlarged ? '240px' : '280px';
+    fixture.style.setProperty('--ui-font-delta', enlarged ? '6px' : '0px');
+    for (const list of [true, false]) {
+      const layout = mount(list);
+      const scrollers = list ? [layout] : [...layout.querySelectorAll('.kanbanLaneCards')];
+      for (const scroller of scrollers) {
+        const cards = [...scroller.querySelectorAll('.kanbanCard')];
+        const clips = list ? [layout] : [scroller, layout];
+        // Traverse every card downward and upward, including first/last cards and lane transitions.
+        for (const card of [...cards, ...cards.toReversed()]) {
+          reveal(card);
+          visible(card, clips);
+          const before = position(clips);
+          reveal(card);
+          unchanged(before, clips, 'Already-visible outline was unnecessarily scrolled');
+        }
+        const middle = cards[10];
+        reveal(middle);
+        // Border box visible but outline alone clipped: must move exactly the missing 2px.
+        for (const edge of ['top', 'bottom']) {
+          const rect = middle.getBoundingClientRect();
+          const clip = scroller.getBoundingClientRect();
+          scroller.scrollTop += edge === 'top'
+            ? rect.top - clip.top - 1
+            : rect.bottom - clip.top - scroller.clientHeight + 1;
+          const before = scroller.scrollTop;
+          reveal(middle);
+          visible(middle, clips);
+          check(Math.abs(Math.abs(scroller.scrollTop - before) - 2) <= 1, `Vertical ${edge} reveal was not the minimum 2px (within pixel rounding): ${scroller.scrollTop - before}`);
+        }
+        // A card spanning both viewport edges must stay put, not oscillate.
+        middle.style.minHeight = `${scroller.clientHeight + 100}px`;
+        scroller.scrollTop += middle.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 30;
+        const before = position(clips);
+        for (let i = 0; i < 4; i++) reveal(middle);
+        unchanged(before, clips, 'Oversized card oscillated');
+        middle.style.minHeight = '';
+      }
+      if (!list) {
+        for (const edge of ['left', 'right']) {
+          const lane = scrollers[edge === 'left' ? 1 : 3];
+          const middle = lane.querySelector('.kanbanCard');
+          reveal(middle);
+          const rect = middle.getBoundingClientRect();
+          const clip = layout.getBoundingClientRect();
+          layout.scrollLeft += edge === 'left'
+            ? rect.left - clip.left - 1
+            : rect.right - clip.left - layout.clientWidth + 1;
+          const before = layout.scrollLeft;
+          reveal(middle);
+          visible(middle, [lane, layout]);
+          check(Math.abs(Math.abs(layout.scrollLeft - before) - 2) <= 1, `Horizontal ${edge} reveal was not the minimum 2px (within pixel rounding): ${layout.scrollLeft - before}`);
+        }
+      }
+      results.push(`PASS ${list ? 'list' : 'board'} / ${enlarged ? 'small + enlarged text' : 'normal'}`);
+    }
+  }
+  window.layoutTestResult = { passed: true, results };
+} catch (error) {
+  results.push(`FAIL ${error.message}\n${error.stack}`);
+  window.layoutTestResult = { passed: false, results };
+}
+document.querySelector('#results').textContent = results.join('\n');
+</script>
