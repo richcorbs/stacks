@@ -152,7 +152,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 html.kanbanDragging, html.kanbanDragging * { cursor: grabbing !important; }
 .kanbanCardOpen { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: inherit; }
 .kanbanCard > :not(.kanbanCardOpen) { position: relative; z-index: 2; pointer-events: none; }
-.kanbanCard.keyboardFocused { outline: 2px solid #4f83ad; outline-offset: 1px; border-color: #466b8d; }
+/* Include the outward outline (2px + 1px offset) in keyboard nearest-edge reveals. */
+.kanbanCard.keyboardFocused { outline: 2px solid #4f83ad; outline-offset: 1px; border-color: #466b8d; scroll-margin: 3px; }
 .kanbanCard:active { cursor: grabbing; }
 .kanbanCardSource { min-width: 0; color: #63778d; font: calc(9px + var(--ui-font-delta, 0px)) ui-monospace, monospace; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: nowrap; white-space: nowrap; }
 .kanbanCardSourceLeft { min-width: 0; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
