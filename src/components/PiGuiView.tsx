@@ -870,10 +870,12 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={modalUiRequest.title} onKeyDown={handleDialogShortcut}>
           <div className="piExtensionDialog">
             <strong>{modalUiRequest.title}</strong>
+            <div className="dialogBody">
             {modalUiRequest.message && <p>{modalUiRequest.message}</p>}
             {modalUiRequest.method === 'editor'
               ? <textarea autoFocus rows={7} value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />
               : <input autoFocus value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />}
+            </div>
             <div className="piExtensionActions">
               <button type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { cancelled: true }).catch(() => {})}>Cancel</button>
               <button className="primary" data-dialog-primary type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { value: extensionInput }).catch(() => {})}>Submit</button>

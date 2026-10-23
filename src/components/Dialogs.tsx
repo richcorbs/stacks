@@ -20,8 +20,11 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
       event.preventDefault(); if (submittingRef.current) return; submittingRef.current = true; setSubmitting(true); setSubmitError(null);
       try { await onSubmit(); } catch (error) { setSubmitError(error instanceof Error ? error.message : String(error)); } finally { submittingRef.current = false; setSubmitting(false); }
     }}>
-      <fieldset className="dialogFields" disabled={submitting}><DialogFields dialog={dialog} setDialog={setDialog} firstInputRef={firstInputRef} /></fieldset>
-      {submitError && <div className="dialogSubmitError">{submitError}</div>}
+      <h2>{dialog.kind === 'project' ? 'Add Project' : 'Edit Project'}</h2>
+      <div className="dialogBody">
+        <fieldset className="dialogFields" disabled={submitting}><DialogFields dialog={dialog} setDialog={setDialog} firstInputRef={firstInputRef} showHeading={false} /></fieldset>
+        {submitError && <div className="dialogSubmitError">{submitError}</div>}
+      </div>
       <div className="modalActions"><button type="button" disabled={submitting} onClick={onCancel}>Cancel</button><button className="primaryAction" disabled={submitting} type="submit">{dialogSubmitLabel(dialog.kind)}</button></div>
     </form>
   </div>;

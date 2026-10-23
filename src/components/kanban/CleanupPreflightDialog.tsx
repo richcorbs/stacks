@@ -52,7 +52,7 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
       }
     }}>
       <h2 id="cleanup-preflight-title">Confirm cleanup</h2>
-      <div className="cleanupPreflightList">{inventory.entries.map((entry) => <CleanupPreflightEntry
+      <div className="cleanupPreflightList dialogBody">{inventory.entries.map((entry) => <CleanupPreflightEntry
         key={entry.card_id}
         entry={entry}
         cleanupAnyway={overrides.has(entry.card_id)}

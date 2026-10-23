@@ -36,6 +36,7 @@ export function OneTimeCommandDialog({ open, cwd, onCancel, onRun }: {
         }}
       >
         <h2>Run One-Time Command</h2>
+        <div className="dialogBody">
         <label>
           Command
           <input
@@ -48,6 +49,7 @@ export function OneTimeCommandDialog({ open, cwd, onCancel, onRun }: {
           />
         </label>
         <div className="oneTimeCommandCwd" title={cwd ?? undefined}>Runs from {cwd ?? 'the focused terminal directory'}</div>
+        </div>
         <div className="modalActions">
           <button type="button" onClick={onCancel}>Cancel</button>
           <button className="primaryAction" type="submit" disabled={!command.trim()}>Run</button>

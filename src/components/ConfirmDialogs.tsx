@@ -25,7 +25,7 @@ export function ConfirmDialog({ title, children, cancelLabel = 'No', confirmLabe
         onSubmit={(e) => { e.preventDefault(); onConfirm(); }}
       >
         <h2>{title}</h2>
-        {children}
+        <div className="dialogBody">{children}</div>
         <div className="modalActions">
           <button data-confirm-cancel type="button" onClick={onCancel}>{cancelLabel}</button>
           <button className="primaryAction" type="submit">{confirmLabel}</button>
