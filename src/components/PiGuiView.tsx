@@ -8,6 +8,7 @@ import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { projectColorAttribute } from '../projectColor';
 import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, isMcpStatusCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
 import { subscribePiFileDrops } from '../pi/fileDropBroker';
+import { handleComposerClipboard } from '../pi/composerClipboard';
 import { activePathToken, applyPathCompletion, formatDroppedPathReference, insertPathReferences } from '../pi/pathReferences';
 import type { PiCommand, PiModel, PiSessionContext } from '../pi/types';
 import { hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, visiblePiMessages } from '../pi/transcript';
@@ -96,6 +97,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const historyDraftRef = useRef('');
   const quickResponseInFlightRef = useRef(false);
   const selectionRef = useRef({ start: 0, end: 0 });
+  const cutCaretRef = useRef<number | null>(null);
   const pathRequestRef = useRef(0);
   const knownSessionIdRef = useRef('');
   const pendingPrependAnchorRef = useRef<{ height: number; top: number } | null>(null);
@@ -192,6 +194,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   useEffect(() => {
     if (inputRef.current) resizeComposerInput(inputRef.current, shouldStickToBottomRef.current);
   }, [fontSize, prompt]);
+
+  useLayoutEffect(() => {
+    if (cutCaretRef.current === null) return;
+    const caret = cutCaretRef.current;
+    cutCaretRef.current = null;
+    inputRef.current?.setSelectionRange(caret, caret);
+  }, [prompt]);
 
   useEffect(() => {
     if (!active || !visible || pi.starting || modalUiRequest) return;
@@ -696,6 +705,16 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               setComposerError(null);
             }}
             onKeyDown={(event) => {
+              if (handleComposerClipboard(event, (value, caret) => {
+                historyIndexRef.current = null;
+                historyDraftRef.current = '';
+                selectionRef.current = { start: caret, end: caret };
+                cutCaretRef.current = caret;
+                setCompletionCursor(caret);
+                setPrompt(value);
+                setSelectedCommandIndex(0);
+                setComposerError(null);
+              }, (error) => setComposerError(`Could not ${event.key.toLowerCase() === 'x' ? 'cut' : 'copy'}: ${String(error)}`))) return;
               if (event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
                 event.preventDefault();
                 event.stopPropagation();
