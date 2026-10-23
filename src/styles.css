@@ -1298,7 +1298,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseScroll { width: 100%; overflow-y: auto; padding: 20px; box-sizing: border-box; }
 .releaseHeader, .releaseSummary, .releaseStageHeading, .releaseActions { display: flex; align-items: center; gap: 10px; }
 .releaseHeader { justify-content: space-between; margin-bottom: 16px; }
-.releaseHeader h3, .releasePreview h4, .releaseHistory h4 { margin: 0 0 5px; color: #d5dfe9; }
+.releaseHeader h3 { margin: 0 0 5px; color: #d5dfe9; }
 .releaseHeaderActions { display: flex; gap: 8px; }
 .releaseHeaderActions button, .releaseActions button, .releaseStart { border: 1px solid #34495d; border-radius: 6px; background: #172431; color: #b7c8d8; padding: 7px 10px; }
 .releaseValid { color: #70bd8d; } .releaseInvalid, .releaseStageError { color: #df858b; }
@@ -1321,14 +1321,17 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseCopyStatus { font-size: 11px; color: #8498aa; }
 .releaseCommand span { display: block; color: #708598; font-size: 11px; }
 .releaseCommand code, .releaseSummary code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.releasePreview { min-width: 0; }
-.releaseOperation, .releaseHistory { padding: 14px; border: 1px solid #25384a; border-radius: 8px; background: #0f1922; }
-.releasePreviewSteps { margin-top: 8px; }
+.releaseDisclosureCard { min-width: 0; margin-top: 14px; border: 1px solid #25384a; border-radius: 8px; background: #0f1922; }
+.releaseOperation { padding: 14px; border: 1px solid #25384a; border-radius: 8px; background: #0f1922; }
+.releaseDisclosureHeading { margin: 0; font: inherit; }
+.releaseDisclosureContent { padding: 0 14px 14px; }
 .releasePreviewStep { min-width: 0; border-top: 1px solid #223142; }
-.releasePreviewStep h4 { padding: 10px 6px 0; font-weight: 400; text-transform: none; letter-spacing: normal; }
-.releasePreviewDisclosure { display: flex; width: 100%; box-sizing: border-box; align-items: center; justify-content: space-between; padding: 10px 6px; border: 0; border-radius: 5px; outline: none; background: transparent; color: #c4d0db; font: inherit; font-weight: 400; text-transform: none; letter-spacing: normal; text-align: left; cursor: pointer; }
-.releasePreviewDisclosure:hover { background: #152330; }
-.releasePreviewDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: #152330; }
+.releasePreviewStep h4 { margin: 0 0 5px; color: #d5dfe9; padding: 10px 6px 0; font-weight: 400; text-transform: none; letter-spacing: normal; }
+.releaseDisclosure { display: flex; width: 100%; box-sizing: border-box; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 0; border-radius: 7px; outline: none; background: transparent; color: #c4d0db; font: inherit; font-weight: 400; text-transform: none; letter-spacing: normal; text-align: left; cursor: pointer; }
+.releaseDisclosure:hover { background: #152330; }
+.releaseDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: #152330; }
+.releaseDisclosureIndicator { flex: 0 0 auto; color: #708598; font-size: 18px; line-height: 1; transition: transform 120ms ease; }
+.releaseDisclosure[aria-expanded="true"] .releaseDisclosureIndicator { transform: rotate(90deg); }
 .releasePreviewDetails { padding: 0 6px 10px; }
 .releasePreviewMetadata { color: #708598; font-size: 11px; }
 .releasePreview small { display: block; margin-top: 10px; color: #708598; }
@@ -1372,8 +1375,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseLog { max-height: 280px; overflow: auto; margin: 7px 0 0; padding: 10px; background: #080e14; color: #9eafbd; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .releaseLog a { color: #79add8; }
 .releaseActions { margin-top: 14px; }
-.releaseHistory { margin-top: 14px; }
-.releaseHistory > div { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 7px 0; border-top: 1px solid #223142; color: #8094a6; font-size: 12px; }
+.releaseHistoryRow { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 7px 0; border-top: 1px solid #223142; color: #8094a6; font-size: 12px; }
 .cleanupPreflightModal { width: min(560px, 100%); }
 .cleanupPreflightModal:focus { outline: none; }
 .cleanupPreflightList { overflow: auto; display: grid; gap: 10px; }
