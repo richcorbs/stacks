@@ -102,10 +102,12 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const cardPath = card.environment?.worktree_path ?? null;
   const serverCommand = project?.server_command?.trim() ?? '';
   const consoleCommand = project?.console_command?.trim() ?? '';
+  const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
   const detail = useCardDetailModel({
     card, initialView,
     availability: { chat: Boolean(project && !card.hierarchy_finalized), workspace: Boolean(cardPath), server: Boolean(serverCommand), console: Boolean(consoleCommand) },
     onUpdate: (title, content) => onUpdate(title, content),
+    onViewSelected: (view) => { if (view === 'diff') setDiffRefreshNonce((nonce) => nonce + 1); },
   });
   const { activeView, setActiveView, editing, editable, draftTitle, setDraftTitle, draftContent, setDraftContent, editError, setEditError, saving: savingEdit } = detail;
   const beginEditing = () => { if (detail.begin()) requestAnimationFrame(() => titleInputRef.current?.focus()); };
@@ -123,7 +125,6 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const [recheckingEnvironment, setRecheckingEnvironment] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const [reloadingCard, setReloadingCard] = useState(false);
-  const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
   const [deploymentOutput, setDeploymentOutput] = useState('');
   const workflowRevisionRef = useRef(card.workflow_revision);
   const environmentRevisionRef = useRef(card.environment?.revision ?? 0);
