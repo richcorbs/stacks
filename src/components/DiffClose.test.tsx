@@ -7,6 +7,8 @@ import { DirectProjectWork } from './DirectProjectWork';
 import { KanbanCardDetail } from './kanban/KanbanCardDetail';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
 import { applicationEvents } from '../applicationEvents';
+import { invoke } from '@tauri-apps/api/core';
+import { DiffTab } from './DiffTab';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
@@ -64,7 +66,9 @@ describe('project workspace tab shortcuts', () => {
     await act(async () => { renderer = TestRenderer.create(<DirectProjectWork project={extended} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} onClose={() => {}} />); });
     const active = () => renderer.root.findByProps({ 'aria-label': 'Project Workspace views' }).findAllByType('button').filter((button) => button.props.className?.includes('active')).map((button) => button.props.children);
     const select = (number: number) => act(() => applicationEvents.publish('card-tab-shortcut', { number }));
+    const nonce = renderer.root.findByType(DiffTab).props.refreshNonce;
     select(3);
+    expect(renderer.root.findByType(DiffTab).props.refreshNonce).toBe(nonce);
     expect(renderer.root.findByProps({ className: 'cardChatView cardView active' })).toBeTruthy();
     select(4);
     expect(renderer.root.findByProps({ className: 'cardTerminalView cardView active' })).toBeTruthy();
@@ -92,12 +96,69 @@ describe('project workspace tab shortcuts', () => {
   });
 });
 
+describe('Diff selection refresh', () => {
+  it('refreshes Project Workspace once per mouse or keyboard selection, preserving review state', async () => {
+    vi.mocked(invoke).mockResolvedValue({ branch: 'main', status: 'ok' });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<DirectProjectWork project={project} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} onClose={() => {}} />); });
+    const nonce = () => renderer.root.findByType(DiffTab).props.refreshNonce;
+    const initial = nonce();
+    draft(review);
+    const comments = review.comments;
+    vi.mocked(invoke).mockClear();
+    click(renderer, 'Diff');
+    expect(nonce()).toBe(initial + 1);
+    click(renderer, 'Diff');
+    expect(nonce()).toBe(initial + 2);
+    act(() => applicationEvents.publish('card-tab-shortcut', { number: 3 }));
+    expect(nonce()).toBe(initial + 3);
+    click(renderer, 'Notes');
+    act(() => applicationEvents.publish('card-tab-shortcut', { direction: 1 }));
+    expect(nonce()).toBe(initial + 4);
+    click(renderer, 'Notes');
+    act(() => applicationEvents.publish('card-tab-shortcut', { number: 3 }));
+    expect(nonce()).toBe(initial + 5);
+    expect(invoke).not.toHaveBeenCalledWith('git_info', expect.anything());
+    await act(async () => renderer.root.findByProps({ 'aria-label': 'Refresh diff' }).props.onClick());
+    expect(nonce()).toBe(initial + 6);
+    expect(invoke).toHaveBeenCalledWith('git_info', { path: '/repo' });
+    expect(review.comments).toBe(comments);
+    expect(review.overallComment).toBe('overall');
+    expect(review.reviewedFiles.has('src/a.ts')).toBe(true);
+    expect(review.openDiff?.path).toBe('src/a.ts');
+    act(() => renderer.unmount());
+    vi.mocked(invoke).mockResolvedValue(null);
+  });
+});
+
 describe('diff review Close', () => {
   it('cancels the card review and returns to chat', async () => {
     const card = { id: 'c', project_id: 'p', status: 'agent_working', capabilities: [], environment: { worktree_path: '/repo', target_branch: 'main' } };
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} cardServices={{} as never} projects={[project]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView="diff" gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={() => {}} onUpdate={async () => card as never} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={async () => true} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} onToggleServer={() => {}} />); });
+    const nonce = () => renderer.root.findByType(CardDiffView).props.refreshNonce;
+    const initial = nonce();
     draft(review);
+    const comments = review.comments;
+    click(renderer, 'Description');
+    expect(nonce()).toBe(initial);
+    click(renderer, 'Diff');
+    expect(nonce()).toBe(initial + 1);
+    click(renderer, 'Diff');
+    expect(nonce()).toBe(initial + 2);
+    act(() => applicationEvents.publish('card-tab-shortcut', { number: 3 }));
+    expect(nonce()).toBe(initial + 3);
+    click(renderer, 'Description');
+    act(() => applicationEvents.publish('card-tab-shortcut', { number: 3 }));
+    expect(nonce()).toBe(initial + 4);
+    act(() => applicationEvents.publish('card-tab-shortcut', { direction: -1 }));
+    act(() => applicationEvents.publish('card-tab-shortcut', { direction: 1 }));
+    expect(nonce()).toBe(initial + 5);
+    act(() => renderer.root.findByProps({ 'aria-label': 'Refresh diff' }).props.onClick());
+    expect(nonce()).toBe(initial + 6);
+    expect(review.comments).toBe(comments);
+    expect(review.overallComment).toBe('overall');
+    expect(review.reviewedFiles.has('src/a.ts')).toBe(true);
     expect(renderer.root.findByType(CardDiffView).props.active).toBe(true);
     click(renderer, 'Close diff');
     expectEmpty(review);

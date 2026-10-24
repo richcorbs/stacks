@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GitInfo, Project } from '../types';
 import { projectColorAttribute } from '../projectColor';
@@ -99,18 +99,24 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
     return () => window.removeEventListener('keydown', closeOnEscape, true);
   }, [project.id, onClose]);
 
+  const requestView = useCallback((view: WorkView) => {
+    if (!tabs.includes(view)) return;
+    setActiveView(view);
+    if (view === 'diff') setDiffRefreshNonce((nonce) => nonce + 1);
+  }, [tabs]);
+
   useEffect(() => {
     const handleTabs = (detail: { number?: number; direction?: -1 | 1 }) => {
       if (detail?.number) {
         const target = displayedTabs[detail.number - 1];
-        if (target && tabs.includes(target)) setActiveView(target);
+        if (target) requestView(target);
       } else if (detail?.direction) {
         const index = Math.max(0, tabs.indexOf(activeView));
-        setActiveView(tabs[(index + detail.direction + tabs.length) % tabs.length]);
+        requestView(tabs[(index + detail.direction + tabs.length) % tabs.length]);
       }
     };
     return applicationEvents.subscribe('card-tab-shortcut', handleTabs);
-  }, [activeView, displayedTabs, tabs]);
+  }, [activeView, displayedTabs, requestView, tabs]);
 
   function submitDiffReview() {
     const prompt = composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments);
@@ -135,7 +141,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         <ProjectWorkspaceHeader project={project} gitState={gitState} onClose={requestClose} />
         <nav className="cardWorkspaceTabs" aria-label={PROJECT_WORKSPACE_VIEWS_LABEL}>
           {displayedTabs.map((tab) => tab === 'diff' ? <span key={tab} className={`cardDiffTab${activeView === tab ? ' active' : ''}`}>
-            <button className="cardDiffTabLabel" type="button" disabled={!isGit} title={!isGit ? 'Not a Git repository' : undefined} onClick={() => setActiveView(tab)}>Diff</button>
+            <button className="cardDiffTabLabel" type="button" disabled={!isGit} title={!isGit ? 'Not a Git repository' : undefined} onClick={() => requestView(tab)}>Diff</button>
             <button className="cardDiffRefresh" type="button" disabled={!isGit} aria-label="Refresh diff" onClick={() => { setDiffRefreshNonce((n) => n + 1); void refreshGit(); }}><span className="diffRefreshIcon" /></button>
           </span> : tab === 'server' || tab === 'console' ? <ServiceTab key={tab} mode={tab} active={activeView === tab} commandActive={tab === 'server' ? serverActive : consoleActive} onSelect={() => setActiveView(tab)} onToggle={() => toggleService(tab)} />
             : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'notes' ? 'Notes' : tab === 'release' ? 'Release' : 'Terminal'}</button>)}

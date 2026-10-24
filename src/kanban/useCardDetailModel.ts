@@ -5,12 +5,13 @@ import { canEditKanbanCard, hasDirtyCardDraft } from './cardEditing';
 import { initialCardView, type CardView } from './cardView';
 import { availableCardDetailTabs, displayedCardDetailTabs, CardRevisionTracker, resolveCardDetailNavigation, validCardDetailView, type CardDetailNavigationCommand, type CardDetailTabAvailability } from './cardDetailModel';
 
-export function useCardDetailModel({ card, initialView, availability, onUpdate, confirmDiscard }: {
+export function useCardDetailModel({ card, initialView, availability, onUpdate, confirmDiscard, onViewSelected }: {
   card: KanbanCard;
   initialView?: CardView;
   availability: CardDetailTabAvailability;
   onUpdate: (title: string, content: string) => Promise<KanbanCard>;
   confirmDiscard?: () => boolean | Promise<boolean>;
+  onViewSelected?: (view: CardView) => void;
 }) {
   const confirmation = useConfirmation(`${card.id}:${card.record_revision}`);
   const latest = useRef({ card, saving: false, draftTitle: card.title, draftContent: card.content });
@@ -47,16 +48,21 @@ export function useCardDetailModel({ card, initialView, availability, onUpdate, 
   }, [confirmDiscard, confirmation.confirm, dirty, editing]);
   const command = useCallback((value: CardDetailNavigationCommand) => {
     const target = resolveCardDetailNavigation(activeView, tabs, displayedTabs, value);
-    if (!target || target === activeView) return Boolean(target);
+    if (!target) return false;
+    if (target === activeView) {
+      onViewSelected?.(target);
+      return true;
+    }
     const navigate = (accepted: boolean) => {
       if (!accepted || savingRef.current || navigation.current.activeView !== activeView || !navigation.current.tabs.includes(target)) return false;
       if (editing) cancel();
       setActiveView(target);
+      onViewSelected?.(target);
       return true;
     };
     const result = mayLeave();
     return typeof result === 'boolean' ? navigate(result) : result.then(navigate);
-  }, [activeView, cancel, displayedTabs, editing, mayLeave, tabs]);
+  }, [activeView, cancel, displayedTabs, editing, mayLeave, onViewSelected, tabs]);
   const begin = useCallback(() => {
     if (!editable || activeView !== 'overview') return false;
     setDraftTitle(card.title); setDraftContent(card.content); setEditError(null); setEditing(true); return true;

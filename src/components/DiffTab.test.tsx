@@ -26,7 +26,8 @@ describe('DiffTab', () => {
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockResolvedValue({ files: [{ path: 'src/a.ts', status: 'M' }, { path: 'src/b.ts', status: 'A' }] });
     let renderer!: TestRenderer.ReactTestRenderer;
-    const render = (refreshNonce: number) => <DiffTab activePath="/repo" comparisonTarget="refs/heads/main" refreshNonce={refreshNonce} review={review} />;
+    const currentReview = { ...review, overallComment: 'Keep this review', comments: [{ id: 'one', filePath: 'src/a.ts', side: 'file' as const, line: null, body: 'Check this' }], reviewedFiles: new Set(['src/a.ts']) };
+    const render = (refreshNonce: number) => <DiffTab activePath="/repo" comparisonTarget="refs/heads/main" refreshNonce={refreshNonce} review={currentReview} />;
     await act(async () => { renderer = TestRenderer.create(render(0)); });
     const tree = () => renderer.root.findByProps({ role: 'tree' });
     expect(tree().props['aria-label']).toBe('Changed files');
@@ -44,7 +45,13 @@ describe('DiffTab', () => {
     expect(tree().findAllByProps({ className: 'diffFileOpen' })).toHaveLength(0);
     act(() => tree().findByProps({ className: 'diffTreeRow diffFolderRow' }).props.onClick());
     expect(tree().findAllByProps({ className: 'diffFileOpen' })).toHaveLength(2);
+    act(() => tree().findByProps({ className: 'diffTreeRow diffFolderRow' }).props.onClick());
     await act(async () => { renderer.update(render(1)); });
+    expect(tree().findByProps({ 'aria-expanded': false })).toBeTruthy();
+    act(() => tree().findByProps({ className: 'diffTreeRow diffFolderRow' }).props.onClick());
+    expect(tree().findByProps({ 'aria-label': 'src/a.ts' }).props.className).toContain('reviewed');
+    expect(tree().findByProps({ className: 'diffCommentCount' }).children).toEqual(['1']);
+    expect(currentReview.overallComment).toBe('Keep this review');
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(invoke).toHaveBeenNthCalledWith(1, 'git_diff_files', { path: '/repo', comparisonTarget: 'refs/heads/main' });
     expect(invoke).toHaveBeenNthCalledWith(2, 'git_diff_files', { path: '/repo', comparisonTarget: 'refs/heads/main' });
@@ -65,6 +72,42 @@ describe('DiffTab', () => {
     await act(async () => { renderer.update(<DiffTab activePath="/repo" comparisonTarget="main" refreshNonce={1} review={review} />); });
     expect(renderer.root.findByProps({ className: 'superthreadState superthreadError' }).children).toEqual(['Error: Repository unavailable']);
     expect(renderer.root.findAllByProps({ role: 'tree' })).toHaveLength(0);
+    act(() => renderer.unmount());
+  });
+
+  it.each(['resolve', 'reject'] as const)('ignores a superseded file-list %s after refresh', async (outcome) => {
+    let resolveOld!: (value: unknown) => void;
+    let rejectOld!: (reason: Error) => void;
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockReturnValueOnce(new Promise((resolve, reject) => { resolveOld = resolve; rejectOld = reject; }))
+      .mockResolvedValueOnce({ files: [{ path: 'new.ts', status: 'A' }] });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    const render = (refreshNonce: number) => <DiffTab activePath="/repo" comparisonTarget="main" refreshNonce={refreshNonce} review={review} />;
+    await act(async () => { renderer = TestRenderer.create(render(0)); });
+    await act(async () => { renderer.update(render(1)); });
+    await act(async () => { if (outcome === 'resolve') resolveOld({ files: [{ path: 'old.ts', status: 'M' }] }); else rejectOld(new Error('Stale failure')); });
+    expect(renderer.root.findAllByProps({ className: 'superthreadState superthreadError' })).toHaveLength(0);
+    expect(renderer.root.findAllByProps({ className: 'diffFileOpen' }).map((button) => button.props['aria-label'])).toEqual(['Open new.ts']);
+    act(() => renderer.unmount());
+  });
+
+  it('invalidates pending patches on refresh without reloading or replacing the open patch', async () => {
+    let resolvePatch!: (value: unknown) => void;
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockImplementation((command) => command === 'git_file_diff'
+      ? new Promise((resolve) => { resolvePatch = resolve; })
+      : Promise.resolve({ files: [{ path: 'a.ts', status: 'M' }] }));
+    const currentReview = { ...review, openDiff: { path: 'existing.ts', patch: 'existing patch' }, setOpenDiff: vi.fn(), reset: vi.fn() };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    const render = (refreshNonce: number) => <DiffTab activePath="/repo" comparisonTarget="main" refreshNonce={refreshNonce} review={currentReview} />;
+    await act(async () => { renderer = TestRenderer.create(render(0)); });
+    act(() => renderer.root.findByProps({ className: 'diffFileOpen' }).props.onClick());
+    await act(async () => { renderer.update(render(1)); });
+    await act(async () => { resolvePatch({ path: 'a.ts', patch: 'stale patch' }); });
+    expect(currentReview.setOpenDiff).not.toHaveBeenCalled();
+    expect(currentReview.reset).not.toHaveBeenCalled();
+    expect(currentReview.openDiff.patch).toBe('existing patch');
+    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'git_file_diff')).toHaveLength(1);
     act(() => renderer.unmount());
   });
 
