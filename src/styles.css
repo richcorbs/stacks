@@ -1023,19 +1023,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   background: #0c131b;
   overflow: hidden;
 }
-.diffReviewToolbar { flex: 0 0 auto; }
-.diffReviewGlobalActions {
-  height: 38px;
-  padding: 0 11px 0 14px;
-  border-bottom: 1px solid #263647;
-  background: #0e1720;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.diffReviewGlobalActions strong { min-width: 0; flex: 1; color: #8294a7; font-size: calc(10px + var(--ui-font-delta, 0px)); letter-spacing: .08em; text-transform: uppercase; }
-.diffOverlayHeader {
+.diffReviewToolbar {
   height: 42px;
   flex: 0 0 42px;
   padding: 0 11px 0 14px;
@@ -1043,13 +1031,20 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   background: #121c27;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
-.diffOverlayHeader strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c2cedb; font: calc(12px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; }
-.diffReviewToolbar button { min-height: 28px; padding: 5px 9px; border: 1px solid #34485e; border-radius: 5px; background: #192635; color: #aebdcb; cursor: pointer; font-size: calc(11px + var(--ui-font-delta, 0px)); white-space: nowrap; }
+.diffReviewToolbar > * { flex-shrink: 0; }
+.diffReviewToolbar .diffReviewPath { flex-shrink: 1; }
+.diffReviewPath { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c2cedb; font: calc(12px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; }
+.diffReviewToolbar button { min-height: 28px; padding: 5px 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #aebdcb; cursor: pointer; font-size: calc(11px + var(--ui-font-delta, 0px)); white-space: nowrap; }
 .diffReviewToolbar button:hover { background: #223247; color: #e0e8f0; }
-.diffReviewToolbar button.active { border-color: #47749c; color: #c9d9e8; }
-.diffReviewToolbar button.reviewed { border-color: #397650; background: #193426; color: #8bd5a3; }
+.diffReviewedCheckbox { display: flex; align-items: center; gap: 5px; color: #aebdcb; cursor: pointer; white-space: nowrap; font-size: calc(11px + var(--ui-font-delta, 0px)); }
+.diffReviewedCheckbox input { margin: 0; accent-color: #71b98a; cursor: pointer; }
+.diffCommentDropdown { position: relative; }
+.diffCommentOptions { position: absolute; top: calc(100% + 4px); right: 0; z-index: 1; min-width: 150px; padding: 4px; border: 1px solid #34485e; border-radius: 6px; background: #152230; box-shadow: 0 6px 18px #0006; }
+.diffCommentOptions button { display: block; width: 100%; text-align: left; }
+.diffReviewToolbar button.diffClose { width: 28px; padding: 0; font-size: calc(20px + var(--ui-font-delta, 0px)); }
+.diffReviewToolbar button:focus-visible, .diffReviewedCheckbox input:focus-visible { outline: 2px solid #729fc7; outline-offset: 2px; }
 .diffReviewToolbar button.diffSubmitReview { border-color: #477ba9; background: #285f8c; color: #f1f7fc; }
 .diffReviewToolbar button:disabled { cursor: not-allowed; opacity: .45; }
 .diffOverlayContent { min-height: 0; flex: 1; overflow: auto; }
