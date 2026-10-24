@@ -11,6 +11,9 @@ export function DiffOverlay({ review, fontSize, canSubmit, onSubmit, onClose }: 
   onClose: () => void;
 }) {
   const [overallOpen, setOverallOpen] = useState(Boolean(review.overallComment));
+  const [commentMenuOpen, setCommentMenuOpen] = useState(false);
+  const commentMenuRef = useRef<HTMLDivElement>(null);
+  const commentButtonRef = useRef<HTMLButtonElement>(null);
   const [contentWidth, setContentWidth] = useState(0);
   const [visibleLineLimit, setVisibleLineLimit] = useState(2_000);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -28,6 +31,16 @@ export function DiffOverlay({ review, fontSize, canSubmit, onSubmit, onClose }: 
   }, [diff, review.comments]);
 
   useEffect(() => setVisibleLineLimit(2_000), [diff?.patch, diff?.path]);
+  useEffect(() => setCommentMenuOpen(false), [diff?.path]);
+
+  useEffect(() => {
+    if (!commentMenuOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!commentMenuRef.current?.contains(event.target as Node)) setCommentMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [commentMenuOpen]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -55,17 +68,36 @@ export function DiffOverlay({ review, fontSize, canSubmit, onSubmit, onClose }: 
       '--diff-comment-font-size': `${Math.max(8, fontSize - 1)}px`,
     } as CSSProperties} role="region" aria-label={`Diff for ${diff.path}`}>
       <header className="diffReviewToolbar">
-        <div className="diffReviewGlobalActions">
-          <strong>Review changes</strong>
-          <button type="button" className={overallOpen ? 'active' : ''} onClick={() => setOverallOpen((open) => !open)}>Overall comment</button>
-          <button type="button" className="diffSubmitReview" disabled={!canSend} title={!canSubmit ? 'Focus a Pi GUI terminal before submitting' : undefined} onClick={onSubmit}>Submit review</button>
-          <button type="button" onClick={onClose} aria-label="Close diff">Close</button>
+        <strong className="diffReviewPath" title={diff.path}>{diff.path}</strong>
+        <label className="diffReviewedCheckbox">
+          <input type="checkbox" checked={reviewed} onChange={() => review.toggleReviewed(diff.path)} />
+          Reviewed
+        </label>
+        <div className="diffCommentDropdown" ref={commentMenuRef} onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setCommentMenuOpen(false);
+        }} onKeyDown={(event) => {
+          if (event.key === 'Escape' && commentMenuOpen) {
+            event.stopPropagation();
+            setCommentMenuOpen(false);
+            commentButtonRef.current?.focus();
+          }
+        }}>
+          <button type="button" ref={commentButtonRef} aria-expanded={commentMenuOpen} onClick={() => setCommentMenuOpen((open) => !open)}>Comment <span aria-hidden="true">▾</span></button>
+          {commentMenuOpen && <div className="diffCommentOptions">
+            <button type="button" onClick={() => {
+              setCommentMenuOpen(false);
+              commentButtonRef.current?.focus();
+              review.addComment({ filePath: diff.path, side: 'file', line: null });
+            }}>File comment</button>
+            <button type="button" aria-pressed={overallOpen} onClick={() => {
+              setCommentMenuOpen(false);
+              commentButtonRef.current?.focus();
+              setOverallOpen((open) => !open);
+            }}>Overall comment</button>
+          </div>}
         </div>
-        <div className="diffOverlayHeader">
-          <strong>{diff.path}</strong>
-          <button type="button" onClick={() => review.addComment({ filePath: diff.path, side: 'file', line: null })}>File comment</button>
-          <button type="button" className={reviewed ? 'reviewed' : ''} onClick={() => review.toggleReviewed(diff.path)}>{reviewed ? 'Reviewed' : 'Mark reviewed'}</button>
-        </div>
+        <button type="button" className="diffSubmitReview" disabled={!canSend} title={!canSubmit ? 'Focus a Pi GUI terminal before submitting' : undefined} onClick={onSubmit}>Submit review</button>
+        <button type="button" className="diffClose" onClick={onClose} aria-label="Close diff" title="Close diff">×</button>
       </header>
       {overallOpen && (
         <section className="diffReviewEditor diffOverallComment">
