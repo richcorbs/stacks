@@ -186,7 +186,7 @@ html.kanbanDragging, html.kanbanDragging * { cursor: grabbing !important; }
 .kanbanCardSourceLeft { min-width: 0; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .kanbanCardSourceLeft .kanbanCardNumber { flex: 0 0 auto; }
 .kanbanProjectBadge { min-width: 0; max-width: 100%; display: inline-block; padding: 3px 8px; overflow: hidden; border: 1px solid #34495d; border-radius: 999px; background: var(--surface-parent); color: #687c92; font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif; text-transform: none; text-overflow: ellipsis; letter-spacing: normal; white-space: nowrap; }
-.kanbanCardSourceLeft > .kanbanProjectBadge { flex: 0 10 auto; max-width: 150px; font-size: calc(10px + var(--ui-font-delta, 0px)); }
+.kanbanCardSourceLeft > .kanbanProjectBadge { flex: 0 10 auto; max-width: 150px; padding: 4px 8px; font-size: calc(11px + var(--ui-font-delta, 0px)); }
 .kanbanCardSourceLeft > .kanbanCardStatusBadge { flex: 0 1 auto; min-width: 55px; }
 .kanbanProviderBoardTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kanbanProjectBadge.invalid { border-color: #75424b; background: #351f25; color: #f1a8b0; }

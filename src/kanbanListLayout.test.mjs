@@ -26,7 +26,12 @@ describe('Kanban List layout', () => {
     expect(declarationsFor('.kanbanListRow .kanbanCardSource')).toContain('flex-wrap: wrap');
     expect(declarationsFor('.kanbanListRow .kanbanCardSourceLeft')).toContain('flex-wrap: wrap');
     const badges = declarationsFor('.kanbanListRow .kanbanCardSourceLeft > .kanbanProjectBadge,\n.kanbanListRow .kanbanCardSourceLeft > .kanbanCardStatusBadge');
+    expect(badges).toContain('flex: 0 0 auto');
+    expect(badges).toContain('min-width: 0');
     expect(badges).toContain('max-width: 100%');
+    // List wrapping must not override the shared heading font or padding.
+    expect(badges).not.toMatch(/(?:^|;)\s*(?:font(?:-[\w-]+)?|padding(?:-[\w-]+)?|line-height|height):/);
+    expect(badges).toContain('text-overflow: clip');
     expect(badges).toContain('overflow: visible');
     expect(badges).toContain('white-space: normal');
     expect(badges).toContain('overflow-wrap: anywhere');
