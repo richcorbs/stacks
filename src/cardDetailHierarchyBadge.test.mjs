@@ -15,9 +15,9 @@ describe('card detail parent hierarchy badge styling', () => {
     const declarations = declarationsFor('.kanbanDetail > header button.kanbanHierarchyBadge.parent');
 
     expect(declarations).toContain('padding: 3px 8px');
-    expect(declarations).toContain('border: 1px solid #384858');
+    expect(declarations).toContain('border: 1px solid var(--kanban-border)');
     expect(declarations).toContain('border-radius: 999px');
-    expect(declarations).toContain('background: #18222d');
+    expect(declarations).toContain('background: var(--surface-parent)');
     expect(declarations).toContain('color: #91a4b6');
     expect(declarations).toContain('font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif');
   });
@@ -28,8 +28,8 @@ describe('card detail parent hierarchy badge styling', () => {
   ])('retains neutral hierarchy colors for %s', (selector) => {
     const declarations = declarationsFor(selector);
 
-    expect(declarations).toContain('border-color: #384858');
-    expect(declarations).toContain('background: #18222d');
+    expect(declarations).toContain('border-color: var(--kanban-border)');
+    expect(declarations).toContain('background: var(--surface-parent)');
     expect(declarations).toContain('color: #91a4b6');
   });
 

@@ -12,12 +12,12 @@ function declarationsFor(selector) {
 
 describe('shared card workspace tab alignment', () => {
   it('keeps card workspace chrome stable while switching views', () => {
-    expect(declarationsFor('.kanbanDetail.cardWorkspace')).toContain('background: #0c1219');
+    expect(declarationsFor('.kanbanDetail.cardWorkspace')).toContain('background: var(--surface-inset)');
     const header = declarationsFor('.kanbanDetail.cardWorkspace > header');
     const tabs = declarationsFor('.kanbanDetail.cardWorkspace .cardWorkspaceTabs');
-    expect(header).toContain('background: #0c1219');
+    expect(header).toContain('background: var(--surface-inset)');
     expect(header).toContain('border-bottom: 0');
-    expect(tabs).toContain('background: #0c1219');
+    expect(tabs).toContain('background: var(--surface-inset)');
     expect(tabs).toContain('border-bottom: 1px solid #223142');
   });
 
@@ -48,7 +48,7 @@ describe('shared card workspace tab alignment', () => {
     expect(service).toContain('align-self: stretch');
     expect(service).toContain('align-items: end');
     expect(diff).toContain('align-self: stretch');
-    expect(declarationsFor('.cardDiffTab:hover, .cardServiceTab:hover')).toContain('background: #2b4058');
+    expect(declarationsFor('.cardDiffTab:hover, .cardServiceTab:hover')).toContain('background: var(--surface-drag)');
   });
 
   it('reserves the extra trailing inset for icon-bearing tabs', () => {
@@ -69,7 +69,7 @@ describe('shared card workspace tab alignment', () => {
 
   it('includes grouped action icons in the tab hover treatment', () => {
     const groupedTabs = declarationsFor('.cardDiffTab:hover, .cardServiceTab:hover');
-    expect(groupedTabs).toContain('background: #2b4058');
+    expect(groupedTabs).toContain('background: var(--surface-drag)');
 
     const controls = declarationsFor(
       '.cardWorkspaceTabs button.cardServiceToggle:hover, .cardWorkspaceTabs button.cardDiffRefresh:hover, .cardServiceTab:hover button.cardServiceToggle, .cardDiffTab:hover button.cardDiffRefresh',

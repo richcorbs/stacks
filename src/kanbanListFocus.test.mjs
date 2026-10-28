@@ -25,10 +25,10 @@ describe('Kanban list keyboard focus paint order', () => {
   });
 
   it('uses the same subdued neutral border for populated attention sections regardless of project color', () => {
-    expect(declarationsFor('.kanbanListGroup')).toMatch(/border:\s*1px solid #253546/);
+    expect(declarationsFor('.kanbanListGroup')).toContain('border: 1px solid var(--kanban-border-subtle)');
     expect(declarationsFor('.kanbanListGroup[data-kanban-group="attention"][data-populated="true"]'))
-      .toMatch(/border-color:\s*#344656/);
+      .toContain('border-color: var(--kanban-border-hover)');
     expect(declarationsFor('.kanbanList[data-project-color] .kanbanListGroup[data-kanban-group="attention"][data-populated="true"]'))
-      .toMatch(/border-color:\s*#344656/);
+      .toContain('border-color: var(--kanban-border-hover)');
   });
 });
