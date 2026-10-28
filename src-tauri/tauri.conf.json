@@ -15,7 +15,7 @@
         "title": "Stacks",
         "width": 1200,
         "height": 800,
-        "backgroundColor": "#080b10",
+        "backgroundColor": "#0f0f0f",
         "dragDropEnabled": true,
         "titleBarStyle": "Transparent",
         "minWidth": 780,

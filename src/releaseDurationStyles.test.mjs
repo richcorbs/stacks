@@ -33,7 +33,7 @@ describe('release disclosure cards', () => {
   it('shares subdued card styling and full-width headers with visible disclosure indicators', () => {
     const card = declarationsFor('.releaseDisclosureCard');
     expect(card).toContain('border: 1px solid #25384a');
-    expect(card).toContain('background: #0f1922');
+    expect(card).toContain('background: var(--surface-panel)');
     expect(card).toContain('margin-top: 14px');
     expect(declarationsFor('.releaseDisclosure')).toContain('width: 100%');
     expect(declarationsFor('.releaseDisclosure')).toContain('justify-content: space-between');
