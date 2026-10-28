@@ -4,28 +4,21 @@
       <stop offset="0" stop-color="#000000"/>
       <stop offset="1" stop-color="#0C1D32"/>
     </linearGradient>
-    <linearGradient id="lanes" x1="0" y1="103" x2="0" y2="409" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#355673"/>
-      <stop offset="1" stop-color="#213B55"/>
-    </linearGradient>
     <filter id="soft-shadow" x="-10%" y="-40%" width="120%" height="180%">
       <feGaussianBlur stdDeviation="4"/>
     </filter>
   </defs>
+  <g transform="translate(50 50) scale(0.8046875)">
   <rect width="512" height="512" rx="106" fill="url(#background)"/>
-  <g fill="url(#lanes)">
-    <rect x="83" y="103" width="104" height="306" rx="26"/>
-    <rect x="204" y="103" width="104" height="306" rx="26"/>
-    <rect x="325" y="103" width="104" height="306" rx="26"/>
-  </g>
   <g fill="#000" opacity=".30" filter="url(#soft-shadow)">
-    <rect x="112" y="138" width="288" height="37" rx="18.5"/>
-    <rect x="112" y="209" width="288" height="37" rx="18.5"/>
-    <rect x="112" y="280" width="288" height="37" rx="18.5"/>
-    <rect x="112" y="351" width="288" height="37" rx="18.5"/>
+    <rect x="80" y="125" width="352" height="56" rx="14"/>
+    <rect x="80" y="198" width="352" height="56" rx="14"/>
+    <rect x="80" y="271" width="352" height="56" rx="14"/>
+    <rect x="80" y="344" width="352" height="56" rx="14"/>
   </g>
-  <rect x="112" y="131" width="288" height="37" rx="18.5" fill="#EAF6FF"/>
-  <rect x="112" y="202" width="288" height="37" rx="18.5" fill="#CDE8FF"/>
-  <rect x="112" y="273" width="288" height="37" rx="18.5" fill="#A9D5F3"/>
-  <rect x="112" y="344" width="288" height="37" rx="18.5" fill="#7EAED1"/>
+  <rect x="80" y="118" width="352" height="56" rx="14" fill="#EAF6FF"/>
+  <rect x="80" y="191" width="352" height="56" rx="14" fill="#CDE8FF"/>
+  <rect x="80" y="264" width="352" height="56" rx="14" fill="#A9D5F3"/>
+  <rect x="80" y="337" width="352" height="56" rx="14" fill="#7EAED1"/>
+  </g>
 </svg>
