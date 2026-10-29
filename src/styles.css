@@ -1403,14 +1403,19 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseLog a { color: #79add8; }
 .releaseActions { margin-top: 14px; }
 .releaseHistoryRow { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 7px 0; border-top: 1px solid #223142; color: #8094a6; font-size: 12px; }
-.cleanupPreflightModal { width: min(560px, 100%); }
+.cleanupPreflightModal { width: min(560px, 100%); padding: 16px; gap: 8px; }
 .cleanupPreflightModal:focus { outline: none; }
-.cleanupPreflightList { overflow: auto; display: grid; gap: 10px; }
-.cleanupPreflightEntry { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; border: 1px solid #2d3d4f; border-radius: 8px; padding: 12px; background: rgb(10 10 10 / .55); }
+/* Match the scrollport inset and classic scrollbar gutter in all three sections.
+   Four pixels of padding also clear the footer buttons' keyboard focus outlines. */
+.cleanupPreflightModal > :is(h2, .cleanupPreflightList, .modalActions) { margin: 0; padding: 4px; scrollbar-gutter: stable; }
+.cleanupPreflightModal > :is(h2, .modalActions) { overflow: hidden; }
+.cleanupPreflightList { overflow: auto; display: grid; gap: 12px; }
+.cleanupPreflightEntry { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; border: 1px solid #2d3d4f; border-radius: 8px; padding: 12px; background: rgb(10 10 10 / .55); }
+.cleanupPreflightEntry > strong { min-width: 0; max-width: 100%; }
 .cleanupPreflightEntry.blocked { border-color: rgba(211, 99, 99, .55); }
-.cleanupPreflightStatus { display: flex; flex-wrap: wrap; gap: 12px; color: #8091a5; }
-.cleanupOverride { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; color: #d9a1a1; }
-.cleanupOverride input { margin: 0; }
+.cleanupPreflightStatus { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px 12px; color: #8091a5; }
+.cleanupPreflightModal .cleanupOverride { flex-basis: 100%; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; color: #d9a1a1; }
+.cleanupPreflightModal .cleanupOverride input { flex: none; width: auto; margin: 0; padding: 0; }
 
 /* Project accents live on owner boundaries. Unowned/global content never inherits a board filter. */
 [data-project-color="blue"] { --project-accent: #3b82f6; --project-badge-color: #687c92; --project-badge-border: #34495d; --project-badge-surface: #172431; --project-tab-accent: #6295c2; --project-note-focus: #466987; --project-status-color: #cce6fa; --project-status-border: #52799c; --project-status-surface: #243e56; --project-detail-status-color: #9fc2df; --project-detail-status-border: #36506a; --project-detail-status-surface: #172838; --project-card-number: #96aabd; --project-card-hover-border: #344f69; --project-card-hover-surface: #192838; }
