@@ -1,27 +1,25 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent } from 'react';
 import { hasActiveConfirmation } from '../components/ConfirmationBoundary';
 import { handleMetaShortcutKeyDown } from '../keyboardShortcutRouter';
 import type { ShortcutHandlers } from '../shortcutTypes';
 
 export function useKeyboardShortcuts(handlers: ShortcutHandlers, isInteractionBlocked: () => boolean = () => false) {
-  const handlersRef = useRef(handlers);
-  const blockedRef = useRef(isInteractionBlocked);
-  handlersRef.current = handlers;
-  blockedRef.current = isInteractionBlocked;
+  // These callbacks belong to the subscription, but read the latest committed
+  // handlers/blocker without making their identities listener dependencies.
+  const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (isInteractionBlocked()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (!hasActiveConfirmation()) handleMetaShortcutKeyDown(event, handlers);
+  });
+  const onKeyUp = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key === 'Meta') handlers.setMetaKeyDown(false);
+  });
+  const onBlur = useEffectEvent(() => handlers.setMetaKeyDown(false));
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (blockedRef.current()) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        return;
-      }
-      if (!hasActiveConfirmation()) handleMetaShortcutKeyDown(event, handlersRef.current);
-    };
-    const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'Meta') handlersRef.current.setMetaKeyDown(false);
-    };
-    const onBlur = () => handlersRef.current.setMetaKeyDown(false);
     window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('keyup', onKeyUp, true);
     window.addEventListener('blur', onBlur);
