@@ -1000,6 +1000,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .diffFileRow.selected.reviewed .diffTreeName { color: #eef5fc; }
 .diffTreeRow:disabled { cursor: wait; opacity: .65; }
 .diffFolderRow { color: #a0afbf; }
+/* Navigation position is an inset outline; the opened file retains its selected fill. */
+.diffTreeRow[data-navigation-highlight="true"] { box-shadow: inset 0 0 0 1px #8daecc; }
 .diffTreeName { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px + var(--ui-font-delta, 0px)); text-transform: none; }
 .diffFileStatus { flex: 0 0 18px; font: calc(10px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 .diffCommentCount { min-width: 17px; padding: 1px 4px; border-radius: 8px; background: var(--surface-selected); color: #91abc4; font: calc(9px + var(--ui-font-delta, 0px)) ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
