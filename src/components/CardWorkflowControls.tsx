@@ -17,6 +17,7 @@ export function CardWorkflowControls({ actions, working, onAction }: {
     key={action.kind}
     type="button"
     className={[action.primary && 'primaryAction', action.appearance && appearanceClasses[action.appearance]].filter(Boolean).join(' ')}
+    data-card-action={action.appearance === 'danger-ghost' ? 'danger-tertiary' : action.appearance === 'neutral-ghost' ? 'tertiary' : action.primary ? 'primary' : 'secondary'}
     disabled={(working && action.kind !== 'cancel_deployment') || Boolean(action.disabledReason)}
     title={action.disabledReason}
     aria-label={action.label}

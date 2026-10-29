@@ -464,8 +464,8 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
         {(editing || (actionRowVisible && (workflowActions.length > 0 || card.scripted_delivery))) && <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
           {editing ? (
             <div className="kanbanEditActions">
-              <button type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
-              <button className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
+              <button data-card-action="secondary" type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
+              <button data-card-action="primary" className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
                 <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
               </button>
             </div>

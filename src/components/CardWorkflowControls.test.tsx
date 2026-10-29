@@ -78,6 +78,18 @@ describe('CardWorkflowControls', () => {
     expect(rightGroup).toContain('class="workflowActionDangerGhost"');
     expect(rightGroup.indexOf('Close without delivery')).toBeLessThan(rightGroup.indexOf('Delete card'));
     expect(markup).not.toContain('destructiveAction');
+    expect(rightGroup).toContain('data-card-action="tertiary"');
+    expect(rightGroup).toContain('data-card-action="danger-tertiary"');
+    expect(leftGroup).toContain('data-card-action="secondary"');
+  });
+
+  it('keeps ghost variants tertiary even when they are the primary action', () => {
+    for (const [appearance, variant] of [['neutral-ghost', 'tertiary'], ['danger-ghost', 'danger-tertiary']] as const) {
+      const markup = renderToStaticMarkup(<CardWorkflowControls actions={[{ kind: 'close', label: 'Close', primary: true, appearance }]} working={false} onAction={() => {}} />);
+      expect(markup).toContain('primaryAction');
+      expect(markup).toContain(`data-card-action="${variant}"`);
+    }
+    expect(renderToStaticMarkup(<CardWorkflowControls actions={actions} working onAction={() => {}} />)).toContain('data-card-action="primary"');
   });
 
   it('restores each action’s normal availability after workflow progress settles', () => {

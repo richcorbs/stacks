@@ -44,6 +44,24 @@ function key(metaKey = true, shiftKey = false) {
 }
 
 describe('card workflow shortcut', () => {
+  it.each(['rose', undefined, 'invalid'] as const)('themes the detail from its owner (%s), not another project', async (color) => {
+    const { renderer } = await mount({ initialView: 'overview' });
+    const props = renderer.root.findByType(KanbanCardDetail).props as ComponentProps<typeof KanbanCardDetail>;
+    act(() => renderer.update(<KanbanCardDetail {...props} projects={[
+      { ...project, id: 'selected-project', color_id: 'green' } as never,
+      { ...project, color_id: color } as never,
+    ]} />));
+    expect(renderer.root.findByType('article').props['data-project-color']).toBe(color === 'rose' ? 'rose' : 'blue');
+    expect(renderer.root.findByProps({ 'aria-label': 'Edit card' }).props['data-card-action']).toBe('tertiary');
+    expect(renderer.root.findByProps({ 'aria-label': 'Close card details' }).props['data-card-action']).toBe('tertiary');
+    act(() => renderer.root.findByProps({ 'aria-label': 'Edit card' }).props.onClick());
+    const editButtons = renderer.root.findByProps({ className: 'kanbanEditActions' }).findAllByType('button');
+    expect(editButtons.map((button) => button.props['data-card-action'])).toEqual(['secondary', 'primary']);
+    act(() => renderer.update(<KanbanCardDetail {...props} projects={[{ ...project, id: 'selected-project', color_id: 'green' } as never]} />));
+    expect(renderer.root.findByType('article').props['data-project-color']).toBeUndefined();
+    act(() => renderer.unmount());
+  });
+
   it.each(['overview', 'chat', 'diff'] as const)('invokes the sole styled primary on %s, not plain Enter', async (initialView) => {
     const { renderer, onStartWork } = await mount({ initialView });
     expect(renderer.root.findAllByProps({ 'aria-label': 'Workflow actions' })).toHaveLength(1);
