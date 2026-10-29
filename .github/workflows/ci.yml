@@ -15,10 +15,15 @@ jobs:
           node-version: 22
           cache: npm
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
       - run: npm ci
       - run: npm run check:version
       - run: npm run test
       - run: npm run build
+      - run: npx playwright install chromium webkit
+      - run: npm run test:chat-scroll
+      - run: npm run test:terminal-dependencies
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo check --manifest-path src-tauri/Cargo.toml

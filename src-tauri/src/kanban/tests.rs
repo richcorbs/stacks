@@ -624,7 +624,16 @@ fn pull_request_remains_visible_and_blocks_merge_when_its_head_advances() {
 #[test]
 fn list_read_count_is_constant_and_get_card_remains_targeted() {
     let mut connection = aggregate_test_connection();
-    connection.trace(Some(count_traced_reads));
+    connection
+        .trace_v2(
+            rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(|event: rusqlite::trace::TraceEvent<'_>| {
+                if let rusqlite::trace::TraceEvent::Stmt(_, sql) = event {
+                    count_traced_reads(sql);
+                }
+            }),
+        )
+        .unwrap();
     TRACED_READS.store(0, Ordering::Relaxed);
     list_cards(&mut connection).unwrap();
     let initial_reads = TRACED_READS.load(Ordering::Relaxed);

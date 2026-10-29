@@ -49,9 +49,11 @@ pub(super) fn preview(connection: &Connection, now: i64) -> Result<DoneCleanupPr
         .map_err(db_error)?;
     let pending_artifacts = connection
         .query_row("SELECT COUNT(*) FROM local_card_purge_jobs", [], |row| {
-            row.get(0)
+            row.get::<_, i64>(0)
         })
         .map_err(db_error)?;
+    let pending_artifacts = usize::try_from(pending_artifacts)
+        .map_err(|error| format!("Invalid pending artifact count: {error}"))?;
     Ok(DoneCleanupPreview {
         candidates,
         pending_artifacts,
