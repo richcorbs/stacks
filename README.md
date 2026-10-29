@@ -185,6 +185,8 @@ npm run test:terminal-dependencies
 
 See [the coordinated dependency upgrade report](docs/dependency-upgrade-292.md)
 for version changes, security exceptions, and native/release smoke-test status.
+For opt-in debug-build slow board-query profiling, see
+[SQLite diagnostics](docs/sqlite-diagnostics.md).
 
 Build and install the local application:
 

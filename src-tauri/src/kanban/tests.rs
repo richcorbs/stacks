@@ -622,6 +622,25 @@ fn pull_request_remains_visible_and_blocks_merge_when_its_head_advances() {
 }
 
 #[test]
+fn board_profiles_use_safe_identifiers_without_changing_results() {
+    let mut connection = aggregate_test_connection();
+    let expected = list_card_summaries(&mut connection).unwrap();
+    let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = lines.clone();
+    super::query_diagnostics::install(&mut connection, true, std::time::Duration::ZERO, move |line| {
+        captured.lock().unwrap().push(line);
+    }).unwrap();
+    let actual = list_card_summaries(&mut connection).unwrap();
+    assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(expected).unwrap());
+    let lines = lines.lock().unwrap();
+    assert_eq!(lines.len(), 7);
+    for id in ["board.cards", "board.environment_indicators", "board.creation_operations",
+        "board.cleanup_operations", "board.pull_requests", "board.parents", "board.children"] {
+        assert!(lines.iter().any(|line| line.starts_with(&format!("[stacks sqlite] slow_query query={id} elapsed_ms="))), "missing {id}");
+    }
+}
+
+#[test]
 fn list_read_count_is_constant_and_get_card_remains_targeted() {
     let mut connection = aggregate_test_connection();
     connection
