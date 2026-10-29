@@ -1147,6 +1147,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piContextDonut::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--surface-inset); }
 .piGuiConversation { position: relative; z-index: 0; flex: 1; min-height: 0; overflow-y: auto; padding: 46px var(--pi-composer-inset) 28px; scrollbar-width: none; }
 .piGuiConversation::-webkit-scrollbar { width: 0; height: 0; }
+.piGuiTranscript { display: flow-root; min-height: 100%; }
+.piGuiTranscript:has(> .piGuiEmpty:only-child) { display: flex; flex-direction: column; }
+.piGuiTranscript > .piGuiEmpty:only-child { flex: 1; }
 .piGuiEmpty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #64768a; text-align: center; }
 .piGuiEmptyMark { width: 42px; height: 42px; margin-bottom: 5px; border: 1px solid #2a3d51; border-radius: 12px; background: #142130; color: #82afd3; display: grid; place-items: center; font: calc(25px + var(--ui-font-delta, 0px)) Georgia, serif; }
 .piGuiEmpty strong { color: #9dadbd; font-size: calc(var(--pi-font-size, 13px) + 1px); font-weight: 500; }
