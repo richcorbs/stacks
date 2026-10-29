@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+body { margin: 0; } #split { display: flex; width: 1000px; height: 500px; }
+.pane { width: 50%; height: 100%; min-width: 0; }
+</style></head><body><div id="split"><div class="pane" id="first"></div><div class="pane" id="second"></div></div>
+<script type="module">
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import '@xterm/xterm/css/xterm.css';
+const sessions = ['first', 'second'].map(id => {
+  const terminal = new Terminal({ allowProposedApi: true });
+  const fit = new FitAddon();
+  const search = new SearchAddon();
+  for (const addon of [fit, search, new Unicode11Addon(), new WebLinksAddon()]) terminal.loadAddon(addon);
+  terminal.unicode.activeVersion = '11';
+  terminal.open(document.getElementById(id));
+  fit.fit();
+  return { terminal, fit, search };
+});
+window.terminalTest = { sessions, write: (index, text) => new Promise(resolve => sessions[index].terminal.write(text, resolve)) };
+</script></body></html>

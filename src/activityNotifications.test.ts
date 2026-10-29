@@ -1,14 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
+import { onAction } from '@tauri-apps/plugin-notification';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { applicationEvents } from './applicationEvents';
 import type { AppAttention, WorkPresence } from './appAttention';
 import { attentionRoute, routeFromExtra } from './appAttention';
 import {
   AttentionDeduplicator,
   ensureNotificationPermission,
   notificationContent,
+  registerNotificationActionListener,
   resolveActivityNotificationPreference,
   sendTestActivityNotification,
   shouldDeliverAttention,
 } from './activityNotifications';
+
+vi.mock('@tauri-apps/plugin-notification', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@tauri-apps/plugin-notification')>(),
+  onAction: vi.fn(),
+}));
+vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 
 const attention: AppAttention = {
   kind: 'pi-complete',
@@ -105,6 +115,26 @@ describe('activity notifications', () => {
     expect(content.title).toBe('Command exited');
     expect(content.body).toBe('Stacks — Project Workspace — Server');
     expect(content.body).not.toMatch(/success|fail/i);
+  });
+
+  it('routes the new notification action envelope and tolerates missing notifications', async () => {
+    const show = vi.fn().mockResolvedValue(undefined);
+    const setFocus = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(getCurrentWindow).mockReturnValue({
+      show, setFocus, isMinimized: vi.fn().mockResolvedValue(false),
+    } as unknown as ReturnType<typeof getCurrentWindow>);
+    const publish = vi.spyOn(applicationEvents, 'publish');
+    await registerNotificationActionListener();
+    const callback = vi.mocked(onAction).mock.calls.at(-1)![0];
+    callback({ actionId: 'tap', inputValue: null, notification: {
+      id: 1, groupSummary: false, data: {}, attachments: [], extra: attentionRoute(attention),
+    } });
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledWith('notification-route', attentionRoute(attention)));
+    publish.mockClear();
+    callback({ actionId: 'tap', inputValue: null, notification: null });
+    await vi.waitFor(() => expect(setFocus).toHaveBeenCalledTimes(2));
+    expect(publish).not.toHaveBeenCalled();
+    publish.mockRestore();
   });
 
   it('round-trips stable click-routing metadata and rejects malformed metadata', () => {

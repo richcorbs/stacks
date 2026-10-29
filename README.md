@@ -141,12 +141,18 @@ The persisted and one-time command options are mutually exclusive. Run the execu
 
 Prerequisites:
 
-- Node.js 22+
-- Rust stable and Cargo
+- Node.js 22.12+ (22.x), or Node.js 24+; Node 22.19.0 is validated locally.
+- Rust 1.99.1 and Cargo, pinned by `rust-toolchain.toml` (CI uses the same version).
+- rustup 1.29.2 recommended. rustup itself is machine-local, not managed by Cargo.
 - macOS
 
+Install/update the local toolchain manager with `rustup self update`; rustup installs
+this repository's pinned toolchain when a Cargo command first runs. Dependency
+updates must deliberately update both `rust-toolchain.toml` and the CI toolchain
+when changing Rust versions. `Cargo.toml` also declares the supported Rust minimum.
+
 ```bash
-npm install
+npm ci
 npm run tauri dev
 ```
 
@@ -168,7 +174,17 @@ npm run test
 npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
+npm audit
+# Install once: cargo install cargo-audit --locked
+cargo audit --file src-tauri/Cargo.lock
+# Browser smoke tests (install browsers once):
+npx playwright install chromium webkit
+npm run test:chat-scroll
+npm run test:terminal-dependencies
 ```
+
+See [the coordinated dependency upgrade report](docs/dependency-upgrade-292.md)
+for version changes, security exceptions, and native/release smoke-test status.
 
 Build and install the local application:
 

@@ -89,5 +89,5 @@ export async function activateNotificationRoute(route: NotificationRoute | null)
 }
 
 export function registerNotificationActionListener() {
-  return onAction((notification) => { void activateNotificationRoute(routeFromExtra(notification.extra)); });
+  return onAction((event) => { void activateNotificationRoute(routeFromExtra(event.notification?.extra)); });
 }
