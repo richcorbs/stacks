@@ -85,7 +85,7 @@ pub(in crate::kanban) fn configure_connection(connection: &Connection) -> Result
 
 fn open_connection(read_only: bool) -> Result<Connection, String> {
     let path = app_data_file("workflow.sqlite3")?;
-    let connection = if read_only {
+    let mut connection = if read_only {
         Connection::open_with_flags(
             path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -95,6 +95,7 @@ fn open_connection(read_only: bool) -> Result<Connection, String> {
     }
     .map_err(db_error)?;
     configure_connection(&connection)?;
+    super::query_diagnostics::configure(&mut connection).map_err(db_error)?;
     Ok(connection)
 }
 
@@ -1136,7 +1137,7 @@ pub(in crate::kanban) fn list_card_summaries(
                     card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
                     runtime_cleanup_status, runtime_cleanup_error, workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
                     parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
-             FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC, id ASC"
+             FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC, id ASC /* stacks-query:board.cards */"
         ).map_err(db_error)?;
         let rows = statement.query_map([], map_card).map_err(db_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?
@@ -1158,7 +1159,7 @@ fn load_environment_indicators_batched(connection: &Connection, cards: &mut [Kan
         "SELECT e.card_id,e.id,e.project_id,e.worktree_path,e.branch,e.target_branch,e.lifecycle_state,e.revision,
                 COALESCE(l.layout_revision,1)
          FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id
-         LEFT JOIN card_layouts l ON l.environment_id=e.id WHERE c.in_scope=1"
+         LEFT JOIN card_layouts l ON l.environment_id=e.id WHERE c.in_scope=1 /* stacks-query:board.environment_indicators */"
     ).map_err(db_error)?;
     let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, CardEnvironment {
         id: row.get(1)?, card_id: row.get(0)?, project_id: row.get(2)?, worktree_path: row.get(3)?, branch: row.get(4)?,
@@ -1182,7 +1183,7 @@ pub(in crate::kanban) fn list_cards(
                     card_url, assignee_names, status, completion_outcome, feature_environment, delivery_operation_stage, delivery_error,
                     runtime_cleanup_status, runtime_cleanup_error, workflow_revision, record_revision, project_id, created_at, updated_at, sort_order, in_scope,
                     parent_id, hierarchy_finalized, provider_child_count, provider_parent_title
-             FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC, id ASC"
+             FROM kanban_cards WHERE in_scope = 1 ORDER BY sort_order ASC, created_at ASC, id ASC /* stacks-query:board.cards */"
         ).map_err(db_error)?;
         let mapped = statement.query_map([], map_card).map_err(db_error)?;
         mapped.collect::<Result<Vec<_>, _>>().map_err(db_error)?
@@ -1265,7 +1266,7 @@ pub(in crate::kanban) fn enrich_relationships_batched(
             .prepare(
                 "SELECT c.id, p.id, p.external_id, p.title, p.status
              FROM kanban_cards c JOIN kanban_cards p ON p.id=c.parent_id
-             WHERE c.in_scope=1 AND p.in_scope=1",
+             WHERE c.in_scope=1 AND p.in_scope=1 /* stacks-query:board.parents */",
             )
             .map_err(db_error)?;
         let rows = statement
@@ -1293,7 +1294,7 @@ pub(in crate::kanban) fn enrich_relationships_batched(
             .prepare(
                 "SELECT parent_id, id, external_id, title, status FROM kanban_cards
              WHERE in_scope=1 AND parent_id IS NOT NULL
-             ORDER BY parent_id, created_at, CAST(external_id AS INTEGER), id",
+             ORDER BY parent_id, created_at, CAST(external_id AS INTEGER), id /* stacks-query:board.children */",
             )
             .map_err(db_error)?;
         let rows = statement
@@ -1735,7 +1736,7 @@ pub(in crate::kanban) fn load_creation_operations_batched(
         .collect::<HashMap<_, _>>();
     let mut statement = connection.prepare(
         "SELECT o.card_id, o.id, o.phase, o.error, o.source_path, o.source_branch, o.cleanup_available, o.custom_command, o.revision
-         FROM environment_creation_operations o JOIN kanban_cards c ON c.id=o.card_id WHERE c.in_scope=1",
+         FROM environment_creation_operations o JOIN kanban_cards c ON c.id=o.card_id WHERE c.in_scope=1 /* stacks-query:board.creation_operations */",
     ).map_err(db_error)?;
     let rows = statement
         .query_map([], |row| {
@@ -1774,7 +1775,7 @@ pub(in crate::kanban) fn load_cleanup_operations_batched(
         .collect::<HashMap<_, _>>();
     let mut statement = connection.prepare(
         "SELECT o.card_id, o.status, o.phase, o.error_code, o.error_detail, o.started_at, o.updated_at, o.completed_at
-         FROM card_cleanup_operations o JOIN kanban_cards c ON c.id=o.card_id WHERE c.in_scope=1",
+         FROM card_cleanup_operations o JOIN kanban_cards c ON c.id=o.card_id WHERE c.in_scope=1 /* stacks-query:board.cleanup_operations */",
     ).map_err(db_error)?;
     let rows = statement
         .query_map([], |row| {
@@ -1817,7 +1818,7 @@ pub(in crate::kanban) fn load_pull_requests_batched(
                 p.require_passing_ci, p.require_approval, pr.head_revision, e.source_revision
          FROM card_pull_requests pr JOIN kanban_cards c ON c.id=pr.card_id
          LEFT JOIN projects p ON p.id=c.project_id
-         LEFT JOIN card_environments e ON e.card_id=c.id WHERE c.in_scope=1",
+         LEFT JOIN card_environments e ON e.card_id=c.id WHERE c.in_scope=1 /* stacks-query:board.pull_requests */",
         )
         .map_err(db_error)?;
     let rows = statement
