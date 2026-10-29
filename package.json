@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:chat-scroll": "node tests/pi-chat-scroll.mjs",
     "seed:dev": "cargo run --manifest-path src-tauri/Cargo.toml --example seed_dev_data",
     "build": "node scripts/check-kanban-contract.mjs && node scripts/generate-kanban-boundary.mjs --check && tsc && vite build",
     "kanban:contract:generate": "node scripts/generate-kanban-boundary.mjs",
@@ -43,6 +44,7 @@
     "@types/react-test-renderer": "^19.1.0",
     "@vitejs/plugin-react": "^6.0.2",
     "esbuild": "^0.28.1",
+    "playwright": "^1.64.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-test-renderer": "^19.2.8",

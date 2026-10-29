@@ -4,15 +4,21 @@
 export function createChatScroll(viewport: HTMLElement, schedule: (callback: FrameRequestCallback) => number = requestAnimationFrame, cancel = cancelAnimationFrame) {
   let following = true;
   let frame = 0;
+  let disposed = false;
   const measure = () => ({ top: viewport.scrollTop, height: viewport.scrollHeight, viewport: viewport.clientHeight });
   let previous = measure();
   const follow = () => {
+    if (disposed) return;
     if (following) viewport.scrollTop = viewport.scrollHeight;
     previous = measure();
   };
   const layout = () => {
-    if (frame) cancel(frame);
-    frame = schedule(() => { frame = 0; follow(); });
+    if (disposed) return;
+    // Inactive WKWebViews can throttle/suspend animation frames. Read the
+    // committed layout and follow now, including composer collapse/timestamps;
+    // the frame is only a second pass, never a prerequisite for visibility.
+    follow();
+    if (!frame) frame = schedule(() => { frame = 0; follow(); });
   };
   return {
     layout,
@@ -29,6 +35,6 @@ export function createChatScroll(viewport: HTMLElement, schedule: (callback: Fra
       previous = current;
       if (!sameGeometry) layout();
     },
-    dispose() { if (frame) cancel(frame); },
+    dispose() { disposed = true; if (frame) cancel(frame); },
   };
 }

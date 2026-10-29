@@ -338,9 +338,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (visible) chatScrollRef.current?.layout();
-  }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, pi.uiRequest, visible]);
+  }, [pi.isStreaming, pi.messages, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, pi.uiRequest, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
   const completionToken = activePathToken(prompt, completionCursor);
