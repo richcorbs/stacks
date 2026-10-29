@@ -16,6 +16,7 @@ import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { listenForPiPrompt } from '../pi/promptEvent';
 import { canSendPiQuickResponse, sendPiQuickResponse, type PiQuickResponse } from '../pi/quickResponse';
 import { usePiSession } from '../pi/usePiSession';
+import { createChatScroll } from '../pi/chatScroll';
 import { TerminalControls } from './TerminalControls';
 import { handleDialogShortcut } from './dialogShortcut';
 import { PiMarkdown } from './PiMarkdown';
@@ -89,7 +90,24 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
-  const shouldStickToBottomRef = useRef(true);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollRef = useRef<ReturnType<typeof createChatScroll> | null>(null);
+  useLayoutEffect(() => {
+    const viewport = scrollRef.current;
+    const transcript = transcriptRef.current;
+    if (!viewport || !transcript) return;
+    const scroll = createChatScroll(viewport);
+    chatScrollRef.current = scroll;
+    const observer = new ResizeObserver(scroll.layout);
+    observer.observe(viewport);
+    observer.observe(transcript);
+    scroll.layout();
+    return () => {
+      observer.disconnect();
+      scroll.dispose();
+      chatScrollRef.current = null;
+    };
+  }, []);
   const previousVisibleRef = useRef(visible);
   const handledRestartNonceRef = useRef(0);
   const preventSummaryToggleRef = useRef(false);
@@ -172,7 +190,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    const resize = () => resizeComposerInput(input, shouldStickToBottomRef.current);
+    const resize = () => {
+      resizeComposerInput(input);
+      chatScrollRef.current?.layout();
+    };
     resize();
     let resizeFrame = 0;
     const observer = new ResizeObserver(() => {
@@ -192,7 +213,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, []);
 
   useEffect(() => {
-    if (inputRef.current) resizeComposerInput(inputRef.current, shouldStickToBottomRef.current);
+    if (inputRef.current) resizeComposerInput(inputRef.current);
+    chatScrollRef.current?.layout();
   }, [fontSize, prompt]);
 
   useLayoutEffect(() => {
@@ -317,9 +339,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, []);
 
   useEffect(() => {
-    const element = scrollRef.current;
-    if (!element || !visible || !shouldStickToBottomRef.current) return;
-    element.scrollTop = element.scrollHeight;
+    if (visible) chatScrollRef.current?.layout();
   }, [pi.isStreaming, pi.messages.length, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, pi.uiRequest, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
@@ -426,7 +446,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setPathSuggestions([]);
     setComposerError(null);
     setMcpCommandVisible(isMcpStatusCommand(message));
-    shouldStickToBottomRef.current = true;
+    chatScrollRef.current?.resume();
     await structuredRequestDismissal.catch(() => {});
     const send = builtinCommand
       ? pi.runBuiltinCommand(message)
@@ -542,7 +562,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const element = scrollRef.current;
     if (!element || hiddenMessageCount === 0) return;
     pendingPrependAnchorRef.current = { height: element.scrollHeight, top: element.scrollTop };
-    shouldStickToBottomRef.current = false;
+    chatScrollRef.current?.pause();
     setRevealedMessageCount((current) => nextPiMessageLimit(current, pi.messages.length));
   }
 
@@ -576,11 +596,15 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
       />
-      <div className="piGuiConversation" ref={scrollRef} onScroll={(event) => {
-        const element = event.currentTarget;
-        shouldStickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+      <div className="piGuiConversation" ref={scrollRef} onScroll={() => {
+        chatScrollRef.current?.scroll();
         setSelectionPopup(null);
+      }} onWheel={(event) => {
+        // Capture scroll-away intent even when a streaming layout change occurs
+        // in the same frame as the user's wheel/trackpad input.
+        if (event.deltaY < 0) chatScrollRef.current?.pause();
       }}>
+        <div className="piGuiTranscript" ref={transcriptRef}>
         {pi.starting && <div className="piGuiEmpty">Starting Pi…</div>}
         {!pi.starting && pi.messages.length === 0 && !pi.streamingText && (
           <div className="piGuiEmpty">
@@ -620,6 +644,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           queuedSteering={pi.queuedSteering}
           queuedFollowUps={pi.queuedFollowUps}
         />
+        </div>
       </div>
 
       {mcpCommandVisible && <PiMcpCommandStatus status={pi.mcpStatus} notice={pi.extensionNotice} onDismiss={() => setMcpCommandVisible(false)} />}
@@ -984,7 +1009,7 @@ function ContextUsage({ context }: { context: PiSessionContext }) {
   </span>;
 }
 
-function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) {
+function resizeComposerInput(input: HTMLTextAreaElement) {
   const pane = input.closest<HTMLElement>('.piGuiPane');
   const conversation = pane?.querySelector<HTMLElement>(':scope > .piGuiConversation');
   const currentHeight = Math.max(23, input.offsetHeight);
@@ -1000,5 +1025,4 @@ function resizeComposerInput(input: HTMLTextAreaElement, stickToBottom = false) 
   input.style.maxHeight = `${maxHeight}px`;
   input.style.height = `${height}px`;
   input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  if (stickToBottom && conversation) conversation.scrollTop = conversation.scrollHeight;
 }
