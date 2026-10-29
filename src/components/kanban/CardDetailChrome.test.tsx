@@ -177,8 +177,8 @@ describe('CardDetailHeader', () => {
   it('renders the close icon after the heading with its accessible label intact', () => {
     const markup = renderHeader(card());
 
-    expect(classIndex(markup, 'kanbanDetailClose')).toBeGreaterThan(markup.indexOf('</div><button'));
-    expect(markup).toContain('<button class="kanbanDetailClose" type="button" aria-label="Close card details"></button>');
+    expect(classIndex(markup, 'kanbanDetailClose')).toBeGreaterThan(markup.lastIndexOf('</div><button'));
+    expect(markup).toContain('<button data-card-action="tertiary" class="kanbanDetailClose" type="button" aria-label="Close card details"></button>');
   });
 
   it('keeps an editable project control in the left group and omits an empty hierarchy group', () => {
@@ -193,7 +193,7 @@ describe('CardDetailHeader', () => {
 
   it('shows an accessible refresh button immediately after nonzero counts, without replacing Diff refresh', async () => {
     const markup = renderHeader(card());
-    expect(markup).toMatch(/class="kanbanCardGitSummary"[^>]*>.*?<\/span><button class="kanbanDetailGitRefresh" type="button" aria-label="Refresh Git status" title="Refresh Git status"><span class="diffRefreshIcon" aria-hidden="true"><\/span><\/button>/);
+    expect(markup).toMatch(/class="kanbanCardGitSummary"[^>]*>.*?<\/span><button data-card-action="secondary" class="kanbanDetailGitRefresh" type="button" aria-label="Refresh Git status" title="Refresh Git status"><span class="diffRefreshIcon" aria-hidden="true"><\/span><\/button>/);
     const onRefreshGit = vi.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<CardDetailHeader

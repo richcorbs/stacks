@@ -47,7 +47,7 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
             onAssignProject(nextProjectId).catch((error) => onActionError(error instanceof Error ? error.message : String(error)));
           }} />
           <span className="kanbanCardStatus">{statusLabel}</span>
-          {editable && !editing && <button className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={onBeginEditing}><span aria-hidden="true" /></button>}
+          {editable && !editing && <button data-card-action="tertiary" className="kanbanCardEditButton" type="button" aria-label="Edit card" title="Edit card (E)" onClick={onBeginEditing}><span aria-hidden="true" /></button>}
         </div>
         {hasHierarchy && <div className="kanbanHierarchyGroup">
           <CardHierarchyBadges card={card} onNavigateParent={onNavigateParent} />
@@ -61,13 +61,13 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
         {hasBranch && (hasGitSummary || hasPullRequest) && <span className="kanbanDetailRepositorySeparator" aria-hidden="true">•</span>}
         {hasGitSummary && <span className="kanbanDetailGitChanges">
           <CardGitSummary summary={gitChangeSummary} />
-          <button className="kanbanDetailGitRefresh" type="button" aria-label="Refresh Git status" title="Refresh Git status" onClick={onRefreshGit}><span className="diffRefreshIcon" aria-hidden="true" /></button>
+          <button data-card-action="secondary" className="kanbanDetailGitRefresh" type="button" aria-label="Refresh Git status" title="Refresh Git status" onClick={onRefreshGit}><span className="diffRefreshIcon" aria-hidden="true" /></button>
         </span>}
         {hasGitSummary && hasPullRequest && <span className="kanbanDetailRepositorySeparator" aria-hidden="true">•</span>}
         <CardPullRequestLink pullRequest={card.pull_request} />
       </div>}
     </div>
-    <button className="kanbanDetailClose" type="button" aria-label="Close card details" onClick={onRequestClose} />
+    <button data-card-action="tertiary" className="kanbanDetailClose" type="button" aria-label="Close card details" onClick={onRequestClose} />
   </header>;
 }
 

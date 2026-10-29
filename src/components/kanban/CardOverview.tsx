@@ -81,7 +81,7 @@ export function CardOverview({
             <small>Affects {issue.step}</small>
           </li>
         ))}</ul>
-        <button type="button" disabled={recheckingEnvironment} onClick={onRecheckEnvironment}>
+        <button data-card-action="secondary" type="button" disabled={recheckingEnvironment} onClick={onRecheckEnvironment}>
           <AsyncButtonLabel idle="Recheck" busy="Rechecking…" isBusy={recheckingEnvironment} />
         </button>
       </aside>
@@ -120,7 +120,7 @@ export function CardOverview({
         <strong>Superthread update {card.provider_sync.state}</strong>
         <span>{card.provider_sync.error ?? `Moving this card to ${card.provider_sync.destination_column_name}. Local work is safely committed.`}</span>
       </div>
-      {card.provider_sync.state === 'failed' && <button type="button" disabled={retryingProviderSync} onClick={async () => {
+      {card.provider_sync.state === 'failed' && <button data-card-action="secondary" type="button" disabled={retryingProviderSync} onClick={async () => {
         setRetryingProviderSync(true); setActionError(null);
         try { onCardUpdated(await retryKanbanProviderSync(card.id)); }
         catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
@@ -139,7 +139,7 @@ export function CardOverview({
         <strong>{event.from_status && event.to_status ? `${event.from_status} → ${event.to_status}` : event.summary}</strong>
         {event.error_detail && <small>{event.error_detail}</small>}
       </li>)}</ol>
-      {hasOlderEvents && <button type="button" disabled={loadingOlder} onClick={async () => {
+      {hasOlderEvents && <button data-card-action="secondary" type="button" disabled={loadingOlder} onClick={async () => {
         setLoadingOlder(true);
         try { await onLoadOlderEvents(); } finally { setLoadingOlder(false); }
       }}><AsyncButtonLabel idle="Load older" busy="Loading…" isBusy={loadingOlder} /></button>}

@@ -1519,19 +1519,81 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 }
 .modalActions > button:is(.danger, .dangerAction):focus-visible,
 .settingsPageActions > button.dangerAction:focus-visible { outline: 2px solid #f0a0a0; outline-offset: 2px; }
-:is(.kanbanDetail, .projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft) .primaryAction:not(.danger):not(.dangerAction):not(:disabled),
+:is(.projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft) .primaryAction:not(.danger):not(.dangerAction):not(:disabled),
 .releaseView[data-project-color] .primaryAction:not(:disabled) {
   border-color: var(--project-accent);
   background: color-mix(in srgb, var(--project-accent) 48%, #152737);
   color: #f5f8fa;
 }
-:is(.kanbanDetail, .projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft) .primaryAction:not(.danger):not(.dangerAction):hover:not(:disabled),
+:is(.projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft) .primaryAction:not(.danger):not(.dangerAction):hover:not(:disabled),
 .releaseView[data-project-color] .primaryAction:hover:not(:disabled) {
   background: color-mix(in srgb, var(--project-accent) 62%, #203345);
 }
-:is(.kanbanDetail, .projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .settingsInlineAction) button:not(.primaryAction):not(.danger):not(.dangerAction):not(.workflowActionDangerGhost):not(.workflowActionNeutralGhost):not(:disabled) {
+:is(.projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .settingsInlineAction) button:not(.primaryAction):not(.danger):not(.dangerAction):not(.workflowActionDangerGhost):not(.workflowActionNeutralGhost):not(:disabled) {
   border-color: color-mix(in srgb, var(--project-accent) 32%, #28394a);
 }
-:is(.kanbanDetail, .projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .settingsInlineAction) button:not(.primaryAction):not(.danger):not(.dangerAction):not(.workflowActionDangerGhost):not(.workflowActionNeutralGhost):hover:not(:disabled) {
+:is(.projectDialog, .kanbanNewCardDialog, .settingsContent, .settingsPrompt)[data-project-color] :is(.modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .settingsInlineAction) button:not(.primaryAction):not(.danger):not(.dangerAction):not(.workflowActionDangerGhost):not(.workflowActionNeutralGhost):hover:not(:disabled) {
   background: color-mix(in srgb, var(--project-accent) 14%, #182431);
+}
+
+/* Explicit card actions only: never theme embedded editor/terminal controls or navigation.
+   Keep the owner boundary here (not the board filter), and retain disabled opacity. */
+.kanbanDetail.cardWorkspace[data-project-color] button[data-card-action] {
+  --card-action-text: color-mix(in srgb, var(--project-accent) 46%, #f2f6fa);
+  --card-action-focus: color-mix(in srgb, var(--project-accent) 65%, #f2f6fa);
+}
+.kanbanDetail.cardWorkspace[data-project-color] button[data-card-action="primary"]:not(.danger):not(.dangerAction) {
+  border-color: var(--project-accent);
+  background: color-mix(in srgb, var(--project-accent) 48%, #152737);
+  color: #f5f8fa;
+}
+.kanbanDetail.cardWorkspace[data-project-color] button[data-card-action="primary"]:not(.danger):not(.dangerAction):hover:not(:disabled) {
+  border-color: var(--card-action-focus);
+  background: color-mix(in srgb, var(--project-accent) 52%, #203345);
+}
+.kanbanDetail.cardWorkspace[data-project-color] button[data-card-action="secondary"]:not(.danger):not(.dangerAction) {
+  border-color: color-mix(in srgb, var(--project-accent) 42%, #28394a);
+  background: color-mix(in srgb, var(--project-accent) 12%, #182431);
+  color: var(--card-action-text);
+}
+.kanbanDetail.cardWorkspace[data-project-color] button[data-card-action="secondary"]:not(.danger):not(.dangerAction):hover:not(:disabled) {
+  border-color: var(--project-accent);
+  background: color-mix(in srgb, var(--project-accent) 22%, #182431);
+}
+.kanbanDetail.cardWorkspace[data-project-color] button[data-card-action="tertiary"]:not(.danger):not(.dangerAction) {
+  border: 0;
+  background: transparent;
+  color: var(--card-action-text);
+}
+.kanbanDetail.cardWorkspace[data-project-color] button[data-card-action="tertiary"]:not(.danger):not(.dangerAction):hover:not(:disabled) {
+  background: transparent;
+  color: color-mix(in srgb, var(--project-accent) 25%, #f2f6fa);
+}
+.kanbanDetail.cardWorkspace[data-project-color] button[data-card-action]:not([data-card-action="danger-tertiary"]):focus-visible {
+  outline: 2px solid var(--card-action-focus);
+  outline-offset: 2px;
+}
+/* Unowned cards retain neutral fallback styling, including a lone primary ghost action. */
+.kanbanDetail.cardWorkspace:not([data-project-color]) .cardFooterActions button.workflowActionNeutralGhost[data-card-action="tertiary"] {
+  border: 0;
+  background: transparent;
+  color: #93a4b7;
+}
+.kanbanDetail.cardWorkspace:not([data-project-color]) .cardFooterActions button.workflowActionNeutralGhost[data-card-action="tertiary"]:is(:hover, :focus-visible):not(:disabled) {
+  background: transparent;
+  color: #c4d0dc;
+  outline: 2px solid #93a4b7;
+  outline-offset: 2px;
+}
+/* Danger wins even when it is the sole/primary workflow action, including without an owner. */
+.kanbanDetail.cardWorkspace .cardFooterActions button.workflowActionDangerGhost[data-card-action="danger-tertiary"] {
+  border: 0;
+  background: transparent;
+  color: #d79298;
+}
+.kanbanDetail.cardWorkspace .cardFooterActions button.workflowActionDangerGhost[data-card-action="danger-tertiary"]:is(:hover, :focus-visible):not(:disabled) {
+  background: transparent;
+  color: #f0aab0;
+  outline: 2px solid #d79298;
+  outline-offset: 2px;
 }

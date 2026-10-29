@@ -43,8 +43,8 @@ export function CardLevelErrorBanner({ errors, reloading, onReload, onRetryRefre
 
   return <div className="cardLevelErrorBanner" role="alert">
     <div className="cardLevelErrorMessages">{messages}</div>
-    {errors.some(({ action }) => action === 'retry_refresh') && <button type="button" onClick={onRetryRefresh}>Retry refresh</button>}
-    {errors.some(({ action }) => action === 'reload') && <button type="button" disabled={reloading} onClick={onReload}>
+    {errors.some(({ action }) => action === 'retry_refresh') && <button data-card-action="secondary" type="button" onClick={onRetryRefresh}>Retry refresh</button>}
+    {errors.some(({ action }) => action === 'reload') && <button data-card-action="secondary" type="button" disabled={reloading} onClick={onReload}>
       <AsyncButtonLabel idle="Reload card" busy="Reloading…" isBusy={reloading} />
     </button>}
   </div>;
