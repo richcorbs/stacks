@@ -10,6 +10,8 @@
     "dev": "vite",
     "test:chat-scroll": "node tests/pi-chat-scroll.mjs",
     "test:terminal-dependencies": "node tests/terminal-dependencies.mjs",
+    "test:terminal-reflow": "node tests/terminal-reflow.mjs",
+    "test:terminal-reflow-pty": "node tests/terminal-reflow-pty.mjs",
     "seed:dev": "cargo run --manifest-path src-tauri/Cargo.toml --example seed_dev_data",
     "build": "node scripts/check-kanban-contract.mjs && node scripts/generate-kanban-boundary.mjs --check && tsc && vite build",
     "kanban:contract:generate": "node scripts/generate-kanban-boundary.mjs",

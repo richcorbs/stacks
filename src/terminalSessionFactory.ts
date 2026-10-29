@@ -57,6 +57,9 @@ export function createTerminalSession({
     ...terminalAppearanceOptions(false),
     scrollback: terminalScrollback,
     smoothScrollDuration: 0,
+    // Leave reflowCursorLine at xterm 6's false default: the shell owns active
+    // command redraw. Enabling it loses prior output with readline on resize.
+    // Comparison and regression fixtures: docs/terminal-cursor-line-reflow-294.md.
   });
   let session: TerminalSession;
   const fit = new FitAddon();

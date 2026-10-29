@@ -25,5 +25,6 @@ jobs:
       - run: npx playwright install chromium webkit
       - run: npm run test:chat-scroll
       - run: npm run test:terminal-dependencies
+      - run: npm run test:terminal-reflow
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo check --manifest-path src-tauri/Cargo.toml
