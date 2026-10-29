@@ -25,6 +25,41 @@ function harness() {
 }
 
 describe('Pi chat bottom-follow (shared card and workspace presentation)', () => {
+  it('reveals the five-line message and timestamp even when an inactive window never delivers a frame', () => {
+    const h = harness();
+    h.viewport.scrollTop = 100;
+    h.scroll.scroll();
+    h.scroll.resume();
+    h.grow(186); // Rendered height of the reported 1. through 5. message.
+    h.scroll.layout();
+    h.resize(650); // Composer collapses after submitting.
+    h.scroll.layout();
+    h.expectBottom(); // Deliberately never flush animation frames.
+    h.scroll.scroll(); // Delayed browser scroll event must not revoke intent.
+    h.grow(900); // Streaming content taller than the viewport.
+    h.scroll.layout();
+    h.expectBottom();
+    h.grow(14); // Timestamp is inserted on completion.
+    h.scroll.layout();
+    h.expectBottom();
+    expect(h.frames.size).toBe(1); // Coalesce, don't postpone every update.
+  });
+
+  it('preserves reader pause while frames are suspended and resumes immediately on sending', () => {
+    const h = harness();
+    h.scroll.layout(); // Frame stays pending throughout.
+    h.scroll.pause();
+    h.viewport.scrollTop = 300;
+    h.scroll.scroll();
+    h.grow(600);
+    h.scroll.layout();
+    h.resize(500);
+    h.scroll.layout();
+    expect(h.viewport.scrollTop).toBe(300);
+    h.scroll.resume();
+    h.expectBottom();
+  });
+
   it('retains submit intent through code-block growth, composer collapse, and delayed scroll events', () => {
     const h = harness();
     h.viewport.scrollTop = 100;
@@ -119,7 +154,13 @@ describe('Pi chat bottom-follow (shared card and workspace presentation)', () =>
     h.scroll.layout();
     h.scroll.layout();
     expect(h.frames.size).toBe(1);
+    const pending = [...h.frames.values()];
     h.scroll.dispose();
+    expect(h.frames.size).toBe(0);
+    h.grow(100);
+    h.scroll.layout(); // Late observer notification after cleanup.
+    pending.forEach(callback => callback(0));
+    expect(h.viewport.scrollTop).toBe(800);
     expect(h.frames.size).toBe(0);
   });
 });
