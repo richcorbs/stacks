@@ -441,8 +441,12 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardWorkspaceTabs .cardDiffTab:has(.cardDiffRefresh), .cardWorkspaceTabs .cardServiceTab { padding-right: 10px; }
 .cardWorkspaceTabs .cardServiceTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
 .cardWorkspaceTabs .cardServiceTab.active .cardServiceTabLabel { color: #b9cad9; }
-.cardDiffTab:hover, .cardServiceTab:hover { background: var(--surface-drag); }
-.cardWorkspaceTabs button:hover:not(:disabled), .cardDiffTab:hover .cardDiffTabLabel:not(:disabled), .cardServiceTab:hover .cardServiceTabLabel:not(:disabled) { color: #d6deeb; }
+/* Paint compound tabs once, behind both the label and auxiliary control. */
+.cardWorkspaceTabs > button:hover:not(:disabled),
+.cardDiffTab:hover:has(button:not(:disabled)),
+.cardServiceTab:hover:has(button:not(:disabled)) { background: var(--surface-drag); }
+.cardWorkspaceTabs :is(.cardDiffTabLabel, .cardServiceTabLabel):hover:not(:disabled) { background: transparent; }
+.cardWorkspaceTabs button:hover:not(:disabled), .cardDiffTab:hover .cardDiffTabLabel:not(:disabled), .cardServiceTab:hover .cardServiceTabLabel:not(:disabled) { color: #fff; }
 .cardWorkspaceTabs button.cardServiceToggle, .cardWorkspaceTabs button.cardDiffRefresh { width: 20px; height: 20px; margin-bottom: 7px; padding: 0; border: 1px solid #344657; border-radius: 5px; background: var(--surface-raised); display: grid; place-items: center; color: #73879a; }
 .cardWorkspaceTabs button.cardServiceToggle:hover, .cardWorkspaceTabs button.cardDiffRefresh:hover, .cardServiceTab:hover button.cardServiceToggle, .cardDiffTab:hover button.cardDiffRefresh { border-color: #4a6278; color: #aabac8; }
 .cardWorkspaceTabs button.cardServiceToggle.running { border-color: #416b55; background: #15271e; color: #70bd8d; }
@@ -1403,6 +1407,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .kanbanDetail:not([data-project-color]) .kanbanDetailHeaderMeta .kanbanCardStatus { border-color: #34485a; background: var(--surface-hover); color: #a0afbe; }
 .kanbanDetail[data-project-color] .kanbanDetailHeaderMeta .kanbanCardStatus { border-color: var(--project-detail-status-border); background: var(--project-detail-status-surface); color: var(--project-detail-status-color); }
 .kanbanProjectAssignment[data-project-color] { border-color: var(--project-badge-border); color: var(--project-badge-color); }
+.cardWorkspace[data-project-color] .cardWorkspaceTabs > button:hover:not(:disabled),
+.cardWorkspace[data-project-color] .cardDiffTab:hover:has(button:not(:disabled)),
+.cardWorkspace[data-project-color] .cardServiceTab:hover:has(button:not(:disabled)) { background: var(--project-card-hover-surface); }
 [data-project-color] .cardWorkspaceTabs button.active,
 [data-project-color] .cardDiffTab.active,
 [data-project-color] .cardServiceTab.active { border-bottom-color: var(--project-tab-accent); }
