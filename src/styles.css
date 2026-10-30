@@ -1330,7 +1330,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .releaseLatest { min-width: 0; overflow-wrap: anywhere; color: #8498aa; }
 .releaseView > [role="alert"] { margin: 0 16px 12px; color: #df858b; }
 .releaseTerminal { display: flex; flex: 1; min-height: 0; min-width: 0; }
-.releaseTerminal > .terminal { flex: 1; }
+/* Match the workspace dialog's inner bottom corners (12px radius - 1px border).
+   Its overflow clip otherwise cuts the square terminal border into three pieces. */
+.releaseTerminal > .terminal { flex: 1; border-radius: 0 0 11px 11px; }
 .cleanupPreflightModal { width: min(560px, 100%); padding: 16px; gap: 8px; }
 .cleanupPreflightModal:focus { outline: none; }
 /* Match the scrollport inset and classic scrollbar gutter in all three sections.
