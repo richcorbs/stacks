@@ -53,31 +53,20 @@ See [`src/pi/README.md`](src/pi/README.md) for implementation and lifecycle deta
 - Configures terminal typography and scrollback, copy-on-select, confirmation and notification behavior, editor integration, status colors, GitHub polling, and Superthread behavior.
 - Checks signed updater artifacts published through GitHub Releases.
 
-### Repository release pipelines
+### Repository release commands
 
-Projects can opt into a generic **Release** tab and select a repository-relative configuration file (default `.stacks/release.json`). Commands are repository-owned and versions are opaque. A minimal configuration is:
+Enable **RELEASES** in project settings and select a repository-relative configuration (default `.stacks/release.json`):
 
 ```json
 {
-  "currentVersion": "./scripts/current-version",
-  "suggestedVersion": "./scripts/suggest-version",
-  "validateVersion": "./scripts/validate-version",
-  "generateNotes": "./scripts/release-notes",
-  "preflight": "./scripts/release-preflight",
-  "stages": [
-    {
-      "id": "publish",
-      "name": "Publish",
-      "run": "./scripts/publish",
-      "verify": "./scripts/verify-publish",
-      "repositoryAccess": "exclusive",
-      "approval": { "instructions": "Confirm the published candidate before continuing." }
-    }
-  ]
+  "command": "./scripts/release",
+  "latestCommand": "./scripts/latest-release"
 }
 ```
 
-Only `currentVersion` and one or more stages are required. `repositoryAccess` is `read` or `exclusive`; IDs must be unique. Commands run unchanged through the interactive login shell. Release values are never interpolated into them and are available only through `STACKS_RELEASE_VERSION`, `STACKS_RELEASE_PREVIOUS_VERSION`, `STACKS_RELEASE_PROJECT_PATH`, `STACKS_RELEASE_TARGET_BRANCH`, `STACKS_RELEASE_INITIAL_REVISION`, `STACKS_RELEASE_OPERATION_ID`, and `STACKS_RELEASE_NOTES_FILE`. The notes file is temporary and owner-readable only.
+Only `command` is required. The tab has a version field, latest-release text, a RELEASE button, and the normal terminal for live output. A shared delayed confirmation precedes each run. Commands run in the project's canonical primary repository root through the interactive login shell; linked worktrees are rejected. `STACKS_RELEASE_VERSION` contains the trimmed selected version, and `STACKS_RELEASE_PROJECT_PATH` the root. Values are shell-quoted environment data, never substituted into command syntax. Scripts must quote their own expansions (e.g. `"$STACKS_RELEASE_VERSION"`) or read the environment directly. The repository script owns version validation, release notes, CI, builds, approvals and publication policy.
+
+The optional `latestCommand` should print a short version identifier to stdout. It is read once when the tab opens and after successful runs, has a 15-second timeout, and reports missing configuration/authentication/lookup failures without blocking release. App-level concurrent starts are blocked per repository; scripts should additionally lock against CLI invocations. Cached terminal output/processes survive tab changes and closing/reopening Project Workspace; they end on app shutdown. Final status comes from the actual child exit, not matching output text. Old app-owned release journals are no longer resumed; inspect any previously unfinished release manually before starting the new script.
 
 ## Runtime requirements
 
@@ -212,33 +201,28 @@ Important files and directories include:
 - `pi-sessions/` — durable Pi session files by terminal ID.
 - `pi-trusted-projects.json` — canonical project paths approved for project-local Pi resources.
 
-When upgrading from an installation that used `stacks-tauri`, quit Stacks first and copy the entire `~/Library/Application Support/stacks-tauri/` directory into the new `stacks/` directory (including `workflow.sqlite3`, any WAL files, sessions, card data, and release logs). Do not merge it with older data already in `stacks/`, and keep the old directory as a rollback copy until the new app has been verified. The installer does not migrate data. Old release-log paths are read from the copied directory. Development data in `stacks-tauri-dev` is not automatically copied into `stacks-dev`; use `npm run seed:dev` to initialize a sanitized development profile. **Stacks → Reset Window Settings** resets saved window geometry and sidebar width. Deleting `settings.json` while Stacks is closed resets all preferences and remembered UI state.
+When upgrading from an installation that used `stacks-tauri`, quit Stacks first and copy the entire `~/Library/Application Support/stacks-tauri/` directory into the new `stacks/` directory (including `workflow.sqlite3`, any WAL files, sessions, card data, and release logs). Do not merge it with older data already in `stacks/`, and keep the old directory as a rollback copy until the new app has been verified. The installer does not migrate data. Old release logs are retained only as historical files. Development data in `stacks-tauri-dev` is not automatically copied into `stacks-dev`; use `npm run seed:dev` to initialize a sanitized development profile. **Stacks → Reset Window Settings** resets saved window geometry and sidebar width. Deleting `settings.json` while Stacks is closed resets all preferences and remembered UI state.
 
 ## Versioning and releases
 
-Stacks owns its generic-runner configuration in `.stacks/release.json`. The pipeline discovers GitHub's latest published version, generates editable commit-subject notes at a captured revision, prepares one release commit, validates and signs exact local artifacts, creates or resumes a draft, pauses for smoke-test approval, and then publishes that verified draft as latest.
+Stacks configures `node scripts/release-run.mjs draft` in `.stacks/release.json`. The RELEASE button **creates a draft; it does not publish**. The repository-owned driver reuses `scripts/release.mjs` and `release-lib.mjs` for version synchronization, clean-main validation, deterministic commit-subject notes, release commit, tests, frontend/Rust checks, signed app/updater artifacts, manifest/checksums, safe pushes and GitHub draft creation/upload verification. It prints clear phase headings, version/mode/checkout, live build output, and success/failure summaries with next steps.
 
-The same stage commands can be run directly. Supply the values normally provided by the runner as environment variables, or use the equivalent `--version`, `--previous`, `--source`, `--notes`, and `--branch` options:
+From the primary checkout with `main` checked out:
 
 ```bash
-export STACKS_RELEASE_VERSION=0.5.3
-export STACKS_RELEASE_PREVIOUS_VERSION=0.5.2
-export STACKS_RELEASE_SOURCE_REVISION="$(git rev-parse HEAD)"
-export STACKS_RELEASE_TARGET_BRANCH=main
-export STACKS_RELEASE_NOTES_FILE=/absolute/path/to/approved-notes.md
+# Use the selected stable X.Y.Z, greater than the latest published release.
+node scripts/release-run.mjs draft --version 0.6.0
+# Equivalent to the app's version contract:
+STACKS_RELEASE_VERSION=0.6.0 node scripts/release-run.mjs draft
 
-node scripts/release.mjs preflight
-node scripts/release.mjs prepare
-node scripts/release.mjs verify-prepare
-node scripts/release.mjs build
-node scripts/release.mjs verify-build
-node scripts/release.mjs draft
-node scripts/release.mjs verify-draft
-# Smoke-test the clickable draft URL before continuing.
-node scripts/release.mjs publish
-node scripts/release.mjs verify-publish
+# Smoke-test the signed draft using the URL printed above, then explicitly publish:
+node scripts/release-run.mjs publish --version 0.6.0
 ```
 
-The generic runner calls the captured source revision `STACKS_RELEASE_INITIAL_REVISION`; Stacks' scripts accept that documented name as a fallback to `STACKS_RELEASE_SOURCE_REVISION`. Discovery, suggestion, validation, and notes generation are available as `current`, `suggest`, `validate`, and `notes`. Run any command without enough arguments to see the required values.
+`npm run release:draft -- --version X.Y.Z` is a convenience alias. The legacy `release:publish` alias still creates a **draft**, preserving its previous policy; `release:finalize` now invokes the explicitly confirmed publishing driver.
+
+Publishing requires an interactive terminal, a two-second confirmation delay, and typing `PUBLISH v<version>` to attest smoke testing. It verifies the exact prepared commit, artifacts and draft, requires the latest `.github/workflows/ci.yml` run for that exact commit to succeed, then publishes and verifies GitHub latest. No automatic draft-to-public transition occurs.
+
+Script-owned context and notes live under the Git common directory's `stacks-releases/v<version>/`; repeat the same draft command to resume, reusing only verified artifacts. Failures stop with a nonzero exit and leave commits/tags/artifacts intact. `stacks-release.lock` prevents concurrent CLI/app runs; after a hard interruption, verify all prior processes are stopped before manually removing that lock. Do not reset/rewrite a prepared commit or overwrite remote assets to make a retry pass. Older app-journal releases have no new script context and require manual inspection. Low-level `release.mjs` helper commands remain available for diagnosis; normal releases should use the driver.
 
 Updater credentials live at `~/.tauri/stacks-updater.key` and `~/.tauri/stacks-updater.password`. Back them up securely: losing the private key prevents existing installations from accepting future updates. Apple Developer ID signing and notarization are optional and are not part of the current release process. No release command automatically deletes or overwrites commits, tags, drafts, assets, or published releases.

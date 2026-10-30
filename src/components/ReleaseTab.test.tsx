@@ -1,604 +1,68 @@
-import { renderToStaticMarkup } from 'react-dom/server';
-import TestRenderer, { act } from 'react-test-renderer';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ReleaseConfig, ReleaseDraft, ReleaseOperation, ReleaseReconciliation, ReleaseStageState } from '../releaseApi';
-import { CommandPreview, ReconciliationSummary, ReleaseStage, ReleaseTab } from './ReleaseTab';
-
-const invoke = vi.hoisted(() => vi.fn());
-const writeText = vi.hoisted(() => vi.fn(() => Promise.resolve()));
-vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText }));
-const eventListeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
-const polling = vi.hoisted(() => ({ timers: new Map<number, { callback: () => void; ms: number }>(), nextId: 0, focus: null as null | (() => void) }));
+import React from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ReleaseTab, releaseSessionStatus } from './ReleaseTab';
+const { invoke, sessions, confirm } = vi.hoisted(() => ({ invoke: vi.fn(), sessions: new Map<string, any>(), confirm: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn((name: string, listener: (event: { payload: unknown }) => void) => {
-  eventListeners.set(name, listener);
-  return Promise.resolve(() => eventListeners.delete(name));
-}) }));
-
-(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-vi.stubGlobal('window', {
-  setInterval: vi.fn((callback: () => void, ms: number) => { const id = ++polling.nextId; polling.timers.set(id, { callback, ms }); return id; }),
-  clearInterval: vi.fn((id: number) => polling.timers.delete(id)),
-  addEventListener: vi.fn((_event: string, callback: () => void) => { polling.focus = callback; }),
-  removeEventListener: vi.fn(() => { polling.focus = null; }),
-  confirm: vi.fn(() => true),
-});
-beforeEach(() => { invoke.mockReset(); eventListeners.clear(); polling.timers.clear(); polling.nextId = 0; polling.focus = null; });
-
-function stage(overrides: Partial<ReleaseStageState> = {}): ReleaseStageState {
-  return {
-    id: 'publish',
-    name: 'Publish artifacts',
-    status: 'completed',
-    attempt: 2,
-    attemptToken: null,
-    startedAt: 100,
-    completedAt: 105,
-    error: null,
-    logPath: null,
-    log: 'Published https://example.com/release',
-    truncated: true,
-    ...overrides,
-  };
-}
-
-function reconciliation(overrides: Partial<ReleaseReconciliation> = {}): ReleaseReconciliation {
-  return { protocolVersion: 1, disposition: 'resumableDraft', requestedVersion: '1.2.4', latestPublishedVersion: '1.2.3', sourceRevision: 'source', headRevision: 'head', preparedRevision: 'abcdef1234567890', preparedParent: 'source', approvedPaths: [], localTagRevision: null, remoteTagRevision: 'abcdef1234567890', release: { id: 7, tag: 'v1.2.4', revision: 'abcdef1234567890', title: 'Stacks v1.2.4', notes: '# Notes', target: 'abcdef1234567890', draft: true, prerelease: false, url: 'https://example.com/draft' }, expectedAssets: [], existingAssets: [], missingAssets: [], extraAssets: [], conflictingAssets: [], artifact: {}, identity: { tag: 'v1.2.4' }, issues: [], permittedActions: ['approve'], provenStages: ['prepare', 'build', 'draft'], ...overrides };
-}
-
-function config(overrides: Partial<ReleaseConfig> = {}): ReleaseConfig {
-  return {
-    currentVersion: 'current-version',
-    preflight: 'check-project',
-    reconciliation: { protocolVersion: 1, command: 'reconcile' },
-    stages: [
-      { id: 'prepare', name: 'Prepare', run: 'run-prepare', verify: 'verify-prepare', repositoryAccess: 'exclusive', approval: { instructions: 'Review it' } },
-      { id: 'publish', name: 'Publish', run: 'run-publish', repositoryAccess: 'read' },
-    ],
-    ...overrides,
-  };
-}
-
-describe('command preview', () => {
-  it('renders one accessible disclosure collapsed by default', () => {
-    const markup = renderToStaticMarkup(<CommandPreview config={config()} />);
-
-    expect(markup).toContain('0. Preflight');
-    expect(markup).toContain('1. Prepare');
-    expect(markup).toContain('2. Publish');
-    expect(markup).toContain('Command preview');
-    expect(markup).toContain('class="releaseDisclosureIndicator" aria-hidden="true"');
-    expect(markup.match(/aria-expanded="false"/g)).toHaveLength(1);
-    expect(markup.match(/aria-controls="release-disclosure-/g)).toHaveLength(1);
-    expect(markup).toContain('hidden=""');
-    expect(markup).not.toContain('<strong>');
-  });
-
-  it('omits preflight when it is not configured', () => {
-    const markup = renderToStaticMarkup(<CommandPreview config={config({ preflight: null })} />);
-    expect(markup).not.toContain('Preflight');
-    expect(markup).toContain('1. Prepare');
-  });
-
-  it('reveals every preflight, run, and verify command with one disclosure', () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
-    act(() => { renderer = TestRenderer.create(<CommandPreview config={config()} />); });
-    const buttons = renderer.root.findAllByType('button');
-
-    act(() => buttons[0].props.onClick());
-
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0].props.type).toBe('button');
-    expect(buttons[0].props['aria-expanded']).toBe(true);
-    expect(renderer.root.findByProps({ id: buttons[0].props['aria-controls'] }).props.hidden).toBe(false);
-    expect(renderer.root.findAllByProps({ className: 'releasePreviewDetails' })).toHaveLength(3);
-    expect(renderer.root.findAllByType('code').map((node) => node.children.join(''))).toEqual(['check-project', 'run-prepare', 'verify-prepare', 'run-publish']);
-    expect(renderer.root.findAllByProps({ className: 'releasePreviewMetadata' })[0].children.join('')).toBe('exclusive repository access · approval required');
-    act(() => buttons[0].props.onClick());
-    expect(renderer.root.findByProps({ id: buttons[0].props['aria-controls'] }).props.hidden).toBe(true);
-    act(() => renderer.unmount());
-  });
-});
-
-function draft(overrides: Partial<ReleaseDraft> = {}): ReleaseDraft {
-  return { valid: true, error: null, configPath: '/repo/.stacks/release.json', currentVersion: '1.2.3', suggestedVersion: '1.2.4', generatedNotes: 'original notes', targetBranch: 'main', sourceRevision: 'source', config: config({ generateNotes: 'generate-notes' }), reconciliation: reconciliation(), ...overrides };
-}
-
-function operation(overrides: Partial<ReleaseOperation> = {}): ReleaseOperation {
-  return { id: 'operation', projectId: 'project', projectPath: '/repo', repositoryIdentity: '/repo/.git', configPath: '/repo/.stacks/release.json', config: config({ stages: [] }), previousVersion: '1.2.3', version: '1.2.4', notes: 'persisted notes', targetBranch: 'main', initialRevision: 'abcdef1234567890', expectedRevision: 'abcdef1234567890', preparedRevision: null, preparedParent: null, approvedPaths: [], reconciliation: reconciliation({ permittedActions: [] }), identityFingerprint: '', artifactEvidence: null, releaseUrl: null, adopted: false, status: 'failed', stages: [], createdAt: 100, updatedAt: 105, completedAt: null, revision: 1, ...overrides };
-}
-
-async function renderReleaseTab(history: ReleaseOperation[] = [], releaseDraft = draft(), colorId?: string) {
+vi.mock('../terminalSessionManager', () => ({ getTerminalSession: (id: string) => sessions.get(id), disposeTerminalSession: (id: string) => sessions.delete(id) }));
+vi.mock('./TerminalView', () => ({ TerminalView: (props: any) => <div data-terminal={props.terminal.id} data-command={props.terminal.command} /> }));
+vi.mock('./ConfirmDialogs', () => ({ useConfirmation: () => ({ confirm, dialog: null }) }));
+beforeEach(() => {
+  sessions.clear(); confirm.mockReset(); confirm.mockResolvedValue(true); invoke.mockReset();
   invoke.mockImplementation((command: string) => {
-    if (command === 'release_inspect') return Promise.resolve(releaseDraft);
-    if (command === 'release_history') return Promise.resolve(history);
-    if (command === 'release_ci_status') return Promise.resolve({ state: 'pending', revision: 'abcdef1234567890', workflow: '.github/workflows/ci.yml', url: null });
-    return Promise.resolve(undefined);
+    if (command === 'release_setup') return Promise.resolve({ cwd: '/repo', terminalId: 'release:repo' });
+    if (command === 'release_latest') return Promise.resolve('1.2.3');
+    if (command === 'release_command') return Promise.resolve('export STACKS_RELEASE_VERSION=1.2.4; ./release');
+    return Promise.resolve();
   });
-  let renderer!: TestRenderer.ReactTestRenderer;
-  await act(async () => { renderer = TestRenderer.create(<ReleaseTab project={{ id: 'project', name: 'Project', path: '/repo', color_id: colorId }} />); });
+});
+async function render() {
+  let renderer!: ReactTestRenderer;
+  await act(async () => { renderer = create(<ReleaseTab project={{ id: 'p', path: '/repo', name: 'Repo' }} />); });
   return renderer;
 }
-
-describe('release disclosure cards', () => {
-  function disclosure(renderer: TestRenderer.ReactTestRenderer, title: string) {
-    return renderer.root.findAllByProps({ className: 'releaseDisclosure' }).find((node) => node.children[0] === title)!;
-  }
-  function content(renderer: TestRenderer.ReactTestRenderer, title: string) {
-    return renderer.root.findByProps({ id: disclosure(renderer, title).props['aria-controls'] });
-  }
-  const completed = operation({ id: 'completed', status: 'completed', version: '1.2.3', completedAt: 163, stages: [stage()] });
-  const abandoned = operation({ id: 'abandoned', status: 'abandoned', version: '1.2.2', updatedAt: 109 });
-
-  it.each(['available', 'resumableDraft'] as const)('places matching collapsed cards after the %s setup action', async (disposition) => {
-    const renderer = await renderReleaseTab([completed], draft({ reconciliation: reconciliation({ disposition }) }));
-    const scroll = renderer.root.findByProps({ className: 'releaseScroll' });
-    const setup = renderer.root.findByProps({ className: 'releaseSetup' });
-    expect(setup.findAllByProps({ className: 'releaseDisclosure' })).toHaveLength(0);
-    expect(setup.findByProps({ className: 'primaryAction releaseStart' }).children).toEqual([disposition === 'available' ? 'Start release' : 'Resume release']);
-    expect(scroll.findAllByProps({ className: 'releaseDisclosure' }).map((node) => node.children[0])).toEqual(['Command preview', 'Release history']);
-    const previewCard = renderer.root.findByProps({ className: 'releaseDisclosureCard releasePreview' });
-    const historyCard = renderer.root.findByProps({ className: 'releaseDisclosureCard releaseHistory' });
-    expect(scroll.findAll((node) => node === setup || node === previewCard || node === historyCard)).toEqual([setup, previewCard, historyCard]);
-    for (const title of ['Command preview', 'Release history']) {
-      const header = disclosure(renderer, title);
-      expect(header.type).toBe('button'); // Native Enter/Space activation and tab focus.
-      expect(header.props.type).toBe('button');
-      expect(header.props['aria-expanded']).toBe(false);
-      expect(content(renderer, title).props.hidden).toBe(true);
-      expect(content(renderer, title).props['aria-labelledby']).toBe(header.props.id);
-      expect(header.findByProps({ className: 'releaseDisclosureIndicator' }).props['aria-hidden']).toBe('true');
+describe('minimal release tab', () => {
+  it('shows only version, latest release and release action before starting', async () => {
+    const r = await render();
+    expect(r.root.findAllByType('input')).toHaveLength(1);
+    expect(r.root.findAllByType('button')).toHaveLength(1);
+    expect(r.root.findByProps({ className: 'releaseLatest' }).children.join('')).toContain('1.2.3');
+    expect(r.root.findAllByProps({ 'data-terminal': 'release:repo' })).toHaveLength(0);
+    act(() => r.unmount());
+  });
+  it('confirms then starts the configured command in an existing terminal view', async () => {
+    const r = await render();
+    act(() => r.root.findByType('input').props.onChange({ target: { value: '1.2.4' } }));
+    await act(async () => { await r.root.findByType('button').props.onClick(); });
+    expect(confirm).toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith('release_command', { projectId: 'p', version: '1.2.4', expectedCwd: '/repo', expectedTerminalId: 'release:repo' });
+    expect(r.root.findByProps({ 'data-terminal': 'release:repo' }).props['data-command']).toContain('./release');
+    expect(r.root.findByType('button').props.disabled).toBe(true);
+    act(() => r.unmount());
+  });
+  it('does nothing when confirmation is cancelled', async () => {
+    confirm.mockResolvedValue(false); const r = await render();
+    act(() => r.root.findByType('input').props.onChange({ target: { value: '1.2.4' } }));
+    await act(async () => { await r.root.findByType('button').props.onClick(); });
+    expect(invoke.mock.calls.some(([c]) => c === 'release_command')).toBe(false);
+    act(() => r.unmount());
+  });
+  it('reattaches cached output on remount and reports completed/failed/unknown exits accurately', async () => {
+    sessions.set('release:repo', { startupConfiguredCommand: './release', running: true });
+    const r = await render();
+    expect(r.root.findByProps({ role: 'status' }).children).toEqual(['Running']);
+    expect(r.root.findByType('button').props.disabled).toBe(true);
+    for (const [status, expected] of [[0, 'Completed (exit 0)'], [7, 'Failed (exit 7)'], [null, 'Failed (exit status unavailable)']] as const) {
+      sessions.set('release:repo', { exitStatus: status });
+      expect(releaseSessionStatus('release:repo')).toBe(expected);
     }
-    expect(content(renderer, 'Command preview').findByType('small').children.join('')).toBe('Release data is supplied only through: STACKS_RELEASE_VERSION, STACKS_RELEASE_PREVIOUS_VERSION, STACKS_RELEASE_PROJECT_PATH, STACKS_RELEASE_TARGET_BRANCH, STACKS_RELEASE_INITIAL_REVISION, STACKS_RELEASE_OPERATION_ID, STACKS_RELEASE_NOTES_FILE');
-    act(() => renderer.unmount());
+    act(() => r.unmount());
   });
-
-  it('expands independently and retains state and associations through background refreshes', async () => {
-    const renderer = await renderReleaseTab([completed, abandoned]);
-    const previewId = content(renderer, 'Command preview').props.id;
-    const historyId = content(renderer, 'Release history').props.id;
-    act(() => disclosure(renderer, 'Command preview').props.onClick());
-    expect(content(renderer, 'Command preview').props.hidden).toBe(false);
-    expect(content(renderer, 'Release history').props.hidden).toBe(true);
-    act(() => disclosure(renderer, 'Release history').props.onClick());
-    expect(content(renderer, 'Command preview').props.hidden).toBe(false);
-    expect(content(renderer, 'Release history').props.hidden).toBe(false);
-    const updated = { ...completed, version: '1.2.3-refreshed', revision: 2 };
-    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([updated, abandoned]) : Promise.resolve(draft()));
-    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: completed.id }); });
-    expect(content(renderer, 'Command preview').props.id).toBe(previewId);
-    expect(content(renderer, 'Release history').props.id).toBe(historyId);
-    expect(content(renderer, 'Command preview').props.hidden).toBe(false);
-    expect(content(renderer, 'Release history').props.hidden).toBe(false);
-    expect(content(renderer, 'Release history').findAllByType('strong').map((node) => node.children.join(''))).toEqual(['1.2.3-refreshed', '1.2.2']);
-    act(() => disclosure(renderer, 'Command preview').props.onClick());
-    expect(content(renderer, 'Command preview').props.hidden).toBe(true);
-    expect(content(renderer, 'Release history').props.hidden).toBe(false);
-    act(() => disclosure(renderer, 'Release history').props.onClick());
-    expect(content(renderer, 'Release history').props.hidden).toBe(true);
-    act(() => renderer.unmount());
-  });
-
-  it('preserves history order, statuses, durations, and stage counts while excluding active operations', async () => {
-    const renderer = await renderReleaseTab([abandoned, operation(), completed]);
-    expect(renderer.root.findAllByType(CommandPreview)).toHaveLength(0);
-    act(() => disclosure(renderer, 'Release history').props.onClick());
-    const rows = content(renderer, 'Release history').findAllByProps({ className: 'releaseHistoryRow' });
-    expect(rows.map((row) => row.children.map((node) => typeof node === 'string' ? node : node.children.join('')))).toEqual([
-      ['1.2.2', 'Abandoned', '9s', '0 stages'],
-      ['1.2.3', 'Completed', '1m3s', '1 stages'],
-    ]);
-    act(() => renderer.unmount());
-  });
-
-  it.each(['running', 'awaitingApproval', 'failed', 'cancelled', 'interrupted'] as const)('hides preview and empty history for an active %s release', async (status) => {
-    const renderer = await renderReleaseTab([operation({ status })]);
-    expect(renderer.root.findAllByType(CommandPreview)).toHaveLength(0);
-    expect(renderer.root.findAllByProps({ className: 'releaseDisclosure' })).toHaveLength(0);
-    act(() => renderer.unmount());
-  });
-
-  it.each([draft({ valid: false }), draft({ config: null })])('hides preview without valid configured setup', async (releaseDraft) => {
-    const renderer = await renderReleaseTab([], releaseDraft);
-    expect(renderer.root.findAllByType(CommandPreview)).toHaveLength(0);
-    expect(renderer.root.findAllByProps({ className: 'releaseDisclosure' })).toHaveLength(0);
-    act(() => renderer.unmount());
-  });
-
-  it('hides empty history while preserving setup preview', async () => {
-    const renderer = await renderReleaseTab();
-    expect(disclosure(renderer, 'Command preview')).toBeDefined();
-    expect(renderer.root.findAllByProps({ className: 'releaseDisclosureCard releaseHistory' })).toHaveLength(0);
-    act(() => renderer.unmount());
-  });
-});
-
-describe('release setup facts', () => {
-  it('omits clean readiness evidence, preserves Start, and copies the actual checkout HEAD', async () => {
-    const clean = reconciliation({ disposition: 'available', preparedRevision: null, localTagRevision: null, remoteTagRevision: null, release: null, headRevision: '123455567890abcdef', sourceRevision: 'older-source', permittedActions: ['start'] });
-    const renderer = await renderReleaseTab([], draft({ reconciliation: clean }));
-    expect(renderer.root.findAllByProps({ className: 'releaseReconciliation available' })).toHaveLength(0);
-    const start = renderer.root.findAllByType('button').find((node) => node.children.join('') === 'Start release')!;
-    expect(start.props.disabled).toBe(false);
-    const copy = renderer.root.findByProps({ 'aria-label': 'Copy Checkout HEAD: 123455567890abcdef' });
-    await act(async () => copy.props.onClick());
-    expect(writeText).toHaveBeenCalledWith('123455567890abcdef');
-    expect(renderer.root.findByProps({ className: 'releaseFacts' }).children).toHaveLength(3);
-    act(() => renderer.unmount());
-  });
-
-  it('keeps missing assets and issues visible even for available disposition', () => {
-    const markup = renderToStaticMarkup(<ReconciliationSummary reconciliation={reconciliation({ disposition: 'available', missingAssets: ['app.zip'], issues: ['Repair evidence'] })} />);
-    expect(markup).toContain('Missing assets: app.zip');
-    expect(markup).toContain('Repair evidence');
-  });
-
-  it('keeps resume and conflict actions truthful', async () => {
-    const renderer = await renderReleaseTab([], draft({ reconciliation: reconciliation({ permittedActions: ['resume'] }) }));
-    expect(renderer.root.findAllByType('button').find((node) => node.children.join('') === 'Resume release')?.props.disabled).toBe(false);
-    act(() => renderer.unmount());
-    const conflict = await renderReleaseTab([], draft({ reconciliation: reconciliation({ disposition: 'conflict', issues: ['Remote tag points elsewhere.'], permittedActions: ['refresh'] }) }));
-    expect(conflict.root.findAllByType('button').find((node) => node.children.join('') === 'Start release')?.props.disabled).toBe(true);
-    expect(conflict.root.findAllByType('p').some((node) => node.children.join('') === 'Remote tag points elsewhere.')).toBe(true);
-    act(() => conflict.unmount());
-  });
-});
-
-describe('release recovery and abandonment confirmation', () => {
-  let renderer: TestRenderer.ReactTestRenderer;
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { act(() => renderer?.unmount()); vi.useRealTimers(); });
-  const button = (label: string) => renderer.root.findAllByType('button').find((node) => node.children.join('') === label)!;
-  const submit = () => renderer.root.findByType('form').props.onSubmit({ preventDefault: vi.fn() });
-
-  it.each(['recover', 'abandon'] as const)('awaits %s and never executes from countdown expiration', async (kind) => {
-    renderer = await renderReleaseTab([operation({ reconciliation: reconciliation({ permittedActions: ['recover'] }) })]);
-    const command = kind === 'recover' ? 'release_recover_prepared' : 'release_abandon';
-    const label = kind === 'recover' ? 'Recover prepared checkout' : 'Abandon release';
-    act(() => { button(label).props.onClick(); button(label).props.onClick(); });
-    expect(renderer.root.findAllByType('form')).toHaveLength(1);
-    submit();
-    expect(invoke.mock.calls.some(([name]) => name === command)).toBe(false);
-    act(() => { vi.advanceTimersByTime(2000); });
-    expect(invoke.mock.calls.some(([name]) => name === command)).toBe(false);
-    await act(async () => { submit(); });
-    expect(invoke).toHaveBeenCalledWith(command, { operationId: 'operation' });
-  });
-
-  it('cancels stale release intent when refreshed evidence changes', async () => {
-    renderer = await renderReleaseTab([operation()]);
-    act(() => { button('Abandon release').props.onClick(); });
-    const staleSubmit = renderer.root.findByType('form').props.onSubmit;
-    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([operation({ revision: 2, status: 'running' })]) : Promise.resolve(draft()));
-    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: 'operation' }); });
-    expect(renderer.root.findAllByType('form')).toHaveLength(0);
-    act(() => { vi.advanceTimersByTime(2000); staleSubmit({ preventDefault: vi.fn() }); });
-    expect(invoke.mock.calls.some(([name]) => name === 'release_abandon')).toBe(false);
-  });
-});
-
-describe('release CI readiness', () => {
-  const awaiting = operation({ status: 'awaitingApproval', preparedRevision: 'abcdef1234567890', reconciliation: reconciliation(), config: config({ stages: [{ id: 'draft', name: 'Draft', run: 'draft', repositoryAccess: 'read', approval: { instructions: 'Smoke test' } }, { id: 'publish', name: 'Publish', run: 'publish', repositoryAccess: 'read' }] }), stages: [stage({ id: 'draft', status: 'awaitingApproval' }), stage({ id: 'publish', status: 'pending' })] });
-  function button(renderer: TestRenderer.ReactTestRenderer, label: string) {
-    return renderer.root.findAllByType('button').find((node) => node.children.join('') === label);
-  }
-  it('disables approval for pending CI, then enables only exact-SHA success after refreshing', async () => {
-    const renderer = await renderReleaseTab([awaiting]);
-    expect(button(renderer, 'Approve and publish')?.props.disabled).toBe(true);
-    expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).props['data-ci-state']).toBe('pending');
-    expect(renderer.root.findAllByType('p').some((node) => node.children.join('') === 'Smoke test')).toBe(true);
-    expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).findByType('code').children.join('')).toBe('abcdef123456');
-    invoke.mockImplementation((command: string) => command === 'release_ci_status'
-      ? Promise.resolve({ state: 'success', revision: 'different-head', workflow: 'ci.yml', url: null }) : Promise.resolve(undefined));
-    await act(async () => button(renderer, 'Check CI again')?.props.onClick());
-    expect(button(renderer, 'Approve and publish')?.props.disabled).toBe(true);
-    invoke.mockImplementation((command: string) => command === 'release_ci_status'
-      ? Promise.resolve({ state: 'success', revision: 'abcdef1234567890', workflow: 'ci.yml', url: null }) : Promise.resolve(undefined));
-    await act(async () => button(renderer, 'Check CI again')?.props.onClick());
-    expect(button(renderer, 'Approve and publish')?.props.disabled).toBe(false);
-    expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).props['data-ci-state']).toBe('success');
-    act(() => renderer.unmount());
-  });
-  it('blocks publish retries while CI is pending or unavailable', async () => {
-    const failed = operation({ status: 'failed', preparedRevision: 'abcdef1234567890', config: config({ stages: [{ id: 'publish', name: 'Publish', run: 'publish', repositoryAccess: 'read' }] }), stages: [stage({ id: 'publish', status: 'failed' })] });
-    const renderer = await renderReleaseTab([failed]);
-    expect(button(renderer, 'Retry release')?.props.disabled).toBe(true);
-    expect(invoke).toHaveBeenCalledWith('release_ci_status', { operationId: 'operation' });
-    invoke.mockImplementation((command: string) => command === 'release_ci_status' ? Promise.reject('GitHub unavailable') : Promise.resolve(undefined));
-    await act(async () => button(renderer, 'Check CI again')?.props.onClick());
-    expect(button(renderer, 'Retry release')?.props.disabled).toBe(true);
-    expect(renderer.root.findByProps({ className: 'releaseCiStatus' }).props['data-ci-state']).toBe('error');
-    act(() => renderer.unmount());
-  });
-});
-
-describe('release durations', () => {
-  it('scopes release actions to the owning project color', async () => {
-    const renderer = await renderReleaseTab([], draft(), 'rose');
-    expect(renderer.root.findByProps({ className: 'releaseView cardView active' }).props['data-project-color']).toBe('rose');
-  });
-
-  it('keeps version, status, revision, and resumed metadata before the right-hand timer', async () => {
-    const renderer = await renderReleaseTab([operation({ version: 'a-long-version-name-that-must-wrap-at-narrow-widths', adopted: true, completedAt: 163 })]);
-    const summary = renderer.root.findByProps({ className: 'releaseSummary' });
-    const metadata = renderer.root.findByProps({ className: 'releaseSummaryMetadata' });
-
-    expect(summary.children).toEqual([metadata, summary.findByProps({ className: 'releaseDuration' })]);
-    expect(metadata.children.map((node) => typeof node === 'string' ? node : node.children.join(''))).toEqual([
-      'a-long-version-name-that-must-wrap-at-narrow-widths', 'Failed', 'abcdef1234', 'resumed',
-    ]);
-    expect(summary.findByProps({ className: 'releaseDuration' }).children).toEqual(['1m3s']);
-  });
-
-  it('omits resumed metadata and keeps running duration formatting', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(163_000);
-    try {
-      const renderer = await renderReleaseTab([operation({ status: 'running' })]);
-      const summary = renderer.root.findByProps({ className: 'releaseSummary' });
-      expect(summary.findByProps({ className: 'releaseSummaryMetadata' }).children).toHaveLength(3);
-      expect(summary.findByProps({ className: 'releaseDuration' }).children).toEqual(['1m3s']);
-    } finally {
-      now.mockRestore();
-    }
-  });
-
-  it('uses compact lowercase durations for operation summaries and release history', async () => {
-    const active = operation({ id: 'active', completedAt: 163 });
-    const completed = operation({ id: 'completed', status: 'completed', createdAt: 200, updatedAt: 263, completedAt: 263 });
-    const renderer = await renderReleaseTab([active, completed]);
-
-    const durations = renderer.root.findAllByProps({ className: 'releaseDuration' });
-    expect(durations.map((node) => node.children.join(''))).toEqual(['1m3s', '1m3s']);
-  });
-});
-
-describe('release status refresh', () => {
-  it('refreshes history immediately when the backend reports an operation change', async () => {
-    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
-    const recovered = operation({ status: 'awaitingApproval', stages: [stage({ status: 'awaitingApproval' })], config: config({ stages: [{ id: 'publish', name: 'Publish artifacts', run: 'publish', repositoryAccess: 'read', approval: { instructions: 'Smoke test' } }] }) });
-    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([recovered]) : Promise.resolve(draft()));
-
-    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: 'operation' }); await new Promise((resolve) => setTimeout(resolve, 0)); });
-
-    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' }).children.join('')).toBe('Awaiting smoke-test approval');
-  });
-
-  it('uses a 30s recovery fallback and a separate local clock (baseline: 375 reads / five minutes)', async () => {
-    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
-    expect(invoke.mock.calls.filter(([command]) => command === 'release_history')).toHaveLength(1);
-    expect(invoke).toHaveBeenCalledWith('release_history', { projectId: 'project', recover: true });
-    expect([...polling.timers.values()].map((timer) => timer.ms).sort()).toEqual([1000, 30000]);
-    await act(async () => { for (let i = 0; i < 300; i++) polling.timers.forEach((timer) => { if (timer.ms === 1000) timer.callback(); }); });
-    expect(invoke.mock.calls.filter(([command]) => command === 'release_history')).toHaveLength(1);
-    for (let i = 0; i < 10; i++) await act(async () => { [...polling.timers.values()].find((timer) => timer.ms === 30000)?.callback(); });
-    expect(invoke.mock.calls.filter(([command]) => command === 'release_history')).toHaveLength(11);
-    await act(async () => { polling.focus?.(); });
-    expect(invoke.mock.calls.filter(([command]) => command === 'release_history')).toHaveLength(12);
-    act(() => renderer.unmount());
-    expect(polling.timers.size).toBe(0);
-    expect(polling.focus).toBeNull();
-    expect(eventListeners.size).toBe(0);
-  });
-
-  it('coalesces duplicate events and discards a read superseded by a stage transition', async () => {
-    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
-    let finishOld!: (value: ReleaseOperation[]) => void;
-    let reads = 0;
-    invoke.mockImplementation((command: string) => {
-      if (command !== 'release_history') return Promise.resolve(draft());
-      reads++;
-      return reads === 1 ? new Promise((resolve) => { finishOld = resolve; }) : Promise.resolve([operation({ status: 'awaitingApproval', revision: 3 })]);
-    });
-    await act(async () => {
-      eventListeners.get('release-operation-changed')?.({ payload: 'other-operation' });
-      eventListeners.get('release-operation-changed')?.({ payload: 'operation' });
-      eventListeners.get('release-operation-changed')?.({ payload: 'operation' });
-    });
-    expect(reads).toBe(1);
-    await act(async () => { finishOld([operation({ status: 'running', revision: 1 })]); });
-    expect(reads).toBe(2);
-    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' })).toBeDefined();
-    // Even if a later read returns an older snapshot, the durable revision wins.
-    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([operation({ status: 'running', revision: 2 })]) : Promise.resolve(draft()));
-    await act(async () => { polling.focus?.(); });
-    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' })).toBeDefined();
-  });
-
-  it('recovers a missed completion on the bounded tick and stops checking a finished release', async () => {
-    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
-    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([operation({ status: 'completed', revision: 4 })]) : Promise.resolve(draft()));
-    await act(async () => { [...polling.timers.values()].find((timer) => timer.ms === 30000)?.callback(); });
-    expect(renderer.root.findAllByProps({ className: 'releaseStatus running' })).toHaveLength(0);
-    expect(polling.timers.size).toBe(0);
-    expect(invoke).toHaveBeenCalledWith('release_history', { projectId: 'project', recover: true });
-  });
-
-  it('isolates project switches and ignores stale responses and late events after teardown', async () => {
-    const renderer = await renderReleaseTab([operation({ status: 'running' })]);
-    let finish!: (value: ReleaseOperation[]) => void;
-    invoke.mockImplementation((command: string, args: { projectId: string }) => {
-      if (command === 'release_history') return args.projectId === 'project' ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve([operation({ id: 'new', projectId: 'new-project', status: 'awaitingApproval' })]);
-      return Promise.resolve(draft());
-    });
-    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: 'operation' }); });
-    await act(async () => { renderer.update(<ReleaseTab project={{ id: 'new-project', name: 'New', path: '/new' }} />); });
-    await act(async () => { finish([operation({ status: 'running' })]); });
-    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' })).toBeDefined();
-    expect(eventListeners.size).toBe(1);
-    act(() => renderer.unmount());
-    expect(eventListeners.size).toBe(0);
-    expect(polling.timers.size).toBe(0);
-  });
-
-  it('does not erase an action error when an older history read succeeds', async () => {
-    const renderer = await renderReleaseTab();
-    let finish!: (value: ReleaseOperation[]) => void;
-    invoke.mockImplementation((command: string) => {
-      if (command === 'release_history') return new Promise((resolve) => { finish = resolve; });
-      if (command === 'release_reconcile_preview') return Promise.reject(new Error('preview failed'));
-      return Promise.resolve(draft());
-    });
-    await act(async () => { eventListeners.get('release-operation-changed')?.({ payload: 'operation' }); });
-    const refresh = renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Refresh release status')!;
-    await act(async () => { refresh.props.onClick(); });
-    await act(async () => { finish([]); });
-    expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('preview failed');
-  });
-
-  it('keeps failed fallback checks actionable until a successful retry', async () => {
-    const renderer = await renderReleaseTab([operation({ status: 'awaitingApproval' })]);
-    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.reject(new Error('DB unavailable')) : Promise.resolve(draft()));
-    await act(async () => { polling.focus?.(); });
-    expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('DB unavailable');
-    expect(renderer.root.findByProps({ className: 'releaseStatus awaitingApproval' })).toBeDefined();
-    invoke.mockImplementation((command: string) => command === 'release_history' ? Promise.resolve([operation({ status: 'awaitingApproval', revision: 2 })]) : Promise.resolve(draft()));
-    await act(async () => { renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Retry history check')?.props.onClick(); });
-    expect(renderer.root.findAllByProps({ role: 'alert' })).toHaveLength(0);
-    expect(invoke.mock.calls.filter(([command]) => command === 'release_approve')).toHaveLength(0);
-  });
-
-  it('shows recovery diagnostics and keeps Retry release available after inconclusive recovery', async () => {
-    const failed = operation({ reconciliation: reconciliation({ disposition: 'conflict', permittedActions: ['refresh'] }), stages: [stage({ status: 'failed', error: 'Settlement failed\nRecovery reconciliation conflicted' })], config: config({ stages: [{ id: 'publish', name: 'Publish artifacts', run: 'publish', repositoryAccess: 'read' }] }) });
-    const renderer = await renderReleaseTab([failed]);
-
-    expect(renderer.root.findByProps({ className: 'releaseStageError' }).children.join('')).toContain('Recovery reconciliation conflicted');
-    expect(renderer.root.findAllByType('button').some((button) => button.children.join('') === 'Retry release')).toBe(true);
-  });
-
-  it('atomically replaces edited notes with regenerated notes and matching evidence', async () => {
-    const renderer = await renderReleaseTab();
-    act(() => renderer.root.findByType('textarea').props.onChange({ target: { value: 'edited notes' } }));
-    const refreshed = reconciliation({ disposition: 'available', requestedVersion: '1.2.4', permittedActions: ['start'] });
-    invoke.mockImplementation((command: string, args: unknown) => {
-      if (command === 'release_reconcile_preview') {
-        expect(args).toEqual({ projectId: 'project', version: '1.2.4', notes: 'edited notes' });
-        return Promise.resolve({ notes: 'regenerated notes', reconciliation: refreshed });
-      }
-      if (command === 'release_history') return Promise.resolve([]);
-      return Promise.resolve(undefined);
-    });
-
-    const refresh = renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Refresh release status')!;
-    await act(async () => { refresh.props.onClick(); await new Promise((resolve) => setTimeout(resolve, 0)); });
-
-    expect(renderer.root.findByType('textarea').props.value).toBe('regenerated notes');
-    expect(renderer.root.findByProps({ className: 'releaseReconciliation available' })).toBeDefined();
-    expect(renderer.root.findByType(ReconciliationSummary).props.reconciliation).toBe(refreshed);
-  });
-
-  it('keeps the existing notes and evidence when the combined refresh fails', async () => {
-    const existing = reconciliation({ disposition: 'conflict' });
-    const renderer = await renderReleaseTab([], draft({ reconciliation: existing }));
-    invoke.mockImplementation((command: string) => command === 'release_reconcile_preview' ? Promise.reject(new Error('reconciliation failed')) : Promise.resolve([]));
-
-    const refresh = renderer.root.findAllByType('button').find((button) => button.children.join('') === 'Refresh release status')!;
-    await act(async () => { refresh.props.onClick(); await new Promise((resolve) => setTimeout(resolve, 0)); });
-
-    expect(renderer.root.findByType('textarea').props.value).toBe('original notes');
-    expect(renderer.root.findByType(ReconciliationSummary).props.reconciliation).toBe(existing);
-    expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('reconciliation failed');
-  });
-
-  it('uses the new label for setup and active-operation refresh actions', async () => {
-    const renderer = await renderReleaseTab([operation()]);
-    const labels = renderer.root.findAllByType('button').map((button) => button.children.join(''));
-    expect(labels.filter((label) => label === 'Refresh release status')).toHaveLength(2);
-    expect(labels).not.toContain('Refresh reconciliation');
-  });
-});
-
-describe('release reconciliation summary', () => {
-  it('identifies a resumable draft and opens its GitHub URL', () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
-    act(() => { renderer = TestRenderer.create(<ReconciliationSummary reconciliation={reconciliation()} />); });
-    expect(renderer.root.findByType('strong').children.join('')).toBe('Draft release found');
-    act(() => renderer.root.findByProps({ className: 'releaseLink' }).props.onClick());
-    expect(invoke).toHaveBeenCalledWith('open_url', { url: 'https://example.com/draft' });
-  });
-  it('condenses tag evidence while retaining full verification revisions in a native disclosure', () => {
-    const markup = renderToStaticMarkup(<ReconciliationSummary reconciliation={reconciliation({ localTagRevision: 'local-conflicting-sha' })} />);
-    expect(markup).toContain('Release SHA');
-    expect(markup).toContain('<summary>Show verification details</summary>');
-    expect(markup).not.toContain('<details class="releaseVerification" open');
-    expect(markup).toContain('local-conflicting-sha');
-    expect(markup).toContain('Remote tag SHA');
-    expect(markup).toContain('abcdef1234567890');
-  });
-  it('renders actionable conflict details and revisions', () => {
-    const markup = renderToStaticMarkup(<ReconciliationSummary reconciliation={reconciliation({ disposition: 'conflict', issues: ['Remote tag points elsewhere.'], permittedActions: ['refresh'] })} />);
-    expect(markup).toContain('Release conflict'); expect(markup).toContain('Remote tag points elsewhere.'); expect(markup).toContain('abcdef123456');
-  });
-});
-
-describe('ReleaseStage', () => {
-  it('uses the shared GitHub in-progress spinner for running stages', () => {
-    const markup = renderToStaticMarkup(<ReleaseStage stage={stage({ status: 'running' })} index={0} />);
-
-    expect(markup).toContain('class="githubCiIcon githubCiRunning"');
-    expect(markup).toContain('aria-label="Publish artifacts in progress"');
-    expect(markup).toContain('<span class="releaseStageIcon"><span');
-    expect(markup).not.toContain('◌');
-  });
-
-  it('leaves non-running stage icons unchanged', () => {
-    expect(renderToStaticMarkup(<ReleaseStage stage={stage()} index={0} />)).toContain('<span class="releaseStageIcon">✓</span>');
-    expect(renderToStaticMarkup(<ReleaseStage stage={stage({ status: 'pending' })} index={0} />)).toContain('<span class="releaseStageIcon">·</span>');
-    expect(renderToStaticMarkup(<ReleaseStage stage={stage({ status: 'failed' })} index={0} />)).toContain('<span class="releaseStageIcon">!</span>');
-  });
-
-  it('renders compact lowercase durations in interactive step headings', () => {
-    const minuteMarkup = renderToStaticMarkup(<ReleaseStage stage={stage({ completedAt: 163 })} index={0} />);
-    const secondsMarkup = renderToStaticMarkup(<ReleaseStage stage={stage()} index={0} />);
-
-    expect(minuteMarkup).toContain('<small class="releaseDuration">1m3s</small>');
-    expect(minuteMarkup).toContain('<button class="releaseStageHeading releaseStageDisclosure"');
-    expect(secondsMarkup).toContain('<small class="releaseDuration">5s</small>');
-  });
-
-  it('collapses output by default and makes the full heading a disclosure button', () => {
-    const markup = renderToStaticMarkup(<ReleaseStage stage={stage()} index={0} />);
-
-    expect(markup).toContain('<button class="releaseStageHeading releaseStageDisclosure"');
-    expect(markup).toContain('aria-expanded="false"');
-    expect(markup).not.toContain('Attempt 2');
-    expect(markup).not.toContain('releaseLog');
-    expect(markup).not.toContain('Attempt 2 log');
-  });
-
-  it('keeps an opened stage open when refreshed stage data is rendered', () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
-    act(() => { renderer = TestRenderer.create(<ReleaseStage stage={stage()} index={0} />); });
-
-    act(() => renderer.root.findByType('button').props.onClick());
-    expect(renderer.root.findByType('button').props['aria-expanded']).toBe(true);
-    expect(renderer.root.findByProps({ className: 'releaseStageOutputMeta' }).children.join('')).toBe('Attempt 2 (truncated)');
-
-    act(() => renderer.update(<ReleaseStage stage={stage({ status: 'running', completedAt: null, log: 'Updated output' })} index={0} />));
-    expect(renderer.root.findByType('button').props['aria-expanded']).toBe(true);
-    expect(renderer.root.findByProps({ className: 'releaseLog' }).children).toContain('Updated output');
-  });
-
-  it('leaves stages without output non-interactive', () => {
-    const markup = renderToStaticMarkup(<ReleaseStage stage={stage({ log: '' })} index={0} />);
-
-    expect(markup).toContain('<div class="releaseStageHeading">');
-    expect(markup).not.toContain('aria-expanded');
-    expect(markup).not.toContain('releaseStageDisclosureIndicator');
-    expect(markup).not.toContain('<button');
-  });
-
-  it('opens output URLs without closing the disclosure', () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
-    act(() => { renderer = TestRenderer.create(<ReleaseStage stage={stage()} index={0} />); });
-    act(() => renderer.root.findByType('button').props.onClick());
-
-    const preventDefault = vi.fn();
-    const stopPropagation = vi.fn();
-    act(() => renderer.root.findByType('a').props.onClick({ button: 0, preventDefault, stopPropagation }));
-
-    expect(preventDefault).toHaveBeenCalledOnce();
-    expect(stopPropagation).toHaveBeenCalledOnce();
-    expect(invoke).toHaveBeenCalledWith('open_url', { url: 'https://example.com/release' });
-    expect(renderer.root.findByType('button').props['aria-expanded']).toBe(true);
+  it('makes latest lookup failures understandable without blocking releases', async () => {
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation((command: string, ...args: unknown[]) => command === 'release_latest' ? Promise.reject('GitHub authentication failed') : original(command, ...args));
+    const r = await render();
+    expect(r.root.findByProps({ className: 'releaseLatest' }).children.join('')).toContain('Unavailable — GitHub authentication failed');
+    act(() => r.unmount());
   });
 });

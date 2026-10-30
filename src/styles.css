@@ -1320,89 +1320,17 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   .piGuiContext { gap: 5px; }
 }
 
-/* Generic repository-owned release pipelines */
-.releaseView { flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-inset); color: #aebdcb; }
-.releaseScroll { width: 100%; overflow-y: auto; padding: 20px; box-sizing: border-box; }
-.releaseHeader, .releaseSummary, .releaseStageHeading, .releaseActions { display: flex; align-items: center; gap: 10px; }
-.releaseHeader { justify-content: space-between; margin-bottom: 16px; }
-.releaseHeader h3 { margin: 0 0 5px; color: #d5dfe9; }
-.releaseHeaderActions { display: flex; gap: 8px; }
-.releaseHeaderActions button, .releaseActions button, .releaseStart { border: 1px solid #34495d; border-radius: 6px; background: var(--surface-hover); color: #b7c8d8; padding: 7px 10px; }
-.releaseValid { color: #70bd8d; } .releaseInvalid, .releaseStageError { color: #df858b; }
-.releasePending, .releaseProgress { color: #8faec8; }
-.releaseProgress { margin: 0 0 16px; font-size: 12px; }
-.releaseCiStatus { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 9px 11px; border: 1px solid #2a4052; border-radius: 6px; color: #8faec8; font-size: 12px; }
-.releaseCiStatus[data-ci-state="success"] { color: #70bd8d; }
-.releaseCiStatus:is([data-ci-state="failure"], [data-ci-state="error"]) { color: #df858b; }
-.releaseCiStatus code { color: inherit; }
-.releaseCiStatus button { border: 0; background: none; color: #a5c3db; font: inherit; cursor: pointer; text-decoration: underline; }
-.releaseSetup { display: grid; gap: 16px; }
-.releaseSetup > label { display: grid; gap: 6px; color: #8498aa; font-size: 12px; }
-.releaseSetup input, .releaseSetup textarea { box-sizing: border-box; width: 100%; padding: 9px; border: 1px solid #2c4053; border-radius: 6px; background: var(--surface-panel); color: #c5d1dc; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.releaseFacts { display: flex; flex-wrap: wrap; gap: 6px 10px; color: #8498aa; font-size: 12px; }
-.releaseFacts > div { min-width: 0; overflow-wrap: anywhere; }
-.releaseFacts > div:not(:last-child)::after { content: ' ·'; margin-left: 10px; color: #708598; }
-.releaseFacts .releaseFactValue { color: #c4d0db; }
-.releaseRevision { padding: 0; border: 0; background: none; color: #c4d0db; font: inherit; text-transform: none; cursor: pointer; }
-.releaseRevision:focus-visible { outline: 2px solid #527b9e; outline-offset: 3px; }
-.releaseCopyStatus { font-size: 11px; color: #8498aa; }
-.releaseCommand span { display: block; color: #708598; font-size: 11px; }
-.releaseCommand code, .releaseSummary code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.releaseDisclosureCard { min-width: 0; margin-top: 14px; border: 1px solid #25384a; border-radius: 8px; background: var(--surface-panel); }
-.releaseOperation { padding: 14px; border: 1px solid #25384a; border-radius: 8px; background: var(--surface-panel); }
-.releaseDisclosureHeading { margin: 0; font: inherit; }
-.releaseDisclosureContent { padding: 0 14px 14px; }
-.releasePreviewStep { min-width: 0; border-top: 1px solid #223142; }
-.releasePreviewStep h4 { margin: 0 0 5px; color: #d5dfe9; padding: 10px 6px 0; font-weight: 400; text-transform: none; letter-spacing: normal; }
-.releaseDisclosure { display: flex; width: 100%; box-sizing: border-box; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 0; border-radius: 7px; outline: none; background: transparent; color: #c4d0db; font: inherit; font-weight: 400; text-transform: none; letter-spacing: normal; text-align: left; cursor: pointer; }
-.releaseDisclosure:hover { background: var(--surface-hover); }
-.releaseDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: var(--surface-hover); }
-.releaseDisclosureIndicator { flex: 0 0 auto; color: #708598; font-size: 18px; line-height: 1; transition: transform 120ms ease; }
-.releaseDisclosure[aria-expanded="true"] .releaseDisclosureIndicator { transform: rotate(90deg); }
-.releasePreviewDetails { padding: 0 6px 10px; }
-.releasePreviewMetadata { color: #708598; font-size: 11px; }
-.releasePreview small { display: block; margin-top: 10px; color: #708598; }
-.releaseCommand { margin-top: 7px; }
-.releaseCommand code { display: block; margin-top: 3px; padding: 7px; overflow-x: auto; background: var(--surface-canvas); color: #aebdcb; white-space: pre-wrap; overflow-wrap: anywhere; }
-.releaseVerification { margin-top: 8px; color: #8498aa; font-size: 12px; }
-.releaseVerification summary { cursor: pointer; }
-.releaseVerification dl { margin-bottom: 0; }
-.releaseVerification dd { margin: 3px 0 8px; overflow-wrap: anywhere; color: #c4d0db; }
-.releaseStart { justify-self: start; }
-.releaseReconciliation { padding: 11px; border: 1px solid #2a4053; border-radius: 7px; background: var(--surface-panel); }
-.releaseReconciliation > div:first-child { display: flex; align-items: center; justify-content: space-between; color: #c3d0dc; }
-.releaseReconciliation.conflict, .releaseReconciliation.recoveryRequired { border-color: #684047; background: #21171c; }
-.releaseReconciliation p { margin: 7px 0 0; color: #dc969b; font-size: 12px; white-space: pre-wrap; }
-.releaseEvidence { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 7px; color: #8398aa; font-size: 11px; }
-.releaseEvidence code { color: #b6c5d2; }
-.releaseLink { border: 0; background: none; color: #79add8; cursor: pointer; }
-.releaseDuration { font-variant-numeric: tabular-nums; text-transform: none; }
-.releaseSummary { display: grid; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 12px; }
-.releaseSummaryMetadata { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
-.releaseSummaryMetadata strong, .releaseSummaryMetadata .releaseStatus { min-width: 0; overflow-wrap: anywhere; }
-.releaseSummaryMetadata > span:not(.releaseStatus), .releaseSummary > .releaseDuration { color: #74889b; font-size: 12px; }
-.releaseSummary > .releaseDuration { white-space: nowrap; }
-.releaseStatus { padding: 3px 7px; border-radius: 999px; background: #263a4d; color: #a9bed0; font-size: 11px; }
-.releaseStatus.completed { background: #173324; color: #79c894; } .releaseStatus.failed, .releaseStatus.interrupted { background: #3a2025; color: #df858b; }
-.releaseStage { padding: 10px 0; border-top: 1px solid #223142; }
-.releaseStageHeading { width: 100%; box-sizing: border-box; }
-.releaseStageHeading .releaseStageStatus { color: #8094a6; font-size: 12px; }
-.releaseStageHeading small { margin-left: auto; color: #65798c; }
-.releaseStageDisclosure { margin: -4px 0; padding: 4px 6px 4px 0; border: 0; border-radius: 5px; outline: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.releaseStageDisclosure:hover { background: var(--surface-hover); }
-.releaseStageDisclosure:focus-visible { box-shadow: 0 0 0 2px #527b9e; background: var(--surface-hover); }
-.releaseStageIcon { width: 18px; flex: 0 0 18px; color: #708598; text-align: center; }
-.releaseStageIcon .githubCiRunning { position: relative; top: 2px; }
-.releaseStage.completed .releaseStageIcon { color: #70bd8d; }
-.releaseStageDisclosureIndicator { margin-left: 0; color: #708598; font-size: 18px; line-height: 1; transition: transform 120ms ease; }
-.releaseStageStatus + .releaseStageDisclosureIndicator { margin-left: auto; }
-.releaseStageDisclosure[aria-expanded="true"] .releaseStageDisclosureIndicator { transform: rotate(90deg); }
-.releaseStageOutput { margin: 10px 0 0 28px; }
-.releaseStageOutputMeta { color: #8098ad; font-size: 12px; }
-.releaseLog { max-height: 280px; overflow: auto; margin: 7px 0 0; padding: 10px; background: var(--surface-canvas); color: #9eafbd; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.releaseLog a { color: #79add8; }
-.releaseActions { margin-top: 14px; }
-.releaseHistoryRow { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 7px 0; border-top: 1px solid #223142; color: #8094a6; font-size: 12px; }
+/* Repository-owned release command, rendered by the shared terminal. */
+.releaseView { flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-inset); color: #aebdcb; }
+.releaseView.active { display: flex; }
+.releaseControls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; }
+.releaseControls label { display: flex; align-items: center; gap: 8px; }
+.releaseControls input { width: 140px; padding: 8px; border: 1px solid #2c4053; border-radius: 6px; background: var(--surface-panel); color: #c5d1dc; }
+.releaseControls button { padding: 8px 12px; border: 1px solid #34495d; border-radius: 6px; }
+.releaseLatest { min-width: 0; overflow-wrap: anywhere; color: #8498aa; }
+.releaseView > [role="alert"] { margin: 0 16px 12px; color: #df858b; }
+.releaseTerminal { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.releaseTerminal > .terminal { flex: 1; }
 .cleanupPreflightModal { width: min(560px, 100%); padding: 16px; gap: 8px; }
 .cleanupPreflightModal:focus { outline: none; }
 /* Match the scrollport inset and classic scrollbar gutter in all three sections.
@@ -1516,8 +1444,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   border-color: #839cb2;
   background: var(--surface-action-hover);
 }
-:is(.kanbanHeaderActions, .modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .releaseActions) > button:not(.danger):not(.dangerAction):focus-visible,
-.releaseStart:focus-visible,
+:is(.kanbanHeaderActions, .modalActions, .settingsPageActions, .kanbanEditActions, .cardFooterActionGroupLeft, .releaseControls) > button:not(.danger):not(.dangerAction):focus-visible,
+.releaseControls > button:focus-visible,
 .kanbanNewCardActionButtons > button:focus-visible {
   outline: 2px solid #a6bed2;
   outline-offset: 2px;

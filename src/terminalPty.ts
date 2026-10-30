@@ -47,8 +47,9 @@ export function attachTerminalPtyListeners({
       session.starting = false;
       session.running = false;
       session.managedStopRequested = false;
+      session.exitStatus = event.payload.status ?? null;
       const remaining = session.decoder.decode();
-      enqueueTerminalOutput(session, `${remaining}\r\n[process exited]\r\n`, workspaceId, terminalId);
+      enqueueTerminalOutput(session, `${remaining}\r\n[process exited${event.payload.status == null ? '' : `: ${event.payload.status}`}]\r\n`, workspaceId, terminalId);
       applicationEvents.publish('terminal-running-changed', { terminalId, generation, running: false });
       const attention = processExitAttention({ terminalId, workspaceId, generation, commandBacked, eligible: Boolean(session.activityNotificationEligible) });
       if (attention) dispatchAppAttention(attention);
@@ -105,8 +106,9 @@ export async function spawnTerminalPty({
       return;
     }
     session.spawned = true;
-    session.running = true;
-    applicationEvents.publish('terminal-running-changed', { terminalId, generation, running: true });
+    // Fast commands can exit before spawn_pty's invoke response arrives.
+    session.running = session.exitStatus === undefined;
+    applicationEvents.publish('terminal-running-changed', { terminalId, generation, running: session.running });
     if (session.managedStopRequested) {
       await invoke('kill_pty', { terminalId, expectedGeneration: generation });
       return;

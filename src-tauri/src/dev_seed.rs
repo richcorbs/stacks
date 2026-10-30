@@ -42,8 +42,6 @@ const EXPECTED_TABLES: &[&str] = &[
     "projects",
     "provider_sync_attempts",
     "provider_sync_operations",
-    "release_attempts",
-    "release_operations",
     "schema_migrations",
     "scripted_delivery_operations",
     "superthread_bindings",
@@ -115,6 +113,9 @@ fn online_backup(source_path: &Path, destination_path: &Path) -> Result<(), Stri
 fn sanitize_database(path: &Path) -> Result<(), String> {
     let mut connection =
         Connection::open(path).map_err(db_error("Could not open the staged database"))?;
+    // Retired release journals may exist in older profiles; never seed their runtime claims.
+    connection.execute_batch("DROP TABLE IF EXISTS release_attempts; DROP TABLE IF EXISTS release_operations;")
+        .map_err(db_error("Could not remove retired release journals"))?;
     validate_schema(&connection)?;
     connection
         .pragma_update(None, "foreign_keys", "ON")
@@ -132,8 +133,6 @@ fn sanitize_database(path: &Path) -> Result<(), String> {
          DELETE FROM card_cleanup_operations;
          DELETE FROM provider_sync_attempts;
          DELETE FROM provider_sync_operations;
-         DELETE FROM release_attempts;
-         DELETE FROM release_operations;
          DELETE FROM card_pi_lifecycle_events;
          DELETE FROM card_pi_lifecycle;
          DELETE FROM card_target_merge_operations;
@@ -245,8 +244,6 @@ fn validate_staged_seed(database: &Path, directory: &Path) -> Result<(), String>
         "global_terminal_state",
         "provider_sync_attempts",
         "provider_sync_operations",
-        "release_attempts",
-        "release_operations",
         "scripted_delivery_operations",
     ] {
         let count: i64 = connection
@@ -425,7 +422,6 @@ mod tests {
         connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary) VALUES ('parent',2,'user','transition','success','history')", []).unwrap();
         connection.execute("INSERT INTO card_pi_lifecycle(card_id,thread,generation) VALUES ('parent','planning','prod-generation')", []).unwrap();
         connection.execute("INSERT INTO card_environments(id,card_id,project_id,worktree_path,created_at,updated_at) VALUES ('e','child','p','/prod/worktree',1,1)", []).unwrap();
-        connection.execute("INSERT INTO release_operations(id,project_id,repository_identity,status,revision,state_json,created_at,updated_at) VALUES ('r','p','repo','running',1,'{}',1,1)", []).unwrap();
         connection
             .pragma_update(None, "journal_mode", "WAL")
             .unwrap();
@@ -497,13 +493,6 @@ mod tests {
         assert_eq!(
             connection
                 .query_row("SELECT COUNT(*) FROM card_pi_lifecycle", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT COUNT(*) FROM release_operations", [], |row| row
                     .get::<_, i64>(0))
                 .unwrap(),
             0

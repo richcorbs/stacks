@@ -73,7 +73,7 @@ describe('project workspace tab shortcuts', () => {
     select(4);
     expect(renderer.root.findByProps({ className: 'cardTerminalView cardView active' })).toBeTruthy();
     select(5);
-    expect(active()).toContain('Release');
+    expect(active()).toContain('RELEASES');
     select(6);
     expect(renderer.root.findByProps({ className: 'cardServiceView cardView active', 'aria-label': 'server terminal' })).toBeTruthy();
     select(7);

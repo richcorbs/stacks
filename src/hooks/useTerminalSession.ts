@@ -162,7 +162,7 @@ export function useTerminalSession({
             isCancelled: () => getTerminalSession(terminal.id) !== createdSession,
           }))
           .then(() => {
-            if (createdSession.running) {
+            if (createdSession.running || createdSession.exitStatus !== undefined) {
               notifyTerminalStartup({ terminalId: terminal.id, ok: true });
               return;
             }

@@ -144,7 +144,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
             <button className="cardDiffTabLabel" type="button" disabled={!isGit} title={!isGit ? 'Not a Git repository' : undefined} onClick={() => requestView(tab)}>Diff</button>
             <button className="cardDiffRefresh" type="button" disabled={!isGit} aria-label="Refresh diff" onClick={() => { setDiffRefreshNonce((n) => n + 1); void refreshGit(); }}><span className="diffRefreshIcon" /></button>
           </span> : tab === 'server' || tab === 'console' ? <ServiceTab key={tab} mode={tab} active={activeView === tab} commandActive={tab === 'server' ? serverActive : consoleActive} onSelect={() => setActiveView(tab)} onToggle={() => toggleService(tab)} />
-            : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'notes' ? 'Notes' : tab === 'release' ? 'Release' : 'Terminal'}</button>)}
+            : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'notes' ? 'Notes' : tab === 'release' ? 'RELEASES' : 'Terminal'}</button>)}
         </nav>
         {actionError && <div className="kanbanActionError" role="alert">{actionError}</div>}
         <section className={`cardChatView cardView${showAgent ? ' active' : ''}`} aria-label={PROJECT_WORKSPACE_AGENT_LABEL}>
@@ -162,7 +162,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
           <aside className="cardDiffExplorer"><DiffTab activePath={gitState?.kind === 'git' ? project.path : null} comparisonTarget={projectRemoteComparisonTarget(project)} refreshNonce={diffRefreshNonce} review={diffReview} /></aside>
           <div className="cardDiffContent">{diffReview.openDiff ? <DiffOverlay review={diffReview} fontSize={13} canSubmit onSubmit={submitDiffReview} onClose={() => { diffReview.reset(); setActiveView('agent'); }} /> : <div className="kanbanEmpty">Select a changed file to view its diff.</div>}</div>
         </section>
-        {project.releases_enabled && activeView === 'release' && <ReleaseTab project={project} />}
+        {project.releases_enabled && <ReleaseTab key={project.id} project={project} active={activeView === 'release'} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>
           {loading ? <div className="kanbanEmpty">Opening terminal layout…</div> : <WorkspaceShellView controller={shellController} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} visible={activeView === 'terminal'} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         </section>

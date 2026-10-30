@@ -89,8 +89,6 @@ struct Project {
     releases_enabled: bool,
     #[serde(default = "default_release_config_path")]
     release_config_path: String,
-    #[serde(default = "default_required_ci_workflow")]
-    required_ci_workflow: String,
     #[serde(default)]
     config_revision: i64,
     #[serde(default)]
@@ -164,8 +162,6 @@ pub struct ProjectConfigurationInput {
     releases_enabled: bool,
     #[serde(default = "default_release_config_path")]
     release_config_path: String,
-    #[serde(default = "default_required_ci_workflow")]
-    required_ci_workflow: String,
     #[serde(default)]
     expected_revision: i64,
     #[serde(default)]
@@ -183,6 +179,7 @@ struct SuperthreadColumnMapping {
 fn default_release_config_path() -> String {
     ".stacks/release.json".to_string()
 }
+// Inert legacy database column; publication policy is now owned by the script.
 fn default_required_ci_workflow() -> String {
     ".github/workflows/ci.yml".to_string()
 }
@@ -537,9 +534,6 @@ fn validate_project_input(input: &ProjectConfigurationInput) -> Result<(), Strin
     if input.name.trim().is_empty() || input.path.trim().is_empty() {
         return Err("Name and directory are required".into());
     }
-    if input.releases_enabled && input.required_ci_workflow.trim().is_empty() {
-        return Err("A required CI workflow path is required when Releases are enabled".into());
-    }
     if normalize_delivery_workflow(&input.delivery_workflow) == "scripted_delivery"
         && input
             .deployment_command
@@ -677,7 +671,6 @@ fn normalize_project_configuration(input: &mut ProjectConfigurationInput) {
     input.target_branch = normalize_target_branch(&input.target_branch).to_string();
     input.github_merge_strategy = normalize_merge_strategy(&input.github_merge_strategy).to_string();
     input.release_config_path = non_empty(Some(std::mem::take(&mut input.release_config_path))).unwrap_or_else(default_release_config_path);
-    input.required_ci_workflow = non_empty(Some(std::mem::take(&mut input.required_ci_workflow))).unwrap_or_else(default_required_ci_workflow);
     input.superthread_spaces = non_empty(input.superthread_spaces.take());
     input.superthread_workspace_id = non_empty(input.superthread_workspace_id.take());
     input.superthread_workspace_name = non_empty(input.superthread_workspace_name.take());
@@ -728,7 +721,7 @@ fn project_configuration(project: &Project) -> ProjectConfigurationInput {
         server_command: project.server_command.clone(), console_command: project.console_command.clone(), delivery_workflow: project.delivery_workflow.clone(),
         target_branch: project.target_branch.clone(), supports_feature_environments: project.supports_feature_environments, github_merge_strategy: project.github_merge_strategy.clone(),
         require_passing_ci: project.require_passing_ci, require_approval: project.require_approval, releases_enabled: project.releases_enabled,
-        release_config_path: project.release_config_path.clone(), required_ci_workflow: project.required_ci_workflow.clone(), expected_revision: project.config_revision, enable_mcp: project.enable_mcp, mcp_env_names: project.mcp_env_names.clone(),
+        release_config_path: project.release_config_path.clone(), expected_revision: project.config_revision, enable_mcp: project.enable_mcp, mcp_env_names: project.mcp_env_names.clone(),
     }
 }
 
@@ -765,7 +758,7 @@ fn project_configuration_changes(current: &ProjectConfigurationInput, next: &Pro
             || current.server_command != next.server_command || current.console_command != next.console_command
             || current.deployment_command != next.deployment_command || current.target_branch != next.target_branch
             || current.github_merge_strategy != next.github_merge_strategy || current.releases_enabled != next.releases_enabled
-            || current.release_config_path != next.release_config_path || current.required_ci_workflow != next.required_ci_workflow,
+            || current.release_config_path != next.release_config_path,
         provider_workflow: current.delivery_workflow != next.delivery_workflow
             || current.supports_feature_environments != next.supports_feature_environments
             || current.require_passing_ci != next.require_passing_ci || current.require_approval != next.require_approval,
@@ -856,7 +849,7 @@ fn create_project_validated(input: ProjectConfigurationInput) -> Result<ProjectS
                 input.superthread_default_incoming_column_id, input.superthread_in_progress_column_id, input.superthread_in_progress_column_name,
                 input.superthread_done_column_id, input.superthread_done_column_name, non_empty(input.server_command.clone()), non_empty(input.console_command.clone()), order,
                 normalize_delivery_workflow(&input.delivery_workflow), non_empty(input.deployment_command.clone()), target, input.supports_feature_environments as i64,
-                normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64, input.require_approval as i64, input.releases_enabled as i64, release, input.required_ci_workflow, input.color_id, input.enable_mcp as i64, input.mcp_env_names],
+                normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64, input.require_approval as i64, input.releases_enabled as i64, release, default_required_ci_workflow(), input.color_id, input.enable_mcp as i64, input.mcp_env_names],
         ).map_err(db_error)?;
         if source == "superthread" {
             activate_superthread_binding(&transaction, &input)?;
@@ -1163,7 +1156,7 @@ fn update_project_configuration_row(
             non_empty(input.server_command.clone()), non_empty(input.console_command.clone()), normalize_delivery_workflow(&input.delivery_workflow), target_branch,
             input.supports_feature_environments as i64, normalize_merge_strategy(&input.github_merge_strategy), input.require_passing_ci as i64,
             input.require_approval as i64, input.releases_enabled as i64, release_path, input.id, input.expected_revision,
-            input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN").trim(), non_empty(input.deployment_command.clone()), input.color_id, input.enable_mcp as i64, input.mcp_env_names, input.required_ci_workflow],
+            input.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN").trim(), non_empty(input.deployment_command.clone()), input.color_id, input.enable_mcp as i64, input.mcp_env_names, default_required_ci_workflow()],
     ).map(|changed| changed == 1).map_err(db_error)
 }
 
@@ -1346,7 +1339,6 @@ fn read_store(connection: &Connection) -> Result<ProjectStore, String> {
                 color_id: Some(normalized_project_color(row.get::<_, Option<String>>(37)?.as_deref()).into()),
                 enable_mcp: row.get::<_, i64>(38)? != 0,
                 mcp_env_names: row.get(39)?,
-                required_ci_workflow: row.get(40)?,
                 deployment_command: row.get(22)?,
                 delivery_workflow_locked: row.get::<_, i64>(36)? != 0,
                 notes: row.get(3)?,
@@ -1571,7 +1563,7 @@ fn write_store(connection: &mut Connection, store: &ProjectStore) -> Result<(), 
                 project.superthread_board_id, project.superthread_board_name, serde_json::to_string(&project.superthread_incoming_columns).map_err(|e| e.to_string())?,
                 project.superthread_default_incoming_column_id, project.superthread_in_progress_column_id, project.superthread_in_progress_column_name,
                 project.superthread_done_column_id, project.superthread_done_column_name, project.superthread_mapping_revision,
-                project.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN"), project.deployment_command, normalized_project_color(project.color_id.as_deref()), persisted_config.get(&project.id).map(|(enabled, _, _)| *enabled).unwrap_or(project.enable_mcp) as i64, persisted_config.get(&project.id).map(|(_, _, names)| names.as_str()).unwrap_or(&project.mcp_env_names), if project.required_ci_workflow.trim().is_empty() { default_required_ci_workflow() } else { project.required_ci_workflow.clone() }],
+                project.superthread_api_token_env_var.as_deref().unwrap_or("ST_TOKEN"), project.deployment_command, normalized_project_color(project.color_id.as_deref()), persisted_config.get(&project.id).map(|(enabled, _, _)| *enabled).unwrap_or(project.enable_mcp) as i64, persisted_config.get(&project.id).map(|(_, _, names)| names.as_str()).unwrap_or(&project.mcp_env_names), default_required_ci_workflow()],
         ).map_err(db_error)?;
         for (workspace_index, workspace) in project.workspaces.iter().enumerate() {
             transaction.execute(
@@ -1687,7 +1679,6 @@ mod tests {
                 require_approval: false,
                 releases_enabled: false,
                 release_config_path: default_release_config_path(),
-                required_ci_workflow: default_required_ci_workflow(),
                 config_revision: 0,
                 enable_mcp: false,
                 mcp_env_names: String::new(),
@@ -1947,7 +1938,6 @@ mod tests {
             require_approval: true,
             releases_enabled: true,
             release_config_path: "release.json".into(),
-            required_ci_workflow: default_required_ci_workflow(),
             expected_revision: 0,
             enable_mcp: false,
             mcp_env_names: String::new(),
@@ -1991,7 +1981,7 @@ mod tests {
             superthread_default_incoming_column_id: Some("63".into()), superthread_in_progress_column_id: Some("38".into()), superthread_in_progress_column_name: Some("Doing".into()),
             superthread_done_column_id: Some("41".into()), superthread_done_column_name: Some("Done".into()), server_command: None, console_command: None,
             delivery_workflow: default_delivery_workflow(), target_branch: default_target_branch(), supports_feature_environments: false, github_merge_strategy: default_merge_strategy(),
-            require_passing_ci: true, require_approval: false, releases_enabled: false, release_config_path: default_release_config_path(), required_ci_workflow: default_required_ci_workflow(), expected_revision: 0, enable_mcp: false, mcp_env_names: String::new(),
+            require_passing_ci: true, require_approval: false, releases_enabled: false, release_config_path: default_release_config_path(), expected_revision: 0, enable_mcp: false, mcp_env_names: String::new(),
         };
 
         assert!(!superthread_scope_change_requires_quiescence(&connection, &input, "superthread", "superthread").unwrap());
@@ -2090,7 +2080,6 @@ mod tests {
             require_approval: false,
             releases_enabled: false,
             release_config_path: default_release_config_path(),
-            required_ci_workflow: default_required_ci_workflow(),
             config_revision: 0,
             enable_mcp: false,
             mcp_env_names: String::new(),
