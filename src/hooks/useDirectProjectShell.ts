@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project, SplitNode } from '../types';
 import { collectLeafTerminalIds } from '../utils';
-import type { CardTerminalCommand } from '../cardTerminalCommands';
-import { applicationEvents } from '../applicationEvents';
+import { useWorkspaceShellShortcuts } from './useWorkspaceShellShortcuts';
 import { directWorkInitialLayout, workOwnerId, workTerminalId } from '../directWork';
 import { loadOrCreateDirectWork, saveDirectWorkLayout } from '../directWorkApi';
 import { createDirectWorkLayoutPersistence, type DirectWorkLayoutSnapshot } from '../directWorkLayoutPersistence';
@@ -69,21 +68,7 @@ export function useDirectProjectShell(project: Project, active: boolean) {
 
   useEffect(() => () => controller.dispose(), [controller]);
 
-  useEffect(() => {
-    const handleSplit = (detail: { direction?: 'row' | 'column'; pane?: string }) => {
-      if (active && detail.direction) void controller.split(detail.direction, detail.pane);
-    };
-    const handleClose = (detail?: { pane?: string }) => {
-      if (active) controller.requestClose(detail?.pane);
-    };
-    const handleCommand = (command: CardTerminalCommand) => controller.handleCommand(controller.ownerId, active, command);
-    const unsubscribes = [
-      applicationEvents.subscribe('card-terminal-split', handleSplit),
-      applicationEvents.subscribe('card-terminal-close', handleClose),
-      applicationEvents.subscribe('card-terminal-command', handleCommand),
-    ];
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [active, controller]);
+  useWorkspaceShellShortcuts(controller, active);
 
   return { owner, workspaceId, controller, shell, loading, error, clearError: () => setError(null) };
 }

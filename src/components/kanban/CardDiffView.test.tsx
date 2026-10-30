@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { DiffReviewModel } from '../../diffReview/types';
 import type { KanbanCard } from '../../kanban/types';
 import { CardDiffView } from './CardDiffView';
+import { WorkDiffView } from '../WorkDiffView';
 import { DiffTab, type DiffTreeNavigation } from '../DiffTab';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -17,13 +18,16 @@ function makeReview(): DiffReviewModel {
 const files = [{ path: 'src/nested/a.ts', status: 'M' }, { path: 'src/b.ts', status: 'A' }, { path: 'z.ts', status: 'M' }];
 const card = { environment: { target_branch: 'main' } } as KanbanCard;
 
-async function setup() {
+async function setupDiff(context: 'project' | 'card') {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(async (command, args) => command === 'git_diff_files' ? { files } : { path: (args as { file: string }).file, patch: 'new' });
   const review = makeReview();
   let renderer!: TestRenderer.ReactTestRenderer;
-  const render = (active = true, refreshNonce = 0, cardPath = '/repo') => <CardDiffView active={active} card={card} cardPath={cardPath} refreshNonce={refreshNonce} review={review} canSubmit={false} onSubmit={vi.fn()} onClose={vi.fn()} />;
+  const render = (active = true, refreshNonce = 0, cardPath = '/repo') => context === 'card'
+    ? <CardDiffView active={active} card={card} cardPath={cardPath} refreshNonce={refreshNonce} review={review} canSubmit={false} onSubmit={vi.fn()} onClose={vi.fn()} />
+    : <WorkDiffView active={active} label="Project diff" path={cardPath} comparisonTarget="refs/remotes/origin/main" refreshNonce={refreshNonce} review={review} canSubmit onSubmit={vi.fn()} onClose={vi.fn()} />;
   await act(async () => { renderer = TestRenderer.create(render()); });
+  expect(renderer.root.findByType(DiffTab).props.comparisonTarget).toBe(context === 'card' ? 'refs/heads/main' : 'refs/remotes/origin/main');
   const highlight = () => renderer.root.findAllByProps({ role: 'treeitem' }).find((row) => row.props['aria-current'] === 'location')?.props['aria-label'];
   const key = async (key: string, options: Record<string, unknown> = {}, selector: string | null = null) => {
     const target = { closest: (query: string) => selector && query.includes(selector) ? {} : null };
@@ -34,7 +38,8 @@ async function setup() {
   return { renderer, review, render, highlight, key };
 }
 
-describe('card diff Vim navigation', () => {
+describe.each(['project', 'card'] as const)('%s diff Vim navigation', (context) => {
+  const setup = () => setupDiff(context);
   it('moves independently of the opened diff, stops at boundaries, and opens only on Enter', async () => {
     const { renderer, review, highlight, key } = await setup();
     expect(highlight()).toBe('src');
