@@ -35,6 +35,9 @@ tauri-plugin-notification = "2.8.0"
 # code signed, including for local/free builds; tauri.conf.json uses ad-hoc signing.
 notify-rust = { version = "4.18.2", features = ["preview-macos-un"] }
 
+[dev-dependencies]
+tauri = { version = "2.12.5", features = ["test"] }
+
 [profile.release]
 strip = true
 lto = true

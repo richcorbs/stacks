@@ -135,6 +135,11 @@ function build() {
   for (const name of ['Stacks.app.tar.gz', 'Stacks.app.tar.gz.sig']) fs.copyFileSync(path.join(bundle, name), path.join(out, name));
   const pubDate = git(root, 'show', '-s', '--format=%cI', source);
   run('node', ['scripts/create-update-manifest.mjs', path.join(out, 'Stacks.app.tar.gz'), path.join(out, 'Stacks.app.tar.gz.sig'), path.join(out, 'latest.json'), '--version', version, '--pub-date', pubDate], { cwd: root });
+  // Authenticate the actual archive and its version with the same native
+  // verifier used by clients, without installing or restarting the app.
+  run('cargo', ['test', '--manifest-path', 'src-tauri/Cargo.toml', '--test', 'updater_signatures', 'local_release_artifact', '--', '--ignored'], {
+    cwd: root, env: { ...process.env, STACKS_TEST_UPDATER_ARCHIVE: path.join(out, 'Stacks.app.tar.gz') }, capture: false,
+  });
   writeChecksums(out); verifyArtifacts(root, version); console.log(`Verified release artifacts in ${out}`);
 }
 

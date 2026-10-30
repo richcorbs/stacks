@@ -47,6 +47,7 @@
   },
   "plugins": {
     "updater": {
+      "requireSignedVersion": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg0M0Y5RjYxMDMwQzIwMDQKUldRRUlBd0RZWjgvaEFzKzlWckZLQ1dGUUh0NFBLZThiaVNhMWFWdStTM0VaVVRqVThTWWk2a04K",
       "endpoints": [
         "https://github.com/richcorbs/stacks/releases/latest/download/latest.json"
