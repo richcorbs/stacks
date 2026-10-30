@@ -10,6 +10,7 @@
     "dev": "vite",
     "test:chat-scroll": "node tests/pi-chat-scroll.mjs",
     "test:terminal-dependencies": "node tests/terminal-dependencies.mjs",
+    "test:release-terminal": "node tests/release-terminal.mjs",
     "test:terminal-reflow": "node tests/terminal-reflow.mjs",
     "test:terminal-reflow-pty": "node tests/terminal-reflow-pty.mjs",
     "seed:dev": "cargo run --manifest-path src-tauri/Cargo.toml --example seed_dev_data",
