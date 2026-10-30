@@ -136,6 +136,7 @@ export function AppUpdater() {
   function closeDialog() {
     update?.close().catch(console.error);
     setUpdate(null);
+    setStatus('available');
     setError(null);
   }
 

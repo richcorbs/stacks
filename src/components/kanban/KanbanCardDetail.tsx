@@ -9,6 +9,7 @@ import type { CardEnvironmentHealth, CleanupInventory, CleanupPreflight, KanbanC
 import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cancelScriptedDeployment, cleanupKanbanEnvironmentCreation, closeKanbanCard, confirmScriptedDeployed, createKanbanPullRequest, deployScriptedDelivery, fetchCleanupPreflight, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, pushScriptedDelivery, retryKanbanRuntimeCleanup } from '../../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../../kanban/workflowActions';
 import { useDiffReview } from '../../diffReview/useDiffReview';
+import { useWorkDiffRefresh } from '../../hooks/useWorkDiffRefresh';
 import { composeDiffReviewPrompt } from '../../diffReview/prompt';
 import { sendTextToPiEditor } from '../../pi/editorTextEvent';
 import { deletePiSessionController } from '../../pi/sessionController';
@@ -102,12 +103,12 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const cardPath = card.environment?.worktree_path ?? null;
   const serverCommand = project?.server_command?.trim() ?? '';
   const consoleCommand = project?.console_command?.trim() ?? '';
-  const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
+  const { diffRefreshNonce, refreshDiff, onViewSelected } = useWorkDiffRefresh();
   const detail = useCardDetailModel({
     card, initialView,
     availability: { chat: Boolean(project && !card.hierarchy_finalized), workspace: Boolean(cardPath), server: Boolean(serverCommand), console: Boolean(consoleCommand) },
     onUpdate: (title, content) => onUpdate(title, content),
-    onViewSelected: (view) => { if (view === 'diff') setDiffRefreshNonce((nonce) => nonce + 1); },
+    onViewSelected,
   });
   const { activeView, setActiveView, editing, editable, draftTitle, setDraftTitle, draftContent, setDraftContent, editError, setEditError, saving: savingEdit } = detail;
   const beginEditing = () => { if (detail.begin()) requestAnimationFrame(() => titleInputRef.current?.focus()); };
@@ -334,7 +335,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   }
   async function refreshAfterRepositoryChange() {
     await refreshCardSnapshot();
-    setDiffRefreshNonce((nonce) => nonce + 1);
+    refreshDiff();
     applicationEvents.publish('refresh-card-repository-status', undefined);
   }
   function applyRuntimeResult(result: Awaited<ReturnType<typeof retryKanbanRuntimeCleanup>>) {
@@ -431,7 +432,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
           consoleCommand={consoleCommand}
           serverServices={cardServices}
           onRequestView={requestView}
-          onRefreshDiff={() => setDiffRefreshNonce((nonce) => nonce + 1)}
+          onRefreshDiff={refreshDiff}
           onToggleServer={() => onToggleServer(card.id)}
         />
         <CardOverview

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { verifySignatureVersion } from './release-lib.mjs';
 
 const argv = process.argv.slice(2);
 const option = (name) => {
@@ -21,13 +22,15 @@ const tag = `v${version}`;
 const notesPath = path.join(root, 'releases', `${tag}.md`);
 const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, 'utf8').trim() : '';
 const archiveName = path.basename(archivePath);
+const signature = fs.readFileSync(signaturePath, 'utf8').trim();
+verifySignatureVersion(signature, version);
 const manifest = {
   version,
   notes,
   pub_date: pubDate,
   platforms: {
     'darwin-aarch64': {
-      signature: fs.readFileSync(signaturePath, 'utf8').trim(),
+      signature,
       url: `https://github.com/richcorbs/stacks/releases/download/${tag}/${archiveName}`,
     },
   },

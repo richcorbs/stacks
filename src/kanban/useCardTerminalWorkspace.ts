@@ -6,8 +6,8 @@ import type { CardEnvironmentPane, KanbanCard } from './types';
 import { saveKanbanEnvironmentLayout } from './api';
 import { clearOneTimeStartupCommand, disposeTerminalSession, getTerminalSession, registerOneTimeStartupCommand, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { buildOneTimeCommandScript } from '../oneTimeCommand';
-import { publishCardTerminalContext, type CardTerminalCommand } from '../cardTerminalCommands';
-import { applicationEvents } from '../applicationEvents';
+import { publishCardTerminalContext } from '../cardTerminalCommands';
+import { useWorkspaceShellShortcuts } from '../hooks/useWorkspaceShellShortcuts';
 import { temporaryPaneCwd } from '../cardTerminalState';
 import { cardTerminalId, cardWorkspaceId } from './cardWorkspace';
 import { LayoutSaveCoordinator, type LayoutSaveSnapshot } from './layoutSaveCoordinator';
@@ -112,21 +112,7 @@ export function useCardTerminalWorkspace({ card, cardPath, activeView, setAction
     return () => publishCardTerminalContext(null);
   }, [activeView, card.id, cardPath, shell.focusedPaneId, shell.maximizedPaneId, shell.paneIds]);
 
-  useEffect(() => {
-    const handleSplit = (detail: { direction?: 'row' | 'column'; pane?: string }) => {
-      if (activeView === 'terminal' && detail.direction) void controller.split(detail.direction, detail.pane);
-    };
-    const handleClose = (detail?: { pane?: string }) => {
-      if (activeView === 'terminal') controller.requestClose(detail?.pane);
-    };
-    const handleCommand = (command: CardTerminalCommand) => controller.handleCommand(controller.ownerId, activeView === 'terminal', command);
-    const unsubscribes = [
-      applicationEvents.subscribe('card-terminal-split', handleSplit),
-      applicationEvents.subscribe('card-terminal-close', handleClose),
-      applicationEvents.subscribe('card-terminal-command', handleCommand),
-    ];
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [activeView, controller]);
+  useWorkspaceShellShortcuts(controller, activeView === 'terminal');
 
   return {
     controller,

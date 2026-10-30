@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GitInfo, Project } from '../types';
 import { projectColorAttribute } from '../projectColor';
@@ -8,12 +8,11 @@ import { useDiffReview } from '../diffReview/useDiffReview';
 import { composeDiffReviewPrompt } from '../diffReview/prompt';
 import { projectRemoteComparisonTarget } from '../git/comparisonTarget';
 import { useManagedServices } from '../hooks/useManagedServices';
-import { serviceStoppedMessage } from '../managedServices';
 import { sendTextToPiEditor } from '../pi/editorTextEvent';
-import { DiffTab } from './DiffTab';
-import { DiffOverlay } from './DiffOverlay';
+import { WorkDiffView } from './WorkDiffView';
+import { WorkAgentView } from './WorkAgentView';
+import { WorkServiceTerminal } from './WorkServiceTerminal';
 import { WorkspaceShellView } from './WorkspaceShellView';
-import { TerminalView } from './TerminalView';
 import { ConfirmCloseTerminalDialog } from './ConfirmDialogs';
 import { DirectWorkGitMetadata, type DirectWorkGitState } from './DirectWorkGitMetadata';
 import { PROJECT_WORKSPACE_AGENT_LABEL, PROJECT_WORKSPACE_NAME, PROJECT_WORKSPACE_VIEWS_LABEL, ProjectWorkspaceHeader } from './ProjectWorkspaceChrome';
@@ -22,9 +21,8 @@ import { ProjectNotesView } from './ProjectNotesView';
 import { flushProjectNotes } from '../projectNotes';
 import { publishWorkPresence } from '../appAttention';
 import { useDirectProjectShell } from '../hooks/useDirectProjectShell';
+import { useWorkDiffRefresh } from '../hooks/useWorkDiffRefresh';
 
-const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
-const encoder = new TextEncoder();
 type ServiceMode = 'server' | 'console';
 
 export function DirectProjectWork({ project, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, navigationRequest, onClose }: {
@@ -44,7 +42,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   const focusedShellPane = shell.focusedPaneId ?? '';
   const [actionError, setActionError] = useState<string | null>(null);
   const [gitState, setGitState] = useState<DirectWorkGitState>(null);
-  const [diffRefreshNonce, setDiffRefreshNonce] = useState(0);
+  const { diffRefreshNonce, refreshDiff, onViewSelected } = useWorkDiffRefresh();
   const serviceConfigs = useMemo(() => ({
     server: { terminalId: workTerminalId(owner, 'server'), command: project.server_command?.trim() ?? '', cwd: project.path },
     console: { terminalId: workTerminalId(owner, 'console'), command: project.console_command?.trim() ?? '', cwd: project.path },
@@ -102,8 +100,8 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
   const requestView = useCallback((view: WorkView) => {
     if (!tabs.includes(view)) return;
     setActiveView(view);
-    if (view === 'diff') setDiffRefreshNonce((nonce) => nonce + 1);
-  }, [tabs]);
+    onViewSelected(view);
+  }, [onViewSelected, tabs]);
 
   useEffect(() => {
     const handleTabs = (detail: { number?: number; direction?: -1 | 1 }) => {
@@ -142,32 +140,25 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
         <nav className="cardWorkspaceTabs" aria-label={PROJECT_WORKSPACE_VIEWS_LABEL}>
           {displayedTabs.map((tab) => tab === 'diff' ? <span key={tab} className={`cardDiffTab${activeView === tab ? ' active' : ''}`}>
             <button className="cardDiffTabLabel" type="button" disabled={!isGit} title={!isGit ? 'Not a Git repository' : undefined} onClick={() => requestView(tab)}>Diff</button>
-            <button className="cardDiffRefresh" type="button" disabled={!isGit} aria-label="Refresh diff" onClick={() => { setDiffRefreshNonce((n) => n + 1); void refreshGit(); }}><span className="diffRefreshIcon" /></button>
+            <button className="cardDiffRefresh" type="button" disabled={!isGit} aria-label="Refresh diff" onClick={() => { refreshDiff(); void refreshGit(); }}><span className="diffRefreshIcon" /></button>
           </span> : tab === 'server' || tab === 'console' ? <ServiceTab key={tab} mode={tab} active={activeView === tab} commandActive={tab === 'server' ? serverActive : consoleActive} onSelect={() => setActiveView(tab)} onToggle={() => toggleService(tab)} />
             : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'notes' ? 'Notes' : tab === 'release' ? 'RELEASES' : 'Terminal'}</button>)}
         </nav>
         {actionError && <div className="kanbanActionError" role="alert">{actionError}</div>}
-        <section className={`cardChatView cardView${showAgent ? ' active' : ''}`} aria-label={PROJECT_WORKSPACE_AGENT_LABEL}>
-          <div className="cardChat"><Suspense fallback={<div className="kanbanEmpty">Opening Agent…</div>}>
-            <PiGuiView terminal={{ id: agentId, workspaceId, kind: 'pi', cwd: project.path }} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} active={showAgent} visible={showAgent} maximized={false} canToggleMaximize={false} restartRequestNonce={0} fontSize={13} onFocus={() => {}} onClose={() => {}} onSplitTerminal={() => {}} onEditTerminal={() => {}} onToggleMaximize={() => {}} />
-          </Suspense></div>
-        </section>
+        <WorkAgentView terminal={{ id: agentId, workspaceId, kind: 'pi', cwd: project.path }} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} active={showAgent} label={PROJECT_WORKSPACE_AGENT_LABEL} openingMessage="Opening Agent…" />
         <ProjectNotesView
           key={project.id}
           projectId={project.id}
           active={activeView === 'notes'}
           focusRequest={navigationRequest?.view === 'notes' ? navigationRequest.nonce : undefined}
         />
-        <section className={`cardDiffView cardView${activeView === 'diff' ? ' active' : ''}`}>
-          <aside className="cardDiffExplorer"><DiffTab activePath={gitState?.kind === 'git' ? project.path : null} comparisonTarget={projectRemoteComparisonTarget(project)} refreshNonce={diffRefreshNonce} review={diffReview} /></aside>
-          <div className="cardDiffContent">{diffReview.openDiff ? <DiffOverlay review={diffReview} fontSize={13} canSubmit onSubmit={submitDiffReview} onClose={() => { diffReview.reset(); setActiveView('agent'); }} /> : <div className="kanbanEmpty">Select a changed file to view its diff.</div>}</div>
-        </section>
+        <WorkDiffView active={activeView === 'diff'} label="Project diff" path={gitState?.kind === 'git' ? project.path : null} comparisonTarget={projectRemoteComparisonTarget(project)} refreshNonce={diffRefreshNonce} review={diffReview} canSubmit onSubmit={submitDiffReview} onClose={() => { diffReview.reset(); setActiveView('agent'); }} />
         {project.releases_enabled && <ReleaseTab key={project.id} project={project} active={activeView === 'release'} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         <section className={`cardTerminalView cardView${activeView === 'terminal' ? ' active' : ''}`}>
           {loading ? <div className="kanbanEmpty">Opening terminal layout…</div> : <WorkspaceShellView controller={shellController} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} visible={activeView === 'terminal'} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         </section>
-        {serviceConfigs.server.command && <DirectServiceTerminal mode="server" command={serviceConfigs.server.command} enabled={serverEnabled} active={activeView === 'server'} restartRequestNonce={serverRestartNonce} project={project} workspaceId={workspaceId} terminalId={serviceConfigs.server.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        {serviceConfigs.console.command && <DirectServiceTerminal mode="console" command={serviceConfigs.console.command} enabled={consoleEnabled} active={activeView === 'console'} restartRequestNonce={consoleRestartNonce} project={project} workspaceId={workspaceId} terminalId={serviceConfigs.console.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
+        {serviceConfigs.server.command && <WorkServiceTerminal mode="server" command={serviceConfigs.server.command} enabled={serverEnabled} active={activeView === 'server'} restartRequestNonce={serverRestartNonce} project={project} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} terminalId={serviceConfigs.server.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
+        {serviceConfigs.console.command && <WorkServiceTerminal mode="console" command={serviceConfigs.console.command} enabled={consoleEnabled} active={activeView === 'console'} restartRequestNonce={consoleRestartNonce} project={project} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} terminalId={serviceConfigs.console.terminalId} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
       </article>
     </div>
     {shell.pendingClosePaneId && <ConfirmCloseTerminalDialog key={shell.pendingClosePaneId} onCancel={() => shellController.cancelClose()} onConfirm={() => shellController.close(shell.pendingClosePaneId!)} />}
@@ -177,8 +168,4 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
 function ServiceTab({ mode, active, commandActive, onSelect, onToggle }: { mode: ServiceMode; active: boolean; commandActive: boolean; onSelect: () => void; onToggle: () => void }) {
   const label = mode === 'server' ? 'Server' : 'Console';
   return <span className={`cardServiceTab${active ? ' active' : ''}`}><button className="cardServiceTabLabel" type="button" onClick={onSelect}>{label}</button><button className={`cardServiceToggle${commandActive ? ' running' : ''}`} type="button" onClick={onToggle} aria-label={commandActive ? `Stop ${mode}` : `Start ${mode}`} aria-pressed={commandActive}><span className={commandActive ? 'serviceStopIcon' : 'servicePlayIcon'} /></button></span>;
-}
-
-function DirectServiceTerminal({ mode, command, enabled, active, restartRequestNonce, project, workspaceId, terminalId, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: { mode: ServiceMode; command: string; enabled: boolean; active: boolean; restartRequestNonce: number; project: Project; workspaceId: string; terminalId: string; terminalFontSize: number; terminalFontFamily: string; terminalScrollback: number; copyOnSelect: boolean }) {
-  return <section className={`cardServiceView cardView${active ? ' active' : ''}`} aria-label={`${mode} terminal`}>{enabled ? <TerminalView terminal={{ id: terminalId, workspaceId, command, cwd: project.path, temporary: true }} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} active={active} visible={active} maximized={false} managedService terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} searchRequestNonce={0} restartRequestNonce={restartRequestNonce} onFocus={() => {}} onClose={() => {}} onSplitTerminal={() => {}} onEditTerminal={() => {}} onInput={(id, data) => invoke('write_pty', { terminalId: id, data: Array.from(encoder.encode(data)) }).catch(console.error)} canToggleMaximize={false} onToggleMaximize={() => {}} /> : <div className="kanbanEmpty">{serviceStoppedMessage(mode)}</div>}</section>;
 }

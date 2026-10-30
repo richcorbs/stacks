@@ -143,6 +143,25 @@ describe('AppUpdater dialog', () => {
     expect(relaunch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['UPDATE', 'Signed version does not match announced version'],
+    ['Download. Restart later.', 'Missing signed version metadata'],
+    ['UPDATE', 'Signature verification failed'],
+  ])('surfaces verification failure for %s without installing or relaunching: %s', async (action, message) => {
+    const available = update();
+    available.downloadAndInstall.mockRejectedValue(new Error(message));
+    available.download.mockRejectedValue(new Error(message));
+    await renderUpdate(available);
+    await click(action);
+    expect(renderer.root.findByProps({ className: 'dialogSubmitError' }).children).toEqual([message]);
+    expect(available.install).not.toHaveBeenCalled();
+    expect(relaunch).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalledWith('save_current_window_state');
+    expect(button(action)).toBeDefined();
+    await click('Later');
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0);
+  });
+
   it('keeps the general releases fallback and Retry action after a check error', async () => {
     vi.mocked(check).mockRejectedValue(new Error('Offline'));
     await act(async () => { renderer = TestRenderer.create(<AppUpdater />); });

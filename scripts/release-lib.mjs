@@ -156,6 +156,17 @@ export function writeChecksums(out) {
   const names = ASSET_NAMES.slice(0, -1);
   fs.writeFileSync(path.join(out, 'SHA256SUMS'), names.map(name => `${sha256(path.join(out, name))}  ${name}`).join('\n') + '\n');
 }
+// Fail-fast packaging guard, not a cryptographic verifier. The native updater
+// authenticates this trusted comment and the archive before installation.
+export function verifySignatureVersion(signature, version) {
+  validateVersion(version);
+  const text = Buffer.from(signature.trim(), 'base64').toString('utf8');
+  const lines = text.trimEnd().split('\n');
+  if (lines.length !== 4 || !lines[0].startsWith('untrusted comment: ') || !lines[2].startsWith('trusted comment: ')) fail('Malformed updater signature');
+  const fields = lines[2].slice('trusted comment: '.length).split('\t');
+  const signedVersions = fields.filter(field => field.startsWith('version:')).map(field => field.slice('version:'.length));
+  if (signedVersions.length !== 1 || signedVersions[0] !== version) fail(`Updater signature must contain exactly one version:${version} trusted metadata field`);
+}
 export function verifyArtifacts(root, version) {
   const out = artifactDir(root, version); const entries = fs.readdirSync(out, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name).sort();
   const expected = [...ASSET_NAMES].sort();
@@ -166,6 +177,7 @@ export function verifyArtifacts(root, version) {
   const manifest = readJson(path.join(out, 'latest.json'));
   if (manifest.version !== version || manifest.platforms?.['darwin-aarch64']?.url !== `https://github.com/richcorbs/stacks/releases/download/v${version}/Stacks.app.tar.gz`) fail('Updater manifest does not match the requested release');
   if (manifest.platforms['darwin-aarch64'].signature !== fs.readFileSync(path.join(out, 'Stacks.app.tar.gz.sig'), 'utf8').trim()) fail('Updater manifest signature does not match the signature artifact');
+  verifySignatureVersion(manifest.platforms['darwin-aarch64'].signature, version);
   return out;
 }
 export function findRelease(releases, tag) { return releases.filter(release => release.tag_name === tag); }
