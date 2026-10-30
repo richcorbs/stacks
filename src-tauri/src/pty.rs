@@ -5,7 +5,10 @@ use std::{
     sync::Mutex,
     thread,
 };
-use tauri::{Emitter, State, Window};
+use tauri::{Emitter, Manager, State, Window};
+
+// Serialize release starts, including openpty/spawn/registry insertion.
+static RELEASE_START: Mutex<()> = Mutex::new(());
 
 use crate::pty_command::build_shell_command;
 use crate::pty_cwd::{PtyHandle, PtyRegistry};
@@ -38,8 +41,40 @@ pub fn spawn_pty(
     rows: u16,
 ) -> Result<(), String> {
     let _card_resource_guard = if crate::kanban::card_terminal_owner(&terminal_id).is_some() {
-        Some(crate::kanban::CARD_RESOURCE_START_LOCK.lock().map_err(|_| "Card resource lock failed".to_string())?)
-    } else { None };
+        Some(
+            crate::kanban::CARD_RESOURCE_START_LOCK
+                .lock()
+                .map_err(|_| "Card resource lock failed".to_string())?,
+        )
+    } else {
+        None
+    };
+    let is_release = terminal_id.starts_with("release:");
+    let _release_guard = if is_release {
+        Some(
+            RELEASE_START
+                .lock()
+                .map_err(|_| "Release start lock failed")?,
+        )
+    } else {
+        None
+    };
+    if is_release {
+        let mut guard = registry.lock().map_err(|_| "PTY registry lock poisoned")?;
+        if let Some(handle) = guard.terminals.get_mut(&terminal_id) {
+            if handle
+                .child
+                .try_wait()
+                .map_err(|e| e.to_string())?
+                .is_none()
+            {
+                return Err("A release is already running for this repository".into());
+            }
+        }
+        if !managed_service.unwrap_or(false) {
+            return Err("Release terminals must exit with their command".into());
+        }
+    }
     let generation =
         generation.unwrap_or_else(|| format!("{}:{}", terminal_id, uuid::Uuid::new_v4()));
     let command = crate::kanban::validate_card_terminal_start(&terminal_id, &cwd, command)?;
@@ -103,12 +138,37 @@ pub fn spawn_pty(
                 Err(_) => break,
             }
         }
+        // Reap the matching child, not a replacement with the same terminal ID.
+        // EOF can precede child exit slightly; poll without blocking registry users.
+        let status = loop {
+            let registry = window.state::<Mutex<PtyRegistry>>();
+            let Ok(mut guard) = registry.lock() else {
+                break None;
+            };
+            let Some(handle) = guard
+                .terminals
+                .get_mut(&terminal_id)
+                .filter(|h| h.generation == generation)
+            else {
+                break None;
+            };
+            match handle.child.try_wait() {
+                Ok(Some(status)) => {
+                    handle.managed_service = false;
+                    break Some(status.exit_code() as i32);
+                }
+                Err(_) => break None,
+                Ok(None) => {}
+            }
+            drop(guard);
+            thread::sleep(std::time::Duration::from_millis(20));
+        };
         let _ = window.emit(
             "pty-exit",
             PtyExit {
                 terminal_id,
                 generation,
-                status: None,
+                status,
             },
         );
     });
@@ -352,4 +412,41 @@ fn descendant_process_ids(root: u32) -> Vec<u32> {
         index += 1;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_pty_streams_output_and_retains_actual_failure_exit_code() {
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut command = portable_pty::CommandBuilder::new("/bin/sh");
+        command.args([
+            "-c",
+            "printf 'Building\\n'; sleep 0.02; printf 'Failed\\n'; exit 7",
+        ]);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut output = Vec::new();
+        let mut buf = [0; 128];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => output.extend_from_slice(&buf[..n]),
+            }
+        }
+        assert_eq!(child.wait().unwrap().exit_code(), 7);
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("Building"));
+        assert!(output.contains("Failed"));
+    }
 }

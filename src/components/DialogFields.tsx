@@ -36,7 +36,7 @@ export function DialogFields({ dialog, setDialog, firstInputRef, showHeading = t
     <label className="checkboxLabel"><input type="checkbox" checked={dialog.releasesEnabled ?? false} onChange={(event) => setDialog({ ...dialog, releasesEnabled: event.target.checked })} />Enable Releases</label>
     {dialog.releasesEnabled && <>
       <label>Release configuration<input value={dialog.releaseConfigPath ?? '.stacks/release.json'} required placeholder=".stacks/release.json" onChange={(event) => setDialog({ ...dialog, releaseConfigPath: event.target.value })} /></label>
-      <label>Required CI workflow path<input value={dialog.requiredCiWorkflow ?? '.github/workflows/ci.yml'} required placeholder=".github/workflows/ci.yml" onChange={(event) => setDialog({ ...dialog, requiredCiWorkflow: event.target.value })} /><small>CI must succeed for the exact release commit before publication.</small></label>
+      <small>Configuration contains command and optional latestCommand. The script owns validation, builds, and publication policy. Selected version is passed as STACKS_RELEASE_VERSION; commands run in the primary project checkout.</small>
     </>}
     {(dialog.deliveryWorkflow ?? 'local_merge') === 'github_pull_request' && <>
       <label className="checkboxLabel"><input type="checkbox" checked={dialog.supportsFeatureEnvironments ?? false} onChange={(event) => setDialog({ ...dialog, supportsFeatureEnvironments: event.target.checked })} />Supports feature environments</label>

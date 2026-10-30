@@ -3950,6 +3950,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-process",
  "tauri-plugin-updater",
+ "tempfile",
  "uuid",
  "wait-timeout",
 ]

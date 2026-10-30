@@ -56,7 +56,7 @@ function dialogProject(draft: Extract<DialogState, { kind: 'editProject' }>, cur
     delivery_workflow: draft.deliveryWorkflow ?? 'local_merge', deployment_command: draft.deploymentCommand?.trim() || undefined, target_branch: draft.targetBranch?.trim() || 'main',
     supports_feature_environments: draft.supportsFeatureEnvironments ?? false, github_merge_strategy: draft.githubMergeStrategy ?? 'merge',
     require_passing_ci: draft.requirePassingCi ?? true, require_approval: draft.requireApproval ?? false,
-    releases_enabled: draft.releasesEnabled ?? false, release_config_path: draft.releaseConfigPath?.trim() || '.stacks/release.json', required_ci_workflow: draft.requiredCiWorkflow?.trim() || '.github/workflows/ci.yml' };
+    releases_enabled: draft.releasesEnabled ?? false, release_config_path: draft.releaseConfigPath?.trim() || '.stacks/release.json' };
 }
 
 function projectConfigurationInput(project: Project, expectedRevision: number) {
@@ -75,7 +75,7 @@ function projectConfigurationInput(project: Project, expectedRevision: number) {
     target_branch: project.target_branch ?? 'main', supports_feature_environments: project.supports_feature_environments ?? false,
     github_merge_strategy: project.github_merge_strategy ?? 'merge', require_passing_ci: project.require_passing_ci ?? true,
     require_approval: project.require_approval ?? false, releases_enabled: project.releases_enabled ?? false,
-    release_config_path: project.release_config_path ?? '.stacks/release.json', required_ci_workflow: project.required_ci_workflow ?? '.github/workflows/ci.yml', expected_revision: expectedRevision };
+    release_config_path: project.release_config_path ?? '.stacks/release.json', expected_revision: expectedRevision };
 }
 
 export function useAppRootModel(events: EventBroker<AppEventMap>, loading: LoadingCoordinator) {
@@ -204,7 +204,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
       github_merge_strategy: dialog.githubMergeStrategy ?? 'merge', require_passing_ci: dialog.requirePassingCi ?? true,
       require_approval: dialog.requireApproval ?? false,
       releases_enabled: dialog.releasesEnabled ?? false,
-      release_config_path: dialog.releaseConfigPath?.trim() || '.stacks/release.json', required_ci_workflow: dialog.requiredCiWorkflow?.trim() || '.github/workflows/ci.yml',
+      release_config_path: dialog.releaseConfigPath?.trim() || '.stacks/release.json',
     };
     const next = await invoke<Store>('create_project', { input: projectConfigurationInput(project, 0) });
     setStore(next); setDialog(null);

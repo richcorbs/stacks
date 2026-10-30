@@ -43,7 +43,6 @@ export type Project = {
   require_approval?: boolean;
   releases_enabled?: boolean;
   release_config_path?: string;
-  required_ci_workflow?: string;
   config_revision?: number;
   enable_mcp?: boolean;
   mcp_env_names?: string;
@@ -64,7 +63,7 @@ export type SplitNode =
   | { kind: 'split'; direction: 'row' | 'column'; ratio?: number; manual?: boolean; first: SplitNode; second: SplitNode };
 
 export type PtyData = { terminal_id: string; generation: string; data: number[] };
-export type PtyExit = { terminal_id: string; generation: string };
+export type PtyExit = { terminal_id: string; generation: string; status?: number | null };
 export type GitInfo = { branch: string } & ({ status: 'ok'; created: number; changed: number; deleted: number } | { status: 'error'; message: string });
 export type GitChangeSummary = { added: number; modified: number; deleted: number };
 export type GitDiffFile = { path: string; status: 'A' | 'M' | 'D' | 'R' | 'U' };
@@ -103,6 +102,7 @@ export type TerminalSession = {
   starting: boolean;
   running: boolean;
   startupError: string | null;
+  exitStatus?: number | null;
   ptyGeneration?: string;
   startupCwd?: string;
   startupCommand?: string | null;
@@ -126,7 +126,7 @@ export type TerminalSession = {
 };
 
 export type SuperthreadColumnMapping = { id: string; name: string };
-export type ProjectDialogSettings = { enableMcp?: boolean; mcpEnvNames?: string; colorId?: string; name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; deploymentCommand?: string; deliveryWorkflowLocked?: boolean; superthreadSpaces?: string; superthreadWorkspaceId?: string; superthreadWorkspaceName?: string; superthreadSpaceId?: string; superthreadSpaceName?: string; superthreadBindingId?: string; superthreadWorkspaceSlug?: string; superthreadApiTokenEnvVar?: string; superthreadBoardId?: string; superthreadBoardName?: string; superthreadIncomingColumns?: SuperthreadColumnMapping[]; superthreadDefaultIncomingColumnId?: string; superthreadInProgressColumnId?: string; superthreadInProgressColumnName?: string; superthreadDoneColumnId?: string; superthreadDoneColumnName?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean; releasesEnabled?: boolean; releaseConfigPath?: string; requiredCiWorkflow?: string };
+export type ProjectDialogSettings = { enableMcp?: boolean; mcpEnvNames?: string; colorId?: string; name: string; path: string; kanbanSource?: 'superthread' | 'local'; startWorkCommand?: string; deploymentCommand?: string; deliveryWorkflowLocked?: boolean; superthreadSpaces?: string; superthreadWorkspaceId?: string; superthreadWorkspaceName?: string; superthreadSpaceId?: string; superthreadSpaceName?: string; superthreadBindingId?: string; superthreadWorkspaceSlug?: string; superthreadApiTokenEnvVar?: string; superthreadBoardId?: string; superthreadBoardName?: string; superthreadIncomingColumns?: SuperthreadColumnMapping[]; superthreadDefaultIncomingColumnId?: string; superthreadInProgressColumnId?: string; superthreadInProgressColumnName?: string; superthreadDoneColumnId?: string; superthreadDoneColumnName?: string; serverCommand?: string; consoleCommand?: string; deliveryWorkflow?: DeliveryWorkflow; targetBranch?: string; supportsFeatureEnvironments?: boolean; githubMergeStrategy?: GithubMergeStrategy; requirePassingCi?: boolean; requireApproval?: boolean; releasesEnabled?: boolean; releaseConfigPath?: string };
 export type DialogState =
   | ({ kind: 'project' } & ProjectDialogSettings)
   | ({ kind: 'editProject'; projectId: string } & ProjectDialogSettings);

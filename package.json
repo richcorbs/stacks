@@ -19,10 +19,9 @@
     "check:version": "node scripts/release.mjs check-version",
     "version:set": "node scripts/release.mjs set-version",
     "release:build": "TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/stacks-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"$(cat $HOME/.tauri/stacks-updater.password)\" tauri build --bundles app",
-    "release:prepare": "node scripts/release.mjs prepare",
-    "release:stage-build": "node scripts/release.mjs build",
-    "release:publish": "node scripts/release.mjs draft",
-    "release:finalize": "node scripts/release.mjs publish",
+    "release:draft": "node scripts/release-run.mjs draft",
+    "release:publish": "node scripts/release-run.mjs draft",
+    "release:finalize": "node scripts/release-run.mjs publish",
     "tauri": "tauri"
   },
   "dependencies": {
