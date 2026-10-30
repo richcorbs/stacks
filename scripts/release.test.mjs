@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import {
   ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare, reconcileRelease,
   releaseNotes, requiredCiRun, suggestPatch, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared,
-  verifyReleaseAssets, verifyVersions, writeChecksums,
+  verifyReleaseAssets, verifySignatureVersion, verifyVersions, writeChecksums,
 } from './release-lib.mjs';
 
 const temporary = [];
@@ -33,9 +33,39 @@ function fakeGh(root, response) {
 function artifacts(root, version = '1.2.4') {
   const out = path.join(root, 'release-artifacts', `v${version}`); fs.mkdirSync(out, { recursive: true });
   for (const name of ASSET_NAMES.slice(0, -2)) fs.writeFileSync(path.join(out, name), `${name} contents`);
-  fs.writeFileSync(path.join(out, 'latest.json'), JSON.stringify({ version, platforms: { 'darwin-aarch64': { signature: 'Stacks.app.tar.gz.sig contents', url: `https://github.com/richcorbs/stacks/releases/download/v${version}/Stacks.app.tar.gz` } } }));
+  const signature = signatureWithComment(`timestamp:1\tfile:Stacks.app.tar.gz\tversion:${version}`);
+  fs.writeFileSync(path.join(out, 'Stacks.app.tar.gz.sig'), signature);
+  fs.writeFileSync(path.join(out, 'latest.json'), JSON.stringify({ version, platforms: { 'darwin-aarch64': { signature, url: `https://github.com/richcorbs/stacks/releases/download/v${version}/Stacks.app.tar.gz` } } }));
   writeChecksums(out); return out;
 }
+
+// Deliberately non-cryptographic fixtures: native Rust tests cover authentication.
+function signatureWithComment(comment) {
+  return Buffer.from(`untrusted comment: test\nplaceholder\ntrusted comment: ${comment}\nplaceholder\n`).toString('base64');
+}
+
+describe('signed updater version packaging gate', () => {
+  it('accepts matching metadata and rejects missing, mismatched, duplicate, or malformed metadata', () => {
+    expect(() => verifySignatureVersion(signatureWithComment('timestamp:1\tversion:1.2.4'), '1.2.4')).not.toThrow();
+    for (const comment of ['timestamp:1', 'version:1.2.3', 'file:version:1.2.4', 'version:1.2.4\tversion:1.2.4']) {
+      expect(() => verifySignatureVersion(signatureWithComment(comment), '1.2.4')).toThrow(/exactly one/);
+    }
+    expect(() => verifySignatureVersion('invalid', '1.2.4')).toThrow(/Malformed/);
+  });
+  it('rejects an incompatible release even with regenerated checksums and matching manifest/signature files', () => {
+    const root = temp(); const out = artifacts(root);
+    for (const comment of ['timestamp:1', 'version:1.2.3']) {
+      const signature = signatureWithComment(comment);
+      fs.writeFileSync(path.join(out, 'Stacks.app.tar.gz.sig'), signature);
+      const manifest = JSON.parse(fs.readFileSync(path.join(out, 'latest.json'), 'utf8'));
+      manifest.platforms['darwin-aarch64'].signature = signature;
+      writeJson(path.join(out, 'latest.json'), manifest); writeChecksums(out);
+      expect(() => verifyArtifacts(root, '1.2.4')).toThrow(/exactly one/);
+      expect(() => run(root, 'node', [path.resolve('scripts/create-update-manifest.mjs'), path.join(out, 'Stacks.app.tar.gz'), path.join(out, 'Stacks.app.tar.gz.sig'), path.join(out, 'generated.json'), '--version', '1.2.4'])).toThrow();
+      expect(fs.existsSync(path.join(out, 'generated.json'))).toBe(false);
+    }
+  });
+});
 
 describe('release version discovery and validation', () => {
   it('discovers only the latest published stable GitHub release and suggests its next patch', () => {
