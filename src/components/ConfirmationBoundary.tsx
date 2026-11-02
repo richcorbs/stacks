@@ -68,7 +68,16 @@ export function ConfirmationBoundary({ children }: { children: ReactNode }) {
             if (!ready.current || props.disabled) { event?.preventDefault(); return; }
             return props.onClick?.(event);
           };
-          patch.children = remaining > 0 ? <>{props.children}{` (${remaining})`}</> : props.children;
+          patch.children = <span className="confirmationButtonLabel">
+            <span>{props.children}</span>
+            <span className="confirmationButtonCountdown">
+              {/* Reserve both states: proportional fonts need not give 1 and 2 equal widths.
+                  Keep the real label mounted only once (it may contain IDs or components). */}
+              <span className="confirmationButtonSizer" aria-hidden="true">{' (2)'}</span>
+              <span className="confirmationButtonSizer" aria-hidden="true">{' (1)'}</span>
+              <span>{remaining > 0 ? ` (${remaining})` : null}</span>
+            </span>
+          </span>;
           if (props['aria-label'] && remaining > 0) patch['aria-label'] = `${props['aria-label']} (${remaining})`;
         }
         patch.autoFocus = false;
