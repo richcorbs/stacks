@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { AppUpdater } from './AppUpdater';
+import { renderedText } from '../../tests/renderedText';
 
 const events = vi.hoisted(() => ({ manualCheck: () => Promise.resolve() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -45,7 +46,7 @@ async function renderUpdate(available = update()) {
   return available;
 }
 function button(label: string) {
-  return renderer.root.findAllByType('button').find((node) => node.children.join('') === label)!;
+  return renderer.root.findAllByType('button').find((node) => renderedText(node) === label)!;
 }
 function notes() { return button('Release Notes'); }
 async function click(label: string) {
@@ -68,7 +69,7 @@ describe('AppUpdater dialog', () => {
     await renderUpdate();
     assertHeader(false);
     expect(renderer.root.findByProps({ className: 'updateReleaseNotes' }).children).toEqual(['Inline release notes stay here.']);
-    expect(renderer.root.findAllByType('button').map((node) => node.children.join(''))).toEqual([
+    expect(renderer.root.findAllByType('button').map(renderedText)).toEqual([
       'Release Notes', 'Later', 'Download. Restart later.', 'UPDATE',
     ]);
     await click('Release Notes');

@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "test:chat-scroll": "node tests/pi-chat-scroll.mjs",
+    "test:confirmation-buttons": "node tests/confirmation-buttons.mjs",
     "test:terminal-dependencies": "node tests/terminal-dependencies.mjs",
     "test:release-terminal": "node tests/release-terminal.mjs",
     "test:terminal-reflow": "node tests/terminal-reflow.mjs",

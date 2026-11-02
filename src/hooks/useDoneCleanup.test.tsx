@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useDoneCleanup } from './useDoneCleanup';
 import type { DoneCleanupDependencies } from '../kanban/doneCleanup';
 import { hasActiveConfirmation } from '../components/ConfirmationBoundary';
+import { renderedText } from '../../tests/renderedText';
 
 let renderer: TestRenderer.ReactTestRenderer;
 let cleanup: ReturnType<typeof useDoneCleanup>;
@@ -52,7 +53,7 @@ it('uses one in-app confirmation with shared focus/countdown guards and an undel
   const { run } = await start();
   expect(hasActiveConfirmation()).toBe(true);
   expect(cancelFocus).toHaveBeenCalledOnce();
-  expect(buttons()[1].children.join('')).toBe('Delete local copies (2)');
+  expect(renderedText(buttons()[1])).toBe('Delete local copies (2)');
   expect(buttons()[1].props.disabled).toBe(true);
   expect(text()).toContain('Permanently delete 1 eligible local card copies across all projects?');
   expect(text()).toContain('Also retry 2 pending local file cleanup(s).');

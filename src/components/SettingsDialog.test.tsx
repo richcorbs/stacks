@@ -3,6 +3,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { DEFAULT_APP_SETTINGS } from '../settingsModel';
 import type { Project } from '../types';
 import { SettingsDialog } from './SettingsDialog';
+import { renderedText } from '../../tests/renderedText';
 import { SuperthreadMappingFields } from './SuperthreadMappingFields';
 
 vi.mock('../superthread/api', () => ({
@@ -34,7 +35,7 @@ function render(initialPage: 'global:interface' | `project:${string}` = 'global:
 }
 
 function button(root: TestRenderer.ReactTestInstance, text: string) {
-  return root.findAllByType('button').find((node) => node.children.some((child) => child === text))!;
+  return root.findAllByType('button').find((node) => renderedText(node) === text)!;
 }
 
 describe('SettingsDialog', () => {
@@ -76,11 +77,11 @@ describe('SettingsDialog', () => {
     act(() => button(renderer.root, 'Terminal').props.onClick());
     const prompt = () => renderer.root.findByProps({ role: 'alertdialog' });
     const actions = () => prompt().findAllByType('button');
-    expect(actions().map((node) => node.children.join(''))).toEqual(['Cancel', 'Discard (2)', 'Save (2)']);
+    expect(actions().map(renderedText)).toEqual(['Cancel', 'Discard (2)', 'Save (2)']);
     actions()[1].props.onClick(); actions()[2].props.onClick();
     expect(onPageChange).not.toHaveBeenCalled(); expect(onSaveSettings).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1000); });
-    expect(actions()[2].children.join('')).toBe('Save (1)');
+    expect(renderedText(actions()[2])).toBe('Save (1)');
     act(() => { vi.advanceTimersByTime(1000); });
     expect(onPageChange).not.toHaveBeenCalled();
     if (action === 'Save') {
@@ -105,7 +106,7 @@ describe('SettingsDialog', () => {
     expect(onDeleteProject).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1000); button(prompt(), 'Cancel').props.onClick(); });
     act(() => button(renderer.root, 'Delete Project').props.onClick());
-    expect(prompt().findAllByType('button')[1].children.join('')).toBe('Delete (2)');
+    expect(renderedText(prompt().findAllByType('button')[1])).toBe('Delete (2)');
     act(() => { vi.advanceTimersByTime(2000); });
     expect(onDeleteProject).not.toHaveBeenCalled();
     await act(async () => { await submit(); });

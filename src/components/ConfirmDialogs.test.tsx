@@ -1,4 +1,5 @@
 import { StrictMode } from 'react';
+import { renderedText } from '../../tests/renderedText';
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog, useConfirmation } from './ConfirmDialogs';
@@ -25,7 +26,7 @@ const nodeMock = (element: { props: unknown }) => (element.props as Record<strin
 const event = (key = 'Enter', metaKey = false) => ({ key, metaKey, ctrlKey: false, altKey: false, shiftKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn() });
 function buttons() { return renderer!.root.findAllByType('button'); }
 function advance(ms: number) { act(() => { vi.advanceTimersByTime(ms); }); }
-function label(index = 1) { return buttons()[index].children.join(''); }
+function label(index = 1) { return renderedText(buttons()[index]); }
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -73,6 +74,31 @@ describe('shared confirmation gate', () => {
     buttons()[0].props.onClick();
     renderer!.root.findByType('form').props.onKeyDown(event('Escape'));
     expect(cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('reserves both suffix widths from first render through ready without duplicating markup or cancel content', () => {
+    const dialog = <ConfirmationBoundary><div>
+      <button data-confirm-cancel><strong>Cancel</strong></button>
+      <button aria-label="Delete item"><svg id="delete-icon" aria-hidden="true" /><strong id="delete-label">Delete</strong></button>
+      <button>Save changes</button>
+    </div></ConfirmationBoundary>;
+    act(() => { renderer = TestRenderer.create(dialog); });
+    for (const remaining of [2, 1, 0]) {
+      expect(buttons()[0].children).toHaveLength(1);
+      expect(buttons()[0].findByType('strong').children).toEqual(['Cancel']);
+      expect(buttons()[0].findAllByType('span')).toHaveLength(0);
+      for (const button of buttons().slice(1)) {
+        const sizers = button.findAllByProps({ className: 'confirmationButtonSizer' });
+        expect(sizers.map((sizer) => sizer.children.join(''))).toEqual([' (2)', ' (1)']);
+        expect(sizers.every((sizer) => sizer.props['aria-hidden'] === 'true')).toBe(true);
+      }
+      expect(renderer!.root.findAllByProps({ id: 'delete-icon' })).toHaveLength(1);
+      expect(renderer!.root.findAllByProps({ id: 'delete-label' })).toHaveLength(1);
+      expect(label()).toBe(`Delete${remaining ? ` (${remaining})` : ''}`);
+      expect(label(2)).toBe(`Save changes${remaining ? ` (${remaining})` : ''}`);
+      expect(buttons()[1].props['aria-label']).toBe(`Delete item${remaining ? ` (${remaining})` : ''}`);
+      if (remaining) advance(1000);
+    }
   });
 
   it.each([false, true])('consumes Enter/Cmd-Enter through enabled buttons only (meta=%s)', (metaKey) => {
