@@ -21,12 +21,27 @@ try {
           const { x, y, width, height } = button.getBoundingClientRect();
           return { x, y, width, height };
         }));
+        const assertCentered = async () => {
+          const offsets = await page.locator('button:has(.confirmationButtonLabel)').evaluateAll(buttons => buttons.map(button => {
+            const label = button.querySelector('.confirmationButtonText').getBoundingClientRect();
+            const suffixNode = button.querySelector('.confirmationButtonSuffix');
+            const suffix = suffixNode.textContent ? suffixNode.getBoundingClientRect() : label;
+            const visibleCenter = (Math.min(label.left, suffix.left) + Math.max(label.right, suffix.right)) / 2;
+            const box = button.getBoundingClientRect();
+            return Math.abs(visibleCenter - (box.left + box.right) / 2);
+          }));
+          assert(offsets.every(offset => offset < 1), `visible content centered: ${offsets}`);
+        };
         const initial = await bounds();
+        await assertCentered();
+        if (width === 900 && scale === 0 && multiple) await page.screenshot({ path: `/tmp/confirmation-buttons-${engine.name()}-2.png` });
         assert(await page.locator('button').nth(1).isDisabled());
         for (const step of [1, 0]) {
           await page.clock.runFor(1000);
           assert.deepEqual(await bounds(), initial, `${engine.name()} width=${width} scale=${scale} multiple=${multiple} remaining=${step}`);
           assert.equal(await page.locator('button').nth(1).isDisabled(), step > 0);
+          await assertCentered();
+          if (width === 900 && scale === 0 && multiple) await page.screenshot({ path: `/tmp/confirmation-buttons-${engine.name()}-${step}.png` });
         }
         assert.equal(await page.locator('.confirmationButtonSizer:not([aria-hidden="true"])').count(), 0);
         if (multiple) {
@@ -40,7 +55,7 @@ try {
         if (width === 320 && scale === 8 && multiple) await page.screenshot({ path: `/tmp/confirmation-buttons-${engine.name()}.png` });
         await page.close();
       }
-      console.log(`PASS ${engine.name()}: stable countdown bounds/action positions, intrinsic widths, markup, narrow dialogs, text scaling`);
+      console.log(`PASS ${engine.name()}: stable countdown bounds/action positions, centered visible content, intrinsic widths, markup, narrow dialogs, text scaling`);
     } finally { await browser.close(); }
   }
 } finally { await server.close(); }

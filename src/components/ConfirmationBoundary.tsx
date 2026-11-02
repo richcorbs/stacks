@@ -10,6 +10,33 @@ type LayoutProps = {
   'aria-label'?: string;
 };
 
+function ConfirmationButtonLabel({ children, remaining }: { children: ReactNode; remaining: number }) {
+  const root = useRef<HTMLSpanElement>(null);
+  const reservation = useRef<HTMLSpanElement>(null);
+  const suffix = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    if (!root.current || !reservation.current || !suffix.current || typeof ResizeObserver === 'undefined') return;
+    // Measure only suffixes, never clone the label (which may own IDs or state).
+    const center = () => {
+      const offset = (reservation.current!.getBoundingClientRect().width - suffix.current!.getBoundingClientRect().width) / 2;
+      root.current!.style.setProperty('--confirmation-label-offset', `${offset}px`);
+    };
+    center();
+    const observer = new ResizeObserver(center);
+    observer.observe(reservation.current);
+    observer.observe(suffix.current);
+    return () => observer.disconnect();
+  }, [remaining]);
+  return <span ref={root} className="confirmationButtonLabel">
+    <span className="confirmationButtonText">{children}</span>
+    <span ref={reservation} className="confirmationButtonCountdown">
+      <span className="confirmationButtonSizer" aria-hidden="true">{' (2)'}</span>
+      <span className="confirmationButtonSizer" aria-hidden="true">{' (1)'}</span>
+      <span ref={suffix} className="confirmationButtonSuffix">{remaining > 0 ? ` (${remaining})` : null}</span>
+    </span>
+  </span>;
+}
+
 function isVisible(root: HTMLElement | null): root is HTMLElement {
   if (!root?.isConnected) return false;
   for (let parent: HTMLElement | null = root; parent; parent = parent.parentElement) {
@@ -68,16 +95,7 @@ export function ConfirmationBoundary({ children }: { children: ReactNode }) {
             if (!ready.current || props.disabled) { event?.preventDefault(); return; }
             return props.onClick?.(event);
           };
-          patch.children = <span className="confirmationButtonLabel">
-            <span>{props.children}</span>
-            <span className="confirmationButtonCountdown">
-              {/* Reserve both states: proportional fonts need not give 1 and 2 equal widths.
-                  Keep the real label mounted only once (it may contain IDs or components). */}
-              <span className="confirmationButtonSizer" aria-hidden="true">{' (2)'}</span>
-              <span className="confirmationButtonSizer" aria-hidden="true">{' (1)'}</span>
-              <span>{remaining > 0 ? ` (${remaining})` : null}</span>
-            </span>
-          </span>;
+          patch.children = <ConfirmationButtonLabel remaining={remaining}>{props.children}</ConfirmationButtonLabel>;
           if (props['aria-label'] && remaining > 0) patch['aria-label'] = `${props['aria-label']} (${remaining})`;
         }
         patch.autoFocus = false;
