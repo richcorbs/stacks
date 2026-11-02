@@ -9,7 +9,7 @@ import { git, validateVersion } from './release-lib.mjs';
 
 export function parseReleaseArgs(argv, env = process.env) {
   const mode = argv[0] || 'draft';
-  if (!['draft', 'publish'].includes(mode)) throw new Error('Usage: node scripts/release-run.mjs <draft|publish> [--version X.Y.Z]');
+  if (!['draft', 'test', 'publish'].includes(mode)) throw new Error('Usage: node scripts/release-run.mjs <draft|test|publish> [--version X.Y.Z]');
   if (argv.length > 1 && (argv.length !== 3 || argv[1] !== '--version')) throw new Error('Expected --version X.Y.Z (or STACKS_RELEASE_VERSION)');
   return { mode, version: validateVersion(argv[2] || env.STACKS_RELEASE_VERSION) };
 }
@@ -28,7 +28,7 @@ export async function runRelease({ mode, version, root, execute, approve, log = 
     return result;
   };
   try {
-    log(`Stacks v${version} — ${mode === 'draft' ? 'CREATE VERIFIED DRAFT (does not publish)' : 'PUBLISH EXISTING VERIFIED DRAFT'}`);
+    log(`Stacks v${version} — ${mode === 'draft' ? 'CREATE VERIFIED DRAFT (does not publish)' : mode === 'test' ? 'INSTALL SIGNED DRAFT FOR LOCAL TESTING (does not publish)' : 'PUBLISH EXISTING VERIFIED DRAFT'}`);
     log(`Checkout: ${root}`);
     const top = fs.realpathSync(git(root, 'rev-parse', '--show-toplevel'));
     const common = fs.realpathSync(path.resolve(root, git(root, 'rev-parse', '--git-common-dir')));
@@ -46,7 +46,7 @@ export async function runRelease({ mode, version, root, execute, approve, log = 
       if (context.version !== version) throw new Error('Saved release context has a different version');
       log(`Resuming saved release context: ${contextPath}`);
     } else {
-      if (mode === 'publish') throw new Error('No saved draft context. Run draft first.');
+      if (mode !== 'draft') throw new Error('No saved draft context. Run draft first.');
       const previous = step('Discover latest published version', () => execute('current', [], true).trim());
       step('Validate selected version', () => execute('validate', ['--version', version, '--previous', previous]));
       phase = 'Capture source revision and release notes';
@@ -100,7 +100,12 @@ export async function runRelease({ mode, version, root, execute, approve, log = 
       step('Push release commit/tag and upload GitHub draft', () => execute('draft', args));
       step('Verify GitHub draft and uploaded assets', () => execute('verify-draft', args));
       log(`\nSUCCESS: Stacks v${version} draft is ready. Nothing was published as latest.`);
-      log(`Next: smoke-test the signed draft, wait for CI, then run:\n  node scripts/release-run.mjs publish --version ${version}`);
+      log(`Next in Stacks RELEASE: BUILD & TEST (optional local install), or PUBLISH. Publishing checks exact-commit CI.\nCLI alternative: node scripts/release-run.mjs publish --version ${version}`);
+    } else if (mode === 'test') {
+      step('Verify exact release commit', verifyRevision);
+      step('Verify signed artifacts and existing draft', () => { execute('verify-build', args); execute('verify-draft', args); });
+      step('Authenticate and install signed draft locally', () => execute('install-test', args));
+      log(`\nSUCCESS: Stacks v${version} installed for testing. Restart Stacks from the RELEASE tab when ready. Nothing was published.`);
     } else {
       phase = 'publication confirmation';
       log('\nPublication makes this draft the latest public release and enables updater downloads.');
@@ -125,12 +130,14 @@ function contextArgs(c) {
   return ['--version', c.version, '--previous', c.previous, '--source', c.source, '--branch', c.branch, '--notes', c.notesFile, '--ci-workflow', c.ciWorkflow,
     ...(c.revision ? ['--revision', c.revision] : [])];
 }
-async function confirmPublication(version) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Publishing requires an interactive terminal and explicit smoke-test confirmation');
-  console.log('Smoke-test the signed draft before publishing. Confirmation available in 2 seconds…');
+export async function confirmPublication(version) {
+  // Set only by the app's confirmed Publish action, scoped to this exact version.
+  if (process.env.STACKS_RELEASE_UI_CONFIRMATION === `publish:${version}`) return true;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Publishing requires an interactive terminal or the confirmed Stacks UI action');
+  console.log('Publishing makes the verified draft available to updater users. Local installation is optional. Confirmation available in 2 seconds…');
   await new Promise((resolve) => setTimeout(resolve, 2000));
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  try { return await prompt.question(`Type PUBLISH v${version} to confirm smoke testing and publish: `) === `PUBLISH v${version}`; }
+  try { return await prompt.question(`Type PUBLISH v${version} to publish: `) === `PUBLISH v${version}`; }
   finally { prompt.close(); }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

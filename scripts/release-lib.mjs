@@ -180,6 +180,19 @@ export function verifyArtifacts(root, version) {
   verifySignatureVersion(manifest.platforms['darwin-aarch64'].signature, version);
   return out;
 }
+export function releaseState(releases, requested) {
+  if (requested) validateVersion(requested);
+  const drafts = releases.filter(release => release.draft && !release.prerelease && release.tag_name?.startsWith('v') && VERSION_RE.test(release.tag_name.slice(1)));
+  const version = requested || drafts.sort((a, b) => compareVersions(b.tag_name.slice(1), a.tag_name.slice(1)))[0]?.tag_name.slice(1) || null;
+  const matches = version ? findRelease(releases, tagFor(version)) : [];
+  if (matches.length > 1) fail(`Multiple GitHub releases exist for v${version}`);
+  const release = matches[0];
+  const assets = release?.assets || [];
+  const names = assets.map(asset => asset.name).sort();
+  const draftReady = Boolean(release?.draft && !release.prerelease && assets.every(asset => !asset.state || asset.state === 'uploaded')
+    && JSON.stringify(names) === JSON.stringify([...ASSET_NAMES].sort()));
+  return { version, draftReady, published: Boolean(release && !release.draft && !release.prerelease) };
+}
 export function findRelease(releases, tag) { return releases.filter(release => release.tag_name === tag); }
 export function matchingDraft(releases, { tag, revision, title, body }) {
   const matches = findRelease(releases, tag);

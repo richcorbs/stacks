@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import {
   ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare, reconcileRelease,
   releaseNotes, requiredCiRun, suggestPatch, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared,
-  verifyReleaseAssets, verifyReleaseRevision, verifySignatureVersion, verifyVersions, writeChecksums,
+  verifyReleaseAssets, verifyReleaseRevision, verifySignatureVersion, verifyVersions, writeChecksums, releaseState,
 } from './release-lib.mjs';
 
 const temporary = [];
@@ -43,6 +43,29 @@ function artifacts(root, version = '1.2.4') {
 function signatureWithComment(comment) {
   return Buffer.from(`untrusted comment: test\nplaceholder\ntrusted comment: ${comment}\nplaceholder\n`).toString('base64');
 }
+
+describe('release tab state discovery', () => {
+  const draft = (version) => ({ tag_name: `v${version}`, draft: true, prerelease: false, assets: ASSET_NAMES.map(name => ({ name, state: 'uploaded' })) });
+  it('discovers the newest stable draft, or checks the explicitly selected version', () => {
+    const releases = [draft('1.2.9'), draft('1.2.10'), { ...draft('9.0.0'), prerelease: true }];
+    expect(releaseState(releases)).toEqual({ version: '1.2.10', draftReady: true, published: false });
+    expect(releaseState(releases, '1.2.9').draftReady).toBe(true);
+    expect(releaseState(releases, '1.2.11')).toEqual({ version: '1.2.11', draftReady: false, published: false });
+    expect(releaseState([])).toEqual({ version: null, draftReady: false, published: false });
+    expect(releaseState([{ ...draft('1.2.9'), draft: false }], '1.2.9')).toEqual({ version: '1.2.9', draftReady: false, published: true });
+  });
+  it('does not offer publishing for incomplete, duplicate, prerelease, or uploading drafts', () => {
+    const ready = draft('1.2.4');
+    for (const changed of [
+      { ...ready, assets: ready.assets.slice(1) },
+      { ...ready, assets: [...ready.assets, { name: 'extra' }] },
+      { ...ready, assets: ready.assets.map((a, i) => i ? a : { ...a, state: 'uploading' }) },
+      { ...ready, prerelease: true },
+    ]) expect(releaseState([changed], '1.2.4').draftReady).toBe(false);
+    expect(() => releaseState([ready, ready], '1.2.4')).toThrow(/Multiple/);
+    expect(() => releaseState([], 'invalid')).toThrow();
+  });
+});
 
 describe('signed updater version packaging gate', () => {
   it('accepts matching metadata and rejects missing, mismatched, duplicate, or malformed metadata', () => {

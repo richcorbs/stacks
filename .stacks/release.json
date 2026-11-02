@@ -1,4 +1,8 @@
 {
   "command": "node scripts/release-run.mjs draft",
-  "latestCommand": "node scripts/release.mjs current"
+  "latestCommand": "node scripts/release.mjs current",
+  "stateCommand": "node scripts/release.mjs state",
+  "buildAndTestCommand": "node scripts/release-run.mjs test",
+  "publishCommand": "node scripts/release-run.mjs publish",
+  "restartAfterTest": true
 }

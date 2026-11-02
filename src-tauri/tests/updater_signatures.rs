@@ -142,8 +142,10 @@ fn local_release_artifact() {
         .build()
         .unwrap();
     let signature = std::fs::read_to_string(format!("{archive}.sig")).unwrap();
+    let expected_version = std::env::var("STACKS_TEST_RELEASE_VERSION")
+        .unwrap_or_else(|_| config["version"].as_str().unwrap().to_string());
     let mut metadata = json!({
-        "version": config["version"],
+        "version": expected_version,
         "platforms": { "test-target": {
             "url": "https://example.invalid/artifact", "signature": signature.trim()
         }}

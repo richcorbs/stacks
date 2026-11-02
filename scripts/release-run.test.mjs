@@ -1,11 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { parseReleaseArgs, runRelease } from './release-run.mjs';
+import { parseReleaseArgs, runRelease, confirmPublication } from './release-run.mjs';
 const dirs = [];
-afterEach(() => dirs.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true })));
+afterEach(() => { vi.unstubAllEnvs(); dirs.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true })); });
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'stacks-release-run-')); dirs.push(root);
   const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
@@ -19,6 +19,7 @@ describe('terminal release entry point', () => {
   it('accepts the explicit or environment version, rejects malformed input and modes', () => {
     expect(parseReleaseArgs(['draft'], { STACKS_RELEASE_VERSION: '1.2.4' })).toEqual({ mode: 'draft', version: '1.2.4' });
     expect(parseReleaseArgs(['publish', '--version', '2.0.0'], {})).toEqual({ mode: 'publish', version: '2.0.0' });
+    expect(parseReleaseArgs(['test', '--version', '2.0.0'], {})).toEqual({ mode: 'test', version: '2.0.0' });
     for (const args of [['draft', '--version', '1.2.3; touch /tmp/no'], ['publish', '--yes'], ['delete']]) expect(() => parseReleaseArgs(args, {})).toThrow();
   });
   it('creates only a draft with clear phase output and documented next steps', async () => {
@@ -90,6 +91,30 @@ describe('terminal release entry point', () => {
     await expect(runRelease(f)).rejects.toThrow(/Stale release context.*select a new unused version/);
     expect(f.calls).toEqual([]);
     expect(JSON.parse(fs.readFileSync(contextPath, 'utf8')).revision).toBeUndefined();
+  });
+  it('makes local installation an optional independent action, never a publication prerequisite', async () => {
+    const f = fixture(); await runRelease(f); f.calls.length = 0; f.mode = 'test';
+    await runRelease(f);
+    expect(f.calls.map(([stage]) => stage)).toEqual(['verify-prepare', 'verify-build', 'verify-draft', 'install-test']);
+    expect(f.output.join('\n')).toContain('Nothing was published');
+    f.calls.length = 0; f.mode = 'publish'; await runRelease(f);
+    expect(f.calls.map(([stage]) => stage)).not.toContain('install-test');
+    expect(f.calls.map(([stage]) => stage)).toContain('publish');
+  });
+  it('does not install a failed or unverifiable draft', async () => {
+    const f = fixture(); await runRelease(f); f.mode = 'test'; f.calls.length = 0;
+    const execute = f.execute;
+    f.execute = (stage, args) => { if (stage === 'verify-draft') throw new Error('asset conflict'); return execute(stage, args); };
+    await expect(runRelease(f)).rejects.toThrow('asset conflict');
+    expect(f.calls.map(([stage]) => stage)).not.toContain('install-test');
+    expect(f.calls.map(([stage]) => stage)).not.toContain('publish');
+  });
+  it('accepts app confirmation only for the exact selected version; otherwise CLI confirmation remains required', async () => {
+    vi.stubEnv('STACKS_RELEASE_UI_CONFIRMATION', 'publish:1.2.4');
+    await expect(confirmPublication('1.2.4')).resolves.toBe(true);
+    await expect(confirmPublication('1.2.5')).rejects.toThrow('interactive terminal');
+    vi.stubEnv('STACKS_RELEASE_UI_CONFIRMATION', '');
+    await expect(confirmPublication('1.2.4')).rejects.toThrow('interactive terminal');
   });
   it('blocks concurrent CLI/app releases without removing another runner’s lock', async () => {
     const f = fixture(); const lock = path.join(f.root, '.git/stacks-release.lock'); fs.mkdirSync(lock);

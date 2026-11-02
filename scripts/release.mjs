@@ -6,8 +6,9 @@ import {
   ASSET_NAMES, artifactDir, clean, fail, findRelease, ghJson, git, latestPublished, matchingDraft,
   missingReleaseAssets, prepare, reconcileRelease, releaseNotes, requiredCiRun, run, setVersions, sourceRevision, suggestPatch,
   tagFor, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets,
-  verifyVersions, verifyReleaseRevision, writeChecksums,
+  verifyVersions, verifyReleaseRevision, releaseState, writeChecksums,
 } from './release-lib.mjs';
+import { installDraftForTesting } from './release-local-test.mjs';
 
 function args(argv) {
   const result = { _: [] };
@@ -145,6 +146,8 @@ function build() {
 try {
   switch (command) {
     case 'current': console.log(latestPublished(ghOptions)); break;
+    case 'state': console.log(JSON.stringify(releaseState(releaseList(), version))); break;
+    case 'install-test': prepared(); verifyDraft(); installDraftForTesting(root, version); break;
     case 'suggest': console.log(suggestPatch(requireValue(previous, 'previous'))); break;
     case 'validate': previous ? validateReleaseVersion(requireValue(version, 'version'), previous) : validateVersion(requireValue(version, 'version')); console.log(`Valid Stacks release version: ${version}`); break;
     case 'notes': process.stdout.write(releaseNotes(root, requireValue(previous, 'previous'), requireValue(source, 'source'))); break;

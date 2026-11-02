@@ -60,11 +60,16 @@ Enable **RELEASES** in project settings and select a repository-relative configu
 ```json
 {
   "command": "./scripts/release",
-  "latestCommand": "./scripts/latest-release"
+  "latestCommand": "./scripts/latest-release",
+  "stateCommand": "./scripts/release-state",
+  "buildAndTestCommand": "./scripts/test-draft",
+  "publishCommand": "./scripts/publish-draft"
 }
 ```
 
 Only `command` is required. The tab has a version field, latest-release text, a RELEASE button, and the normal terminal for live output. A shared delayed confirmation precedes each run. Commands run in the project's canonical primary repository root through the interactive login shell; linked worktrees are rejected. `STACKS_RELEASE_VERSION` contains the trimmed selected version, and `STACKS_RELEASE_PROJECT_PATH` the root. Values are shell-quoted environment data, never substituted into command syntax. Scripts must quote their own expansions (e.g. `"$STACKS_RELEASE_VERSION"`) or read the environment directly. The repository script owns version validation, release notes, CI, builds, approvals and publication policy.
+
+Optional `stateCommand` prints JSON `{ "version": "X.Y.Z", "draftReady": true, "published": false }`. With an empty `STACKS_RELEASE_VERSION`, it may discover an existing draft; otherwise it must report the requested version. When a draft is ready, configured `buildAndTestCommand` and `publishCommand` enable **BUILD & TEST** and **PUBLISH** buttons. Local testing is optional, never a Publish prerequisite. Every action uses the same PTY and delayed confirmation; publishing receives a version-scoped `STACKS_RELEASE_UI_CONFIRMATION=publish:X.Y.Z` from the confirmed app action, so scripts can avoid a second terminal prompt. Scripts must still verify draft identity, artifacts, and CI themselves. Only repositories updating Stacks itself should set `restartAfterTest: true` to offer an explicit **RESTART TO TEST** after successful local installation. Status failures can be retried with Refresh.
 
 The optional `latestCommand` should print a short version identifier to stdout. It is read once when the tab opens and after successful runs, has a 15-second timeout, and reports missing configuration/authentication/lookup failures without blocking release. App-level concurrent starts are blocked per repository; scripts should additionally lock against CLI invocations. Cached terminal output/processes survive tab changes and closing/reopening Project Workspace; they end on app shutdown. Final status comes from the actual child exit, not matching output text. Old app-owned release journals are no longer resumed; inspect any previously unfinished release manually before starting the new script.
 
@@ -205,7 +210,7 @@ When upgrading from an installation that used `stacks-tauri`, quit Stacks first 
 
 ## Versioning and releases
 
-Stacks configures `node scripts/release-run.mjs draft` in `.stacks/release.json`. The RELEASE button **creates a draft; it does not publish**. The repository-owned driver reuses `scripts/release.mjs` and `release-lib.mjs` for version synchronization, clean-main validation, deterministic commit-subject notes, release commit, tests, frontend/Rust checks, signed app/updater artifacts, manifest/checksums, safe pushes and GitHub draft creation/upload verification. It prints clear phase headings, version/mode/checkout, live build output, and success/failure summaries with next steps.
+Stacks configures draft, local-test, publish, and discovery commands in `.stacks/release.json`. The **RELEASE** button creates a draft; after completion (or discovery of an existing draft), choose **BUILD & TEST** for optional local installation or **PUBLISH** directly. No terminal command is required. BUILD & TEST reuses the exact already-built signed draft, authenticates its archive/version, verifies app identity and code signing, and atomically installs it to `~/Applications/Stacks.app` without killing the running app. **RESTART TO TEST** explicitly restarts Stacks when ready. Publication never depends on local installation. The repository-owned driver reuses `scripts/release.mjs` and `release-lib.mjs` for version synchronization, clean-main validation, deterministic commit-subject notes, release commit, tests, frontend/Rust checks, signed app/updater artifacts, manifest/checksums, safe pushes and GitHub draft creation/upload verification. It prints clear phase headings, version/mode/checkout, live build output, and success/failure summaries with next steps.
 
 From the primary checkout with `main` checked out:
 
@@ -215,13 +220,15 @@ node scripts/release-run.mjs draft --version 0.6.0
 # Equivalent to the app's version contract:
 STACKS_RELEASE_VERSION=0.6.0 node scripts/release-run.mjs draft
 
-# Smoke-test the signed draft using the URL printed above, then explicitly publish:
+# Optional local installation of the exact signed draft (also available via BUILD & TEST):
+node scripts/release-run.mjs test --version 0.6.0
+# Explicit publication (also available via PUBLISH):
 node scripts/release-run.mjs publish --version 0.6.0
 ```
 
 `npm run release:draft -- --version X.Y.Z` is a convenience alias. The legacy `release:publish` alias still creates a **draft**, preserving its previous policy; `release:finalize` now invokes the explicitly confirmed publishing driver.
 
-Publishing requires an interactive terminal, a two-second confirmation delay, and typing `PUBLISH v<version>` to attest smoke testing. It verifies the exact prepared commit, artifacts and draft, requires the latest `.github/workflows/ci.yml` run for that exact commit to succeed, then publishes and verifies GitHub latest. No automatic draft-to-public transition occurs.
+Publishing from Stacks uses the shared delayed in-app confirmation, without an additional terminal prompt. The CLI alternative still requires an interactive terminal, a two-second confirmation delay, and typing `PUBLISH v<version>`. It verifies the exact prepared commit, artifacts and draft, requires the latest `.github/workflows/ci.yml` run for that exact commit to succeed, then publishes and verifies GitHub latest. No automatic draft-to-public transition occurs.
 
 Script-owned context, the pinned release commit, and notes live under the Git common directory's `stacks-releases/v<version>/`; repeat the same draft command to resume, reusing only verified artifacts. Existing drafts can also be verified and published after `main` advances: the script checks versions, notes, allowed changes, and source ancestry at the pinned release commit without changing the checkout. Older contexts recover that revision from their local release tag (or the exact prepared HEAD). Missing/conflicting release identity fails closed with recovery guidance. Historical retries require the original signed `release-artifacts/v<version>/` files; they never rebuild an old version from newer code. Use a new unused version to release current HEAD. Failures stop with a nonzero exit and leave commits/tags/artifacts intact. `stacks-release.lock` prevents concurrent CLI/app runs; after a hard interruption, verify all prior processes are stopped before manually removing that lock. Do not reset/rewrite a prepared commit or overwrite remote assets to make a retry pass. Older app-journal releases have no new script context and require manual inspection. Low-level `release.mjs` helper commands remain available for diagnosis; normal releases should use the driver.
 

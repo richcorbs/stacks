@@ -69,7 +69,7 @@ use project_direct::{
 };
 use pty::{kill_pty, resize_pty, spawn_pty, write_pty};
 use pty_cwd::{pty_cwd, PtyRegistry};
-use release::{release_setup, release_command, release_latest};
+use release::{release_setup, release_command, release_latest, release_state};
 use settings::{
     load_settings, patch_app_settings, reset_settings, save_app_settings,
     save_current_window_state, save_window_state,
@@ -225,6 +225,7 @@ pub fn run() {
             release_setup,
             release_command,
             release_latest,
+            release_state,
             superthread_boards,
             superthread_boards_for_space,
             superthread_test_connection,
