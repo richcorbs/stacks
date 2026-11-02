@@ -137,12 +137,15 @@ function immediateTargetMap(snapshot: RefreshSnapshot) {
     .map((card) => [card.id, targetIdentity(card, snapshot.projects.find((project) => project.id === card.project_id) ?? null)]));
 }
 
-/** Owns the single timer and reduces in-flight requests to one queued cycle. */
+type Waiter = { resolve: () => void; reject: (error: unknown) => void };
+type RefreshLane = { pending: RefreshRequest | null; waiters: Waiter[]; inFlight: Waiter[]; running: boolean };
+const refreshLane = (): RefreshLane => ({ pending: null, waiters: [], inFlight: [], running: false });
+
+/** One timer, with independently serialized and coalesced local and remote lanes. */
 export class KanbanRefreshCoordinator {
   private snapshot: RefreshSnapshot;
-  private pending: RefreshRequest | null = null;
-  private pendingWaiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
-  private running = false;
+  private local = refreshLane();
+  private pr = refreshLane();
   private disposed = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private immediateTargets = new Map<string, string>();
@@ -150,14 +153,15 @@ export class KanbanRefreshCoordinator {
 
   constructor(
     snapshot: RefreshSnapshot,
-    private readonly runCycle: (request: RefreshRequest, snapshot: RefreshSnapshot) => Promise<void>,
+    private readonly runLocalCycle: (request: RefreshRequest, snapshot: RefreshSnapshot) => Promise<void>,
+    private readonly runPrCycle: (request: RefreshRequest, snapshot: RefreshSnapshot) => Promise<void> = async () => {},
   ) {
     this.snapshot = snapshot;
   }
 
   start(intervalMs: number) {
     if (this.timer) return;
-    this.timer = setInterval(() => { void this.request({ visible: true }); }, intervalMs);
+    this.timer = setInterval(() => { void this.request({ visible: true }).catch(() => {}); }, intervalMs);
     if (this.immediateTargets.size === 0 && this.activeIdentity === null) this.updateSnapshot(this.snapshot, true);
   }
 
@@ -172,10 +176,11 @@ export class KanbanRefreshCoordinator {
     this.immediateTargets = nextTargets;
     this.activeIdentity = nextActiveIdentity;
     if (initial || changedIds.length || activeChanged) {
-      void this.request({ cardIds: changedIds, active: Boolean(snapshot.activeCardId && activeChanged) });
+      void this.request({ cardIds: changedIds, active: Boolean(snapshot.activeCardId && activeChanged) }).catch(() => {});
     }
   }
 
+  /** Resolves after local commit only; remote errors/retries are background work. */
   request(input: Partial<Omit<RefreshRequest, 'cardIds' | 'healthOnlyCardIds'>> & { cardIds?: Iterable<string>; healthOnlyCardIds?: Iterable<string> } = {}) {
     if (this.disposed) return Promise.reject(new Error('Refresh coordinator has been disposed'));
     const request: RefreshRequest = {
@@ -185,28 +190,35 @@ export class KanbanRefreshCoordinator {
       cardIds: new Set(input.cardIds ?? []),
       healthOnlyCardIds: new Set(input.healthOnlyCardIds ?? []),
     };
-    if (!this.pending) this.pending = emptyRefreshRequest();
-    mergeRequest(this.pending, request);
-    const promise = new Promise<void>((resolve, reject) => this.pendingWaiters.push({ resolve, reject }));
-    if (!this.running) void this.drain();
+    if (!this.local.pending) this.local.pending = emptyRefreshRequest();
+    mergeRequest(this.local.pending, request);
+    const promise = new Promise<void>((resolve, reject) => this.local.waiters.push({ resolve, reject }));
+    if (request.full || request.visible || request.active || request.cardIds.size) {
+      if (!this.pr.pending) this.pr.pending = emptyRefreshRequest();
+      mergeRequest(this.pr.pending, { ...request, healthOnlyCardIds: new Set() });
+      if (!this.pr.running) void this.drain(this.pr, this.runPrCycle);
+    }
+    if (!this.local.running) void this.drain(this.local, this.runLocalCycle);
     return promise;
   }
 
-  private async drain() {
-    this.running = true;
-    while (this.pending && !this.disposed) {
-      const request = this.pending;
-      const waiters = this.pendingWaiters;
-      this.pending = null;
-      this.pendingWaiters = [];
+  private async drain(lane: RefreshLane, run: (request: RefreshRequest, snapshot: RefreshSnapshot) => Promise<void>) {
+    lane.running = true;
+    while (lane.pending && !this.disposed) {
+      const request = lane.pending;
+      const waiters = lane.waiters;
+      lane.inFlight = waiters;
+      lane.pending = null;
+      lane.waiters = [];
       try {
-        await this.runCycle(request, this.snapshot);
-        waiters.forEach(({ resolve }) => resolve());
+        await run(request, this.snapshot);
+        if (!this.disposed) waiters.forEach(({ resolve }) => resolve());
       } catch (error) {
         waiters.forEach(({ reject }) => reject(error));
       }
+      lane.inFlight = [];
     }
-    this.running = false;
+    lane.running = false;
   }
 
   dispose() {
@@ -214,8 +226,11 @@ export class KanbanRefreshCoordinator {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     const error = new Error('Refresh coordinator has been disposed');
-    this.pendingWaiters.forEach(({ reject }) => reject(error));
-    this.pendingWaiters = [];
-    this.pending = null;
+    for (const lane of [this.local, this.pr]) {
+      [...lane.waiters, ...lane.inFlight].forEach(({ reject }) => reject(error));
+      lane.waiters = [];
+      lane.inFlight = [];
+      lane.pending = null;
+    }
   }
 }

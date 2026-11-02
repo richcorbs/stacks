@@ -119,6 +119,77 @@ describe('Kanban refresh targets', () => {
 });
 
 describe('KanbanRefreshCoordinator', () => {
+  it('coalesces each lane independently, excluding health-only requests from the PR lane', async () => {
+    const localGate = deferred();
+    const prGate = deferred();
+    const local = vi.fn().mockImplementationOnce(() => localGate.promise).mockResolvedValue(undefined);
+    const remote = vi.fn().mockImplementationOnce(() => prGate.promise).mockResolvedValue(undefined);
+    const coordinator = new KanbanRefreshCoordinator(snapshot([card('one')]), local, remote);
+    const first = coordinator.request({ visible: true });
+    const health = coordinator.request({ healthOnlyCardIds: ['one'] });
+    const active = coordinator.request({ active: true });
+    const full = coordinator.request({ full: true });
+    localGate.resolve();
+    await Promise.all([first, health, active, full]);
+    expect(local).toHaveBeenCalledTimes(2);
+    expect(local.mock.calls[1][0]).toMatchObject({ full: true, active: true, healthOnlyCardIds: new Set(['one']) });
+    expect(remote).toHaveBeenCalledTimes(1);
+    await coordinator.request({ healthOnlyCardIds: ['one'] });
+    expect(remote).toHaveBeenCalledTimes(1);
+    prGate.resolve();
+    await flush();
+    expect(remote).toHaveBeenCalledTimes(2);
+    expect(remote.mock.calls[1][0]).toMatchObject({ full: true, active: true, healthOnlyCardIds: new Set() });
+    coordinator.dispose();
+  });
+
+  it('recovers both drains after errors without rejecting local callers for PR errors', async () => {
+    const local = vi.fn().mockRejectedValueOnce(new Error('local')).mockResolvedValue(undefined);
+    const remote = vi.fn().mockRejectedValueOnce(new Error('remote')).mockResolvedValue(undefined);
+    const coordinator = new KanbanRefreshCoordinator(snapshot([card('one')]), local, remote);
+    await expect(coordinator.request({ full: true })).rejects.toThrow('local');
+    await expect(coordinator.request({ full: true })).resolves.toBeUndefined();
+    expect(remote).toHaveBeenCalledTimes(2);
+    coordinator.dispose();
+  });
+
+  it('rejects queued and in-flight local waiters on disposal and never starts queued work', async () => {
+    const gate = deferred();
+    const local = vi.fn(() => gate.promise);
+    const remote = vi.fn(() => gate.promise);
+    const coordinator = new KanbanRefreshCoordinator(snapshot([card('one')]), local, remote);
+    const first = coordinator.request({ full: true }).catch((error) => error);
+    const queued = coordinator.request({ full: true }).catch((error) => error);
+    coordinator.dispose();
+    expect(await first).toMatchObject({ message: 'Refresh coordinator has been disposed' });
+    expect(await queued).toMatchObject({ message: 'Refresh coordinator has been disposed' });
+    gate.resolve();
+    await flush();
+    expect(local).toHaveBeenCalledTimes(1);
+    expect(remote).toHaveBeenCalledTimes(1);
+    await expect(coordinator.request()).rejects.toThrow('disposed');
+  });
+
+  it('removes artificial GitHub latency from local completion compared with the serialized architecture', async () => {
+    vi.useFakeTimers();
+    const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const completed: string[] = [];
+    // Previous architecture: local reads start immediately but commit after PRs.
+    const serialized = Promise.all([delay(10), delay(10_000)]).then(() => completed.push('serialized'));
+    const coordinator = new KanbanRefreshCoordinator(snapshot([card('one')]),
+      async () => { await delay(10); completed.push('local'); },
+      async () => { await delay(10_000); completed.push('PR'); });
+    const explicit = coordinator.request({ full: true }).then(() => completed.push('caller'));
+    await vi.advanceTimersByTimeAsync(10);
+    await explicit;
+    expect(completed).toEqual(['local', 'caller']);
+    await vi.advanceTimersByTimeAsync(9_990);
+    await serialized;
+    expect(completed).toContain('serialized');
+    expect(completed).toContain('PR');
+    coordinator.dispose();
+  });
+
   it('owns one stable interval across equivalent snapshots and refreshes newly visible targets immediately', async () => {
     vi.useFakeTimers();
     const one = card('one');

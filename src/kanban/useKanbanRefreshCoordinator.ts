@@ -53,7 +53,7 @@ export function useKanbanRefreshCoordinator({
   snapshotRef.current = snapshotOf(cards, projects, visibleCards, activeCardId);
   const patchCardRef = useRef(patchCard);
   patchCardRef.current = patchCard;
-  const latestHealthRef = useRef(new Map<string, CardEnvironmentHealth>());
+  const latestHealthRef = useRef(new Map<string, { identity: string; health: CardEnvironmentHealth }>());
   const [statusCache, setStatusCache] = useState<Record<string, CachedStatus>>({});
   const statusCacheRef = useRef(statusCache);
   statusCacheRef.current = statusCache;
@@ -62,6 +62,8 @@ export function useKanbanRefreshCoordinator({
   const prScheduleRef = useRef(new PrRefreshSchedule());
   prScheduleRef.current.prune(cards, projects);
 
+  // A successful PR patch can precede the parent render that updates snapshotRef.
+  const obsoleteTargetsRef = useRef(new Map<string, string>());
   const coordinatorRef = useRef<KanbanRefreshCoordinator | null>(null);
   if (!coordinatorRef.current) {
     coordinatorRef.current = new KanbanRefreshCoordinator(snapshotRef.current, async (request, capturedSnapshot) => {
@@ -101,66 +103,23 @@ export function useKanbanRefreshCoordinator({
       const activeSummaryPromise = summaryPromise?.worktree_path && summaryPromise.target_branch
         ? invoke<GitChangeSummary>('git_change_summary', { path: summaryPromise.worktree_path, targetBranch: summaryPromise.target_branch }).catch(() => null)
         : Promise.resolve(undefined);
-      const schedule = prScheduleRef.current;
-      const hidden = typeof document !== 'undefined' && document.hidden;
-      const force = request.full || request.active || request.cardIds.size > 0;
-      const prTargets = plan.targets.filter((target) => shouldRefreshPullRequest(target, request.cardIds.has(target.card.id)) && schedule.due(
-        target, target.card.id === plan.activeCardId, hidden,
-        request.full || request.cardIds.has(target.card.id) || (request.active && target.card.id === plan.activeCardId),
-      ));
-      // The coordinator serializes cycles; this batch bounds parallel gh reads.
-      const prStarted = performance.now();
-      let prFailures = 0;
-      let rateLimits = 0;
-      if (prTargets.length) setPrChecks((current) => ({ ...current, ...Object.fromEntries(prTargets.map((target) => [target.card.id, { identity: schedule.identity(target.card, target.project), checkedAt: current[target.card.id]?.checkedAt ?? null, failed: current[target.card.id]?.failed ?? false, refreshing: true }])) }));
-      const prResults = await runPrBatch(prTargets, plan.activeCardId, async (target) => {
-        if (schedule.isDisposed) return null;
-        const started = performance.now();
-        const result = await refreshKanbanPullRequest(target.card.id).catch(() => null);
-        if (!result || result.error) prFailures++;
-        if (/rate.limit|secondary rate limit|HTTP 429/i.test(result?.error ?? '')) rateLimits++;
-        // Do not let an obsolete head/workflow response reset the freshness of a newer card.
-        if (!schedule.isDisposed && isRefreshTargetCurrent(target, snapshotRef.current)) {
-          schedule.finish(target, !result || Boolean(result.error));
-          setPrChecks((current) => ({ ...current, [target.card.id]: { identity: schedule.identity(target.card, target.project), checkedAt: schedule.checkedAt(target.card.id), failed: schedule.failed(target.card.id), refreshing: false } }));
-        }
-        if (import.meta.env.DEV) console.debug('[kanban-pr-refresh]', { elapsedMs: Math.round(performance.now() - started), failed: !result || Boolean(result.error) });
-        return result;
-      });
-      if (import.meta.env.DEV && (prTargets.length || force)) console.debug('[kanban-pr-cycle]', {
-        eligible: plan.targets.filter((target) => shouldRefreshPullRequest(target)).length, requests: prTargets.length,
-        elapsedMs: Math.round(performance.now() - prStarted), maxConcurrency: Math.min(2, prTargets.length),
-        failures: prFailures, rateLimits, hidden,
-      });
-      const [healthByCard, localResults, summary] = await Promise.all([healthPromise, repositoryPromise, activeSummaryPromise]);
-      const repositoryResults = localResults.map((result) => ({ ...result, summary: result.target.card.id === plan.activeCardId ? summary : undefined, pullRequestRefresh: prResults.get(result.target.card.id) ?? null }));
-
-      if (schedule.isDisposed) return;
-      // PR reconciliation may transition the workflow. Apply it first, then
-      // reject companion results captured against that obsolete identity.
-      const transitioned = new Set<string>();
-      for (const result of repositoryResults) {
-        const refreshed = result.pullRequestRefresh?.card;
-        if (!refreshed || result.pullRequestRefresh?.error || !isRefreshTargetCurrent(result.target, snapshotRef.current)) continue;
-        if (targetSnapshotIdentity(refreshed, result.target.project) !== targetSnapshotIdentity(result.target.card, result.target.project)) transitioned.add(result.target.card.id);
-        patchCardRef.current(refreshed, result.target.card);
-      }
-
+      const [healthByCard, repositoryResults, summary] = await Promise.all([healthPromise, repositoryPromise, activeSummaryPromise]);
+      if (prScheduleRef.current.isDisposed) return;
+      const isCurrent = (target: (typeof plan.targets)[number]) => obsoleteTargetsRef.current.get(target.card.id) !== targetSnapshotIdentity(target.card, target.project) && isRefreshTargetCurrent(target, snapshotRef.current);
       const statusUpdates: Record<string, CachedStatus> = {};
       for (const target of plan.healthTargets) {
+        if (!isCurrent(target)) continue;
         const health = healthByCard.get(target.card.id) ?? healthCheckFailure(target.card, 'No health result was returned');
-        latestHealthRef.current.set(target.card.id, health);
-        if (!transitioned.has(target.card.id) && isRefreshTargetCurrent(target, snapshotRef.current)) {
-          const cacheIdentity = targetIdentity(target.card, target.project);
-          const cached = statusCacheRef.current[target.card.id];
-          statusUpdates[target.card.id] = {
-            identity: cacheIdentity,
-            value: { git: cached?.identity === cacheIdentity ? cached.value.git : null, environmentHealth: health },
-          };
-        }
+        latestHealthRef.current.set(target.card.id, { identity: targetSnapshotIdentity(target.card, target.project), health });
+        const cacheIdentity = targetIdentity(target.card, target.project);
+        const cached = statusCacheRef.current[target.card.id];
+        statusUpdates[target.card.id] = {
+          identity: cacheIdentity,
+          value: { git: cached?.identity === cacheIdentity ? cached.value.git : null, environmentHealth: health },
+        };
       }
       for (const result of repositoryResults) {
-        if (transitioned.has(result.target.card.id) || !isRefreshTargetCurrent(result.target, snapshotRef.current)) continue;
+        if (!isCurrent(result.target)) continue;
         const existing = statusUpdates[result.target.card.id];
         if (result.git === undefined && !existing) continue;
         statusUpdates[result.target.card.id] = {
@@ -172,14 +131,52 @@ export function useKanbanRefreshCoordinator({
               ?? healthCheckFailure(result.target.card, 'No health result was returned'),
           },
         };
-        if (result.summary !== undefined && result.target.card.id === snapshotRef.current.activeCardId) {
-          setSummaryCache({ identity: targetIdentity(result.target.card, result.target.project), value: result.summary });
+        if (summary !== undefined && result.target.card.id === plan.activeCardId && result.target.card.id === snapshotRef.current.activeCardId) {
+          setSummaryCache({ identity: targetIdentity(result.target.card, result.target.project), value: summary });
         }
       }
       if (Object.keys(statusUpdates).length) setStatusCache((current) => {
         const next = { ...current, ...statusUpdates };
         statusCacheRef.current = next;
         return next;
+      });
+    }, async (request, capturedSnapshot) => {
+      const plan = buildRefreshCyclePlan(capturedSnapshot, request);
+      const schedule = prScheduleRef.current;
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      const force = request.full || request.active || request.cardIds.size > 0;
+      const prTargets = plan.targets.filter((target) => shouldRefreshPullRequest(target, request.cardIds.has(target.card.id)) && schedule.due(
+        target, target.card.id === plan.activeCardId, hidden,
+        request.full || request.cardIds.has(target.card.id) || (request.active && target.card.id === plan.activeCardId),
+      ));
+      // Only the PR lane serializes these batches; local work never waits here.
+      const prStarted = performance.now();
+      let prFailures = 0;
+      let rateLimits = 0;
+      if (prTargets.length) setPrChecks((current) => ({ ...current, ...Object.fromEntries(prTargets.map((target) => [target.card.id, { identity: schedule.identity(target.card, target.project), checkedAt: current[target.card.id]?.checkedAt ?? null, failed: current[target.card.id]?.failed ?? false, refreshing: true }])) }));
+      await runPrBatch(prTargets, plan.activeCardId, async (target) => {
+        if (schedule.isDisposed) return null;
+        const started = performance.now();
+        const result = await refreshKanbanPullRequest(target.card.id).catch(() => null);
+        if (!result || result.error) prFailures++;
+        if (/rate.limit|secondary rate limit|HTTP 429/i.test(result?.error ?? '')) rateLimits++;
+        // Do not let an obsolete head/workflow response reset the freshness of a newer card.
+        if (!schedule.isDisposed && obsoleteTargetsRef.current.get(target.card.id) !== targetSnapshotIdentity(target.card, target.project) && isRefreshTargetCurrent(target, snapshotRef.current)) {
+          schedule.finish(target, !result || Boolean(result.error));
+          setPrChecks((current) => ({ ...current, [target.card.id]: { identity: schedule.identity(target.card, target.project), checkedAt: schedule.checkedAt(target.card.id), failed: schedule.failed(target.card.id), refreshing: false } }));
+          const refreshed = result?.card;
+          if (refreshed && !result?.error && patchCardRef.current(refreshed, target.card)
+            && targetSnapshotIdentity(refreshed, target.project) !== targetSnapshotIdentity(target.card, target.project)) {
+            obsoleteTargetsRef.current.set(target.card.id, targetSnapshotIdentity(target.card, target.project));
+          }
+        }
+        if (import.meta.env.DEV) console.debug('[kanban-pr-refresh]', { elapsedMs: Math.round(performance.now() - started), failed: !result || Boolean(result.error) });
+        return result;
+      });
+      if (import.meta.env.DEV && (prTargets.length || force)) console.debug('[kanban-pr-cycle]', {
+        eligible: plan.targets.filter((target) => shouldRefreshPullRequest(target)).length, requests: prTargets.length,
+        elapsedMs: Math.round(performance.now() - prStarted), maxConcurrency: Math.min(2, prTargets.length),
+        failures: prFailures, rateLimits, hidden,
       });
     });
   }
@@ -200,8 +197,8 @@ export function useKanbanRefreshCoordinator({
   });
   useEffect(() => {
     coordinator.start(intervalMs);
-    const onRefresh = () => { void coordinator.request({ full: true }); };
-    const onVisibility = () => { if (!document.hidden) void coordinator.request({ visible: true, active: true }); };
+    const onRefresh = () => { void coordinator.request({ full: true }).catch(() => {}); };
+    const onVisibility = () => { if (!document.hidden) void coordinator.request({ visible: true, active: true }).catch(() => {}); };
     document.addEventListener('visibilitychange', onVisibility);
     const unsubscribe = applicationEvents.subscribe('refresh-card-repository-status', onRefresh);
     return () => {
@@ -216,7 +213,11 @@ export function useKanbanRefreshCoordinator({
     const card = snapshotRef.current.cards.find((candidate) => candidate.id === cardId);
     if (!card) throw new Error('Card is no longer visible');
     await coordinator.request({ healthOnlyCardIds: [cardId] });
-    return latestHealthRef.current.get(cardId) ?? healthCheckFailure(card, 'No health result was returned');
+    const current = snapshotRef.current.cards.find((candidate) => candidate.id === cardId);
+    const project = snapshotRef.current.projects.find((candidate) => candidate.id === current?.project_id) ?? null;
+    const cached = latestHealthRef.current.get(cardId);
+    return current && cached?.identity === targetSnapshotIdentity(current, project)
+      ? cached.health : healthCheckFailure(current ?? card, 'No current health result was returned');
   }, [coordinator]);
 
   const currentStatuses = useMemo(() => Object.fromEntries(cards.flatMap((card) => {
