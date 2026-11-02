@@ -456,11 +456,13 @@ describe('PiSessionController', () => {
     h.controller.delete();
   });
 
-  it('emits a completion notification exactly once for an eligible confirmed run', async () => {
+  it('emits a completion notification exactly once for an eligible confirmed run with pending presentation', async () => {
     const h = harness();
     await begin(h);
     h.emit(envelope({ type: 'agent_start' }));
+    h.emit(envelope({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'pending at settlement' } }));
     h.emit(envelope({ type: 'agent_settled', aborted: false }));
+    expect(h.controller.getSnapshot()).toMatchObject({ isStreaming: false, isStreamingText: false, streamingText: '', tools: [] });
     h.emit(envelope({ type: 'agent_settled', aborted: false }));
     const attentionEvents = h.publish.mock.calls
       .filter(([key, payload]) => key === 'attention' && payload.kind === 'pi-complete');
