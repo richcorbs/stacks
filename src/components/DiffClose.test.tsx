@@ -42,6 +42,11 @@ function expectEmpty(review: DiffReviewModel) {
   expect(review.comments).toEqual([]);
   expect(review.reviewedFiles.size).toBe(0);
 }
+const focusDiff = vi.fn();
+const diffNodeOptions = {
+  createNodeMock: (element: { type: unknown; props: unknown }) => element.type === 'section' && (element.props as { className?: string }).className?.includes('cardDiffView') ? { focus: focusDiff } : null,
+};
+
 function click(renderer: TestRenderer.ReactTestRenderer, label: string) {
   act(() => renderer.root.findAllByType('button').find((button) => button.props.children === label)!.props.onClick());
 }
@@ -100,7 +105,8 @@ describe('Diff selection refresh', () => {
   it('refreshes Project Workspace once per mouse or keyboard selection, preserving review state', async () => {
     vi.mocked(invoke).mockResolvedValue({ branch: 'main', status: 'ok' });
     let renderer!: TestRenderer.ReactTestRenderer;
-    await act(async () => { renderer = TestRenderer.create(<DirectProjectWork project={project} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} onClose={() => {}} />); });
+    focusDiff.mockClear();
+    await act(async () => { renderer = TestRenderer.create(<DirectProjectWork project={project} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} onClose={() => {}} />, diffNodeOptions); });
     const nonce = () => renderer.root.findByType(DiffTab).props.refreshNonce;
     const initial = nonce();
     draft(review);
@@ -118,9 +124,11 @@ describe('Diff selection refresh', () => {
     click(renderer, 'Notes');
     act(() => applicationEvents.publish('card-tab-shortcut', { number: 3 }));
     expect(nonce()).toBe(initial + 5);
+    expect(focusDiff).toHaveBeenCalledTimes(3);
     expect(invoke).not.toHaveBeenCalledWith('git_info', expect.anything());
     await act(async () => renderer.root.findByProps({ 'aria-label': 'Refresh diff' }).props.onClick());
     expect(nonce()).toBe(initial + 6);
+    expect(focusDiff).toHaveBeenCalledTimes(3);
     expect(invoke).toHaveBeenCalledWith('git_info', { path: '/repo' });
     expect(review.comments).toBe(comments);
     expect(review.overallComment).toBe('overall');
@@ -134,8 +142,11 @@ describe('Diff selection refresh', () => {
 describe('diff review Close', () => {
   it('cancels the card review and returns to chat', async () => {
     const card = { id: 'c', project_id: 'p', status: 'agent_working', capabilities: [], environment: { worktree_path: '/repo', target_branch: 'main' } };
+    focusDiff.mockClear();
     let renderer!: TestRenderer.ReactTestRenderer;
-    await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} cardServices={{} as never} projects={[project]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView="diff" gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={() => {}} onUpdate={async () => card as never} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={async () => true} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} onToggleServer={() => {}} />); });
+    await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} cardServices={{} as never} projects={[project]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView="diff" gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={() => {}} onUpdate={async () => card as never} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={async () => true} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} onToggleServer={() => {}} />, diffNodeOptions); });
+    expect(focusDiff).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    focusDiff.mockClear();
     const nonce = () => renderer.root.findByType(CardDiffView).props.refreshNonce;
     const initial = nonce();
     draft(review);
@@ -151,11 +162,14 @@ describe('diff review Close', () => {
     click(renderer, 'Description');
     act(() => applicationEvents.publish('card-tab-shortcut', { number: 3 }));
     expect(nonce()).toBe(initial + 4);
+    // Mouse and Cmd-# both focus the shared Diff section on entry, not refresh.
+    expect(focusDiff).toHaveBeenCalledTimes(2);
     act(() => applicationEvents.publish('card-tab-shortcut', { direction: -1 }));
     act(() => applicationEvents.publish('card-tab-shortcut', { direction: 1 }));
     expect(nonce()).toBe(initial + 5);
     act(() => renderer.root.findByProps({ 'aria-label': 'Refresh diff' }).props.onClick());
     expect(nonce()).toBe(initial + 6);
+    expect(focusDiff).toHaveBeenCalledTimes(3);
     expect(review.comments).toBe(comments);
     expect(review.overallComment).toBe('overall');
     expect(review.reviewedFiles.has('src/a.ts')).toBe(true);

@@ -18,15 +18,20 @@ function makeReview(): DiffReviewModel {
 const files = [{ path: 'src/nested/a.ts', status: 'M' }, { path: 'src/b.ts', status: 'A' }, { path: 'z.ts', status: 'M' }];
 const card = { environment: { target_branch: 'main' } } as KanbanCard;
 
-async function setupDiff(context: 'project' | 'card') {
+async function setupDiff(context: 'project' | 'card', initiallyActive = true, pendingFiles?: Promise<unknown>) {
   vi.mocked(invoke).mockReset();
-  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'git_diff_files' ? { files } : { path: (args as { file: string }).file, patch: 'new' });
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'git_diff_files' ? (pendingFiles ?? { files }) : { path: (args as { file: string }).file, patch: 'new' });
   const review = makeReview();
   let renderer!: TestRenderer.ReactTestRenderer;
   const render = (active = true, refreshNonce = 0, cardPath = '/repo') => context === 'card'
     ? <CardDiffView active={active} card={card} cardPath={cardPath} refreshNonce={refreshNonce} review={review} canSubmit={false} onSubmit={vi.fn()} onClose={vi.fn()} />
     : <WorkDiffView active={active} label="Project diff" path={cardPath} comparisonTarget="refs/remotes/origin/main" refreshNonce={refreshNonce} review={review} canSubmit onSubmit={vi.fn()} onClose={vi.fn()} />;
-  await act(async () => { renderer = TestRenderer.create(render()); });
+  const focus = vi.fn();
+  await act(async () => {
+    renderer = TestRenderer.create(render(initiallyActive), {
+      createNodeMock: (element) => element.type === 'section' ? { focus } : null,
+    });
+  });
   expect(renderer.root.findByType(DiffTab).props.comparisonTarget).toBe(context === 'card' ? 'refs/heads/main' : 'refs/remotes/origin/main');
   const highlight = () => renderer.root.findAllByProps({ role: 'treeitem' }).find((row) => row.props['aria-current'] === 'location')?.props['aria-label'];
   const key = async (key: string, options: Record<string, unknown> = {}, selector: string | null = null) => {
@@ -35,11 +40,50 @@ async function setupDiff(context: 'project' | 'card') {
     await act(async () => { renderer.root.findByType('section').props.onKeyDown(event); });
     return event;
   };
-  return { renderer, review, render, highlight, key };
+  return { renderer, review, render, highlight, key, focus };
 }
 
 describe.each(['project', 'card'] as const)('%s diff Vim navigation', (context) => {
   const setup = () => setupDiff(context);
+  it('focuses on initial active mount and each activation, preserving highlight and ignoring ordinary updates', async () => {
+    const { renderer, render, highlight, key, focus } = await setup();
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    await key('j'); await key('j');
+    expect(highlight()).toBe('src/nested/a.ts');
+    await act(async () => { renderer.update(render(false)); });
+    expect((await key('j')).preventDefault).not.toHaveBeenCalled();
+    await act(async () => { renderer.update(render()); });
+    expect(focus).toHaveBeenCalledTimes(2);
+    expect(highlight()).toBe('src/nested/a.ts');
+    // A focused comment editor/control must not lose focus to rerenders or refreshes.
+    await act(async () => { renderer.update(render()); });
+    await act(async () => { renderer.update(render(true, 1)); });
+    expect(focus).toHaveBeenCalledTimes(2);
+    expect(highlight()).toBe('src/nested/a.ts');
+    await act(async () => { renderer.update(render(false, 1)); });
+    vi.mocked(invoke).mockResolvedValueOnce({ files: [{ path: 'replacement.ts', status: 'M' }] });
+    await act(async () => { renderer.update(render(true, 2)); });
+    expect(focus).toHaveBeenCalledTimes(3);
+    expect(highlight()).toBe('replacement.ts');
+    act(() => renderer.unmount());
+  });
+
+  it('does not focus while initially hidden, then focuses before delayed files arrive without refocusing on completion', async () => {
+    let resolveFiles!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { resolveFiles = resolve; });
+    const { renderer, render, highlight, key, focus } = await setupDiff(context, false, pending);
+    expect(focus).not.toHaveBeenCalled();
+    await act(async () => { renderer.update(render()); });
+    expect(focus).toHaveBeenCalledOnce();
+    expect((await key('j')).preventDefault).not.toHaveBeenCalled();
+    await act(async () => { resolveFiles({ files }); });
+    expect(focus).toHaveBeenCalledOnce();
+    expect(highlight()).toBe('src');
+    await key('j');
+    expect(highlight()).toBe('src/nested');
+    act(() => renderer.unmount());
+  });
+
   it('moves independently of the opened diff, stops at boundaries, and opens only on Enter', async () => {
     const { renderer, review, highlight, key } = await setup();
     expect(highlight()).toBe('src');
