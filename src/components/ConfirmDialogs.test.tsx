@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { renderedText } from '../../tests/renderedText';
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -77,9 +77,15 @@ describe('shared confirmation gate', () => {
   });
 
   it('reserves both suffix widths from first render through ready without duplicating markup or cancel content', () => {
+    const mount = vi.fn();
+    const unmount = vi.fn();
+    function DeleteLabel() {
+      useEffect(() => { mount(); return unmount; }, []);
+      return <><svg id="delete-icon" aria-hidden="true" /><strong id="delete-label">Delete</strong></>;
+    }
     const dialog = <ConfirmationBoundary><div>
       <button data-confirm-cancel><strong>Cancel</strong></button>
-      <button aria-label="Delete item"><svg id="delete-icon" aria-hidden="true" /><strong id="delete-label">Delete</strong></button>
+      <button aria-label="Delete item"><DeleteLabel /></button>
       <button>Save changes</button>
     </div></ConfirmationBoundary>;
     act(() => { renderer = TestRenderer.create(dialog); });
@@ -91,7 +97,12 @@ describe('shared confirmation gate', () => {
         const sizers = button.findAllByProps({ className: 'confirmationButtonSizer' });
         expect(sizers.map((sizer) => sizer.children.join(''))).toEqual([' (2)', ' (1)']);
         expect(sizers.every((sizer) => sizer.props['aria-hidden'] === 'true')).toBe(true);
+        const suffix = button.findByProps({ className: 'confirmationButtonSuffix' });
+        expect(suffix.children.join('')).toBe(remaining ? ` (${remaining})` : '');
+        expect(button.findByProps({ className: 'confirmationButtonText' }).children).toHaveLength(1);
       }
+      expect(mount).toHaveBeenCalledOnce();
+      expect(unmount).not.toHaveBeenCalled();
       expect(renderer!.root.findAllByProps({ id: 'delete-icon' })).toHaveLength(1);
       expect(renderer!.root.findAllByProps({ id: 'delete-label' })).toHaveLength(1);
       expect(label()).toBe(`Delete${remaining ? ` (${remaining})` : ''}`);
@@ -99,6 +110,45 @@ describe('shared confirmation gate', () => {
       expect(buttons()[1].props['aria-label']).toBe(`Delete item${remaining ? ` (${remaining})` : ''}`);
       if (remaining) advance(1000);
     }
+  });
+
+  it('centers using the reserved minus visible suffix width, including proportional fonts and font resizing', () => {
+    const setProperty = vi.fn();
+    const disconnect = vi.fn();
+    const observe = vi.fn();
+    let resize!: () => void;
+    let reservedWidth = 20;
+    let visibleWidth = 20;
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resize = callback; }
+      observe = observe;
+      disconnect = disconnect;
+    });
+    act(() => {
+      renderer = TestRenderer.create(<ConfirmationBoundary><button>Delete</button></ConfirmationBoundary>, {
+        createNodeMock: (element) => {
+          const { className } = element.props as { className?: string };
+          if (className === 'confirmationButtonLabel') return { style: { setProperty } };
+          if (className === 'confirmationButtonCountdown') return { getBoundingClientRect: () => ({ width: reservedWidth }) };
+          if (className === 'confirmationButtonSuffix') return { getBoundingClientRect: () => ({ width: visibleWidth }) };
+          return null;
+        },
+      });
+    });
+    expect(setProperty).toHaveBeenLastCalledWith('--confirmation-label-offset', '0px');
+    visibleWidth = 14;
+    advance(1000);
+    expect(setProperty).toHaveBeenLastCalledWith('--confirmation-label-offset', '3px');
+    visibleWidth = 0;
+    advance(1000);
+    expect(setProperty).toHaveBeenLastCalledWith('--confirmation-label-offset', '10px');
+    reservedWidth = 30;
+    resize();
+    expect(setProperty).toHaveBeenLastCalledWith('--confirmation-label-offset', '15px');
+    expect(observe).toHaveBeenCalledTimes(6);
+    expect(disconnect).toHaveBeenCalledTimes(2);
+    act(() => { renderer!.unmount(); });
+    expect(disconnect).toHaveBeenCalledTimes(3);
   });
 
   it.each([false, true])('consumes Enter/Cmd-Enter through enabled buttons only (meta=%s)', (metaKey) => {

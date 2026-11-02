@@ -702,12 +702,15 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Only the suffix is duplicated: labels (including icons/IDs) retain single ownership.
-   Overlapping grid cells reserve both countdown states even after activation. */
+/* Only suffixes are duplicated. Reserve their maximum width independently of the
+   visible text, then shift the single label/suffix pair by half the unused space. */
 .confirmationButtonLabel { display: inline-grid; grid-template-columns: minmax(0, auto) auto; align-items: center; max-width: 100%; vertical-align: middle; }
 .confirmationButtonCountdown { display: inline-grid; white-space: pre; }
 .confirmationButtonCountdown > span { grid-area: 1 / 1; }
 .confirmationButtonSizer { visibility: hidden; pointer-events: none; }
+.confirmationButtonText,
+.confirmationButtonSuffix { transform: translateX(var(--confirmation-label-offset, 0px)); }
+.confirmationButtonSuffix { justify-self: start; }
 
 .modalActions { display: flex; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 :is(.modalActions, .settingsPageActions, .piExtensionActions, .kanbanNewCardActionButtons) button { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
