@@ -22,8 +22,8 @@ function card(id: string, status: KanbanCard['status'] = 'ready'): KanbanCard {
   };
 }
 let state: KanbanRefreshState;
-function Harness({ cards, patchCard }: { cards: KanbanCard[]; patchCard: (card: KanbanCardSummary, expected: KanbanCardSummary) => boolean }) {
-  state = useKanbanRefreshCoordinator({ cards, projects: [project], visibleCards: [], activeCardId: 'one', patchCard, intervalMs: 600_000 });
+function Harness({ cards, patchCard, activeCardId = 'one' }: { cards: KanbanCard[]; patchCard: (card: KanbanCardSummary, expected: KanbanCardSummary) => boolean; activeCardId?: string }) {
+  state = useKanbanRefreshCoordinator({ cards, projects: [project], visibleCards: [], activeCardId, patchCard, intervalMs: 600_000 });
   return null;
 }
 
@@ -36,6 +36,73 @@ async function mount(cards: KanbanCard[], patchCard = vi.fn(() => true)) {
 
 beforeEach(() => { vi.stubGlobal('document', { hidden: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }); });
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+
+describe('independent local and PR refresh lanes', () => {
+  it('applies local status and summary, resolves every explicit API, and switches cards while GitHub is held', async () => {
+    const one = card('one');
+    const two = card('two');
+    const summary = { added: 7, modified: 2, deleted: 1 };
+    invoke.mockImplementation(async (command: string) => command === 'git_change_summary' ? summary : { branch: 'local', status: 'ok' });
+    fetchHealth.mockResolvedValue([]);
+    const { renderer, patchCard } = await mount([one, two]);
+    let resolvePr!: (value: unknown) => void;
+    refreshPr.mockImplementationOnce(() => new Promise((resolve) => { resolvePr = resolve; }));
+    refreshPr.mockResolvedValue({ card: two, error: null });
+    await act(async () => { await state.refreshCard('one'); });
+    expect(state.statuses.one.git).toMatchObject({ branch: 'local' });
+    expect(state.statuses.one.environmentHealth).toBeDefined();
+    expect(state.activeSummary).toEqual(summary);
+    expect(state.prChecks.one.refreshing).toBe(true);
+    await act(async () => { await state.refreshAll(); await state.recheckEnvironment('one'); });
+    expect(refreshPr).toHaveBeenCalledTimes(1);
+    await act(async () => { renderer.update(<Harness cards={[one, two]} patchCard={patchCard} activeCardId="two" />); });
+    expect(invoke).toHaveBeenCalledWith('git_info', { path: '/repo/two' });
+    expect(state.statuses.two.git).toMatchObject({ branch: 'local' });
+    expect(state.activeSummary).toEqual(summary);
+    await act(async () => { resolvePr({ card: one, error: null }); });
+    expect(patchCard).not.toHaveBeenCalledWith(one, one); // active identity changed
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('drops companion local results when PR reconciliation transitions before the parent renders', async () => {
+    const one = card('one');
+    invoke.mockResolvedValue(null);
+    fetchHealth.mockResolvedValue([]);
+    const { renderer, patchCard } = await mount([one]);
+    let resolveGit!: (value: unknown) => void;
+    invoke.mockImplementation((command: string) => command === 'git_info'
+      ? new Promise((resolve) => { resolveGit = resolve; }) : Promise.resolve({ added: 99 }));
+    const transitioned = { ...one, status: 'needs_human' as const, workflow_revision: 2 };
+    refreshPr.mockResolvedValue({ card: transitioned, error: null });
+    let pending!: Promise<void>;
+    await act(async () => { pending = state.refreshCard('one'); });
+    expect(patchCard).toHaveBeenCalledWith(transitioned, one);
+    await act(async () => { resolveGit({ branch: 'obsolete' }); await pending; });
+    expect(state.statuses.one.git).not.toMatchObject({ branch: 'obsolete' });
+    expect(state.activeSummary).not.toEqual({ added: 99 });
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not reconcile or update state after disposal with both lanes in flight', async () => {
+    const one = card('one');
+    invoke.mockResolvedValue(null);
+    fetchHealth.mockResolvedValue([]);
+    const { renderer, patchCard } = await mount([one]);
+    let resolveGit!: (value: unknown) => void;
+    let resolvePr!: (value: unknown) => void;
+    invoke.mockImplementation((command: string) => command === 'git_info'
+      ? new Promise((resolve) => { resolveGit = resolve; }) : Promise.resolve(null));
+    refreshPr.mockImplementationOnce(() => new Promise((resolve) => { resolvePr = resolve; }));
+    let rejected!: Promise<unknown>;
+    await act(async () => { rejected = state.refreshCard('one').catch((error) => error); });
+    const before = state;
+    await act(async () => { renderer.unmount(); });
+    expect(await rejected).toMatchObject({ message: 'Refresh coordinator has been disposed' });
+    await act(async () => { resolveGit({ branch: 'late' }); resolvePr({ card: one, error: null }); });
+    expect(patchCard).not.toHaveBeenCalled();
+    expect(state).toBe(before);
+  });
+});
 
 describe('explicit card Git refresh', () => {
   it('reads only the selected worktree and target-branch summary, forcing an existing PR outside polling states', async () => {
@@ -57,7 +124,7 @@ describe('explicit card Git refresh', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it.each(['record', 'PR', 'environment'] as const)('rejects a late PR response after the %s identity changes', async (changed) => {
+  it.each(['record', 'PR', 'environment', 'workflow'] as const)('rejects a late PR response after the %s identity changes', async (changed) => {
     const one = card('one');
     invoke.mockImplementation(async (command: string) => command === 'git_change_summary' ? { added: 1, modified: 0, deleted: 0 } : { branch: 'one' });
     fetchHealth.mockResolvedValue([]);
@@ -70,15 +137,20 @@ describe('explicit card Git refresh', () => {
     await act(async () => { pending = state.refreshCard('one'); await Promise.resolve(); });
     const newer = changed === 'PR' ? { ...one, pull_request: { ...one.pull_request!, number: 43 } }
       : changed === 'environment' ? { ...one, environment: { ...one.environment!, revision: 2, branch: 'replacement' } }
-        : { ...one, record_revision: 2, updated_at: 2 };
+        : changed === 'workflow' ? { ...one, workflow_revision: 2 }
+          : { ...one, record_revision: 2, updated_at: 2 };
     await act(async () => { renderer.update(<Harness cards={[newer]} patchCard={patchCard} />); });
+    await act(async () => { await state.recheckEnvironment('one'); });
+    const newerLocalStatus = state.statuses.one;
+    expect(newerLocalStatus.environmentHealth).toBeDefined();
     await act(async () => { resolve({ card: { ...one, pull_request: { ...one.pull_request!, ci_status: 'success', blockers: [], mergeable: true } }, error: null }); await pending; });
+    expect(state.statuses.one).toEqual(newerLocalStatus);
     expect(patchCard).not.toHaveBeenCalled();
     if (changed !== 'record') expect(state.prChecks.one).toBeUndefined();
     await act(async () => { renderer.unmount(); });
   });
 
-  it('discards slow Git results after a worktree identity changes', async () => {
+  it.each(['environment', 'workflow', 'record'] as const)('discards slow Git results after the %s identity changes', async (changed) => {
     const one = { ...card('one'), pull_request: null };
     invoke.mockResolvedValue(null);
     fetchHealth.mockResolvedValue([]);
@@ -88,13 +160,31 @@ describe('explicit card Git refresh', () => {
       ? new Promise((resolve) => { resolveGit = resolve; }) : Promise.resolve(null));
     let pending!: Promise<void>;
     await act(async () => { pending = state.refreshCard('one'); await Promise.resolve(); });
-    const newer = { ...one, environment: { ...one.environment!, revision: 2, worktree_path: '/repo/replacement' } };
+    const newer = changed === 'environment' ? { ...one, environment: { ...one.environment!, revision: 2, worktree_path: '/repo/replacement' } }
+      : changed === 'workflow' ? { ...one, workflow_revision: 2 }
+        : { ...one, record_revision: 2, updated_at: 2 };
     await act(async () => { renderer.update(<Harness cards={[newer]} patchCard={patchCard} />); });
     await act(async () => {
       resolveGit({ branch: 'obsolete', status: 'ok', created: 0, changed: 0, deleted: 0 });
       await pending;
     });
-    expect(state.statuses.one).toBeUndefined();
+    expect(state.statuses.one?.git).not.toMatchObject({ branch: 'obsolete' });
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('resolves local APIs with fallback statuses when health and Git reads fail', async () => {
+    const one = card('one');
+    invoke.mockResolvedValue(null);
+    fetchHealth.mockResolvedValue([]);
+    const { renderer } = await mount([one]);
+    invoke.mockRejectedValue(new Error('Git unavailable'));
+    fetchHealth.mockRejectedValue(new Error('Health unavailable'));
+    refreshPr.mockRejectedValue(new Error('GitHub unavailable'));
+    await act(async () => { await state.refreshCard('one'); await state.refreshAll(); });
+    expect(state.statuses.one.git).toMatchObject({ status: 'error' });
+    expect(state.statuses.one.environmentHealth).toBeDefined();
+    await act(async () => { expect(await state.recheckEnvironment('one')).toEqual(state.statuses.one.environmentHealth); });
+    expect(state.prChecks.one).toMatchObject({ failed: true, refreshing: false });
     await act(async () => { renderer.unmount(); });
   });
 
