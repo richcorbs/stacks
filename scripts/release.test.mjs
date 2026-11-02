@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import {
   ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare, reconcileRelease,
   releaseNotes, requiredCiRun, suggestPatch, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared,
-  verifyReleaseAssets, verifySignatureVersion, verifyVersions, writeChecksums,
+  verifyReleaseAssets, verifyReleaseRevision, verifySignatureVersion, verifyVersions, writeChecksums,
 } from './release-lib.mjs';
 
 const temporary = [];
@@ -125,6 +125,50 @@ describe('prepare and artifact postconditions', () => {
     prepare(root, { version: '1.2.4', notesFile: notes, source }); const prepared = run(root, 'git', ['rev-parse', 'HEAD']);
     verifyPrepared(root, { version: '1.2.4', notesFile: notes, source }); verifyVersions(root, '1.2.4');
     prepare(root, { version: '1.2.4', notesFile: notes, source }); expect(run(root, 'git', ['rev-parse', 'HEAD'])).toBe(prepared); expect(run(root, 'git', ['status', '--porcelain'])).toBe('');
+  });
+  it('verifies a pinned historical release independently of newer manifest versions', () => {
+    const root = repository(); const source = run(root, 'git', ['rev-parse', 'HEAD']);
+    const notesFile = path.join(temp(), 'notes.md'); fs.writeFileSync(notesFile, '# Approved\n');
+    prepare(root, { version: '1.2.4', notesFile, source });
+    const revision = run(root, 'git', ['rev-parse', 'HEAD']); run(root, 'git', ['tag', 'v1.2.4']);
+    const laterNotes = path.join(temp(), 'notes.md'); fs.writeFileSync(laterNotes, '# Later\n');
+    prepare(root, { version: '1.2.5', notesFile: laterNotes, source: revision });
+    const head = run(root, 'git', ['rev-parse', 'HEAD']);
+    expect(verifyReleaseRevision(root, { version: '1.2.4', notesFile, source, revision })).toBe(revision);
+    artifacts(root);
+    const helper = path.resolve('scripts/release.mjs');
+    const args = ['--root', root, '--version', '1.2.4', '--notes', notesFile, '--source', source, '--revision', revision];
+    expect(run(root, 'node', [helper, 'verify-prepare', ...args])).toContain('Verified v1.2.4 release commit');
+    expect(run(root, 'node', [helper, 'verify-build', ...args])).toContain('Verified v1.2.4 artifacts');
+    const remote = temp(); run(root, 'git', ['init', '--bare', remote]);
+    run(root, 'git', ['remote', 'add', 'origin', remote]);
+    run(root, 'git', ['push', 'origin', 'HEAD', 'refs/tags/v1.2.4']);
+    run(remote, 'git', ['update-ref', 'refs/tags/v1.2.4', head]);
+    expect(() => run(root, 'node', [helper, 'verify-draft', ...args])).toThrow(/Existing remote tag.*expected/);
+    expect(() => verifyPrepared(root, { version: '1.2.4', notesFile, source })).toThrow(/Version mismatch/);
+    expect(() => verifyReleaseRevision(root, { version: '1.2.4', notesFile, source: revision, revision })).toThrow(/captured source/);
+    fs.writeFileSync(notesFile, '# Different\n');
+    expect(() => verifyReleaseRevision(root, { version: '1.2.4', notesFile, source, revision })).toThrow(/notes differ/);
+    expect(run(root, 'git', ['rev-parse', 'HEAD'])).toBe(head);
+    expect(run(root, 'git', ['status', '--porcelain'])).toBe('');
+    run(root, 'git', ['tag', '-f', 'v1.2.4', head]);
+    expect(() => verifyReleaseRevision(root, { version: '1.2.4', notesFile, source, revision })).toThrow(/conflicts with pinned/);
+  });
+  it('rejects historical release commits with wrong versions, unexpected changes, or outside main history', () => {
+    for (const corruption of ['versions', 'paths', 'ancestry']) {
+      const root = repository(); const source = run(root, 'git', ['rev-parse', 'HEAD']);
+      const notesFile = path.join(temp(), 'notes.md'); fs.writeFileSync(notesFile, '# Approved\n');
+      prepare(root, { version: '1.2.4', notesFile, source });
+      if (corruption === 'versions') writeJson(path.join(root, 'package-lock.json'), { version: '9.0.0', packages: { '': { version: '1.2.4' } } });
+      if (corruption === 'paths') fs.writeFileSync(path.join(root, 'unexpected'), 'change');
+      if (corruption !== 'ancestry') { run(root, 'git', ['add', '.']); run(root, 'git', ['commit', '--amend', '--no-edit']); }
+      const revision = run(root, 'git', ['rev-parse', 'HEAD']);
+      if (corruption === 'ancestry') run(root, 'git', ['checkout', '--detach', source]);
+      else run(root, 'git', ['commit', '--allow-empty', '-m', 'Later development']);
+      expect(() => verifyReleaseRevision(root, { version: '1.2.4', notesFile, source, revision })).toThrow(
+        corruption === 'versions' ? /versions differ/ : corruption === 'paths' ? /unexpected paths/ : /not an ancestor/,
+      );
+    }
   });
   it('verifies the exact artifacts, checksums, updater fields, asset sizes, and upload order', () => {
     const root = temp(); const out = artifacts(root); expect(verifyArtifacts(root, '1.2.4')).toBe(out);

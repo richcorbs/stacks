@@ -66,17 +66,34 @@ export async function runRelease({ mode, version, root, execute, approve, log = 
     log(`Release notes: ${context.notesFile}`);
     phase = 'Validate target branch';
     if (git(root, 'symbolic-ref', '--quiet', '--short', 'HEAD') !== context.branch) throw new Error(`Target branch ${context.branch} must be checked out`);
+    const head = git(root, 'rev-parse', 'HEAD');
+    if (mode === 'draft' && head === context.source && !context.revision) {
+      const args = contextArgs(context);
+      step('Validate clean checkout and selected version', () => execute('preflight', args));
+      step('Synchronize versions and commit release notes', () => execute('prepare', args));
+      context.revision = git(root, 'rev-parse', 'HEAD');
+    }
+    phase = 'Resolve pinned release revision';
+    if (!context.revision) {
+      // Migrate contexts created before the runner persisted a release revision.
+      try { context.revision = git(root, 'rev-parse', '--verify', `refs/tags/v${version}^{commit}`); } catch {}
+      if (!context.revision && git(root, 'show', '-s', '--format=%s', head) === `Release Stacks v${version}`
+        && git(root, 'rev-parse', `${head}^`) === context.source) context.revision = head;
+      if (!context.revision) throw new Error(`Stale release context for v${version}: HEAD has advanced beyond ${context.source}, and no pinned release commit or local tag exists. Restore the original release tag/context to resume, or select a new unused version for current HEAD. The checkout was not changed.`);
+    }
     const args = contextArgs(context);
+    const verifyRevision = () => {
+      execute('verify-prepare', args);
+      fs.writeFileSync(contextPath, JSON.stringify(context, null, 2), { mode: 0o600 });
+      log(`Pinned release commit: ${context.revision}${git(root, 'rev-parse', 'HEAD') !== context.revision ? ' (historical; current checkout unchanged)' : ''}`);
+    };
     if (mode === 'draft') {
-      const head = git(root, 'rev-parse', 'HEAD');
-      if (head === context.source) {
-        step('Validate clean checkout and selected version', () => execute('preflight', args));
-        step('Synchronize versions and commit release notes', () => execute('prepare', args));
-      }
-      step('Verify exact release commit', () => execute('verify-prepare', args));
+      step('Verify exact release commit', verifyRevision);
       // A failed upload can resume without rebuilding verified signed artifacts.
       let artifactsValid = false;
-      try { execute('verify-build', args, true); artifactsValid = true; } catch {}
+      try { execute('verify-build', args, true); artifactsValid = true; } catch (error) {
+        if (git(root, 'rev-parse', 'HEAD') !== context.revision) throw new Error(`Cannot rebuild historical release v${version} from current HEAD. Restore its exact signed artifacts in release-artifacts/v${version}, or select a new unused version to release current code. Verification failed: ${error.message}`);
+      }
       if (!artifactsValid) step('Test, validate, build and sign updater artifacts', () => execute('build', args));
       else log('\n✓ Reusing verified signed artifacts');
       step('Verify updater manifest, signatures and checksums', () => execute('verify-build', args));
@@ -88,7 +105,7 @@ export async function runRelease({ mode, version, root, execute, approve, log = 
       phase = 'publication confirmation';
       log('\nPublication makes this draft the latest public release and enables updater downloads.');
       if (!await approve(version)) throw new Error('Publication cancelled; draft remains unchanged');
-      step('Verify exact release commit', () => execute('verify-prepare', args));
+      step('Verify exact release commit', verifyRevision);
       step('Verify signed artifacts and existing draft', () => { execute('verify-build', args); execute('verify-draft', args); });
       step('Require exact-commit CI and publish verified draft', () => execute('publish', args));
       step('Verify latest published release', () => execute('verify-publish', args));
@@ -105,7 +122,8 @@ export async function runRelease({ mode, version, root, execute, approve, log = 
   }
 }
 function contextArgs(c) {
-  return ['--version', c.version, '--previous', c.previous, '--source', c.source, '--branch', c.branch, '--notes', c.notesFile, '--ci-workflow', c.ciWorkflow];
+  return ['--version', c.version, '--previous', c.previous, '--source', c.source, '--branch', c.branch, '--notes', c.notesFile, '--ci-workflow', c.ciWorkflow,
+    ...(c.revision ? ['--revision', c.revision] : [])];
 }
 async function confirmPublication(version) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Publishing requires an interactive terminal and explicit smoke-test confirmation');

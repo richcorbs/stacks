@@ -6,7 +6,7 @@ import {
   ASSET_NAMES, artifactDir, clean, fail, findRelease, ghJson, git, latestPublished, matchingDraft,
   missingReleaseAssets, prepare, reconcileRelease, releaseNotes, requiredCiRun, run, setVersions, sourceRevision, suggestPatch,
   tagFor, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets,
-  verifyVersions, writeChecksums,
+  verifyVersions, verifyReleaseRevision, writeChecksums,
 } from './release-lib.mjs';
 
 function args(argv) {
@@ -37,7 +37,7 @@ function matchingRelease(tag) {
   if (matches.length > 1) fail(`Multiple GitHub releases exist for ${tag}`);
   return matches[0];
 }
-function prepared() { return verifyPrepared(root, { version: requireValue(version, 'version'), notesFile: requireValue(notesFile, 'notes'), source: requireValue(source, 'source') }); }
+function prepared() { return verifyReleaseRevision(root, { version: requireValue(version, 'version'), notesFile: requireValue(notesFile, 'notes'), source: requireValue(source, 'source'), revision: options.revision }); }
 function remoteRef(ref) { return run('git', ['ls-remote', '--refs', 'origin', ref], { cwd: root }).split(/\s+/)[0] || ''; }
 function remoteTag(tag) {
   const rows = run('git', ['ls-remote', 'origin', `refs/tags/${tag}`, `refs/tags/${tag}^{}`], { cwd: root }).split('\n').filter(Boolean).map(row => row.split(/\s+/));
@@ -68,9 +68,8 @@ function validateDraft(release, revision) {
   return release;
 }
 function createOrResumeDraft() {
-  const tag = tagFor(version); const releases = releaseList(); const existing = findRelease(releases, tag)[0];
-  const revision = existing ? remoteTag(tag) : prepared(); const out = verifyArtifacts(root, version); const targetBranch = requireValue(branch, 'branch');
-  if (!revision) fail(`Existing GitHub release ${tag} has no resolvable remote tag`);
+  const tag = tagFor(version); const releases = releaseList();
+  const revision = prepared(); const out = verifyArtifacts(root, version); const targetBranch = requireValue(branch, 'branch');
   assertTagRevision(tag, revision);
   const approvedNotes = fs.readFileSync(notesFile, 'utf8');
   let release = matchingDraft(releases, { tag, revision, title: `Stacks ${tag}`, body: approvedNotes });
@@ -97,18 +96,18 @@ function createOrResumeDraft() {
   console.log(`Draft verified: ${release.html_url}`);
 }
 function verifyDraft() {
-  const tag = tagFor(version); const revision = remoteTag(tag) || prepared(); verifyRemoteRevision(tag, revision);
+  const tag = tagFor(version); const revision = prepared(); verifyRemoteRevision(tag, revision);
   const release = validateDraft(matchingRelease(tag), revision);
   console.log(`Draft ready for smoke testing: ${release.html_url}`);
 }
 function publish() {
-  const tag = tagFor(version); const revision = remoteTag(tag) || prepared(); verifyRemoteRevision(tag, revision); const release = validateDraft(matchingRelease(tag), revision);
-  requiredCiRun(requiredCiWorkflow, process.env.STACKS_RELEASE_RELEASE_REVISION || revision, ghOptions);
+  const tag = tagFor(version); const revision = prepared(); verifyRemoteRevision(tag, revision); const release = validateDraft(matchingRelease(tag), revision);
+  requiredCiRun(requiredCiWorkflow, revision, ghOptions);
   const published = ghJson(['api', '--method', 'PATCH', `repos/{owner}/{repo}/releases/${release.id}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true'], ghOptions);
   console.log(`Published ${tagFor(version)}: ${published.html_url}`);
 }
 function verifyPublished() {
-  const tag = tagFor(version); const revision = remoteTag(tag) || prepared(); verifyRemoteRevision(tag, revision); const release = matchingRelease(tag);
+  const tag = tagFor(version); const revision = prepared(); verifyRemoteRevision(tag, revision); const release = matchingRelease(tag);
   if (!release || release.draft || release.prerelease) fail(`${tag} is not a published stable release`);
   if (remoteTag(tag) !== revision) fail(`Published release tag does not resolve to ${revision}`);
   verifyReleaseAssets(release, verifyArtifacts(root, version));
@@ -166,7 +165,7 @@ try {
     case 'prepare': prepare(root, { version, notesFile, source }); console.log(`Prepared ${tagFor(version)} release commit.`); break;
     case 'verify-prepare': prepared(); console.log(`Verified ${tagFor(version)} release commit.`); break;
     case 'build': build(); break;
-    case 'verify-build': verifyPrepared(root, { version, notesFile, source }); verifyArtifacts(root, version); console.log(`Verified ${tagFor(version)} artifacts.`); break;
+    case 'verify-build': prepared(); verifyArtifacts(root, version); console.log(`Verified ${tagFor(version)} artifacts.`); break;
     case 'draft': createOrResumeDraft(); break;
     case 'verify-draft': verifyDraft(); break;
     case 'publish': publish(); break;

@@ -229,6 +229,15 @@ function remoteTagRevision(remoteRefs, tag) {
   const peeled = remoteRefs[`refs/tags/${tag}^{}`];
   return peeled || remoteRefs[`refs/tags/${tag}`] || null;
 }
+export function verifyReleaseRevision(root, { version, notesFile, source, revision }) {
+  const tagged = resolveOptional(root, `refs/tags/${tagFor(version)}`);
+  if (revision && tagged && tagged !== revision) fail(`Local tag ${tagFor(version)} conflicts with pinned release revision ${revision}`);
+  if (!revision || git(root, 'rev-parse', 'HEAD') === revision) return verifyPrepared(root, { version, notesFile, source });
+  if (!clean(root)) fail('Prepared checkout is not clean');
+  const parent = verifyHistoricalPrepared(root, { version, revision, notes: fs.readFileSync(notesFile, 'utf8') });
+  if (parent !== git(root, 'rev-parse', `${source}^{commit}`)) fail('Pinned release commit does not directly follow the captured source revision');
+  return revision;
+}
 function verifyHistoricalPrepared(root, { version, revision, notes }) {
   const tag = tagFor(version);
   const commit = git(root, 'rev-parse', '--verify', `${revision}^{commit}`);
@@ -243,6 +252,7 @@ function verifyHistoricalPrepared(root, { version, revision, notes }) {
   const content = relative => git(root, 'show', `${commit}:${relative}`);
   const versionsAtCommit = [
     JSON.parse(content('package.json')).version,
+    JSON.parse(content('package-lock.json')).version,
     JSON.parse(content('package-lock.json')).packages?.['']?.version,
     JSON.parse(content('src-tauri/tauri.conf.json')).version,
     content('src-tauri/Cargo.toml').match(/^\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m)?.[1],

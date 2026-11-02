@@ -13,7 +13,7 @@ function fixture() {
   fs.writeFileSync(path.join(root, 'file'), 'test'); git('add', '.'); git('commit', '-m', 'initial');
   const calls = []; const output = [];
   const execute = (stage, args = []) => { calls.push([stage, args]); if (stage === 'current') return '1.2.3'; if (stage === 'notes') return '# Notes\n'; return ''; };
-  return { root, mode: 'draft', version: '1.2.4', execute, approve: async () => true, log: (text) => output.push(text), calls, output };
+  return { root, git, mode: 'draft', version: '1.2.4', execute, approve: async () => true, log: (text) => output.push(text), calls, output };
 }
 describe('terminal release entry point', () => {
   it('accepts the explicit or environment version, rejects malformed input and modes', () => {
@@ -51,6 +51,45 @@ describe('terminal release entry point', () => {
     expect(f.calls.map(([stage]) => stage)).toEqual(['verify-prepare', 'verify-build', 'verify-draft', 'publish', 'verify-publish']);
     expect(f.calls.find(([stage]) => stage === 'publish')[1]).toContain('.github/workflows/ci.yml');
     expect(f.output.join('\n')).toContain('published and verified as latest');
+  });
+  it('resumes and publishes a legacy tagged draft after HEAD advances without changing the checkout', async () => {
+    const f = fixture(); await runRelease(f);
+    const contextPath = path.join(f.root, '.git/stacks-releases/v1.2.4/context.json');
+    const context = JSON.parse(fs.readFileSync(contextPath, 'utf8')); delete context.revision;
+    fs.writeFileSync(contextPath, JSON.stringify(context));
+    f.git('commit', '--allow-empty', '-m', 'Release Stacks v1.2.4');
+    const revision = f.git('rev-parse', 'HEAD'); f.git('tag', 'v1.2.4');
+    f.git('commit', '--allow-empty', '-m', 'Later development'); const head = f.git('rev-parse', 'HEAD');
+    f.calls.length = 0;
+    await runRelease(f);
+    expect(f.calls.map(([stage]) => stage)).toEqual(['verify-prepare', 'verify-build', 'verify-build', 'draft', 'verify-draft']);
+    expect(f.calls.every(([, args]) => args.includes(revision))).toBe(true);
+    expect(JSON.parse(fs.readFileSync(contextPath, 'utf8')).revision).toBe(revision);
+    f.calls.length = 0; f.mode = 'publish'; await runRelease(f);
+    expect(f.calls.map(([stage]) => stage)).toEqual(['verify-prepare', 'verify-build', 'verify-draft', 'publish', 'verify-publish']);
+    expect(f.calls.every(([, args]) => args.includes(revision))).toBe(true);
+    expect(f.git('rev-parse', 'HEAD')).toBe(head);
+    expect(f.git('status', '--porcelain')).toBe('');
+    expect(f.output.join('\n')).toContain('historical; current checkout unchanged');
+  });
+  it('never rebuilds historical artifacts from current HEAD', async () => {
+    const f = fixture(); await runRelease(f);
+    f.git('commit', '--allow-empty', '-m', 'Later development'); f.calls.length = 0;
+    const execute = f.execute;
+    f.execute = (stage, args, capture) => { if (stage === 'verify-build') throw new Error('checksum mismatch'); return execute(stage, args, capture); };
+    await expect(runRelease(f)).rejects.toThrow(/Cannot rebuild historical release.*checksum mismatch/);
+    expect(f.calls.map(([stage]) => stage)).toEqual(['verify-prepare']);
+    expect(fs.existsSync(path.join(f.root, '.git/stacks-release.lock'))).toBe(false);
+  });
+  it('explains a stale legacy context without a pinned revision or tag', async () => {
+    const f = fixture(); await runRelease(f);
+    const contextPath = path.join(f.root, '.git/stacks-releases/v1.2.4/context.json');
+    const context = JSON.parse(fs.readFileSync(contextPath, 'utf8')); delete context.revision;
+    fs.writeFileSync(contextPath, JSON.stringify(context));
+    f.git('commit', '--allow-empty', '-m', 'Later development'); f.calls.length = 0;
+    await expect(runRelease(f)).rejects.toThrow(/Stale release context.*select a new unused version/);
+    expect(f.calls).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(contextPath, 'utf8')).revision).toBeUndefined();
   });
   it('blocks concurrent CLI/app releases without removing another runner’s lock', async () => {
     const f = fixture(); const lock = path.join(f.root, '.git/stacks-release.lock'); fs.mkdirSync(lock);
