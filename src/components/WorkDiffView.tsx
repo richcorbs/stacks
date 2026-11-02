@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { DiffNavigationKey } from '../git/diffTree';
 import type { DiffReviewModel } from '../diffReview/types';
 import { DiffOverlay } from './DiffOverlay';
@@ -8,7 +8,13 @@ export function WorkDiffView({ active, label, path, comparisonTarget, refreshNon
   active: boolean; label: string; path: string | null; comparisonTarget: string | null; refreshNonce: number; review: DiffReviewModel; canSubmit: boolean; onSubmit: () => void; onClose: () => void;
 }) {
   const navigationRef = useRef<DiffTreeNavigation>(null);
-  return <section className={`cardDiffView cardView${active ? ' active' : ''}`} tabIndex={active ? 0 : -1} aria-label={label} onKeyDown={(event) => {
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    // The active class has made the section visible before this effect runs.
+    // Only activation owns focus; file loading and refreshes must leave editors alone.
+    if (active) sectionRef.current?.focus({ preventScroll: true });
+  }, [active]);
+  return <section ref={sectionRef} className={`cardDiffView cardView${active ? ' active' : ''}`} tabIndex={active ? 0 : -1} aria-label={label} onKeyDown={(event) => {
     if (!active || event.defaultPrevented || event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (!['j', 'k', 'h', 'l', 'Enter'].includes(event.key)) return;
     const target = event.target as HTMLElement;
