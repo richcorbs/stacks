@@ -16,6 +16,9 @@ const EMPTY_CONTEXT: PiSessionContext = {
 };
 const MAX_LIVE_TOOLS = 100;
 const MAX_STREAMING_TEXT = 1_000_000;
+// A timer (not rAF) also services hidden views. Throttled timers never gate
+// protocol handling or completion: every non-presentation event flushes first.
+const LIVE_PRESENTATION_INTERVAL_MS = 16;
 
 type PendingRequest = {
   resolve: (event: PiResponseEvent) => void;
@@ -88,6 +91,11 @@ export class PiSessionController {
   private deleted = false;
   private stopListening?: () => void;
   private uiRequestTimer?: ReturnType<typeof setTimeout>;
+  private presentationTimer?: ReturnType<typeof setTimeout>;
+  private presentationEpoch = 0;
+  private pendingText = '';
+  private pendingTextFlag: boolean | undefined;
+  private pendingToolText = new Map<string, string>();
 
   constructor(private config: PiSessionConfig, private dependencies: ControllerDependencies = defaultDependencies) {
     this.snapshot = { ...this.snapshot, sessionBoundary: loadPiSessionBoundary(config.paneId) };
@@ -284,10 +292,11 @@ export class PiSessionController {
   };
 
   restart = async () => {
+    this.resetPresentation();
     this.completionNotificationEligible = false;
     this.uiResponseEpoch += 1;
     this.clearUiRequest(true, false);
-    this.patch({ starting: true, stopped: false, isStreamingText: false, streamingText: '', error: null, mcpStatus: 'unknown', extensionNotice: null, queuedSteering: [], queuedFollowUps: [] });
+    this.patch({ starting: true, stopped: false, isStreaming: false, isStreamingText: false, streamingText: '', tools: [], error: null, mcpStatus: 'unknown', extensionNotice: null, queuedSteering: [], queuedFollowUps: [] });
     this.previousGeneration = this.generation;
     this.generation = 'restarting';
     try {
@@ -310,6 +319,7 @@ export class PiSessionController {
   /** Permanently removes frontend ownership. Backend deletion remains explicit at the caller. */
   delete(reconcile = true) {
     if (this.deleted) return;
+    this.resetPresentation();
     this.uiResponseEpoch += 1;
     this.clearUiRequest(reconcile, false);
     this.deleted = true;
@@ -482,6 +492,10 @@ export class PiSessionController {
     }
     if (!this.generation) this.generation = payload.generation;
     const event = payload.event;
+    const updateType = event.type === 'message_update' ? event.assistantMessageEvent?.type : undefined;
+    const presentationOnly = event.type === 'tool_execution_update' ||
+      (event.type === 'message_update' && (updateType === 'text_delta' || updateType === 'text_start'));
+    if (!presentationOnly) this.flushPresentation();
     if (lifecycleDiagnostic) console.debug('[pi-lifecycle]', { stage: 'frontend_session', pane: payload.pane_id, generation: payload.generation,
       eventId: payload.event_id, eventOrder: payload.event_order, eventType: event.type, source: event.source ?? 'native', result: 'received' });
     if (event.type === 'response' && event.id) {
@@ -505,11 +519,15 @@ export class PiSessionController {
       case 'message_update': {
         const type = event.assistantMessageEvent?.type;
         const isText = type === 'text_start' || type === 'text_delta';
-        if (type) this.patch({ isStreamingText: isText });
-        if (type === 'text_delta') {
-          this.patch({ streamingText: `${this.snapshot.streamingText}${event.assistantMessageEvent?.delta || ''}`.slice(-MAX_STREAMING_TEXT) });
-          notifyOutput(this.dependencies, this.config.workspaceId, this.config.paneId);
-        }
+        if (isText) {
+          this.pendingTextFlag = true;
+          if (type === 'text_delta') {
+            this.pendingText = `${this.pendingText}${event.assistantMessageEvent?.delta || ''}`.slice(-MAX_STREAMING_TEXT);
+            // Activity/attention remains immediate; only presentation is batched.
+            notifyOutput(this.dependencies, this.config.workspaceId, this.config.paneId);
+          }
+          this.schedulePresentation();
+        } else if (type) this.patch({ isStreamingText: false });
         break;
       }
       case 'message_end':
@@ -534,7 +552,11 @@ export class PiSessionController {
         }].slice(-MAX_LIVE_TOOLS) });
         break;
       case 'tool_execution_update':
-        this.patch({ tools: this.snapshot.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, partialText: toolResultText(event.partialResult) } : tool) });
+        // Pi partial results are cumulative snapshots, not append-only chunks.
+        if (event.toolCallId && this.snapshot.tools.some((tool) => tool.id === event.toolCallId)) {
+          this.pendingToolText.set(event.toolCallId, toolResultText(event.partialResult));
+          this.schedulePresentation();
+        }
         break;
       case 'tool_execution_end': {
         // Keep only Pi-provided execution time in the bounded live-tool snapshot.
@@ -674,9 +696,54 @@ export class PiSessionController {
     if (reconcile) notifyPiUiRequestDismissed(this.config.paneId, request.id, restoreWorking);
   }
 
+  private schedulePresentation() {
+    if (this.presentationTimer !== undefined) return;
+    const epoch = this.presentationEpoch;
+    this.presentationTimer = this.dependencies.setTimeout(() => {
+      if (this.deleted || epoch !== this.presentationEpoch) return;
+      this.flushPresentation();
+    }, LIVE_PRESENTATION_INTERVAL_MS);
+  }
+
+  private resetPresentation() {
+    if (this.presentationTimer !== undefined) this.dependencies.clearTimeout(this.presentationTimer);
+    this.presentationTimer = undefined;
+    this.presentationEpoch += 1;
+    this.pendingText = '';
+    this.pendingTextFlag = undefined;
+    this.pendingToolText.clear();
+  }
+
+  private flushPresentation() {
+    const next: Partial<PiSessionSnapshot> = {};
+    if (this.pendingTextFlag !== undefined) next.isStreamingText = this.pendingTextFlag;
+    if (this.pendingText) next.streamingText = `${this.snapshot.streamingText}${this.pendingText}`.slice(-MAX_STREAMING_TEXT);
+    if (this.pendingToolText.size) {
+      const tools = this.snapshot.tools.map((tool) => {
+        const partialText = this.pendingToolText.get(tool.id);
+        return partialText === undefined || partialText === tool.partialText ? tool : { ...tool, partialText };
+      });
+      if (tools.some((tool, index) => tool !== this.snapshot.tools[index])) next.tools = tools;
+    }
+    this.resetPresentation();
+    this.patch(next);
+  }
+
   private patch(next: Partial<PiSessionSnapshot>) {
     if (this.deleted) return;
-    this.snapshot = { ...this.snapshot, ...next };
+    const changed = Object.fromEntries(Object.entries(next).filter(([key, value]) => {
+      const previous = this.snapshot[key as keyof PiSessionSnapshot];
+      if (Object.is(previous, value)) return false;
+      if (Array.isArray(previous) && Array.isArray(value))
+        return previous.length !== value.length || previous.some((item, index) => !Object.is(item, value[index]));
+      if (key === 'context') {
+        const context = value as PiSessionContext;
+        return Object.entries(context).some(([field, item]) => !Object.is(this.snapshot.context[field as keyof PiSessionContext], item));
+      }
+      return true;
+    }));
+    if (!Object.keys(changed).length) return;
+    this.snapshot = { ...this.snapshot, ...changed };
     this.listeners.forEach((listener) => listener());
   }
 }
