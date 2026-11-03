@@ -4,9 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  ASSET_NAMES, ghJson, latestPublished, matchingDraft, missingReleaseAssets, prepare, reconcileRelease,
-  releaseNotes, requiredCiRun, suggestPatch, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared,
-  verifyReleaseAssets, verifyReleaseRevision, verifySignatureVersion, verifyVersions, writeChecksums, releaseState,
+  ASSET_NAMES, ciRunInfo, formatDuration, ghJson, latestPublished, matchingDraft, missingReleaseAssets,
+  pollForCiSuccess, prepare, reconcileRelease, releaseNotes, reportCiStatus, requiredCiRun, suggestPatch, uploadReleaseAsset,
+  validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets, verifyReleaseRevision,
+  verifySignatureVersion, verifyVersions, writeChecksums, releaseState,
 } from './release-lib.mjs';
 
 const temporary = [];
@@ -29,6 +30,13 @@ function repository() {
 function fakeGh(root, response) {
   const bin = path.join(root, 'gh');
   fs.writeFileSync(bin, `#!/bin/sh\nif [ -n "$CALLS" ]; then printf '%s\\n' "$@" > "$CALLS"; fi\nprintf '%s\\n' '${JSON.stringify(response).replaceAll("'", "'\\''")}'\n`); fs.chmodSync(bin, 0o755); return bin;
+}
+function fakeGhResponses(root, responses) {
+  const stateFile = path.join(root, 'gh-state');
+  fs.writeFileSync(stateFile, '0');
+  const bin = path.join(root, 'gh');
+  const script = `#!/usr/bin/env node\nconst fs = require('node:fs');\nconst stateFile = ${JSON.stringify(stateFile)};\nconst responses = ${JSON.stringify(responses)};\nlet index = Number(fs.readFileSync(stateFile, 'utf8'));\nfs.writeFileSync(stateFile, String(index + 1));\nprocess.stdout.write(JSON.stringify(responses[Math.min(index, responses.length - 1)]) + '\\n');\n`;
+  fs.writeFileSync(bin, script); fs.chmodSync(bin, 0o755); return bin;
 }
 function artifacts(root, version = '1.2.4') {
   const out = path.join(root, 'release-artifacts', `v${version}`); fs.mkdirSync(out, { recursive: true });
@@ -129,6 +137,83 @@ describe('exact-commit release CI gate', () => {
     ] });
     expect(() => requiredCiRun('.github/workflows/ci.yml', revision, { gh })).toThrow(/not successful: status in_progress/);
     expect(() => requiredCiRun('ci.yml', 'other', { gh })).toThrow(/no run found/);
+  });
+});
+
+describe('exact-commit CI status and publish polling', () => {
+  const revision = 'ce556e35cef9ffcb7352ba3d48d5db42937bcdeb';
+  it('classifies CI runs into success, failed, pending, and missing states', () => {
+    expect(ciRunInfo(null)).toMatchObject({ state: 'missing', summary: 'no run found', success: false, failed: false });
+    expect(ciRunInfo({ status: 'completed', conclusion: 'success' })).toMatchObject({ state: 'success', success: true });
+    expect(ciRunInfo({ status: 'completed', conclusion: 'failure' })).toMatchObject({ state: 'failed', failed: true });
+    expect(ciRunInfo({ status: 'completed', conclusion: 'cancelled' })).toMatchObject({ state: 'failed', failed: true });
+    expect(ciRunInfo({ status: 'in_progress', conclusion: null })).toMatchObject({ state: 'pending', pending: true });
+    expect(formatDuration(0)).toBe('0m 00s');
+    expect(formatDuration(15 * 60 * 1000)).toBe('15m 00s');
+    expect(formatDuration(880000)).toBe('14m 40s');
+  });
+  it('reports exact-commit CI status and run link after draft verification without blocking it', () => {
+    const root = temp();
+    const run = { head_sha: revision, status: 'completed', conclusion: 'failure', html_url: 'https://github.com/richcorbs/stacks/actions/runs/42' };
+    const logs = [];
+    const info = reportCiStatus('ci.yml', revision, { gh: fakeGh(root, { workflow_runs: [run] }), log: (message) => logs.push(message) });
+    expect(info.state).toBe('failed');
+    expect(logs.join('\n')).toContain('FAILED');
+    expect(logs.join('\n')).toContain('https://github.com/richcorbs/stacks/actions/runs/42');
+    logs.length = 0;
+    reportCiStatus('ci.yml', revision, { gh: fakeGh(root, { workflow_runs: [{ ...run, status: 'completed', conclusion: 'success' }] }), log: (message) => logs.push(message) });
+    expect(logs[0]).toContain('passed');
+    logs.length = 0;
+    reportCiStatus('ci.yml', revision, { gh: fakeGh(root, { workflow_runs: [{ ...run, status: 'in_progress', conclusion: null }] }), log: (message) => logs.push(message) });
+    expect(logs[0]).toContain('pending');
+    logs.length = 0;
+    reportCiStatus('ci.yml', 'other', { gh: fakeGh(root, { workflow_runs: [run] }), log: (message) => logs.push(message) });
+    expect(logs[0]).toContain('no run found');
+    logs.length = 0;
+    reportCiStatus('', revision, { gh: fakeGh(root, { workflow_runs: [run] }), log: (message) => logs.push(message) });
+    expect(logs[0]).toContain('could not determine status');
+  });
+  it('publishes immediately when exact-commit CI already passed', async () => {
+    const root = temp(); const logs = [];
+    const gh = fakeGh(root, { workflow_runs: [{ head_sha: revision, status: 'completed', conclusion: 'success', html_url: 'https://example.test/runs/ok' }] });
+    const run = await pollForCiSuccess('ci.yml', revision, { gh, now: () => 0, sleep: async () => {}, log: (message) => logs.push(message) });
+    expect(run.conclusion).toBe('success');
+    expect(logs.join('\n')).toContain('passed');
+  });
+  it('fails fast with the run link when exact-commit CI has already failed', async () => {
+    const root = temp();
+    const gh = fakeGh(root, { workflow_runs: [{ head_sha: revision, status: 'completed', conclusion: 'failure', html_url: 'https://example.test/runs/fail' }] });
+    await expect(pollForCiSuccess('ci.yml', revision, { gh, now: () => 0, sleep: async () => {} })).rejects.toThrow(/failed: status completed, conclusion failure/);
+  });
+  it('polls a pending run, prints live status, and publishes as soon as it passes', async () => {
+    const root = temp();
+    const run = { head_sha: revision, status: 'in_progress', conclusion: null, html_url: 'https://example.test/runs/live', run_number: 1 };
+    const gh = fakeGhResponses(root, [
+      { workflow_runs: [run] },
+      { workflow_runs: [run] },
+      { workflow_runs: [{ ...run, status: 'completed', conclusion: 'success' }] },
+    ]);
+    let currentTime = 0; const sleeps = []; const logs = [];
+    const result = await pollForCiSuccess('ci.yml', revision, {
+      gh, now: () => currentTime, sleep: async (ms) => { sleeps.push(ms); currentTime += ms; }, log: (message) => logs.push(message), intervalMs: 20_000,
+    });
+    expect(result.conclusion).toBe('success');
+    expect(sleeps).toEqual([20_000, 20_000]);
+    expect(logs).toHaveLength(3);
+    expect(logs[0]).toContain('15m 00s');
+    expect(logs[1]).toContain('14m 40s');
+    expect(logs[2]).toContain('passed');
+  });
+  it('fails after the polling bound with a still-in-progress message and run link', async () => {
+    const root = temp();
+    const run = { head_sha: revision, status: 'in_progress', conclusion: null, html_url: 'https://example.test/runs/stuck', run_number: 1 };
+    const gh = fakeGhResponses(root, [{ workflow_runs: [run] }]);
+    let currentTime = 0; const sleeps = []; const logs = [];
+    await expect(pollForCiSuccess('ci.yml', revision, {
+      gh, now: () => currentTime, sleep: async (ms) => { sleeps.push(ms); currentTime += ms; }, log: (message) => logs.push(message), timeoutMs: 60_000, intervalMs: 20_000,
+    })).rejects.toThrow(/still in progress after 1m 00s.*https:\/\/example\.test\/runs\/stuck/);
+    expect(sleeps).toEqual([20_000, 20_000, 20_000]);
+    expect(logs).toHaveLength(3);
   });
 });
 

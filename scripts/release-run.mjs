@@ -99,8 +99,8 @@ export async function runRelease({ mode, version, root, execute, approve, log = 
       step('Verify updater manifest, signatures and checksums', () => execute('verify-build', args));
       step('Push release commit/tag and upload GitHub draft', () => execute('draft', args));
       step('Verify GitHub draft and uploaded assets', () => execute('verify-draft', args));
-      log(`\nSUCCESS: Stacks v${version} draft is ready. Nothing was published as latest.`);
-      log(`Next in Stacks RELEASE: BUILD & TEST (optional local install), or PUBLISH. Publishing checks exact-commit CI.\nCLI alternative: node scripts/release-run.mjs publish --version ${version}`);
+      log(`\nSUCCESS: Stacks v${version} draft is verified. Nothing was published as latest.`);
+      log(`Next in Stacks RELEASE: BUILD & TEST (optional local install), or PUBLISH. Publishing polls exact-commit CI.\nCLI alternative: node scripts/release-run.mjs publish --version ${version}`);
     } else if (mode === 'test') {
       step('Verify exact release commit', verifyRevision);
       step('Verify signed artifacts and existing draft', () => { execute('verify-build', args); execute('verify-draft', args); });
@@ -112,7 +112,7 @@ export async function runRelease({ mode, version, root, execute, approve, log = 
       if (!await approve(version)) throw new Error('Publication cancelled; draft remains unchanged');
       step('Verify exact release commit', verifyRevision);
       step('Verify signed artifacts and existing draft', () => { execute('verify-build', args); execute('verify-draft', args); });
-      step('Require exact-commit CI and publish verified draft', () => execute('publish', args));
+      step('Poll exact-commit CI and publish verified draft', () => execute('publish', args));
       step('Verify latest published release', () => execute('verify-publish', args));
       log(`\nSUCCESS: Stacks v${version} is published and verified as latest.`);
     }
