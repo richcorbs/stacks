@@ -496,7 +496,7 @@ body.appWindowInactive .cardTerminalPane.multiple .terminal.active.maximized { b
 .kanbanActionError button, .cardLevelErrorBanner button { flex: none; padding: 3px 9px; border-color: #74444a; color: #f0b1b5; }
 .cardLevelErrorMessages { min-width: 0; display: grid; gap: 2px; }
 .cardLevelErrorMessages span { white-space: pre-wrap; }
-.cardChat { box-sizing: border-box; flex: 1; min-width: 0; min-height: 0; padding-top: 18px; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid #223142; background: var(--surface-inset); }
+.cardChat { box-sizing: border-box; flex: 1; min-width: 0; min-height: 0; padding-top: 18px; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--card-border, #223142); background: var(--surface-inset); }
 .kanbanDetail.cardWorkspace > header { border-bottom: 0; background: var(--surface-inset); }
 .kanbanDetail.cardWorkspace .cardWorkspaceTabs { border-bottom: 1px solid #223142; background: var(--surface-inset); }
 .kanbanDetail.chatActive > footer { background: transparent; }
@@ -1207,8 +1207,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piMarkdown strong { color: #d0dae5; font-weight: 650; }
 .piMarkdown a { color: #76a9d4; text-decoration: none; }
 .piMarkdown a:hover { text-decoration: underline; }
-.piMarkdown code { padding: 1px 4px; border: 1px solid #263746; border-radius: 4px; background: #111c27; color: #b5c9db; font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; }
-.piMarkdown pre { max-width: 100%; margin: 12px 0 16px; padding: 12px 14px; overflow-x: hidden; overflow-y: auto; border: 1px solid #263746; border-radius: 7px; background: #0a1118; }
+.piMarkdown code { padding: 1px 4px; border: 1px solid var(--card-border, #263746); border-radius: 4px; background: var(--card-code-bg, #111c27); color: #b5c9db; font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+.piMarkdown pre { max-width: 100%; margin: 12px 0 16px; padding: 12px 14px; overflow-x: hidden; overflow-y: auto; border: 1px solid var(--card-border, #263746); border-radius: 7px; background: var(--card-pre-bg, #0a1118); }
 .piMarkdown .piCodeBlock { position: relative; max-width: 100%; margin: 12px 0 16px; }
 .piMarkdown .piCodeBlock pre { margin: 0; padding-right: 42px; }
 .piCodeCopyButton { position: absolute; top: 7px; right: 7px; width: 27px; height: 27px; padding: 5px; display: grid; place-items: center; border: 1px solid #314253; border-radius: 5px; background: #181818e8; color: #8195a8; cursor: pointer; opacity: 0; transform: translateY(-2px); transition: opacity .12s ease, transform .12s ease, color .12s ease, border-color .12s ease; }
@@ -1245,9 +1245,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piToolCard.running .piToolStatus { border: 1.5px solid #c7a357; border-top-color: transparent; background: transparent; animation: githubCiSpin .8s linear infinite; }
 .piToolCard.complete .piToolStatus { background: transparent; }
 .piToolCard.error .piToolStatus { background: #aa5555; }
-.piToolCard pre { box-sizing: border-box; min-width: 0; max-width: 100%; max-height: 240px; margin: 0; padding: 9px 12px; overflow-y: auto; overflow-x: hidden; border-top: 1px solid #1d2a37; color: #77899c; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: max(8px, calc(var(--pi-font-size, 13px) - 3px)); line-height: 1.45; }
+.piToolCard pre { box-sizing: border-box; min-width: 0; max-width: 100%; max-height: 240px; margin: 0; padding: 9px 12px; overflow-y: auto; overflow-x: hidden; border-top: 1px solid var(--card-border, #1d2a37); color: #77899c; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: max(8px, calc(var(--pi-font-size, 13px) - 3px)); line-height: 1.45; }
 .piToolCard[open] pre { max-height: none; overflow-y: visible; }
-.piEditDiff { max-height: 360px; overflow: auto; border-top: 1px solid #1d2a37; background: #0a1118; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: max(8px, calc(var(--pi-font-size, 13px) - 3px)); line-height: 1.45; }
+.piEditDiff { max-height: 360px; overflow: auto; border-top: 1px solid var(--card-border, #1d2a37); background: var(--card-pre-bg, #0a1118); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: max(8px, calc(var(--pi-font-size, 13px) - 3px)); line-height: 1.45; }
 .piToolCard[open] .piEditDiff { max-height: none; overflow: visible; }
 .piDiffLine { min-width: max-content; padding: 0 12px; color: #718397; white-space: pre; }
 .piDiffLine:first-child { padding-top: 8px; }
@@ -1324,7 +1324,7 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .scriptedDeliveryStatus.stage-push_failed, .scriptedDeliveryStatus.stage-deployment_failed, .scriptedDeliveryStatus.stage-cancelled, .scriptedDeliveryStatus.stage-uncertain { color: #d6a06f; }
 .scriptedDeliveryOutput { position: absolute; z-index: 3; left: 16px; right: 16px; bottom: 12px; max-height: 45%; overflow: auto; border: 1px solid #2c4052; border-radius: 7px; background: var(--surface-panel); color: #aebdca; font-size: 12px; }
 .scriptedDeliveryOutput summary { cursor: pointer; padding: 8px 10px; color: #91a9bc; }
-.scriptedDeliveryOutput pre { margin: 0; padding: 10px; border-top: 1px solid #263746; white-space: pre-wrap; overflow-wrap: anywhere; }
+.scriptedDeliveryOutput pre { margin: 0; padding: 10px; border-top: 1px solid var(--card-border, #263746); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .piExtensionActions { margin-top: 14px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .piExtensionActions button { padding: 6px 10px; border: 1px solid #33475a; border-radius: 6px; background: var(--surface-parent); color: #9dadbd; cursor: pointer; }
@@ -1360,6 +1360,31 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .cleanupPreflightStatus { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px 12px; color: #8091a5; }
 .cleanupPreflightModal .cleanupOverride { flex-basis: 100%; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; color: #d9a1a1; }
 .cleanupPreflightModal .cleanupOverride input { flex: none; width: auto; margin: 0; padding: 0; }
+
+/* Only open, project-owned cards supply these tokens. Per-selector fallbacks keep
+   unowned cards and shared Pi/scripted output outside cards exactly neutral. */
+.kanbanDetail.cardWorkspace[data-project-color] {
+  --card-border: color-mix(in srgb, var(--project-accent) 38%, #263544);
+  --card-code-bg: color-mix(in srgb, var(--project-accent) 8%, #111c27);
+  --card-pre-bg: color-mix(in srgb, var(--project-accent) 6%, #0a1118);
+}
+.kanbanDetail.cardWorkspace[data-project-color] :is(.kanbanDetailMeta, .cardHistory, .kanbanChildList, .cardWorkspaceTabs, .cardDiffExplorer, .diffReviewToolbar, .diffOverallComment, .diffFileComments, .diffInlineComment, .piToolCard, .scriptedDeliveryOutput),
+.kanbanDetail.cardWorkspace[data-project-color] > footer {
+  border-color: var(--card-border);
+}
+.kanbanDetail.cardWorkspace[data-project-color] :is(.piMarkdown hr, .piMarkdown blockquote, .piMarkdown th, .piMarkdown td) {
+  border-color: var(--card-border);
+}
+.kanbanDetail.cardWorkspace[data-project-color] .kanbanCardDescription code {
+  background: var(--card-code-bg);
+}
+.kanbanDetail.cardWorkspace[data-project-color] :is(.kanbanCardDescription pre, .piToolCard pre, .scriptedDeliveryOutput pre) {
+  background: var(--card-pre-bg);
+}
+/* Block code inherits the pre surface rather than painting an inline-code patch. */
+.kanbanDetail.cardWorkspace[data-project-color] .kanbanCardDescription pre code {
+  background: transparent;
+}
 
 /* Project accents live on owner boundaries. Unowned/global content never inherits a board filter. */
 [data-project-color="blue"] { --project-accent: #3b82f6; --project-badge-color: #687c92; --project-badge-border: #34495d; --project-badge-surface: #172431; --project-tab-accent: #6295c2; --project-note-focus: #466987; --project-status-color: #cce6fa; --project-status-border: #52799c; --project-status-surface: #243e56; --project-detail-status-color: #9fc2df; --project-detail-status-border: #36506a; --project-detail-status-surface: #172838; --project-card-number: #96aabd; --project-card-hover-border: #344f69; --project-card-hover-surface: #192838; }
