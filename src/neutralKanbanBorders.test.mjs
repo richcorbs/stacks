@@ -22,6 +22,7 @@ const neutralBorderRules = [
   '.kanbanListRow:hover, .kanbanListRow.kanbanParentCard:hover',
   '.kanbanListRow.kanbanListPlaceholder, .kanbanListRow.kanbanListPlaceholder:hover',
   '.kanbanListDragOverlay > .kanbanListRow.kanbanCard',
+  '.kanbanDetail',
   '.kanbanDetail > header button.kanbanHierarchyBadge.parent',
   '.kanbanDetail > header button.kanbanHierarchyBadge.parent:hover:not(:disabled)',
   '.kanbanDetail > header button.kanbanHierarchyBadge.parent:focus-visible',
