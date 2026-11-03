@@ -145,7 +145,7 @@ describe('neutral app surfaces', () => {
 
   it('retains terminal, code, diff, semantic and project surfaces', () => {
     expect(backgroundFor('.terminalHost')).toBe('#0f141b');
-    expect(backgroundFor('.piMarkdown pre')).toBe('#0a1118');
+    expect(backgroundFor('.piMarkdown pre')).toBe('var(--card-pre-bg, #0a1118)');
     expect(backgroundFor('.diffOverlay')).toBe('#0c131b');
     expect(backgroundFor('.diffHunk')).toBe('#13263a');
     expect(backgroundFor('.diffAddition')).toBe('rgba(42, 105, 64, .28)');
