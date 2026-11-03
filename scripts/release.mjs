@@ -4,7 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import {
   ASSET_NAMES, artifactDir, clean, fail, findRelease, ghJson, git, latestPublished, matchingDraft,
-  missingReleaseAssets, prepare, reconcileRelease, releaseNotes, requiredCiRun, run, setVersions, sourceRevision, suggestPatch,
+  missingReleaseAssets, pollForCiSuccess, prepare, reconcileRelease, releaseNotes, reportCiStatus, run, setVersions, sourceRevision, suggestPatch,
   tagFor, uploadReleaseAsset, validateReleaseVersion, validateVersion, verifyArtifacts, verifyPrepared, verifyReleaseAssets,
   verifyVersions, verifyReleaseRevision, releaseState, writeChecksums,
 } from './release-lib.mjs';
@@ -95,15 +95,16 @@ function createOrResumeDraft() {
   release = releaseById(release.id);
   validateDraft(release, revision);
   console.log(`Draft verified: ${release.html_url}`);
+  reportCiStatus(requiredCiWorkflow, revision, ghOptions);
 }
 function verifyDraft() {
   const tag = tagFor(version); const revision = prepared(); verifyRemoteRevision(tag, revision);
   const release = validateDraft(matchingRelease(tag), revision);
-  console.log(`Draft ready for smoke testing: ${release.html_url}`);
+  console.log(`Draft verified: ${release.html_url}`);
 }
-function publish() {
+async function publish() {
   const tag = tagFor(version); const revision = prepared(); verifyRemoteRevision(tag, revision); const release = validateDraft(matchingRelease(tag), revision);
-  requiredCiRun(requiredCiWorkflow, revision, ghOptions);
+  await pollForCiSuccess(requiredCiWorkflow, revision, ghOptions);
   const published = ghJson(['api', '--method', 'PATCH', `repos/{owner}/{repo}/releases/${release.id}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true'], ghOptions);
   console.log(`Published ${tagFor(version)}: ${published.html_url}`);
 }
@@ -171,7 +172,7 @@ try {
     case 'verify-build': prepared(); verifyArtifacts(root, version); console.log(`Verified ${tagFor(version)} artifacts.`); break;
     case 'draft': createOrResumeDraft(); break;
     case 'verify-draft': verifyDraft(); break;
-    case 'publish': publish(); break;
+    case 'publish': await publish(); break;
     case 'verify-publish': verifyPublished(); break;
     case 'set-version': setVersions(root, requireValue(version || options._[1], 'version')); break;
     case 'check-version': verifyVersions(root, version || JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version); console.log('Stacks versions are consistent.'); break;

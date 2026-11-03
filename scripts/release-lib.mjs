@@ -52,7 +52,17 @@ export function workflowApiId(workflow) {
   if (!match) fail(`Invalid required CI workflow path ${JSON.stringify(workflow)}; use a filename or .github/workflows/<filename>.yml`);
   return encodeURIComponent(match[1]);
 }
-export function requiredCiRun(workflow, revision, options = {}) {
+export const CI_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+export const CI_POLL_INTERVAL_MS = 20 * 1000;
+
+export function formatDuration(ms) {
+  const totalSeconds = Math.round(Math.max(0, ms) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
+export function fetchLatestCiRun(workflow, revision, options = {}) {
   const workflowId = workflowApiId(workflow);
   if (!revision?.trim()) fail('The captured release commit SHA is missing; start a new release operation');
   let response;
@@ -61,13 +71,76 @@ export function requiredCiRun(workflow, revision, options = {}) {
   const runs = Array.isArray(response?.workflow_runs) ? response.workflow_runs
     .filter((run) => run?.head_sha === revision)
     .sort((left, right) => (Number(right.run_number || 0) - Number(left.run_number || 0)) || String(right.created_at || '').localeCompare(String(left.created_at || '')) || (Number(right.id || 0) - Number(left.id || 0))) : [];
-  const latest = runs[0];
-  if (!latest || latest.status !== 'completed' || latest.conclusion !== 'success') {
-    const state = latest ? `status ${latest.status || 'unknown'}, conclusion ${latest.conclusion || 'none'}` : 'no run found';
-    const url = latest?.html_url ? ` Run: ${latest.html_url}` : '';
-    fail(`Required CI workflow ${workflow} for captured SHA ${revision} is not successful: ${state}.${url} Wait for CI to complete successfully or retry the workflow, then publish again.`);
+  return runs[0] || null;
+}
+
+export function ciRunInfo(run) {
+  if (!run) return { run: null, state: 'missing', status: null, conclusion: null, summary: 'no run found', url: null, success: false, failed: false, pending: false };
+  const completed = run.status === 'completed';
+  const success = completed && run.conclusion === 'success';
+  const failed = completed && !success;
+  const pending = !completed;
+  const state = success ? 'success' : failed ? 'failed' : 'pending';
+  return {
+    run,
+    state,
+    status: run.status || null,
+    conclusion: run.conclusion || null,
+    summary: `status ${run.status || 'unknown'}, conclusion ${run.conclusion || 'none'}`,
+    url: run.html_url || null,
+    success,
+    failed,
+    pending,
+  };
+}
+
+export function requiredCiRun(workflow, revision, options = {}) {
+  const info = ciRunInfo(fetchLatestCiRun(workflow, revision, options));
+  if (!info.success) {
+    const url = info.url ? ` Run: ${info.url}` : '';
+    fail(`Required CI workflow ${workflow} for captured SHA ${revision} is not successful: ${info.summary}.${url} Wait for CI to complete successfully or retry the workflow, then publish again.`);
   }
-  return latest;
+  return info.run;
+}
+
+export function reportCiStatus(workflow, revision, options = {}) {
+  const log = options.log || ((message) => console.log(message));
+  let info;
+  try { info = ciRunInfo(fetchLatestCiRun(workflow, revision, options)); }
+  catch (error) { info = { run: null, state: 'unknown', status: null, conclusion: null, summary: `could not inspect CI: ${error.message}`, url: null, success: false, failed: false, pending: false }; }
+  const url = info.url ? ` Run: ${info.url}` : '';
+  if (info.state === 'success') log(`Exact-commit CI: passed (${info.summary}).${url}`);
+  else if (info.state === 'failed') log(`Exact-commit CI: FAILED (${info.summary}). Publish is blocked until a passing run exists.${url}`);
+  else if (info.state === 'missing') log(`Exact-commit CI: no run found yet for ${revision}. Publish will wait for it to appear.`);
+  else if (info.state === 'pending') log(`Exact-commit CI: pending (${info.summary}). Publish will poll until it passes.${url}`);
+  else log(`Exact-commit CI: could not determine status (${info.summary}). Publish will re-check CI.`);
+  return info;
+}
+
+export async function pollForCiSuccess(workflow, revision, options = {}) {
+  const now = options.now || (() => Date.now());
+  const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const log = options.log || ((message) => console.log(message));
+  const timeoutMs = options.timeoutMs ?? CI_POLL_TIMEOUT_MS;
+  const intervalMs = options.intervalMs ?? CI_POLL_INTERVAL_MS;
+  const deadline = now() + timeoutMs;
+  while (true) {
+    const info = ciRunInfo(fetchLatestCiRun(workflow, revision, options));
+    if (info.state === 'success') {
+      log(`Exact-commit CI passed: ${info.summary}.${info.url ? ` Run: ${info.url}` : ''}`);
+      return info.run;
+    }
+    if (info.state === 'failed') {
+      fail(`Required CI workflow ${workflow} for captured SHA ${revision} failed: ${info.summary}.${info.url ? ` Run: ${info.url}` : ''} Publish again after a passing run exists.`);
+    }
+    const remainingMs = Math.max(0, deadline - now());
+    if (remainingMs <= 0) {
+      fail(`Required CI workflow ${workflow} for captured SHA ${revision} is still in progress after ${formatDuration(timeoutMs)}: ${info.summary}.${info.url ? ` Run: ${info.url}` : ''} Publish again to resume polling.`);
+    }
+    const stateLabel = info.state === 'missing' ? 'not started' : info.status || 'pending';
+    log(`Exact-commit CI ${stateLabel} (${info.summary}); waiting up to ${formatDuration(remainingMs)}.${info.url ? ` Run: ${info.url}` : ''}`);
+    await sleep(Math.min(intervalMs, remainingMs));
+  }
 }
 export function uploadReleaseAsset(tag, file, options = {}) {
   return run(options.gh || 'gh', ['release', 'upload', tag, file], { cwd: options.cwd, env: options.env });
