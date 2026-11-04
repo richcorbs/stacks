@@ -1,6 +1,6 @@
 {
   "name": "stacks",
-  "version": "0.5.99",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "engines": {
