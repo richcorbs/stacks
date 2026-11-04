@@ -1,6 +1,6 @@
 import { ConfirmationBoundary } from './ConfirmationBoundary';
 import { applicationEvents, showAppToast } from '../applicationEvents';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -224,20 +224,30 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     inputRef.current?.setSelectionRange(caret, caret);
   }, [prompt]);
 
+  const scheduleComposerFocus = useCallback(() => {
+    if (!active || !visible || pi.starting || modalUiRequest || confirmMcpTrust || confirmMcpRestart) return;
+    requestAnimationFrame(() => {
+      if (!active || !visible || pi.starting || modalUiRequest || confirmMcpTrust || confirmMcpRestart) return;
+      inputRef.current?.focus();
+    });
+  }, [active, confirmMcpRestart, confirmMcpTrust, modalUiRequest, pi.starting, visible]);
+
   useEffect(() => {
-    if (!active || !visible || pi.starting || modalUiRequest) return;
-    inputRef.current?.focus();
-    const focusComposer = () => requestAnimationFrame(() => inputRef.current?.focus());
+    scheduleComposerFocus();
     const focusRequestedPane = (request: { terminalId?: string }) => {
-      if (request.terminalId === terminal.id) inputRef.current?.focus();
+      if (request.terminalId === terminal.id) scheduleComposerFocus();
     };
-    window.addEventListener('focus', focusComposer);
+    window.addEventListener('focus', scheduleComposerFocus);
     const unsubscribe = applicationEvents.subscribe('pane-focus-request', focusRequestedPane);
     return () => {
-      window.removeEventListener('focus', focusComposer);
+      window.removeEventListener('focus', scheduleComposerFocus);
       unsubscribe();
     };
-  }, [active, modalUiRequest, pi.starting, terminal.id, visible]);
+  }, [scheduleComposerFocus, terminal.id]);
+
+  useEffect(() => {
+    if (!modalUiRequest && !confirmMcpTrust && !confirmMcpRestart) scheduleComposerFocus();
+  }, [confirmMcpRestart, confirmMcpTrust, modalUiRequest, scheduleComposerFocus]);
 
   useEffect(() => {
     setExtensionInput(pi.uiRequest?.prefill || '');
@@ -247,16 +257,16 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     if (!pi.editorTextRequest) return;
     setPrompt(pi.editorTextRequest.text);
     setSelectedCommandIndex(-1);
-    if (active && visible) requestAnimationFrame(() => inputRef.current?.focus());
-  }, [pi.editorTextRequest]);
+    if (active && visible) scheduleComposerFocus();
+  }, [pi.editorTextRequest, scheduleComposerFocus]);
 
   useEffect(() => listenForPiEditorText((request) => {
     if (request.terminalId !== terminal.id || !active || !visible) return;
     setPrompt(request.text);
     setSelectedCommandIndex(-1);
     request.acknowledge();
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }), [active, terminal.id, visible]);
+    scheduleComposerFocus();
+  }), [active, scheduleComposerFocus, terminal.id, visible]);
 
   useEffect(() => listenForPiPrompt((request) => {
     if (request.terminalId !== terminal.id || pi.starting || pi.isStreaming) return;
@@ -288,11 +298,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setComposerError(null);
     setSelectedCommandIndex(-1);
     setCompletionCursor(edit.cursor);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(selectionRef.current.start, selectionRef.current.end);
-    });
-  }), [cwd, terminal.id]);
+    scheduleComposerFocus();
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(selectionRef.current.start, selectionRef.current.end));
+  }), [cwd, scheduleComposerFocus, terminal.id]);
 
   useEffect(() => {
     const token = activePathToken(prompt, completionCursor);
@@ -352,7 +360,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setPrompt(applySlashCommand(command));
     setSelectedCommandIndex(-1);
     setPathSuggestions([]);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    scheduleComposerFocus();
   }
 
   function choosePath(path: { path: string; isDir: boolean }) {
@@ -363,10 +371,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     selectionRef.current = { start: edit.cursor, end: edit.cursor };
     setCompletionCursor(edit.cursor);
     setPathSuggestions([]);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(edit.cursor, edit.cursor);
-    });
+    scheduleComposerFocus();
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(edit.cursor, edit.cursor));
   }
 
   function cyclePromptHistory(direction: -1 | 1) {
@@ -427,7 +433,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     } finally {
       quickResponseInFlightRef.current = false;
       setQuickResponseSubmitting(false);
-      if (active && visible && !modalUiRequest) requestAnimationFrame(() => inputRef.current?.focus());
+      scheduleComposerFocus();
     }
   }
 
@@ -509,10 +515,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       return `${current.slice(0, start)}${text}${current.slice(end)}`;
     });
     setSelectedCommandIndex(0);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(cursor, cursor);
-    });
+    scheduleComposerFocus();
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(cursor, cursor));
   }
 
   async function copySelection() {
@@ -523,6 +527,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       showAppToast('Copied to clipboard');
     } catch (error) {
       showAppToast(`Could not copy: ${String(error)}`);
+    } finally {
+      scheduleComposerFocus();
     }
   }
 
@@ -530,7 +536,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     if (!selectionPopup) return;
     setPrompt((current) => current ? `${current}\n\n${selectionPopup.text}` : selectionPopup.text);
     clearGuiSelection();
-    requestAnimationFrame(() => inputRef.current?.focus());
+    scheduleComposerFocus();
   }
 
   async function chooseModel(model: PiModel) {
@@ -538,7 +544,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     try {
       await pi.selectModel(model);
       setContextPicker(null);
-      requestAnimationFrame(() => inputRef.current?.focus());
+      scheduleComposerFocus();
     } finally {
       setContextPickerBusy(false);
     }
@@ -549,7 +555,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     try {
       await pi.selectThinkingLevel(level);
       setContextPicker(null);
-      requestAnimationFrame(() => inputRef.current?.focus());
+      scheduleComposerFocus();
     } finally {
       setContextPickerBusy(false);
     }
