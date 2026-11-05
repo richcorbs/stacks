@@ -16,12 +16,13 @@ export function WorkDiffView({ active, label, path, comparisonTarget, refreshNon
   }, [active]);
   return <section ref={sectionRef} className={`cardDiffView cardView${active ? ' active' : ''}`} tabIndex={active ? 0 : -1} aria-label={label} onKeyDown={(event) => {
     if (!active || event.defaultPrevented || event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    if (!['j', 'k', 'h', 'l', 'Enter'].includes(event.key)) return;
+    if (!['j', 'k', 'h', 'l', 'Enter', ' '].includes(event.key)) return;
     const target = event.target as HTMLElement;
     if (!event.currentTarget.contains(target)) return;
     if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], [role="combobox"], [role="spinbutton"]')) return;
-    if (event.key === 'Enter' && target.closest('button, a[href], summary, [role="button"], [role="link"], [role="checkbox"], [role="switch"], [role="menuitem"], [role="tab"], [role="radio"]')) return;
-    if (navigationRef.current?.navigate(event.key as DiffNavigationKey)) {
+    if ((event.key === 'Enter' || event.key === ' ') && target.closest('button, a[href], summary, [role="button"], [role="link"], [role="checkbox"], [role="switch"], [role="menuitem"], [role="tab"], [role="radio"]')) return;
+    // Consume held Space without toggling again or allowing the page to scroll.
+    if ((event.key === ' ' && event.repeat) || navigationRef.current?.navigate(event.key as DiffNavigationKey)) {
       event.preventDefault();
       event.stopPropagation();
     }
