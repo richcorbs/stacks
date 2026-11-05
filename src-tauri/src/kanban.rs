@@ -25,7 +25,6 @@ use workflow::{
 
 static BOARD_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
-static DATABASE_INITIALIZATION: OnceLock<Result<(), String>> = OnceLock::new();
 
 pub(crate) fn set_app_handle(app: AppHandle) {
     let _ = APP_HANDLE.set(app);
@@ -69,10 +68,13 @@ pub(crate) use provider_sync::{
     executing_for_project, run_pending_once, supersede_for_mapping_change, unresolved_for_project,
 };
 #[cfg(test)]
-pub(crate) use repository::{initialize_connection, migrate};
 pub(crate) use repository::{
-    affect_project_cards, initialize_database, migrate_done_retention, with_board_mutation, with_read_connection,
-    with_write_connection,
+    initialize_connection, initialize_database_in, initialize_once, migrate, DatabaseState,
+};
+pub(crate) use repository::{
+    affect_project_cards, initialize_database, migrate_done_retention,
+    reset_database_initialization, with_board_mutation, with_read_connection, with_write_connection,
+    CURRENT_SCHEMA_MIGRATION,
 };
 pub(crate) use superthread_refinement::finish_superthread_refinement;
 

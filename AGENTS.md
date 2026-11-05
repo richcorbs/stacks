@@ -260,7 +260,8 @@ On macOS usually:
 
 Files:
 
-- `projects.json`: projects, per-project notes, workspaces (legacy key: `terminals`), cwd, split trees.
+- `workflow.sqlite3`: the single source of truth for projects, per-project notes, workspaces, and cards. There is no JSON mirror.
+- `backups/workflow-*.sqlite3`: pre-migration snapshots. A snapshot is taken before any schema migration (a `CURRENT_SCHEMA_MIGRATION` bump or a changed DDL fingerprint), verified with `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, and pruned to the newest 5. Startup recovery restores the newest snapshot that still verifies. Every DDL change must bump `CURRENT_SCHEMA_MIGRATION` in `src-tauri/src/kanban/repository.rs` and insert the matching `schema_migrations` row; `current_schema_migration_covers_every_migration` enforces the pairing.
 - `settings.json`: window size/position, sidebar width, app settings, workspace templates, resumable PR cleanup state, and the last active project/workspace/focused pane ids.
 
 There is no need to preserve backward compatibility for old local data unless the user specifically asks. The user is currently the only user.

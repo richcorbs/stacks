@@ -93,7 +93,7 @@ mod tests {
     fn database() -> Connection {
         let mut connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
-        initialize_connection(&mut connection, false).unwrap();
+        initialize_connection(&mut connection).unwrap();
         connection
     }
 

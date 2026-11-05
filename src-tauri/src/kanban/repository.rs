@@ -20,35 +20,84 @@ pub(in crate::kanban) fn next_local_card_number(
         .map_err(db_error)
 }
 
+/// Highest schema revision this build knows how to produce.
+///
+/// Every DDL change must bump this constant and insert the matching `schema_migrations`
+/// row; `current_schema_migration_covers_every_migration` enforces the pairing.
+pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 79;
+
+/// Cache of the one-time database initialization. Failures are recorded so concurrent callers
+/// see the same error, but an explicit reset (after a successful restore) retries.
+pub(crate) enum DatabaseState {
+    Uninitialized,
+    Ready,
+    Blocked(String),
+}
+
+static DATABASE_STATE: OnceLock<Mutex<DatabaseState>> = OnceLock::new();
+
+fn database_state() -> &'static Mutex<DatabaseState> {
+    DATABASE_STATE.get_or_init(|| Mutex::new(DatabaseState::Uninitialized))
+}
+
 pub(crate) fn initialize_database() -> Result<(), String> {
-    initialize_once(&DATABASE_INITIALIZATION, || {
-        let path = app_data_file("workflow.sqlite3")
+    initialize_once(database_state(), || {
+        let root = crate::fs_paths::app_data_dir()
             .map_err(|error| format!("Could not locate the Kanban database: {error}"))?;
-        let mut connection = Connection::open(&path).map_err(|error| {
-            format!(
-                "Could not open the Kanban database at {}: {error}",
-                path.display()
-            )
-        })?;
-        configure_connection(&connection)?;
-        connection
-            .pragma_update(None, "journal_mode", "WAL")
-            .map_err(|error| format!("Could not enable WAL mode: {error}"))?;
-        initialize_connection(&mut connection, true)
+        initialize_database_in(&root)
     })
 }
 
-pub(in crate::kanban) fn initialize_once(
-    state: &OnceLock<Result<(), String>>,
-    initialize: impl FnOnce() -> Result<(), String>,
-) -> Result<(), String> {
-    state.get_or_init(initialize).clone()
+/// Return the initialization cache to `Uninitialized` so a restored database can be retried
+/// in the same process.
+pub(crate) fn reset_database_initialization() {
+    if let Ok(mut state) = database_state().lock() {
+        *state = DatabaseState::Uninitialized;
+    }
 }
 
-pub(crate) fn initialize_connection(
-    connection: &mut Connection,
-    import_legacy_json: bool,
+pub(crate) fn initialize_once(
+    state: &Mutex<DatabaseState>,
+    initialize: impl FnOnce() -> Result<(), String>,
 ) -> Result<(), String> {
+    let mut state = state
+        .lock()
+        .map_err(|_| "Database initialization state is poisoned".to_string())?;
+    match &*state {
+        DatabaseState::Ready => Ok(()),
+        DatabaseState::Blocked(error) => Err(error.clone()),
+        DatabaseState::Uninitialized => match initialize() {
+            Ok(()) => {
+                *state = DatabaseState::Ready;
+                Ok(())
+            }
+            Err(error) => {
+                *state = DatabaseState::Blocked(error.clone());
+                Err(error)
+            }
+        },
+    }
+}
+
+pub(crate) fn initialize_database_in(root: &Path) -> Result<(), String> {
+    // Keep a verified copy of the exact pre-migration database before anything writes to it.
+    crate::database_backup::ensure_pre_migration_snapshot(root)?;
+    let path = root.join(crate::database_backup::DATABASE_FILE);
+    let mut connection = Connection::open(&path).map_err(|error| {
+        format!(
+            "Could not open the Kanban database at {}: {error}",
+            path.display()
+        )
+    })?;
+    configure_connection(&connection)?;
+    connection
+        .pragma_update(None, "journal_mode", "WAL")
+        .map_err(|error| format!("Could not enable WAL mode: {error}"))?;
+    initialize_connection(&mut connection)?;
+    crate::database_backup::record_schema_state(root)
+}
+
+pub(crate) fn initialize_connection(connection: &mut Connection) -> Result<(), String> {
     migrate(connection).map_err(|error| format!("Could not initialize Kanban schema: {error}"))?;
     crate::store::migrate_store_schema(connection)
         .map_err(|error| format!("Could not initialize project-store schema: {error}"))?;
@@ -56,7 +105,7 @@ pub(crate) fn initialize_connection(
         .map_err(|error| format!("Could not initialize Project Workspace schema: {error}"))?;
     crate::global_terminal::migrate(connection)
         .map_err(|error| format!("Could not initialize top-level terminal schema: {error}"))?;
-    crate::store::migrate_legacy_data(connection, import_legacy_json)
+    crate::store::migrate_legacy_data(connection)
         .map_err(|error| format!("Could not initialize legacy project data: {error}"))?;
     crate::settings::migrate_superthread_project_configuration(connection)
         .map_err(|error| format!("Could not migrate Superthread project configuration: {error}"))?;

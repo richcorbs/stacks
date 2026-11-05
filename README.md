@@ -201,7 +201,7 @@ Application data remains under:
 Important files and directories include:
 
 - `workflow.sqlite3` — schema-versioned projects, cards, card environments, pane layouts, and service definitions.
-- `projects.json` — compatibility mirror for legacy Stacks builds; migrated data is also preserved once as `projects.json.migrated`.
+- `backups/` — verified pre-migration snapshots of `workflow.sqlite3` (newest 5 retained). Stacks restores one through the startup recovery dialog if the database cannot be opened or migrated.
 - `settings.json` — UI preferences, window state, and the last active/focused workspace state.
 - `pi-sessions/` — durable Pi session files by terminal ID.
 - `pi-trusted-projects.json` — canonical project paths approved for project-local Pi resources.
