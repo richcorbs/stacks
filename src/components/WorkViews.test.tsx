@@ -74,9 +74,11 @@ it('keeps the card planning agent in the project path and switches identity for 
   const render = (thread: 'planning' | 'work') => <CardChatView card={card} project={project} cardPath="/worktree" thread={thread} active deploymentOutput="" />;
   await act(async () => { renderer = TestRenderer.create(render('planning')); });
   expect(renderer.root.findByType(PiGuiView).props.workspace.cwd).toBe('/repo');
+  expect(renderer.root.findByType(PiGuiView).props.composerDraftKey).toBe(workAgentId({ kind: 'card', cardId: 'c' }, 'planning'));
   expect(renderer.root.findByType(PiGuiView).props.terminal.id).toBe(workAgentId({ kind: 'card', cardId: 'c' }, 'planning'));
   await act(async () => { renderer.update(render('work')); });
   expect(renderer.root.findByType(PiGuiView).props.workspace.cwd).toBe('/worktree');
+  expect(renderer.root.findByType(PiGuiView).props.composerDraftKey).toBe(workAgentId({ kind: 'card', cardId: 'c' }, 'work'));
   expect(renderer.root.findByType(PiGuiView).props.terminal.id).toBe(workAgentId({ kind: 'card', cardId: 'c' }, 'work'));
   act(() => renderer.unmount());
 });

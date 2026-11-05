@@ -8,6 +8,7 @@ export function CardChatView({ card, project, cardPath, thread, active, deployme
 }) {
   return <WorkAgentView terminal={{ id: cardPaneId(card.id, thread), workspaceId: cardWorkspaceId(card.id), kind: 'pi' }}
     workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: thread === 'work' ? cardPath! : project.path }}
+    composerDraftKey={cardPaneId(card.id, thread)}
     project={project} active={active} label="Card chat" openingMessage="Opening card chat…">
     {deploymentOutput && <details className="scriptedDeliveryOutput"><summary>Deployment output (current session)</summary><pre>{deploymentOutput}</pre></details>}
   </WorkAgentView>;

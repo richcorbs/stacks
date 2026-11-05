@@ -16,6 +16,7 @@ import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { listenForPiPrompt } from '../pi/promptEvent';
 import { canSendPiQuickResponse, sendPiQuickResponse, type PiQuickResponse } from '../pi/quickResponse';
 import { usePiSession } from '../pi/usePiSession';
+import { useComposerDraft } from '../pi/useComposerDraft';
 import { createChatScroll } from '../pi/chatScroll';
 import { TerminalControls } from './TerminalControls';
 import { handleDialogShortcut } from './dialogShortcut';
@@ -39,7 +40,7 @@ export function useMcpBannerDismissal(terminalId: string) {
   return [dismissed, dismiss] as const;
 }
 
-export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, fontSize, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
+export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, fontSize, composerDraftKey, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -49,6 +50,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   canToggleMaximize: boolean;
   restartRequestNonce: number;
   fontSize: number;
+  composerDraftKey?: string;
   onFocus: () => void;
   onClose: () => void;
   onSplitTerminal: (direction: 'row' | 'column') => void;
@@ -65,7 +67,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     return () => unlisten?.();
   }, [pi.restart, project.id]);
   const modalUiRequest = pi.uiRequest && !isStructuredPiUiRequest(pi.uiRequest) ? pi.uiRequest : null;
-  const [prompt, setPrompt] = useState('');
+  const { prompt, setPrompt, beginSubmission } = useComposerDraft(composerDraftKey);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [pathSuggestions, setPathSuggestions] = useState<Array<{ path: string; isDir: boolean }>>([]);
   const [selectedPathIndex, setSelectedPathIndex] = useState(0);
@@ -448,7 +450,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     const structuredRequestDismissal = pi.dismissStructuredUiRequest();
     historyIndexRef.current = null;
     historyDraftRef.current = '';
-    setPrompt('');
+    const finishSubmission = composerDraftKey ? beginSubmission() : null;
+    if (!finishSubmission) setPrompt('');
     setPathSuggestions([]);
     setComposerError(null);
     setMcpCommandVisible(isMcpStatusCommand(message));
@@ -463,7 +466,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           : pi.isStreaming
             ? pi.steer(message, [])
             : pi.prompt(message, []);
-    await send.catch(() => setPrompt(message));
+    await send.then(() => finishSubmission?.(true), () => {
+      if (finishSubmission) finishSubmission(false);
+      else setPrompt(message);
+    });
   }
 
   function showSelectionPopup(event: React.MouseEvent<HTMLDivElement>) {
@@ -715,6 +721,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           {composerError && <div className="piComposerError">{composerError}</div>}
           <textarea
             ref={inputRef}
+            data-card-composer={composerDraftKey ? '' : undefined}
             className={prompt.includes('\n') ? undefined : 'singleLine'}
             value={prompt}
             rows={1}
