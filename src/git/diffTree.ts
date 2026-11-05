@@ -5,7 +5,7 @@ export type DiffTreeNode =
   | { type: 'file'; name: string; path: string; status: GitDiffFile['status'] };
 
 export type VisibleDiffRow = { node: DiffTreeNode; parent: string | null };
-export type DiffNavigationKey = 'j' | 'k' | 'h' | 'l' | 'Enter';
+export type DiffNavigationKey = 'j' | 'k' | 'h' | 'l' | 'Enter' | ' ';
 
 export function visibleDiffRows(tree: DiffTreeNode[], collapsed: ReadonlySet<string>, parent: string | null = null): VisibleDiffRow[] {
   return tree.flatMap((node) => [

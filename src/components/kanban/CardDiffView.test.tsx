@@ -105,6 +105,91 @@ describe.each(['project', 'card'] as const)('%s diff Vim navigation', (context) 
     act(() => renderer.unmount());
   });
 
+  it.each([false, true])('toggles the highlighted file with Space without changing focus or preview (preview open: %s)', async (previewOpen) => {
+    const { renderer, review, render, highlight, key, focus } = await setup();
+    if (!previewOpen) {
+      review.openDiff = null;
+      await act(async () => { renderer.update(render()); });
+    }
+    const originalPreview = review.openDiff;
+    await key('j'); await key('j');
+    const file = 'src/nested/a.ts';
+    expect(highlight()).toBe(file);
+    review.toggleReviewed = vi.fn((path: string) => {
+      if (review.reviewedFiles.has(path)) review.reviewedFiles.delete(path);
+      else review.reviewedFiles.add(path);
+    });
+    await act(async () => { renderer.update(render()); });
+    const focusCalls = focus.mock.calls.length;
+    vi.mocked(invoke).mockClear();
+    for (const reviewed of [true, false]) {
+      const event = await key(' ');
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(event.stopPropagation).toHaveBeenCalledOnce();
+      await act(async () => { renderer.update(render()); });
+      expect(review.reviewedFiles.has(file)).toBe(reviewed);
+      const row = renderer.root.findByProps({ 'aria-label': file });
+      expect(row.props.className.includes('reviewed')).toBe(reviewed);
+      expect(row.findByProps({ className: 'diffReviewDot' }).props['aria-pressed']).toBe(reviewed);
+      expect(highlight()).toBe(file);
+      expect(review.openDiff).toBe(originalPreview);
+      expect(focus).toHaveBeenCalledTimes(focusCalls);
+      expect(review.setOpenDiff).not.toHaveBeenCalled();
+      expect(invoke).not.toHaveBeenCalled();
+      const repeat = await key(' ', { repeat: true });
+      expect(repeat.preventDefault).toHaveBeenCalledOnce();
+      expect(repeat.stopPropagation).toHaveBeenCalledOnce();
+      expect(review.reviewedFiles.has(file)).toBe(reviewed);
+    }
+    expect(review.toggleReviewed).toHaveBeenCalledTimes(2);
+    expect(review.toggleReviewed).toHaveBeenNthCalledWith(1, file);
+    expect(review.toggleReviewed).toHaveBeenNthCalledWith(2, file);
+    // Space does not disturb subsequent navigation or opening.
+    await key('Enter');
+    expect(review.setOpenDiff).toHaveBeenCalledWith({ path: file, patch: 'new' });
+    await key('j');
+    expect(highlight()).toBe('src/b.ts');
+    act(() => renderer.unmount());
+  });
+
+  it('ignores Space on folders and when no file is highlighted', async () => {
+    const { renderer, review, render, highlight, key } = await setup();
+    expect(highlight()).toBe('src');
+    expect((await key(' ')).preventDefault).not.toHaveBeenCalled();
+    expect(highlight()).toBe('src');
+    expect(renderer.root.findByProps({ 'aria-label': 'src' }).props['aria-expanded']).toBe(true);
+    vi.mocked(invoke).mockResolvedValueOnce({ files: [] });
+    await act(async () => { renderer.update(render(true, 1)); });
+    expect(highlight()).toBeUndefined();
+    expect((await key(' ')).preventDefault).not.toHaveBeenCalled();
+    expect(review.toggleReviewed).not.toHaveBeenCalled();
+    expect(review.setOpenDiff).not.toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+
+  it('preserves Space typing and native control activation and ignores guarded events', async () => {
+    const { renderer, review, render, highlight, key } = await setup();
+    await key('j'); await key('j');
+    for (const repeat of [false, true]) {
+      for (const option of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey', 'defaultPrevented']) {
+        expect((await key(' ', { repeat, [option]: true })).preventDefault).not.toHaveBeenCalled();
+      }
+      expect((await key(' ', { repeat, nativeEvent: { isComposing: true } })).preventDefault).not.toHaveBeenCalled();
+      expect((await key(' ', { repeat, currentTarget: { contains: () => false } })).preventDefault).not.toHaveBeenCalled();
+      for (const selector of ['input', 'textarea', 'select', 'contenteditable', 'textbox', 'searchbox', 'combobox', 'spinbutton', 'button', 'a[href]', 'summary', 'link', 'checkbox', 'switch', 'menuitem', 'tab', 'radio']) {
+        const event = await key(' ', { repeat }, selector);
+        expect(event.preventDefault).not.toHaveBeenCalled();
+        expect(event.stopPropagation).not.toHaveBeenCalled();
+      }
+      await act(async () => { renderer.update(render(false)); });
+      expect((await key(' ', { repeat })).preventDefault).not.toHaveBeenCalled();
+      await act(async () => { renderer.update(render()); });
+    }
+    expect(highlight()).toBe('src/nested/a.ts');
+    expect(review.toggleReviewed).not.toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+
   it('expands, collapses, skips hidden descendants, and navigates parents and children', async () => {
     const { renderer, highlight, key } = await setup();
     await key('h');

@@ -86,7 +86,10 @@ export function DiffTab({ activePath, comparisonTarget, refreshNonce, review, na
   useImperativeHandle(navigationRef, () => ({ navigate(key) {
     if (loading || displayError || !activePath || !highlightedPath) return false;
     const node = rows.find((row) => row.node.path === highlightedPath)!.node;
-    if (key === 'Enter') {
+    if (key === ' ') {
+      if (node.type !== 'file') return false;
+      review.toggleReviewed(node.path);
+    } else if (key === 'Enter') {
       if (node.type === 'folder') toggleFolder(node.path);
       else {
         if (loadingFile) return false;
