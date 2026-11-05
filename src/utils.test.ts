@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { collectLeafTerminalIds, collectLeafTerminals, normalizeSplitNode, rebalanceSplits, removeLeaf, setLeafCommand, setSplitRatio, splitLeaf } from './utils';
+import { nextPatchVersion, collectLeafTerminalIds, collectLeafTerminals, normalizeSplitNode, rebalanceSplits, removeLeaf, setLeafCommand, setSplitRatio, splitLeaf } from './utils';
 import type { SplitNode } from './types';
+
+describe('nextPatchVersion', () => {
+  it.each([
+    ['0.6.3', '0.6.4'], ['v1.4.2', '1.4.3'], ['V1.4.9', '1.4.10'],
+    ['01.02.003', '1.2.4'], ['1.2.99999999999999999999', '1.2.100000000000000000000'],
+  ])('bumps %s to %s', (latest, expected) => {
+    expect(nextPatchVersion(latest)).toBe(expected);
+  });
+  it.each(['', '1.4.2-beta.1', '1.4.2+build', '1.4', 'junk', 'vv1.2.3', ' 1.2.3', '1.2.3\n', 'Unavailable — failed'])('rejects %j', (latest) => {
+    expect(nextPatchVersion(latest)).toBeNull();
+  });
+});
 
 describe('split tree utilities', () => {
   it('splits only the targeted leaf', () => {

@@ -6,6 +6,7 @@ import { disposeTerminalSession, getTerminalSession } from '../terminalSessionMa
 import { useConfirmation } from './ConfirmDialogs';
 import { TerminalView } from './TerminalView';
 import { projectColorAttribute } from '../projectColor';
+import { nextPatchVersion, normalizeReleaseVersion } from '../utils';
 
 type Setup = { cwd: string; terminalId: string; canBuildAndTest?: boolean; canPublish?: boolean; restartAfterTest?: boolean };
 type ReleaseState = { version: string | null; draftReady: boolean; published: boolean };
@@ -39,6 +40,10 @@ export function ReleaseTab({ project, active = true, terminalFontSize = 13, term
   const [attempt, setAttempt] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const locked = useRef(false);
+  const lastSuggestion = useRef<{ projectId: string; version: string } | null>(null);
+  const [suggestion, setSuggestion] = useState<{
+    projectId: string; refresh: number; finished: boolean; version: string | null; latest: string;
+  } | null>(null);
   const confirmation = useConfirmation(project.id);
   const completed = status === 'Completed (exit 0)';
   const finished = completed || status.startsWith('Failed');
@@ -57,8 +62,19 @@ export function ReleaseTab({ project, active = true, terminalFontSize = 13, term
   }, [project.id]);
   useEffect(() => {
     let alive = true;
-    invoke<string>('release_latest', { projectId: project.id }).then((value) => { if (alive) setLatest(value); })
-      .catch((e) => { if (alive) setLatest(`Unavailable — ${String(e)}`); });
+    // Resolve draft priority once per generation, independently of selected-version verification.
+    const latestLookup = invoke<string>('release_latest', { projectId: project.id })
+      .catch((e) => `Unavailable — ${String(e)}`)
+      .then((value) => { if (alive) setLatest(value); return value; });
+    const draftLookup = invoke<ReleaseState | null>('release_state', { projectId: project.id, version: '' });
+    void Promise.all([latestLookup, draftLookup]).then(([latest, draft]) => {
+      if (!alive) return;
+      setSuggestion({ projectId: project.id, refresh, finished, latest,
+        version: draft?.version ? normalizeReleaseVersion(draft.version) : nextPatchVersion(latest) });
+    }).catch(() => {
+      // A failed draft lookup cannot establish that falling back to latest is safe.
+      if (alive) setSuggestion(null);
+    });
     return () => { alive = false; };
   }, [project.id, finished, refresh]);
   useEffect(() => {
@@ -69,7 +85,6 @@ export function ReleaseTab({ project, active = true, terminalFontSize = 13, term
       invoke<ReleaseState | null>('release_state', { projectId: project.id, version: selected }).then((value) => {
         if (!alive) return;
         setReleaseState(value);
-        if (!selected && value?.version) setVersion(value.version);
       }).catch((e) => { if (alive) setStateError(String(e)); });
     }, selected ? 250 : 0);
     return () => { alive = false; clearTimeout(timer); };
@@ -82,6 +97,17 @@ export function ReleaseTab({ project, active = true, terminalFontSize = 13, term
     return () => clearInterval(timer);
   }, [setup, command, attempt]);
   const running = Boolean(command) && (!status || status === 'Starting…' || status === 'Running');
+  useEffect(() => {
+    if (!suggestion?.version || suggestion.projectId !== project.id || suggestion.refresh !== refresh || suggestion.finished !== finished || running || preparing || locked.current) return;
+    const selected = version.trim();
+    const previous = lastSuggestion.current;
+    const nowPublished = (normalizeReleaseVersion(selected) !== null && normalizeReleaseVersion(selected) === normalizeReleaseVersion(suggestion.latest))
+      || (releaseState?.version === selected && releaseState.published);
+    if (!selected || (previous?.projectId === project.id && version === previous.version) || nowPublished) {
+      lastSuggestion.current = { projectId: project.id, version: suggestion.version };
+      if (version !== suggestion.version) setVersion(suggestion.version);
+    }
+  }, [suggestion, project.id, refresh, finished, running, preparing, version, releaseState]);
   const draftReady = releaseState?.version === version.trim() && releaseState.draftReady;
   const published = releaseState?.version === version.trim() && releaseState.published;
   async function run(action: Action) {

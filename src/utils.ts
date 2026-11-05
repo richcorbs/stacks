@@ -1,5 +1,18 @@
 import type { PaneKind, SplitNode } from './types';
 
+/** Parse only a bare three-part version, optionally prefixed with one v/V. */
+export function normalizeReleaseVersion(value: string): string | null {
+  const match = /^[vV]?(\d+)\.(\d+)\.(\d+)$/.exec(value);
+  return match && match[0] === value ? match.slice(1).map((part) => BigInt(part).toString()).join('.') : null;
+}
+
+export function nextPatchVersion(latest: string): string | null {
+  const version = normalizeReleaseVersion(latest);
+  if (!version) return null;
+  const [major, minor, patch] = version.split('.');
+  return `${major}.${minor}.${BigInt(patch) + 1n}`;
+}
+
 export function basename(path: string) {
   return path.replace(/\/$/, '').split('/').pop() || path;
 }
