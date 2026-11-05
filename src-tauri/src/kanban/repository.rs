@@ -24,7 +24,7 @@ pub(in crate::kanban) fn next_local_card_number(
 ///
 /// Every DDL change must bump this constant and insert the matching `schema_migrations`
 /// row; `current_schema_migration_covers_every_migration` enforces the pairing.
-pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 78;
+pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 79;
 
 /// Cache of the one-time database initialization. Failures are recorded so concurrent callers
 /// see the same error, but an explicit reset (after a successful restore) retries.
@@ -1018,7 +1018,54 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     connection.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (77,unixepoch())", []).map_err(db_error)?;
     migrate_done_retention(connection)?;
     provider_sync::recover_interrupted(connection)?;
+    retire_release_journals(connection)?;
     Ok(())
+}
+
+/// Releases are terminal-driven now: the journal tables written by the removed release
+/// engine are neither read nor written, and every row they held was terminal. Drop them,
+/// then reclaim the pages they occupied — `auto_vacuum` is off, so the file would keep
+/// their space forever. Reclaiming is best effort and never blocks startup.
+fn retire_release_journals(connection: &Connection) -> Result<(), String> {
+    let retired: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('release_operations','release_attempts')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    connection
+        .execute_batch(
+            "DROP TABLE IF EXISTS release_attempts;
+             DROP TABLE IF EXISTS release_operations;
+             INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (79,unixepoch());",
+        )
+        .map_err(db_error)?;
+    // A failed compaction leaves the database correct and still reclaimable, so retry on
+    // any later launch which leaves a meaningful share of the file on the freelist.
+    if retired == 0 && !mostly_free(connection)? {
+        return Ok(());
+    }
+    if let Err(error) = connection.execute_batch("VACUUM") {
+        eprintln!("Retired release tables were dropped, but the database could not be compacted yet: {error}");
+        return Ok(());
+    }
+    if let Err(error) = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)") {
+        eprintln!("Retired release tables were dropped, but the write-ahead log could not be truncated: {error}");
+    }
+    Ok(())
+}
+
+/// True when at least a fifth of the file is free pages, which only follows a deliberate
+/// purge of a large amount of data.
+fn mostly_free(connection: &Connection) -> Result<bool, String> {
+    let pages: i64 = connection
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .map_err(db_error)?;
+    let free: i64 = connection
+        .pragma_query_value(None, "freelist_count", |row| row.get(0))
+        .map_err(db_error)?;
+    Ok(pages > 0 && free * 5 >= pages)
 }
 
 // Triggers cover workflow transitions, provider scope suspension/restoration and

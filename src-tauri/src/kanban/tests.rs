@@ -1897,6 +1897,41 @@ fn blocks_project_deletion_while_cards_are_active() {
 }
 
 #[test]
+fn retires_the_removed_release_journals_once() {
+    let connection = Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE release_operations (
+                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, repository_identity TEXT NOT NULL,
+                status TEXT NOT NULL, revision INTEGER NOT NULL, state_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+             CREATE TABLE release_attempts (
+                token TEXT PRIMARY KEY, operation_id TEXT NOT NULL, stage_id TEXT NOT NULL,
+                kind TEXT NOT NULL, status TEXT NOT NULL, pid INTEGER, log_path TEXT NOT NULL,
+                started_at INTEGER NOT NULL, completed_at INTEGER);
+             INSERT INTO release_operations VALUES ('op','project','repo','completed',1,'{}',1,1);
+             INSERT INTO release_attempts VALUES ('token','op','stage','build','succeeded',NULL,'/tmp/log',1,NULL);",
+        )
+        .unwrap();
+    let retired_tables = || -> i64 {
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE 'release_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    migrate(&connection).unwrap();
+    assert_eq!(retired_tables(), 0);
+    assert_eq!(connection.query_row("SELECT COUNT(*) FROM schema_migrations WHERE version=79", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    // A later launch must stay a no-op rather than resurrecting or re-dropping anything.
+    migrate(&connection).unwrap();
+    assert_eq!(retired_tables(), 0);
+    assert_eq!(connection.query_row("SELECT COUNT(*) FROM schema_migrations WHERE version=79", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+}
+
+#[test]
 fn imports_cards_without_disconnected_cleaned_tombstones() {
     let mut connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();
