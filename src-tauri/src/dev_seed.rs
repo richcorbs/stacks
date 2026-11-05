@@ -15,7 +15,7 @@ use uuid::Uuid;
 const DATABASE_FILE: &str = "workflow.sqlite3";
 const SETTINGS_FILE: &str = "settings.json";
 const SEEDED_MARKER_FILE: &str = "seeded-from-production";
-const MAX_SUPPORTED_SCHEMA_MIGRATION: i64 = 78;
+const MAX_SUPPORTED_SCHEMA_MIGRATION: i64 = 79;
 
 const EXPECTED_TABLES: &[&str] = &[
     "card_cleanup_evidence",
