@@ -209,7 +209,11 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   }, [card.environment?.layout_revision, card.environment?.revision, card.workflow_revision]);
 
   useEffect(() => {
-    const handleDetailKeyboard = (event: KeyboardEvent) => {
+    const handleDetailKeyboard = (event: KeyboardEvent, composerBubble = false) => {
+      // Composer autocomplete/history handlers get first refusal at the target.
+      const cardComposer = (event.target as HTMLElement | null)?.closest?.('[data-card-composer]');
+      if (event.key === 'Escape' && cardComposer && !editing && !composerBubble) return;
+      if (composerBubble && (event.defaultPrevented || !cardComposer || event.key !== 'Escape')) return;
       if ((event.target as HTMLElement | null)?.closest?.('[data-confirmation-boundary]') || pendingCloseShellPane || cleanupInventory || shortcutConfirmation || document.querySelector('.modalBackdrop:not(.kanbanDetailBackdrop), .settingsPrompt, [role="dialog"][aria-modal="true"]')) return;
       if (editing && event.key === 'Escape') {
         event.preventDefault();
@@ -237,7 +241,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
       }
       if (event.key === 'Escape') {
         const focused = document.activeElement as HTMLElement | null;
-        if (isEditableElement(focused)) {
+        if (!composerBubble && isEditableElement(focused)) {
           event.preventDefault();
           event.stopPropagation();
           focused?.blur();
@@ -254,8 +258,14 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
         beginEditing();
       }
     };
-    window.addEventListener('keydown', handleDetailKeyboard, true);
-    return () => window.removeEventListener('keydown', handleDetailKeyboard, true);
+    const captureKeyboard = (event: KeyboardEvent) => handleDetailKeyboard(event);
+    const composerKeyboard = (event: KeyboardEvent) => handleDetailKeyboard(event, true);
+    window.addEventListener('keydown', captureKeyboard, true);
+    window.addEventListener('keydown', composerKeyboard);
+    return () => {
+      window.removeEventListener('keydown', captureKeyboard, true);
+      window.removeEventListener('keydown', composerKeyboard);
+    };
   }, [activeView, actionRowVisible, primaryAction, working, cleanupInventory, shortcutConfirmation, editable, editing, pendingCloseShellPane, savingEdit, detail.begin, detail.cancel, detail.save, detail.mayLeave]);
 
   useEffect(() => {

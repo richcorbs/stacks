@@ -20,21 +20,22 @@ vi.mock('../../kanban/useCardTerminalWorkspace', () => ({ useCardTerminalWorkspa
 const project = { id: 'p', name: 'P', path: '/repo', server_command: 'echo server', console_command: 'echo console', delivery_workflow: 'local_merge', target_branch: 'main' };
 const baseCard = { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status: 'ready', workflow_revision: 1, record_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment: { worktree_path: '/repo' }, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
 let keyboard: (event: KeyboardEvent) => void;
+let composerKeyboard: (event: KeyboardEvent) => void;
 let modalOpen = false;
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.stubGlobal('window', { addEventListener: (type: string, listener: typeof keyboard) => { if (type === 'keydown') keyboard = listener; }, removeEventListener: vi.fn(), confirm: vi.fn(() => true) });
+  vi.stubGlobal('window', { addEventListener: (type: string, listener: typeof keyboard, capture?: boolean) => { if (type === 'keydown') { if (capture) keyboard = listener; else composerKeyboard = listener; } }, removeEventListener: vi.fn(), confirm: vi.fn(() => true) });
   vi.stubGlobal('document', { querySelector: () => modalOpen ? {} : null, activeElement: null });
   vi.stubGlobal('requestAnimationFrame', () => 1);
   modalOpen = false;
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-async function mount(options: { initialView?: 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console'; capabilities?: { action: string; available: boolean; disabled_reason?: string }[]; onStartWork?: () => Promise<boolean>; onUpdate?: () => Promise<never> } = {}) {
+async function mount(options: { initialView?: 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console'; capabilities?: { action: string; available: boolean; disabled_reason?: string }[]; onStartWork?: () => Promise<boolean>; onUpdate?: () => Promise<never>; onClose?: () => void } = {}) {
   const card = { ...baseCard, capabilities: options.capabilities ?? [{ action: 'return_to_refinement', available: true }, { action: 'start_work', available: true }] };
   const onStartWork = options.onStartWork ?? vi.fn(async () => false);
   let renderer!: TestRenderer.ReactTestRenderer;
-  await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} cardServices={{} as never} projects={[project as never]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView={options.initialView} gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={() => {}} onUpdate={options.onUpdate ?? (async () => card as never)} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={onStartWork} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} onToggleServer={() => {}} />); });
+  await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} cardServices={{} as never} projects={[project as never]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView={options.initialView} gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={options.onClose ?? (() => {})} onUpdate={options.onUpdate ?? (async () => card as never)} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={onStartWork} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} onToggleServer={() => {}} />); });
   return { renderer, onStartWork };
 }
 function key(metaKey = true, shiftKey = false) {
@@ -193,6 +194,69 @@ describe('card workflow shortcut', () => {
     const { renderer } = await mount({ capabilities: [] });
     expect(renderer.root.findAllByProps({ 'aria-label': 'Workflow actions' })).toHaveLength(0);
     expect(key().preventDefault).not.toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+});
+
+
+describe('card composer Escape ownership', () => {
+  function escape(composer = true, boundary = false) {
+    const focused = { value: 'unsent text', blur: vi.fn(), closest: (selector: string) => {
+      if (selector === '[data-card-composer]') return composer ? focused : null;
+      if (selector === '[data-confirmation-boundary]') return boundary ? focused : null;
+      return selector.includes('textarea') ? focused : null;
+    } };
+    Object.assign(document, { activeElement: focused });
+    const event = { key: 'Escape', target: focused, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation: vi.fn() };
+    return { focused, event: event as unknown as KeyboardEvent };
+  }
+
+  it.each(['', 'unsent text'])('closes with one unhandled Escape (draft: %s)', async (text) => {
+    const onClose = vi.fn();
+    const { renderer } = await mount({ initialView: 'chat', onClose });
+    const { focused, event } = escape();
+    focused.value = text;
+    act(() => keyboard(event));
+    expect(event.defaultPrevented).toBe(false);
+    expect(focused.blur).not.toHaveBeenCalled();
+    await act(async () => composerKeyboard(event));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(focused.value).toBe(text);
+    act(() => renderer.unmount());
+  });
+
+  it('leaves handled Escape open, then closes on the next unhandled Escape', async () => {
+    const onClose = vi.fn();
+    const { renderer } = await mount({ initialView: 'chat', onClose });
+    const { event } = escape();
+    keyboard(event);
+    event.preventDefault(); // Composer autocomplete/history consumed it.
+    await act(async () => composerKeyboard(event));
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => { const next = escape().event; keyboard(next); composerKeyboard(next); });
+    expect(onClose).toHaveBeenCalledOnce();
+    act(() => renderer.unmount());
+  });
+
+  it('preserves editable-field blur and nested confirmation/modal protections', async () => {
+    const onClose = vi.fn();
+    const { renderer } = await mount({ onClose });
+    const ordinary = escape(false);
+    act(() => keyboard(ordinary.event));
+    expect(ordinary.focused.blur).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    const nested = escape(true, true);
+    await act(async () => { keyboard(nested.event); composerKeyboard(nested.event); });
+    expect(onClose).not.toHaveBeenCalled();
+    modalOpen = true;
+    await act(async () => { const event = escape().event; keyboard(event); composerKeyboard(event); });
+    expect(onClose).not.toHaveBeenCalled();
+    modalOpen = false;
+    act(() => renderer.root.findByProps({ 'aria-label': 'Edit card' }).props.onClick());
+    act(() => keyboard(escape(false).event));
+    expect(renderer.root.findAllByProps({ className: 'kanbanEditActions' })).toHaveLength(0);
+    expect(onClose).not.toHaveBeenCalled();
     act(() => renderer.unmount());
   });
 });

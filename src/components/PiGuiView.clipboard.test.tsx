@@ -1,6 +1,7 @@
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { invoke } from '@tauri-apps/api/core';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { PiGuiView } from './PiGuiView';
 
@@ -20,8 +21,11 @@ let renderer: TestRenderer.ReactTestRenderer;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.assign(pi, { commands: [], messages: [] });
+  pi.dismissStructuredUiRequest.mockResolvedValue(undefined);
+  pi.prompt.mockResolvedValue(undefined);
   vi.mocked(writeText).mockResolvedValue(undefined);
-  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn(), setTimeout, clearTimeout });
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { callback(); return 1; });
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
@@ -31,7 +35,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function mount() {
+async function mount(composerDraftKey?: string, initialText: string | null = 'hello world') {
   const input = {
     value: '', selectionStart: 0, selectionEnd: 0, style: {}, offsetHeight: 23, scrollHeight: 23,
     closest: () => null, focus: vi.fn(), ownerDocument: { activeElement: null as unknown },
@@ -43,6 +47,7 @@ async function mount() {
   input.ownerDocument.activeElement = input;
   await act(async () => {
     renderer = TestRenderer.create(<PiGuiView
+      composerDraftKey={composerDraftKey}
       terminal={{ id: 'clipboard-test' } as TerminalEntry}
       workspace={{ id: 'workspace', cwd: '/tmp' } as WorkspaceEntry}
       project={{ id: 'project', path: '/tmp' } as Project}
@@ -51,8 +56,8 @@ async function mount() {
     />, { createNodeMock: (element) => element.type === 'textarea' ? input : null });
   });
   const textarea = () => renderer.root.findByType('textarea');
-  act(() => {
-    input.value = 'hello world';
+  if (initialText !== null) act(() => {
+    input.value = initialText;
     input.selectionStart = 6;
     input.selectionEnd = 11;
     textarea().props.onChange({ target: input });
@@ -72,6 +77,78 @@ function expectNoSubmission() {
   expect(pi.followUp).not.toHaveBeenCalled();
   expect(pi.dismissStructuredUiRequest).not.toHaveBeenCalled();
 }
+
+describe('card composer integration', () => {
+  function escape() {
+    return { key: 'Escape', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false,
+      preventDefault: vi.fn(), stopPropagation: vi.fn() };
+  }
+
+  it.each(['card-escape', undefined])('lets unhandled Escape through without changing text or submitting (%s)', async (draftKey) => {
+    const { textarea } = await mount(draftKey);
+    const event = escape();
+    act(() => textarea().props.onKeyDown(event));
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(textarea().props.value).toBe('hello world');
+    expect(textarea().props['data-card-composer']).toBe(draftKey ? '' : undefined);
+    expectNoSubmission();
+  });
+
+  it('consumes slash autocomplete Escape once before allowing card close', async () => {
+    Object.assign(pi, { commands: [{ name: 'example', description: 'Example', source: 'extension' }] });
+    const { textarea } = await mount('card-slash', '/ex');
+    const first = escape();
+    act(() => textarea().props.onKeyDown(first));
+    expect(first.preventDefault).toHaveBeenCalledOnce();
+    const second = escape();
+    act(() => textarea().props.onKeyDown(second));
+    expect(second.preventDefault).not.toHaveBeenCalled();
+    expectNoSubmission();
+  });
+
+  it('consumes path autocomplete Escape once before allowing card close', async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => command === 'discover_pi_paths' ? [{ path: 'src/main.tsx', isDir: false }] : null as never);
+    const { textarea } = await mount('card-path', '@src');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+    expect(renderer.root.findAllByProps({ 'aria-label': 'Workspace files' })).toHaveLength(1);
+    const first = escape();
+    act(() => textarea().props.onKeyDown(first));
+    expect(first.preventDefault).toHaveBeenCalledOnce();
+    expect(renderer.root.findAllByProps({ 'aria-label': 'Workspace files' })).toHaveLength(0);
+    const second = escape();
+    act(() => textarea().props.onKeyDown(second));
+    expect(second.preventDefault).not.toHaveBeenCalled();
+    expectNoSubmission();
+  });
+
+  it('exits prompt history to the exact original draft before allowing card close', async () => {
+    Object.assign(pi, { messages: [{ role: 'user', content: 'previous prompt', timestamp: 1 }] });
+    const { textarea, key } = await mount('card-history');
+    act(() => textarea().props.onKeyDown({ ...key('ArrowUp'), metaKey: false, ctrlKey: true }));
+    expect(textarea().props.value).toBe('previous prompt');
+    const first = escape();
+    act(() => textarea().props.onKeyDown(first));
+    expect(first.preventDefault).toHaveBeenCalledOnce();
+    expect(textarea().props.value).toBe('hello world');
+    const second = escape();
+    act(() => textarea().props.onKeyDown(second));
+    expect(second.preventDefault).not.toHaveBeenCalled();
+    expectNoSubmission();
+  });
+
+  it.each([true, false])('clears only successfully submitted card drafts (%s)', async (success) => {
+    const id = `card-send-${success}`;
+    const original = '  hello\n world  ';
+    const { textarea, key } = await mount(id, original);
+    if (!success) pi.prompt.mockRejectedValueOnce(new Error('failed'));
+    await act(async () => textarea().props.onKeyDown({ ...key('Enter'), metaKey: false }));
+    expect(pi.prompt).toHaveBeenCalledWith(original.trim(), []);
+    expect(textarea().props.value).toBe(success ? '' : original);
+    act(() => renderer.unmount());
+    const reopened = await mount(id, null);
+    expect(reopened.textarea().props.value).toBe(success ? '' : original);
+  });
+});
 
 describe('PiGuiView clipboard integration', () => {
   it('updates the controlled draft and collapses the caret after a successful cut without submitting', async () => {
