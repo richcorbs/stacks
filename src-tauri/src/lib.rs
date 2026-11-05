@@ -5,6 +5,7 @@ use uuid::Uuid;
 mod app_events;
 mod app_idle;
 mod automation;
+mod database_backup;
 pub mod dev_seed;
 mod fs_paths;
 mod git;
@@ -98,6 +99,64 @@ fn quit_app(app: AppHandle) {
 fn restart_app(app: AppHandle, window: tauri::Window) -> Result<(), String> {
     save_current_window_state(window)?;
     app.restart()
+}
+
+/// Everything that needs a usable database. Runs on the main thread, including when
+/// usability comes from a restored snapshot.
+fn finish_startup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    fs_paths::mark_production_data_copy_verified().map_err(std::io::Error::other)?;
+    kanban::set_app_handle(app.clone());
+    let provider = app.state::<SuperthreadService>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = kanban::run_pending_once(provider, None) {
+            eprintln!("Startup Superthread synchronization failed: {error}");
+        }
+    });
+    setup_main_window(app)?;
+    let state = app.state::<AutomationState>().inner().clone();
+    if let Err(err) = automation::start_server(app.clone(), state) {
+        eprintln!("Stacks automation is unavailable: {err}");
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
+
+/// Database recovery on a worker thread: `blocking_show` must never run on the main thread.
+fn schedule_database_recovery(app: AppHandle, error: String) {
+    std::thread::spawn(move || {
+        let snapshot = match database_backup::run_recovery_dialog(&app, &error) {
+            database_backup::RecoveryAction::Restore(snapshot) => snapshot,
+            database_backup::RecoveryAction::Quit => {
+                app.exit(1);
+                return;
+            }
+        };
+        if let Err(error) = database_backup::restore_snapshot(&snapshot) {
+            database_backup::show_fatal_error(&app, &error);
+            app.exit(1);
+            return;
+        }
+        // A failed initialization must not be terminal: reset it and retry in this process.
+        kanban::reset_database_initialization();
+        if let Err(error) = kanban::initialize_database() {
+            database_backup::show_fatal_error(&app, &error);
+            app.exit(1);
+            return;
+        }
+        let handle = app.clone();
+        if let Err(error) = app.run_on_main_thread(move || {
+            if let Err(error) = finish_startup(&handle) {
+                eprintln!("Stacks failed to finish startup after restoring a snapshot: {error}");
+                handle.exit(1);
+            }
+        }) {
+            eprintln!("Could not resume startup after restoring a snapshot: {error}");
+            app.exit(1);
+        }
+    });
 }
 
 pub fn run() {
@@ -238,20 +297,15 @@ pub fn run() {
         ])
         .setup(|app| {
             fs_paths::verify_production_data_copy().map_err(std::io::Error::other)?;
-            kanban::initialize_database().map_err(std::io::Error::other)?;
-            fs_paths::mark_production_data_copy_verified().map_err(std::io::Error::other)?;
-            kanban::set_app_handle(app.handle().clone());
-            let provider = app.state::<SuperthreadService>().inner().clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                if let Err(error) = kanban::run_pending_once(provider, None) {
-                    eprintln!("Startup Superthread synchronization failed: {error}");
+            if let Err(error) = kanban::initialize_database() {
+                // Never leave a half-broken UI visible behind the recovery dialog.
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
                 }
-            });
-            setup_main_window(app)?;
-            let state = app.state::<AutomationState>().inner().clone();
-            if let Err(err) = automation::start_server(app.handle().clone(), state) {
-                eprintln!("Stacks automation is unavailable: {err}");
+                schedule_database_recovery(app.handle().clone(), error);
+                return Ok(());
             }
+            finish_startup(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!());

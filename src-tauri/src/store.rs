@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::{fs, sync::Mutex};
 
 use crate::{
-    fs_paths::app_data_file,
     kanban,
     superthread::{SuperthreadMappingDraft, SuperthreadService},
 };
@@ -25,6 +24,7 @@ struct Project {
     deployment_command: Option<String>,
     #[serde(default, skip_deserializing)]
     delivery_workflow_locked: bool,
+    #[allow(dead_code)]
     #[serde(default, skip_serializing)]
     notes: String,
     #[serde(default, alias = "terminals", skip_serializing)]
@@ -209,10 +209,6 @@ struct WorkspaceEntry {
     splits: Option<serde_json::Value>,
 }
 
-fn legacy_store_path() -> Result<std::path::PathBuf, String> {
-    app_data_file("projects.json")
-}
-
 pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(
@@ -352,16 +348,7 @@ pub fn load_store() -> Result<ProjectStore, String> {
     kanban::with_read_connection(|connection| read_store(connection))
 }
 
-pub(crate) fn migrate_legacy_data(
-    connection: &mut Connection,
-    import_legacy_json: bool,
-) -> Result<(), String> {
-    let count: i64 = connection
-        .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
-        .map_err(db_error)?;
-    if import_legacy_json && count == 0 {
-        migrate_legacy_json(connection)?;
-    }
+pub(crate) fn migrate_legacy_data(connection: &mut Connection) -> Result<(), String> {
     migrate_legacy_card_environments(connection)
 }
 
@@ -527,7 +514,7 @@ pub fn save_store(store: ProjectStore) -> Result<(), String> {
     } else {
         kanban::with_write_connection(persist)?;
     }
-    write_legacy_json_mirror(&store)
+    Ok(())
 }
 
 fn validate_project_input(input: &ProjectConfigurationInput) -> Result<(), String> {
@@ -768,11 +755,6 @@ fn project_configuration_changes(current: &ProjectConfigurationInput, next: &Pro
     }
 }
 
-fn persist_targeted_store(store: ProjectStore) -> Result<ProjectStore, String> {
-    write_legacy_json_mirror(&store)?;
-    Ok(store)
-}
-
 #[tauri::command]
 pub async fn create_project(
     service: State<'_, SuperthreadService>,
@@ -857,7 +839,7 @@ fn create_project_validated(input: ProjectConfigurationInput) -> Result<ProjectS
         transaction.commit().map_err(db_error)?;
         read_store(connection)
     })?;
-    persist_targeted_store(store)
+    Ok(store)
 }
 
 #[tauri::command]
@@ -1063,7 +1045,7 @@ fn update_project_configuration_validated(
     } else {
         kanban::with_write_connection(persist)?
     };
-    persist_targeted_store(store)
+    Ok(store)
 }
 
 fn superthread_scope_change_requires_quiescence(connection: &Connection, input: &ProjectConfigurationInput, previous_source: &str, next_source: &str) -> Result<bool, String> {
@@ -1202,7 +1184,6 @@ pub fn delete_project(project_id: String) -> Result<ProjectStore, String> {
         transaction.commit().map_err(db_error)?;
         Ok((read_store(connection)?, removed_cards))
     })?;
-    let store = persist_targeted_store(store)?;
     for card_id in removed_cards {
         let directory = crate::kanban::card_directory(&card_id)?;
         if directory.exists() {
@@ -1214,48 +1195,6 @@ pub fn delete_project(project_id: String) -> Result<ProjectStore, String> {
         }
     }
     Ok(store)
-}
-
-fn write_legacy_json_mirror(store: &ProjectStore) -> Result<(), String> {
-    let path = legacy_store_path()?;
-    let text = serde_json::to_string_pretty(store).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, text).map_err(|error| error.to_string())?;
-    fs::rename(temporary, path).map_err(|error| error.to_string())
-}
-
-fn migrate_legacy_json(connection: &mut Connection) -> Result<(), String> {
-    let path = legacy_store_path()?;
-    if !path.exists() {
-        return Ok(());
-    }
-    let text = fs::read_to_string(&path).map_err(|error| error.to_string())?;
-    let mut store: ProjectStore = serde_json::from_str(&text)
-        .map_err(|error| format!("Could not migrate projects.json: {error}"))?;
-    // Preserve the one legacy implicit mapping at the migration boundary so domain/UI code
-    // can rely exclusively on explicit provider metadata afterward.
-    for project in &mut store.projects {
-        if project.kanban_source.is_none() && project.name.trim().eq_ignore_ascii_case("arcasa") {
-            project.kanban_source = Some("superthread".to_string());
-        }
-    }
-    write_store(connection, &store)?;
-    // This is the sole migration boundary where notes from the old JSON source are imported.
-    for project in &store.projects {
-        connection
-            .execute(
-                "UPDATE projects SET notes=?1 WHERE id=?2",
-                params![project.notes, project.id],
-            )
-            .map_err(db_error)?;
-    }
-    // Keep the source as a recovery snapshot. SQLite is authoritative after this marker exists.
-    let migrated_path = path.with_extension("json.migrated");
-    if !migrated_path.exists() {
-        fs::copy(path, migrated_path)
-            .map_err(|error| format!("Could not preserve projects migration snapshot: {error}"))?;
-    }
-    Ok(())
 }
 
 fn migrate_legacy_card_environments(connection: &mut Connection) -> Result<(), String> {
@@ -1688,6 +1627,24 @@ mod tests {
 
     fn sample_input() -> ProjectConfigurationInput {
         project_configuration(&sample_store().projects[0])
+    }
+
+    #[test]
+    fn projects_json_is_never_written_or_read() {
+        // SQLite is the single store: no save/create/delete path may produce a JSON mirror,
+        // and the stale one-time JSON reader is gone with it.
+        let source = include_str!("store.rs");
+        let mirror = concat!("projects", ".json");
+        assert!(!source.contains(mirror), "store.rs still references {mirror}");
+        for removed in [
+            concat!("write_legacy_json_", "mirror"),
+            concat!("migrate_legacy_", "json"),
+            concat!("legacy_store_", "path"),
+            concat!("persist_targeted_", "store"),
+            concat!("import_legacy_", "json"),
+        ] {
+            assert!(!source.contains(removed), "store.rs still references {removed}");
+        }
     }
 
     #[test]

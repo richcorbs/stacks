@@ -21,7 +21,7 @@ pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
     }
 }
 
-pub fn setup_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+pub fn setup_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(window) = app.get_webview_window("main") {
         let title = if cfg!(debug_assertions) {
             "Stacks - DEV BUILD"

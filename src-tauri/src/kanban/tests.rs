@@ -685,7 +685,7 @@ fn initialization_builds_all_schemas_and_connection_pragmas_and_is_guarded() {
     connection
         .pragma_update(None, "journal_mode", "WAL")
         .unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     for table in ["kanban_cards", "projects", "project_direct_work"] {
         assert_eq!(
             connection
@@ -729,7 +729,7 @@ fn initialization_builds_all_schemas_and_connection_pragmas_and_is_guarded() {
     drop(connection);
     let _ = std::fs::remove_file(path);
 
-    let state = OnceLock::new();
+    let state = Mutex::new(DatabaseState::Uninitialized);
     let calls = AtomicUsize::new(0);
     assert!(initialize_once(&state, || {
         calls.fetch_add(1, Ordering::Relaxed);
@@ -742,14 +742,53 @@ fn initialization_builds_all_schemas_and_connection_pragmas_and_is_guarded() {
     })
     .is_ok());
     assert_eq!(calls.load(Ordering::Relaxed), 1);
-    let failed = OnceLock::new();
+
+    // A failed initialization is cached as blocked and is not retried implicitly.
+    let calls = AtomicUsize::new(0);
+    let failed = Mutex::new(DatabaseState::Uninitialized);
     assert_eq!(
-        initialize_once(&failed, || Err("broken migration".into())).unwrap_err(),
+        initialize_once(&failed, || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Err("broken migration".into())
+        })
+        .unwrap_err(),
         "broken migration"
     );
     assert_eq!(
-        initialize_once(&failed, || Ok(())).unwrap_err(),
+        initialize_once(&failed, || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        })
+        .unwrap_err(),
         "broken migration"
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+    // An explicit reset (after a successful restore) makes initialization retryable.
+    *failed.lock().unwrap() = DatabaseState::Uninitialized;
+    assert!(initialize_once(&failed, || {
+        calls.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    })
+    .is_ok());
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn current_schema_migration_covers_every_migration() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    initialize_connection(&mut connection).unwrap();
+    let version: i64 = connection
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        version, CURRENT_SCHEMA_MIGRATION,
+        "bump CURRENT_SCHEMA_MIGRATION (and insert the matching schema_migrations row) with every DDL change"
     );
 }
 
@@ -3636,7 +3675,7 @@ fn runtime_cleanup_attempts_every_target_and_recovers_without_workflow_change() 
 #[test]
 fn provider_operations_capture_transition_identity_and_exclude_synthetic_done() {
     let mut connection = Connection::open_in_memory().unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     test_project(&connection, "owner", "superthread", "/tmp");
     connection.execute("UPDATE projects SET superthread_in_progress_column_id='progress',superthread_in_progress_column_name='In progress',superthread_done_column_id='done',superthread_done_column_name='Stacks is done',superthread_mapping_revision=4 WHERE id='owner'", []).unwrap();
     connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,board_id,list_id,list_title,status,workflow_revision,project_id,created_at,updated_at) VALUES ('superthread:141','superthread','141','Lifecycle','board','incoming','Incoming','agent_working',8,'owner',1,1)", []).unwrap();
@@ -3656,7 +3695,7 @@ fn provider_operations_capture_transition_identity_and_exclude_synthetic_done() 
 #[test]
 fn mapping_changes_supersede_and_replace_applicable_operations() {
     let mut connection = Connection::open_in_memory().unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     test_project(&connection, "owner", "superthread", "/tmp");
     connection.execute("UPDATE projects SET superthread_in_progress_column_id='old',superthread_in_progress_column_name='Old',superthread_done_column_id='done',superthread_done_column_name='Done',superthread_mapping_revision=1 WHERE id='owner'", []).unwrap();
     connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,board_id,list_id,list_title,status,workflow_revision,project_id,created_at,updated_at) VALUES ('superthread:1','superthread','1','Work','board','incoming','Incoming','agent_working',2,'owner',1,1)", []).unwrap();
@@ -3680,7 +3719,7 @@ fn makes_card_ids_safe_for_directories() {
 
 fn board_projection_omits_detail_and_history_fields() {
     let mut connection = Connection::open_in_memory().unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     test_project(&connection, "project", "local", "/tmp/project");
     local_card(&mut connection);
     connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome) VALUES ('local:test',10,'user','edited','success')", []).unwrap();
@@ -3713,7 +3752,7 @@ fn event_pages_use_timestamp_and_id_cursor_without_duplicates() {
 #[test]
 fn atomic_board_mutation_tracks_relationships_once_and_commits_revisions() {
     let mut connection = Connection::open_in_memory().unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     test_project(&connection, "project", "local", "/tmp/project");
     for (id, parent) in [("parent", None), ("child", Some("parent"))] {
         connection.execute(
@@ -3737,7 +3776,7 @@ fn atomic_board_mutation_tracks_relationships_once_and_commits_revisions() {
 #[test]
 fn board_mutation_tracking_tolerates_repeated_upserts_for_the_same_card() {
     let mut connection = Connection::open_in_memory().unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,created_at,updated_at,in_scope) VALUES('card','local:p','1','Before','needs_refinement',1,1,1)", []).unwrap();
 
     let (_, change) = execute_board_mutation(&mut connection, |connection| {
@@ -3760,7 +3799,7 @@ fn board_mutation_tracking_tolerates_repeated_upserts_for_the_same_card() {
 #[test]
 fn failed_and_noop_board_mutations_leave_domain_and_revisions_unchanged() {
     let mut connection = Connection::open_in_memory().unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,created_at,updated_at,in_scope) VALUES('card','local:p','1','Before','needs_refinement',1,1,1)", []).unwrap();
 
     let error = execute_board_mutation(&mut connection, |connection| {
@@ -3780,7 +3819,7 @@ fn failed_and_noop_board_mutations_leave_domain_and_revisions_unchanged() {
 #[test]
 fn board_mutation_reports_deletions_and_project_capability_dependencies() {
     let mut connection = Connection::open_in_memory().unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     test_project(&connection, "project", "local", "/tmp/project");
     for id in ["one", "two"] {
         connection.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,created_at,updated_at,in_scope) VALUES(?1,'local:project',?1,?1,'needs_refinement','project',1,1,1)", [id]).unwrap();
@@ -3807,7 +3846,7 @@ fn board_mutation_reports_deletions_and_project_capability_dependencies() {
 #[test]
 fn deleting_a_parent_affects_surviving_children() {
     let mut connection = Connection::open_in_memory().unwrap();
-    initialize_connection(&mut connection, false).unwrap();
+    initialize_connection(&mut connection).unwrap();
     for (id, parent) in [("parent", None), ("child", Some("parent"))] {
         connection.execute(
             "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,parent_id,created_at,updated_at,in_scope) VALUES(?1,'local:p',?1,?1,'needs_refinement',?2,1,1,1)",
@@ -3834,7 +3873,7 @@ fn concurrent_board_mutations_are_monotonic_while_reads_continue() {
     let mut setup = Connection::open(&path).unwrap();
     configure_connection(&setup).unwrap();
     setup.pragma_update(None, "journal_mode", "WAL").unwrap();
-    initialize_connection(&mut setup, false).unwrap();
+    initialize_connection(&mut setup).unwrap();
     test_project(&setup, "project", "local", "/tmp/project");
     for id in ["one", "two"] {
         setup.execute("INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,created_at,updated_at,in_scope) VALUES(?1,'local:p',?1,?1,'needs_refinement','project',1,1,1)", [id]).unwrap();

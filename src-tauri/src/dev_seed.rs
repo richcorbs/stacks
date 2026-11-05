@@ -2,20 +2,19 @@ use crate::{
     fs_paths::{app_data_dir_for, AppProfile},
     settings_model::AppSettings,
 };
-use rusqlite::{backup::Backup, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags};
 use std::{
     collections::BTreeSet,
     fs,
     io::{self, Write},
     path::Path,
-    time::Duration,
 };
 use uuid::Uuid;
 
 const DATABASE_FILE: &str = "workflow.sqlite3";
 const SETTINGS_FILE: &str = "settings.json";
 const SEEDED_MARKER_FILE: &str = "seeded-from-production";
-const MAX_SUPPORTED_SCHEMA_MIGRATION: i64 = 78;
+const MAX_SUPPORTED_SCHEMA_MIGRATION: i64 = crate::kanban::CURRENT_SCHEMA_MIGRATION;
 
 const EXPECTED_TABLES: &[&str] = &[
     "card_cleanup_evidence",
@@ -67,7 +66,7 @@ pub fn seed_development_data(production: &Path, development: &Path) -> Result<()
 
     let result = (|| {
         let staged_database = staged.join(DATABASE_FILE);
-        online_backup(&source_database, &staged_database)?;
+        crate::database_backup::online_backup(&source_database, &staged_database)?;
         sanitize_database(&staged_database)?;
         copy_sanitized_settings(&production.join(SETTINGS_FILE), &staged.join(SETTINGS_FILE))?;
         fs::write(
@@ -93,21 +92,6 @@ pub fn startup_card_recovery_allowed() -> bool {
 
 fn startup_card_recovery_allowed_in(app_data: &Path) -> bool {
     !app_data.join(SEEDED_MARKER_FILE).exists()
-}
-
-fn online_backup(source_path: &Path, destination_path: &Path) -> Result<(), String> {
-    let source = Connection::open_with_flags(
-        source_path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(db_error("Could not open the production database read-only"))?;
-    let mut destination = Connection::open(destination_path)
-        .map_err(db_error("Could not create the staged database"))?;
-    let backup = Backup::new(&source, &mut destination)
-        .map_err(db_error("Could not start the SQLite online backup"))?;
-    backup
-        .run_to_completion(128, Duration::from_millis(10), None)
-        .map_err(db_error("Could not complete the SQLite online backup"))
 }
 
 fn sanitize_database(path: &Path) -> Result<(), String> {
@@ -411,7 +395,7 @@ mod tests {
     fn production_fixture(directory: &Path) -> Connection {
         fs::create_dir_all(directory).unwrap();
         let mut connection = Connection::open(directory.join(DATABASE_FILE)).unwrap();
-        crate::kanban::initialize_connection(&mut connection, false).unwrap();
+        crate::kanban::initialize_connection(&mut connection).unwrap();
         connection
             .execute(
                 "INSERT INTO projects(id,name,path) VALUES ('p','Project','/prod/repo')",
