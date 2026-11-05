@@ -224,13 +224,17 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     inputRef.current?.setSelectionRange(caret, caret);
   }, [prompt]);
 
+  const composerFocusAllowed = active && visible && !pi.starting && !modalUiRequest && !confirmMcpTrust && !confirmMcpRestart;
+  const composerFocusAllowedRef = useRef(composerFocusAllowed);
+  composerFocusAllowedRef.current = composerFocusAllowed;
   const scheduleComposerFocus = useCallback(() => {
-    if (!active || !visible || pi.starting || modalUiRequest || confirmMcpTrust || confirmMcpRestart) return;
+    if (!composerFocusAllowed) return;
     requestAnimationFrame(() => {
-      if (!active || !visible || pi.starting || modalUiRequest || confirmMcpTrust || confirmMcpRestart) return;
+      // Recheck current state: a dialog or pane switch can happen before this frame.
+      if (!composerFocusAllowedRef.current) return;
       inputRef.current?.focus();
     });
-  }, [active, confirmMcpRestart, confirmMcpTrust, modalUiRequest, pi.starting, visible]);
+  }, [composerFocusAllowed]);
 
   useEffect(() => {
     scheduleComposerFocus();
@@ -653,9 +657,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         </div>
       </div>
 
-      {mcpCommandVisible && <PiMcpCommandStatus status={pi.mcpStatus} notice={pi.extensionNotice} onDismiss={() => setMcpCommandVisible(false)} />}
+      {mcpCommandVisible && <PiMcpCommandStatus status={pi.mcpStatus} notice={pi.extensionNotice} onDismiss={() => { setMcpCommandVisible(false); scheduleComposerFocus(); }} />}
       {!mcpBannerDismissed && (project.enable_mcp || mcpActive) && <div className="piMcpStatus" role="status">
-        <button className="piMcpDismiss" type="button" aria-label="Dismiss MCP status" title="Dismiss MCP status" onClick={() => { dismissMcpBanner(); setConfirmMcpTrust(false); setConfirmMcpRestart(false); }}>×</button>
+        <button className="piMcpDismiss" type="button" aria-label="Dismiss MCP status" title="Dismiss MCP status" onMouseDown={(event) => event.preventDefault()} onClick={() => { dismissMcpBanner(); scheduleComposerFocus(); }}>×</button>
         <span>{mcpActive === null ? 'MCP status pending.' : mcpActive ? `MCP extension enabled in this Pi session (server status: ${pi.mcpStatus}).` : 'MCP off in this Pi session.'} Enabled global servers in ~/.pi/agent/mcp.json may load when MCP is active.
           {project.enable_mcp && mcpLocal && (!mcpLocal.trusted && mcpLocal.local_config_present ? ' Project .pi/mcp.json is skipped because this directory is untrusted.' : !mcpLocal.local_config_present ? ' No .pi/mcp.json in this session’s working directory; worktrees do not inherit one.' : '')}
           {' '}Run /mcp in Pi for connection status. Do not paste credentials into a card chat.
@@ -940,7 +944,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
 export function PiMcpCommandStatus({ status, notice, onDismiss }: { status: 'unknown' | 'connected' | 'failed'; notice: string | null; onDismiss: () => void }) {
   return <div className="piMcpCommandStatus" role="status" aria-live="polite">
     <span>MCP connection: {status}.{notice ? ` ${notice}` : ' Waiting for Pi status; check the MCP configuration if this does not update.'}</span>
-    <button type="button" aria-label="Dismiss MCP command status" onClick={onDismiss}>×</button>
+    <button type="button" aria-label="Dismiss MCP command status" onMouseDown={(event) => event.preventDefault()} onClick={onDismiss}>×</button>
   </div>;
 }
 
