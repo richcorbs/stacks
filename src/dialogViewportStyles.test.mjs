@@ -1,8 +1,9 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-const rule = (selector) => css.slice(css.indexOf(`${selector} {`)).split('}')[0];
+const rule = (selector) => cssDeclarations(css, selector);
 const component = (path) => readFileSync(new URL(`./components/${path}.tsx`, import.meta.url), 'utf8');
 
 describe('window-constrained dialogs', () => {

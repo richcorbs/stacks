@@ -1,14 +1,10 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
-function declarationsFor(selector) {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rule = styles.match(new RegExp(`(?:^|\\})\\s*${escapedSelector}\\s*\\{([^}]*)\\}`, 'm'));
-  if (!rule) throw new Error(`Missing CSS rule for ${selector}`);
-  return rule[1];
-}
+function declarationsFor(selector) { return cssDeclarations(styles, selector); }
 
 describe('kanban hierarchy heading layout', () => {
   it.each(['.kanbanCardSource', '.kanbanDetailHeaderMeta'])('keeps %s on one justified row', (selector) => {
@@ -53,11 +49,11 @@ describe('kanban hierarchy heading layout', () => {
   it('matches heading project and status sizing, including interface font adjustments', () => {
     const project = declarationsFor('.kanbanCardSourceLeft > .kanbanProjectBadge');
     const status = declarationsFor('.kanbanCardStatusBadge');
-    const sharedFont = 'calc(11px + var(--ui-font-delta, 0px))';
+    const sharedFont = 'var(--fs-11)';
 
     expect(project).toContain(`font-size: ${sharedFont}`);
     expect(status).toContain(`font: 650 ${sharedFont} system-ui, sans-serif`);
-    expect(declarationsFor('.kanbanProjectBadge')).toContain('font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif');
+    expect(declarationsFor('.kanbanProjectBadge')).toContain('font: 650 var(--fs-12) system-ui, sans-serif');
     for (const declarations of [project, status]) {
       expect(declarations).toContain('padding: 4px 8px');
       expect(declarations).not.toMatch(/(?:^|;)\s*(?:line-height|height):/);
@@ -72,9 +68,9 @@ describe('kanban hierarchy heading layout', () => {
     const assignment = declarationsFor('.kanbanProjectAssignment');
 
     expect(badge).toContain('padding: 3px 8px');
-    expect(badge).toContain('font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif');
+    expect(badge).toContain('font: 650 var(--fs-12) system-ui, sans-serif');
     expect(assignment).toContain('padding: 7px 28px 7px 9px');
-    expect(assignment).toContain('font-size: calc(12px + var(--ui-font-delta, 0px))');
+    expect(assignment).toContain('font-size: var(--fs-12)');
     expect(assignment).toContain('line-height: 1.2');
   });
 
@@ -97,7 +93,8 @@ describe('kanban hierarchy heading layout', () => {
   it('centers the square close icon beside the hierarchy row with equal top and right insets', () => {
     const header = declarationsFor('.kanbanDetail > header');
     const close = declarationsFor('.kanbanDetail > header > .kanbanDetailClose');
-    const icon = declarationsFor('.kanbanDetailClose::before, .kanbanDetailClose::after');
+    const icon = declarationsFor('.kanbanDetailClose::before');
+    expect(declarationsFor('.kanbanDetailClose::after')).toContain("content: ''");
 
     expect(header).toContain('padding: 20px');
     expect(close).toContain('width: 26px');

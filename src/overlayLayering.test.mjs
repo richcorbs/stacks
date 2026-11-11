@@ -1,12 +1,11 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 function zIndexFor(selector) {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rule = styles.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
-  const zIndex = rule?.[1].match(/z-index:\s*(\d+)/)?.[1];
+  const zIndex = cssDeclarations(styles, selector).match(/z-index:\s*(\d+)/)?.[1];
   if (!zIndex) throw new Error(`Missing z-index for ${selector}`);
   return Number(zIndex);
 }

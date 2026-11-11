@@ -642,17 +642,17 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
           </div>
         </div>
         <div className="kanbanHeaderActions">
-          <button type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
+          <button data-card-action="secondary" type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
             newCard.show();
           }}>+ Add card</button>
-          <button type="button" disabled={projects.length === 0} onClick={() => {
+          <button data-card-action="secondary" type="button" disabled={projects.length === 0} onClick={() => {
             if (selectedProject) void replaceDirectWork(selectedProject.id);
             else {
               setProjectPickerPurpose('direct');
               setProjectSwitcherOpen(true);
             }
           }}>Open Project Workspace</button>
-          {syncAvailability.visible && <button type="button" title={syncAvailability.title} disabled={board.syncing || syncAvailability.disabled} onClick={() => board.sync(true)}>
+          {syncAvailability.visible && <button data-card-action="secondary" type="button" title={syncAvailability.title} disabled={board.syncing || syncAvailability.disabled} onClick={() => board.sync(true)}>
             <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
           </button>}
         </div>

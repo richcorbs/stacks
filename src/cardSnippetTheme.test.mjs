@@ -1,13 +1,10 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 const owner = '.kanbanDetail.cardWorkspace[data-project-color]';
-const declarationsFor = (selector) => {
-  const start = css.indexOf(`${selector} {`);
-  expect(start, selector).toBeGreaterThanOrEqual(0);
-  return css.slice(start + selector.length + 2, css.indexOf('}', start));
-};
+const declarationsFor = (selector) => cssDeclarations(css, selector);
 
 describe('open card snippet theming', () => {
   it('defines tokens only on project-owned open cards and matches the composer border mix', () => {

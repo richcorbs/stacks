@@ -147,15 +147,15 @@ export function ReleaseTab({ project, active = true, terminalFontSize = 13, term
     <div className="releaseControls">
       <label>Version <input aria-label="Release version" value={version} disabled={running || preparing} onChange={(e) => setVersion(e.target.value)} /></label>
       <span className="releaseLatest">Latest release: {latest}</span>
-      {!draftReady && !published && <button className="primaryAction" disabled={disabled} onClick={() => run('release')}>RELEASE</button>}
+      {!draftReady && !published && <button data-card-action="primary" className="primaryAction" disabled={disabled} onClick={() => run('release')}>RELEASE</button>}
       {draftReady && <>
         <span>Draft ready</span>
-        {setup?.canBuildAndTest && <button disabled={disabled} onClick={() => run('buildAndTest')}>BUILD &amp; TEST</button>}
-        {setup?.canPublish && <button className="primaryAction" disabled={disabled} onClick={() => run('publish')}>PUBLISH</button>}
+        {setup?.canBuildAndTest && <button data-card-action="secondary" disabled={disabled} onClick={() => run('buildAndTest')}>BUILD &amp; TEST</button>}
+        {setup?.canPublish && <button data-card-action="primary" className="primaryAction" disabled={disabled} onClick={() => run('publish')}>PUBLISH</button>}
       </>}
       {published && <span>Published</span>}
-      {completed && currentRun?.action === 'buildAndTest' && setup?.restartAfterTest && <button disabled={running || preparing} onClick={restartToTest}>RESTART TO TEST</button>}
-      <button disabled={running || preparing} onClick={() => setRefresh((n) => n + 1)} aria-label="Refresh release status">Refresh</button>
+      {completed && currentRun?.action === 'buildAndTest' && setup?.restartAfterTest && <button data-card-action="secondary" disabled={running || preparing} onClick={restartToTest}>RESTART TO TEST</button>}
+      <button data-card-action="secondary" disabled={running || preparing} onClick={() => setRefresh((n) => n + 1)} aria-label="Refresh release status">Refresh</button>
       {command && <span role="status">{status}</span>}
     </div>
     {stateError && <p role="alert">Draft status unavailable — {stateError}</p>}

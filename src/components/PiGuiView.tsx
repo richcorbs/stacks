@@ -684,8 +684,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         void invoke('set_pi_project_trusted', { cwd, projectPath: null, trusted: true })
           .then(() => { setMcpLocal((current) => current && { ...current, trusted: true }); setMcpTrustChanged(true); })
           .catch((error) => setComposerError(String(error)));
-      }} className="primaryAction">Trust directory</button></div></ConfirmationBoundary>}
-      {confirmMcpRestart && <ConfirmationBoundary key={terminal.id}><div onKeyDown={(e) => { if (e.key === 'Escape') setConfirmMcpRestart(false); }} className="piMcpRestartConfirm" role="alertdialog" aria-label="Restart active Pi session?"><span>Pi is running or has pending work. Restarting will interrupt it; the saved conversation will be resumed. Restart now?</span><button type="button" onClick={() => setConfirmMcpRestart(false)}>Cancel</button><button type="button" onClick={() => { setConfirmMcpRestart(false); void pi.restart().catch(() => {}); }} className="primaryAction">Restart Pi</button></div></ConfirmationBoundary>}
+      }} data-card-action="embedded-primary" className="primaryAction">Trust directory</button></div></ConfirmationBoundary>}
+      {confirmMcpRestart && <ConfirmationBoundary key={terminal.id}><div onKeyDown={(e) => { if (e.key === 'Escape') setConfirmMcpRestart(false); }} className="piMcpRestartConfirm" role="alertdialog" aria-label="Restart active Pi session?"><span>Pi is running or has pending work. Restarting will interrupt it; the saved conversation will be resumed. Restart now?</span><button type="button" onClick={() => setConfirmMcpRestart(false)}>Cancel</button><button type="button" onClick={() => { setConfirmMcpRestart(false); void pi.restart().catch(() => {}); }} data-card-action="embedded-primary" className="primaryAction">Restart Pi</button></div></ConfirmationBoundary>}
       {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={() => {
         if (pi.isStreaming || pi.queuedFollowUps.length || pi.queuedSteering.length || pi.uiRequest) setConfirmMcpRestart(true);
         else void pi.restart().catch(() => {});

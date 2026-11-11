@@ -1,4 +1,3 @@
-import '@xterm/xterm/css/xterm.css';
 import { openExternalUrl } from './externalLinks';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { Terminal } from '@xterm/xterm';

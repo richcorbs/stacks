@@ -1,8 +1,9 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-const rule = (selector) => css.slice(css.indexOf(`${selector} {`)).split('}')[0];
+const rule = (selector) => cssDeclarations(css, selector);
 
 describe('update dialog header styles', () => {
   it('allows the header and long titles to wrap', () => {
@@ -14,7 +15,7 @@ describe('update dialog header styles', () => {
 
   it('uses a smaller, interface-scaled text link with visible focus and disabled styling', () => {
     const link = rule('.updateModalHeader .updateReleaseNotesLink');
-    expect(link).toContain('font-size: calc(12px + var(--ui-font-delta, 0px))');
+    expect(link).toContain('font-size: var(--fs-12)');
     expect(link).toContain('background: transparent');
     expect(link).toContain('text-transform: none');
     expect(link).toContain('text-decoration: underline');

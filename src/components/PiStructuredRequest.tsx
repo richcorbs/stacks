@@ -21,7 +21,7 @@ export function PiStructuredRequest({ request, onRespond }: {
     <div className="piStructuredRequestActions">
       {request.method === 'confirm'
         ? <>
-          <button className="primaryAction" type="button" aria-label={`${request.title}: Yes`} onClick={() => respond({ confirmed: true })}>Yes</button>
+          <button data-card-action="embedded-primary" className="primaryAction" type="button" aria-label={`${request.title}: Yes`} onClick={() => respond({ confirmed: true })}>Yes</button>
           <button type="button" aria-label={`${request.title}: No`} onClick={() => respond({ confirmed: false })}>No</button>
         </>
         : request.options.map((option, index) => <button

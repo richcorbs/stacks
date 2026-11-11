@@ -58,7 +58,7 @@ export function useDoneCleanup(dependencies: Omit<DoneCleanupDependencies, 'conf
         }}>
         <h2>Done card cleanup</h2>
         <p>{reportDetail}</p>
-        <div className="modalActions"><button autoFocus className="primaryAction" onClick={dismissReport}>OK</button></div>
+        <div className="modalActions"><button data-card-action="primary" autoFocus className="primaryAction" onClick={dismissReport}>OK</button></div>
       </div>
     </div>}
   </div>;

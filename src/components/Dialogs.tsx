@@ -25,7 +25,7 @@ export function Dialog({ dialog, setDialog, onCancel, onSubmit }: {
         <fieldset className="dialogFields" disabled={submitting}><DialogFields dialog={dialog} setDialog={setDialog} firstInputRef={firstInputRef} showHeading={false} /></fieldset>
         {submitError && <div className="dialogSubmitError">{submitError}</div>}
       </div>
-      <div className="modalActions"><button type="button" disabled={submitting} onClick={onCancel}>Cancel</button><button className="primaryAction" disabled={submitting} type="submit">{dialogSubmitLabel(dialog.kind)}</button></div>
+      <div className="modalActions"><button data-card-action="secondary" type="button" disabled={submitting} onClick={onCancel}>Cancel</button><button data-card-action="primary" className="primaryAction" disabled={submitting} type="submit">{dialogSubmitLabel(dialog.kind)}</button></div>
     </form>
   </div>;
 }

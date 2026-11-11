@@ -27,8 +27,8 @@ export function ConfirmDialog({ title, children, cancelLabel = 'No', confirmLabe
         <h2>{title}</h2>
         <div className="dialogBody">{children}</div>
         <div className="modalActions">
-          <button data-confirm-cancel type="button" onClick={onCancel}>{cancelLabel}</button>
-          <button className="primaryAction" type="submit">{confirmLabel}</button>
+          <button data-card-action="secondary" data-confirm-cancel type="button" onClick={onCancel}>{cancelLabel}</button>
+          <button data-card-action="primary" className="primaryAction" type="submit">{confirmLabel}</button>
         </div>
       </form>
     </div></ConfirmationBoundary>

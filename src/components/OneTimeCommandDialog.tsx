@@ -51,8 +51,8 @@ export function OneTimeCommandDialog({ open, cwd, onCancel, onRun }: {
         <div className="oneTimeCommandCwd" title={cwd ?? undefined}>Runs from {cwd ?? 'the focused terminal directory'}</div>
         </div>
         <div className="modalActions">
-          <button type="button" onClick={onCancel}>Cancel</button>
-          <button className="primaryAction" type="submit" disabled={!command.trim()}>Run</button>
+          <button data-card-action="secondary" type="button" onClick={onCancel}>Cancel</button>
+          <button data-card-action="primary" className="primaryAction" type="submit" disabled={!command.trim()}>Run</button>
         </div>
       </form>
     </div>

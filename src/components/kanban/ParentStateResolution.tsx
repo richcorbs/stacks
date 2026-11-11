@@ -42,7 +42,7 @@ export function ParentStateResolution({ card, onReload }: { card: KanbanCard; on
         <p>Only local aggregate metadata will be corrected. Children, provider data, sessions and remote resources will be preserved. Any changed evidence will stop the repair.</p>
         {!confirming ? <button type="button" onClick={() => setConfirming(true)}>Resolve parent state</button> : <ConfirmationBoundary><div role="alertdialog" aria-label="Confirm parent repair" onKeyDown={(event) => { if (event.key === 'Escape') setConfirming(false); }}>
           <strong>Confirm metadata-only parent repair for {evidence.remote_child_ids.length} verified children?</strong>{' '}
-          <button className="primaryAction" type="button" disabled={busy} onClick={() => void resolve()}>Confirm repair</button>{' '}
+          <button data-card-action="embedded-primary" className="primaryAction" type="button" disabled={busy} onClick={() => void resolve()}>Confirm repair</button>{' '}
           <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
         </div></ConfirmationBoundary>}
       </>}
