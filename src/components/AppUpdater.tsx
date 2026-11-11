@@ -161,13 +161,13 @@ export function AppUpdater() {
       {error && <p className="dialogSubmitError">{error}</p>}
       </div>
       <Boundary><div className="modalActions">
-        {status !== 'downloading' && <button data-confirm-cancel type="button" onClick={closeDialog}>Later</button>}
-        {!update && status === 'error' && <button className="primaryAction" type="button" onClick={() => checkForUpdates(true).catch(console.error)}>Retry</button>}
+        {status !== 'downloading' && <button data-card-action="secondary" data-confirm-cancel type="button" onClick={closeDialog}>Later</button>}
+        {!update && status === 'error' && <button data-card-action="primary" className="primaryAction" type="button" onClick={() => checkForUpdates(true).catch(console.error)}>Retry</button>}
         {update && (status === 'available' || status === 'error') && <>
-          <button type="button" onClick={() => installUpdate(true).catch(console.error)}>Download. Restart later.</button>
-          <button className="primaryAction" type="button" onClick={() => installUpdate().catch(console.error)}>UPDATE</button>
+          <button data-card-action="secondary" type="button" onClick={() => installUpdate(true).catch(console.error)}>Download. Restart later.</button>
+          <button data-card-action="primary" className="primaryAction" type="button" onClick={() => installUpdate().catch(console.error)}>UPDATE</button>
         </>}
-        {status === 'confirmation' && <button className="primaryAction" type="button" onClick={() => restartDeferredUpdate().catch(console.error)}>Restart</button>}
+        {status === 'confirmation' && <button data-card-action="primary" className="primaryAction" type="button" onClick={() => restartDeferredUpdate().catch(console.error)}>Restart</button>}
       </div></Boundary>
     </section>
   </div>;

@@ -1,14 +1,10 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
-function declarationsFor(selector) {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rule = styles.match(new RegExp(`(?:^|\\n)${escapedSelector}\\s*\\{([^}]*)\\}`));
-  if (!rule) throw new Error(`Missing CSS rule for ${selector}`);
-  return rule[1];
-}
+function declarationsFor(selector) { return cssDeclarations(styles, selector); }
 
 describe('Pi composer inset styling', () => {
   it('uses the pane-width inset for the composer with extra bottom breathing room', () => {

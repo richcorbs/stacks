@@ -63,8 +63,8 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
         })}
       />)}</div>
       <div className="modalActions">
-        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button className="danger primaryAction" type="button" disabled={busy || confirmable.length === 0} onClick={async () => { if (busyRef.current) return; busyRef.current = true; setBusy(true); try { await onConfirm(confirmable); } finally { busyRef.current = false; setBusy(false); } }}>
+        <button data-card-action="secondary" type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button data-card-action="danger" className="danger primaryAction" type="button" disabled={busy || confirmable.length === 0} onClick={async () => { if (busyRef.current) return; busyRef.current = true; setBusy(true); try { await onConfirm(confirmable); } finally { busyRef.current = false; setBusy(false); } }}>
           <AsyncButtonLabel idle={bulk ? `Clean up ${confirmable.length}` : 'Clean up'} busy="Cleaning up…" isBusy={busy} />
         </button>
       </div>

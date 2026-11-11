@@ -1,15 +1,11 @@
+import { parseCss, declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-const rules = [...styles.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-  .map(([, selector, body]) => ({ selector: selector.trim(), body }));
+const rules = parseCss(styles);
 
-function declarationsFor(selector) {
-  const rule = rules.find((rule) => rule.selector === selector);
-  expect(rule, `Missing ${selector}`).toBeDefined();
-  return rule.body;
-}
+function declarationsFor(selector) { return cssDeclarations(styles, selector); }
 
 const neutralBorderRules = [
   '.kanbanCard',

@@ -25,8 +25,8 @@ export function ServerHandoffDialog({ externalId, busy, onCancel, onConfirm }: {
       <h2 id="server-handoff-title">Start this server?</h2>
       <div className="dialogBody"><p>Shutdown the server running on card #{externalId}?</p></div>
       <div className="modalActions">
-        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button className="primaryAction" type="submit" disabled={busy}>Shutdown and start</button>
+        <button data-card-action="secondary" type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button data-card-action="primary" className="primaryAction" type="submit" disabled={busy}>Shutdown and start</button>
       </div>
     </form>
   </div></ConfirmationBoundary>;

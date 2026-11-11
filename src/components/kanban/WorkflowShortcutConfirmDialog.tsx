@@ -7,7 +7,7 @@ export function WorkflowShortcutConfirmDialog({ label, onCancel, onConfirm }: { 
       onKeyDown={(event) => { handleDialogShortcut(event, true); if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onCancel(); } }}
       onSubmit={(event) => { event.preventDefault(); onConfirm(); }}>
       <h2>Confirm ‘{label}’?</h2>
-      <div className="modalActions"><button type="button" onClick={onCancel}>Cancel</button><button className="primaryAction" type="submit">Confirm</button></div>
+      <div className="modalActions"><button data-card-action="secondary" type="button" onClick={onCancel}>Cancel</button><button data-card-action="primary" className="primaryAction" type="submit">Confirm</button></div>
     </form>
   </div></ConfirmationBoundary>;
 }

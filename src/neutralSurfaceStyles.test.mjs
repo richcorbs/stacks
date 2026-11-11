@@ -1,9 +1,9 @@
+import { parseCss } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-const rules = [...styles.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-  .map(([, selector, body]) => ({ selector: selector.trim(), body }));
+const rules = parseCss(styles);
 const backgrounds = (body) => [...body.matchAll(/\bbackground(?:-color)?:\s*([^;]+);/g)].map((m) => m[1]);
 
 // These are content, CSS-drawn borders/indicators, brands, or semantic states,
@@ -26,7 +26,8 @@ const intentional = new Set([
   '.terminalHostFrame',
   '.terminalHost',
   '.xterm',
-  '.xterm .xterm-viewport,\n.xterm .xterm-screen,\n.xterm .xterm-helpers,\n.xterm .xterm-scroll-area',
+  '.xterm .xterm-viewport',
+  '.xterm .xterm-screen,\n.xterm .xterm-helpers,\n.xterm .xterm-scroll-area',
   // Transparent unchanged/context diff lines inherit these content backgrounds.
   '.cardDiffContent',
   '.diffOverlay',

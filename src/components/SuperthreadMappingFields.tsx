@@ -71,7 +71,7 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
   }
 
   return <>
-    <div className="settingsInlineAction"><button type="button" disabled={state !== 'idle'} onClick={() => void connect()}>{state === 'testing' ? 'Testing…' : 'Test connection'}</button></div>
+    <div className="settingsInlineAction"><button data-card-action="secondary" type="button" disabled={state !== 'idle'} onClick={() => void connect()}>{state === 'testing' ? 'Testing…' : 'Test connection'}</button></div>
     {dialog.superthreadWorkspaceId && <label>Authenticated workspace<input value={dialog.superthreadWorkspaceName || dialog.superthreadWorkspaceId} readOnly /></label>}
     {(spaces.length > 0 || dialog.superthreadSpaceId) && <label>Superthread space<select value={dialog.superthreadSpaceId ?? ''} onChange={(event) => {
       const space = spaces.find((item) => item.id === event.target.value);
@@ -90,7 +90,7 @@ export function SuperthreadMappingFields({ dialog, setDialog }: {
     <label>New card column <span>({SUPERTHREAD_NEW_CARD_COLUMN_HELP})</span><select value={dialog.superthreadDefaultIncomingColumnId ?? ''} onChange={(event) => setDialog({ ...dialog, superthreadDefaultIncomingColumnId: event.target.value })}><option value="">Select…</option>{lists.filter((list) => incomingIds.includes(list.id)).map(option)}</select></label>
     <label>In progress column<select value={dialog.superthreadInProgressColumnId ?? ''} onChange={(event) => setDialog({ ...dialog, superthreadInProgressColumnId: event.target.value, superthreadInProgressColumnName: lists.find((list) => list.id === event.target.value)?.title })}><option value="">Select…</option>{lists.map(option)}</select></label>
     <label>Stacks is done column<select value={dialog.superthreadDoneColumnId ?? ''} onChange={(event) => setDialog({ ...dialog, superthreadDoneColumnId: event.target.value, superthreadDoneColumnName: lists.find((list) => list.id === event.target.value)?.title })}><option value="">Select…</option>{lists.map(option)}</select></label>
-    <div className="settingsInlineAction"><button type="button" disabled={state !== 'idle'} onClick={() => void test()}>{state === 'testing' ? 'Testing…' : 'Test configuration'}</button>{message && <span role="status">{message}</span>}</div>
+    <div className="settingsInlineAction"><button data-card-action="secondary" type="button" disabled={state !== 'idle'} onClick={() => void test()}>{state === 'testing' ? 'Testing…' : 'Test configuration'}</button>{message && <span role="status">{message}</span>}</div>
   </>;
 }
 

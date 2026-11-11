@@ -1,14 +1,10 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
-function declarationsFor(selector) {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rule = styles.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
-  if (!rule) throw new Error(`Missing CSS rule for ${selector}`);
-  return rule[1];
-}
+function declarationsFor(selector) { return cssDeclarations(styles, selector); }
 
 describe('Kanban list keyboard focus paint order', () => {
   it('raises only focused list rows above following ordinary and parent rows, even on hover', () => {

@@ -1,14 +1,10 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
-function declarationsFor(selector) {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rule = styles.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
-  if (!rule) throw new Error(`Missing CSS rule for ${selector}`);
-  return rule[1];
-}
+function declarationsFor(selector) { return cssDeclarations(styles, selector); }
 
 describe('card detail parent hierarchy badge styling', () => {
   it('keeps the compact neutral pill presentation scoped to the detail header', () => {
@@ -19,7 +15,7 @@ describe('card detail parent hierarchy badge styling', () => {
     expect(declarations).toContain('border-radius: 999px');
     expect(declarations).toContain('background: var(--surface-parent)');
     expect(declarations).toContain('color: #91a4b6');
-    expect(declarations).toContain('font: 650 calc(12px + var(--ui-font-delta, 0px)) system-ui, sans-serif');
+    expect(declarations).toContain('font: 650 var(--fs-12) system-ui, sans-serif');
   });
 
   it.each([

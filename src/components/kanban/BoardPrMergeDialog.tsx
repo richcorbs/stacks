@@ -43,15 +43,15 @@ export function BoardPrMergeDialog({ card, busy, intent, error, onCancel, onConf
       {error && <p className="kanbanNotice" role="alert">{error} {onRetryCleanup ? 'Retry cleanup without merging again.' : 'Close to review the updated PR status.'}</p>}
       </div>
       <div className="modalActions">
-        <button ref={closeRef} type="button" disabled={busy} onClick={onCancel}>{error ? 'Close' : 'Cancel'}</button>
-        {onRetryCleanup && <button className="primaryAction" type="button" disabled={busy} onClick={onRetryCleanup}>
+        <button data-card-action="secondary" ref={closeRef} type="button" disabled={busy} onClick={onCancel}>{error ? 'Close' : 'Cancel'}</button>
+        {onRetryCleanup && <button data-card-action="primary" className="primaryAction" type="button" disabled={busy} onClick={onRetryCleanup}>
           <AsyncButtonLabel idle="Retry cleanup" busy="Preparing cleanup…" isBusy={busy} />
         </button>}
         {!error && <>
-          <button type="button" disabled={busy} onClick={() => { if (!busy) onConfirm('merge'); }}>
+          <button data-card-action="secondary" type="button" disabled={busy} onClick={() => { if (!busy) onConfirm('merge'); }}>
             <AsyncButtonLabel idle="MERGE" busy="Merging…" isBusy={busy && intent === 'merge'} />
           </button>
-          <button ref={confirmRef} className="primaryAction" type="submit" disabled={busy}>
+          <button data-card-action="primary" ref={confirmRef} className="primaryAction" type="submit" disabled={busy}>
             <AsyncButtonLabel idle="MERGE & CLEANUP" busy="Merging & preparing cleanup…" isBusy={busy && intent === 'merge-and-cleanup'} />
           </button>
         </>}

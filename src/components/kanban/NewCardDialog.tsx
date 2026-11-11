@@ -51,9 +51,9 @@ export function NewCardDialog({
         <div className="modalActions kanbanNewCardActions">
           <label className="checkboxLabel"><input type="checkbox" checked={model.addMore} disabled={model.creating} onChange={(event) => model.setAddMore(event.target.checked)} />Add more</label>
           <div className="kanbanNewCardActionButtons">
-            <button type="button" disabled={model.creating} onClick={() => model.setOpen(false)}>Cancel</button>
-            <button type="button" disabled={model.creating || !model.projectId || !model.title.trim()} onClick={() => model.submit('queued')}>Add card</button>
-            <button className="primaryAction" type="submit" disabled={model.creating || !model.projectId || !model.title.trim()}>Add &amp; refine</button>
+            <button data-card-action="secondary" type="button" disabled={model.creating} onClick={() => model.setOpen(false)}>Cancel</button>
+            <button data-card-action="secondary" type="button" disabled={model.creating || !model.projectId || !model.title.trim()} onClick={() => model.submit('queued')}>Add card</button>
+            <button data-card-action="primary" className="primaryAction" type="submit" disabled={model.creating || !model.projectId || !model.title.trim()}>Add &amp; refine</button>
           </div>
         </div>
       </form>

@@ -259,10 +259,10 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
             {pageError && <div className="dialogSubmitError" role="alert">{pageError}</div>}
             </div>
             <div className="settingsPageActions">
-              {project && <button type="button" className="dangerAction" disabled={saving} onClick={() => setDeleteConfirm(true)}>Delete Project</button>}
+              {project && <button data-card-action="danger" type="button" className="dangerAction" disabled={saving} onClick={() => setDeleteConfirm(true)}>Delete Project</button>}
               <span />
-              {section && <button type="button" disabled={saving} onClick={restoreDefaults}>Restore Defaults</button>}
-              <button type="button" className="primaryAction" disabled={saving || !dirty} onClick={() => void save()}>Save</button>
+              {section && <button data-card-action="secondary" type="button" disabled={saving} onClick={restoreDefaults}>Restore Defaults</button>}
+              <button data-card-action="primary" type="button" className="primaryAction" disabled={saving || !dirty} onClick={() => void save()}>Save</button>
             </div>
           </main>
         </div>
@@ -271,10 +271,10 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
             <h3 id="unsaved-title">Save changes?</h3><div className="dialogBody"><p>This page has unsaved changes.</p>
             {pageError && <div className="dialogSubmitError" role="alert">{pageError}</div>}
             </div>
-            <div className="modalActions"><button type="button" disabled={saving} onClick={cancelPending}>Cancel</button><button type="button" disabled={saving} onClick={finishPending}>Discard</button><button type="button" className="primaryAction" disabled={saving} autoFocus onClick={async () => { if (await save()) finishPending(); }}>Save</button></div>
+            <div className="modalActions"><button data-card-action="secondary" type="button" disabled={saving} onClick={cancelPending}>Cancel</button><button data-card-action="secondary" type="button" disabled={saving} onClick={finishPending}>Discard</button><button data-card-action="primary" type="button" className="primaryAction" disabled={saving} autoFocus onClick={async () => { if (await save()) finishPending(); }}>Save</button></div>
           </div>
         </div></ConfirmationBoundary>}
-        {deleteConfirm && <ConfirmationBoundary key={project?.id}><div className="settingsPromptBackdrop" onMouseDown={() => setDeleteConfirm(false)}><form className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { handleDialogShortcut(event, true); if (event.key === 'Escape' && !saving) { event.preventDefault(); setDeleteConfirm(false); } }} onSubmit={(event) => { event.preventDefault(); void confirmDelete(); }}><h3 id="delete-project-title">Delete project?</h3><div className="dialogBody"><p>This will remove “{project?.name}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p></div><div className="modalActions"><button type="button" disabled={saving} onClick={() => setDeleteConfirm(false)}>Cancel</button><button type="submit" className="dangerAction" data-dialog-primary disabled={saving} autoFocus>Delete</button></div></form></div></ConfirmationBoundary>}
+        {deleteConfirm && <ConfirmationBoundary key={project?.id}><div className="settingsPromptBackdrop" onMouseDown={() => setDeleteConfirm(false)}><form className="settingsPrompt" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { handleDialogShortcut(event, true); if (event.key === 'Escape' && !saving) { event.preventDefault(); setDeleteConfirm(false); } }} onSubmit={(event) => { event.preventDefault(); void confirmDelete(); }}><h3 id="delete-project-title">Delete project?</h3><div className="dialogBody"><p>This will remove “{project?.name}” and permanently delete its completed card history. Active cards or remaining card environments block deletion.</p></div><div className="modalActions"><button data-card-action="secondary" type="button" disabled={saving} onClick={() => setDeleteConfirm(false)}>Cancel</button><button data-card-action="danger" type="submit" className="dangerAction" data-dialog-primary disabled={saving} autoFocus>Delete</button></div></form></div></ConfirmationBoundary>}
       </div>
     </div>
   );

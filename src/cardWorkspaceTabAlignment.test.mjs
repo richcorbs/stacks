@@ -1,15 +1,11 @@
+import { declarationsFor as cssDeclarations } from './test/cssParser.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 const tabHoverSelector = '.cardWorkspaceTabs > button:hover:not(:disabled),\n.cardDiffTab:hover:has(button:not(:disabled)),\n.cardServiceTab:hover:has(button:not(:disabled))';
 
-function declarationsFor(selector) {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rule = styles.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
-  if (!rule) throw new Error(`Missing CSS rule for ${selector}`);
-  return rule[1];
-}
+function declarationsFor(selector) { return cssDeclarations(styles, selector); }
 
 describe('shared card workspace tab alignment', () => {
   it('keeps card workspace chrome stable while switching views', () => {
@@ -83,10 +79,9 @@ describe('shared card workspace tab alignment', () => {
     const projectHoverSelector = tabHoverSelector.split(',\n')
       .map((selector) => `.cardWorkspace[data-project-color] ${selector}`).join(',\n');
     expect(declarationsFor(projectHoverSelector)).toContain('background: var(--project-card-hover-surface)');
-    expect(declarationsFor('[data-project-color="blue"]')).toContain('--project-card-hover-surface: #192838');
-    expect(declarationsFor('[data-project-color]:not([data-project-color="blue"])'))
+    expect(declarationsFor('[data-project-color]'))
       .toContain('--project-card-hover-surface: color-mix(in srgb, var(--project-accent) 24%, #15202c)');
-    for (const color of ['slate', 'teal', 'green', 'amber', 'coral', 'rose', 'violet', 'indigo', 'cyan']) {
+    for (const color of ['blue', 'slate', 'teal', 'green', 'amber', 'coral', 'rose', 'violet', 'indigo', 'cyan']) {
       expect(declarationsFor(`[data-project-color="${color}"]`)).toMatch(/--project-accent: #[0-9a-f]{6}/);
     }
   });
