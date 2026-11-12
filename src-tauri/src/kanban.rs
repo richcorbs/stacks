@@ -35,7 +35,7 @@ mod cleanup;
 mod commands;
 mod domain;
 mod done_retention;
-pub(crate) use done_retention::CARD_RESOURCE_START_LOCK;
+pub(crate) use done_retention::{CARD_RESOURCE_START_LOCK, ensure_not_retiring as ensure_card_not_retiring};
 pub use done_retention::{DoneCleanupCandidate, DoneCleanupPreview, DoneCleanupResult};
 mod environment;
 mod git_effects;

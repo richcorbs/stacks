@@ -218,7 +218,8 @@ fn attempt(service: &SuperthreadService, id: &str) -> Result<(), String> {
         let current:Option<(String,String,String,i64,i64,String,i64)>=connection.query_row(
             "SELECT c.external_provider,c.external_id,c.board_id,c.workflow_revision,p.superthread_mapping_revision,c.status,c.scope_suspended FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1 AND c.project_id=?2",
             params![op.card_id,op.project_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional().map_err(db_error)?;
-        let applies = current.as_ref().is_some_and(
+        let retiring = connection.query_row("SELECT EXISTS(SELECT 1 FROM card_retirements r JOIN kanban_cards c ON c.id=r.card_id WHERE r.card_id=?1 AND c.status='done' AND c.done_entered_at=r.done_entered_at)", [&op.card_id], |r| r.get::<_,bool>(0)).map_err(db_error)?;
+        let applies = !retiring && current.as_ref().is_some_and(
             |(provider, external, board, workflow, integration, status, suspended)| {
                 provider == &op.provider
                     && external == &op.external_id

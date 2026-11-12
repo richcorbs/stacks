@@ -24,7 +24,7 @@ pub(in crate::kanban) fn next_local_card_number(
 ///
 /// Every DDL change must bump this constant and insert the matching `schema_migrations`
 /// row; `current_schema_migration_covers_every_migration` enforces the pairing.
-pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 79;
+pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 80;
 
 /// Cache of the one-time database initialization. Failures are recorded so concurrent callers
 /// see the same error, but an explicit reset (after a successful restore) retries.
@@ -1017,6 +1017,16 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     // (sync/refinement) may restore leaf eligibility.
     connection.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (77,unixepoch())", []).map_err(db_error)?;
     migrate_done_retention(connection)?;
+    connection.execute_batch("CREATE TABLE IF NOT EXISTS card_retirements (
+        card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
+        done_entered_at INTEGER NOT NULL, identity TEXT NOT NULL, resources TEXT, evidence TEXT,
+        phase TEXT NOT NULL DEFAULT 'runtime', error TEXT
+    );
+    CREATE TABLE IF NOT EXISTS retired_provider_cards (
+        binding_id TEXT NOT NULL, external_id TEXT NOT NULL, retired_at INTEGER NOT NULL,
+        PRIMARY KEY(binding_id,external_id)
+    );
+    INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (80,unixepoch());").map_err(db_error)?;
     provider_sync::recover_interrupted(connection)?;
     retire_release_journals(connection)?;
     Ok(())

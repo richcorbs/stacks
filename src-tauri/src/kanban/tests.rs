@@ -1970,7 +1970,7 @@ fn imports_cards_without_disconnected_cleaned_tombstones() {
 }
 
 #[test]
-fn manual_done_cleanup_emits_removals_and_does_not_suppress_superthread_reimport() {
+fn manual_done_retirement_emits_removals_and_tombstones_superthread_reimport() {
     let mut db = Connection::open_in_memory().unwrap();
     configure_connection(&db).unwrap();
     migrate(&db).unwrap();
@@ -1985,15 +1985,17 @@ fn manual_done_cleanup_emits_removals_and_does_not_suppress_superthread_reimport
     sync_cards(&mut db,"owner",import()).unwrap();
     assert_eq!(db.query_row("SELECT done_entered_at FROM kanban_cards WHERE id=?1", [&id], |row| row.get::<_,i64>(0)).unwrap(),old);
     let preview = super::done_retention::preview(&db,unix_timestamp()).unwrap();
-    let (result, change) = execute_board_mutation(&mut db, |db| super::done_retention::delete_candidates(db,&preview.candidates,unix_timestamp(), |_| Ok(()), |db,id| db.execute("DELETE FROM kanban_cards WHERE id=?1", [id]).map(|_| ()).map_err(db_error))).unwrap();
+    let storage_root = tempfile::tempdir().unwrap();
+    let storage = storage_root.path().canonicalize().unwrap();
+    let (result, change) = execute_board_mutation(&mut db, |db| super::done_retention::delete_candidates(db,&preview.candidates,unix_timestamp(), |_| Ok(()), |db,id| super::done_retention::stage_and_delete_at(db,id,&storage.join("live"),&storage.join("staged")))).unwrap();
     assert_eq!(result.deleted,1);
     assert_eq!(change.unwrap().removed_ids,vec![id.clone()]);
-    // Normal import rules still apply when the remote card moves backwards.
-    let imported = sync_cards(&mut db,"owner",import()).unwrap();
-    assert_eq!(imported.len(),1);
-    assert_eq!(imported[0].id,id);
-    assert_eq!(imported[0].status,"needs_refinement");
-    assert_eq!(db.query_row("SELECT done_entered_at FROM kanban_cards WHERE id=?1", [&id], |row| row.get::<_,Option<i64>>(0)).unwrap(),None);
+    // Same remote snapshot, even in an active column, must not resurrect it.
+    assert!(sync_cards(&mut db,"owner",import()).unwrap().is_empty());
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM retired_provider_cards",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+    // The same external id in a different binding/account is independent.
+    test_project(&db,"other","superthread","/tmp/other");
+    assert_eq!(sync_cards(&mut db,"other",import()).unwrap().len(),1);
 }
 
 #[test]

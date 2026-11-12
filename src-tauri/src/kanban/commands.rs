@@ -91,7 +91,7 @@ pub async fn kanban_clean_up_done_cards(
     app: AppHandle,
 ) -> Result<DoneCleanupResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        super::done_retention::execute(candidates, app.state::<Mutex<PiRpcRegistry>>().inner(), app.state::<Mutex<PtyRegistry>>().inner())
+        super::done_retention::execute(candidates, app.state::<Mutex<PiRpcRegistry>>().inner(), app.state::<Mutex<PtyRegistry>>().inner(), app.state::<WorkspaceSetupState>().inner())
     }).await.map_err(|error| format!("Done cleanup worker failed: {error}"))?
 }
 

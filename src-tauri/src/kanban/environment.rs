@@ -848,7 +848,11 @@ pub(in crate::kanban) async fn kanban_start_environment_operation(
     explicit_retry: Option<bool>,
 ) -> Result<KanbanCard, String> {
     let operation_id = format!("environment:{id}");
-    let cancelled = state.begin(&operation_id)?;
+    let cancelled = {
+        let _resource_guard = CARD_RESOURCE_START_LOCK.lock().map_err(|_| "Card resource lock failed".to_string())?;
+        super::done_retention::ensure_not_retiring(&id)?;
+        state.begin(&operation_id)?
+    };
     let worker_cancelled = std::sync::Arc::clone(&cancelled);
     let worker_id = id.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
