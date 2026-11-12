@@ -1,9 +1,9 @@
 use super::*;
 
 fn database() -> Connection {
-    let connection = Connection::open_in_memory().unwrap();
+    let mut connection = Connection::open_in_memory().unwrap();
     connection.execute_batch("PRAGMA foreign_keys=ON").unwrap();
-    super::super::repository::migrate(&connection).unwrap();
+    super::super::repository::initialize_connection(&mut connection).unwrap();
     connection
 }
 fn card(connection: &Connection, id: &str, provider: &str, project: &str, status: &str, age: i64) {
@@ -166,12 +166,21 @@ fn execution_revalidates_status_timestamp_and_new_hierarchy() {
         remove,
     )
     .unwrap();
-    assert_eq!((result.deleted, result.skipped), (0, 4));
-    assert_eq!(count(&db), 5);
+    assert_eq!((result.deleted, result.skipped), (2, 2));
+    assert_eq!(count(&db), 3);
+    assert_eq!(
+        db.query_row(
+            "SELECT parent_id FROM kanban_cards WHERE id='retained'",
+            [],
+            |r| r.get::<_, Option<String>>(0)
+        )
+        .unwrap(),
+        None
+    );
 }
 
 #[test]
-fn fully_eligible_groups_delete_leaf_first_and_cascade_local_history() {
+fn fully_eligible_hierarchies_retire_independently_and_cascade_local_history() {
     let mut db = database();
     for id in ["parent", "child", "grandchild"] {
         card(&db, id, "local:p", "p", "done", RETENTION_SECONDS + 100);
@@ -194,7 +203,7 @@ fn fully_eligible_groups_delete_leaf_first_and_cascade_local_history() {
     )
     .unwrap();
     assert_eq!(result.deleted, 3);
-    assert_eq!(order, vec!["grandchild", "child", "parent"]);
+    assert_eq!(order, vec!["child", "grandchild", "parent"]);
     for table in [
         "card_events",
         "card_pi_lifecycle",
@@ -210,7 +219,7 @@ fn fully_eligible_groups_delete_leaf_first_and_cascade_local_history() {
 }
 
 #[test]
-fn unsafe_resources_and_runtimes_retain_the_entire_hierarchy() {
+fn resources_and_relationships_are_not_automatic_exclusions() {
     let mut db = database();
     for id in [
         "parent", "child", "runtime", "cleanup", "provider", "delivery",
@@ -238,16 +247,15 @@ fn unsafe_resources_and_runtimes_retain_the_entire_hierarchy() {
         remove,
     )
     .unwrap();
-    assert_eq!((result.deleted, result.skipped), (0, 6));
-    assert_eq!(count(&db), 6);
-    assert!(result
-        .details
-        .iter()
-        .any(|detail| detail.contains("unresolved provider")));
+    // Existing environments, failed operations and relationships are not policy
+    // exclusions. The injected resource handler is responsible for retiring them.
+    assert_eq!((result.deleted, result.failed), (5, 1));
+    assert_eq!(count(&db), 1);
+    assert!(result.details.iter().any(|d| d.contains("active runtime")));
 }
 
 #[test]
-fn group_failure_rolls_back_children_and_keeps_unrelated_successes() {
+fn failure_retains_only_the_failed_card_and_keeps_unrelated_successes() {
     let mut db = database();
     for id in ["parent", "child", "sibling", "unrelated"] {
         card(&db, id, "local:p", "p", "done", RETENTION_SECONDS + 100);
@@ -272,8 +280,8 @@ fn group_failure_rolls_back_children_and_keeps_unrelated_successes() {
         },
     )
     .unwrap();
-    assert_eq!((result.deleted, result.failed), (1, 3));
-    assert_eq!(count(&db), 3);
+    assert_eq!((result.deleted, result.failed), (3, 1));
+    assert_eq!(count(&db), 1);
 }
 
 #[test]
@@ -371,7 +379,7 @@ fn refuses_unsafe_storage_and_lossy_directory_collisions() {
         remove,
     )
     .unwrap();
-    assert_eq!(result.skipped, 2);
+    assert_eq!(result.failed, 2);
     let root = std::env::temp_dir()
         .canonicalize()
         .unwrap()

@@ -62,6 +62,19 @@ impl WorkspaceSetupState {
         }
     }
 
+    pub(crate) fn cancel_and_wait(&self, operation_id: &str) -> Result<(), String> {
+        self.cancel(operation_id);
+        let start = Instant::now();
+        loop {
+            let active = self.operations.lock().map_err(|_| "Setup registry lock failed")?.contains_key(operation_id);
+            if !active { return Ok(()); }
+            if start.elapsed() > Duration::from_secs(15) {
+                return Err("Setup shutdown did not finish within 15 seconds; resources preserved for retry".into());
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     fn cancel(&self, operation_id: &str) {
         if let Some(cancelled) = self
             .operations
@@ -272,6 +285,33 @@ mod tests {
         assert!(!second.load(Ordering::Acquire));
         state.finish("environment:first", &first);
         state.finish("environment:second", &second);
+    }
+
+    #[test]
+    fn retirement_waits_for_setup_process_group_shutdown() {
+        let state = std::sync::Arc::new(WorkspaceSetupState::default());
+        let flag = state.begin("environment:retiring").unwrap();
+        let unrelated = state.begin("environment:other").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let result_path = root.path().join("result");
+        let pid_path = result_path.with_extension("pid");
+        let cwd = root.path().to_string_lossy().into_owned();
+        let worker_state = std::sync::Arc::clone(&state);
+        let worker = std::thread::spawn(move || {
+            let result = super::run_workspace_setup_durable("sleep 30".into(), cwd, &flag, &result_path);
+            worker_state.finish("environment:retiring", &flag);
+            result
+        });
+        let started = std::time::Instant::now();
+        while !pid_path.exists() {
+            assert!(started.elapsed() < std::time::Duration::from_secs(5));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        state.cancel_and_wait("environment:retiring").unwrap();
+        assert!(worker.join().unwrap().err().unwrap().contains("cancelled"));
+        assert!(!pid_path.exists());
+        assert!(!unrelated.load(Ordering::Acquire));
+        state.finish("environment:other", &unrelated);
     }
 
     #[test]

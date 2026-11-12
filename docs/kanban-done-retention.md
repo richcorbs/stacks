@@ -1,69 +1,108 @@
-# Manual Done-card retention
+# Manual Done-card retirement
 
 Cmd+P → **Clean up all Done cards completed more than 7 days ago**.
 
-- Global: queries persisted cards in every project, including out-of-scope cards,
-  local cards, and Superthread-backed copies. All Done outcomes use `status=done`.
-- Preview is read-only. Confirmation states the candidate count, permanent local
-  deletion, and all-project scope. Cancelling does not mutate anything.
-- Execution only considers the confirmed IDs and Done-entry timestamps, then
-  revalidates current status, age, hierarchy, runtime inventory, and operations.
-  Cards that became eligible after preview wait for the next invocation.
-- No timer, startup cleanup, provider mutations, remote deletion, Git commands,
-  branch removal, or worktree teardown are part of this action.
+This is an explicit global discard operation, not a timer or startup task. It
+considers all persisted local and Superthread-backed copies across all projects,
+including out-of-scope cards and all Done outcomes. Only confirmed IDs and their
+continuous Done-entry timestamps are considered; newly eligible cards wait until
+the next invocation. The shared confirmation boundary retains its Cancel-first
+focus, two-second countdown, and submission guard. There are no per-card prompts.
+
+The confirmation authorizes stopping card Pi processes, terminals (including
+managed services), and setup work, forcibly removing **owned, registered local
+Git worktrees even when dirty**, deleting **owned local branches even when
+unmerged**, then deleting local records, history, sessions and card-owned files.
+Uncommitted content is not preserved by Git history; deleting an unmerged branch
+can also make its commits unreachable and eventually unrecoverable. Runtime
+shutdown stops Pi without deleting its conversations before Git cleanup succeeds.
+
+## Remote policy
+
+- **Remote Git branches are not deleted.** Retirement performs no network Git
+  effects and does not close, merge, or delete pull requests. Remote Git history
+  can remain, independently of whether a local branch was merged.
+- **Remote Superthread cards are not modified or deleted.** They remain the
+  provider historical record. Retirement atomically adds a
+  `retired_provider_cards(binding_id, external_id)` tombstone with local deletion.
+  Subsequent imports ignore that remote ID for the same binding, even after a
+  remote column change. A different account/binding is independent. Tombstones
+  are permanent; there is no automatic resurrection or expiry. Missing binding
+  identity is an actionable failure, not permission to delete without suppression.
+- Pending provider operations cannot execute for the authorized Done period while
+  retirement is pending. Existing failed/queued journals are not exclusion rules.
 
 ## Retention clock
 
-Schema migration 78 adds `kanban_cards.done_entered_at` (Unix seconds). SQLite
-triggers maintain it on insert and actual status changes, including provider
-scope transitions and hierarchy reconciliation. Edits, syncs and outcome changes
-while continuously Done leave it unchanged. Leaving Done clears it; re-entry
-starts a fresh period. Eligibility is strictly `< now - 604800`, not `<=`.
+Migration 78 adds `kanban_cards.done_entered_at` (Unix seconds). SQLite triggers
+maintain it on insertion and actual status transitions. Edits, provider refreshes,
+and outcome changes while continuously Done leave it unchanged. Leaving Done
+clears it; re-entry starts a fresh period. Eligibility is strictly
+`done_entered_at < now - 604800`, not `<=`. `updated_at` is never an age source.
+Conservative history backfill and project-store rebuild behavior are unchanged.
 
-Backfill uses the latest successful non-Done → Done history event only if there
-is no later successful exit in the retained history. Missing or contradictory
-history starts retention at migration time. `updated_at` is never an age source.
-The project-store identity-table rebuild preserves the timestamp and reinstalls
-its triggers.
+## Durable execution and retry
 
-## Safety and partial failures
+Migration 80 adds the retirement journal and binding-scoped provider tombstones.
+Each card is independent; failures do not roll back successful cards. Qualifying
+hierarchy members retire regardless of parents/children. Surviving children are
+detached (`parent_id=NULL`) in the deletion transaction, never deleted merely due
+to their relationship. Remote hierarchy relationships are untouched.
 
-Linked local hierarchies are retention units: a retained/unsafe member blocks its
-connected group. Fully eligible groups are deleted leaf-first in a group
-savepoint. A failure retains the entire group's database records; unrelated
-groups may still succeed. Existing board revision/removal events update boards
-and invalidate deleted selections/details without restarting. Frontend session
-caches are retired without workflow reconciliation or backend session mutations.
+1. Commit authorization with card/provider/project identity and the exact Done
+   timestamp **before** any destructive process or filesystem effects.
+2. Cancel supervised setup and wait for its worker to finish. A timeout, orphan
+   setup still alive, or unrecorded Git inventory drift is a reported failure.
+   Unknown PID ownership is not a reason to kill an arbitrary process.
+3. Coordinate using durable repository evidence, not a source path that may
+   already be removed. Capture resource paths, repository identity, branches,
+   current exact tips, and resource-ledger evidence once, before Git effects.
+   Environment-creation and existing cleanup journals participate in ownership
+   recovery rather than automatically blocking retirement.
+4. Execute durably journaled phases: runtime shutdown → worktree removal → local
+   branch compare-and-delete → storage staging/local record deletion. Each phase
+   holds the board mutation lock from fresh Done/identity/ownership validation
+   through its effects. Resource startup is serialized and prohibited for that
+   pending Done period. A reactivated card can start resources normally; stale
+   retirement cannot continue deleting it.
+5. A new explicit confirmation for a later qualifying Done period starts fresh
+   capture while preserving old ownership evidence for resources already removed.
+   Ordinary retries retain the original captured tips and ledger evidence.
+6. Rename card files to `cards/.done-cleanup-<storage-key>` in the same transaction
+   as database cascades, tombstone insertion, and a `local_card_purge_jobs` entry.
+   Then purge staged files. Interrupted staging with a retained record is restored
+   or discovered on retry. Purge failures retain the durable job, report that the
+   record is gone but files remain, and are retried by this action even with zero
+   new candidates. Only a completed purge counts as fully retired.
 
-Cards with environments, unresolved setup/merge/delivery/provider/cleanup work,
-legacy workspace references, open PRs, or registered/starting runtimes are skipped.
-Resource startup and final deletion share a lock. Shared lossy directory keys,
-symlinked storage ancestors and nested Git checkouts are not deleted.
+A crash between a Git effect and phase commit leaves the previous phase and
+ownership evidence intact. Retrying safely accepts already absent resources
+only with durable proof. No ownership evidence is discarded on failure.
 
-Card-owned files are first renamed to a deterministic sibling directory:
-`cards/.done-cleanup-<storage-key>`. Card deletion/cascades and a durable
-`local_card_purge_jobs` entry commit together, then staged files are removed.
-Failed purges retain the job and report the path/error; invoking this same action
-retries them, even with zero newly eligible cards. Interrupted staging with a
-retained card is restored or discovered on retry. Do not manually discard a
-staging directory without checking the corresponding card and pending purge job.
+## Ownership is not overridden by discard authorization
 
-Purge jobs are temporary filesystem recovery work, **not tombstones or import
-suppression**. They are removed after successful file removal and are never
-consulted by Superthread import. Ordinary re-import rules remain unchanged.
-The development-data seeder discards these production-owned filesystem jobs.
+Checks reject primary checkouts/target branches, wrong repositories, changed
+branch tips, detached or unregistered checkouts, symlinked source/storage
+ancestors, nested Git checkouts, overlapping/shared card resource claims, branches
+checked out elsewhere, changed project targets, changed resource ledgers, and
+lossy/shared storage keys. There is no fallback `rm -rf` for an unregistered
+worktree. Local refs use expected-tip compare-and-delete. Genuine Git, permission,
+shutdown, ownership, and storage failures retain evidence and appear in results
+with retry instructions; they are not called successful retirement or quietly
+skipped. Only cards outside the confirmed continuous Done period are excluded.
+
+The development-data seeder clears production retirement/purge jobs (which refer
+to production resources), while preserving historical provider tombstones.
 
 ## Validation
 
-Automated coverage includes strict age boundaries, both providers/projects and
-Done outcomes, timestamp transitions/backfill, retained hierarchy/resource
-blockers, group rollback, database cascades, staging/crash retries, partial file
-failure recovery, symlink/key safety, board removal revisions, Superthread
-re-import, palette availability, confirmation/cancellation/empty/results, and
-frontend retirement without workflow mutations.
+Tests cover strict age boundaries and timestamp transitions/backfill, both
+providers/projects, hierarchy detachment and cascades, stale previews/reactivation,
+real dirty/unmerged Git resources, ownership ambiguity and changed tips/ledgers,
+shutdown failure, supervised setup cancellation/waiting, genuine Git failure and
+retry, crashes after worktree/ref removal before phase commits, staged-file and
+partial-purge recovery, symlink/key safety, board removal events, binding-scoped
+Superthread suppression, progress/results, and shared confirmation guards.
 
-For manual smoke testing, use an isolated profile with disposable cards: open
-Cmd+P both with and without a selected project; cancel once; confirm cleanup;
-check counts and any open deleted detail; verify remote cards are unchanged and
-a backwards-moved Superthread card can be imported normally. Do not age or delete
-real user cards just to run this smoke test.
+Smoke testing should use disposable cards in an isolated profile. Never age or
+retire real user cards merely to validate this action.

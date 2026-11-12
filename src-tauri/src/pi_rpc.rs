@@ -304,6 +304,9 @@ fn start_pi_session_operation(
     if pane_id.trim().is_empty() {
         return Err("Pi pane ID is required".to_string());
     }
+    if let Some(id) = crate::kanban::card_pi_owner(&pane_id) {
+        crate::kanban::ensure_card_not_retiring(&id)?;
+    }
     let cwd = canonical_project_path(&cwd)?;
     let project_path = project_path
         .as_deref()

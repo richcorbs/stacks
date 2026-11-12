@@ -49,6 +49,9 @@ pub fn spawn_pty(
     } else {
         None
     };
+    if let Some(id) = crate::kanban::card_terminal_owner(&terminal_id) {
+        crate::kanban::ensure_card_not_retiring(&id)?;
+    }
     let is_release = terminal_id.starts_with("release:");
     let _release_guard = if is_release {
         Some(

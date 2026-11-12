@@ -27,6 +27,7 @@ const EXPECTED_TABLES: &[&str] = &[
     "card_pi_lifecycle",
     "card_pi_lifecycle_events",
     "card_pull_requests",
+    "card_retirements",
     "card_service_definitions",
     "card_target_merge_operations",
     "environment_creation_operations",
@@ -41,6 +42,7 @@ const EXPECTED_TABLES: &[&str] = &[
     "projects",
     "provider_sync_attempts",
     "provider_sync_operations",
+    "retired_provider_cards",
     "schema_migrations",
     "scripted_delivery_operations",
     "superthread_bindings",
@@ -110,6 +112,8 @@ fn sanitize_database(path: &Path) -> Result<(), String> {
     // Pending purge jobs refer to production-owned storage, never seed them.
     let has_purge_jobs: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_card_purge_jobs')", [], |row| row.get(0)).map_err(db_error("Could not inspect purge jobs"))?;
     if has_purge_jobs { transaction.execute("DELETE FROM local_card_purge_jobs", []).map_err(db_error("Could not clear production purge jobs"))?; }
+    let has_retirements: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='card_retirements')", [], |row| row.get(0)).map_err(db_error("Could not inspect retirements"))?;
+    if has_retirements { transaction.execute("DELETE FROM card_retirements", []).map_err(db_error("Could not clear production retirement intents"))?; }
     transaction
         .execute_batch(
             "DELETE FROM card_cleanup_evidence;
@@ -167,6 +171,7 @@ fn validate_schema(connection: &Connection) -> Result<(), String> {
     let expected = EXPECTED_TABLES
         .iter()
         .filter(|name| migration >= 78 || **name != "local_card_purge_jobs")
+        .filter(|name| migration >= 80 || !matches!(**name, "card_retirements" | "retired_provider_cards"))
         .map(|name| (*name).to_string())
         .collect::<BTreeSet<_>>();
     if actual != expected {

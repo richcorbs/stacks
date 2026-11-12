@@ -7,6 +7,7 @@ import { runDoneCleanup, type DoneCleanupDependencies } from '../kanban/doneClea
 export function useDoneCleanup(dependencies: Omit<DoneCleanupDependencies, 'confirm' | 'report'>) {
   const { confirm, dialog } = useConfirmation();
   const [reportDetail, setReportDetail] = useState<string | null>(null);
+  const [retiring, setRetiring] = useState(false);
   const pendingReport = useRef<(() => void) | null>(null);
   const mounted = useRef(true);
   const running = useRef(false);
@@ -32,7 +33,12 @@ export function useDoneCleanup(dependencies: Omit<DoneCleanupDependencies, 'conf
       await runDoneCleanup({
         ...dependencies,
         confirm: async (detail) => mounted.current
-          && await confirm('Clean up Done cards', detail, 'Delete local copies') && mounted.current,
+          && await confirm('Retire old Done cards', detail, 'Discard work and retire') && mounted.current,
+        execute: async (candidates) => {
+          if (mounted.current) setRetiring(true);
+          try { return await dependencies.execute(candidates); }
+          finally { if (mounted.current) setRetiring(false); }
+        },
         report: (detail) => {
           if (!mounted.current) return Promise.resolve();
           return new Promise<void>((resolve) => {
@@ -45,6 +51,12 @@ export function useDoneCleanup(dependencies: Omit<DoneCleanupDependencies, 'conf
   }, [dependencies, confirm]);
   const dialogs = <div className="doneCleanupDialogs">
     {dialog}
+    {retiring && <div className="modalBackdrop">
+      <div className="modal doneCleanupReport" role="status" aria-live="polite">
+        <h2>Retiring old Done cards…</h2>
+        <p>Stopping card processes, removing owned local Git resources, then purging local records and files. Failures retain cleanup evidence for retry. Remote Git branches and Superthread cards are retained.</p>
+      </div>
+    </div>}
     {reportDetail !== null && <div className="modalBackdrop" onMouseDown={dismissReport}>
       <div className="modal doneCleanupReport" role="dialog" aria-modal="true" aria-label="Done card cleanup"
         onMouseDown={(event) => event.stopPropagation()}
@@ -62,5 +74,5 @@ export function useDoneCleanup(dependencies: Omit<DoneCleanupDependencies, 'conf
       </div>
     </div>}
   </div>;
-  return { cleanUpDone, dialogs, dialogOpen: Boolean(dialog) || reportDetail !== null };
+  return { cleanUpDone, dialogs, dialogOpen: Boolean(dialog) || retiring || reportDetail !== null };
 }

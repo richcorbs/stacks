@@ -411,6 +411,9 @@ fn upsert_provider_card(
     if external_id.is_empty() || card.title.trim().is_empty() {
         return Err("Superthread returned a card without an ID or title".to_string());
     }
+    if transaction.query_row("SELECT EXISTS(SELECT 1 FROM retired_provider_cards WHERE binding_id=?1 AND external_id=?2)",params![binding_id,external_id],|r|r.get::<_,bool>(0)).map_err(db_error)? {
+        return Err(format!("Superthread card {external_id} was locally retired for this binding and cannot be reimported"));
+    }
     let local_id = resolve_superthread_local_id(transaction, binding_id, external_id)?;
     let parent_id = if let Some(parent) = card.task_parent.as_ref() {
         Some(resolve_superthread_local_id(
@@ -480,6 +483,15 @@ mod tests {
             [],
         ).unwrap();
         connection
+    }
+
+    #[test]
+    fn explicit_refinement_cannot_resurrect_a_retired_provider_copy() {
+        let db=database();
+        db.execute("INSERT INTO retired_provider_cards(binding_id,external_id,retired_at) VALUES ('binding','old-child',1)",[]).unwrap();
+        let error=upsert_provider_card(&db,&child("old-child"),"owner","binding",unix_timestamp(),true).unwrap_err();
+        assert!(error.contains("locally retired"));
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM kanban_cards WHERE external_id='old-child'",[],|r|r.get::<_,i64>(0)).unwrap(),0);
     }
 
     fn snapshot(

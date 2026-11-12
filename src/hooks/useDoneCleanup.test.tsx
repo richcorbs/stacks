@@ -53,9 +53,9 @@ it('uses one in-app confirmation with shared focus/countdown guards and an undel
   const { run } = await start();
   expect(hasActiveConfirmation()).toBe(true);
   expect(cancelFocus).toHaveBeenCalledOnce();
-  expect(renderedText(buttons()[1])).toBe('Delete local copies (2)');
+  expect(renderedText(buttons()[1])).toBe('Discard work and retire (2)');
   expect(buttons()[1].props.disabled).toBe(true);
-  expect(text()).toContain('Permanently delete 1 eligible local card copies across all projects?');
+  expect(text()).toContain('Permanently retire 1 old Done card copies across all projects?');
   expect(text()).toContain('Also retry 2 pending local file cleanup(s).');
   renderer.root.findByType('form').props.onSubmit(event());
   expect(dependencies.execute).not.toHaveBeenCalled();
@@ -68,7 +68,7 @@ it('uses one in-app confirmation with shared focus/countdown guards and an undel
   expect(dependencies.execute).toHaveBeenCalledOnce();
   expect(dependencies.retireLocalState).toHaveBeenCalledWith(['local:1']);
   expect(hasActiveConfirmation()).toBe(false);
-  expect(renderer.root.findByType('p').children.join('')).toBe('Done cleanup across all projects: 1 deleted, 2 skipped, 3 failed.\n\nfirst detail\nsecond detail');
+  expect(renderer.root.findByType('p').children.join('')).toBe('Done retirement across all projects: 1 fully retired, 2 no longer qualifying, 3 failed (retry cleanup).\n\nfirst detail\nsecond detail');
   expect(buttons()).toHaveLength(1);
   expect(buttons()[0].children).toEqual(['OK']);
   expect(buttons()[0].props.disabled).toBeUndefined();
@@ -109,7 +109,7 @@ it('confirms pending-file retry even with zero candidates and shows errors in-ap
   vi.mocked(dependencies.preview).mockResolvedValue({ candidates: [], pending_artifacts: 2 });
   vi.mocked(dependencies.execute).mockRejectedValue(new Error('permission denied\nfile details'));
   const { run } = await start();
-  expect(text()).toContain('Permanently delete 0 eligible local card copies');
+  expect(text()).toContain('Permanently retire 0 old Done card copies');
   await accept();
   expect(dependencies.execute).toHaveBeenCalledWith([]);
   expect(renderer.root.findByType('p').children.join('')).toBe('Done cleanup failed: Error: permission denied\nfile details');
@@ -129,6 +129,8 @@ it('keeps execution guarded and retires local state even if the owner unmounts b
   vi.mocked(dependencies.execute).mockImplementation(() => new Promise((done) => { resolve = done; }));
   const { run } = await start();
   await accept();
+  expect(renderer.root.findByProps({ role: 'status' }).children.length).toBeGreaterThan(0);
+  expect(text()).toContain('Remote Git branches and Superthread cards are retained');
   await cleanup.cleanUpDone();
   expect(dependencies.preview).toHaveBeenCalledOnce();
   act(() => renderer.unmount());

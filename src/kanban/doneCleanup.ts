@@ -17,16 +17,18 @@ export async function runDoneCleanup(dependencies: DoneCleanupDependencies) {
       return;
     }
     const confirmed = await dependencies.confirm(
-      `Permanently delete ${preview.candidates.length} eligible local card copies across all projects?\n\n`
-      + 'These cards have continuously been in Done for more than 7 days. Local history, sessions, and card-owned files will be permanently deleted. '
-      + 'Superthread cards will not be modified or deleted remotely. Unsafe cards will be skipped. No branches or worktrees will be removed.'
+      `Permanently retire ${preview.candidates.length} old Done card copies across all projects?\n\n`
+      + 'These cards have continuously been in Done for more than 7 days. Stop their Pi sessions, terminals, managed services, and setup work; delete their owned local Git worktrees and branches, then local card records, history, sessions, and files. '
+      + 'This authorizes discarding uncommitted changes and unmerged commits. Git history does not preserve discarded work, and deleted branch commits may become unrecoverable. '
+      + 'Remote Git branches are retained. Remote Superthread cards remain unchanged; their retired local copies will not be imported again for the same binding. '
+      + 'Reactivated cards are excluded. Ownership or shutdown failures are reported for retry, never bypassed.'
       + (preview.pending_artifacts ? `\n\nAlso retry ${preview.pending_artifacts} pending local file cleanup(s).` : ''),
     );
     if (!confirmed) return;
     const result = await dependencies.execute(preview.candidates);
     dependencies.retireLocalState(result.removed_ids);
     await dependencies.report(
-      `Done cleanup across all projects: ${result.deleted} deleted, ${result.skipped} skipped, ${result.failed} failed.`
+      `Done retirement across all projects: ${result.deleted} fully retired, ${result.skipped} no longer qualifying, ${result.failed} failed (retry cleanup).`
       + (result.details.length ? `\n\n${result.details.join('\n')}` : ''),
     );
   } catch (error) {

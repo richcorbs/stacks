@@ -122,6 +122,11 @@ pub(in crate::kanban) fn sync_cards(
         if card.id.trim().is_empty() || card.title.trim().is_empty() {
             continue;
         }
+        // Retirement is permanent for this provider binding, even if the remote
+        // card later changes columns. No provider mutation is sent by retirement.
+        if transaction.query_row("SELECT EXISTS(SELECT 1 FROM retired_provider_cards WHERE binding_id=?1 AND external_id=?2)", params![binding_id,card.id.trim()], |r| r.get::<_, bool>(0)).map_err(db_error)? {
+            continue;
+        }
         let existing_id = transaction
             .query_row(
                 "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
