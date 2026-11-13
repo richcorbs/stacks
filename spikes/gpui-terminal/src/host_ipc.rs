@@ -110,6 +110,9 @@ impl HostLink {
                 let reader = BufReader::new(reader_stream);
                 for line in reader.lines() {
                     let Ok(line) = line else {
+                        if std::env::var_os("SPIKE_INPUT_DEBUG").is_some() {
+                            eprintln!("host ipc: read error -> quit");
+                        }
                         break;
                     };
                     if line.trim().is_empty() {
@@ -123,6 +126,9 @@ impl HostLink {
                         }
                         Err(error) => eprintln!("host ipc: bad command {line:?}: {error}"),
                     }
+                }
+                if std::env::var_os("SPIKE_INPUT_DEBUG").is_some() {
+                    eprintln!("host ipc: stream closed -> synthetic quit");
                 }
                 // The host is gone. Quit so the helper (and its PTYs) cannot
                 // outlive Stacks as an orphan process.
@@ -163,6 +169,9 @@ impl HostLink {
 
 impl Drop for HostLink {
     fn drop(&mut self) {
+        if std::env::var_os("SPIKE_INPUT_DEBUG").is_some() {
+            eprintln!("host ipc: HostLink dropped");
+        }
         // The reader thread owns a duplicate of the same socket, so dropping
         // the writer clone alone would never produce EOF locally. Shutdown
         // wakes the reader (which then synthesizes a quit command).

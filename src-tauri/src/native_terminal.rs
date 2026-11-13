@@ -30,6 +30,16 @@ pub const EVENT_NAME: &str = "native-terminal-event";
 const HELPER_EXECUTABLE: &str = "StacksNativeTerminal";
 const HELPER_CRATE_NAME: &str = "stacks-gpui-terminal-spike";
 
+/// Temporary diagnostics for the adjacent-window seam, enabled with
+/// `STACKS_NATIVE_TERMINAL_DEBUG=1`.
+macro_rules! native_debug {
+    ($($arg:tt)*) => {
+        if std::env::var_os("STACKS_NATIVE_TERMINAL_DEBUG").is_some() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 #[derive(Clone, Default)]
 pub struct NativeTerminalState {
     inner: Arc<Mutex<Inner>>,
@@ -44,6 +54,9 @@ struct Inner {
     ready: bool,
     visible: bool,
     launch_attempted: bool,
+    /// Guards against the same physical Cmd+T being dispatched twice (native
+    /// menu accelerator plus webview keydown, or a focus hand-off replay).
+    last_toggle_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -164,19 +177,42 @@ pub async fn native_terminal_command(
         return Err("Native global terminal is disabled".into());
     }
     let state = state.inner().clone();
+    if command == "toggle" {
+        let mut inner = state.inner.lock().unwrap_or_else(|poison| poison.into_inner());
+        if inner
+            .last_toggle_at
+            .is_some_and(|at| at.elapsed() < Duration::from_millis(250))
+        {
+            if std::env::var_os("STACKS_NATIVE_TERMINAL_DEBUG").is_some() {
+                eprintln!("native terminal: ignored duplicate toggle");
+            }
+            return Ok(());
+        }
+        inner.last_toggle_at = Some(Instant::now());
+    }
     let app_for_launch = app.clone();
     let launch_state = state.clone();
     tauri::async_runtime::spawn_blocking(move || ensure_started(&app_for_launch, &launch_state))
         .await
         .map_err(|error| error.to_string())??;
-    let payload = match command.as_str() {
+    send_command(&state, &command, index)
+}
+
+/// Shared command path for the Tauri command and debug automation.
+pub fn send_command(
+    state: &NativeTerminalState,
+    command: &str,
+    index: Option<usize>,
+) -> Result<(), String> {
+    let payload = match command {
         "select-tab" => serde_json::json!({
             "command": "select-tab",
             "index": index.unwrap_or(1).saturating_sub(1),
         }),
         other => serde_json::json!({ "command": other }),
     };
-    send(&state, &payload)
+    native_debug!("native terminal -> {payload}");
+    send(state, &payload)
 }
 
 /// Explicit stop, used by manual tests and by future teardown hooks. Normal
@@ -219,7 +255,37 @@ pub fn ensure_started(
     })
 }
 
+/// Remove socket files left behind by Stacks processes that were killed before
+/// their helper could clean up. The socket name carries the owner pid.
+fn cleanup_stale_sockets() {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(pid) = name
+            .strip_prefix("stacks-native-terminal-")
+            .and_then(|rest| rest.strip_suffix(".sock"))
+            .and_then(|pid| pid.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        if pid == std::process::id() as i32 {
+            continue;
+        }
+        let alive = unsafe { libc::kill(pid, 0) } == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+        if !alive {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 fn launch(app: &AppHandle, state: &NativeTerminalState) -> Result<(), String> {
+    cleanup_stale_sockets();
     let Some(helper) = helper_path(app) else {
         return Err(format!(
             "Native terminal helper not found. Build it with `npm run native-terminal:build` \
@@ -275,6 +341,16 @@ fn launch(app: &AppHandle, state: &NativeTerminalState) -> Result<(), String> {
         let _ = std::fs::remove_file(&socket_path);
         return Err("Native terminal helper did not connect to Stacks".into());
     };
+    // On macOS/BSD an accepted socket inherits the listener's O_NONBLOCK flag.
+    // The listener is polled non-blocking, so clear it on the connection or the
+    // event reader would immediately fail with EWOULDBLOCK and tear the bridge
+    // down right after the first command.
+    if let Err(error) = stream.set_nonblocking(false) {
+        let _ = child.kill();
+        let _ = std::fs::remove_file(&socket_path);
+        return Err(format!("Could not configure native terminal socket: {error}"));
+    }
+    native_debug!("native terminal: helper connected");
     let writer = stream
         .try_clone()
         .map_err(|error| format!("Could not clone native terminal socket: {error}"))?;
@@ -300,20 +376,37 @@ fn launch(app: &AppHandle, state: &NativeTerminalState) -> Result<(), String> {
 }
 
 fn read_events(app: AppHandle, state: NativeTerminalState, stream: UnixStream) {
-    let reader = BufReader::new(stream);
-    for line in reader.lines() {
-        let Ok(line) = line else {
-            break;
-        };
-        if line.trim().is_empty() {
-            continue;
+    native_debug!("native terminal: event reader started");
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                native_debug!("native terminal <- {}", line.trim_end());
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let Ok(event) = serde_json::from_str::<Value>(&line) else {
+                    native_debug!("native terminal: unparsable event {line:?}");
+                    continue;
+                };
+                handle_event(&app, &state, &event);
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.kind() == std::io::ErrorKind::Interrupted =>
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => {
+                eprintln!("native terminal: event read error: {error}");
+                break;
+            }
         }
-        let Ok(event) = serde_json::from_str::<Value>(&line) else {
-            eprintln!("native terminal: unparsable event {line:?}");
-            continue;
-        };
-        handle_event(&app, &state, &event);
     }
+    native_debug!("native terminal: event stream closed");
     let mut inner = state.inner.lock().unwrap_or_else(|poison| poison.into_inner());
     inner.ready = false;
     inner.visible = false;
@@ -329,6 +422,7 @@ fn read_events(app: AppHandle, state: NativeTerminalState, stream: UnixStream) {
 }
 
 fn handle_event(app: &AppHandle, state: &NativeTerminalState, event: &Value) {
+    native_debug!("native terminal: event {event}");
     let Some(kind) = event.get("event").and_then(Value::as_str) else {
         return;
     };
@@ -372,6 +466,7 @@ fn send(state: &NativeTerminalState, payload: &Value) -> Result<(), String> {
         return Err("Native terminal is not running".into());
     };
     let line = format!("{payload}\n");
+    native_debug!("native terminal: writing {line}");
     if let Err(error) = stream
         .write_all(line.as_bytes())
         .and_then(|()| stream.flush())
@@ -385,6 +480,7 @@ fn send(state: &NativeTerminalState, payload: &Value) -> Result<(), String> {
 }
 
 pub fn stop(state: &NativeTerminalState) {
+    eprintln!("native terminal: stop requested");
     let mut inner = state.inner.lock().unwrap_or_else(|poison| poison.into_inner());
     if let Some(stream) = inner.writer.as_mut() {
         let _ = stream.write_all(b"{\"command\":\"quit\"}\n");

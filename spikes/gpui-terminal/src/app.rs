@@ -108,6 +108,10 @@ pub struct SpikeApp {
     host: Option<HostLink>,
     host_task: Option<Task<()>>,
     last_host_title: Option<String>,
+    /// When the native window last became visible. Used to swallow the
+    /// Cmd+T key event macOS may replay to the helper right after Stacks
+    /// hands focus over, which would otherwise open-and-immediately-close.
+    visible_since: Option<Instant>,
 }
 
 impl SpikeApp {
@@ -129,6 +133,7 @@ impl SpikeApp {
             host: None,
             host_task: None,
             last_host_title: None,
+            visible_since: None,
         };
         let activation = cx.observe_window_activation(window, |app, window, cx| {
             let gained = window.is_window_active();
@@ -216,6 +221,9 @@ impl SpikeApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if std::env::var_os("SPIKE_INPUT_DEBUG").is_some() {
+            eprintln!("HOST COMMAND {command:?} visible={}", self.visible);
+        }
         match command {
             HostCommand::Ping => {
                 self.emit(&HostEvent::Ready {
@@ -256,13 +264,7 @@ impl SpikeApp {
                     self.toggle_search(cx);
                 }
             }
-            HostCommand::Clear => {
-                if let Some(pane) = self.focused_pane_mut() {
-                    let _ = pane.model.clear_selection();
-                    pane.model.feed(b"\x1b[2J\x1b[H");
-                }
-                cx.notify();
-            }
+            HostCommand::Clear => self.clear_focused(cx),
             HostCommand::Copy => self.copy_selection(cx),
             HostCommand::Paste => self.paste(cx),
             HostCommand::Quit => cx.quit(),
@@ -723,6 +725,10 @@ impl SpikeApp {
             return;
         }
         self.visible = visible;
+        self.visible_since = visible.then(Instant::now);
+        if std::env::var_os("SPIKE_INPUT_DEBUG").is_some() {
+            eprintln!("SET VISIBLE {visible}");
+        }
         if visible {
             #[cfg(target_os = "macos")]
             crate::mac_front::set_window_visible(true);
@@ -775,6 +781,17 @@ impl SpikeApp {
             eprintln!("PTY write: {error:#}");
         }
         let _ = pane.model.scroll_to_bottom();
+    }
+
+    /// `Cmd+K` parity with Stacks' clear action: clear the visible screen
+    /// without touching scrollback or the running program.
+    fn clear_focused(&mut self, cx: &mut Context<Self>) {
+        if let Some(pane) = self.focused_pane_mut() {
+            let _ = pane.model.clear_selection();
+            pane.model.feed(b"\x1b[2J\x1b[H");
+            let _ = pane.model.scroll_to_bottom();
+        }
+        cx.notify();
     }
 
     fn copy_selection(&mut self, cx: &mut Context<Self>) {
@@ -930,6 +947,25 @@ impl SpikeApp {
         if !modifiers.platform || modifiers.control || modifiers.alt {
             return false;
         }
+        if modifiers.shift {
+            // Stacks' shortcuts, so the native window behaves like the Tauri
+            // terminal when it owns the keyboard.
+            match key.as_str() {
+                "[" | "{" => {
+                    self.navigate_pane(-1, window, cx);
+                    return true;
+                }
+                "]" | "}" => {
+                    self.navigate_pane(1, window, cx);
+                    return true;
+                }
+                "enter" => {
+                    self.toggle_maximize_pane(cx);
+                    return true;
+                }
+                _ => {}
+            }
+        }
         match key.as_str() {
             "d" if modifiers.shift => {
                 self.split_focused(SplitDirection::Column, cx);
@@ -950,7 +986,23 @@ impl SpikeApp {
                 true
             }
             "t" => {
-                self.toggle_visible(window, cx);
+                // A host-driven show can hand focus here while the physical
+                // Cmd+T key event (or its auto-repeat) is still in flight.
+                // Treat that as the same key press, not a hide request.
+                let just_shown = self.visible_since.is_some_and(|at| {
+                    at.elapsed() < Duration::from_millis(600)
+                });
+                if std::env::var_os("SPIKE_INPUT_DEBUG").is_some() {
+                    eprintln!(
+                        "HELPER CMD+T visible={} just_shown={just_shown} held={}",
+                        self.visible, event.is_held
+                    );
+                }
+                // Ignore auto-repeat while the key stays down, and ignore the
+                // key macOS replays right after Stacks hands focus over.
+                if !event.is_held && !(self.visible && just_shown) {
+                    self.toggle_visible(window, cx);
+                }
                 true
             }
             "w" => {
@@ -965,6 +1017,10 @@ impl SpikeApp {
                 } else {
                     cx.quit();
                 }
+                true
+            }
+            "k" => {
+                self.clear_focused(cx);
                 true
             }
             "f" => {
@@ -1649,7 +1705,7 @@ impl SpikeApp {
                 div()
                     .text_xs()
                     .text_color(rgb(0x62778a))
-                    .child("⌘T hide · ⇧⌘T new · ⌘W close"),
+                    .child("⌘T hide · ⇧⌘T new · ⌘W close · ⇧⌘↩ maximize"),
             )
             .child(
                 div()

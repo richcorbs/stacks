@@ -55,8 +55,10 @@ The future shell must provide these around the reusable modules:
 
 - `Cmd+D` splits the focused pane side-by-side.
 - `Shift+Cmd+D` splits stacked.
-- `Cmd+[`/`Cmd+]` cycles tabs; `Option+Cmd+[`/`]` cycles panes.
-- `Shift+Cmd+M` toggles maximize for the focused pane.
+- `Cmd+[`/`Cmd+]` cycles tabs; `Shift+Cmd+[`/`]` cycles panes
+  (`Option+Cmd+[`/`]` is kept as an alias).
+- `Shift+Cmd+Enter` toggles maximize for the focused pane (`Shift+Cmd+M` is kept
+  as an alias) so the native window matches Stacks' menu accelerator.
 - Closing the focused pane selects the previous pane in visual order.
 - Closing the last pane closes the tab when another tab exists.
 - Manually resized splits keep `manual: true`; the demo does not yet expose a
@@ -145,6 +147,21 @@ signing/notarization implications.
   hide, status/stop commands.
 - Still host-owned but intentionally untouched by this spike: global-terminal
   persistence, search bar look/feel, settings screens, notifications, menus.
+
+### Seam findings worth carrying forward
+
+- **macOS accepted sockets inherit the listener's `O_NONBLOCK` flag.** A polled
+  `UnixListener` produces non-blocking connections; clear the flag on the
+  accepted stream or the event reader spins/trips and tears the bridge down.
+  Symptom: the native window flashes open and closes.
+- **Focus hand-off replays the triggering key.** The helper receives the
+  in-flight `Cmd+T` (plus auto-repeat) when it takes focus, so a naive
+  toggle-on-Cmd+T handler closes immediately. Ignore helper-side `Cmd+T` for a
+  short window after a host-driven show, and ignore `is_held` repeats; also
+  dedupe `toggle` on the host.
+- **A true overlay is a different architecture.** Adjacent-window mode keeps two
+  event loops; an in-window overlay/child NSWindow would couple them. That is
+  the decision point for any follow-up, not a polish item.
 
 ### Remaining contract gaps
 

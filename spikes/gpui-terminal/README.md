@@ -60,11 +60,12 @@ SPIKE_INPUT_DEBUG=1 cargo run   # log keys that reach the terminal
 SPIKE_ON_TOP=1 cargo run        # test-only: raise window above normal windows
 ```
 
-Shortcuts: `Cmd+T` show/hide, `Shift+Cmd+T` new tab, `Cmd+W` close pane/tab,
-`Cmd+D` split right, `Shift+Cmd+D` split down, `Cmd+F` search,
-`Shift+Cmd+M` maximize pane, `Cmd+1..9` select tab, `Cmd+[`/`Cmd+]` cycle tabs,
-`Option+Cmd+[`/`]` cycle panes, `Cmd+C` copy selection, `Cmd+V` paste,
-`Cmd+Q` quit.
+Shortcuts (aligned with Stacks): `Cmd+T` show/hide, `Shift+Cmd+T` new tab,
+`Cmd+W` close pane/tab, `Cmd+D` split right, `Shift+Cmd+D` split down,
+`Cmd+F` search, `Cmd+K` clear screen, `Shift+Cmd+Enter` maximize/restore pane
+(`Shift+Cmd+M` also works), `Cmd+1..9` select tab, `Cmd+[`/`Cmd+]` cycle tabs,
+`Shift+Cmd+[`/`]` cycle panes (`Option+Cmd+[`/`]` also works), `Cmd+C` copy
+selection, `Cmd+V` paste, `Cmd+Q` quit.
 
 ## Tests
 

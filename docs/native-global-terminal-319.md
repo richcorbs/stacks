@@ -104,7 +104,7 @@ separate apps. Ownership is by focus, not by a global hotkey.
 | Stacks focused, native visible | Tauri | sends `toggle`, helper hides, Stacks window is focused again |
 | Native focused | GPUI | hides itself, emits `visibility:false`, host shows + focuses the Stacks window |
 | Native focused, `Shift+Cmd+T` | GPUI | shows (if hidden), adds a tab, focuses the terminal |
-| Native focused, `Cmd+D` / `Shift+Cmd+D` / `Cmd+F` / `Cmd+W` / `Option+Cmd+[` / `]` / `Cmd+1..9` / `Cmd+[` / `]` | GPUI | handled locally, exactly as card #318 |
+| Native focused, `Cmd+D` / `Shift+Cmd+D` / `Cmd+F` / `Cmd+K` / `Cmd+W` / `Shift+Cmd+Enter` / `Shift+Cmd+[` / `]` / `Cmd+1..9` / `Cmd+[` / `]` | GPUI | handled locally; shortcuts match Stacks' menu accelerators |
 | Stacks focused, native visible, terminal shortcuts | Tauri | forwarded over the socket (split/close/search/pane/tab commands) |
 | Stacks focused, native hidden, card terminal focused | Tauri | unchanged: card terminal keeps its shortcuts |
 | Native red close button | GPUI | hides the window, PTYs and tabs survive |
@@ -133,6 +133,7 @@ then repeat with the flag on.
 
 - [ ] `pgrep -fl stacks-gpui-terminal-spike` is empty before the first `Cmd+T` (lazy launch).
 - [ ] `Cmd+T` opens a separate native window titled `Stacks · Native terminal`, focused, terminal cursor blinking.
+- [ ] Hold `Cmd+T` for a couple of seconds after opening: the window must stay open (auto-repeat is ignored).
 - [ ] Shell prompt appears; `pwd` starts in `$HOME` (the helper owns its own CWD).
 - [ ] Typing works immediately (no click needed). Run `vim README.md`, `:q` returns to the shell.
 - [ ] `Cmd+T` hides the native window and Stacks becomes the focused app with its own window key.
@@ -141,8 +142,8 @@ then repeat with the flag on.
 ### Flag on — terminal features
 
 - [ ] `Shift+Cmd+T` adds a tab and focuses it. `Cmd+[` / `Cmd+]` cycle tabs; `Cmd+1..9` select a tab.
-- [ ] `Cmd+D` splits right, `Shift+Cmd+D` splits down. `Option+Cmd+[` / `]` moves pane focus.
-- [ ] `Shift+Cmd+M` maximizes the focused pane; repeat restores.
+- [ ] `Cmd+D` splits right, `Shift+Cmd+D` splits down. `Shift+Cmd+[` / `]` moves pane focus (Stacks parity); `Option+Cmd+[` / `]` also works.
+- [ ] `Shift+Cmd+Enter` maximizes the focused pane (same as Stacks); repeat restores. `Shift+Cmd+M` also works.
 - [ ] Drag-select text: it copies to the clipboard on mouse-up and shows `Copied to clipboard`. Paste with `Cmd+V` in another app works.
 - [ ] `Cmd+V` in the native terminal pastes multi-line text into the shell without executing early lines unexpectedly (bracketed paste).
 - [ ] `Cmd+F` opens search, typing finds scrollback matches, Enter/Shift+Enter navigates, Escape closes.
@@ -198,10 +199,16 @@ Implications not solved by this spike:
 
 ## Decisions and findings
 
-1. **Separate window, not overlay/child window.** Tauri is a separate app; a
-   child/overlay window would force one app to own the other's event loop. A
-   separate window with focus-based handoff is the only shape that keeps the
-   Tauri shell intact.
+1. **Separate window, not overlay/child window.** This is why `Cmd+T` opens a
+   window next to Stacks rather than an in-window overlay. GPUI owns its own
+   Metal surface and event loop; Tauri's WebView owns the Stacks window. A true
+   overlay would require hosting GPUI inside the Tauri window (or parenting the
+   NSWindow to Stacks' window with `addChildWindow:`), which couples the two
+   event loops and window lifecycles — exactly the migration the card avoids.
+   The consequence users see: a distinct app window with its own menu bar,
+   traffic lights, and activation, not a panel over the board. If a future card
+   wants the attached look, the cheapest next experiment is an AppKit child
+   window that tracks the Stacks window frame/space, still with focus handoff.
 2. **Lazy launch.** Nothing spawns until the first `Cmd+T` while the flag is on.
    Flag-on-but-unused Stacks behaves like a normal build.
 3. **Intent-only IPC.** Layout/persistence stay helper-owned. Sharing Stacks'
@@ -222,6 +229,18 @@ Implications not solved by this spike:
    terminal because both write the same pasteboard.
 9. **IME** is unchanged from card #318 and still needs a human pass. Cross-window
    candidate positioning is AppKit/GPUI-managed and not measurable here.
+10. **macOS accepted sockets inherit `O_NONBLOCK` from the polled listener.**
+    The host polls `accept()` on a non-blocking `UnixListener`; on BSD/macOS the
+    accepted stream keeps that flag, so the event reader immediately failed with
+    `EWOULDBLOCK`, tore down the bridge, and the helper quit — visible as
+    "terminal opens and immediately closes". Fixed by clearing non-blocking
+    mode on the accepted connection (and retrying transient read errors).
+11. **macOS replays the in-flight `Cmd+T` to the newly focused helper.** After
+    Stacks hands focus over mid-press, the helper receives the same `Cmd+T`
+    key-down (and auto-repeat) and used to hide itself again. Fixed by ignoring
+    helper-side `Cmd+T` for 600 ms after a host-driven show and ignoring held
+    (auto-repeat) key-downs. The host also drops duplicate `toggle` commands
+    within 250 ms.
 
 ## Validation performed
 
