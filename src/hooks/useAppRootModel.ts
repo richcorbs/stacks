@@ -32,6 +32,8 @@ import { launchWorkAgent } from '../kanban/workAgentLauncher';
 import { flushAllProjectNotes } from '../projectNotes';
 import { useActivityNotifications } from './useActivityNotifications';
 import type { GlobalTerminalCommand } from '../globalTerminalState';
+import { nativeRequestForGlobalCommand, nativeRequestForTerminalAction } from '../nativeGlobalTerminal';
+import { useNativeGlobalTerminal } from './useNativeGlobalTerminal';
 import type { AppEventMap, EventBroker } from '../applicationEvents';
 import type { GlobalSettingsSection, SettingsPageId } from '../components/SettingsDialog';
 import { presentedToast, useLoadingSnapshot, type LoadingCoordinator } from '../loadingState';
@@ -122,6 +124,17 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     if (appSettings.confirm_close) setConfirmQuitOpen(true);
     else void flushAndQuit();
   }, [appSettings.confirm_close, flushAndQuit]);
+  const nativeGlobalTerminal = useNativeGlobalTerminal({
+    onRequestQuit: requestQuit,
+    onNotify: showToast,
+  });
+  const nativeGlobalTerminalEnabled = nativeGlobalTerminal.enabled;
+  useEffect(() => {
+    if (!nativeGlobalTerminalEnabled) return;
+    // Cmd+1..9, Cmd+[/] and pane navigation are published by the shortcut
+    // router rather than the terminal command dispatch.
+    return events.subscribe('global-terminal-command', (command) => nativeGlobalTerminal.sendGlobalCommand(command));
+  }, [events, nativeGlobalTerminal.sendGlobalCommand, nativeGlobalTerminalEnabled]);
 
   useEffect(() => {
     Promise.all([invoke<Store>('load_store'), invoke<AppSettings>('load_settings').catch(() => null)])
@@ -305,16 +318,34 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     [paletteCards],
   );
 
-  const dispatchGlobalTerminal = (detail: GlobalTerminalCommand) => events.publish('global-terminal-command', detail);
+  const dispatchGlobalTerminal = (detail: GlobalTerminalCommand) => {
+    if (nativeGlobalTerminalEnabled) {
+      nativeGlobalTerminal.sendGlobalCommand(detail);
+      return;
+    }
+    events.publish('global-terminal-command', detail);
+  };
   const shortcutHandlers: ShortcutHandlers = {
     setMetaKeyDown, openProjectDialog: () => { void openProjectDialog(); }, requestQuit,
-    isGlobalTerminalVisible: () => globalTerminalVisible,
+    isGlobalTerminalVisible: () => nativeGlobalTerminalEnabled ? nativeGlobalTerminal.visible : globalTerminalVisible,
     isCardOpen: () => Boolean(document.querySelector('.kanbanDetail')),
     isCardTerminalActive: () => Boolean(document.querySelector('.kanbanDetail .cardTerminalView.active')),
     setKanbanView: (view) => setAppSettings((current) => ({ ...current, kanban_view: view })),
-    toggleGlobalTerminal: () => setGlobalTerminalVisible((visible) => !visible),
-    newGlobalTerminalTab: () => { setGlobalTerminalVisible(true); setGlobalTerminalNewTabNonce((nonce) => nonce + 1); },
-    runGlobalTerminalAction: (action) => dispatchGlobalTerminal(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : action === 'previous-pane' || action === 'next-pane' ? { type: 'navigate-pane', direction: action === 'previous-pane' ? -1 : 1 } : { type: action }),
+    toggleGlobalTerminal: () => {
+      if (nativeGlobalTerminalEnabled) void nativeGlobalTerminal.send({ command: 'toggle' });
+      else setGlobalTerminalVisible((visible) => !visible);
+    },
+    newGlobalTerminalTab: () => {
+      if (nativeGlobalTerminalEnabled) void nativeGlobalTerminal.send({ command: 'new-tab' });
+      else { setGlobalTerminalVisible(true); setGlobalTerminalNewTabNonce((nonce) => nonce + 1); }
+    },
+    runGlobalTerminalAction: (action) => {
+      if (nativeGlobalTerminalEnabled) {
+        void nativeGlobalTerminal.send(nativeRequestForTerminalAction(action));
+        return;
+      }
+      dispatchGlobalTerminal(action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : action === 'previous-pane' || action === 'next-pane' ? { type: 'navigate-pane', direction: action === 'previous-pane' ? -1 : 1 } : { type: action });
+    },
     adjustTerminalFontSize: (delta) => setAppSettings((current) => ({ ...current, terminal_font_size: clampTerminalFontSize(current.terminal_font_size + delta) })),
     adjustUiFontSize: (delta) => setAppSettings((current) => ({ ...current, ui_font_size: clampUiFontSize(current.ui_font_size + delta) })),
     openCommandPalette: () => setCommandPaletteOpen(true), openProjectSwitcher: () => { if (canOpenProjectSwitcher(document)) events.publish('open-project-switcher', undefined); },
@@ -332,7 +363,12 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
 
   return {
     appStyle: useAppStyle(appSettings),
-    globalTerminal: { visible: globalTerminalVisible, newTabNonce: globalTerminalNewTabNonce, setVisible: setGlobalTerminalVisible },
+    globalTerminal: {
+      visible: globalTerminalVisible,
+      newTabNonce: globalTerminalNewTabNonce,
+      setVisible: setGlobalTerminalVisible,
+      native: { enabled: nativeGlobalTerminalEnabled, visible: nativeGlobalTerminal.visible, running: nativeGlobalTerminal.running },
+    },
     main: { boardShortcutBlocked: Boolean(commandPaletteOpen || settingsOpen || oneTimeCommandOpen || dialog || confirmDeleteProjectId || confirmQuitOpen || doneCleanupDialogOpen || globalTerminalVisible || loadingSnapshot.interactionBlocked), projects: store.projects, projectsHydrated: loaded, appSettings, setKanbanProjectId: (projectId: string | null) => setAppSettings((current) => ({ ...current, kanban_project_id: projectId })), setKanbanDoneCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_done_collapsed: collapsed })), setKanbanBacklogCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_backlog_collapsed: collapsed })), setKanbanAttentionCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_attention_collapsed: collapsed })), setKanbanProgressCollapsed: (collapsed: boolean) => setAppSettings((current) => ({ ...current, kanban_progress_collapsed: collapsed })), setKanbanView: (view: 'list' | 'board') => setAppSettings((current) => ({ ...current, kanban_view: view })), openProjectDialog: () => { void openProjectDialog(); }, cleanupCard, startWork: startCardWork, onPaletteCardsChange: setPaletteCards },
     overlays: {
       appSettings, setAppSettings, projects: store.projects, settingsPage, setSettingsPage, doneCleanupDialogs,

@@ -1,0 +1,306 @@
+[
+  {
+    "name": "ctrl-c",
+    "playwright": "Control+c",
+    "key": "C",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-d",
+    "playwright": "Control+d",
+    "key": "D",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-z",
+    "playwright": "Control+z",
+    "key": "Z",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-l",
+    "playwright": "Control+l",
+    "key": "L",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-a",
+    "playwright": "Control+a",
+    "key": "A",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-e",
+    "playwright": "Control+e",
+    "key": "E",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-backslash",
+    "playwright": "Control+\\",
+    "key": "Backslash",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-space",
+    "playwright": "Control+ ",
+    "key": "Space",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "alt-b",
+    "playwright": "Alt+b",
+    "key": "B",
+    "mods": [
+      "alt"
+    ],
+    "text": "b"
+  },
+  {
+    "name": "alt-f",
+    "playwright": "Alt+f",
+    "key": "F",
+    "mods": [
+      "alt"
+    ],
+    "text": "f"
+  },
+  {
+    "name": "alt-backspace",
+    "playwright": "Alt+Backspace",
+    "key": "Backspace",
+    "mods": [
+      "alt"
+    ],
+    "text": null
+  },
+  {
+    "name": "alt-enter",
+    "playwright": "Alt+Enter",
+    "key": "Enter",
+    "mods": [
+      "alt"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-left",
+    "playwright": "Control+ArrowLeft",
+    "key": "ArrowLeft",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "ctrl-right",
+    "playwright": "Control+ArrowRight",
+    "key": "ArrowRight",
+    "mods": [
+      "ctrl"
+    ],
+    "text": null
+  },
+  {
+    "name": "alt-left",
+    "playwright": "Alt+ArrowLeft",
+    "key": "ArrowLeft",
+    "mods": [
+      "alt"
+    ],
+    "text": null
+  },
+  {
+    "name": "enter",
+    "playwright": "Enter",
+    "key": "Enter",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "tab",
+    "playwright": "Tab",
+    "key": "Tab",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "shift-tab",
+    "playwright": "Shift+Tab",
+    "key": "Tab",
+    "mods": [
+      "shift"
+    ],
+    "text": null
+  },
+  {
+    "name": "escape",
+    "playwright": "Escape",
+    "key": "Escape",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "backspace",
+    "playwright": "Backspace",
+    "key": "Backspace",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "delete",
+    "playwright": "Delete",
+    "key": "Delete",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "home",
+    "playwright": "Home",
+    "key": "Home",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "end",
+    "playwright": "End",
+    "key": "End",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "pageup",
+    "playwright": "PageUp",
+    "key": "PageUp",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "pagedown",
+    "playwright": "PageDown",
+    "key": "PageDown",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "arrow-up",
+    "playwright": "ArrowUp",
+    "key": "ArrowUp",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "arrow-down",
+    "playwright": "ArrowDown",
+    "key": "ArrowDown",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "arrow-left",
+    "playwright": "ArrowLeft",
+    "key": "ArrowLeft",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "arrow-right",
+    "playwright": "ArrowRight",
+    "key": "ArrowRight",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "f1",
+    "playwright": "F1",
+    "key": "F1",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "f5",
+    "playwright": "F5",
+    "key": "F5",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "f12",
+    "playwright": "F12",
+    "key": "F12",
+    "mods": [],
+    "text": null
+  },
+  {
+    "name": "app-arrow-up",
+    "playwright": "ArrowUp",
+    "key": "ArrowUp",
+    "mods": [],
+    "text": null,
+    "setup": "\u001b[?1h"
+  },
+  {
+    "name": "app-arrow-down",
+    "playwright": "ArrowDown",
+    "key": "ArrowDown",
+    "mods": [],
+    "text": null,
+    "setup": "\u001b[?1h"
+  },
+  {
+    "name": "app-arrow-left",
+    "playwright": "ArrowLeft",
+    "key": "ArrowLeft",
+    "mods": [],
+    "text": null,
+    "setup": "\u001b[?1h"
+  },
+  {
+    "name": "app-arrow-right",
+    "playwright": "ArrowRight",
+    "key": "ArrowRight",
+    "mods": [],
+    "text": null,
+    "setup": "\u001b[?1h"
+  },
+  {
+    "name": "app-home",
+    "playwright": "Home",
+    "key": "Home",
+    "mods": [],
+    "text": null,
+    "setup": "\u001b[?1h"
+  },
+  {
+    "name": "app-end",
+    "playwright": "End",
+    "key": "End",
+    "mods": [],
+    "text": null,
+    "setup": "\u001b[?1h"
+  }
+]

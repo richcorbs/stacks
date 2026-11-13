@@ -22,10 +22,14 @@
     "check:version": "node scripts/release.mjs check-version",
     "version:set": "node scripts/release.mjs set-version",
     "release:build": "TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/stacks-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"$(cat $HOME/.tauri/stacks-updater.password)\" tauri build --bundles app",
+    "native-terminal:build": "node scripts/build-native-terminal.mjs",
+    "native-terminal:dev": "cargo build --manifest-path spikes/gpui-terminal/Cargo.toml",
+    "release:build:native-terminal": "npm run native-terminal:build && TAURI_SIGNING_PRIVATE_KEY=\"$(cat $HOME/.tauri/stacks-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"$(cat $HOME/.tauri/stacks-updater.password)\" tauri build --bundles app --config src-tauri/tauri.native-terminal.conf.json",
     "release:draft": "node scripts/release-run.mjs draft",
     "release:publish": "node scripts/release-run.mjs draft",
     "release:finalize": "node scripts/release-run.mjs publish",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "native-terminal:smoke": "node scripts/smoke-native-terminal.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

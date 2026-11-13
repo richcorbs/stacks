@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "resources/stacks-cards.ts": "stacks-cards.ts",
+      "resources/native-terminal": "native-terminal"
+    }
+  }
+}
