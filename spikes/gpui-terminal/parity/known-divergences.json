@@ -1,0 +1,69 @@
+{
+  "allow": [
+    {
+      "case": "reflow",
+      "step": "narrow",
+      "field": "snapshot.cursor.x",
+      "reason": "xterm reflow parks the cursor one cell from the right margin after a wrapped line; Ghostty leaves it after the last glyph."
+    },
+    {
+      "case": "reflow",
+      "step": "wide",
+      "field": "snapshot.cursor.x",
+      "reason": "xterm reflow parks the cursor one cell from the right margin after a wrapped line; Ghostty leaves it after the last glyph."
+    },
+    {
+      "case": "reflow",
+      "step": "really-narrow",
+      "field": "snapshot.cursor.x",
+      "reason": "xterm reflow parks the cursor one cell from the right margin after a wrapped line; Ghostty leaves it after the last glyph."
+    },
+    {
+      "case": "wide-reflow",
+      "step": "narrow",
+      "field": "snapshot.cursor.x",
+      "reason": "Wide-glyph reflow differs: xterm lands on the last column of the last wrapped row, Ghostty after the final wide cell."
+    },
+    {
+      "case": "wide-reflow",
+      "step": "wide",
+      "field": "snapshot.cursor.x",
+      "reason": "Wide-glyph reflow differs: xterm lands on the last column, Ghostty starts the next row after the final wide pair."
+    },
+    {
+      "case": "wide-reflow",
+      "step": "wide",
+      "field": "snapshot.cursor.y",
+      "reason": "Wide-glyph reflow row placement differs between xterm and Ghostty."
+    },
+    {
+      "case": "regional-indicator-flag",
+      "step": "flag",
+      "field": "snapshot.rows_data.0.cells.1",
+      "reason": "xterm unicode11 gives each regional indicator width 1; Ghostty clusters the flag into one width-2 grapheme."
+    },
+    {
+      "case": "regional-indicator-flag",
+      "step": "flag",
+      "field": "snapshot.rows_data.0.cells.2",
+      "reason": "xterm unicode11 gives each regional indicator width 1; Ghostty clusters the flag into one width-2 grapheme."
+    },
+    {
+      "case": "tui-vim-transcript",
+      "field": "snapshot.cursor.x",
+      "reason": "xterm reports the pending-wrap cursor as x=cols; Ghostty clamps the viewport cursor to the last cell (cols-1)."
+    },
+    {
+      "case": "alt-screen-reenter",
+      "step": "enter2",
+      "field": "snapshot.rows_data",
+      "reason": "Repeated DECSET 1049 while already on the alternate screen: xterm.js leaves prior alt-buffer rows intact, Ghostty clears the alt buffer on re-entry. Normal programs pair 1049h with 1049l."
+    }
+  ],
+  "pasteAllow": [
+    {
+      "name": "control-bracket",
+      "reason": "xterm.js passes ESC through paste unchanged; libghostty-vt/paste.h strips unsafe control bytes to spaces by design. Keep the safer Ghostty behavior."
+    }
+  ]
+}

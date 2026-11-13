@@ -1,0 +1,9 @@
+[
+  { "name": "single-word", "cols": 20, "rows": 4, "text": "hello world", "start": [0, 0], "end": [4, 0] },
+  { "name": "second-word", "cols": 20, "rows": 4, "text": "hello world", "start": [6, 0], "end": [10, 0] },
+  { "name": "multiline", "cols": 20, "rows": 4, "text": "one\r\ntwo\r\nthree", "start": [1, 0], "end": [2, 1] },
+  { "name": "wrapped-line", "cols": 10, "rows": 4, "text": "abcdefghijklmnopqrstuvwxyz", "start": [2, 0], "end": [4, 2] },
+  { "name": "wide-glyphs", "cols": 20, "rows": 4, "text": "A世界🙂B", "start": [0, 0], "end": [6, 0] },
+  { "name": "trailing-space", "cols": 20, "rows": 4, "text": "hello     ", "start": [0, 0], "end": [9, 0] },
+  { "name": "ansi-colors", "cols": 20, "rows": 4, "text": "\u001b[31mred\u001b[0m plain", "start": [0, 0], "end": [8, 0] }
+]

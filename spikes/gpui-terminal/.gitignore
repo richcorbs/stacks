@@ -1,0 +1,11 @@
+/target/
+/visual-tests/generated.svg
+/parity/*-run.json
+/parity/.ghostty-run.json
+/parity/.xterm-run.json
+/parity/corpus-merged.json
+/parity/report.json
+/parity/key-report.json
+/parity/corpus-fuzz.json
+/parity/selection-report.json
+/parity/paste-report.json

@@ -76,6 +76,13 @@ src-tauri/src/app_events.rs       menu dispatch and window lifecycle
 
 Backend owns PTY and Pi child-process lifecycles, Tauri commands, persistence, the native menu, external CLI calls, automation IPC, and window title/geometry restoration. Register new commands in `src-tauri/src/lib.rs`, but implement them in the relevant module.
 
+Native terminal spike (card #319):
+
+- `STACKS_NATIVE_GLOBAL_TERMINAL=1` is a dev-only, environment-only flag that launches `spikes/gpui-terminal` as a separate native GPUI window while the Tauri/React app remains the shell.
+- Host bridge: `src-tauri/src/native_terminal.rs` (env flag, lazy helper launch, Unix socket, command forwarding, re-activation). Helper transport: `spikes/gpui-terminal/src/host_ipc.rs`.
+- The xterm.js `GlobalTerminal` is still the shipped path and must stay unchanged with the flag off; do not duplicate terminal emulation/PTY/split/search/paste code in the Tauri app.
+- Build/package: `npm run native-terminal:build`, `npm run native-terminal:smoke`, `npm run release:build:native-terminal`. Report and verdict: `docs/native-global-terminal-319.md`.
+
 Notes:
 
 - Release title is `Stacks`.

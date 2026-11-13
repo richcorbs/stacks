@@ -1,0 +1,8 @@
+[
+  { "name": "plain-no-bracket", "text": "hello world", "bracketed": false },
+  { "name": "newline-no-bracket", "text": "hello\nworld", "bracketed": false },
+  { "name": "plain-bracket", "text": "hello world", "bracketed": true },
+  { "name": "newline-bracket", "text": "hello\nworld", "bracketed": true },
+  { "name": "unicode-bracket", "text": "世界 🙂 e\u0301", "bracketed": true },
+  { "name": "control-bracket", "text": "a\u001bb\u001bc", "bracketed": true }
+]

@@ -13,6 +13,7 @@ mod github;
 mod global_terminal;
 mod kanban;
 mod menu;
+mod native_terminal;
 mod open;
 mod pi_paths;
 mod pi_rpc;
@@ -59,6 +60,10 @@ use kanban::{
     kanban_sync_superthread_cards, kanban_update_local_card, kanban_validate_project_deletion,
 };
 use menu::app_menu;
+use native_terminal::{
+    native_terminal_command, native_terminal_launch, native_terminal_status, native_terminal_stop,
+    NativeTerminalState,
+};
 use open::{open_path_in_editor, open_url};
 use pi_paths::discover_pi_paths;
 use pi_rpc::{
@@ -181,6 +186,7 @@ pub fn run() {
         .manage(WorkspaceSetupState::default())
         .manage(automation_state.clone())
         .manage(SuperthreadService::default())
+        .manage(NativeTerminalState::default())
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
@@ -209,6 +215,10 @@ pub fn run() {
             pty_cwd,
             global_terminal_load_or_create,
             global_terminal_save,
+            native_terminal_status,
+            native_terminal_launch,
+            native_terminal_command,
+            native_terminal_stop,
             start_pi_session,
             pi_session_exists,
             pi_project_trusted,
@@ -306,6 +316,9 @@ pub fn run() {
                 return Ok(());
             }
             finish_startup(app.handle())?;
+            // The native helper is launched lazily by the first Cmd+T when
+            // STACKS_NATIVE_GLOBAL_TERMINAL=1, so flag-on but unused Stacks
+            // behaves exactly like a normal build.
             Ok(())
         })
         .run(tauri::generate_context!());
