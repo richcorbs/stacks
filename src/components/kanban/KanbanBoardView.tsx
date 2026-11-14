@@ -17,7 +17,6 @@ import type { CardView } from '../../kanban/cardView';
 import type { KanbanBoardModel, KanbanBoardProps } from '../KanbanBoard';
 import { KanbanCardDetail, type CardDetailWorkflowController } from './KanbanCardDetail';
 import { NewCardDialog } from './NewCardDialog';
-import { KanbanLanes } from './KanbanLanes';
 import { KanbanList } from './KanbanList';
 import { BoardCardServerServices } from './BoardCardServerServices';
 import type { CardServices } from '../../kanban/useCardServices';
@@ -39,7 +38,7 @@ import { useBoardPrMerge } from '../../kanban/useBoardPrMerge';
 import { BoardPrMergeDialog } from './BoardPrMergeDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
 
-export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, view, onViewChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
+export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
   const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
   const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
@@ -213,7 +212,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     else void runServerAction(targetCardId);
   }, [runServerAction]);
 
-  const doneToggleRef = useRef<HTMLButtonElement | null>(null);
   const [openLaneMenu, setOpenLaneMenu] = useState<KanbanStatus | null>(null);
   const [cleaningMerged, setCleaningMerged] = useState(false);
   const [cleanupInventory, setCleanupInventory] = useState<CleanupInventory | null>(null);
@@ -233,12 +231,11 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     progressCollapsed,
     selectedCard,
     openCard,
-    view,
     creationAvailable: !creationAvailability.disabled,
     shortcutBlocked: boardShortcutBlocked || board.loading || !projectsHydrated || Boolean(prMerge.target || mergeCleanup || selectedCardId || projectSwitcherOpen || newCard.open || openLaneMenu || serverHandoff || cleanupInventory || directWorkProjectId || cleaningMerged),
     openNewCard: newCard.show,
   });
-  const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder, view, backlogCollapsed });
+  const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder, backlogCollapsed });
 
   useEffect(() => {
     if (!board.loading) loading.settleStartup('cards');
@@ -541,7 +538,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       ));
     }
     onDoneCollapsedChange(collapsed);
-    requestAnimationFrame(() => doneToggleRef.current?.focus());
   }
 
   function closeMergeCleanup() {
@@ -632,14 +628,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
               {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
             </select>
           </label>
-          <div className="kanbanViewSwitch" role="group" aria-label="Card view">
-            <button type="button" aria-label="List view" title="List view" aria-pressed={view === 'list'} onClick={() => onViewChange('list')}>
-              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2.5 4h2m3 0h8m-13 5h2m3 0h8m-13 5h2m3 0h8" /></svg>
-            </button>
-            <button type="button" aria-label="Board view" title="Board view" aria-pressed={view === 'board'} onClick={() => onViewChange('board')}>
-              <svg viewBox="0 0 18 18" aria-hidden="true"><rect x="2" y="3" width="4" height="12" rx="1" /><rect x="7" y="3" width="4" height="9" rx="1" /><rect x="12" y="3" width="4" height="11" rx="1" /></svg>
-            </button>
-          </div>
         </div>
         <div className="kanbanHeaderActions">
           <button data-card-action="secondary" type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
@@ -669,34 +657,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         copyOnSelect={copyOnSelect}
         onServices={updateCardServices}
       />
-      {!board.loading && view === 'board' && (
-        <KanbanLanes
-          cards={visibleCards}
-          onMergePullRequest={prMerge.request}
-          mergingCardId={prMerge.mergingCardId}
-          projects={projects}
-          repositoryStatuses={repositoryStatuses}
-          prChecks={prChecks}
-          serverServices={displayedCardServices}
-          doneCollapsed={doneCollapsed}
-          doneToggleRef={doneToggleRef}
-          openLaneMenu={openLaneMenu}
-          setOpenLaneMenu={setOpenLaneMenu}
-          cleaningMerged={cleaningMerged}
-          keyboardFocusedCardId={keyboardFocusedCardId}
-          setKeyboardFocusedCardId={setKeyboardFocusedCardId}
-          pointer={pointerOrdering}
-          onToggleDone={toggleDoneCollapsed}
-          onCleanupMerged={cleanupMergedCards}
-          onOpenCard={openCard}
-          onToggleServer={toggleCardServer}
-          onNavigateParent={(parentId) => {
-            const parent = board.cards.find((candidate) => candidate.id === parentId);
-            if (parent) openCard(parent, 'overview');
-          }}
-        />
-      )}
-      {!board.loading && view === 'list' && <KanbanList
+      {!board.loading && <KanbanList
         cards={visibleCards}
         onMergePullRequest={prMerge.request}
         mergingCardId={prMerge.mergingCardId}
@@ -727,12 +688,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         }}
         onToggleServer={toggleCardServer}
       />}
-      {!board.loading && view === 'board' && visibleCards.length === 0 && (
-        <div className="kanbanWelcome">
-          <strong>No cards in this view.</strong>
-          <span>{filterProjectId ? 'Choose All projects or add a card for this project.' : 'Add a card or sync Superthread to begin planning work.'}</span>
-        </div>
-      )}
       <ProjectSwitcherDialog
         open={projectSwitcherOpen}
         projects={projectPickerPurpose === 'release' ? projects.filter((project) => project.releases_enabled) : projects}

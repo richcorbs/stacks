@@ -63,15 +63,9 @@ fn shortcuts_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         ),
         (
             "menu-shortcut-clear-terminal",
-            "Board View / Clear Focused Terminal",
+            "Clear Focused Terminal",
             "Cmd+K",
             Some("Cmd+K"),
-        ),
-        (
-            "menu-shortcut-select-list-view",
-            "List View (Card Overview)",
-            "Cmd+L",
-            Some("Cmd+L"),
         ),
         (
             "menu-shortcut-search-terminal",

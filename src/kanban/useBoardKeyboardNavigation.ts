@@ -1,14 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KanbanCardSummary } from './types';
 import type { DeliveryContext } from './deliveryStep';
-import { adjacentBoardCard, adjacentListCard, keyboardNavigableCards } from './boardNavigation';
+import { adjacentListCard, keyboardNavigableCards } from './boardNavigation';
 import { isEditableElement } from './boardInteractions';
 
-const arrowDirections: Partial<Record<string, 'h' | 'j' | 'k' | 'l'>> = {
-  ArrowLeft: 'h',
+const arrowDirections: Partial<Record<string, 'j' | 'k'>> = {
   ArrowDown: 'j',
   ArrowUp: 'k',
-  ArrowRight: 'l',
 };
 
 export function useBoardKeyboardNavigation({
@@ -20,7 +18,6 @@ export function useBoardKeyboardNavigation({
   progressCollapsed = false,
   selectedCard,
   openCard,
-  view = 'board',
   creationAvailable,
   shortcutBlocked,
   openNewCard,
@@ -33,7 +30,6 @@ export function useBoardKeyboardNavigation({
   progressCollapsed?: boolean;
   selectedCard: KanbanCardSummary | null;
   openCard: (card: KanbanCardSummary) => void;
-  view?: 'list' | 'board';
   creationAvailable: boolean;
   shortcutBlocked: boolean;
   openNewCard: () => void;
@@ -42,11 +38,11 @@ export function useBoardKeyboardNavigation({
   const navigationRootRef = useRef<HTMLDivElement>(null);
   const focusedCardIdRef = useRef(focusedCardId);
   focusedCardIdRef.current = focusedCardId;
-  const [revealRequest, setRevealRequest] = useState<{ cardId: string; view: 'list' | 'board' } | null>(null);
+  const [revealRequest, setRevealRequest] = useState<{ cardId: string } | null>(null);
   const handledRevealRequest = useRef(revealRequest);
   const keyboardCards = useMemo(
-    () => keyboardNavigableCards(visibleCards, doneCollapsed, backlogCollapsed, view, attentionCollapsed, progressCollapsed, deliveryContext),
-    [doneCollapsed, backlogCollapsed, attentionCollapsed, progressCollapsed, visibleCards, view, deliveryContext],
+    () => keyboardNavigableCards(visibleCards, doneCollapsed, backlogCollapsed, attentionCollapsed, progressCollapsed, deliveryContext),
+    [doneCollapsed, backlogCollapsed, attentionCollapsed, progressCollapsed, visibleCards, deliveryContext],
   );
 
   useEffect(() => {
@@ -60,9 +56,9 @@ export function useBoardKeyboardNavigation({
     // Guard changes may cancel pending work, but must never replay an old request.
     if (!revealRequest || handledRevealRequest.current === revealRequest) return;
     handledRevealRequest.current = revealRequest;
-    if (revealRequest.view !== view || shortcutBlocked || selectedCard) return;
+    if (shortcutBlocked || selectedCard) return;
     const frame = requestAnimationFrame(() => {
-      const layout = navigationRootRef.current?.querySelector(view === 'list' ? '.kanbanList' : '.kanbanLanes');
+      const layout = navigationRootRef.current?.querySelector('.kanbanList');
       const target = [...(layout?.querySelectorAll<HTMLElement>('[data-kanban-navigation-card-id]') ?? [])]
         .find((candidate) => candidate.dataset.kanbanNavigationCardId === revealRequest.cardId);
       if (!target) return;
@@ -70,7 +66,7 @@ export function useBoardKeyboardNavigation({
       target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     });
     return () => cancelAnimationFrame(frame);
-  }, [revealRequest, view, shortcutBlocked, selectedCard]);
+  }, [revealRequest, shortcutBlocked, selectedCard]);
 
   useEffect(() => {
     const handleBoardNavigation = (event: KeyboardEvent) => {
@@ -81,11 +77,11 @@ export function useBoardKeyboardNavigation({
         openNewCard();
         return;
       }
-      if (selectedCard || (view === 'list' && (event.target as Element | null)?.closest?.('.kanbanListGroupHeader'))) return;
+      if (selectedCard || (event.target as Element | null)?.closest?.('.kanbanListGroupHeader')) return;
       const arrowDirection = arrowDirections[event.key];
       if (arrowDirection && event.shiftKey) return;
       const key = arrowDirection ?? event.key.toLocaleLowerCase();
-      if (!['h', 'j', 'k', 'l', 'enter'].includes(key)) return;
+      if (!['j', 'k', 'enter'].includes(key)) return;
       if (key === 'enter') {
         const card = keyboardCards.find((candidate) => candidate.id === focusedCardIdRef.current);
         if (!card) return;
@@ -93,19 +89,16 @@ export function useBoardKeyboardNavigation({
         openCard(card);
         return;
       }
-      if (view === 'list' && key !== 'j' && key !== 'k') return;
-      const nextCard = view === 'list'
-        ? adjacentListCard(keyboardCards, focusedCardIdRef.current, key as 'j' | 'k', deliveryContext)
-        : adjacentBoardCard(keyboardCards, focusedCardIdRef.current, key as 'h' | 'j' | 'k' | 'l', deliveryContext);
+      const nextCard = adjacentListCard(keyboardCards, focusedCardIdRef.current, key as 'j' | 'k', deliveryContext);
       if (!nextCard) return;
       event.preventDefault();
       focusedCardIdRef.current = nextCard.id;
       setFocusedCardId(nextCard.id);
-      setRevealRequest({ cardId: nextCard.id, view });
+      setRevealRequest({ cardId: nextCard.id });
     };
     window.addEventListener('keydown', handleBoardNavigation);
     return () => window.removeEventListener('keydown', handleBoardNavigation);
-  }, [keyboardCards, focusedCardId, selectedCard, view, creationAvailable, shortcutBlocked, openNewCard, openCard, deliveryContext]);
+  }, [keyboardCards, focusedCardId, selectedCard, creationAvailable, shortcutBlocked, openNewCard, openCard, deliveryContext]);
 
   return { focusedCardId, setFocusedCardId, navigationRootRef };
 }

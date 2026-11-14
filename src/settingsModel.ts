@@ -35,7 +35,6 @@ export type ResolvedAppSettings = {
   kanban_backlog_collapsed: boolean;
   kanban_attention_collapsed: boolean;
   kanban_progress_collapsed: boolean;
-  kanban_view: 'list' | 'board';
   activity_notifications: boolean;
 };
 
@@ -57,7 +56,6 @@ export const DEFAULT_APP_SETTINGS: ResolvedAppSettings = {
   kanban_backlog_collapsed: true,
   kanban_attention_collapsed: false,
   kanban_progress_collapsed: false,
-  kanban_view: 'list',
   activity_notifications: false,
 };
 
@@ -79,7 +77,6 @@ export function resolveAppSettings(settings: AppSettings | null | undefined): Re
     kanban_backlog_collapsed: settings?.kanban_backlog_collapsed ?? DEFAULT_APP_SETTINGS.kanban_backlog_collapsed,
     kanban_attention_collapsed: settings?.kanban_attention_collapsed ?? DEFAULT_APP_SETTINGS.kanban_attention_collapsed,
     kanban_progress_collapsed: settings?.kanban_progress_collapsed ?? DEFAULT_APP_SETTINGS.kanban_progress_collapsed,
-    kanban_view: settings?.kanban_view === 'board' ? 'board' : 'list',
     activity_notifications: settings?.activity_notifications ?? DEFAULT_APP_SETTINGS.activity_notifications,
     command_usage_counts: normalizeCommandUsage(settings?.command_usage_counts),
   };
@@ -103,7 +100,6 @@ export function toPersistedAppSettings(settings: ResolvedAppSettings): AppSettin
     kanban_backlog_collapsed: settings.kanban_backlog_collapsed,
     kanban_attention_collapsed: settings.kanban_attention_collapsed,
     kanban_progress_collapsed: settings.kanban_progress_collapsed,
-    kanban_view: settings.kanban_view,
     activity_notifications: settings.activity_notifications,
     command_usage_counts: normalizeCommandUsage(settings.command_usage_counts),
   };

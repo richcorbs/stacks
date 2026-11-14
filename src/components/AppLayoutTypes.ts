@@ -14,7 +14,6 @@ export type MainLayoutProps = {
   setKanbanBacklogCollapsed: (collapsed: boolean) => void;
   setKanbanAttentionCollapsed: (collapsed: boolean) => void;
   setKanbanProgressCollapsed: (collapsed: boolean) => void;
-  setKanbanView: (view: 'list' | 'board') => void;
   openProjectDialog: () => void;
   cleanupCard: (card: import('../kanban/types').KanbanCard, evidence: import('../kanban/types').CleanupPreflight) => Promise<boolean>;
   startWork: (cardId: string) => Promise<import('../kanban/types').KanbanCard | null>;

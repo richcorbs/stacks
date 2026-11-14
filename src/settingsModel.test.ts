@@ -8,7 +8,6 @@ describe('settings model', () => {
     expect(settings.ui_font_size).toBe(10);
     expect(settings.terminal_font_family).toBe(DEFAULT_APP_SETTINGS.terminal_font_family);
     expect(settings.kanban_project_id).toBe('p1');
-    expect(settings.kanban_view).toBe('list');
     expect(settings.kanban_done_collapsed).toBe(true);
     expect(settings.kanban_backlog_collapsed).toBe(true);
     expect(settings.kanban_attention_collapsed).toBe(false);
@@ -16,9 +15,10 @@ describe('settings model', () => {
     expect(resolveAppSettings({ kanban_attention_collapsed: null, kanban_progress_collapsed: null })).toMatchObject({ kanban_attention_collapsed: false, kanban_progress_collapsed: false });
     expect(resolveAppSettings({ kanban_backlog_collapsed: null }).kanban_backlog_collapsed).toBe(true);
   });
-  it('persists the board/list choice and rejects unknown values on load', () => {
-    expect(resolveAppSettings(toPersistedAppSettings({ ...DEFAULT_APP_SETTINGS, kanban_view: 'board' })).kanban_view).toBe('board');
-    expect(resolveAppSettings({ kanban_view: 'other' as 'list' }).kanban_view).toBe('list');
+  it('drops the removed board/list choice from persisted settings', () => {
+    const persisted = toPersistedAppSettings(DEFAULT_APP_SETTINGS) as Record<string, unknown>;
+    expect(persisted).not.toHaveProperty('kanban_view');
+    expect(resolveAppSettings({ kanban_view: 'board' } as unknown as import('./types').AppSettings)).not.toHaveProperty('kanban_view');
   });
   it('round-trips independent Backlog and Done collapse states', () => {
     for (const backlog of [true, false]) for (const done of [true, false]) {
