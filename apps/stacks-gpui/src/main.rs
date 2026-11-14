@@ -11,10 +11,9 @@ mod settings;
 mod shell;
 
 use gpui::{
-    App, AppContext, Application, KeyBinding, Menu, MenuItem, SharedString, TitlebarOptions,
-    WindowBounds, WindowOptions, actions, px, size,
+    App, AppContext, KeyBinding, Menu, MenuItem, SharedString, TitlebarOptions, WindowBounds,
+    WindowOptions, actions, px, size,
 };
-use gpui_component::Root;
 use settings::{ShellSettings, ShellState, data_dir};
 use shell::{Shell, mark_process_start, restore_bounds};
 
@@ -56,9 +55,9 @@ fn main() {
     }
     let state = ShellState::load(&data_dir);
 
-    Application::new().run(move |cx: &mut App| {
-        gpui_component::init(cx);
-        cx.on_window_closed(|cx| {
+    gpui_kit::application().run(move |cx: &mut App| {
+        gpui_kit::init(cx);
+        cx.on_window_closed(|cx, _window_id| {
             if cx.windows().is_empty() {
                 cx.quit();
             }
@@ -76,7 +75,7 @@ fn main() {
         let settings_for_window = settings.clone();
         let state_for_window = state.clone();
         let dir_for_window = data_dir.clone();
-        cx.open_window(
+        gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(bounds),
                 titlebar: Some(TitlebarOptions {
@@ -89,8 +88,9 @@ fn main() {
                 window_min_size: Some(size(px(720.0), px(480.0))),
                 ..Default::default()
             },
+            cx,
             |window, cx| {
-                let shell = cx.new(|cx| {
+                cx.new(|cx| {
                     Shell::new(
                         window,
                         cx,
@@ -98,8 +98,7 @@ fn main() {
                         state_for_window,
                         dir_for_window,
                     )
-                });
-                cx.new(|cx| Root::new(shell, window, cx))
+                })
             },
         )
         .expect("open GPUI shell window");
@@ -141,6 +140,7 @@ fn set_menus(cx: &mut App) {
     cx.set_menus(vec![
         Menu {
             name: "Stacks".into(),
+            disabled: false,
             items: vec![
                 MenuItem::action("About Stacks GPUI Shell", About),
                 MenuItem::separator(),
@@ -156,6 +156,7 @@ fn set_menus(cx: &mut App) {
         },
         Menu {
             name: "Terminal".into(),
+            disabled: false,
             items: vec![
                 MenuItem::action("Global Terminal", ShowTerminal),
                 MenuItem::action("Focus Global Terminal", FocusGlobalTerminal),
@@ -181,6 +182,7 @@ fn set_menus(cx: &mut App) {
         },
         Menu {
             name: "Window".into(),
+            disabled: false,
             items: vec![
                 MenuItem::action("Minimize", MinimizeWindow),
                 MenuItem::action("Zoom", ZoomWindow),

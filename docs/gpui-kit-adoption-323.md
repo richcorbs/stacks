@@ -3,13 +3,12 @@
 **Question:** should Stacks keep hand-rolling GPUI UI, and can card detail be a real native surface?
 
 **Answer:** **Use GPUI Kit, and target the current `gpui-kit 0.9.1` line.**
-We integrated the last GPUI-0.2.2-compatible release (`gpui-component 0.5.1`)
-as a working proof; it is better than hand-rolling, but it is a dead-end
-compatibility line. The current kit gives AccessKit accessibility, current
-components, Markdown, virtual lists/tables, webview and testing, and the
-terminal library moves to its `gpui-pre 0.3.12` base with **four signature
-changes**. The next card should perform that upgrade rather than build more UI
-on 0.5.1.
+We integrated the last GPUI-0.2.2-compatible release (`gpui-component 0.5.1`) as
+a working proof, then performed the `gpui-kit 0.9.1` / `gpui-pre 0.3.12`
+migration on the same branch. The current kit gives AccessKit accessibility,
+current components, Markdown, virtual lists/tables, webview and testing, and the
+terminal library moved with **four signature changes**. Migration report:
+[`gpui-kit-0.9.1-migration-324.md`](gpui-kit-0.9.1-migration-324.md).
 
 For card detail: a **native read-only detail is viable** with GPUI Kit
 components. A hybrid webview remains available through `gpui-webview` (Wry), but
@@ -147,17 +146,15 @@ migration is measured.
 ## Recommendation
 
 1. **Adopt GPUI Kit as the UI foundation.** Stop hand-rolling buttons, tags,
-   badges, Markdown, overlays and themes.
-2. **Do not build more on 0.5.1.** Treat this branch as a compatibility probe.
-3. **Migrate to `gpui-kit 0.9.1` + `gpui-pre 0.3.12` next.**
-   - update root workspace pins;
-   - apply the four terminal paint-signature changes;
-   - port shell/list detail to the 0.9.1 Base/Component API;
-   - migrate `spikes/gpui-terminal` or temporarily isolate it from the workspace;
-   - measure startup/RSS/binary and run the a11y/webview checks.
-4. After that migration, re-run the LIST/detail UI polish card on the current kit.
+   badges, Markdown, overlays and themes. **Done.**
+2. **Do not build more on 0.5.1.** **Done — migrated to 0.9.1.**
+3. **Migrate to `gpui-kit 0.9.1` + `gpui-pre 0.3.12`.** **Done** on this branch:
+   root pins, terminal paint calls, shell/list API pass, #319 spike migration,
+   measurements. See the migration report.
+4. Re-run the LIST/detail UI polish card on the current kit. **Next.**
 5. Keep card detail native read-only; add mutation/Pi/DIFF as separate decisions.
-6. Do not use the webview as a way to avoid the accessibility migration.
+6. Automated a11y tests remain blocked by an upstream Kit test-support pin
+   conflict; AccessKit itself is present.
 
 ## Human input still required
 

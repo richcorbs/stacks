@@ -94,14 +94,15 @@ Native GPUI workspace (cards #318/#319/#321/#322):
   projection rules in `apps/stacks-gpui`. The crate opens the shipped
   `workflow.sqlite3` read-only and owns grouping/delivery/effective-status logic.
   Report: `docs/gpui-list-view-322.md`.
-- Card #323 added GPUI Kit adoption probing. `apps/stacks-gpui` currently uses
-  `gpui-component 0.5.1` on GPUI 0.2.2 for Root/Button/Tag/Spinner/Markdown and
-  a read-only native detail. That version is a compatibility bridge, not the
-  target. Recommended migration: `gpui-kit 0.9.1` + `gpui-pre 0.3.12`, which
-  brings AccessKit and current components; the terminal library probe needed
-  only four text-paint signature changes. Report:
-  `docs/gpui-kit-adoption-323.md`. Do not hand-roll primitives that GPUI Kit now
-  provides.
+- Cards #323/#324 adopted GPUI Kit. `apps/stacks-gpui` now uses
+  `gpui-kit 0.9.1` on `gpui-pre 0.3.12`, with Base Root/Button/Tag/Spinner/
+  Markdown and a read-only native detail. The terminal library needed four
+  text-paint signature changes. AccessKit is present, but automated a11y tests
+  are blocked upstream because `gpui-kit`'s test-support feature pulls
+  `gpui-fast` pins that conflict with `gpui-pre 0.3.12`. Reports:
+  `docs/gpui-kit-adoption-323.md`,
+  `docs/gpui-kit-0.9.1-migration-324.md`. Do not hand-roll primitives that GPUI
+  Kit now provides.
 - Shell report/verdict: `docs/gpui-app-shell-321.md`. Host contract:
   `spikes/gpui-terminal/HOST_INTEGRATION.md`.
 - Native scripts: `npm run gpui-shell:build|bundle|test|measure|parity`,

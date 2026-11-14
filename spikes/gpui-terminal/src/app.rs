@@ -10,8 +10,8 @@ use gpui::{
     AnyElement, App, Bounds, ClipboardItem, Context, CursorStyle as GpuiCursorStyle,
     ElementInputHandler, EntityInputHandler, FocusHandle, IntoElement, KeyDownEvent, KeyUpEvent,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point,
-    Render, ScrollDelta, ScrollWheelEvent, Styled, Task, UTF16Selection, Window, canvas, div,
-    point, prelude::*, px, relative, rgb, size,
+    Render, ScrollDelta, ScrollEvent, Styled, Task, UTF16Selection, Window, canvas, div, point,
+    prelude::*, px, relative, rgb, size,
 };
 
 use crate::host_ipc::{HostCommand, HostEvent, HostLink, host_socket_from_env_or_args};
@@ -151,7 +151,7 @@ impl SpikeApp {
         app.start_clock(cx);
         match host_socket_from_env_or_args() {
             Some(path) => app.connect_host(&path, window, cx),
-            None => focus_handle.focus(window),
+            None => focus_handle.focus(window, cx),
         }
         app
     }
@@ -237,7 +237,7 @@ impl SpikeApp {
             HostCommand::NewTab => {
                 self.set_visible(true, window, cx);
                 self.add_tab(cx);
-                self.focus_handle.focus(window);
+                self.focus_handle.focus(window, cx);
             }
             HostCommand::Close => self.close_focused_pane(cx),
             HostCommand::SplitRight => self.split_focused(SplitDirection::Row, cx),
@@ -559,7 +559,7 @@ impl SpikeApp {
             self.send_focus_to(&old, false);
         }
         self.send_focus_to(pane_id, true);
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         self.emit_title();
         cx.notify();
     }
@@ -691,7 +691,7 @@ impl SpikeApp {
             }
             self.selected = index;
             self.marked_text.clear();
-            self.focus_handle.focus(window);
+            self.focus_handle.focus(window, cx);
             self.report_focus(true, cx);
             self.emit_title();
             cx.notify();
@@ -725,7 +725,7 @@ impl SpikeApp {
             if visible {
                 window.activate_window();
                 cx.activate(true);
-                self.focus_handle.focus(window);
+                self.focus_handle.focus(window, cx);
             }
             return;
         }
@@ -739,7 +739,7 @@ impl SpikeApp {
             crate::mac_front::set_window_visible(true);
             window.activate_window();
             cx.activate(true);
-            self.focus_handle.focus(window);
+            self.focus_handle.focus(window, cx);
         } else {
             self.report_focus(false, cx);
             #[cfg(target_os = "macos")]
@@ -987,7 +987,7 @@ impl SpikeApp {
             "t" if modifiers.shift => {
                 self.visible = true;
                 self.add_tab(cx);
-                self.focus_handle.focus(window);
+                self.focus_handle.focus(window, cx);
                 true
             }
             "t" => {
@@ -1339,7 +1339,7 @@ impl SpikeApp {
     fn scroll_wheel(
         &mut self,
         pane_id: String,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1440,7 +1440,7 @@ impl SpikeApp {
                     app.mouse_up(pane_for_up_out.clone(), event, window, cx);
                 }),
             )
-            .on_scroll_wheel(cx.listener(move |app, event, window, cx| {
+            .on_scroll(cx.listener(move |app, event, window, cx| {
                 app.scroll_wheel(pane_for_scroll.clone(), event, window, cx);
             }))
             .child(
@@ -1701,7 +1701,7 @@ impl SpikeApp {
                     .hover(|style| style.bg(rgb(0x223246)))
                     .on_click(cx.listener(|app, _, window, cx| {
                         app.add_tab(cx);
-                        app.focus_handle.focus(window);
+                        app.focus_handle.focus(window, cx);
                     }))
                     .child("+"),
             )
@@ -1742,7 +1742,7 @@ impl Render for SpikeApp {
             }
         }
         if self.visible && !self.focus_handle.is_focused(window) {
-            window.focus(&self.focus_handle);
+            window.focus(&self.focus_handle, cx);
             // The first frame may run before the focus tree owns the handle. Ask
             // for one more frame so the canvas can register its input handler.
             cx.notify();

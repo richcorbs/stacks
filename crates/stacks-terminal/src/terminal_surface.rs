@@ -209,7 +209,14 @@ impl PreparedFrame {
 
         for (index, line) in self.lines.iter().enumerate() {
             let row_origin = point(origin.x, origin.y + px(index as f32 * self.cell_height));
-            let _ = line.paint_background(row_origin, line_height, window, cx);
+            let _ = line.paint_background(
+                row_origin,
+                line_height,
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
         }
 
         if let Some(cursor) = self.cursor {
@@ -262,7 +269,14 @@ impl PreparedFrame {
 
         for (index, line) in self.lines.iter().enumerate() {
             let row_origin = point(origin.x, origin.y + px(index as f32 * self.cell_height));
-            let _ = line.paint(row_origin, line_height, window, cx);
+            let _ = line.paint(
+                row_origin,
+                line_height,
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
         }
 
         if let (Some(marked), Some((x, y))) = (self.marked, self.marked_pos) {
@@ -270,8 +284,22 @@ impl PreparedFrame {
                 origin.x + px(f32::from(x) * self.cell_width),
                 origin.y + px(f32::from(y) * self.cell_height),
             );
-            let _ = marked.paint_background(marked_origin, line_height, window, cx);
-            let _ = marked.paint(marked_origin, line_height, window, cx);
+            let _ = marked.paint_background(
+                marked_origin,
+                line_height,
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
+            let _ = marked.paint(
+                marked_origin,
+                line_height,
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
         }
     }
 }

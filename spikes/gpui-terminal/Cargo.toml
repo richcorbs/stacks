@@ -11,6 +11,7 @@ publish = false
 anyhow.workspace = true
 async-channel.workspace = true
 gpui.workspace = true
+gpui_platform.workspace = true
 ghostty-vt.workspace = true
 serde_json.workspace = true
 serde.workspace = true

@@ -7,6 +7,7 @@
 
 use std::process::Command;
 
+#[cfg_attr(test, allow(dead_code))]
 pub fn send(title: &str, body: &str) {
     let script = format!(
         "display notification {} with title {}",

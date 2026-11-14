@@ -15,7 +15,7 @@ use gpui::{
     Render, ScrollStrategy, SharedString, UniformListScrollHandle, Window, div, prelude::*, px,
     rgb, uniform_list,
 };
-use gpui_component::{
+use gpui_kit::component::{
     Sizable,
     button::{Button, ButtonVariants},
     spinner::Spinner,
@@ -135,7 +135,7 @@ impl ListView {
 
     fn empty(cx: &mut Context<Self>) -> Self {
         #[cfg(test)]
-        gpui_component::init(cx);
+        gpui_kit::init(cx);
         Self {
             focus_handle: cx.focus_handle(),
             store: CardStore::default_store(),
@@ -180,8 +180,8 @@ impl ListView {
         view
     }
 
-    pub fn focus(&self, window: &mut Window) {
-        self.focus_handle.focus(window);
+    pub fn focus_handle(&self) -> FocusHandle {
+        self.focus_handle.clone()
     }
 
     pub fn reload_from_shell(&mut self, cx: &mut Context<Self>) {
@@ -293,7 +293,7 @@ impl ListView {
             return;
         }
         self.keyboard_focused = Some(card_id.to_string());
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         if let Some(row) = self.row_for_card.get(card_id).copied() {
             self.scroll.scroll_to_item(row, ScrollStrategy::Center);
         }
@@ -807,7 +807,7 @@ impl ListView {
             }),
         )
         .size_full()
-        .track_scroll(self.scroll.clone())
+        .track_scroll(&self.scroll)
         .into_any_element()
     }
 
@@ -1014,7 +1014,7 @@ impl ListView {
             .into_any_element()
     }
 
-    fn render_detail(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_detail(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let Some(state) = self.detail.clone() else {
             return div().into_any_element();
         };
@@ -1169,7 +1169,7 @@ impl ListView {
                     ))
                     .into_any_element()
             } else if let Some(detail) = state.detail.clone() {
-                self.render_detail_body(&detail, &project_name, &step, window, cx)
+                self.render_detail_body(&detail, &project_name, &step, cx)
             } else {
                 div().into_any_element()
             };
@@ -1193,7 +1193,6 @@ impl ListView {
         detail: &CardDetail,
         project_name: &str,
         step: &DeliveryStep,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let card = &detail.card;
@@ -1335,8 +1334,6 @@ impl ListView {
                 TextView::markdown(
                     SharedString::from(format!("detail-markdown-{}", card.id)),
                     detail.content.clone(),
-                    window,
-                    cx,
                 )
                 .selectable(true)
                 .into_any_element()
@@ -1497,7 +1494,7 @@ fn flatten_rows(
 }
 
 impl Render for ListView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.report_detail_metric();
         let notice = self.notice.as_ref().and_then(|(message, at)| {
             (at.elapsed() < Duration::from_secs(6)).then(|| message.clone())
@@ -1543,7 +1540,7 @@ impl Render for ListView {
                         ),
                 )
             })
-            .child(self.render_detail(window, cx))
+            .child(self.render_detail(cx))
     }
 }
 
@@ -1774,7 +1771,9 @@ mod tests {
         assert!(cx.debug_bounds("card-backlog-a").is_some());
         assert!(cx.debug_bounds("card-backlog-b").is_some());
 
-        cx.update(|window, cx| view.read(cx).focus(window));
+        cx.update(|window, cx| {
+            view.read(cx).focus_handle().focus(window, cx);
+        });
         cx.simulate_keystrokes("down enter");
         view.read_with(cx, |view, _| {
             assert_eq!(view.keyboard_focused.as_deref(), Some("backlog-b"));

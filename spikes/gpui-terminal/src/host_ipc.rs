@@ -95,9 +95,10 @@ impl HostLink {
         let stream = connect_with_retry(path, 40, Duration::from_millis(25))
             .with_context(|| format!("connect to host socket {}", path.display()))?;
         let writer_stream = stream.try_clone().context("clone host socket")?;
-        writer_stream
-            .set_write_timeout(Some(Duration::from_secs(2)))
-            .context("configure host socket write timeout")?;
+        // Best-effort: the peer may already have closed (the EOF test), and
+        // macOS can reject SO_SNDTIMEO on a disconnected Unix socket. Writes
+        // still fail promptly on EOF.
+        let _ = writer_stream.set_write_timeout(Some(Duration::from_secs(2)));
         let link = Self {
             writer: Mutex::new(Some(writer_stream)),
             closed: AtomicBool::new(false),

@@ -18,8 +18,10 @@ card detail is read-only and exposes copy-reference/open-URL only. Reports:
 - `../../docs/gpui-app-shell-321.md` — shell/terminal spike.
 - `../../docs/gpui-list-view-322.md` — LIST product-surface spike.
 - `../../docs/gpui-kit-adoption-323.md` — GPUI Kit adoption + native detail
-  feasibility. `gpui-component 0.5.1` on GPUI 0.2.2 is a temporary compatibility
-  probe; the recommended target is `gpui-kit 0.9.1` + `gpui-pre 0.3.12`.
+  feasibility.
+- `../../docs/gpui-kit-0.9.1-migration-324.md` — migration to `gpui-kit 0.9.1`
+  + `gpui-pre 0.3.12`, measurements and remaining accessibility work.
+  The app now uses the 0.9.1 foundation.
 
 ## Run
 

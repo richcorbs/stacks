@@ -20,8 +20,8 @@ use gpui::{
     AnyElement, App, Bounds, ClipboardItem, Context, CursorStyle as GpuiCursorStyle,
     ElementInputHandler, EntityInputHandler, ExternalPaths, FocusHandle, IntoElement, KeyDownEvent,
     KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Point, Render, ScrollDelta, ScrollWheelEvent, Styled, Subscription, Task, UTF16Selection,
-    Window, canvas, div, point, prelude::*, px, relative, rgb, size,
+    Point, Render, ScrollDelta, ScrollEvent, Styled, Subscription, Task, UTF16Selection, Window,
+    canvas, div, point, prelude::*, px, relative, rgb, size,
 };
 use stacks_terminal::{
     keymap::{ghostty_key, ghostty_mods, is_text_input_key},
@@ -53,6 +53,7 @@ enum Surface {
     Terminal,
 }
 
+#[cfg_attr(test, allow(dead_code))]
 struct Pane {
     id: String,
     title: String,
@@ -199,9 +200,9 @@ impl Shell {
         shell.start_clock(cx);
         shell.start_persistence(cx);
         if shell.surface == Surface::List {
-            shell.list.read(cx).focus(window);
+            shell.list.read(cx).focus_handle().focus(window, cx);
         } else {
-            focus_handle.focus(window);
+            focus_handle.focus(window, cx);
         }
         shell
     }
@@ -334,6 +335,44 @@ impl Shell {
     }
 
     fn make_pane(
+        settings: &ShellSettings,
+        id: String,
+        cols: u16,
+        rows: u16,
+        cx: &mut Context<Self>,
+    ) -> Pane {
+        #[cfg(test)]
+        {
+            let _ = cx;
+            // GPUI 0.3.12's test scheduler rejects background-thread wakes from
+            // a real PTY reader. Shell tests exercise tabs/splits/actions, not
+            // PTY I/O, so keep the pane model but skip the shell process.
+            let model = TerminalModel::new(cols, rows, settings.scrollback_bytes)
+                .unwrap_or_else(|_| TerminalModel::new(80, 24, 1_000_000).unwrap());
+            return Pane {
+                id,
+                title: String::new(),
+                model,
+                pty: None,
+                generation: None,
+                exit: None,
+                _task: None,
+                metrics: TerminalMetrics::default(),
+                selection_anchor: None,
+                selecting: false,
+                search_open: false,
+                search_query: String::new(),
+                search_info: SearchInfo::default(),
+            };
+        }
+        #[cfg(not(test))]
+        {
+            Self::make_pane_live(settings, id, cols, rows, cx)
+        }
+    }
+
+    #[cfg(not(test))]
+    fn make_pane_live(
         settings: &ShellSettings,
         id: String,
         cols: u16,
@@ -500,7 +539,7 @@ impl Shell {
             self.send_focus_to(&old, false);
         }
         self.send_focus_to(pane_id, true);
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 
@@ -531,6 +570,7 @@ impl Shell {
         cx.notify();
     }
 
+    #[cfg_attr(test, allow(dead_code))]
     fn on_pty_event(&mut self, pane_id: &str, event: PtyEvent, cx: &mut Context<Self>) {
         let mut clipboard = Vec::new();
         let mut bells = 0;
@@ -643,7 +683,7 @@ impl Shell {
             }
             self.selected = index;
             self.marked_text.clear();
-            self.focus_handle.focus(window);
+            self.focus_handle.focus(window, cx);
             self.report_focus(true, cx);
             self.mark_dirty();
             cx.notify();
@@ -1170,7 +1210,7 @@ impl Shell {
     fn scroll_wheel(
         &mut self,
         pane_id: String,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1276,7 +1316,7 @@ impl Shell {
                     shell.mouse_up(pane_for_up_out.clone(), event, window, cx);
                 }),
             )
-            .on_scroll_wheel(cx.listener(move |shell, event, window, cx| {
+            .on_scroll(cx.listener(move |shell, event, window, cx| {
                 shell.scroll_wheel(pane_for_scroll.clone(), event, window, cx);
             }))
             .child(
@@ -1849,7 +1889,7 @@ impl Render for Shell {
             window.set_window_title(&title);
         }
         if !self.focus_handle.is_focused(window) {
-            window.focus(&self.focus_handle);
+            window.focus(&self.focus_handle, cx);
             cx.notify();
         }
 
@@ -2066,14 +2106,14 @@ impl Shell {
         self.show_settings = false;
         self.surface = Surface::Terminal;
         self.add_tab(cx);
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 
     pub fn focus_global_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_settings = false;
         self.surface = Surface::Terminal;
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         self.report_focus(true, cx);
         cx.notify();
     }
@@ -2081,14 +2121,14 @@ impl Shell {
     pub fn show_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_settings = false;
         self.surface = Surface::List;
-        self.list.read(cx).focus(window);
+        self.list.read(cx).focus_handle().focus(window, cx);
         cx.notify();
     }
 
     pub fn show_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_settings = false;
         self.surface = Surface::Terminal;
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 
@@ -2168,6 +2208,7 @@ pub fn restore_bounds(window: PersistedWindow) -> Option<Bounds<Pixels>> {
 }
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
+#[cfg_attr(test, allow(dead_code))]
 static FIRST_PTY_METRIC: OnceLock<()> = OnceLock::new();
 
 /// Called as the first statement in `main` so metrics include process start-up.

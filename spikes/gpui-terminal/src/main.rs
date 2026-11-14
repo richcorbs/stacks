@@ -1,14 +1,13 @@
 use gpui::{
-    App, AppContext, Application, Bounds, SharedString, TitlebarOptions, WindowBounds,
-    WindowOptions, px, size,
+    App, AppContext, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
 use stacks_gpui_terminal_spike::app::SpikeApp;
 use stacks_gpui_terminal_spike::host_ipc::host_socket_from_env_or_args;
 
 fn main() {
     let host_mode = host_socket_from_env_or_args().is_some();
-    Application::new().run(move |cx: &mut App| {
-        cx.on_window_closed(|cx| {
+    gpui_platform::application().run(move |cx: &mut App| {
+        cx.on_window_closed(|cx, _window_id| {
             if cx.windows().is_empty() {
                 cx.quit();
             }
