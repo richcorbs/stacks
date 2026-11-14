@@ -8,12 +8,7 @@ export function AppLayout({ appStyle, main, overlays, globalTerminal }: {
   appStyle: CSSProperties;
   main: MainLayoutProps;
   overlays: OverlayLayoutProps;
-  globalTerminal: {
-    visible: boolean;
-    newTabNonce: number;
-    setVisible: (visible: boolean) => void;
-    native: { enabled: boolean; visible: boolean; running: boolean };
-  };
+  globalTerminal: { visible: boolean; newTabNonce: number; setVisible: (visible: boolean) => void };
 }) {
   return (
     <div className="app" style={appStyle}>
@@ -41,9 +36,7 @@ export function AppLayout({ appStyle, main, overlays, globalTerminal }: {
         onStartWork={main.startWork}
         onPaletteCardsChange={main.onPaletteCardsChange}
       />
-      {globalTerminal.native.enabled
-        ? null
-        : <GlobalTerminal visible={globalTerminal.visible} newTabNonce={globalTerminal.newTabNonce} settings={main.appSettings} onVisibleChange={globalTerminal.setVisible} />}
+      <GlobalTerminal visible={globalTerminal.visible} newTabNonce={globalTerminal.newTabNonce} settings={main.appSettings} onVisibleChange={globalTerminal.setVisible} />
       <AppOverlays {...overlays} />
     </div>
   );

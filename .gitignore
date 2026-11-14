@@ -29,10 +29,6 @@ pnpm-debug.log*
 *.swp
 *.swo
 
-# Native global terminal helper (built by scripts/build-native-terminal.mjs)
-src-tauri/resources/native-terminal/
-spikes/gpui-terminal/target/
-
 # Tauri generated bundles/artifacts
 src-tauri/target/
 src-tauri/*.log
