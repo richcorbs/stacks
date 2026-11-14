@@ -12,6 +12,13 @@ This is an integration spike, not a migration. It builds on card #318
 (`spikes/gpui-terminal/`, commit `0dbc1e2`) and adds the host bridge:
 flag, helper launch, IPC, focus/shortcut handoff, packaging, and tests.
 
+> **Follow-up (card #321):** the adjacent-window seam was not continued into the
+> shell. The reusable terminal modules now live in `crates/stacks-terminal`, and
+> `apps/stacks-gpui` is the minimal single-process GPUI shell. The nested-app
+> packaging/signing notes below are historical for the two-app shape. Shell
+> findings, measurements and verdict: `docs/gpui-app-shell-321.md`.
+> `spikes/gpui-terminal/HOST_INTEGRATION.md` carries the updated contract.
+
 ## What changed
 
 | Area | Path | Purpose |
@@ -60,7 +67,8 @@ STACKS_NATIVE_GLOBAL_TERMINAL_BIN=/abs/path/to/helper \
 
 Helper discovery order: `STACKS_NATIVE_GLOBAL_TERMINAL_BIN` → bundled
 `Contents/Resources/native-terminal/StacksNativeTerminal.app/Contents/MacOS/StacksNativeTerminal`
-→ debug-build `spikes/gpui-terminal/target/{release,debug}/stacks-gpui-terminal-spike`.
+→ debug-build `target/{release,debug}/stacks-gpui-terminal-spike` in the workspace (older
+builds may still have `spikes/gpui-terminal/target/...`).
 
 With the flag absent (or `0`), the backend never spawns a process, never opens a
 socket, and the frontend renders the original xterm.js `GlobalTerminal`
@@ -183,7 +191,9 @@ Implications not solved by this spike:
 - **Signing order:** nested bundles must be signed inner-out with the same
   Developer ID as Stacks. Tauri signs the outer app but does not deep-sign
   resources. For a real Developer ID build, sign the nested app *before*
-  `tauri build`, and sign/notarize the outer app afterwards.
+  `tauri build`, and sign/notarize the outer app afterwards. **Historical:** the
+  card #321 single-bundle GPUI app removes this nested signing order entirely,
+  but still needs Developer ID + notarization.
 - **Notarization:** notarization must include the nested executable; the current
   project ships ad-hoc signed builds (`signingIdentity: "-"`), so Gatekeeper
   behaviour for a distributed build is unverified. Assume it needs the same
@@ -337,3 +347,7 @@ modules and build a minimal GPUI shell (sidebar/kanban placeholder, global
 terminal, window/menu/persistence) behind a separate branch, then compare
 focus/IME/packaging against this adjacent-window result before any conversion
 work.
+
+**Done in card #321:** `crates/stacks-terminal` + `apps/stacks-gpui`. Result:
+go for a single native app as the migration target, no-go for a cutover yet.
+See `docs/gpui-app-shell-321.md`.

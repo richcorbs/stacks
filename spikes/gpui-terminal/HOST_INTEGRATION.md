@@ -6,23 +6,29 @@ layout, input, or parity harness.
 
 ## Reusable modules
 
+The modules below now live in `crates/stacks-terminal` (card #321 extracted them
+from the card #318 spike). `spikes/gpui-terminal` and `apps/stacks-gpui` both
+depend on that crate, so there is one source of truth.
+
 | Module | Responsibility | Host-owned? |
 | --- | --- | --- |
-| `terminal_model.rs` | libghostty-vt lifecycle, frame materialization, selection, search, paste/key/mouse encoding | no |
-| `terminal_surface.rs` | cell metrics, shaped rows, colors, cursor, marked-text painting | no |
-| `split_tree.rs` | split tree, split/remove/ratio/relative-pane math | no |
-| `pty.rs` | portable-pty spawn/write/resize, login shell, generation ids, async events | no |
-| `keymap.rs` | GPUI keystroke → Ghostty key/modifier mapping | no |
-| `parity/` | xterm.js differential harness, corpus, known divergences | no |
-| `app.rs` | demo host: tabs, panes, focus, key routing, chrome, IME, clipboard | yes |
+| `crates/stacks-terminal/src/terminal_model.rs` | libghostty-vt lifecycle, frame materialization, selection, search, paste/key/mouse encoding | no |
+| `crates/stacks-terminal/src/terminal_surface.rs` | cell metrics, shaped rows, colors, cursor, marked-text painting, `TerminalStyle` | no |
+| `crates/stacks-terminal/src/split_tree.rs` | split tree, split/remove/ratio/relative-pane math | no |
+| `crates/stacks-terminal/src/pty.rs` | portable-pty spawn/write/resize, login shell, generation ids, async events | no |
+| `crates/stacks-terminal/src/keymap.rs` | GPUI keystroke → Ghostty key/modifier mapping | no |
+| `crates/stacks-terminal/parity/` | xterm.js differential harness, corpus, known divergences | no |
+| `spikes/gpui-terminal/src/app.rs` | demo host: tabs, panes, focus, key routing, chrome, IME, clipboard | yes |
+| `apps/stacks-gpui/src/shell.rs` | card #321 shell host: chrome, menu/keybindings, settings/persistence, notifications, drag/drop | yes |
 
-The later GPUI shell should consume the first six and replace the demo host, not
-copy `app.rs` wholesale.
+The GPUI shell consumes the library modules and replaces the demo host, not
+copies `app.rs` wholesale.
 
 ## Terminal invariants to preserve
 
 - `TerminalModel` and every libghostty-vt handle stay on one thread
-  (`!Send + !Sync`). Use a foreground task + channel, as `app.rs` does.
+  (`!Send + !Sync`). Use a foreground task + channel, as `app.rs` and
+  `apps/stacks-gpui/src/shell.rs` do.
 - PTY events are generation-tagged; stale data/exit events must be discarded.
 - PTY output is fed as raw bytes; do not decode chunks independently.
 - One `TerminalModel` per pane, one PTY per pane.
@@ -58,7 +64,9 @@ The future shell must provide these around the reusable modules:
 - `Cmd+[`/`Cmd+]` cycles tabs; `Shift+Cmd+[`/`]` cycles panes
   (`Option+Cmd+[`/`]` is kept as an alias).
 - `Shift+Cmd+Enter` toggles maximize for the focused pane (`Shift+Cmd+M` is kept
-  as an alias) so the native window matches Stacks' menu accelerator.
+  as an alias) so the native window matches Stacks' menu accelerator. While a
+  pane is maximized, pane navigation moves the maximized pane to the newly
+  focused pane instead of leaving the old pane visible.
 - Closing the focused pane selects the previous pane in visual order.
 - Closing the last pane closes the tab when another tab exists.
 - Manually resized splits keep `manual: true`; the demo does not yet expose a
@@ -170,3 +178,54 @@ signing/notarization implications.
   copy-on-select and OSC 52 both write it exactly as the Tauri app does.
 - No inter-window drag/drop, link opening, or tab-bar drag.
 - Search parity is command-level (`Cmd+F`), not UI-level.
+
+
+## Card #321 shell findings
+
+`apps/stacks-gpui` is the minimal shell built on this contract. Full report and
+measurements: `docs/gpui-app-shell-321.md`.
+
+What the shell proved:
+
+- **The contract survives a real host.** The library crate is consumed unchanged
+  except for two additive APIs: `TerminalStyle`/`prepare_frame_with_style`
+  (host font settings) and `Pty::spawn_with_shell` (host shell override).
+  `prepare_frame` and `Pty::spawn` remain the defaults used by the demo host and
+  goldens.
+- **No seam code is needed.** `host_ipc.rs`, `mac_front.rs`, the attached-overlay
+  experiment, `Cmd+T` replay guard, duplicate-toggle dedupe and geometry
+  mirroring are absent from the shell. One event loop, one focus handle, per-pane
+  DEC 1004.
+- **Window state has a GPUI trap.** `Window::bounds()` is the outer NSWindow
+  frame; `WindowOptions::window_bounds` is a content rect. Persist origin +
+  `viewport_size()` or the window grows by the titlebar height on every launch.
+- **IME belongs to the host.** `EntityInputHandler::bounds_for_range` must map the
+  focused pane's terminal cursor into the terminal element's bounds. The shell
+  keeps this as a pure `ime_cursor_bounds` function with a unit test; real
+  candidate-window placement still needs a human IME pass.
+- **Notifications are a host service, not a terminal feature.** GPUI 0.2.2 has no
+  notification API; the shell uses `osascript` as a routing stub. A production
+  host needs `UNUserNotificationCenter` and authorization handling.
+- **Drag/drop is a host service.** GPUI maps file drops to `ExternalPaths`; the
+  shell filters Stacks' image extensions and shell-escapes paths.
+- **Persistence ownership is unresolved.** The shell's JSON is a stub; the
+  product still needs a Rust-side owner for global-terminal layout.
+- **Menu/keyboard parity is a host responsibility.** The shell registers one
+  action vocabulary for menus and keybindings; the demo host's in-`app.rs`
+  shortcut handling is not the contract.
+- **Use element-level action listeners in a GPUI host.** `App::on_action`
+  listeners run while the window is already borrowed by action dispatch; a
+  nested `WindowHandle::update` fails and the shortcut/menu item silently does
+  nothing. Attach listeners to the focused root element (the shell's
+  `ShellActions`) and keep a headless dispatch test for split/maximize/menu
+  actions.
+
+### Shell host services still open
+
+- IME candidate/composition verification.
+- Accessibility tree and screen-reader behaviour.
+- Multi-display/Space window behaviour; GPUI 0.2.2 has no live `set_position`.
+- Production notifications and permission state.
+- Rust-side persistence schema for tabs/panes/cwd/titles/settings.
+- Search UI parity, draggable handles, link opening, kitty graphics.
+- Developer ID signing + notarization + updater for a single bundle.

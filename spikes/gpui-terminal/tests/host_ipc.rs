@@ -24,11 +24,11 @@ fn helper_emits_ready_and_receives_commands() {
             line.trim(),
             r#"{"event":"ready","pid":7,"version":"0.1.0"}"#
         );
-        writer
-            .write_all(b"{\"command\":\"visibility\"}\n")
-            .ok();
+        writer.write_all(b"{\"command\":\"visibility\"}\n").ok();
         writer.write_all(b"{\"command\":\"toggle\"}\n").unwrap();
-        writer.write_all(b"{\"command\":\"split-right\"}\n").unwrap();
+        writer
+            .write_all(b"{\"command\":\"split-right\"}\n")
+            .unwrap();
     });
     let (link, commands) = HostLink::connect(&path).unwrap();
     // The host above asserts the Ready payload; send a matching one.

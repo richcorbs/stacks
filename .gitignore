@@ -33,6 +33,16 @@ pnpm-debug.log*
 src-tauri/resources/native-terminal/
 spikes/gpui-terminal/target/
 
+# Native GPUI experiment (card #321)
+target/
+dist-gpui/
+crates/stacks-terminal/visual-tests/generated.svg
+crates/stacks-terminal/parity/.ghostty-run.json
+crates/stacks-terminal/parity/.xterm-run.json
+crates/stacks-terminal/parity/report.json
+crates/stacks-terminal/parity/*-report.json
+crates/stacks-terminal/parity/corpus-merged.json
+
 # Tauri generated bundles/artifacts
 src-tauri/target/
 src-tauri/*.log

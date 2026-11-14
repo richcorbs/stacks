@@ -15,7 +15,7 @@
  *   STACKS_CODESIGN_IDENTITY   codesign identity for the nested app (default "-",
  *                              ad-hoc). Distribution builds must use the same
  *                              Developer ID as Stacks so notarization accepts it.
- *   CARGO_TARGET_DIR           respected; defaults to the spike crate's target.
+ *   CARGO_TARGET_DIR           respected; defaults to the workspace target/.
  */
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,7 +33,7 @@ const sign = !process.argv.includes('--no-sign');
 const profile = debug ? 'debug' : 'release';
 const cargoTarget = process.env.CARGO_TARGET_DIR
   ? resolve(root, process.env.CARGO_TARGET_DIR)
-  : join(spikeDir, 'target');
+  : join(root, 'target');
 const binary = join(cargoTarget, profile, 'stacks-gpui-terminal-spike');
 const packageVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 

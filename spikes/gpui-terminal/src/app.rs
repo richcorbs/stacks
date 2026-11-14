@@ -14,9 +14,9 @@ use gpui::{
     point, prelude::*, px, relative, rgb, size,
 };
 
-use crate::{
+use crate::host_ipc::{HostCommand, HostEvent, HostLink, host_socket_from_env_or_args};
+use stacks_terminal::{
     fixtures::{demo_fixture, demo_second_tab},
-    host_ipc::{HostCommand, HostEvent, HostLink, host_socket_from_env_or_args},
     keymap::{ghostty_key, ghostty_mods, is_text_input_key},
     pty::{Pty, PtyEvent},
     split_tree::{SplitDirection, SplitNode},
@@ -549,6 +549,11 @@ impl SpikeApp {
             }
             tab.focused = pane_id.to_string();
             self.marked_text.clear();
+            // A maximized pane must follow pane navigation: the visible pane
+            // is derived from `maximized`, not from the split tree.
+            if tab.maximized.is_some() {
+                tab.maximized = Some(pane_id.to_string());
+            }
         }
         if let Some(old) = old_focused.filter(|old| old != pane_id) {
             self.send_focus_to(&old, false);
@@ -989,9 +994,9 @@ impl SpikeApp {
                 // A host-driven show can hand focus here while the physical
                 // Cmd+T key event (or its auto-repeat) is still in flight.
                 // Treat that as the same key press, not a hide request.
-                let just_shown = self.visible_since.is_some_and(|at| {
-                    at.elapsed() < Duration::from_millis(600)
-                });
+                let just_shown = self
+                    .visible_since
+                    .is_some_and(|at| at.elapsed() < Duration::from_millis(600));
                 if std::env::var_os("SPIKE_INPUT_DEBUG").is_some() {
                     eprintln!(
                         "HELPER CMD+T visible={} just_shown={just_shown} held={}",

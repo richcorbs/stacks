@@ -1,0 +1,22 @@
+[package]
+name = "stacks-terminal"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "Apache-2.0"
+description = "Reusable GPUI + libghostty-vt terminal surface for Stacks native spikes"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+async-channel.workspace = true
+base64.workspace = true
+ghostty-vt.workspace = true
+gpui.workspace = true
+portable-pty.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

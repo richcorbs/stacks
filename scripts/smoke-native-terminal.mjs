@@ -22,6 +22,9 @@ const root = resolve(new URL('..', import.meta.url).pathname);
 const helper = [
   process.argv[2],
   process.env.STACKS_NATIVE_GLOBAL_TERMINAL_BIN,
+  join(root, 'target/release/stacks-gpui-terminal-spike'),
+  join(root, 'target/debug/stacks-gpui-terminal-spike'),
+  // Older builds used a target dir inside the spike crate.
   join(root, 'spikes/gpui-terminal/target/release/stacks-gpui-terminal-spike'),
   join(root, 'spikes/gpui-terminal/target/debug/stacks-gpui-terminal-spike'),
 ].filter(Boolean).find((candidate) => existsSync(candidate));

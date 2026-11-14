@@ -1,0 +1,17 @@
+[package]
+name = "stacks-cards"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "Apache-2.0"
+description = "Read-only Stacks card/list projection for native (GPUI) surfaces"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

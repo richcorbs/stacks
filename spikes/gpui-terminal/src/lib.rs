@@ -1,15 +1,9 @@
-//! Isolated GPUI + libghostty-vt spike for Stacks' Cmd+T global terminal.
+//! Demo host for the reusable `stacks-terminal` crate.
 //!
-//! Nothing in this crate is a dependency of the shipped Tauri app.
+//! This crate is the card #318/#319 spike host: it exercises the terminal
+//! surface and provides the adjacent-window helper. It is not the app shell.
 
 pub mod app;
-pub mod fixtures;
 pub mod host_ipc;
-pub mod keymap;
 #[cfg(target_os = "macos")]
 pub mod mac_front;
-pub mod parity;
-pub mod pty;
-pub mod split_tree;
-pub mod terminal_model;
-pub mod terminal_surface;

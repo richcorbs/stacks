@@ -1,0 +1,24 @@
+[package]
+name = "stacks-gpui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "Apache-2.0"
+description = "Minimal GPUI app-shell spike for Stacks (card #321)"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+async-channel.workspace = true
+ghostty-vt.workspace = true
+gpui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+stacks-cards = { path = "../../crates/stacks-cards" }
+stacks-terminal = { path = "../../crates/stacks-terminal" }
+uuid.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+rusqlite.workspace = true
+tempfile.workspace = true

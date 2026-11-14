@@ -76,6 +76,29 @@ src-tauri/src/app_events.rs       menu dispatch and window lifecycle
 
 Backend owns PTY and Pi child-process lifecycles, Tauri commands, persistence, the native menu, external CLI calls, automation IPC, and window title/geometry restoration. Register new commands in `src-tauri/src/lib.rs`, but implement them in the relevant module.
 
+Native GPUI workspace (cards #318/#319/#321/#322):
+
+- Root `Cargo.toml` is a workspace for the native experiment only:
+  `crates/stacks-terminal` (reusable terminal library),
+  `crates/stacks-cards` (Tauri-free LIST read model + backlog reorder),
+  `apps/stacks-gpui` (Cards + terminal shell spike), `spikes/gpui-terminal`
+  (card #318/#319 demo/adjacent-window host). `src-tauri` is excluded so the
+  shipped Tauri crate keeps its own target dir and lockfile.
+- The shipped app is unchanged. Validate native work with
+  `cargo test --workspace` and `cargo check --workspace --all-targets` from the
+  repo root, in addition to the normal Tauri commands below.
+- Terminal modules (`terminal_model`, `terminal_surface`, `split_tree`, `pty`,
+  `keymap`, parity harness/goldens) live only in `crates/stacks-terminal`; both
+  native hosts depend on them. Do not copy them back into a host.
+- LIST product surfaces use `crates/stacks-cards`; do not put SQL or workflow
+  projection rules in `apps/stacks-gpui`. The crate opens the shipped
+  `workflow.sqlite3` read-only and owns grouping/delivery/effective-status logic.
+  Report: `docs/gpui-list-view-322.md`.
+- Shell report/verdict: `docs/gpui-app-shell-321.md`. Host contract:
+  `spikes/gpui-terminal/HOST_INTEGRATION.md`.
+- Native scripts: `npm run gpui-shell:build|bundle|test|measure|parity`,
+  `npm run gpui-list:fixture|measure`.
+
 Native terminal spike (card #319):
 
 - `STACKS_NATIVE_GLOBAL_TERMINAL=1` is a dev-only, environment-only flag that launches `spikes/gpui-terminal` as a separate native GPUI window while the Tauri/React app remains the shell.
@@ -225,13 +248,15 @@ Menu items emit `menu-shortcut` events that run frontend `runShortcutAction()`.
 
 Keep Rust menu entries and frontend actions in sync.
 
-Current menu bar should be minimal:
+Current Tauri menu bar should be minimal:
 
 ```text
 Stacks | Shortcuts | Window
 ```
 
-Do not re-add generic `Edit`, `View`, or `Help` menus unless requested.
+Do not re-add generic `Edit`, `View`, or `Help` menus unless requested. The GPUI
+shell spike has its own `Stacks | Terminal | Window` menu; that does not change
+the shipped Tauri menu.
 
 ## Dialog/product UX preferences
 

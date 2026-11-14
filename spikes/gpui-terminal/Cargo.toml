@@ -4,25 +4,18 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99.1"
 license = "Apache-2.0"
-description = "Isolated GPUI + libghostty-vt spike for Stacks' Cmd+T global terminal"
+description = "Isolated GPUI + libghostty-vt demo host for Stacks' Cmd+T global terminal"
 publish = false
 
 [dependencies]
-anyhow = "1"
-async-channel = "2"
-base64 = "0.22"
-# Cargo.lock pins 0.8.0+ghostty.1.4.0-main.83fb956 (Ghostty commit 83fb956).
-# ghostty-vt-sys builds Ghostty's libghostty-vt tarball with Zig 0.17.
-ghostty-vt = { version = "=0.8.0", default-features = false }
-gpui = "=0.2.2"
-portable-pty = "0.9.0"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-uuid = { version = "1", features = ["v4"] }
+anyhow.workspace = true
+async-channel.workspace = true
+gpui.workspace = true
+ghostty-vt.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+stacks-terminal = { path = "../../crates/stacks-terminal" }
+uuid.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
-
-[profile.release]
-lto = "thin"
-codegen-units = 1
+tempfile.workspace = true

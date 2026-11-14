@@ -1,7 +1,12 @@
-# GPUI + libghostty-vt global terminal spike (card #318)
+# GPUI + libghostty-vt global terminal demo host (cards #318/#319)
 
 An isolated, runnable reproduction of Stacks' **Cmd+T global terminal** on a
 native GPU UI stack. Nothing here is imported by the shipped Tauri app.
+
+Card #321 extracted the reusable terminal modules into
+`crates/stacks-terminal`; this crate is now the demo/adjacent-window host on top
+of that library. See `docs/gpui-app-shell-321.md` for the shell spike and
+`HOST_INTEGRATION.md` for the host contract.
 
 ## Scope
 
@@ -69,21 +74,22 @@ selection, `Cmd+V` paste, `Cmd+Q` quit.
 
 ## Tests
 
+Terminal tests and the parity harness moved to `crates/stacks-terminal` with the
+modules in card #321. From the repository root:
+
 ```bash
-cargo test
+cargo test --workspace              # terminal, demo host, shell
+npm run gpui-shell:parity           # xterm.js <-> libghostty-vt parity
 
 # Real programs over a disposable PTY (vim/less/git; htop if installed)
-cargo test --test tui_smoke -- --test-threads=1 --nocapture
-
-# xterm.js <-> libghostty-vt grid and keyboard parity
-./scripts/parity.sh
+cargo test -p stacks-terminal --test tui_smoke -- --test-threads=1 --nocapture
 
 # 120 Hz CPU-budget measurement
-cargo test --release --test bench_120hz -- --ignored --nocapture
+cargo test -p stacks-terminal --release --test bench_120hz -- --ignored --nocapture
 
 # Regenerate the visual golden if the render model intentionally changes
-UPDATE_VISUAL=1 cargo test --test visual_test
-./scripts/visual-test.sh   # also writes visual-tests/golden.png with rsvg-convert
+UPDATE_VISUAL=1 cargo test -p stacks-terminal --test visual_test
+crates/stacks-terminal/scripts/visual-test.sh   # writes golden.png with ImageMagick
 ```
 
 `visual-tests/golden.svg` and `golden.png` are model-level goldens: they
@@ -94,17 +100,21 @@ this is not a Metal framebuffer readback.
 ## Architecture
 
 ```text
-src/pty.rs             portable-pty spawn/write/resize, generation ids, async events
-src/terminal_model.rs  libghostty-vt wrapper -> plain Frame/Cell data
-src/terminal_surface.rs cell metrics, shaped rows, cursor, marked-text paint
-src/split_tree.rs      reusable pane split tree and focus math
-src/keymap.rs          GPUI keystroke -> Ghostty key/modifier mapping
-src/app.rs             demo host: tabs, panes, chrome, input, selection, IME, search
-src/mac_front.rs       test-only NSWindow raise helper for the visual smoke run
-src/fixtures.rs        deterministic render fixture
-src/parity.rs          shared xterm.js parity corpus runner
-parity/                xterm.js harness, corpus, known divergences, key parity
-HOST_INTEGRATION.md    hand-off contract for the full GPUI app-shell card
+crates/stacks-terminal/   reusable library (consumed by both native binaries)
+  src/pty.rs              portable-pty spawn/write/resize, generation ids, async events
+  src/terminal_model.rs   libghostty-vt wrapper -> plain Frame/Cell data
+  src/terminal_surface.rs cell metrics, shaped rows, cursor, marked-text paint
+  src/split_tree.rs       reusable pane split tree and focus math
+  src/keymap.rs           GPUI keystroke -> Ghostty key/modifier mapping
+  src/fixtures.rs         deterministic render fixture (visual test support)
+  src/parity.rs           shared xterm.js parity corpus runner
+  parity/                 xterm.js harness, corpus, known divergences, key parity
+apps/stacks-gpui/         minimal GPUI app shell (card #321)
+spikes/gpui-terminal/
+  src/app.rs              demo host: tabs, panes, chrome, input, selection, IME, search
+  src/host_ipc.rs         adjacent-window transport (card #319 only)
+  src/mac_front.rs        test-only NSWindow raise/show helper
+HOST_INTEGRATION.md       hand-off contract for the full GPUI app-shell card
 ```
 
 The PTY reader thread sends bytes through a bounded `async_channel`; the GPUI
@@ -136,6 +146,9 @@ repository root pins Rust 1.99.1.
 - Font fallback/shaping for emoji, combining marks and ligatures is GPUI +
   Menlo; wide glyph alignment needs a real glyph atlas for production parity.
 - IME composition is wired and rendered as marked text, but needs a human pass
-  with the actual input method you use.
+  with the actual input method you use. The card #321 shell keeps the same
+  plumbing and anchors candidates to the terminal cursor.
+- The demo host still owns its own tabs/panes when run through `host_ipc.rs`;
+  that seam is intentionally absent from `apps/stacks-gpui`.
 - GPU frame pacing/present timing is not measured; the 120 Hz number is emulator
   + render-state CPU time only.

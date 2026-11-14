@@ -1,0 +1,32 @@
+# Workspace for the native (GPUI) experiment only.
+#
+# The shipped Tauri app stays an independent crate: it is excluded so
+# `cd src-tauri && cargo check` keeps using its own target dir and lockfile.
+[workspace]
+resolver = "3"
+members = [
+  "apps/stacks-gpui",
+  "crates/stacks-cards",
+  "crates/stacks-terminal",
+  "spikes/gpui-terminal",
+]
+exclude = ["src-tauri"]
+
+[workspace.dependencies]
+anyhow = "1"
+async-channel = "2"
+base64 = "0.22"
+# Cargo.lock pins 0.8.0+ghostty.1.4.0-main.83fb956 (Ghostty commit 83fb956).
+# ghostty-vt-sys builds Ghostty's libghostty-vt tarball with Zig 0.17.
+ghostty-vt = { version = "=0.8.0", default-features = false }
+gpui = "=0.2.2"
+portable-pty = "0.9.0"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

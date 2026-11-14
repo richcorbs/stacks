@@ -1,0 +1,194 @@
+use std::path::Path;
+
+use rusqlite::Connection;
+use stacks_cards::{CardStatus, CardStore, WorkGroup, group_cards, work_group};
+
+fn create_database(path: &Path) {
+    let connection = Connection::open(path).unwrap();
+    connection
+        .execute_batch(
+            r#"
+            CREATE TABLE projects (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL,
+                color_id TEXT, delivery_workflow TEXT NOT NULL DEFAULT 'local_merge',
+                kanban_source TEXT, sort_order INTEGER NOT NULL DEFAULT 0,
+                require_passing_ci INTEGER NOT NULL DEFAULT 1,
+                require_approval INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE kanban_cards (
+                id TEXT PRIMARY KEY, external_provider TEXT NOT NULL, external_id TEXT NOT NULL,
+                title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', board_id TEXT NOT NULL DEFAULT '',
+                board_title TEXT NOT NULL DEFAULT '', list_id TEXT NOT NULL DEFAULT '',
+                list_title TEXT NOT NULL DEFAULT '', card_url TEXT NOT NULL DEFAULT '',
+                assignee_names TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL,
+                completion_outcome TEXT, feature_environment INTEGER NOT NULL DEFAULT 0,
+                delivery_operation_stage TEXT, delivery_error TEXT, runtime_cleanup_status TEXT,
+                runtime_cleanup_error TEXT, workflow_revision INTEGER NOT NULL DEFAULT 1,
+                record_revision INTEGER NOT NULL DEFAULT 1, project_id TEXT, workspace_id TEXT,
+                parent_id TEXT, hierarchy_finalized INTEGER NOT NULL DEFAULT 0,
+                provider_child_count INTEGER NOT NULL DEFAULT 0, provider_parent_title TEXT,
+                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0, in_scope INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE card_environments (
+                id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
+                worktree_path TEXT NOT NULL, branch TEXT NOT NULL DEFAULT '',
+                lifecycle_state TEXT NOT NULL DEFAULT 'ready', revision INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, target_branch TEXT, source_revision TEXT
+            );
+            CREATE TABLE card_layouts (
+                environment_id TEXT PRIMARY KEY, layout_revision INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE card_pull_requests (
+                card_id TEXT PRIMARY KEY, repository TEXT NOT NULL, number INTEGER NOT NULL,
+                title TEXT NOT NULL, url TEXT NOT NULL, state TEXT NOT NULL,
+                draft INTEGER NOT NULL DEFAULT 0, ci_status TEXT NOT NULL DEFAULT 'unknown',
+                review_state TEXT NOT NULL DEFAULT 'unknown', has_conflicts INTEGER NOT NULL DEFAULT 0,
+                mergeable INTEGER NOT NULL DEFAULT 0, head_revision TEXT, updated_at INTEGER NOT NULL
+            );
+            INSERT INTO projects(id,name,path,color_id,delivery_workflow,kanban_source,sort_order)
+                VALUES ('p1','Stacks','/tmp/stacks','slate','local_merge','local',0),
+                       ('p2','Arcasa','/tmp/arcasa','violet','github_pull_request','superthread',1);
+            INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,parent_id,
+                hierarchy_finalized,provider_child_count,created_at,updated_at,sort_order)
+                VALUES ('parent','local:parent','1','Parent','agent_working','p1',NULL,1,1,1,1,0),
+                       ('child','local:child','2','Child','ready','p1','parent',0,0,2,2,0),
+                       ('backlog-a','local:a','3','Backlog A','needs_refinement','p1',NULL,0,0,3,3,0),
+                       ('backlog-b','local:b','4','Backlog B','needs_refinement','p1',NULL,0,0,4,4,1),
+                       ('done','local:d','5','Shipped','done','p1',NULL,0,0,5,5,2),
+                       ('pr','superthread:9','9','PR card','approved','p2',NULL,0,0,6,6,0);
+            UPDATE kanban_cards SET completion_outcome='merged' WHERE id='done';
+            INSERT INTO card_pull_requests(card_id,repository,number,title,url,state,draft,ci_status,
+                review_state,has_conflicts,mergeable,head_revision,updated_at)
+                VALUES ('pr','acme/repo',42,'PR card','https://example.test/pr/42','open',0,'success',
+                        'approved',0,1,'abc','7');
+            INSERT INTO card_environments(id,card_id,project_id,worktree_path,branch,lifecycle_state,
+                revision,created_at,updated_at) VALUES
+                ('env-parent','parent','p1','/tmp/parent','stacks/parent','ready',1,1,1),
+                ('env-pr','pr','p2','/tmp/pr','stacks/pr','ready',1,1,1);
+            "#,
+        )
+        .unwrap();
+}
+
+#[test]
+fn loads_real_list_projection_and_effective_statuses() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("workflow.sqlite3");
+    create_database(&path);
+    let snapshot = CardStore::new(&path).load_snapshot().unwrap();
+    assert_eq!(snapshot.projects.len(), 2);
+    assert_eq!(snapshot.cards.len(), 6);
+
+    let parent = snapshot
+        .cards
+        .iter()
+        .find(|card| card.id == "parent")
+        .unwrap();
+    // Finalized parents roll up to their earliest child status.
+    assert_eq!(parent.status, CardStatus::Ready);
+    assert_eq!(parent.child_count, 1);
+    assert_eq!(parent.children[0].external_id, "2");
+    assert_eq!(parent.environment.as_ref().unwrap().branch, "stacks/parent");
+
+    assert_eq!(
+        group_cards(&snapshot.cards, WorkGroup::Backlog, &snapshot.projects).len(),
+        2
+    );
+    assert_eq!(
+        group_cards(&snapshot.cards, WorkGroup::Done, &snapshot.projects).len(),
+        1
+    );
+    let pr = snapshot.cards.iter().find(|card| card.id == "pr").unwrap();
+    assert_eq!(
+        stacks_cards::work_group(pr, &snapshot.projects),
+        WorkGroup::Attention
+    );
+    assert_eq!(
+        stacks_cards::delivery_step(pr, &snapshot.projects).label,
+        "PR merge available · Merge PR"
+    );
+    assert!(pr.pull_request.as_ref().unwrap().blockers.is_empty());
+}
+
+#[test]
+fn reorder_backlog_updates_lane_and_reports_conflicts() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("workflow.sqlite3");
+    create_database(&path);
+    let store = CardStore::new(&path);
+    let snapshot = store.load_snapshot().unwrap();
+    let lane = group_cards(&snapshot.cards, WorkGroup::Backlog, &snapshot.projects)
+        .into_iter()
+        .map(|card| card.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(lane, ["backlog-a", "backlog-b"]);
+
+    let reversed = vec!["backlog-b".to_string(), "backlog-a".to_string()];
+    store.reorder_backlog(&lane, &reversed).unwrap();
+    let after = store.load_snapshot().unwrap();
+    assert_eq!(
+        group_cards(&after.cards, WorkGroup::Backlog, &after.projects)
+            .into_iter()
+            .map(|card| card.id.as_str())
+            .collect::<Vec<_>>(),
+        ["backlog-b", "backlog-a"]
+    );
+
+    // A stale expectation that would change the lane is a conflict.
+    let stale = store.reorder_backlog(&lane, &lane).unwrap_err().to_string();
+    assert!(stale.contains("KANBAN_REORDER_CONFLICT"));
+    // An exact retry is idempotent even when the expectation is stale.
+    store.reorder_backlog(&lane, &reversed).unwrap();
+}
+
+#[test]
+fn filtered_backlog_order_preserves_other_project_slots() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("workflow.sqlite3");
+    create_database(&path);
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,created_at,updated_at,sort_order)
+             VALUES ('other','local:z','10','Other','needs_refinement','p2',10,10,2);",
+        )
+        .unwrap();
+    let store = CardStore::new(&path);
+    let snapshot = store.load_snapshot().unwrap();
+    let visible = vec!["backlog-b".to_string(), "backlog-a".to_string()];
+    let full = store.filtered_backlog_order(&snapshot, &visible);
+    assert_eq!(full, ["backlog-b", "backlog-a", "other"]);
+}
+
+#[test]
+fn work_group_matches_list_sections() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("workflow.sqlite3");
+    create_database(&path);
+    let snapshot = CardStore::new(&path).load_snapshot().unwrap();
+    for card in &snapshot.cards {
+        let group = work_group(card, &snapshot.projects);
+        assert!(group.statuses().contains(&card.status) || card.status == CardStatus::Approved);
+    }
+}
+
+#[test]
+fn out_of_scope_parent_does_not_leak_into_child_summary() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("workflow.sqlite3");
+    create_database(&path);
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute("UPDATE kanban_cards SET in_scope=0 WHERE id='parent'", [])
+        .unwrap();
+    let snapshot = CardStore::new(&path).load_snapshot().unwrap();
+    let child = snapshot
+        .cards
+        .iter()
+        .find(|card| card.id == "child")
+        .unwrap();
+    assert!(child.parent.is_none());
+    assert_eq!(child.status, CardStatus::Ready);
+    assert!(!snapshot.cards.iter().any(|card| card.id == "parent"));
+}

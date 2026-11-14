@@ -3,6 +3,10 @@
 **Status: technically viable for the terminal surface, not yet a replacement
 for the Tauri app.**
 
+> **Update (card #321):** the reusable modules now live in
+> `crates/stacks-terminal`, and `apps/stacks-gpui` is the minimal app-shell
+> spike. Verdict on the shell migration: `docs/gpui-app-shell-321.md`.
+
 Toolchain: Rust 1.99.1, Zig 0.17.0, arm64 macOS, `gpui` 0.2.2,
 `ghostty-vt` 0.8.0 pinned to Ghostty `1.4.0-main.83fb956`.
 
