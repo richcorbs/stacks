@@ -1,26 +1,19 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
-import { createPortal } from 'react-dom';
 import type { Project } from '../../types';
 import { projectColorAttribute } from '../../projectColor';
 import type { CardPullRequestIndicator, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
-import type { CardView } from '../../kanban/cardView';
 import type { CardServices } from '../../kanban/useCardServices';
-import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
-import { BOARD_GROUPS, groupCards } from '../../kanban/workflowGroups';
 import { deliveryStep, type PrCheck } from '../../kanban/deliveryStep';
 import { owningProject } from '../../kanban/projectScope';
 import { pullRequestPresentation } from '../../kanban/pullRequestPresentation';
-import { environmentHealthTooltip, hasGitChanges, shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
+import { hasGitChanges } from '../../kanban/useCardRepositoryStatus';
 import { ManagedServiceControl } from '../ManagedServiceControl';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { GithubStatusIcon } from '../GithubStatusIcon';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
-import { cardServerAvailability } from './BoardCardServerServices';
 
 import type { BoardPrMergeProps } from '../../kanban/useBoardPrMerge';
-
-type PointerOrdering = ReturnType<typeof usePointerCardOrdering>;
 
 type DoneLaneMenuProps = {
   cardsCount: number;
@@ -131,7 +124,6 @@ export function KanbanCardContents({
   serverServices,
   onNavigateParent,
   onToggleServer,
-  layout = 'board',
   listWarning,
   onMergePullRequest,
   mergingCardId,
@@ -141,7 +133,6 @@ export function KanbanCardContents({
   repositoryStatus: CardRepositoryStatus | undefined;
   prCheck?: PrCheck;
   serverServices?: CardServices;
-  layout?: 'board' | 'list';
   listWarning?: { tooltip: string; onOpen: () => void };
   onNavigateParent: (parentId: string) => void;
   onToggleServer: (cardId: string) => void;
@@ -163,7 +154,7 @@ export function KanbanCardContents({
         <span className="kanbanCardNumber">#{card.external_id}</span>
         {projectBadge}
         {statusBadge}
-        {layout === 'list' && listWarning && <button className="kanbanEnvironmentWarning" type="button"
+        {listWarning && <button className="kanbanEnvironmentWarning" type="button"
           title={listWarning.tooltip} aria-label={`Environment warning: ${listWarning.tooltip}`}
           onKeyDown={(event) => event.stopPropagation()}
           onClick={(event) => { event.stopPropagation(); listWarning.onOpen(); }}
@@ -175,17 +166,12 @@ export function KanbanCardContents({
     </span>
     <strong>{card.title}</strong>
     {(hasAttribution || hasIndicators) && <span className="kanbanCardMeta">
-      {layout === 'board' ? (
-        hasAttribution && <span className="kanbanCardBoardAttribution">
-          <span className="kanbanCardBoardAssignee" title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>
-        </span>
-      ) : hasAttribution && (
+      {hasAttribution ? (
         <span className="kanbanCardAttribution">
           {providerBoard}
           <span title="Assigned in Superthread">{card.assignee_names.length > 0 ? card.assignee_names.join(', ') : 'Unassigned'}</span>
         </span>
-      )}
-      {!hasAttribution && <span className="kanbanCardLocalAttribution" aria-hidden="true" />}
+      ) : <span className="kanbanCardLocalAttribution" aria-hidden="true" />}
       <span className="kanbanCardIndicators">
         {repositoryStatus?.git?.status === 'error' && <span className="kanbanGitBadge" title={repositoryStatus.git.message} aria-label="Git status unknown; check the worktree and refresh">Git ?</span>}
         {repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git) && (
@@ -212,181 +198,4 @@ export function KanbanCardContents({
       </span>
     </span>}
   </>;
-}
-
-export function KanbanLanes({
-  cards: visibleCards,
-  projects,
-  repositoryStatuses,
-  prChecks,
-  serverServices,
-  doneCollapsed,
-  doneToggleRef,
-  openLaneMenu,
-  setOpenLaneMenu,
-  cleaningMerged,
-  keyboardFocusedCardId,
-  setKeyboardFocusedCardId,
-  pointer,
-  onToggleDone,
-  onCleanupMerged,
-  onOpenCard,
-  onNavigateParent,
-  onToggleServer,
-  onMergePullRequest,
-  mergingCardId,
-}: BoardPrMergeProps & {
-  cards: KanbanCardSummary[];
-  projects: Project[];
-  repositoryStatuses: Record<string, CardRepositoryStatus>;
-  prChecks?: Record<string, PrCheck>;
-  serverServices: Record<string, CardServices>;
-  doneCollapsed: boolean;
-  doneToggleRef: RefObject<HTMLButtonElement | null>;
-  openLaneMenu: KanbanStatus | null;
-  setOpenLaneMenu: Dispatch<SetStateAction<KanbanStatus | null>>;
-  cleaningMerged: boolean;
-  keyboardFocusedCardId: string | null;
-  setKeyboardFocusedCardId: Dispatch<SetStateAction<string | null>>;
-  pointer: PointerOrdering;
-  onToggleDone: () => void;
-  onCleanupMerged: () => void;
-  onOpenCard: (card: KanbanCardSummary, initialView?: CardView) => void;
-  onNavigateParent: (parentId: string) => void;
-  onToggleServer: (cardId: string) => void;
-}) {
-  const dragging = Boolean(pointer.dragPreview);
-  useEffect(() => {
-    document.documentElement.classList.toggle('kanbanDragging', dragging);
-    return () => document.documentElement.classList.remove('kanbanDragging');
-  }, [dragging]);
-
-  const draggedCard = pointer.dragPreview
-    ? visibleCards.find((card) => card.id === pointer.dragPreview?.cardId) ?? null
-    : null;
-
-  return <div className="kanbanLanes">
-    {BOARD_GROUPS.map((group) => {
-      const cards = groupCards(visibleCards, group, { projects, prChecks });
-      return (
-        <section
-          className={`kanbanLane${group.id === 'done' && doneCollapsed ? ' collapsed' : ''}`}
-          key={group.id}
-          data-kanban-group={group.id}
-        >
-          {group.id === 'done' && doneCollapsed ? (
-            <header className="kanbanLaneCollapsedHeader">
-              <DoneLaneMenu
-                cardsCount={cards.length}
-                collapsed
-                triggerRef={doneToggleRef}
-                open={openLaneMenu === 'done'}
-                cleaningMerged={cleaningMerged}
-                setOpen={setOpenLaneMenu}
-                onToggle={onToggleDone}
-                onCleanupMerged={onCleanupMerged}
-              />
-            </header>
-          ) : (<>
-            <header>
-              <div className="kanbanLaneHeader">
-                <strong className="kanbanLaneTitle">
-                  {group.label} <span className="kanbanLaneCount">{cards.length}</span>
-                </strong>
-                {group.id === 'done' && (
-                  <span className="kanbanLaneHeaderActions">
-                    <DoneLaneMenu
-                      cardsCount={cards.length}
-                      collapsed={false}
-                      triggerRef={doneToggleRef}
-                      open={openLaneMenu === 'done'}
-                      cleaningMerged={cleaningMerged}
-                      setOpen={setOpenLaneMenu}
-                      onToggle={onToggleDone}
-                      onCleanupMerged={onCleanupMerged}
-                    />
-                  </span>
-                )}
-              </div>
-            </header>
-            <div className="kanbanLaneCards">
-              {(group.id === 'progress' ? [...group.statuses, 'approved' as const] : group.statuses).map((status) => {
-                const canonicalCards = cards.filter((card) => card.status === status);
-                if (!canonicalCards.length) return null;
-                const cardsById = new Map(canonicalCards.map((card) => [card.id, card]));
-                const orderedCards = pointer.dragPreview?.sourceStatus === status
-                  ? pointer.dragPreview.cardIds.map((id) => cardsById.get(id)).filter((card): card is KanbanCardSummary => Boolean(card))
-                  : canonicalCards;
-                return <div className="kanbanStatusGroup" data-kanban-lane-status={status} key={status}>
-                  {orderedCards.map((card) => {
-                    const repositoryStatus = repositoryStatuses[card.id];
-                    const environmentHealth = repositoryStatus?.environmentHealth;
-                    const healthTooltip = environmentHealthTooltip(environmentHealth);
-                    const showEnvironmentWarning = shouldShowEnvironmentWarning(card, environmentHealth);
-                    const placeholder = pointer.draggingId === card.id;
-                    return <div
-                      className={`kanbanCardWrapper${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}${placeholder ? ' kanbanCardPlaceholder' : ''}`}
-                      key={card.id}
-                    >
-                      <div
-                        className={kanbanCardClassName(card, keyboardFocusedCardId === card.id)}
-                        data-kanban-navigation-card-id={card.id}
-                        data-project-color={projectColorAttribute(owningProject(card, projects))}
-                        onPointerDown={(event) => pointer.beginPointerDrag(event, card)}
-                        onPointerUp={pointer.finishPointerDrag}
-                        onPointerCancel={pointer.cancelPointerDrag}
-                        onClick={() => { if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
-                      >
-                        <button
-                          className="kanbanCardOpen"
-                          data-kanban-open-card-id={card.id}
-                          type="button"
-                          data-kanban-card-id={card.id}
-                          aria-label={`Open card #${card.external_id}: ${card.title}`}
-                          onFocus={() => setKeyboardFocusedCardId(card.id)}
-                          onClick={(event) => { event.stopPropagation(); if (!pointer.shouldSuppressCardClick()) onOpenCard(card); }}
-                        />
-                        <KanbanCardContents card={card} onMergePullRequest={onMergePullRequest} mergingCardId={mergingCardId} projects={projects} repositoryStatus={repositoryStatus} prCheck={prChecks?.[card.id]} serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined} onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
-                      </div>
-                      {showEnvironmentWarning && environmentHealth && (
-                        <button className="kanbanEnvironmentWarning" type="button" title={healthTooltip} aria-label={`Environment warning: ${healthTooltip}`} onKeyDown={(event) => event.stopPropagation()} onClick={() => onOpenCard(card, 'overview')}>
-                          <span aria-hidden="true">!</span>
-                        </button>
-                      )}
-                    </div>;
-                  })}
-                </div>;
-              })}
-            </div>
-          </>)}
-        </section>
-      );
-    })}
-    {pointer.dragPreview && draggedCard && createPortal((() => {
-      const preview = pointer.dragPreview;
-      const repositoryStatus = repositoryStatuses[draggedCard.id];
-      const environmentHealth = repositoryStatus?.environmentHealth;
-      const healthTooltip = environmentHealthTooltip(environmentHealth);
-      const showEnvironmentWarning = shouldShowEnvironmentWarning(draggedCard, environmentHealth);
-      return <div
-        ref={pointer.setDragOverlayElement}
-        className={`kanbanCardDragOverlay${showEnvironmentWarning ? ' hasEnvironmentWarning' : ''}`}
-        aria-hidden="true"
-        style={{
-          left: preview.clientX - preview.pointerOffsetX,
-          top: preview.clientY - preview.pointerOffsetY,
-          width: preview.sourceBounds.width,
-          height: preview.sourceBounds.height,
-          transformOrigin: `${preview.pointerOffsetX}px ${preview.pointerOffsetY}px`,
-        }}
-      >
-        <div className={kanbanCardClassName(draggedCard)} data-project-color={projectColorAttribute(owningProject(draggedCard, projects))}>
-          <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatus} serverServices={cardServerAvailability(draggedCard, projects).eligible ? serverServices[draggedCard.id] : undefined} onNavigateParent={() => {}} onToggleServer={onToggleServer} />
-        </div>
-        {showEnvironmentWarning && environmentHealth && (
-          <span className="kanbanEnvironmentWarning" title={healthTooltip}><span aria-hidden="true">!</span></span>
-        )}
-      </div>;
-    })(), document.body)}
-  </div>;
 }

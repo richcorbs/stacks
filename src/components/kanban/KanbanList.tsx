@@ -13,7 +13,7 @@ import { owningProject } from '../../kanban/projectScope';
 import { projectColorAttribute } from '../../projectColor';
 import type { BoardPrMergeProps } from '../../kanban/useBoardPrMerge';
 import type { PrCheck } from '../../kanban/deliveryStep';
-import { DoneLaneMenu, KanbanCardContents, kanbanCardClassName } from './KanbanLanes';
+import { DoneLaneMenu, KanbanCardContents, kanbanCardClassName } from './KanbanCardParts';
 
 export function KanbanList({ cards, projects, selectedProjectColor, repositoryStatuses, prChecks, serverServices, backlogCollapsed, attentionCollapsed = false, progressCollapsed = false, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleAttention = () => {}, onToggleProgress = () => {}, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer, onMergePullRequest, mergingCardId }: BoardPrMergeProps & {
   cards: KanbanCardSummary[];
@@ -80,14 +80,14 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
               data-kanban-navigation-card-id={card.id}
               data-kanban-card-id={draggable ? card.id : undefined}
               data-project-color={projectColorAttribute(owningProject(card, projects))}
-              onPointerDown={draggable ? (event) => pointer?.beginPointerDrag(event, card, 'list') : undefined}
+              onPointerDown={draggable ? (event) => pointer?.beginPointerDrag(event, card) : undefined}
               onPointerUp={draggable ? pointer?.finishPointerDrag : undefined}
               onPointerCancel={draggable ? pointer?.cancelPointerDrag : undefined}
               onClick={() => { if (!pointer?.shouldSuppressCardClick()) onOpenCard(card); }}>
             <button type="button" className="kanbanCardOpen" data-kanban-open-card-id={card.id}
               aria-label={`Open card #${card.external_id}: ${card.title}`}
               onFocus={() => setKeyboardFocusedCardId(card.id)} onClick={(event) => { event.stopPropagation(); if (!pointer?.shouldSuppressCardClick()) onOpenCard(card); }} />
-            <KanbanCardContents card={card} onMergePullRequest={onMergePullRequest} mergingCardId={mergingCardId} projects={projects} layout="list" repositoryStatus={repositoryStatuses[card.id]}
+            <KanbanCardContents card={card} onMergePullRequest={onMergePullRequest} mergingCardId={mergingCardId} projects={projects} repositoryStatus={repositoryStatuses[card.id]}
               listWarning={warning ? { tooltip, onOpen: () => onOpenCard(card, 'overview') } : undefined}
               prCheck={prChecks?.[card.id]}
               serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined}
@@ -104,7 +104,7 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
         top: pointer.dragPreview.clientY - pointer.dragPreview.pointerOffsetY,
         width: pointer.dragPreview.sourceBounds.width, height: pointer.dragPreview.sourceBounds.height }}>
       <div className={`${kanbanCardClassName(draggedCard)} kanbanListRow`} data-project-color={projectColorAttribute(owningProject(draggedCard, projects))}>
-        <KanbanCardContents card={draggedCard} projects={projects} layout="list" repositoryStatus={repositoryStatuses[draggedCard.id]}
+        <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatuses[draggedCard.id]}
           prCheck={prChecks?.[draggedCard.id]} onNavigateParent={() => {}} onToggleServer={() => {}} />
       </div>
     </div>, document.body)}

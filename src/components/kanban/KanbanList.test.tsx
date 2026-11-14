@@ -265,7 +265,7 @@ describe('Kanban list', () => {
     expect(rows.map((row) => row.props['data-kanban-navigation-card-id'])).toEqual(['ready', 'needs_refinement', 'done']);
     const backlogRow = rows[1];
     backlogRow.props.onPointerDown({ button: 0 });
-    expect(begin).toHaveBeenCalledWith({ button: 0 }, cards[0], 'list');
+    expect(begin).toHaveBeenCalledWith({ button: 0 }, cards[0]);
     backlogRow.props.onPointerUp({});
     backlogRow.props.onPointerCancel({});
     expect(finish).toHaveBeenCalledOnce();

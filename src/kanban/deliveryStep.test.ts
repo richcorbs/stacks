@@ -3,8 +3,8 @@ import type { Project } from '../types';
 import type { KanbanCardSummary } from './types';
 import { deliveryStep } from './deliveryStep';
 import { PrRefreshSchedule } from './prRefreshSchedule';
-import { groupCards, BOARD_GROUPS, WORK_GROUPS } from './workflowGroups';
-import { adjacentBoardCard, adjacentListCard } from './boardNavigation';
+import { groupCards, WORK_GROUPS } from './workflowGroups';
+import { adjacentListCard } from './boardNavigation';
 
 const project = { id: 'p', path: '/repo', delivery_workflow: 'github_pull_request' } as Project;
 const card = { id: 'c', external_id: '7', title: 'Task', status: 'approved', project_id: 'p', child_count: 0,
@@ -69,16 +69,16 @@ describe('delivery-step projection', () => {
     const backlog = { ...card, status: 'needs_refinement' as const, child_count: 2, hierarchy_finalized: true,
       children: [{ status: 'needs_refinement' }, { status: 'done' }] } as KanbanCardSummary;
     expect(deliveryStep(backlog, context(backlog))).toEqual({ label: 'Children in backlog', actionRequired: false });
-    expect(groupCards([backlog], BOARD_GROUPS[0], context(backlog))).toEqual([backlog]);
+    expect(groupCards([backlog], WORK_GROUPS[2], context(backlog))).toEqual([backlog]);
     const approved = { ...backlog, status: 'approved' as const, children: [{ status: 'approved' }, { status: 'done' }] } as KanbanCardSummary;
     expect(deliveryStep(approved, context(approved))).toEqual({ label: 'Children in delivery', actionRequired: false });
     expect(deliveryStep({ ...approved, hierarchy_finalized: false }, context(approved))).toEqual({ label: 'Children in delivery', actionRequired: false });
     const complete = { ...backlog, status: 'done' as const, children: [{ status: 'done' }, { status: 'done' }] } as KanbanCardSummary;
     expect(deliveryStep(complete, context(complete))).toEqual({ label: 'Children complete', actionRequired: false });
-    expect(groupCards([complete], BOARD_GROUPS[3], context(complete))).toEqual([complete]);
+    expect(groupCards([complete], WORK_GROUPS[3], context(complete))).toEqual([complete]);
     expect(deliveryStep({ ...complete, children: [{ status: 'done' }] } as KanbanCardSummary, context(complete)).label).toBe('Child status unverified · Check hierarchy');
   });
-  it('uses the same projection for board/list counts and navigation without duplicates', () => {
+  it('uses the same projection for list counts and navigation without duplicates', () => {
     const ready = { ...card, id: 'ready', status: 'ready' as const };
     const clear = { ...card, id: 'clear', pull_request: { ...card.pull_request!, ci_status: 'success' as const, blockers: [] } };
     const cards = [card, ready, clear];
@@ -91,15 +91,12 @@ describe('delivery-step projection', () => {
         projects: [project], prChecks: { ...checks, clear: { ...checks.clear, ...flags } },
       })),
     ]) {
-      for (const groups of [BOARD_GROUPS, WORK_GROUPS]) {
-        const grouped = groups.map((group) => groupCards(cards, group, ctx));
-        expect(grouped.flat().map((item) => item.id).sort()).toEqual(['c', 'clear', 'ready']);
-        expect(grouped[groups.findIndex((group) => group.id === 'progress')].map((item) => item.id)).toEqual(['c']);
-        expect(grouped[groups.findIndex((group) => group.id === 'attention')].map((item) => item.id)).toEqual(['ready', 'clear']);
-      }
+      const grouped = WORK_GROUPS.map((group) => groupCards(cards, group, ctx));
+      expect(grouped.flat().map((item) => item.id).sort()).toEqual(['c', 'clear', 'ready']);
+      expect(grouped[WORK_GROUPS.findIndex((group) => group.id === 'progress')].map((item) => item.id)).toEqual(['c']);
+      expect(grouped[WORK_GROUPS.findIndex((group) => group.id === 'attention')].map((item) => item.id)).toEqual(['ready', 'clear']);
       expect(deliveryStep(clear, ctx).label).toBe('PR merge available · Merge PR');
       expect(adjacentListCard(cards, 'clear', 'j', ctx)?.id).toBe('c');
-      expect(adjacentBoardCard(cards, 'c', 'l', ctx)?.id).toBe('ready');
     }
   });
 });

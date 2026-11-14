@@ -14,7 +14,6 @@ type CardBounds = {
 type PointerDrag = {
   cardId: string;
   status: KanbanStatus;
-  layout: 'board' | 'list';
   startX: number;
   startY: number;
   clientX: number;
@@ -55,13 +54,11 @@ export function usePointerCardOrdering({
   allCards,
   visibleCards,
   reorder,
-  view = 'board',
   backlogCollapsed = false,
 }: {
   allCards: KanbanCardSummary[];
   visibleCards: KanbanCardSummary[];
   reorder: (status: KanbanStatus, expectedCardIds: string[], cardIds: string[]) => Promise<void>;
-  view?: 'board' | 'list';
   backlogCollapsed?: boolean;
 }) {
   const [dragPreview, setDragPreview] = useState<CardDragPreview | null>(null);
@@ -98,7 +95,7 @@ export function usePointerCardOrdering({
 
   function updatePreview(drag: PointerDrag, beforeId: string | null | undefined) {
     const current = dragPreviewRef.current;
-    // Outside the source column, retain the last valid gap for live feedback. A
+    // Outside the source group, retain the last valid gap for live feedback. A
     // release there is still rejected by finishPointerDragAt.
     const canonicalIds = laneCardIds(drag.status);
     const sourceIndex = canonicalIds.indexOf(drag.cardId);
@@ -109,7 +106,7 @@ export function usePointerCardOrdering({
       : dragPreviewOrder(canonicalIds, drag.cardId, validBeforeId);
 
     // Pointer coordinates are intentionally not React state after the preview
-    // mounts. Re-render the board only when its effective insertion gap changes.
+    // mounts. Re-render the list only when its effective insertion gap changes.
     if (current && current.beforeId === validBeforeId && sameOrder(current.cardIds, cardIds)) return;
 
     const next = {
@@ -127,20 +124,17 @@ export function usePointerCardOrdering({
     setDragPreview(next);
   }
 
-  function beginPointerDrag(event: ReactPointerEvent, card: KanbanCardSummary, layout: 'board' | 'list' = 'board') {
+  function beginPointerDrag(event: ReactPointerEvent, card: KanbanCardSummary) {
     if (event.button !== 0 || !event.isPrimary || (event.buttons & 1) === 0) return;
-    if (layout === 'list') {
-      if (card.status !== 'needs_refinement' || view !== 'list' || backlogCollapsed) return;
-      const target = event.target as Element | null;
-      // The full-row open button is the non-interactive drag surface for pointer
-      // input, but every other control must keep its own pointer behavior.
-      if (target?.closest('button:not(.kanbanCardOpen), a, input, select, textarea, [contenteditable]')) return;
-    } else if (view !== 'board') return;
+    if (card.status !== 'needs_refinement' || backlogCollapsed) return;
+    const target = event.target as Element | null;
+    // The full-row open button is the non-interactive drag surface for pointer
+    // input, but every other control must keep its own pointer behavior.
+    if (target?.closest('button:not(.kanbanCardOpen), a, input, select, textarea, [contenteditable]')) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     pointerDragRef.current = {
       cardId: card.id,
       status: card.status,
-      layout,
       startX: event.clientX,
       startY: event.clientY,
       clientX: event.clientX,
@@ -171,7 +165,7 @@ export function usePointerCardOrdering({
     if (!drag.dragging && Math.hypot(drag.clientX - drag.startX, drag.clientY - drag.startY) < 5) return;
     drag.dragging = true;
     positionOverlay(drag);
-    updatePreview(drag, dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY, drag.layout));
+    updatePreview(drag, dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY));
     startDragAutoScroll();
   }
 
@@ -210,14 +204,13 @@ export function usePointerCardOrdering({
         cancelPointerDrag();
         return;
       }
-      const lane = [...document.querySelectorAll<HTMLElement>(drag.layout === 'list' ? '[data-kanban-list-status]' : '[data-kanban-lane-status]')]
-        .find((candidate) => (drag.layout === 'list' ? candidate.dataset.kanbanListStatus : candidate.dataset.kanbanLaneStatus) === drag.status);
-      const scroller = drag.layout === 'list' ? lane?.closest<HTMLElement>('.kanbanList')
-        : lane?.closest<HTMLElement>('.kanbanLane')?.querySelector<HTMLElement>('.kanbanLaneCards');
+      const lane = [...document.querySelectorAll<HTMLElement>('[data-kanban-list-status]')]
+        .find((candidate) => candidate.dataset.kanbanListStatus === drag.status);
+      const scroller = lane?.closest<HTMLElement>('.kanbanList');
       if (!scroller) return;
       const rect = scroller.getBoundingClientRect();
-      if (drag.layout === 'list' && (drag.clientX < rect.left || drag.clientX > rect.right
-        || dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY, 'list') === undefined)) return;
+      if (drag.clientX < rect.left || drag.clientX > rect.right
+        || dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY) === undefined) return;
       const edgeSize = Math.min(64, rect.height / 4);
       const velocity = drag.clientY < rect.top + edgeSize
         ? -Math.ceil((rect.top + edgeSize - drag.clientY) / 4)
@@ -226,7 +219,7 @@ export function usePointerCardOrdering({
           : 0;
       if (velocity !== 0) {
         scroller.scrollTop += Math.max(-20, Math.min(20, velocity));
-        updatePreview(drag, dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY, drag.layout));
+        updatePreview(drag, dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY));
         dragScrollFrameRef.current = requestAnimationFrame(scroll);
       }
     };
@@ -271,7 +264,7 @@ export function usePointerCardOrdering({
     if (!drag?.dragging) return;
     suppressNextCardClick();
     if (!sourceIsValid(drag)) return;
-    const beforeId = dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY, drag.layout);
+    const beforeId = dropTargetAtPoint(drag.cardId, drag.status, drag.clientX, drag.clientY);
     if (beforeId === undefined) return;
     const currentIds = laneCardIds(drag.status);
     const visibleOrder = reorderKanbanCardIds(currentIds, drag.cardId, beforeId);
@@ -294,8 +287,8 @@ export function usePointerCardOrdering({
 
   useEffect(() => {
     const drag = pointerDragRef.current;
-    if (drag && (!sourceIsValid(drag) || drag.layout !== view || (drag.layout === 'list' && backlogCollapsed))) cancelPointerDrag();
-  }, [allCards, visibleCards, view, backlogCollapsed]);
+    if (drag && (!sourceIsValid(drag) || backlogCollapsed)) cancelPointerDrag();
+  }, [allCards, visibleCards, backlogCollapsed]);
 
   const setDragOverlayElement = useCallback((element: HTMLDivElement | null) => {
     dragOverlayRef.current = element;

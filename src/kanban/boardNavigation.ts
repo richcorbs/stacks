@@ -1,30 +1,12 @@
 import type { KanbanCardSummary } from './types';
-import { BOARD_GROUPS, WORK_GROUPS, groupCards, workGroup } from './workflowGroups';
+import { WORK_GROUPS, groupCards, workGroup } from './workflowGroups';
 import type { DeliveryContext } from './deliveryStep';
 
-export function keyboardNavigableCards(cards: KanbanCardSummary[], doneCollapsed: boolean, backlogCollapsed = false, view: 'list' | 'board' = 'board', attentionCollapsed = false, progressCollapsed = false, context: DeliveryContext = {}) {
+export function keyboardNavigableCards(cards: KanbanCardSummary[], doneCollapsed: boolean, backlogCollapsed = false, attentionCollapsed = false, progressCollapsed = false, context: DeliveryContext = {}) {
   return cards.filter((card) => !(doneCollapsed && card.status === 'done')
-    && !(view === 'list' && ((backlogCollapsed && card.status === 'needs_refinement')
+    && !((backlogCollapsed && card.status === 'needs_refinement')
       || (attentionCollapsed && workGroup(card, context) === 'attention')
-      || (progressCollapsed && workGroup(card, context) === 'progress'))));
-}
-
-export function adjacentBoardCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'h' | 'j' | 'k' | 'l', context: DeliveryContext = {}) {
-  const lanes = BOARD_GROUPS.map((group) => groupCards(cards, group, context));
-  const first = lanes.find((lane) => lane.length > 0)?.[0] ?? null;
-  const current = cards.find((card) => card.id === currentId);
-  if (!current) return first;
-  const laneIndex = BOARD_GROUPS.findIndex((group) => group.id === workGroup(current, context));
-  const rowIndex = lanes[laneIndex]?.findIndex((card) => card.id === current.id) ?? 0;
-  if (direction === 'j' || direction === 'k') {
-    const lane = lanes[laneIndex] ?? [];
-    return lane[Math.max(0, Math.min(lane.length - 1, rowIndex + (direction === 'j' ? 1 : -1)))] ?? current;
-  }
-  const step = direction === 'l' ? 1 : -1;
-  for (let index = laneIndex + step; index >= 0 && index < lanes.length; index += step) {
-    if (lanes[index].length > 0) return lanes[index][Math.min(rowIndex, lanes[index].length - 1)];
-  }
-  return current;
+      || (progressCollapsed && workGroup(card, context) === 'progress')));
 }
 
 export function adjacentListCard(cards: KanbanCardSummary[], currentId: string | null, direction: 'j' | 'k', context: DeliveryContext = {}) {

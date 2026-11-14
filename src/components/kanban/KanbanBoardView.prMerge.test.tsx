@@ -16,7 +16,6 @@ vi.mock('../../kanban/useBoardKeyboardNavigation', () => ({ useBoardKeyboardNavi
 vi.mock('../../kanban/usePointerCardOrdering', () => ({ usePointerCardOrdering: () => ({}) }));
 vi.mock('./BoardCardServerServices', () => ({ BoardCardServerServices: () => null }));
 vi.mock('./NewCardDialog', () => ({ NewCardDialog: () => null }));
-vi.mock('./KanbanLanes', () => ({ KanbanLanes: (props: object) => <div data-entry="board" {...props} /> }));
 vi.mock('./KanbanList', () => ({ KanbanList: (props: object) => <div data-entry="list" {...props} /> }));
 
 const card = { id: 'c', external_id: '266', title: 'Merge me', project_id: 'p', status: 'approved', workflow_revision: 7,
@@ -26,7 +25,7 @@ const merged = { ...card, status: 'done', workflow_revision: 8, completion_outco
 const evidence = { card_id: 'c', project_id: 'p', source_path: '/project/card-c', source_branch: 'card-c', card_number: '266', card_title: 'Merge me', merged: true, has_resources: true,
   blocked: false, workflow_revision: 8, environment_revision: 12 } as CleanupPreflight;
 
-describe.each(['board', 'list'] as const)('%s merge cleanup handoff', (view) => {
+describe('merge cleanup handoff', () => {
   let renderer: TestRenderer.ReactTestRenderer;
   const cleanup = vi.fn();
   const reload = vi.fn();
@@ -44,13 +43,13 @@ describe.each(['board', 'list'] as const)('%s merge cleanup handoff', (view) => 
     vi.mocked(fetchCleanupPreflight).mockResolvedValue(evidence);
     reload.mockResolvedValue(merged);
     cleanup.mockResolvedValue(true);
-    const props = { view, projects: [{ id: 'p', name: 'Project', path: '/project', delivery_workflow: 'github_pull_request' }],
+    const props = { projects: [{ id: 'p', name: 'Project', path: '/project', delivery_workflow: 'github_pull_request' }],
       projectsHydrated: false, selectedProjectId: 'p', onPaletteCardsChange: vi.fn(), onCleanupCard: cleanup,
       board: { cards: [card], cardsHydrated: false, loading: false, applyCardSnapshot: reconcile,
         loadPersistedDetails: reload, subscribeDetailInvalidations: () => () => {} },
     } as unknown as ComponentProps<typeof KanbanBoardView>;
     act(() => { renderer = TestRenderer.create(<KanbanBoardView {...props} />); });
-    act(() => renderer.root.findByProps({ 'data-entry': view }).props.onMergePullRequest(card, trigger));
+    act(() => renderer.root.findByProps({ 'data-entry': 'list' }).props.onMergePullRequest(card, trigger));
   });
   afterEach(() => { act(() => renderer.unmount()); vi.unstubAllGlobals(); });
   async function confirm(intent: 'merge' | 'merge-and-cleanup' = 'merge-and-cleanup') {

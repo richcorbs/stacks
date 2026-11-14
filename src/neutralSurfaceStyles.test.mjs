@@ -10,7 +10,6 @@ const backgrounds = (body) => [...body.matchAll(/\bbackground(?:-color)?:\s*([^;
 // not neutral chrome. Keep this list explicit so new incidental tints fail.
 const intentional = new Set([
   '.kanbanNotice',
-  '.kanbanLane + .kanbanLane::before',
   '.kanbanLaneMenuPopover button.danger:hover:not(:disabled)',
   '.kanbanProjectBadge.invalid',
   '.kanbanServerToggle.running',
@@ -74,7 +73,7 @@ const cardFillTrial = new Map([
   ['.kanbanListRow:hover, .kanbanListRow.kanbanParentCard:hover', 'var(--kanban-card-surface-hover)'],
   ['.kanbanListRow.kanbanListPlaceholder, .kanbanListRow.kanbanListPlaceholder:hover', 'var(--kanban-card-surface-drag)'],
   ['.kanbanListDragOverlay > .kanbanListRow.kanbanCard', 'var(--kanban-card-surface-hover)'],
-  ['.kanbanCardWrapper > .kanbanCard:hover:not(.keyboardFocused),\n.kanbanListRows > .kanbanListRow:hover:not(.keyboardFocused):not(.kanbanListPlaceholder)', 'var(--kanban-card-surface-hover)'],
+  ['.kanbanListRows > .kanbanListRow:hover:not(.keyboardFocused):not(.kanbanListPlaceholder)', 'var(--kanban-card-surface-hover)'],
   ['.kanbanListRows > .kanbanListRow:not([data-project-color]).keyboardFocused:hover', 'var(--kanban-card-surface-hover)'],
 ]);
 

@@ -23,7 +23,7 @@ const neutralBorderRules = [
   '.kanbanDetail > header button.kanbanHierarchyBadge.parent:hover:not(:disabled)',
   '.kanbanDetail > header button.kanbanHierarchyBadge.parent:focus-visible',
   // Late cascade overrides must not bring the blue default back.
-  '.kanbanCardWrapper > .kanbanCard:hover:not(.keyboardFocused),\n.kanbanListRows > .kanbanListRow:hover:not(.keyboardFocused):not(.kanbanListPlaceholder)',
+  '.kanbanListRows > .kanbanListRow:hover:not(.keyboardFocused):not(.kanbanListPlaceholder)',
 ];
 
 describe('perceptually neutral card and list borders', () => {
@@ -50,12 +50,8 @@ describe('perceptually neutral card and list borders', () => {
     if (body.includes('box-shadow: inset')) expect(body).toContain('box-shadow: inset 0 0 0 1px var(--kanban-border-hover)');
   });
 
-  it('uses the same neutral framing for lane dividers', () => {
-    expect(declarationsFor('.kanbanLane + .kanbanLane::before')).toContain('background: var(--kanban-border-subtle)');
-  });
-
   it('preserves owner-colored hovers, status borders and accessible focus accents', () => {
-    const ownerHover = declarationsFor('.kanbanCardWrapper > .kanbanCard[data-project-color]:hover:not(.keyboardFocused),\n.kanbanListRows > .kanbanListRow[data-project-color]:hover:not(.keyboardFocused):not(.kanbanListPlaceholder)');
+    const ownerHover = declarationsFor('.kanbanListRows > .kanbanListRow[data-project-color]:hover:not(.keyboardFocused):not(.kanbanListPlaceholder)');
     expect(ownerHover).toContain('border-color: var(--project-card-hover-border)');
     expect(declarationsFor('.kanbanCardStatusBadge[data-project-color]')).toContain('border-color: var(--project-status-border)');
     expect(declarationsFor('.kanbanServerToggle.running')).toContain('border-color: #416b55');

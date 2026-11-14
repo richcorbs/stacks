@@ -13,7 +13,7 @@ function handlers(globalVisible = false): ShortcutHandlers {
     adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(),
     openProjectSwitcher: vi.fn(), openSettings: vi.fn(),
     isGlobalTerminalVisible: () => globalVisible, isCardOpen: () => false,
-    isCardTerminalActive: () => false, setKanbanView: vi.fn(), toggleGlobalTerminal: vi.fn(),
+    isCardTerminalActive: () => false, toggleGlobalTerminal: vi.fn(),
     newGlobalTerminalTab: vi.fn(), runGlobalTerminalAction: vi.fn(), runCardTerminalAction: vi.fn(),
   };
 }

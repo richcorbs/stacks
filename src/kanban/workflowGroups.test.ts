@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { KanbanStatus } from './types';
-import { BOARD_GROUPS, WORK_GROUPS, groupCards, validateWorkGroups, workGroup } from './workflowGroups';
+import { WORK_GROUPS, groupCards, validateWorkGroups, workGroup } from './workflowGroups';
 
 describe('work groups', () => {
   it('projects every canonical workflow status into exactly one of four groups', () => {
     expect(WORK_GROUPS.map((group) => group.id)).toEqual(['attention', 'progress', 'backlog', 'done']);
-    expect(BOARD_GROUPS.map((group) => group.id)).toEqual(['backlog', 'progress', 'attention', 'done']);
     expect(validateWorkGroups()).toBe(true);
     expect(workGroup('needs_refinement_input')).toBe('attention');
     expect(workGroup('ready')).toBe('attention');
