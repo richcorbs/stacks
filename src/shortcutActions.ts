@@ -18,10 +18,6 @@ export function runShortcutAction(action: ShortcutAction, handlers: ShortcutHand
     case 'clear-terminal':
       if (handlers.isGlobalTerminalVisible()) handlers.runGlobalTerminalAction('clear');
       else if (handlers.isCardTerminalActive()) handlers.runCardTerminalAction('clear');
-      else if (!handlers.isCardOpen()) handlers.setKanbanView('board');
-      break;
-    case 'select-list-view':
-      if (!handlers.isGlobalTerminalVisible() && !handlers.isCardOpen()) handlers.setKanbanView('list');
       break;
     case 'search-terminal': terminalAction('search'); break;
     case 'maximize-pane': terminalAction('toggle-maximize'); break;

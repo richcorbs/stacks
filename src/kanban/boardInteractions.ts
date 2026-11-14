@@ -1,7 +1,7 @@
 import type { KanbanStatus } from './types';
 import { reorderKanbanCardIds } from './workflow';
 
-/** Returns canonical order outside a lane and transient order for a valid lane target. */
+/** Returns canonical order outside the source group and transient order for a valid target. */
 export function dragPreviewOrder(
   cardIds: string[],
   sourceId: string,
@@ -31,11 +31,10 @@ export function dropTargetAtPoint(
   status: KanbanStatus,
   x: number,
   y: number,
-  layout: 'board' | 'list' = 'board',
 ): string | null | undefined {
   const element = document.elementFromPoint(x, y);
-  const container = element?.closest<HTMLElement>(layout === 'list' ? '[data-kanban-list-status]' : '[data-kanban-lane-status]');
-  if ((layout === 'list' ? container?.dataset.kanbanListStatus : container?.dataset.kanbanLaneStatus) !== status) return undefined;
-  const cards = [...container!.querySelectorAll<HTMLElement>('[data-kanban-card-id]')];
+  const container = element?.closest<HTMLElement>('[data-kanban-list-status]');
+  if (container?.dataset.kanbanListStatus !== status) return undefined;
+  const cards = [...container.querySelectorAll<HTMLElement>('[data-kanban-card-id]')];
   return dropTargetFromCards(cards, sourceId, y);
 }

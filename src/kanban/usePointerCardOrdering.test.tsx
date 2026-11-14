@@ -18,9 +18,9 @@ function card(id: string, overrides: Partial<KanbanCard> = {}): KanbanCard {
 
 let ordering: Ordering;
 let renderCount = 0;
-function Harness({ cards, visibleCards = cards, reorder, view = 'board', backlogCollapsed = false }: { cards: KanbanCard[]; visibleCards?: KanbanCard[]; reorder: Parameters<typeof usePointerCardOrdering>[0]['reorder']; view?: 'board' | 'list'; backlogCollapsed?: boolean }) {
+function Harness({ cards, visibleCards = cards, reorder, backlogCollapsed = false }: { cards: KanbanCard[]; visibleCards?: KanbanCard[]; reorder: Parameters<typeof usePointerCardOrdering>[0]['reorder']; backlogCollapsed?: boolean }) {
   renderCount += 1;
-  ordering = usePointerCardOrdering({ allCards: cards, visibleCards, reorder, view, backlogCollapsed });
+  ordering = usePointerCardOrdering({ allCards: cards, visibleCards, reorder, backlogCollapsed });
   return null;
 }
 
@@ -49,21 +49,21 @@ function windowPointerEvent(type: string, overrides: Record<string, unknown> = {
   return event;
 }
 
-function laneElement(status = 'needs_refinement', layout: 'board' | 'list' = 'board') {
+function listElement(status = 'needs_refinement') {
   const cards = [
     { dataset: { kanbanCardId: 'a' }, getBoundingClientRect: () => ({ top: 0, height: 40 }) },
     { dataset: { kanbanCardId: 'b' }, getBoundingClientRect: () => ({ top: 50, height: 40 }) },
   ];
-  const lane = {
-    dataset: { kanbanLaneStatus: status, kanbanListStatus: status },
+  const group = {
+    dataset: { kanbanListStatus: status },
     querySelectorAll: () => cards,
   };
-  return { closest: (selector: string) => selector === (layout === 'list' ? '[data-kanban-list-status]' : '[data-kanban-lane-status]') ? lane : null };
+  return { closest: (selector: string) => selector === '[data-kanban-list-status]' ? group : null };
 }
 
 describe('usePointerCardOrdering pointer lifecycle', () => {
   let fakeWindow: EventTarget & Pick<Window, 'setTimeout' | 'clearTimeout'>;
-  let pointElement: ReturnType<typeof laneElement> | null;
+  let pointElement: ReturnType<typeof listElement> | null;
   let renderer: TestRenderer.ReactTestRenderer;
   let nextFrameId: number;
   let frames: Map<number, FrameRequestCallback>;
@@ -76,7 +76,7 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
       setTimeout: globalThis.setTimeout.bind(globalThis),
       clearTimeout: globalThis.clearTimeout.bind(globalThis),
     });
-    pointElement = laneElement();
+    pointElement = listElement();
     vi.stubGlobal('window', fakeWindow);
     vi.stubGlobal('document', {
       elementFromPoint: vi.fn(() => pointElement),
@@ -95,8 +95,8 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     vi.unstubAllGlobals();
   });
 
-  async function render(cards = [card('a'), card('b')], reorder = vi.fn(async () => {}), view: 'board' | 'list' = 'board', visibleCards = cards) {
-    await act(async () => { renderer = TestRenderer.create(<Harness cards={cards} visibleCards={visibleCards} reorder={reorder} view={view} />); });
+  async function render(cards = [card('a'), card('b')], reorder = vi.fn(async () => {}), visibleCards = cards) {
+    await act(async () => { renderer = TestRenderer.create(<Harness cards={cards} visibleCards={visibleCards} reorder={reorder} />); });
     return reorder;
   }
 
@@ -173,7 +173,7 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     expect(ordering.dragPreview).toBeNull();
   });
 
-  it('allows a finalized parent to begin and commit a reorder in its effective column', async () => {
+  it('allows a finalized parent to begin and commit a reorder in its effective group', async () => {
     const parent = card('a', {
       hierarchy_finalized: true,
       child_count: 1,
@@ -191,39 +191,16 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     expect(ordering.dragPreview).toBeNull();
   });
 
-  it('does not reorder when an active drag is released outside its source column', async () => {
+  it('does not reorder when an active drag is released outside its source group', async () => {
     const reorder = await render();
     act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30 })));
     act(flushFrames);
-    pointElement = laneElement('ready');
+    pointElement = listElement('ready');
     await act(async () => ordering.finishPointerDrag(pointerEvent({ clientX: 30 })));
 
     expect(reorder).not.toHaveBeenCalled();
     expect(ordering.dragPreview).toBeNull();
-  });
-
-  it('recalculates the insertion target while auto-scrolling with a stationary pointer', async () => {
-    await render();
-    const scroller = {
-      scrollTop: 0,
-      getBoundingClientRect: () => ({ top: 0, bottom: 110, height: 110 }),
-    };
-    const lane = {
-      dataset: { kanbanLaneStatus: 'needs_refinement' },
-      closest: () => ({ querySelector: () => scroller }),
-    };
-    vi.mocked(document.querySelectorAll).mockReturnValue([lane] as unknown as NodeListOf<Element>);
-
-    act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
-    act(() => { fakeWindow.dispatchEvent(windowPointerEvent('pointermove', { clientX: 30, clientY: 100 })); });
-    act(runNextFrame); // coalesced pointer movement
-    const targetReadsBeforeScroll = vi.mocked(document.elementFromPoint).mock.calls.length;
-    act(runNextFrame); // auto-scroll
-
-    expect(scroller.scrollTop).toBeGreaterThan(0);
-    expect(document.elementFromPoint).toHaveBeenCalledTimes(targetReadsBeforeScroll + 1);
-    act(() => ordering.cancelPointerDrag());
   });
 
   it.each(['pointercancel', 'blur'])('clears active state on %s', async (type) => {
@@ -256,17 +233,17 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
 
   it('ignores list controls and non-primary pointers, but permits the full-row open surface', async () => {
     const cards = [card('a'), card('b')];
-    const reorder = await render(cards, vi.fn(async () => {}), 'list');
-    pointElement = laneElement('needs_refinement', 'list');
+    const reorder = await render(cards);
+    pointElement = listElement('needs_refinement');
     const control = pointerEvent({ target: { closest: () => ({ tagName: 'BUTTON' }) } as unknown as Element });
-    act(() => ordering.beginPointerDrag(control, cards[0], 'list'));
+    act(() => ordering.beginPointerDrag(control, cards[0]));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientY: 100 })));
     act(flushFrames);
     expect(ordering.dragPreview).toBeNull();
-    act(() => ordering.beginPointerDrag(pointerEvent({ isPrimary: false }), cards[0], 'list'));
-    act(() => ordering.beginPointerDrag(pointerEvent(), card('ready', { status: 'ready' }), 'list'));
+    act(() => ordering.beginPointerDrag(pointerEvent({ isPrimary: false }), cards[0]));
+    act(() => ordering.beginPointerDrag(pointerEvent(), card('ready', { status: 'ready' })));
     expect(ordering.dragPreview).toBeNull();
-    act(() => ordering.beginPointerDrag(pointerEvent({ target: { closest: () => null } as unknown as Element }), cards[0], 'list'));
+    act(() => ordering.beginPointerDrag(pointerEvent({ target: { closest: () => null } as unknown as Element }), cards[0]));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientY: 100 })));
     act(flushFrames);
     expect(ordering.draggingId).toBe('a');
@@ -274,11 +251,11 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     expect(reorder).not.toHaveBeenCalled();
   });
 
-  it('reorders list Backlog through the filtered canonical order, without touching hidden slots', async () => {
+  it('reorders Backlog through the filtered canonical order, without touching hidden slots', async () => {
     const cards = [card('a'), card('hidden', { project_id: 'other' }), card('b')];
-    const reorder = await render(cards, vi.fn(async () => {}), 'list', [cards[0], cards[2]]);
-    pointElement = laneElement('needs_refinement', 'list');
-    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0], 'list'));
+    const reorder = await render(cards, vi.fn(async () => {}), [cards[0], cards[2]]);
+    pointElement = listElement('needs_refinement');
+    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0]));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientY: 100 })));
     act(flushFrames);
     expect(ordering.dragPreview?.cardIds).toEqual(['b', 'a']);
@@ -286,42 +263,42 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     expect(reorder).toHaveBeenCalledWith('needs_refinement', ['a', 'hidden', 'b'], ['b', 'hidden', 'a']);
   });
 
-  it('rejects list drops in other groups, no-ops, and cancellation or view changes', async () => {
+  it('rejects drops in other groups, no-ops, and cancellation', async () => {
     const cards = [card('a'), card('b')];
-    const reorder = await render(cards, vi.fn(async () => {}), 'list');
-    pointElement = laneElement('needs_refinement', 'list');
-    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0], 'list'));
+    const reorder = await render(cards);
+    pointElement = listElement('needs_refinement');
+    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0]));
     await act(async () => ordering.finishPointerDrag(pointerEvent({ clientY: 10, clientX: 30 })));
     expect(reorder).not.toHaveBeenCalled();
-    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0], 'list'));
-    pointElement = laneElement('ready', 'list');
+    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0]));
+    pointElement = listElement('ready');
     await act(async () => ordering.finishPointerDrag(pointerEvent({ clientY: 100 })));
     expect(reorder).not.toHaveBeenCalled();
-    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0], 'list'));
-    pointElement = laneElement('needs_refinement', 'list');
+    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0]));
+    pointElement = listElement('needs_refinement');
     act(() => ordering.updatePointerDrag(pointerEvent({ clientY: 100 })));
     act(flushFrames);
-    await act(async () => renderer.update(<Harness cards={cards} reorder={reorder} view="board" />));
+    act(() => { fakeWindow.dispatchEvent(windowPointerEvent('pointercancel')); });
     expect(ordering.dragPreview).toBeNull();
     act(() => { fakeWindow.dispatchEvent(windowPointerEvent('pointerup', { clientY: 100 })); });
     expect(reorder).not.toHaveBeenCalled();
-    await act(async () => renderer.update(<Harness cards={cards} reorder={reorder} view="list" />));
-    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0], 'list'));
+    await act(async () => renderer.update(<Harness cards={cards} reorder={reorder} backlogCollapsed />));
+    act(() => ordering.beginPointerDrag(pointerEvent(), cards[0]));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientY: 100 })));
     act(flushFrames);
-    await act(async () => renderer.update(<Harness cards={cards} reorder={reorder} view="list" backlogCollapsed />));
+    await act(async () => renderer.update(<Harness cards={cards} reorder={reorder} backlogCollapsed />));
     expect(ordering.dragPreview).toBeNull();
     expect(reorder).not.toHaveBeenCalled();
   });
 
   it('auto-scrolls the list scroller and recalculates its target', async () => {
-    await render([card('a'), card('b')], vi.fn(async () => {}), 'list');
-    pointElement = laneElement('needs_refinement', 'list');
+    await render([card('a'), card('b')]);
+    pointElement = listElement('needs_refinement');
     const scroller = { scrollTop: 0, getBoundingClientRect: () => ({ left: 0, right: 200, top: 0, bottom: 110, height: 110 }) };
     vi.mocked(document.querySelectorAll).mockReturnValue([{
       dataset: { kanbanListStatus: 'needs_refinement' }, closest: () => scroller,
     }] as unknown as NodeListOf<Element>);
-    act(() => ordering.beginPointerDrag(pointerEvent(), card('a'), 'list'));
+    act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
     act(() => ordering.updatePointerDrag(pointerEvent({ clientX: 30, clientY: 100 })));
     act(runNextFrame);
     const reads = vi.mocked(document.elementFromPoint).mock.calls.length;

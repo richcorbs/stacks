@@ -22,8 +22,6 @@ export type KanbanBoardProps = {
   onProgressCollapsedChange: (collapsed: boolean) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
-  view: 'list' | 'board';
-  onViewChange: (view: 'list' | 'board') => void;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;

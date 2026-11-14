@@ -3,7 +3,7 @@ import { runShortcutAction } from './shortcutActions';
 import type { ShortcutHandlers } from './shortcutTypes';
 
 function handlers(): ShortcutHandlers {
-  return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), isGlobalTerminalVisible: () => false, isCardOpen: () => false, isCardTerminalActive: () => false, setKanbanView: vi.fn(), toggleGlobalTerminal: vi.fn(), newGlobalTerminalTab: vi.fn(), runGlobalTerminalAction: vi.fn(), runCardTerminalAction: vi.fn() };
+  return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), isGlobalTerminalVisible: () => false, isCardOpen: () => false, isCardTerminalActive: () => false, toggleGlobalTerminal: vi.fn(), newGlobalTerminalTab: vi.fn(), runGlobalTerminalAction: vi.fn(), runCardTerminalAction: vi.fn() };
 }
 describe('shortcut actions', () => {
   it('routes retained terminal actions through the card command interface', () => {
@@ -20,30 +20,26 @@ describe('shortcut actions', () => {
     expect(h.runGlobalTerminalAction).toHaveBeenCalledWith('close');
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
   });
-  it('applies menu view actions only in the overview, including already-selected views', () => {
+  it('clears only a focused terminal and is a no-op otherwise', () => {
     const h = handlers();
-    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
-    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
-    expect(vi.mocked(h.setKanbanView).mock.calls).toEqual([['board'], ['list'], ['board'], ['list']]);
+    runShortcutAction('clear-terminal', h);
+    expect(h.runGlobalTerminalAction).not.toHaveBeenCalled();
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
     h.isCardOpen = () => true;
-    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
-    expect(h.setKanbanView).toHaveBeenCalledTimes(4);
+    runShortcutAction('clear-terminal', h);
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
     h.isCardTerminalActive = () => true;
-    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    runShortcutAction('clear-terminal', h);
     expect(h.runCardTerminalAction).toHaveBeenCalledExactlyOnceWith('clear');
-    expect(h.setKanbanView).toHaveBeenCalledTimes(4);
   });
   it('gives the top-level terminal precedence for menu actions', () => {
     const h = handlers(); h.isGlobalTerminalVisible = () => true;
-    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    runShortcutAction('clear-terminal', h);
     h.isCardOpen = () => true; h.isCardTerminalActive = () => true;
-    runShortcutAction('clear-terminal', h); runShortcutAction('select-list-view', h);
+    runShortcutAction('clear-terminal', h);
     expect(h.runGlobalTerminalAction).toHaveBeenCalledTimes(2);
     expect(h.runGlobalTerminalAction).toHaveBeenCalledWith('clear');
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
-    expect(h.setKanbanView).not.toHaveBeenCalled();
   });
   it('guards pane menu actions in inactive views and prioritizes the top-level terminal', () => {
     const h = handlers();

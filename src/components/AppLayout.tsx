@@ -36,8 +36,6 @@ export function AppLayout({ appStyle, main, overlays, globalTerminal }: {
         onProgressCollapsedChange={main.setKanbanProgressCollapsed}
         doneCollapsed={main.appSettings.kanban_done_collapsed}
         onDoneCollapsedChange={main.setKanbanDoneCollapsed}
-        view={main.appSettings.kanban_view}
-        onViewChange={main.setKanbanView}
         onAddProject={main.openProjectDialog}
         onCleanupCard={main.cleanupCard}
         onStartWork={main.startWork}

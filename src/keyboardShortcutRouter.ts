@@ -39,7 +39,6 @@ export function handleMetaShortcutKeyDown(event: KeyboardEvent, handlers: Shortc
   if (key === 'o' && !event.shiftKey) return handled(event, () => runShortcutAction('add-project', handlers));
   if (key === 'q') return handled(event, () => runShortcutAction('quit', handlers));
   if (key === 'k' && !event.shiftKey) return handled(event, () => runShortcutAction('clear-terminal', handlers));
-  if (key === 'l' && !event.shiftKey) return handled(event, () => runShortcutAction('select-list-view', handlers));
   if (!globalTerminal && !cardTerminal) return;
   if (key === 'd') return handled(event, () => runShortcutAction(event.shiftKey ? 'split-terminal-down' : 'split-terminal-right', handlers));
   if (key === 'w') return handled(event, () => runShortcutAction('close-terminal', handlers));

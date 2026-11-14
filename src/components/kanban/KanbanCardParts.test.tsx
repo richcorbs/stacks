@@ -1,4 +1,4 @@
-import { createRef, type ComponentProps } from 'react';
+import { createRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,11 +6,9 @@ import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
 import type { CardServices } from '../../kanban/useCardServices';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
-import { deliveryBadgeLabel, DoneLaneMenu, KanbanCardContents, KanbanLanes, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanLanes';
+import { deliveryBadgeLabel, DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanCardParts';
 import { cardServerAvailability } from './BoardCardServerServices';
-import { KanbanList } from './KanbanList';
 import { PrRefreshSchedule } from '../../kanban/prRefreshSchedule';
-import type { WorkGroup } from '../../kanban/workflowGroups';
 
 const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
 
@@ -38,7 +36,7 @@ function services(active = false, toggle = vi.fn()): CardServices {
   };
 }
 
-function renderCardContents(currentCard: KanbanCard, serverServices?: CardServices, layout: 'board' | 'list' = 'board') {
+function renderCardContents(currentCard: KanbanCard, serverServices?: CardServices) {
   return renderToStaticMarkup(<KanbanCardContents
     card={currentCard}
     projects={[project]}
@@ -47,7 +45,6 @@ function renderCardContents(currentCard: KanbanCard, serverServices?: CardServic
       environmentHealth: { card_id: currentCard.id, issues: [] },
     } : undefined}
     serverServices={serverServices}
-    layout={layout}
     onNavigateParent={() => undefined}
     onToggleServer={() => undefined}
   />);
@@ -95,7 +92,7 @@ it('keeps the merge-ready delivery label while exposing refresh failure separate
 });
 
 it.each(['fresh', 'refreshing', 'expired', 'failed', 'retrying', 'reopened'] as const)(
-  'shows waiting CI and last-known merge readiness consistently in board and list (%s)', (phase) => {
+  'shows waiting CI and last-known merge readiness consistently (%s)', (phase) => {
   const prProject = { ...project, delivery_workflow: 'github_pull_request' } as Project;
   const waiting = card({ id: 'waiting', external_id: '1', title: 'Waiting', status: 'approved', child_count: 0, parent: null, pull_request: pullRequest({ ci_status: 'pending', blockers: ['CI is pending'] }) });
   const actionable = card({ id: 'actionable', external_id: '2', title: 'Actionable', status: 'approved', child_count: 0, parent: null, pull_request: pullRequest() });
@@ -106,29 +103,21 @@ it.each(['fresh', 'refreshing', 'expired', 'failed', 'retrying', 'reopened'] as 
     refreshing: phase === 'refreshing' || phase === 'retrying',
     identity: new PrRefreshSchedule().identity(item, prProject),
   }]));
-  const board = renderToStaticMarkup(<KanbanLanes cards={cards} onMergePullRequest={() => {}} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
-    doneCollapsed={false} doneToggleRef={createRef<HTMLButtonElement>()} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
-    keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}} pointer={pointerStub()} onToggleDone={() => {}} onCleanupMerged={() => {}}
-    onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
-  const list = renderToStaticMarkup(<KanbanList cards={cards} onMergePullRequest={() => {}} projects={[prProject]} repositoryStatuses={{}} prChecks={prChecks} serverServices={{}}
-    backlogCollapsed={false} doneCollapsed={false} openLaneMenu={null} setOpenLaneMenu={() => {}} cleaningMerged={false}
-    keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}} onToggleBacklog={() => {}} onToggleDone={() => {}} onCleanupMerged={() => {}}
-    onOpenCard={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
-  for (const markup of [board, list]) {
-    const progress = markup.match(/data-kanban-group="progress"[\s\S]*?(?=<\/section>)/)?.[0] ?? '';
-    const attention = markup.match(/data-kanban-group="attention"[\s\S]*?(?=<\/section>)/)?.[0] ?? '';
-    expect(markup.match(/class="kanbanServerToggle kanbanPrMerge"/g)).toHaveLength(1);
-    expect(attention).toContain('Merge PR #98 for card #2');
-    expect(attention).toContain('PR #98');
-    expect(progress).not.toContain('kanbanPrMerge');
-    expect(progress).toContain('>PR open</span>');
-    expect(progress).toContain('aria-label="PR open · CI running"');
-    expect(progress).not.toContain('>Approved</span>');
-    expect(progress).not.toContain('PR merge available</span>');
-    expect(attention).toContain('>PR merge available</span>');
-    expect(markup.match(/>PR open<\/span>/g)).toHaveLength(1);
-    expect(markup.match(/>PR merge available<\/span>/g)).toHaveLength(1);
-  }
+  const markup = renderToStaticMarkup(<KanbanCardContents card={actionable} onMergePullRequest={() => {}} projects={[prProject]}
+    repositoryStatus={undefined} prCheck={prChecks?.[actionable.id]}
+    serverServices={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+  const waitingMarkup = renderToStaticMarkup(<KanbanCardContents card={waiting} projects={[prProject]}
+    repositoryStatus={undefined} prCheck={prChecks?.[waiting.id]}
+    onNavigateParent={() => {}} onToggleServer={() => {}} />);
+  expect(markup.match(/class="kanbanServerToggle kanbanPrMerge"/g)).toHaveLength(1);
+  expect(markup).toContain('Merge PR #98 for card #2');
+  expect(markup).toContain('PR #98');
+  expect(markup).toContain('>PR merge available</span>');
+  expect(waitingMarkup).not.toContain('kanbanPrMerge');
+  expect(waitingMarkup).toContain('>PR open</span>');
+  expect(waitingMarkup).toContain('aria-label="PR open · CI running"');
+  expect(waitingMarkup).not.toContain('>Approved</span>');
+  expect(waitingMarkup).not.toContain('PR merge available</span>');
 });
 
 it('splits only at the first delivery separator', () => {
@@ -152,66 +141,6 @@ function renderMenu({ collapsed, open = true, cardsCount = 1 }: { collapsed: boo
   );
 }
 
-function pointerStub() {
-  return {
-    draggingId: null,
-    dropBeforeId: null,
-    dragPreview: null,
-    setDragOverlayElement: () => {},
-    beginPointerDrag: () => {},
-    updatePointerDrag: () => {},
-    finishPointerDrag: async () => {},
-    cancelPointerDrag: () => {},
-    shouldSuppressCardClick: () => false,
-  } as ComponentProps<typeof KanbanLanes>['pointer'];
-}
-
-function renderLanes(cards: KanbanCard[], doneCollapsed = false, projects: Project[] = [project]) {
-  return renderToStaticMarkup(<KanbanLanes
-    cards={cards}
-    projects={projects}
-    repositoryStatuses={{}}
-    serverServices={{}}
-    doneCollapsed={doneCollapsed}
-    doneToggleRef={createRef<HTMLButtonElement>()}
-    openLaneMenu={null}
-    setOpenLaneMenu={() => {}}
-    cleaningMerged={false}
-    keyboardFocusedCardId={null}
-    setKeyboardFocusedCardId={() => {}}
-    pointer={pointerStub()}
-    onToggleDone={() => {}}
-    onCleanupMerged={() => {}}
-    onOpenCard={() => {}}
-    onNavigateParent={() => {}}
-    onToggleServer={() => {}}
-  />);
-}
-
-function laneMarkup(markup: string, group: WorkGroup) {
-  const lane = markup.match(new RegExp(`<section[^>]*data-kanban-group="${group}"[^>]*>[\\s\\S]*?</section>`));
-  if (!lane) throw new Error(`Missing ${group} group`);
-  return lane[0];
-}
-
-describe('card owner accents', () => {
-  it('scopes board card surfaces and numbers to each owner, not a board filter', () => {
-    const teal = { ...project, color_id: 'teal' };
-    const rose = { ...project, id: 'other', name: 'Other', color_id: 'rose' };
-    const markup = renderLanes([
-      card({ id: 'teal-card', project_id: teal.id, status: 'ready', parent: null, child_count: 0 }),
-      card({ id: 'rose-card', project_id: rose.id, status: 'ready', parent: null, child_count: 0 }),
-      card({ id: 'unowned-card', project_id: 'missing', status: 'ready', parent: null, child_count: 0 }),
-    ], false, [teal, rose]);
-    expect(markup).toMatch(/class="kanbanCard" data-kanban-navigation-card-id="teal-card" data-project-color="teal"/);
-    expect(markup).toMatch(/class="kanbanCard" data-kanban-navigation-card-id="rose-card" data-project-color="rose"/);
-    expect(markup).toMatch(/class="kanbanCard" data-kanban-navigation-card-id="unowned-card"><button[^>]*data-kanban-card-id="unowned-card"/);
-    for (const id of ['teal-card', 'rose-card', 'unowned-card']) {
-      expect(markup.match(new RegExp(`data-kanban-navigation-card-id="${id}"`, 'g'))).toHaveLength(1);
-    }
-  });
-});
-
 describe('kanbanCardClassName', () => {
   it('classifies cards as parents only when they have children', () => {
     expect(kanbanCardClassName(card({ parent: null, child_count: 1 }))).toBe('kanbanCard kanbanParentCard');
@@ -220,7 +149,7 @@ describe('kanbanCardClassName', () => {
     expect(kanbanCardClassName(card({ parent: null, child_count: 0 }))).toBe('kanbanCard');
   });
 
-  it('provides the same parent class for lane cards and drag previews without losing keyboard focus', () => {
+  it('provides the same parent class for rows and drag previews without losing keyboard focus', () => {
     const parentCard = card({ child_count: 1 });
 
     expect(kanbanCardClassName(parentCard, true)).toBe('kanbanCard kanbanParentCard keyboardFocused');
@@ -233,25 +162,21 @@ describe('KanbanCardContents', () => {
     const parent = card({ status: 'needs_refinement', parent: null, hierarchy_finalized: true, child_count: 2,
       children: [{ id: 'first', external_id: '1', title: 'First', status: 'needs_refinement' },
         { id: 'second', external_id: '2', title: 'Second', status: 'done' }] });
-    for (const layout of ['board', 'list'] as const) {
-      const markup = renderCardContents(parent, undefined, layout);
-      expect(markup).toContain('title="Children in backlog"');
-      expect(markup).toContain('>Children in backlog</span>');
-      expect(markup).not.toContain('Children complete');
-    }
+    const markup = renderCardContents(parent);
+    expect(markup).toContain('title="Children in backlog"');
+    expect(markup).toContain('>Children in backlog</span>');
+    expect(markup).not.toContain('Children complete');
   });
 
-  it('uses each card owner for mixed board and list badges, not the current filter', () => {
+  it('uses each card owner for mixed list badges, not the current filter', () => {
     const other = { ...project, id: 'other', name: 'Other', color_id: 'rose' };
     const first = { ...project, color_id: 'teal' };
-    for (const layout of ['board', 'list'] as const) {
-      const render = (owner: Project | null) => renderToStaticMarkup(<KanbanCardContents
-        card={card({ project_id: owner?.id ?? 'missing', board_id: owner?.id ?? 'missing' })}
-        projects={[first, other]} layout={layout} repositoryStatus={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
-      expect(render(first).match(/data-project-color="teal"/g)).toHaveLength(2);
-      expect(render(other).match(/data-project-color="rose"/g)).toHaveLength(2);
-      expect(render(null)).not.toContain('data-project-color=');
-    }
+    const render = (owner: Project | null) => renderToStaticMarkup(<KanbanCardContents
+      card={card({ project_id: owner?.id ?? 'missing', board_id: owner?.id ?? 'missing' })}
+      projects={[first, other]} repositoryStatus={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    expect(render(first).match(/data-project-color="teal"/g)).toHaveLength(2);
+    expect(render(other).match(/data-project-color="rose"/g)).toHaveLength(2);
+    expect(render(null)).not.toContain('data-project-color=');
   });
   it('orders number, dim project and bright status in the heading, with hierarchy on the right', () => {
     const markup = renderCardContents(card());
@@ -288,31 +213,10 @@ describe('KanbanCardContents', () => {
     expect(markup).not.toContain('kanbanHierarchyGroup');
   });
 
-  it('keeps Superthread assignees in board metadata without a provider board title', () => {
-    const markup = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', assignee_names: ['Rich', 'Alex'] }));
-
-    expect(markup).toContain('class="kanbanCardBoardAttribution"><span class="kanbanCardBoardAssignee" title="Assigned in Superthread">Rich, Alex</span></span>');
-    expect(markup.match(/class="kanbanProjectBadge"/g)).toHaveLength(1);
-    expect(markup).not.toContain('Roadmap');
-    expect(markup).not.toContain('kanbanCardAttribution');
-  });
-
-  it('shows Unassigned on unassigned Superthread board cards but no attribution for local board cards', () => {
-    const unassigned = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap' }));
-    const local = renderCardContents(card());
-
-    expect(unassigned).toContain('title="Assigned in Superthread">Unassigned</span>');
-    expect(unassigned).not.toContain('Roadmap');
-    expect(local).not.toContain('kanbanCardMeta');
-    expect(local).not.toContain('kanbanCardBoardAttribution');
-    expect(local).not.toContain('kanbanCardBoardAssignee');
-    expect(local).not.toContain('kanbanCardAttribution');
-  });
-
   it('preserves list metadata order, board-title suppression, and local empty attribution', () => {
-    const suppressed = renderCardContents(card({ provider: 'superthread', board_title: 'Dev - Active' }), undefined, 'list');
-    const visible = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', assignee_names: ['Rich'] }), undefined, 'list');
-    const local = renderCardContents(card(), undefined, 'list');
+    const suppressed = renderCardContents(card({ provider: 'superthread', board_title: 'Dev - Active' }));
+    const visible = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', assignee_names: ['Rich'] }));
+    const local = renderCardContents(card());
 
     expect(suppressed).not.toContain('kanbanProviderBoardTitle');
     expect(suppressed).toContain('class="kanbanCardAttribution"><span title="Assigned in Superthread">Unassigned</span>');
@@ -320,23 +224,22 @@ describe('KanbanCardContents', () => {
     expect(visible.match(/class="kanbanProjectBadge"/g)).toHaveLength(1);
     expect(local).not.toContain('kanbanCardMeta');
     expect(local).not.toContain('kanbanCardAttribution');
-    expect(local).not.toContain('kanbanCardBoardAttribution');
   });
 
-  it.each(['board', 'list'] as const)('keeps local %s cards without indicators free of metadata, including inactive PRs', (layout) => {
+  it('keeps local cards without indicators free of metadata, including inactive PRs', () => {
     for (const currentCard of [card(), card({ pull_request: pullRequest({ state: 'merged' }) })]) {
-      const markup = renderCardContents(currentCard, undefined, layout);
+      const markup = renderCardContents(currentCard);
       expect(markup).not.toContain('kanbanCardMeta');
       expect(markup).not.toContain('kanbanCardLocalAttribution');
       expect(markup).not.toContain('Unassigned');
     }
   });
 
-  it.each(['board', 'list'] as const)('aligns local %s indicators after an invisible flexible slot without assignee text', (layout) => {
+  it('aligns local indicators after an invisible flexible slot without assignee text', () => {
     const cases = [
-      [renderCardContents(card(), services(), layout), ['kanbanServerToggle', 'kanbanGitBadge']],
-      [renderCardContents(card({ pull_request: pullRequest() }), undefined, layout), ['kanbanPrBadge']],
-      [renderToStaticMarkup(<KanbanCardContents card={card()} projects={[project]} layout={layout}
+      [renderCardContents(card(), services()), ['kanbanServerToggle', 'kanbanGitBadge']],
+      [renderCardContents(card({ pull_request: pullRequest() })), ['kanbanPrBadge']],
+      [renderToStaticMarkup(<KanbanCardContents card={card()} projects={[project]}
         repositoryStatus={{ git: { branch: 'feature', status: 'error', message: 'Git unavailable' }, environmentHealth: { card_id: card().id, issues: [] } }}
         onNavigateParent={() => {}} onToggleServer={() => {}} />), ['kanbanGitBadge']],
     ] as const;
@@ -345,23 +248,19 @@ describe('KanbanCardContents', () => {
       for (const indicator of indicators) expect(markup).toContain(indicator);
       expect(markup).not.toContain('Unassigned');
       expect(markup).not.toContain('Assigned in Superthread');
-      expect(markup).not.toContain('kanbanCardBoardAttribution');
       expect(markup).not.toContain('kanbanCardAttribution');
     }
   });
 
-  it.each(['board', 'list'] as const)('preserves Superthread %s attribution and indicator layout', (layout) => {
-    const markup = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', pull_request: pullRequest() }), services(), layout);
-    const attribution = layout === 'board'
-      ? 'class="kanbanCardBoardAttribution"><span class="kanbanCardBoardAssignee" title="Assigned in Superthread">Unassigned</span></span>'
-      : 'class="kanbanCardAttribution"><span class="kanbanProviderBoardTitle">Roadmap</span><span title="Assigned in Superthread">Unassigned</span></span>';
-    expect(markup).toContain(`class="kanbanCardMeta"><span ${attribution}<span class="kanbanCardIndicators">`);
+  it('preserves Superthread attribution and indicator layout', () => {
+    const markup = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', pull_request: pullRequest() }), services());
+    expect(markup).toContain('class="kanbanCardMeta"><span class="kanbanCardAttribution"><span class="kanbanProviderBoardTitle">Roadmap</span><span title="Assigned in Superthread">Unassigned</span></span><span class="kanbanCardIndicators">');
     expect(markup).not.toContain('kanbanCardLocalAttribution');
     expect(markup.indexOf('kanbanGitBadge')).toBeLessThan(markup.indexOf('kanbanPrBadge'));
     expect(markup.indexOf('kanbanPrBadge')).toBeLessThan(markup.indexOf('kanbanServerToggle'));
   });
 
-  it.each(['board', 'list'] as const)('keeps attribution left and orders present Git, PR, and server indicators in %s layout', (layout) => {
+  it('keeps attribution left and orders present Git, PR, and server indicators', () => {
     const cases = [
       { git: 'changes', pr: true, server: true, expected: ['kanbanGitBadge', 'kanbanPrBadge', 'kanbanServerToggle'] },
       { git: 'error', pr: true, server: true, expected: ['kanbanGitBadge', 'kanbanPrBadge', 'kanbanServerToggle'] },
@@ -381,7 +280,7 @@ describe('KanbanCardContents', () => {
       };
       const markup = renderToStaticMarkup(<KanbanCardContents
         card={card({ provider: 'superthread', assignee_names: ['Rich'], pull_request: pr ? pullRequest() : null })}
-        projects={[project]} layout={layout} repositoryStatus={repositoryStatus}
+        projects={[project]} repositoryStatus={repositoryStatus}
         serverServices={server ? services() : undefined}
         onNavigateParent={() => {}} onToggleServer={() => {}}
       />);
@@ -456,7 +355,7 @@ describe('KanbanPullRequestBadge', () => {
     ['pending CI only', pullRequest({ ci_status: 'pending', blockers: ['CI is pending'] }), 'openPending', 'githubCiRunning', 'CI is pending', 'open, CI running'],
     ['pending CI plus another blocker', pullRequest({ ci_status: 'pending', blockers: ['CI is pending', 'Changes requested'] }), 'openBlocked', 'githubCiFailed', 'CI is pending\nChanges requested', 'open with blockers: CI is pending; Changes requested'],
     ['otherwise blocked', pullRequest({ blockers: ['Pull request is a draft'] }), 'openBlocked', 'githubCiFailed', 'Pull request is a draft', 'open with blockers: Pull request is a draft'],
-  ])('renders the %s board presentation', (_name, pr, className, iconClass, tooltip, accessibleStatus) => {
+  ])('renders the %s presentation', (_name, pr, className, iconClass, tooltip, accessibleStatus) => {
     const markup = renderToStaticMarkup(<KanbanPullRequestBadge pullRequest={pr} check={{ checkedAt: Date.now(), failed: false, refreshing: false }} />);
 
     expect(markup).toContain(`kanbanPrBadge ${className}`);
@@ -518,87 +417,6 @@ describe('KanbanPullRequestBadge', () => {
   });
 });
 
-describe('KanbanLanes card opening', () => {
-  it('opens on both the overlay button and the card surface, once per click', async () => {
-    const open = vi.fn();
-    vi.stubGlobal('document', { documentElement: { classList: { toggle: vi.fn(), remove: vi.fn() } } });
-    let renderer!: TestRenderer.ReactTestRenderer;
-    await act(async () => { renderer = TestRenderer.create(<KanbanLanes
-      cards={[card({ parent: null, child_count: 0 })]} projects={[project]} repositoryStatuses={{}} serverServices={{}}
-      doneCollapsed doneToggleRef={createRef<HTMLButtonElement>()} openLaneMenu={null} setOpenLaneMenu={() => {}}
-      cleaningMerged={false} keyboardFocusedCardId={null} setKeyboardFocusedCardId={() => {}}
-      pointer={pointerStub()} onToggleDone={() => {}} onCleanupMerged={() => {}} onOpenCard={open}
-      onNavigateParent={() => {}} onToggleServer={() => {}} />); });
-    const overlay = renderer.root.findByProps({ className: 'kanbanCardOpen' });
-    const surface = renderer.root.findAllByProps({ className: 'kanbanCard' })[0];
-    const stop = vi.fn();
-    overlay.props.onClick({ stopPropagation: stop });
-    expect(stop).toHaveBeenCalledOnce();
-    surface.props.onClick();
-    expect(open).toHaveBeenCalledTimes(2);
-    await act(async () => renderer.unmount());
-    vi.unstubAllGlobals();
-  });
-});
-
-describe('KanbanLanes headings', () => {
-  it('renders four group headings and retains exact statuses on the cards', () => {
-    const cards = [
-      card({ id: 'ready-1', status: 'ready' }),
-      card({ id: 'working-1', status: 'agent_working' }),
-      card({ id: 'working-2', status: 'agent_working' }),
-      card({ id: 'done-1', status: 'done' }),
-    ];
-    const markup = renderLanes(cards);
-    const expected = {
-      attention: ['Needs your action', 1],
-      progress: ['In progress', 2],
-      backlog: ['Backlog', 0],
-      done: ['Done', 1],
-    } satisfies Record<WorkGroup, [string, number]>;
-
-    expect(markup.match(/data-kanban-group=/g)).toHaveLength(4);
-    expect([...markup.matchAll(/<section[^>]*data-kanban-group="([^"]+)"/g)].map((match) => match[1]))
-      .toEqual(['backlog', 'progress', 'attention', 'done']);
-    for (const [group, [label, count]] of Object.entries(expected) as [WorkGroup, [string, number]][]) {
-      expect(laneMarkup(markup, group)).toContain(`<strong class="kanbanLaneTitle">${label} <span class="kanbanLaneCount">${count}</span></strong>`);
-    }
-    expect(laneMarkup(markup, 'attention')).toContain('Start work');
-    expect(laneMarkup(markup, 'progress')).toContain('Agent working');
-  });
-
-  it('updates source and destination group counts when a card changes status', () => {
-    const readyCard = card({ id: 'moving-card', status: 'ready' });
-    const before = renderLanes([readyCard]);
-    const after = renderLanes([{ ...readyCard, status: 'agent_working' }]);
-
-    expect(laneMarkup(before, 'attention')).toContain('Needs your action <span class="kanbanLaneCount">1</span>');
-    expect(laneMarkup(before, 'progress')).toContain('In progress <span class="kanbanLaneCount">0</span>');
-    expect(laneMarkup(after, 'attention')).toContain('Needs your action <span class="kanbanLaneCount">0</span>');
-    expect(laneMarkup(after, 'progress')).toContain('In progress <span class="kanbanLaneCount">1</span>');
-  });
-
-  it('keeps the expanded Done menu separate from and after its title group', () => {
-    const done = laneMarkup(renderLanes([card({ id: 'done-1', status: 'done' })]), 'done');
-    const titleEnd = done.indexOf('</strong>');
-    const actionsStart = done.indexOf('class="kanbanLaneHeaderActions"');
-
-    expect(done).toContain('Done <span class="kanbanLaneCount">1</span>');
-    expect(titleEnd).toBeGreaterThan(-1);
-    expect(actionsStart).toBeGreaterThan(titleEnd);
-    expect(done).toContain('aria-label="Done column actions"');
-  });
-
-  it('leaves the collapsed Done header as the actions menu only', () => {
-    const done = laneMarkup(renderLanes([card({ id: 'done-1', status: 'done' })], true), 'done');
-
-    expect(done).toContain('class="kanbanLaneCollapsedHeader"');
-    expect(done).toContain('aria-label="Done column actions"');
-    expect(done).not.toContain('kanbanLaneTitle');
-    expect(done).not.toContain('kanbanLaneCount');
-  });
-});
-
 describe('DoneLaneMenu', () => {
   it('dismisses only pointer events outside the menu wrapper', () => {
     const trigger = {} as Node;
@@ -640,8 +458,7 @@ describe('DoneLaneMenu', () => {
   });
 });
 
-
-describe('board/list merge control', () => {
+describe('card merge control', () => {
   const prProject: Project = { ...project, delivery_workflow: 'github_pull_request' };
   it.each([
     { pull_request: pullRequest({ draft: true }) },
@@ -657,11 +474,9 @@ describe('board/list merge control', () => {
     { status: 'agent_working' as const },
   ])('does not offer merging for a non-ready projection (%j)', (overrides) => {
     const current = card({ status: 'approved', child_count: 0, pull_request: pullRequest(), ...overrides });
-    for (const layout of ['board', 'list'] as const) {
-      const markup = renderToStaticMarkup(<KanbanCardContents card={current} projects={[prProject]} layout={layout}
-        repositoryStatus={undefined} onMergePullRequest={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
-      expect(markup).not.toContain('kanbanPrMerge');
-    }
+    const markup = renderToStaticMarkup(<KanbanCardContents card={current} projects={[prProject]}
+      repositoryStatus={undefined} onMergePullRequest={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    expect(markup).not.toContain('kanbanPrMerge');
   });
   it('rejects an explicitly obsolete PR observation', () => {
     const markup = renderToStaticMarkup(<KanbanCardContents card={card({ status: 'approved', child_count: 0, pull_request: pullRequest() })}

@@ -18,7 +18,7 @@ Object.assign(globalThis, {
   },
 });
 
-function handlers(globalVisible = false): ShortcutHandlers { return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), isGlobalTerminalVisible: () => globalVisible, isCardOpen: () => cardOpen, isCardTerminalActive: () => cardTerminal, setKanbanView: vi.fn(), toggleGlobalTerminal: vi.fn(), newGlobalTerminalTab: vi.fn(), runGlobalTerminalAction: vi.fn(), runCardTerminalAction: vi.fn() }; }
+function handlers(globalVisible = false): ShortcutHandlers { return { setMetaKeyDown: vi.fn(), openProjectDialog: vi.fn(), requestQuit: vi.fn(), adjustTerminalFontSize: vi.fn(), adjustUiFontSize: vi.fn(), openCommandPalette: vi.fn(), openProjectSwitcher: vi.fn(), openSettings: vi.fn(), isGlobalTerminalVisible: () => globalVisible, isCardOpen: () => cardOpen, isCardTerminalActive: () => cardTerminal, toggleGlobalTerminal: vi.fn(), newGlobalTerminalTab: vi.fn(), runGlobalTerminalAction: vi.fn(), runCardTerminalAction: vi.fn() }; }
 function key(value: string, init: { code?: string; shiftKey?: boolean; altKey?: boolean } = {}) {
   const event = {
     key: value, code: init.code ?? '', metaKey: true, ctrlKey: false, shiftKey: init.shiftKey ?? false, altKey: init.altKey ?? false,
@@ -95,32 +95,27 @@ describe('keyboard shortcut router', () => {
     expect(card).toHaveBeenCalledWith({ direction: -1 });
     offGlobal(); offCard();
   });
-  it('selects Board and List from the overview, including when already selected', () => {
+  it('removes Cmd-L and keeps Cmd-K as a terminal clear', () => {
     const h = handlers();
-    for (const view of ['k', 'l', 'k', 'l']) {
-      const event = key(view); handleMetaShortcutKeyDown(event, h);
-      expect(event.defaultPrevented).toBe(true);
-    }
-    expect(h.setKanbanView).toHaveBeenCalledTimes(4);
-    expect(vi.mocked(h.setKanbanView).mock.calls).toEqual([['board'], ['list'], ['board'], ['list']]);
+    const list = key('l'); handleMetaShortcutKeyDown(list, h);
+    expect(list.defaultPrevented).toBe(false);
+    const clear = key('k'); handleMetaShortcutKeyDown(clear, h);
+    expect(clear.defaultPrevented).toBe(true);
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
   });
-  it('does not switch behind an open card, but clears its active terminal on Cmd-K', () => {
+  it('does not clear behind an open card unless its terminal is active', () => {
     cardOpen = true; const h = handlers();
     handleMetaShortcutKeyDown(key('k'), h); handleMetaShortcutKeyDown(key('l'), h);
-    expect(h.setKanbanView).not.toHaveBeenCalled();
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
     cardTerminal = true;
     handleMetaShortcutKeyDown(key('k'), h); handleMetaShortcutKeyDown(key('l'), h);
     expect(h.runCardTerminalAction).toHaveBeenCalledExactlyOnceWith('clear');
-    expect(h.setKanbanView).not.toHaveBeenCalled();
   });
-  it('clears the top-level terminal instead of changing the view, even over a card', () => {
+  it('clears the top-level terminal instead of a card terminal, even over a card', () => {
     cardOpen = true; cardTerminal = true; const h = handlers(true);
     handleMetaShortcutKeyDown(key('k'), h); handleMetaShortcutKeyDown(key('l'), h);
     expect(h.runGlobalTerminalAction).toHaveBeenCalledExactlyOnceWith('clear');
     expect(h.runCardTerminalAction).not.toHaveBeenCalled();
-    expect(h.setKanbanView).not.toHaveBeenCalled();
   });
   it('does not claim removed Cmd-R, Cmd-G, or Shift-Cmd-G shortcuts', () => {
     const h = handlers(); const events = [key('r'), key('g'), key('G', { shiftKey: true })]; events.forEach((event) => handleMetaShortcutKeyDown(event, h));

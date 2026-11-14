@@ -8,9 +8,7 @@ export const WORK_GROUPS = [
   { id: 'done', label: 'Done', statuses: ['done'] },
 ] as const satisfies ReadonlyArray<{ id: string; label: string; statuses: readonly KanbanStatus[] }>;
 
-// Board follows the workflow from backlog to delivery. The list keeps
-// actionable work first, without changing any card's canonical status.
-export const BOARD_GROUPS = [WORK_GROUPS[2], WORK_GROUPS[1], WORK_GROUPS[0], WORK_GROUPS[3]] as const;
+// List keeps actionable work first, without changing any card's canonical status.
 
 export type WorkGroup = (typeof WORK_GROUPS)[number]['id'];
 
