@@ -234,3 +234,15 @@ npm run gpui-list:measure -- --runs 5
 node scripts/measure-gpui-shell.mjs --runs 5 --start-view list \
   --cards-db /tmp/stacks-gpui-list-2000.sqlite3
 ```
+
+
+## Follow-up — card #323
+
+Card #323 evaluated the hand-rolled UI against
+[`gpui-kit.com`](https://gpui-kit.com/) and implemented a read-only native
+card detail. Result: **adopt GPUI Kit; stop hand-rolling UI primitives.** The
+branch currently uses `gpui-component 0.5.1` on GPUI 0.2.2 as a compatibility
+probe, but the recommended target is `gpui-kit 0.9.1` + `gpui-pre 0.3.12`
+because it adds AccessKit accessibility and current components. The terminal
+library needed only four text-paint signature changes in the migration probe.
+See [`gpui-kit-adoption-323.md`](gpui-kit-adoption-323.md).

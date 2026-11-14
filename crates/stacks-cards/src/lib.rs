@@ -10,8 +10,8 @@ pub mod store;
 pub mod workflow;
 
 pub use model::{
-    CardSnapshot, CardStatus, CardSummary, DeliveryStep, DeliveryWorkflow, EnvironmentIndicator,
-    Project, PullRequestIndicator, Relationship, WorkGroup,
+    CardDetail, CardEvent, CardSnapshot, CardStatus, CardSummary, DeliveryStep, DeliveryWorkflow,
+    EnvironmentIndicator, Project, PullRequestIndicator, Relationship, WorkGroup,
 };
 pub use store::{CardStore, DATABASE_ENV, REORDER_CONFLICT_CODE};
 pub use workflow::{

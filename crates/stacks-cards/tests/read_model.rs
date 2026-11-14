@@ -46,6 +46,12 @@ fn create_database(path: &Path) {
                 review_state TEXT NOT NULL DEFAULT 'unknown', has_conflicts INTEGER NOT NULL DEFAULT 0,
                 mergeable INTEGER NOT NULL DEFAULT 0, head_revision TEXT, updated_at INTEGER NOT NULL
             );
+            CREATE TABLE card_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL, actor TEXT NOT NULL, event_type TEXT NOT NULL,
+                outcome TEXT NOT NULL, from_status TEXT, to_status TEXT, summary TEXT,
+                error_code TEXT, error_detail TEXT
+            );
             INSERT INTO projects(id,name,path,color_id,delivery_workflow,kanban_source,sort_order)
                 VALUES ('p1','Stacks','/tmp/stacks','slate','local_merge','local',0),
                        ('p2','Arcasa','/tmp/arcasa','violet','github_pull_request','superthread',1);
@@ -58,6 +64,13 @@ fn create_database(path: &Path) {
                        ('done','local:d','5','Shipped','done','p1',NULL,0,0,5,5,2),
                        ('pr','superthread:9','9','PR card','approved','p2',NULL,0,0,6,6,0);
             UPDATE kanban_cards SET completion_outcome='merged' WHERE id='done';
+            UPDATE kanban_cards SET content='## Plan
+
+- Read the detail
+- Render the content', card_url='https://example.test/cards/1' WHERE id='parent';
+            INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary)
+                VALUES ('parent',100,'agent','status_change','success','agent_working','ready','Moved to ready'),
+                       ('parent',101,'user','agent_started','success',NULL,NULL,'Started work');
             INSERT INTO card_pull_requests(card_id,repository,number,title,url,state,draft,ci_status,
                 review_state,has_conflicts,mergeable,head_revision,updated_at)
                 VALUES ('pr','acme/repo',42,'PR card','https://example.test/pr/42','open',0,'success',
@@ -191,4 +204,21 @@ fn out_of_scope_parent_does_not_leak_into_child_summary() {
     assert!(child.parent.is_none());
     assert_eq!(child.status, CardStatus::Ready);
     assert!(!snapshot.cards.iter().any(|card| card.id == "parent"));
+}
+
+#[test]
+fn loads_read_only_card_detail_with_content_and_events() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("workflow.sqlite3");
+    create_database(&path);
+    let store = CardStore::new(&path);
+    let detail = store.load_detail("parent").unwrap();
+    assert_eq!(detail.card.id, "parent");
+    assert_eq!(detail.card.status, CardStatus::Ready);
+    assert!(detail.content.contains("Render the content"));
+    assert_eq!(detail.card_url, "https://example.test/cards/1");
+    assert_eq!(detail.events.len(), 2);
+    assert_eq!(detail.events[0].event_type, "agent_started");
+    assert!(detail.events[1].to_status == Some(CardStatus::Ready));
+    assert!(store.load_detail("missing").is_err());
 }

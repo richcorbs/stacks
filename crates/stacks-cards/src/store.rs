@@ -17,8 +17,8 @@ use rusqlite::{Connection, OpenFlags, params};
 
 use crate::{
     model::{
-        CardSnapshot, CardStatus, CardSummary, DeliveryWorkflow, EnvironmentIndicator, Project,
-        PullRequestIndicator, Relationship,
+        CardDetail, CardEvent, CardSnapshot, CardStatus, CardSummary, DeliveryWorkflow,
+        EnvironmentIndicator, Project, PullRequestIndicator, Relationship,
     },
     workflow::merge_filtered_lane_order,
 };
@@ -63,6 +63,50 @@ impl CardStore {
     pub fn load_snapshot(&self) -> Result<CardSnapshot> {
         let connection = self.open_read_only()?;
         load_snapshot_from(&connection)
+    }
+
+    /// Read a card detail projection from real local data. This deliberately
+    /// loads the board summary first so the detail reuses the same effective
+    /// hierarchy status/groups as LIST; a later production pass can narrow it to
+    /// one-row queries.
+    pub fn load_detail(&self, card_id: &str) -> Result<CardDetail> {
+        let snapshot = self.load_snapshot()?;
+        let card = snapshot
+            .cards
+            .into_iter()
+            .find(|card| card.id == card_id)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Card is not in scope or no longer exists: {card_id}")
+            })?;
+        let connection = self.open_read_only()?;
+        let (content, card_url, feature_environment, runtime_cleanup_status, runtime_cleanup_error) =
+            connection
+                .query_row(
+                    "SELECT content, card_url, feature_environment,
+                            runtime_cleanup_status, runtime_cleanup_error
+                     FROM kanban_cards WHERE id = ?1 AND in_scope = 1",
+                    [card_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)? != 0,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                        ))
+                    },
+                )
+                .with_context(|| format!("read detail fields for card {card_id}"))?;
+        let events = load_card_events(&connection, card_id, 30)?;
+        Ok(CardDetail {
+            card,
+            content,
+            card_url,
+            feature_environment,
+            runtime_cleanup_status,
+            runtime_cleanup_error,
+            events,
+        })
     }
 
     /// Apply a backlog drag reorder using the same conflict contract as the
@@ -545,6 +589,39 @@ fn effective_status_from_graph(
     visiting.remove(id);
     memo.insert(id.to_string(), effective);
     effective
+}
+
+fn load_card_events(
+    connection: &Connection,
+    card_id: &str,
+    limit: usize,
+) -> Result<Vec<CardEvent>> {
+    let mut statement = connection.prepare(
+        "SELECT id, created_at, actor, event_type, outcome, from_status, to_status,
+                summary, error_code, error_detail
+         FROM card_events
+         WHERE card_id = ?1
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?2",
+    )?;
+    let rows = statement.query_map(params![card_id, limit.clamp(1, 100) as i64], |row| {
+        let from_status: Option<String> = row.get(5)?;
+        let to_status: Option<String> = row.get(6)?;
+        Ok(CardEvent {
+            id: row.get(0)?,
+            created_at: row.get(1)?,
+            actor: row.get(2)?,
+            event_type: row.get(3)?,
+            outcome: row.get(4)?,
+            from_status: from_status.as_deref().and_then(CardStatus::parse),
+            to_status: to_status.as_deref().and_then(CardStatus::parse),
+            summary: row.get(7)?,
+            error_code: row.get(8)?,
+            error_detail: row.get(9)?,
+        })
+    })?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("read card detail events")
 }
 
 fn lane_order(connection: &Connection, status: CardStatus) -> Result<Vec<String>> {

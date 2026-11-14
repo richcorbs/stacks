@@ -14,6 +14,7 @@ use gpui::{
     App, AppContext, Application, KeyBinding, Menu, MenuItem, SharedString, TitlebarOptions,
     WindowBounds, WindowOptions, actions, px, size,
 };
+use gpui_component::Root;
 use settings::{ShellSettings, ShellState, data_dir};
 use shell::{Shell, mark_process_start, restore_bounds};
 
@@ -56,6 +57,7 @@ fn main() {
     let state = ShellState::load(&data_dir);
 
     Application::new().run(move |cx: &mut App| {
+        gpui_component::init(cx);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();
@@ -88,7 +90,7 @@ fn main() {
                 ..Default::default()
             },
             |window, cx| {
-                cx.new(|cx| {
+                let shell = cx.new(|cx| {
                     Shell::new(
                         window,
                         cx,
@@ -96,7 +98,8 @@ fn main() {
                         state_for_window,
                         dir_for_window,
                     )
-                })
+                });
+                cx.new(|cx| Root::new(shell, window, cx))
             },
         )
         .expect("open GPUI shell window");

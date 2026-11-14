@@ -11,13 +11,20 @@ use std::{
 };
 
 use gpui::{
-    Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton, ParentElement, Render,
-    ScrollStrategy, SharedString, UniformListScrollHandle, Window, div, prelude::*, px, rgb,
-    uniform_list,
+    ClipboardItem, Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton, ParentElement,
+    Render, ScrollStrategy, SharedString, UniformListScrollHandle, Window, div, prelude::*, px,
+    rgb, uniform_list,
+};
+use gpui_component::{
+    Sizable,
+    button::{Button, ButtonVariants},
+    spinner::Spinner,
+    tag::{Tag, TagVariant},
+    text::TextView,
 };
 use stacks_cards::{
-    CardSnapshot, CardStatus, CardStore, CardSummary, DeliveryStep, Project, PullRequestIndicator,
-    WorkGroup, delivery_step, group_cards,
+    CardDetail, CardSnapshot, CardStatus, CardStore, CardSummary, DeliveryStep, Project,
+    PullRequestIndicator, WorkGroup, delivery_step, group_cards,
 };
 
 use crate::shell::process_start;
@@ -79,6 +86,15 @@ impl Render for CardDragPreview {
     }
 }
 
+#[derive(Clone)]
+struct DetailState {
+    card_id: String,
+    summary: CardSummary,
+    loading: bool,
+    detail: Option<CardDetail>,
+    error: Option<String>,
+}
+
 pub struct ListView {
     focus_handle: FocusHandle,
     store: CardStore,
@@ -96,7 +112,12 @@ pub struct ListView {
     reordering: bool,
     error: Option<String>,
     notice: Option<(String, Instant)>,
-    detail: Option<CardSummary>,
+    detail: Option<DetailState>,
+    detail_generation: u64,
+    detail_opened_at: Option<Instant>,
+    detail_load_ms: Option<f64>,
+    detail_metric_reported: bool,
+    auto_open_done: bool,
     load_started: Instant,
     load_ms: Option<f64>,
     flatten_us: Option<f64>,
@@ -113,6 +134,8 @@ impl ListView {
     }
 
     fn empty(cx: &mut Context<Self>) -> Self {
+        #[cfg(test)]
+        gpui_component::init(cx);
         Self {
             focus_handle: cx.focus_handle(),
             store: CardStore::default_store(),
@@ -131,6 +154,11 @@ impl ListView {
             error: None,
             notice: None,
             detail: None,
+            detail_generation: 0,
+            detail_opened_at: None,
+            detail_load_ms: None,
+            detail_metric_reported: false,
+            auto_open_done: false,
             load_started: Instant::now(),
             load_ms: None,
             flatten_us: None,
@@ -196,6 +224,19 @@ impl ListView {
                             .is_none_or(|id| !view.row_for_card.contains_key(id))
                         {
                             view.keyboard_focused = view.card_order.first().cloned();
+                        }
+                        if !view.auto_open_done
+                            && let Ok(target) = std::env::var("STACKS_GPUI_OPEN_CARD")
+                            && let Some(card) = view.snapshot.as_ref().and_then(|snapshot| {
+                                snapshot
+                                    .cards
+                                    .iter()
+                                    .find(|card| card.id == target || card.external_id == target)
+                            })
+                        {
+                            let card_id = card.id.clone();
+                            view.auto_open_done = true;
+                            view.open_card(card_id, cx);
                         }
                     }
                     Err(error) => {
@@ -274,16 +315,88 @@ impl ListView {
     }
 
     fn open_focused(&mut self, cx: &mut Context<Self>) {
-        let Some(card_id) = self.keyboard_focused.as_deref() else {
+        let Some(card_id) = self.keyboard_focused.clone() else {
             return;
         };
-        if let Some(card) = self
+        self.open_card(card_id, cx);
+    }
+
+    fn open_card(&mut self, card_id: String, cx: &mut Context<Self>) {
+        let Some(card) = self
             .snapshot
             .as_ref()
             .and_then(|snapshot| snapshot.cards.iter().find(|card| card.id == card_id))
-        {
-            self.detail = Some(card.clone());
-            cx.notify();
+            .cloned()
+        else {
+            return;
+        };
+        self.detail_generation += 1;
+        let generation = self.detail_generation;
+        self.detail_opened_at = Some(Instant::now());
+        self.detail_load_ms = None;
+        self.detail_metric_reported = false;
+        self.detail = Some(DetailState {
+            card_id: card_id.clone(),
+            summary: card.clone(),
+            loading: true,
+            detail: None,
+            error: None,
+        });
+        let store = self.store.clone();
+        let task = cx.background_executor().spawn(async move {
+            let started = Instant::now();
+            let result = store.load_detail(&card_id);
+            (result, started.elapsed().as_secs_f64() * 1000.0)
+        });
+        cx.spawn(async move |this, cx| {
+            let (result, load_ms) = task.await;
+            let _ = this.update(cx, |view, cx| {
+                if view.detail_generation != generation {
+                    return;
+                }
+                view.detail_load_ms = Some(load_ms);
+                let Some(state) = view.detail.as_mut() else {
+                    return;
+                };
+                state.loading = false;
+                match result {
+                    Ok(detail) => state.detail = Some(detail),
+                    Err(error) => state.error = Some(format!("{error:#}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn close_detail(&mut self, cx: &mut Context<Self>) {
+        self.detail = None;
+        self.detail_generation += 1;
+        cx.notify();
+    }
+
+    fn report_detail_metric(&mut self) {
+        if self.detail_metric_reported {
+            return;
+        }
+        let Some(state) = self.detail.as_ref() else {
+            return;
+        };
+        let Some(detail) = state.detail.as_ref() else {
+            return;
+        };
+        self.detail_metric_reported = true;
+        if std::env::var_os("STACKS_GPUI_METRICS").is_some() {
+            eprintln!(
+                "STACKS_GPUI_METRIC detail_first_frame_ms={:.1} detail_load_ms={:.1} detail_content_chars={} detail_events={}",
+                self.detail_opened_at
+                    .map(|opened| opened.elapsed().as_secs_f64() * 1000.0)
+                    .unwrap_or(-1.0),
+                self.detail_load_ms.unwrap_or(-1.0),
+                detail.content.chars().count(),
+                detail.events.len(),
+            );
         }
     }
 
@@ -295,8 +408,7 @@ impl ListView {
     ) {
         if self.detail.is_some() {
             if event.keystroke.key == "escape" {
-                self.detail = None;
-                cx.notify();
+                self.close_detail(cx);
                 cx.stop_propagation();
             }
             return;
@@ -492,13 +604,12 @@ impl ListView {
                     .iter()
                     .map(|project| {
                         let selected = self.project_filter.as_deref() == Some(project.id.as_str());
-                        let accent = project_accent(project.color_id.as_deref());
                         let count = snapshot
                             .cards
                             .iter()
                             .filter(|card| card.project_id.as_deref() == Some(project.id.as_str()))
                             .count();
-                        (project, selected, accent, count)
+                        (project, selected, count)
                     })
                     .collect::<Vec<_>>()
             })
@@ -547,23 +658,17 @@ impl ListView {
                             }),
                     )
                     .child(
-                        div()
-                            .id("list-refresh")
-                            .px_2()
-                            .py_1()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(rgb(0x8fb4d4))
-                            .hover(|style| style.bg(rgb(0x223246)))
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.reload(cx);
-                            }))
-                            .child(if self.refreshing {
+                        Button::new("list-refresh")
+                            .small()
+                            .label(if self.refreshing {
                                 "Refreshing…"
                             } else {
                                 "Refresh ⌘R"
-                            }),
+                            })
+                            .loading(self.refreshing)
+                            .on_click(cx.listener(|view, _, _, cx| {
+                                view.reload(cx);
+                            })),
                     ),
             )
             .child(
@@ -574,60 +679,28 @@ impl ListView {
                     .gap_1()
                     .px_3()
                     .pb_2()
-                    .child(
-                        div()
-                            .id("filter-all")
-                            .px_2()
-                            .py_1()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(if self.project_filter.is_none() {
-                                rgb(0xe3edf6)
-                            } else {
-                                rgb(0x8ea3b8)
-                            })
-                            .bg(if self.project_filter.is_none() {
-                                rgb(0x233447)
-                            } else {
-                                rgb(0x151c25)
-                            })
-                            .border_1()
-                            .border_color(if self.project_filter.is_none() {
-                                rgb(0x3b5e7d)
-                            } else {
-                                rgb(0x222e3b)
-                            })
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.set_project_filter(None, cx);
-                            }))
-                            .child("All projects"),
-                    )
-                    .children(chips.into_iter().map(|(project, selected, accent, count)| {
+                    .child({
+                        let all = Button::new("filter-all").xsmall().label("All projects");
+                        (if self.project_filter.is_none() {
+                            all.primary()
+                        } else {
+                            all
+                        })
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.set_project_filter(None, cx);
+                        }))
+                    })
+                    .children(chips.into_iter().map(|(project, selected, count)| {
                         let id = project.id.clone();
-                        div()
-                            .id(SharedString::from(format!("filter-{}", project.id)))
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .px_2()
-                            .py_1()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(if selected { rgb(0xe3edf6) } else { accent })
-                            .bg(if selected {
-                                rgb(0x233447)
-                            } else {
-                                rgb(0x151c25)
-                            })
-                            .border_1()
-                            .border_color(if selected { accent } else { rgb(0x222e3b) })
-                            .on_click(cx.listener(move |view, _, _, cx| {
+                        let button =
+                            Button::new(SharedString::from(format!("filter-{}", project.id)))
+                                .xsmall()
+                                .label(format!("{} {}", project.name, count));
+                        (if selected { button.primary() } else { button }).on_click(cx.listener(
+                            move |view, _, _, cx| {
                                 view.set_project_filter(Some(id.clone()), cx);
-                            }))
-                            .child(project.name.clone())
-                            .child(div().text_color(rgb(0x6f8498)).child(format!("{count}")))
+                            },
+                        ))
                     })),
             )
             .when_some(
@@ -782,15 +855,7 @@ impl ListView {
                         })
                         .child(group.label()),
                 )
-                .child(
-                    div()
-                        .px_2()
-                        .rounded_full()
-                        .bg(rgb(0x1f2b38))
-                        .text_xs()
-                        .text_color(rgb(0x8ea3b8))
-                        .child(format!("{count}")),
-                )
+                .child(Tag::new().child(format!("{count}")))
                 .child(div().flex_1())
                 .when(group == WorkGroup::Done, |this| {
                     this.child(
@@ -832,9 +897,7 @@ impl ListView {
         let project_name = project
             .map(|project| project.name.clone())
             .unwrap_or_else(|| "Unknown project".into());
-        let accent = project_accent(project.and_then(|project| project.color_id.as_deref()));
         let step = delivery_step(&card, projects);
-        let status_color = status_color(card.status, step.action_required);
         let dragging = card.status == CardStatus::NeedsRefinement;
         let row_id = card.id.clone();
         let click_id = card.id.clone();
@@ -915,45 +978,15 @@ impl ListView {
                     .text_color(rgb(0x6f8498))
                     .child(format!("#{}", card.external_id)),
             )
+            .child(Tag::new().child(project_name))
             .child(
-                div()
-                    .px_2()
-                    .rounded_full()
-                    .bg(rgb(0x192430))
-                    .text_xs()
-                    .text_color(accent)
-                    .child(project_name),
-            )
-            .child(
-                div()
-                    .px_2()
-                    .rounded_full()
-                    .bg(rgb(0x192430))
-                    .text_xs()
-                    .text_color(status_color)
+                Tag::new()
+                    .with_variant(tag_variant_for_status(card.status, step.action_required))
                     .child(delivery_label(&step)),
             )
-            .when_some(hierarchy, |this, label| {
-                this.child(
-                    div()
-                        .px_2()
-                        .rounded_full()
-                        .bg(rgb(0x1b2430))
-                        .text_xs()
-                        .text_color(rgb(0x9eb1c2))
-                        .child(label),
-                )
-            })
+            .when_some(hierarchy, |this, label| this.child(Tag::new().child(label)))
             .when(warning, |this| {
-                this.child(
-                    div()
-                        .px_1()
-                        .rounded_sm()
-                        .bg(rgb(0x3a2d1e))
-                        .text_xs()
-                        .text_color(rgb(0xe8c07a))
-                        .child("! environment"),
-                )
+                this.child(Tag::warning().child("! environment"))
             })
             .when_some(pr, |this, pr| this.child(pr_badge(&pr)))
             .child(div().flex_1())
@@ -981,10 +1014,11 @@ impl ListView {
             .into_any_element()
     }
 
-    fn render_detail(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let Some(card) = self.detail.as_ref() else {
+    fn render_detail(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let Some(state) = self.detail.clone() else {
             return div().into_any_element();
         };
+        let card = state.summary.clone();
         let project_name = self
             .snapshot
             .as_ref()
@@ -996,65 +1030,150 @@ impl ListView {
         let step = self
             .snapshot
             .as_ref()
-            .map(|snapshot| delivery_step(card, &snapshot.projects))
+            .map(|snapshot| delivery_step(&card, &snapshot.projects))
             .unwrap_or_else(|| DeliveryStep {
                 label: card.status.label().into(),
                 action_required: false,
                 pr_merge_ready: false,
             });
-        let mut rows = vec![
-            ("Project", project_name),
-            ("Status", card.status.label().to_string()),
-            ("Delivery", step.label),
-            ("Workflow revision", card.workflow_revision.to_string()),
-            (
-                "Environment",
-                card.environment
+
+        let header = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .h(px(52.0))
+            .px_4()
+            .flex_shrink_0()
+            .border_b_1()
+            .border_color(rgb(0x24303d))
+            .child(
+                Button::new("detail-back")
+                    .small()
+                    .label("← Cards")
+                    .on_click(cx.listener(|view, _, _, cx| view.close_detail(cx))),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x6f8498))
+                    .child(format!("#{}", card.external_id)),
+            )
+            .child(
+                Tag::new()
+                    .with_variant(tag_variant_for_status(card.status, step.action_required))
+                    .child(card.status.label()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_lg()
+                    .text_color(rgb(0xe3edf6))
+                    .child(card.title.clone()),
+            )
+            .child(
+                Button::new("detail-copy")
+                    .small()
+                    .label("Copy ref")
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        let Some(state) = view.detail.as_ref() else {
+                            return;
+                        };
+                        let reference =
+                            format!("#{} {}", state.summary.external_id, state.summary.title);
+                        cx.write_to_clipboard(ClipboardItem::new_string(reference));
+                        view.notice = Some(("Copied card reference".into(), Instant::now()));
+                        cx.notify();
+                    })),
+            )
+            .when(
+                state
+                    .detail
                     .as_ref()
-                    .map(|environment| {
-                        format!(
-                            "{} · {} · {}",
-                            environment.branch,
-                            environment.lifecycle_state,
-                            environment.worktree_path
-                        )
-                    })
-                    .unwrap_or_else(|| "none".into()),
-            ),
-            (
-                "PR",
-                card.pull_request
-                    .as_ref()
-                    .map(|pr| {
-                        format!(
-                            "#{} · {} · CI {} · {}",
-                            pr.number, pr.state, pr.ci_status, pr.review_state
-                        )
-                    })
-                    .unwrap_or_else(|| "none".into()),
-            ),
-            (
-                "Hierarchy",
-                if card.parent.is_some() || card.child_count > 0 {
-                    format!(
-                        "parent {} · {} children · finalized {}",
-                        card.parent
-                            .as_ref()
-                            .map(|parent| format!("#{}", parent.external_id))
-                            .unwrap_or_else(|| "none".into()),
-                        card.child_count,
-                        card.hierarchy_finalized
+                    .is_some_and(|detail| !detail.card_url.is_empty()),
+                |this| {
+                    this.child(
+                        Button::new("detail-open-url")
+                            .small()
+                            .label("Open URL")
+                            .on_click(cx.listener(|view, _, _, cx| {
+                                let Some(url) = view
+                                    .detail
+                                    .as_ref()
+                                    .and_then(|state| state.detail.as_ref())
+                                    .map(|detail| detail.card_url.clone())
+                                else {
+                                    return;
+                                };
+                                if let Err(error) =
+                                    std::process::Command::new("open").arg(&url).spawn()
+                                {
+                                    view.notice = Some((
+                                        format!("Could not open card URL: {error}"),
+                                        Instant::now(),
+                                    ));
+                                    cx.notify();
+                                }
+                            })),
                     )
-                } else {
-                    "none".into()
                 },
-            ),
-        ];
-        if let Some(pr) = card.pull_request.as_ref()
-            && !pr.blockers.is_empty()
-        {
-            rows.push(("PR blockers", pr.blockers.join("; ")));
-        }
+            )
+            .child(
+                Button::new("detail-close")
+                    .small()
+                    .label("Close esc")
+                    .on_click(cx.listener(|view, _, _, cx| view.close_detail(cx))),
+            );
+
+        let body =
+            if state.loading {
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .child(Spinner::new().small())
+                    .child("Loading card detail…")
+                    .into_any_element()
+            } else if let Some(error) = state.error.clone() {
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .p_6()
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(rgb(0xe6b5bd))
+                            .child("Could not load card detail"),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(760.0))
+                            .text_sm()
+                            .text_color(rgb(0x8ea3b8))
+                            .child(error),
+                    )
+                    .child(Button::new("detail-retry").small().label("Retry").on_click(
+                        cx.listener(|view, _, _, cx| {
+                            if let Some(state) = view.detail.as_ref() {
+                                view.open_card(state.card_id.clone(), cx);
+                            }
+                        }),
+                    ))
+                    .into_any_element()
+            } else if let Some(detail) = state.detail.clone() {
+                self.render_detail_body(&detail, &project_name, &step, window, cx)
+            } else {
+                div().into_any_element()
+            };
+
         div()
             .absolute()
             .top(px(0.0))
@@ -1062,102 +1181,254 @@ impl ListView {
             .right(px(0.0))
             .bottom(px(0.0))
             .flex()
-            .justify_center()
-            .items_center()
-            .bg(gpui::rgba(0x080c11cc))
+            .flex_col()
+            .bg(rgb(0x0f141b))
+            .child(header)
+            .child(div().flex_1().min_h_0().min_w_0().child(body))
+            .into_any_element()
+    }
+
+    fn render_detail_body(
+        &self,
+        detail: &CardDetail,
+        project_name: &str,
+        step: &DeliveryStep,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let card = &detail.card;
+        let mut metadata = vec![
+            ("Project".to_string(), project_name.to_string()),
+            ("Delivery".to_string(), step.label.clone()),
+            (
+                "Workflow revision".to_string(),
+                card.workflow_revision.to_string(),
+            ),
+            (
+                "Record revision".to_string(),
+                card.record_revision.to_string(),
+            ),
+            (
+                "Board / list".to_string(),
+                format!("{} / {}", card.board_title, card.list_title),
+            ),
+            (
+                "Assignees".to_string(),
+                if card.assignee_names.is_empty() {
+                    "Unassigned".into()
+                } else {
+                    card.assignee_names.join(", ")
+                },
+            ),
+            (
+                "Environment".to_string(),
+                card.environment
+                    .as_ref()
+                    .map(|environment| {
+                        format!(
+                            "{}\n{}\nlifecycle: {} · target: {}\n{}",
+                            environment.branch,
+                            environment.worktree_path,
+                            environment.lifecycle_state,
+                            environment.target_branch.as_deref().unwrap_or("none"),
+                            environment.id
+                        )
+                    })
+                    .unwrap_or_else(|| "none".into()),
+            ),
+            (
+                "PR".to_string(),
+                card.pull_request
+                    .as_ref()
+                    .map(|pr| {
+                        format!(
+                            "#{} · {} · CI {} · review {}\n{}",
+                            pr.number, pr.state, pr.ci_status, pr.review_state, pr.url
+                        )
+                    })
+                    .unwrap_or_else(|| "none".into()),
+            ),
+        ];
+        metadata.push((
+            "Hierarchy".to_string(),
+            if card.parent.is_some() || card.child_count > 0 {
+                format!(
+                    "{} children · finalized {}",
+                    card.child_count, card.hierarchy_finalized
+                )
+            } else {
+                "none".into()
+            },
+        ));
+        if let Some(pr) = card.pull_request.as_ref()
+            && !pr.blockers.is_empty()
+        {
+            metadata.push(("PR blockers".into(), pr.blockers.join("\n")));
+        }
+        if let Some(status) = detail.runtime_cleanup_status.as_deref() {
+            metadata.push((
+                "Runtime cleanup".into(),
+                detail
+                    .runtime_cleanup_error
+                    .as_deref()
+                    .map(|error| format!("{status}: {error}"))
+                    .unwrap_or_else(|| status.to_string()),
+            ));
+        }
+        if detail.feature_environment {
+            metadata.push(("Feature environment".into(), "yes".into()));
+        }
+
+        let mut hierarchy = Vec::new();
+        if let Some(parent) = card.parent.as_ref() {
+            let id = parent.id.clone();
+            hierarchy.push(
+                Button::new(SharedString::from(format!("detail-parent-{}", parent.id)))
+                    .text()
+                    .label(format!("parent #{} · {}", parent.external_id, parent.title))
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.open_card(id.clone(), cx);
+                    }))
+                    .into_any_element(),
+            );
+        }
+        for child in card.children.iter().take(12) {
+            let id = child.id.clone();
+            hierarchy.push(
+                Button::new(SharedString::from(format!("detail-child-{}", child.id)))
+                    .text()
+                    .label(format!(
+                        "#{} · {} · {}",
+                        child.external_id,
+                        child.title,
+                        child.status.label()
+                    ))
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.open_card(id.clone(), cx);
+                    }))
+                    .into_any_element(),
+            );
+        }
+
+        let content = div()
+            .id("detail-content")
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .overflow_y_scroll()
+            .px_5()
+            .py_4()
             .child(
                 div()
-                    .w(px(760.0))
-                    .max_h(px(560.0))
-                    .overflow_hidden()
-                    .flex()
-                    .flex_col()
-                    .rounded_lg()
-                    .bg(rgb(0x131b24))
-                    .border_1()
-                    .border_color(rgb(0x3b5e7d))
-                    .shadow_lg()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .px_4()
-                            .py_3()
-                            .border_b_1()
-                            .border_color(rgb(0x24303d))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(0x6f8498))
-                                    .child(format!("#{}", card.external_id)),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_lg()
-                                    .text_color(rgb(0xe3edf6))
-                                    .truncate()
-                                    .child(card.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .id("detail-close")
-                                    .px_2()
-                                    .rounded_sm()
-                                    .cursor_pointer()
-                                    .text_color(rgb(0x8fb4d4))
-                                    .hover(|style| style.bg(rgb(0x223246)))
-                                    .on_click(cx.listener(|view, _, _, cx| {
-                                        view.detail = None;
-                                        cx.notify();
-                                    }))
-                                    .child("close esc"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .p_4()
-                            .children(rows.into_iter().map(|(label, value)| {
-                                div()
-                                    .flex()
-                                    .gap_3()
-                                    .items_start()
-                                    .child(
-                                        div()
-                                            .w(px(150.0))
-                                            .flex_shrink_0()
-                                            .text_xs()
-                                            .text_color(rgb(0x6f8498))
-                                            .child(label),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .text_sm()
-                                            .text_color(rgb(0xd7e1eb))
-                                            .child(value),
-                                    )
-                            })),
-                    )
-                    .child(
-                        div()
-                            .px_4()
-                            .py_3()
-                            .border_t_1()
-                            .border_color(rgb(0x24303d))
-                            .text_xs()
-                            .text_color(rgb(0x7f95a9))
-                            .child(
-                                "Card detail seam: this GPUI placeholder intentionally stops at the read model. \
-                                 Editing, workflow actions, Pi chat, diff review and done cleanup still live in the \
-                                 Tauri/React app until a native detail surface (or hybrid webview) is chosen.",
-                            ),
-                    ),
+                    .text_xs()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(rgb(0x6f8498))
+                    .child("DESCRIPTION"),
             )
+            .child(div().mt_2().child(if detail.content.trim().is_empty() {
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x6f8498))
+                    .child("No description.")
+                    .into_any_element()
+            } else {
+                TextView::markdown(
+                    SharedString::from(format!("detail-markdown-{}", card.id)),
+                    detail.content.clone(),
+                    window,
+                    cx,
+                )
+                .selectable(true)
+                .into_any_element()
+            }));
+
+        let sidebar = div()
+            .id("detail-sidebar")
+            .w(px(340.0))
+            .flex_shrink_0()
+            .min_h_0()
+            .overflow_y_scroll()
+            .border_l_1()
+            .border_color(rgb(0x24303d))
+            .p_4()
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(rgb(0x6f8498))
+                    .child("CARD"),
+            )
+            .children(metadata.into_iter().map(|(label, value)| {
+                div()
+                    .mt_3()
+                    .child(div().text_xs().text_color(rgb(0x6f8498)).child(label))
+                    .child(
+                        div()
+                            .mt_1()
+                            .text_sm()
+                            .text_color(rgb(0xd7e1eb))
+                            .child(value),
+                    )
+            }))
+            .when(!hierarchy.is_empty(), |this| {
+                this.child(
+                    div()
+                        .mt_5()
+                        .text_xs()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(rgb(0x6f8498))
+                        .child("HIERARCHY"),
+                )
+                .children(
+                    hierarchy
+                        .into_iter()
+                        .map(|entry| div().mt_1().w_full().child(entry)),
+                )
+            })
+            .child(
+                div()
+                    .mt_5()
+                    .text_xs()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(rgb(0x6f8498))
+                    .child(format!("EVENTS ({})", detail.events.len())),
+            )
+            .children(detail.events.iter().take(10).map(|event| {
+                div()
+                    .mt_2()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        Tag::new()
+                            .with_variant(if event.outcome == "success" {
+                                TagVariant::Success
+                            } else {
+                                TagVariant::Danger
+                            })
+                            .child(event.outcome.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(rgb(0xb9c7d4))
+                            .child(
+                                event
+                                    .summary
+                                    .clone()
+                                    .unwrap_or_else(|| event.event_type.clone()),
+                            ),
+                    )
+            }));
+
+        div()
+            .size_full()
+            .flex()
+            .flex_row()
+            .min_h_0()
+            .child(content)
+            .child(sidebar)
             .into_any_element()
     }
 }
@@ -1226,7 +1497,8 @@ fn flatten_rows(
 }
 
 impl Render for ListView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.report_detail_metric();
         let notice = self.notice.as_ref().and_then(|(message, at)| {
             (at.elapsed() < Duration::from_secs(6)).then(|| message.clone())
         });
@@ -1271,7 +1543,21 @@ impl Render for ListView {
                         ),
                 )
             })
-            .child(self.render_detail(cx))
+            .child(self.render_detail(window, cx))
+    }
+}
+
+fn tag_variant_for_status(status: CardStatus, action_required: bool) -> TagVariant {
+    if action_required {
+        return TagVariant::Warning;
+    }
+    match status {
+        CardStatus::NeedsRefinement => TagVariant::Secondary,
+        CardStatus::Refining | CardStatus::AgentWorking => TagVariant::Info,
+        CardStatus::NeedsRefinementInput | CardStatus::NeedsHuman => TagVariant::Warning,
+        CardStatus::Ready => TagVariant::Success,
+        CardStatus::Approved => TagVariant::Primary,
+        CardStatus::Done => TagVariant::Secondary,
     }
 }
 
@@ -1280,35 +1566,6 @@ fn group_index(group: WorkGroup) -> usize {
         .iter()
         .position(|candidate| *candidate == group)
         .unwrap_or(0)
-}
-
-fn project_accent(color: Option<&str>) -> gpui::Rgba {
-    match color {
-        Some("slate") => rgb(0x9fb3c8),
-        Some("teal") => rgb(0x6fc7bd),
-        Some("green") => rgb(0x8acb8a),
-        Some("amber") => rgb(0xe8c07a),
-        Some("coral") => rgb(0xe59a86),
-        Some("rose") => rgb(0xe39cae),
-        Some("violet") => rgb(0xb8a2e6),
-        Some("indigo") => rgb(0x94a8e8),
-        Some("cyan") => rgb(0x7fc7d9),
-        _ => rgb(0x7fb2e5),
-    }
-}
-
-fn status_color(status: CardStatus, action_required: bool) -> gpui::Rgba {
-    if action_required {
-        return rgb(0xe8c07a);
-    }
-    match status {
-        CardStatus::NeedsRefinement => rgb(0x9eb1c2),
-        CardStatus::Refining | CardStatus::AgentWorking => rgb(0x7fb2e5),
-        CardStatus::NeedsRefinementInput | CardStatus::NeedsHuman => rgb(0xe8c07a),
-        CardStatus::Ready => rgb(0x8acb8a),
-        CardStatus::Approved => rgb(0xb8a2e6),
-        CardStatus::Done => rgb(0x7f95a9),
-    }
 }
 
 fn delivery_label(step: &DeliveryStep) -> String {
@@ -1330,29 +1587,22 @@ fn hierarchy_label(card: &CardSummary) -> Option<String> {
     }
 }
 
-fn pr_badge(pr: &PullRequestIndicator) -> impl IntoElement {
-    let color = match pr.ci_status.as_str() {
-        "success" => rgb(0x8acb8a),
-        "failure" => rgb(0xe59a86),
-        "pending" => rgb(0xe8c07a),
-        _ => rgb(0x9eb1c2),
+fn pr_badge(pr: &PullRequestIndicator) -> Tag {
+    let variant = match pr.ci_status.as_str() {
+        "success" => TagVariant::Success,
+        "failure" => TagVariant::Danger,
+        "pending" => TagVariant::Warning,
+        _ => TagVariant::Secondary,
     };
-    div()
-        .flex()
-        .items_center()
-        .gap_1()
-        .px_2()
-        .rounded_full()
-        .bg(rgb(0x192430))
-        .text_xs()
-        .text_color(color)
-        .child(format!("PR #{}", pr.number))
-        .child(div().text_color(color).child(match pr.ci_status.as_str() {
-            "success" => "✓",
-            "failure" => "×",
-            "pending" => "…",
-            _ => "?",
-        }))
+    let marker = match pr.ci_status.as_str() {
+        "success" => "✓",
+        "failure" => "×",
+        "pending" => "…",
+        _ => "?",
+    };
+    Tag::new()
+        .with_variant(variant)
+        .child(format!("PR #{} {}", pr.number, marker))
 }
 
 #[cfg(test)]
@@ -1487,6 +1737,12 @@ mod tests {
                     review_state TEXT NOT NULL DEFAULT 'unknown', has_conflicts INTEGER NOT NULL DEFAULT 0,
                     mergeable INTEGER NOT NULL DEFAULT 0, head_revision TEXT, updated_at INTEGER NOT NULL
                 );
+                CREATE TABLE card_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL, actor TEXT NOT NULL, event_type TEXT NOT NULL,
+                    outcome TEXT NOT NULL, from_status TEXT, to_status TEXT, summary TEXT,
+                    error_code TEXT, error_detail TEXT
+                );
                 INSERT INTO projects(id,name,path,color_id,delivery_workflow,kanban_source,sort_order)
                     VALUES ('p1','Stacks','/tmp/stacks','slate','local_merge','local',0);
                 INSERT INTO kanban_cards(id,external_provider,external_id,title,status,project_id,
@@ -1495,6 +1751,11 @@ mod tests {
                            ('backlog-b','local:b','2','Backlog B','needs_refinement','p1',2,2,1),
                            ('done','local:d','3','Done','done','p1',3,3,2);
                 UPDATE kanban_cards SET completion_outcome='merged' WHERE id='done';
+                UPDATE kanban_cards SET content='## Detail
+
+- Markdown from gpui-component', card_url='https://example.test/b' WHERE id='backlog-b';
+                INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary)
+                    VALUES ('backlog-b',100,'user','status_change','success','Moved to backlog');
                 "#,
             )
             .unwrap();
@@ -1517,10 +1778,12 @@ mod tests {
         cx.simulate_keystrokes("down enter");
         view.read_with(cx, |view, _| {
             assert_eq!(view.keyboard_focused.as_deref(), Some("backlog-b"));
-            assert_eq!(
-                view.detail.as_ref().map(|card| card.id.as_str()),
-                Some("backlog-b")
-            );
+            let state = view.detail.as_ref().expect("detail opened");
+            assert_eq!(state.summary.id, "backlog-b");
+            let detail = state.detail.as_ref().expect("detail loaded");
+            assert_eq!(detail.card.id, "backlog-b");
+            assert!(detail.content.contains("gpui-component"));
+            assert_eq!(detail.events.len(), 1);
         });
     }
 

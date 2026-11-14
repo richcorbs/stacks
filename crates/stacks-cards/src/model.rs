@@ -250,6 +250,33 @@ impl CardSummary {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CardEvent {
+    pub id: i64,
+    pub created_at: i64,
+    pub actor: String,
+    pub event_type: String,
+    pub outcome: String,
+    pub from_status: Option<CardStatus>,
+    pub to_status: Option<CardStatus>,
+    pub summary: Option<String>,
+    pub error_code: Option<String>,
+    pub error_detail: Option<String>,
+}
+
+/// Read-only detail projection. Editing, workflow actions, chat, diff and
+/// provider mutations intentionally stay in the shipped Tauri/React app.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CardDetail {
+    pub card: CardSummary,
+    pub content: String,
+    pub card_url: String,
+    pub feature_environment: bool,
+    pub runtime_cleanup_status: Option<String>,
+    pub runtime_cleanup_error: Option<String>,
+    pub events: Vec<CardEvent>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CardSnapshot {
     pub projects: Vec<Project>,
     pub cards: Vec<CardSummary>,

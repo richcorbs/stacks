@@ -6,17 +6,20 @@ surfaces:
 - **Cards** (`Cmd+L`, default) — the surviving Stacks LIST view, rendered from
   the real SQLite database through `crates/stacks-cards`. Groups/counts/collapse,
   project filter, loading/error/empty states, row metadata, keyboard navigation,
-  open-card placeholder and backlog drag reorder.
+  a read-only native card detail (Markdown via `gpui-component`) and backlog drag
+  reorder.
 - **Terminal** (`Cmd+T`) — the card #321 global terminal tab set with splits,
   maximize, search, copy/paste, focus, IME plumbing, drag/drop and notifications.
 
-It is **not** the shipped app. Card detail content, Pi chat, DIFF,
-GitHub/Superthread sync, card creation/sync/cleanup and settings UI are not
-ported. Reports:
+It is **not** the shipped app. Pi chat, DIFF, GitHub/Superthread sync, card
+creation/sync/cleanup, workflow mutation and settings UI are not ported. The
+card detail is read-only and exposes copy-reference/open-URL only. Reports:
 
 - `../../docs/gpui-app-shell-321.md` — shell/terminal spike.
-- `../../docs/gpui-list-view-322.md` — LIST product-surface spike, parity matrix,
-  measurements and verdict.
+- `../../docs/gpui-list-view-322.md` — LIST product-surface spike.
+- `../../docs/gpui-kit-adoption-323.md` — GPUI Kit adoption + native detail
+  feasibility. `gpui-component 0.5.1` on GPUI 0.2.2 is a temporary compatibility
+  probe; the recommended target is `gpui-kit 0.9.1` + `gpui-pre 0.3.12`.
 
 ## Run
 
@@ -52,7 +55,8 @@ Useful env switches:
 ```bash
 STACKS_GPUI_START_VIEW=list|terminal  # startup surface (default: list)
 STACKS_GPUI_CARDS_DB=/path/workflow.sqlite3
-STACKS_GPUI_METRICS=1      # first-frame, first-LIST-frame and first-PTY timings
+STACKS_GPUI_OPEN_CARD=322  # auto-open a card id/external id on load (detail probe)
+STACKS_GPUI_METRICS=1      # first-frame, first-LIST/detail-frame and first-PTY timings
 STACKS_GPUI_TRACE_FOCUS=1  # activation and key tracing
 ```
 
@@ -70,8 +74,9 @@ LIST filter/collapse/focus are in-memory only in this spike.
 ## Shortcuts
 
 Cards: `Cmd+L`; refresh `Cmd+R`; `↑/↓` or `j/k` navigate; `Home/End`; `Enter`
-or `Space` open; `Esc` close/clear; `←/→` collapse/expand the focused group.
-Drag Backlog rows to reorder.
+or `Space` open detail; `Esc` close detail/clear; `←/→` collapse/expand the
+focused group. Detail has Copy ref, Open URL (when present), parent/child
+navigation and a scrollable Markdown body. Drag Backlog rows to reorder.
 
 Terminal: `Cmd+T` focus global terminal, `Shift+Cmd+T` new tab, `Cmd+W` close,
 `Cmd+D` split right, `Shift+Cmd+D` split down,
@@ -86,6 +91,7 @@ Terminal: `Cmd+T` focus global terminal, `Shift+Cmd+T` new tab, `Cmd+W` close,
 cargo test -p stacks-gpui
 cargo test -p stacks-cards
 npm run gpui-list:measure                       # Cards startup/memory/binary
+STACKS_GPUI_OPEN_CARD=322 npm run gpui-list:measure  # detail-frame metrics
 npm run gpui-list:fixture -- --cards 2000       # throwaway large database
 node scripts/measure-gpui-shell.mjs --runs 5 --start-view list \
   --cards-db /tmp/stacks-gpui-list-2000.sqlite3
