@@ -20,8 +20,8 @@ use gpui::{
     AnyElement, App, Bounds, ClipboardItem, Context, CursorStyle as GpuiCursorStyle,
     ElementInputHandler, EntityInputHandler, ExternalPaths, FocusHandle, IntoElement, KeyDownEvent,
     KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
-    Point, Render, ScrollDelta, ScrollEvent, Styled, Subscription, Task, UTF16Selection, Window,
-    canvas, div, point, prelude::*, px, relative, rgb, size,
+    Point, Render, ScrollDelta, ScrollEvent, SharedString, Styled, Subscription, Task,
+    UTF16Selection, Window, canvas, div, point, prelude::*, px, relative, rgb, size,
 };
 use stacks_terminal::{
     keymap::{ghostty_key, ghostty_mods, is_text_input_key},
@@ -40,7 +40,6 @@ use crate::{
 };
 
 const TAB_BAR_HEIGHT: f32 = 38.0;
-const TOP_BAR_HEIGHT: f32 = 36.0;
 const TOAST_DURATION: Duration = Duration::from_millis(1400);
 const DEFAULT_WINDOW_SIZE: (f32, f32) = (1180.0, 760.0);
 const IMAGE_EXTENSIONS: &[&str] = &[
@@ -112,6 +111,30 @@ impl Tab {
     }
 }
 
+#[derive(Clone)]
+enum PaletteCommand {
+    ShowCards,
+    ShowTerminal,
+    RefreshCards,
+    NewTerminal,
+    SplitRight,
+    SplitDown,
+    ToggleMaximize,
+    Settings,
+    ResetWindowSize,
+    FilterProject(Option<String>),
+    OpenProjectWorkspace(String),
+    OpenCard(String),
+}
+
+#[derive(Clone)]
+struct PaletteItem {
+    id: String,
+    label: String,
+    hint: String,
+    command: PaletteCommand,
+}
+
 pub struct Shell {
     pub settings: ShellSettings,
     data_dir: PathBuf,
@@ -120,6 +143,9 @@ pub struct Shell {
     tabs: Vec<Tab>,
     selected: usize,
     show_settings: bool,
+    palette_open: bool,
+    palette_query: String,
+    palette_selected: usize,
     focus_handle: FocusHandle,
     marked_text: String,
     toast: Option<(String, Instant)>,
@@ -158,6 +184,9 @@ impl Shell {
             tabs: Vec::new(),
             selected: 0,
             show_settings: false,
+            palette_open: false,
+            palette_query: String::new(),
+            palette_selected: 0,
             focus_handle: focus_handle.clone(),
             marked_text: String::new(),
             toast: None,
@@ -909,6 +938,12 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.palette_open {
+            if self.handle_palette_key(event, window, cx) {
+                cx.stop_propagation();
+            }
+            return;
+        }
         if self.surface == Surface::List {
             return;
         }
@@ -1495,110 +1530,6 @@ impl Shell {
         self.render_split_node(&tab.layout, tab, cx)
     }
 
-    fn render_topbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let surface_label = if self.surface == Surface::List {
-            "Cards"
-        } else {
-            "Global terminal"
-        };
-        let list_active = self.surface == Surface::List;
-        let terminal_active = self.surface == Surface::Terminal;
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .h(px(TOP_BAR_HEIGHT))
-            .flex_shrink_0()
-            .px_3()
-            .bg(rgb(0x11171f))
-            .border_b_1()
-            .border_color(rgb(0x222e3b))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .text_sm()
-                    .child(div().text_color(rgb(0x8ea3b8)).child("Stacks"))
-                    .child(div().text_color(rgb(0x50657a)).child("/"))
-                    .child(div().text_color(rgb(0xd7e1eb)).child(surface_label)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .ml_4()
-                    .child(
-                        div()
-                            .id("surface-list")
-                            .px_2()
-                            .py_1()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(if list_active {
-                                rgb(0xe3edf6)
-                            } else {
-                                rgb(0x7f95a9)
-                            })
-                            .bg(if list_active {
-                                rgb(0x233447)
-                            } else {
-                                rgb(0x11171f)
-                            })
-                            .on_click(cx.listener(|shell, _, window, cx| {
-                                shell.show_list(window, cx);
-                            }))
-                            .child("Cards ⌘L"),
-                    )
-                    .child(
-                        div()
-                            .id("surface-terminal")
-                            .px_2()
-                            .py_1()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .text_xs()
-                            .text_color(if terminal_active {
-                                rgb(0xe3edf6)
-                            } else {
-                                rgb(0x7f95a9)
-                            })
-                            .bg(if terminal_active {
-                                rgb(0x233447)
-                            } else {
-                                rgb(0x11171f)
-                            })
-                            .on_click(cx.listener(|shell, _, window, cx| {
-                                shell.show_terminal(window, cx);
-                            }))
-                            .child("Terminal ⌘T"),
-                    ),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x5f7488))
-                    .child("GPUI product-surface spike · ⌘, settings"),
-            )
-            .child(
-                div()
-                    .id("open-settings")
-                    .px_1()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .text_color(rgb(0x8fb4d4))
-                    .hover(|style| style.bg(rgb(0x223246)))
-                    .on_click(cx.listener(|shell, _, window, cx| {
-                        shell.show_settings(window, cx);
-                    }))
-                    .child("⚙"),
-            )
-    }
-
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let tab_count = self.tabs.len();
         div()
@@ -1806,6 +1737,9 @@ impl ShellActions for gpui::Div {
             .on_action(
                 cx.listener(|shell, _: &crate::ShowList, window, cx| shell.show_list(window, cx)),
             )
+            .on_action(cx.listener(|shell, _: &crate::CommandPalette, window, cx| {
+                shell.toggle_command_palette(window, cx)
+            }))
             .on_action(cx.listener(|shell, _: &crate::ShowTerminal, window, cx| {
                 shell.show_terminal(window, cx)
             }))
@@ -1888,7 +1822,13 @@ impl Render for Shell {
             self.last_window_title = Some(title.clone());
             window.set_window_title(&title);
         }
-        if !self.focus_handle.is_focused(window) {
+        if self.surface == Surface::List && !self.palette_open {
+            let list_handle = self.list.read(cx).focus_handle();
+            if self.focus_handle.is_focused(window) || window.focused(cx).is_none() {
+                list_handle.focus(window, cx);
+                cx.notify();
+            }
+        } else if !self.focus_handle.is_focused(window) {
             window.focus(&self.focus_handle, cx);
             cx.notify();
         }
@@ -1908,7 +1848,6 @@ impl Render for Shell {
             .text_color(rgb(0xd7e1eb))
             .font_family(FONT_FAMILY)
             .on_shell_actions(cx)
-            .child(self.render_topbar(cx))
             .child(
                 div()
                     .flex()
@@ -1955,7 +1894,8 @@ impl Render for Shell {
                                         .child(message.clone()),
                                 ),
                         )
-                    }),
+                    })
+                    .child(self.render_command_palette(cx)),
             )
     }
 }
@@ -2074,6 +2014,389 @@ pub fn ime_cursor_bounds(
 }
 
 impl Shell {
+    // --- command palette -----------------------------------------------------
+
+    pub fn toggle_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.palette_open {
+            self.close_palette(window, cx);
+        } else {
+            self.palette_open = true;
+            self.palette_query.clear();
+            self.palette_selected = 0;
+            self.show_settings = false;
+            self.focus_handle.focus(window, cx);
+            cx.notify();
+        }
+    }
+
+    fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.palette_open = false;
+        self.palette_query.clear();
+        self.palette_selected = 0;
+        if self.surface == Surface::List {
+            self.list.read(cx).focus_handle().focus(window, cx);
+        } else {
+            self.focus_handle.focus(window, cx);
+        }
+        cx.notify();
+    }
+
+    fn palette_items(&self, cx: &App) -> Vec<PaletteItem> {
+        let mut items = vec![
+            PaletteItem {
+                id: "surface:cards".into(),
+                label: "Show Cards".into(),
+                hint: "Switch to the card list".into(),
+                command: PaletteCommand::ShowCards,
+            },
+            PaletteItem {
+                id: "surface:terminal".into(),
+                label: "Show Terminal".into(),
+                hint: "Switch to the global terminal".into(),
+                command: PaletteCommand::ShowTerminal,
+            },
+            PaletteItem {
+                id: "cards:refresh".into(),
+                label: "Refresh Cards".into(),
+                hint: "Reload cards and Git status · ⌘R".into(),
+                command: PaletteCommand::RefreshCards,
+            },
+            PaletteItem {
+                id: "terminal:new".into(),
+                label: "New Terminal".into(),
+                hint: "Shift+Cmd+T".into(),
+                command: PaletteCommand::NewTerminal,
+            },
+            PaletteItem {
+                id: "terminal:split-right".into(),
+                label: "Split Terminal Right".into(),
+                hint: "Cmd+D".into(),
+                command: PaletteCommand::SplitRight,
+            },
+            PaletteItem {
+                id: "terminal:split-down".into(),
+                label: "Split Terminal Down".into(),
+                hint: "Shift+Cmd+D".into(),
+                command: PaletteCommand::SplitDown,
+            },
+            PaletteItem {
+                id: "terminal:maximize".into(),
+                label: "Toggle Terminal Maximize".into(),
+                hint: "Shift+Cmd+Enter".into(),
+                command: PaletteCommand::ToggleMaximize,
+            },
+            PaletteItem {
+                id: "app:settings".into(),
+                label: "Settings".into(),
+                hint: "Cmd+,".into(),
+                command: PaletteCommand::Settings,
+            },
+            PaletteItem {
+                id: "app:reset-window".into(),
+                label: "Reset Window Size".into(),
+                hint: "Restore the default window size".into(),
+                command: PaletteCommand::ResetWindowSize,
+            },
+        ];
+        for (project_id, project_name) in self.list.read(cx).palette_projects() {
+            if let Some(project_id) = project_id.clone() {
+                items.push(PaletteItem {
+                    id: format!("project-workspace:{project_id}"),
+                    label: format!("Open Project Workspace: {project_name}"),
+                    hint: "Agent, Notes, Diff, Terminal, Server, Console".into(),
+                    command: PaletteCommand::OpenProjectWorkspace(project_id),
+                });
+            }
+            let label = if project_id.is_some() {
+                format!("Filter Cards: {project_name}")
+            } else {
+                "Filter Cards: All Projects".into()
+            };
+            items.push(PaletteItem {
+                id: format!("project:{}", project_id.as_deref().unwrap_or("all")),
+                label,
+                hint: "Project filter".into(),
+                command: PaletteCommand::FilterProject(project_id),
+            });
+        }
+        if !self.palette_query.trim().is_empty() {
+            for (card_id, external_id, title) in self.list.read(cx).palette_cards() {
+                items.push(PaletteItem {
+                    id: format!("card:{card_id}"),
+                    label: format!("Open #{external_id}  {title}"),
+                    hint: "Open card detail".into(),
+                    command: PaletteCommand::OpenCard(card_id),
+                });
+            }
+        }
+        items
+    }
+
+    fn filtered_palette_items(&self, cx: &App) -> Vec<PaletteItem> {
+        let query = self.palette_query.trim().to_lowercase();
+        let mut items = self.palette_items(cx);
+        if !query.is_empty() {
+            items.retain(|item| {
+                item.label.to_lowercase().contains(&query)
+                    || item.hint.to_lowercase().contains(&query)
+                    || item.id.to_lowercase().contains(&query)
+            });
+        }
+        items.truncate(80);
+        items
+    }
+
+    fn handle_palette_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match event.keystroke.key.as_str() {
+            "escape" => {
+                self.close_palette(window, cx);
+                true
+            }
+            "up" => {
+                let len = self.filtered_palette_items(cx).len();
+                if len > 0 {
+                    self.palette_selected = self.palette_selected.saturating_sub(1);
+                }
+                cx.notify();
+                true
+            }
+            "down" => {
+                let len = self.filtered_palette_items(cx).len();
+                if len > 0 {
+                    self.palette_selected = (self.palette_selected + 1).min(len - 1);
+                }
+                cx.notify();
+                true
+            }
+            "enter" => {
+                self.execute_palette_selected(window, cx);
+                true
+            }
+            "backspace" => {
+                self.palette_query.pop();
+                self.palette_selected = 0;
+                cx.notify();
+                true
+            }
+            _ if !event.keystroke.modifiers.platform
+                && !event.keystroke.modifiers.control
+                && !event.keystroke.modifiers.alt =>
+            {
+                if let Some(text) = event.keystroke.key_char.as_deref()
+                    && !text.is_empty()
+                    && !text.chars().any(char::is_control)
+                {
+                    self.palette_query.push_str(text);
+                    self.palette_selected = 0;
+                    cx.notify();
+                    return true;
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn execute_palette_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let items = self.filtered_palette_items(cx);
+        let Some(item) = items.get(self.palette_selected).cloned() else {
+            return;
+        };
+        self.close_palette(window, cx);
+        match item.command {
+            PaletteCommand::ShowCards => self.show_list(window, cx),
+            PaletteCommand::ShowTerminal => self.show_terminal(window, cx),
+            PaletteCommand::RefreshCards => self.refresh_list(window, cx),
+            PaletteCommand::NewTerminal => self.new_terminal(window, cx),
+            PaletteCommand::SplitRight => self.split_right(window, cx),
+            PaletteCommand::SplitDown => self.split_down(window, cx),
+            PaletteCommand::ToggleMaximize => self.toggle_maximize(window, cx),
+            PaletteCommand::Settings => self.show_settings(window, cx),
+            PaletteCommand::ResetWindowSize => self.reset_window_size(window, cx),
+            PaletteCommand::FilterProject(project_id) => {
+                self.show_list(window, cx);
+                self.list.update(cx, |list, cx| {
+                    list.set_project_filter_from_shell(project_id, cx);
+                });
+            }
+            PaletteCommand::OpenProjectWorkspace(project_id) => {
+                self.show_list(window, cx);
+                self.list.update(cx, |list, cx| {
+                    list.open_project_workspace_from_shell(project_id, cx);
+                });
+            }
+            PaletteCommand::OpenCard(card_id) => {
+                self.show_list(window, cx);
+                self.list.update(cx, |list, cx| {
+                    list.open_card_from_shell(card_id, cx);
+                });
+            }
+        }
+    }
+
+    fn render_command_palette(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        if !self.palette_open {
+            return div().into_any_element();
+        }
+        let items = self.filtered_palette_items(cx);
+        let selected = if items.is_empty() {
+            0
+        } else {
+            self.palette_selected.min(items.len() - 1)
+        };
+        let rows = items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let selected_row = index == selected;
+                let label = item.label.clone();
+                let hint = item.hint.clone();
+                div()
+                    .id(SharedString::from(format!("palette-item-{}", item.id)))
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if selected_row {
+                        rgb(crate::theme::ACCENT_SOFT)
+                    } else {
+                        gpui::rgba(0x00000000)
+                    })
+                    .on_click(cx.listener(move |shell, _, window, cx| {
+                        shell.palette_selected = index;
+                        shell.execute_palette_selected(window, cx);
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(if selected_row {
+                                        rgb(crate::theme::TEXT_STRONG)
+                                    } else {
+                                        rgb(crate::theme::TEXT)
+                                    })
+                                    .truncate()
+                                    .child(label),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(crate::theme::TEXT_FAINT))
+                                    .truncate()
+                                    .child(hint),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(crate::theme::TEXT_FAINT))
+                            .child("↵"),
+                    )
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
+        div()
+            .absolute()
+            .top(px(0.0))
+            .left(px(0.0))
+            .right(px(0.0))
+            .bottom(px(0.0))
+            .occlude()
+            .flex()
+            .justify_center()
+            .items_start()
+            .pt(px(92.0))
+            .bg(gpui::rgba(0x080c11cc))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, _, window, cx| shell.close_palette(window, cx)),
+            )
+            .child(
+                div()
+                    .w(px(640.0))
+                    .max_h(px(520.0))
+                    .flex()
+                    .flex_col()
+                    .rounded_lg()
+                    .bg(rgb(crate::theme::SURFACE))
+                    .border_1()
+                    .border_color(rgb(crate::theme::BORDER))
+                    .shadow_lg()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|_, _, _, cx| {
+                            cx.stop_propagation();
+                        }),
+                    )
+                    .child(
+                        div()
+                            .px_4()
+                            .py_3()
+                            .border_b_1()
+                            .border_color(rgb(crate::theme::BORDER))
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_base()
+                                    .text_color(if self.palette_query.is_empty() {
+                                        rgb(crate::theme::TEXT_MUTED)
+                                    } else {
+                                        rgb(crate::theme::TEXT_STRONG)
+                                    })
+                                    .child(if self.palette_query.is_empty() {
+                                        "Type a command…".to_string()
+                                    } else {
+                                        format!("{}▌", self.palette_query)
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(crate::theme::TEXT_FAINT))
+                                    .child("esc close"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("palette-results")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .p_2()
+                            .when(rows.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .p_4()
+                                        .text_sm()
+                                        .text_color(rgb(crate::theme::TEXT_MUTED))
+                                        .child("No matches"),
+                                )
+                            })
+                            .when(!rows.is_empty(), |this| {
+                                this.child(div().flex().flex_col().children(rows))
+                            }),
+                    ),
+            )
+            .into_any_element()
+    }
+
     // --- action entry points -------------------------------------------------
 
     pub fn quit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -2341,6 +2664,16 @@ mod tests {
             shell.read_with(cx, |shell, _| shell.surface),
             Surface::Terminal
         );
+
+        cx.dispatch_action(crate::CommandPalette);
+        assert!(shell.read_with(cx, |shell, _| shell.palette_open));
+        cx.simulate_keystrokes("escape");
+        assert!(!shell.read_with(cx, |shell, _| shell.palette_open));
+
+        cx.dispatch_action(crate::CommandPalette);
+        assert!(shell.read_with(cx, |shell, _| shell.palette_open));
+        cx.simulate_keystrokes("enter");
+        assert!(!shell.read_with(cx, |shell, _| shell.palette_open));
 
         let _ = std::fs::remove_dir_all(data_dir);
     }

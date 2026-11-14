@@ -11,6 +11,7 @@ publish = false
 anyhow.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
+stacks-workflow = { path = "../stacks-workflow" }
 serde_json.workspace = true
 
 [dev-dependencies]

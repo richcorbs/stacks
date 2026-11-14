@@ -5,6 +5,7 @@
 //! means the GPUI host never learns SQLite or workflow-transition rules.
 
 use serde::{Deserialize, Serialize};
+use stacks_workflow::{WorkflowActionPresentation, WorkflowContext};
 
 /// The eight canonical workflow statuses owned by the Stacks backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -172,6 +173,15 @@ pub struct Project {
     pub color_id: Option<String>,
     pub delivery_workflow: DeliveryWorkflow,
     pub kanban_source: Option<String>,
+    pub server_command: Option<String>,
+    pub console_command: Option<String>,
+    pub notes: String,
+    pub releases_enabled: bool,
+    pub release_config_path: String,
+    pub supports_feature_environments: bool,
+    pub target_branch: String,
+    pub start_work_command: Option<String>,
+    pub deployment_command: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -274,6 +284,8 @@ pub struct CardDetail {
     pub runtime_cleanup_status: Option<String>,
     pub runtime_cleanup_error: Option<String>,
     pub events: Vec<CardEvent>,
+    pub workflow_context: WorkflowContext,
+    pub capabilities: Vec<WorkflowActionPresentation>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

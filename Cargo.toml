@@ -8,6 +8,7 @@ members = [
   "apps/stacks-gpui",
   "crates/stacks-cards",
   "crates/stacks-terminal",
+  "crates/stacks-workflow",
   "spikes/gpui-terminal",
 ]
 exclude = ["src-tauri"]

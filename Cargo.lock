@@ -6618,6 +6618,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "stacks-workflow",
  "tempfile",
 ]
 
@@ -6669,6 +6670,14 @@ dependencies = [
  "serde_json",
  "tempfile",
  "uuid",
+]
+
+[[package]]
+name = "stacks-workflow"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
 ]
 
 [[package]]

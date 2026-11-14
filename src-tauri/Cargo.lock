@@ -3943,6 +3943,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "stacks-workflow",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -3953,6 +3954,14 @@ dependencies = [
  "tempfile",
  "uuid",
  "wait-timeout",
+]
+
+[[package]]
+name = "stacks-workflow"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
 ]
 
 [[package]]

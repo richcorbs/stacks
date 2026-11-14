@@ -1,4 +1,4 @@
-// Generated contract mirror of src-tauri/src/kanban/workflow.rs. Validated by scripts/check-kanban-contract.mjs.
+// Generated contract mirror of crates/stacks-workflow/src/lib.rs. Validated by scripts/check-kanban-contract.mjs.
 export const KANBAN_STATUS_METADATA = [
   { status: 'needs_refinement', label: 'Needs refinement' },
   { status: 'refining', label: 'Refining' },

@@ -70,6 +70,15 @@ impl Pty {
         command.env("COLORTERM", "truecolor");
         command.env("STACKS_GPUI", "1");
 
+        Self::spawn_builder(command, cols, rows, events)
+    }
+
+    fn spawn_builder(
+        command: CommandBuilder,
+        cols: u16,
+        rows: u16,
+        events: async_channel::Sender<PtyEvent>,
+    ) -> Result<Self> {
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows: rows.max(1),
@@ -81,7 +90,7 @@ impl Pty {
         let child = pair
             .slave
             .spawn_command(command)
-            .with_context(|| format!("spawn {shell} -lic"))?;
+            .with_context(|| "spawn PTY command")?;
         drop(pair.slave);
 
         let mut reader = pair.master.try_clone_reader().context("clone PTY reader")?;
@@ -99,8 +108,6 @@ impl Pty {
                     match reader.read(&mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            // Bounded: a stalled UI drops output rather than
-                            // growing without bound. The UI reports the drop.
                             if events
                                 .send_blocking(PtyEvent::Data {
                                     generation: generation_for_thread.clone(),
@@ -130,6 +137,26 @@ impl Pty {
             child,
             closed,
         })
+    }
+
+    /// Spawn a managed command through an interactive login shell in `cwd`.
+    /// Used by native card server/console tabs.
+    pub fn spawn_with_command(
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+        command: &str,
+        events: async_channel::Sender<PtyEvent>,
+    ) -> Result<Self> {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let mut builder = CommandBuilder::new(&shell);
+        builder.arg("-lic");
+        builder.arg(command);
+        builder.cwd(cwd);
+        builder.env("TERM", "xterm-256color");
+        builder.env("COLORTERM", "truecolor");
+        builder.env("STACKS_GPUI", "1");
+        Self::spawn_builder(builder, cols, rows, events)
     }
 
     pub fn write(&mut self, bytes: &[u8]) -> Result<()> {

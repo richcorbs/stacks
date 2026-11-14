@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use rusqlite::Connection;
-use stacks_cards::{CardStatus, CardStore, WorkGroup, group_cards, work_group};
+use stacks_cards::{CardStatus, CardStore, WorkGroup, WorkflowAction, group_cards, work_group};
 
 fn create_database(path: &Path) {
     let connection = Connection::open(path).unwrap();
@@ -13,7 +13,13 @@ fn create_database(path: &Path) {
                 color_id TEXT, delivery_workflow TEXT NOT NULL DEFAULT 'local_merge',
                 kanban_source TEXT, sort_order INTEGER NOT NULL DEFAULT 0,
                 require_passing_ci INTEGER NOT NULL DEFAULT 1,
-                require_approval INTEGER NOT NULL DEFAULT 0
+                require_approval INTEGER NOT NULL DEFAULT 0,
+                server_command TEXT, console_command TEXT,
+                notes TEXT NOT NULL DEFAULT '',
+                releases_enabled INTEGER NOT NULL DEFAULT 0,
+                release_config_path TEXT NOT NULL DEFAULT '.stacks/release.json',
+                supports_feature_environments INTEGER NOT NULL DEFAULT 0,
+                target_branch TEXT, start_work_command TEXT, deployment_command TEXT
             );
             CREATE TABLE kanban_cards (
                 id TEXT PRIMARY KEY, external_provider TEXT NOT NULL, external_id TEXT NOT NULL,
@@ -33,11 +39,19 @@ fn create_database(path: &Path) {
             CREATE TABLE card_environments (
                 id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
                 worktree_path TEXT NOT NULL, branch TEXT NOT NULL DEFAULT '',
+                repository_id TEXT, target_checkout_path TEXT, target_branch TEXT,
+                source_revision TEXT, target_revision TEXT,
                 lifecycle_state TEXT NOT NULL DEFAULT 'ready', revision INTEGER NOT NULL DEFAULT 1,
-                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, target_branch TEXT, source_revision TEXT
+                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE card_panes (
+                id TEXT PRIMARY KEY, environment_id TEXT NOT NULL, role TEXT NOT NULL,
+                kind TEXT NOT NULL, command TEXT, sort_order INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE card_layouts (
-                environment_id TEXT PRIMARY KEY, layout_revision INTEGER NOT NULL DEFAULT 1
+                environment_id TEXT PRIMARY KEY, split_layout TEXT NOT NULL DEFAULT '{}',
+                focused_pane_id TEXT, layout_revision INTEGER NOT NULL DEFAULT 1,
+                updated_at INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE card_pull_requests (
                 card_id TEXT PRIMARY KEY, repository TEXT NOT NULL, number INTEGER NOT NULL,
@@ -45,6 +59,15 @@ fn create_database(path: &Path) {
                 draft INTEGER NOT NULL DEFAULT 0, ci_status TEXT NOT NULL DEFAULT 'unknown',
                 review_state TEXT NOT NULL DEFAULT 'unknown', has_conflicts INTEGER NOT NULL DEFAULT 0,
                 mergeable INTEGER NOT NULL DEFAULT 0, head_revision TEXT, updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE environment_creation_operations (
+                card_id TEXT PRIMARY KEY, cleanup_available INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE card_cleanup_operations (
+                card_id TEXT PRIMARY KEY, status TEXT NOT NULL
+            );
+            CREATE TABLE scripted_delivery_operations (
+                card_id TEXT PRIMARY KEY, stage TEXT NOT NULL
             );
             CREATE TABLE card_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL,
@@ -122,6 +145,131 @@ fn loads_real_list_projection_and_effective_statuses() {
         "PR merge available · Merge PR"
     );
     assert!(pr.pull_request.as_ref().unwrap().blockers.is_empty());
+}
+
+#[test]
+fn start_local_work_creates_worktree_and_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let repository = directory.path().join("repo");
+    std::fs::create_dir(&repository).unwrap();
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repository)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?}: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-b", "main"]);
+    git(&["config", "user.email", "test@example.com"]);
+    git(&["config", "user.name", "Test"]);
+    std::fs::write(repository.join("README.md"), "test\n").unwrap();
+    git(&["add", "README.md"]);
+    git(&["commit", "-m", "initial"]);
+
+    let path = directory.path().join("workflow.sqlite3");
+    create_database(&path);
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute(
+            "UPDATE projects SET path=?1 WHERE id='p1'",
+            [repository.to_str().unwrap()],
+        )
+        .unwrap();
+    drop(connection);
+    let store = CardStore::new(&path);
+    let child = store.load_detail("child").unwrap();
+    store
+        .start_local_work("child", child.card.workflow_revision)
+        .unwrap();
+    let child = store.load_detail("child").unwrap();
+    assert_eq!(child.card.status, CardStatus::AgentWorking);
+    let environment = child.card.environment.expect("environment");
+    assert_eq!(environment.branch, "stacks/card-2-child");
+    assert_eq!(
+        environment.worktree_path,
+        format!("{}-card-2", repository.to_str().unwrap())
+    );
+    assert!(Path::new(&environment.worktree_path).is_dir());
+    assert_eq!(
+        child.events.first().unwrap().event_type,
+        "environment_start"
+    );
+}
+
+#[test]
+fn local_workflow_actions_apply_with_revision_guards() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("workflow.sqlite3");
+    create_database(&path);
+    let store = CardStore::new(&path);
+    let child = store.load_detail("child").unwrap();
+    assert_eq!(child.card.status, CardStatus::Ready);
+    store
+        .apply_local_action(
+            "child",
+            WorkflowAction::ReturnToRefinement,
+            child.card.workflow_revision,
+        )
+        .unwrap();
+    let child = store.load_detail("child").unwrap();
+    assert_eq!(child.card.status, CardStatus::NeedsRefinement);
+    assert_eq!(
+        child.card.workflow_revision,
+        detail_revision(&path, "child")
+    );
+    let event = child.events.first().unwrap();
+    assert_eq!(event.event_type, "return_to_refinement");
+
+    // Stale revisions are rejected without changing the card.
+    let stale = store.apply_local_action(
+        "child",
+        WorkflowAction::ReturnToRefinement,
+        child.card.workflow_revision - 1,
+    );
+    assert!(stale.unwrap_err().to_string().contains("Card changed"));
+
+    let child = store.load_detail("child").unwrap();
+    store
+        .apply_local_action("child", WorkflowAction::Close, child.card.workflow_revision)
+        .unwrap();
+    let child = store.load_detail("child").unwrap();
+    assert_eq!(child.card.status, CardStatus::Done);
+    assert_eq!(child.card.completion_outcome.as_deref(), Some("closed"));
+    assert_eq!(child.runtime_cleanup_status.as_deref(), Some("pending"));
+    store.complete_local_runtime_cleanup("child", &[]).unwrap();
+    let child = store.load_detail("child").unwrap();
+    assert_eq!(child.runtime_cleanup_status.as_deref(), Some("complete"));
+    assert_eq!(child.events.first().unwrap().event_type, "runtime_cleanup");
+
+    store
+        .apply_local_action(
+            "backlog-a",
+            WorkflowAction::Delete,
+            store
+                .load_detail("backlog-a")
+                .unwrap()
+                .card
+                .workflow_revision,
+        )
+        .unwrap();
+    assert!(store.load_detail("backlog-a").is_err());
+}
+
+fn detail_revision(path: &Path, card_id: &str) -> i64 {
+    Connection::open(path)
+        .unwrap()
+        .query_row(
+            "SELECT workflow_revision FROM kanban_cards WHERE id=?1",
+            [card_id],
+            |row| row.get(0),
+        )
+        .unwrap()
 }
 
 #[test]
@@ -221,4 +369,27 @@ fn loads_read_only_card_detail_with_content_and_events() {
     assert_eq!(detail.events[0].event_type, "agent_started");
     assert!(detail.events[1].to_status == Some(CardStatus::Ready));
     assert!(store.load_detail("missing").is_err());
+
+    let backlog = store.load_detail("backlog-b").unwrap();
+    let actions = backlog
+        .capabilities
+        .iter()
+        .map(|capability| capability.label.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actions,
+        [
+            "Refine",
+            "Start work",
+            "Write plan & finish refinement",
+            "Delete card",
+            "Close without delivery",
+        ]
+    );
+    let primary = backlog
+        .capabilities
+        .iter()
+        .find(|capability| capability.primary)
+        .unwrap();
+    assert_eq!(primary.label, "Refine");
 }

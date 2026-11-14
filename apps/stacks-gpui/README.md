@@ -6,14 +6,18 @@ surfaces:
 - **Cards** (`Cmd+L`, default) — the surviving Stacks LIST view, rendered from
   the real SQLite database through `crates/stacks-cards`. Groups/counts/collapse,
   project filter, loading/error/empty states, row metadata, keyboard navigation,
-  a read-only native card detail (Markdown via `gpui-component`) and backlog drag
-  reorder.
+  backlog drag reorder, and a native card detail with tabs for Description,
+  Agent, Diff, Terminal, Server and Console. The detail includes a native Pi
+  agent, shared terminal panes, services, releases and the workflow action
+  footer.
 - **Terminal** (`Cmd+T`) — the card #321 global terminal tab set with splits,
   maximize, search, copy/paste, focus, IME plumbing, drag/drop and notifications.
 
-It is **not** the shipped app. Pi chat, DIFF, GitHub/Superthread sync, card
-creation/sync/cleanup, workflow mutation and settings UI are not ported. The
-card detail is read-only and exposes copy-reference/open-URL only. Reports:
+It is **not** the shipped app. Card creation/editing, native DIFF review,
+Superthread sync, some settings UI and a few provider-specific workflows remain
+Tauri-only. The workflow engine itself is shared through
+`crates/stacks-workflow`; native card actions include refinement, start work,
+approval, local/target/PR merge, scripted delivery and cleanup. Reports:
 
 - `../../docs/gpui-app-shell-321.md` — shell/terminal spike.
 - `../../docs/gpui-list-view-322.md` — LIST product-surface spike.
@@ -21,6 +25,10 @@ card detail is read-only and exposes copy-reference/open-URL only. Reports:
   feasibility.
 - `../../docs/gpui-kit-0.9.1-migration-324.md` — migration to `gpui-kit 0.9.1`
   + `gpui-pre 0.3.12`, measurements and remaining accessibility work.
+- `../../docs/gpui-workflow-footer-323.md` — shared workflow engine and native
+  footer/action parity.
+- `../../docs/gpui-native-port-323-decision.md` — cost/benefit verdict and
+  go/no-go criteria.
   The app now uses the 0.9.1 foundation.
 
 ## Run
@@ -48,9 +56,10 @@ The Cards surface reads:
 ~/Library/Application Support/stacks/workflow.sqlite3
 ```
 
-read-only. Override with `STACKS_GPUI_CARDS_DB`. It does not migrate or write
-except for backlog reorder, which uses the same `KANBAN_REORDER_CONFLICT`
-contract as the shipped app.
+read/write. Override with `STACKS_GPUI_CARDS_DB`. It does not migrate, but the
+native workflow actions write card state, events, environments, pull requests
+and delivery operations using the shipped schema. Backlog reorder uses the same
+`KANBAN_REORDER_CONFLICT` contract as the shipped app.
 
 Useful env switches:
 
@@ -77,8 +86,9 @@ LIST filter/collapse/focus are in-memory only in this spike.
 
 Cards: `Cmd+L`; refresh `Cmd+R`; `↑/↓` or `j/k` navigate; `Home/End`; `Enter`
 or `Space` open detail; `Esc` close detail/clear; `←/→` collapse/expand the
-focused group. Detail has Copy ref, Open URL (when present), parent/child
-navigation and a scrollable Markdown body. Drag Backlog rows to reorder.
+focused group. Detail has parent/child navigation, tab shortcuts, workflow
+actions and `Cmd+Enter` for the primary workflow action. Drag Backlog rows to
+reorder.
 
 Terminal: `Cmd+T` focus global terminal, `Shift+Cmd+T` new tab, `Cmd+W` close,
 `Cmd+D` split right, `Shift+Cmd+D` split down,
