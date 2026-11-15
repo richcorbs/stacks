@@ -4,7 +4,9 @@ import { Type } from "typebox";
 
 type StacksResponse = { ok: boolean; message: string };
 type CardRequest = {
-  action: "createLocalCard" | "updateLocalCard" | "finishLocalCardRefinement" | "finishExternalCardRefinement" | "startLocalCardWork";
+  action: "createLocalCard" | "updateLocalCard" | "finishLocalCardRefinement" | "finishExternalCardRefinement" | "startLocalCardWork" | "agentLifecycle";
+  thread?: string;
+  phase?: "started" | "settled" | "failed";
   projectId?: string;
   cardId?: string;
   title?: string;
@@ -50,6 +52,17 @@ export default function stacksCards(pi: ExtensionAPI) {
         };
       },
     });
+  }
+
+  // Every card-scoped Pi session reports run lifecycle so a native host can
+  // move the card between Ready/Agent working without an RPC stream. The
+  // shipping GUI ignores this action (it infers lifecycle from RPC).
+  if (cardId && thread) {
+    const reportLifecycle = (phase: "started" | "settled") => {
+      void sendRequest(socketPath, { action: "agentLifecycle", cardId, thread, phase } as CardRequest).catch(() => {});
+    };
+    pi.on("agent_start", async () => reportLifecycle("started"));
+    pi.on("agent_settled", async () => reportLifecycle("settled"));
   }
 
   // Card workflow tools remain limited to the owning card's planning

@@ -1,0 +1,9 @@
+pub mod board;
+pub mod chat;
+pub mod detail;
+pub mod diff;
+pub mod global_terminal;
+pub mod help;
+pub mod overlays;
+pub mod settings;
+pub mod terminal;

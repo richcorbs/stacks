@@ -1,0 +1,27 @@
+[package]
+name = "stacks-tui"
+description = "Keyboard-only terminal client for Stacks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "stacks-tui"
+path = "src/main.rs"
+
+[dependencies]
+crossbeam-channel.workspace = true
+crossterm.workspace = true
+dirs.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+stacks-core = { path = "../stacks-core" }
+syntect.workspace = true
+unicode-width.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
+tempfile.workspace = true

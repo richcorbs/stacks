@@ -1,0 +1,39 @@
+# Stacks workspace.
+#
+# `src-tauri` stays the shipping Tauri shell and keeps its own paths. The
+# `stacks-core` library is host-agnostic product logic (no `tauri` in its tree)
+# and `stacks-tui` is the keyboard-only terminal client.
+[workspace]
+resolver = "3"
+members = ["src-tauri", "crates/stacks-core", "crates/stacks-tui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1"
+crossbeam-channel = "0.5"
+crossterm = "0.28"
+dirs = "7.0.0"
+libc = "0.2.191"
+portable-pty = "0.9.0"
+ratatui = "0.29"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
+tempfile = "3"
+unicode-width = "0.2"
+uuid = { version = "1", features = ["v4"] }
+vt100 = "0.15"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = "z"

@@ -5,7 +5,8 @@ node_modules/
 dist/
 .vite/
 
-# Tauri / Rust build output
+# Rust build output (workspace root and legacy member path)
+/target/
 src-tauri/target/
 
 # Logs

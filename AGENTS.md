@@ -31,6 +31,17 @@ npm run build
 source "$HOME/.cargo/env" 2>/dev/null || true; cd src-tauri && cargo check
 ```
 
+The Rust code is a workspace rooted at `Cargo.toml` (`src-tauri` plus
+`crates/stacks-core` and `crates/stacks-tui`). `src-tauri/Cargo.lock` is a
+symlink to the root lock so existing release tooling keeps working. Useful
+extra checks:
+
+```bash
+cargo test -p stacks-core -p stacks-tui
+cargo tree -p stacks-core -e normal   # must not contain tauri
+cargo run -p stacks-tui -- --dump-screen --cols 120 --rows 40
+```
+
 Build and install dogfood app:
 
 ```bash
@@ -56,6 +67,12 @@ The installer intentionally installs to `~/Applications` and handles replacing a
 ## Important architecture
 
 ### Rust backend
+
+The Tauri app remains a shell, but native clients share Tauri-free services in
+`crates/stacks-core` (card/workflow read-write model, PTY, vt100 screen, diff,
+settings, automation socket, native Pi launch). `crates/stacks-tui` is the
+keyboard-only terminal client. Do not add Tauri types to `stacks-core`, and do
+not reimplement workflow rules in the TUI: call core.
 
 `src-tauri/src/lib.rs` wires the Tauri application together; behavior is split into focused modules:
 
@@ -291,6 +308,23 @@ Stacks > Reset Window Settings
 - Native macOS menu accelerators render using Apple glyphs; exact display characters are not fully controllable.
 - Native menu item labels cannot partially style hint text in gray. For rich styling, build an in-app shortcuts panel instead.
 - Release and dogfood builds use `npm run release:build`; this creates the signed Tauri updater archive without requiring paid CI or Apple Developer signing.
+
+## Native TUI client
+
+- Run `cargo run -p stacks-tui` (interactive), or `--dump-screen` / `--script`
+  for agent-verifiable, deterministic TestBackend output.
+- The TUI is single-instance through `automation.sock`; it serves Pi's card
+  tools (`createLocalCard`, `updateLocalCard`, `finishLocalCardRefinement`,
+  `startLocalCardWork`) and `agentLifecycle` from
+  `src-tauri/resources/stacks-cards.ts`. The GUI ignores `agentLifecycle`
+  because it infers lifecycle from its RPC stream.
+- Chat/Work tabs run Pi's native TUI in a PTY (`pi --continue`) and report
+  lifecycle through the extension. `Ctrl-W n` exits terminal input to normal
+  mode because Esc belongs to Pi/the shell while a pane is focused.
+- Terminal emulation is `vt100` behind `TerminalScreen`, with known differences
+  in `crates/stacks-tui/DIVERGENCES.md`. No mouse or image rendering.
+- Current limitation: the wholesale `src-tauri/src` → `stacks-core` extraction
+  is not complete; see `docs/stacks-tui-325.md`.
 
 ## Git/commit habits
 

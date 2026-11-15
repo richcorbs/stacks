@@ -5,7 +5,13 @@ import { spawnSync } from 'node:child_process';
 
 export const VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 export const ASSET_NAMES = ['Stacks-arm64.zip', 'Stacks.app.tar.gz', 'Stacks.app.tar.gz.sig', 'latest.json', 'SHA256SUMS'];
-export const VERSION_FILES = ['package.json', 'package-lock.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json'];
+export const VERSION_FILES = ['package.json', 'package-lock.json', 'src-tauri/Cargo.toml', 'Cargo.lock', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json'];
+// The Rust workspace lockfile lives at the repository root. Older checkouts
+// (and the release fixtures) keep it under src-tauri.
+export function cargoLockPath(root) {
+  const rootLock = path.join(root, 'Cargo.lock');
+  return fs.existsSync(rootLock) ? rootLock : path.join(root, 'src-tauri/Cargo.lock');
+}
 
 export function fail(message) { throw new Error(message); }
 export function validateVersion(version) {
@@ -169,7 +175,7 @@ export function versions(root) {
   const packageLock = readJson(path.join(root, 'package-lock.json'));
   const tauri = readJson(path.join(root, 'src-tauri/tauri.conf.json'));
   const cargo = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8').match(/^\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m)?.[1];
-  const cargoLock = fs.readFileSync(path.join(root, 'src-tauri/Cargo.lock'), 'utf8').match(/^\[\[package\]\]\nname = "stacks"\nversion = "([^"]+)"/m)?.[1];
+  const cargoLock = fs.readFileSync(cargoLockPath(root), 'utf8').match(/^\[\[package\]\]\nname = "stacks"\nversion = "([^"]+)"/m)?.[1];
   return { package: packageJson.version, packageLock: packageLock.packages?.['']?.version, tauri: tauri.version, cargo, cargoLock };
 }
 export function verifyVersions(root, expected) {
@@ -185,8 +191,10 @@ export function setVersions(root, version) {
     writeJson(file, json);
   }
   const tauriFile = path.join(root, 'src-tauri/tauri.conf.json'); const tauri = readJson(tauriFile); tauri.version = version; writeJson(tauriFile, tauri);
-  for (const relative of ['src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']) {
-    const file = path.join(root, relative); const original = fs.readFileSync(file, 'utf8');
+  for (const relative of ['src-tauri/Cargo.toml', 'Cargo.lock', 'src-tauri/Cargo.lock']) {
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file)) continue;
+    const original = fs.readFileSync(file, 'utf8');
     const pattern = relative.endsWith('Cargo.toml') ? /(^\[package\][\s\S]*?^version\s*=\s*")[^"]+("$)/m : /(^\[\[package\]\]\nname = "stacks"\nversion = ")[^"]+(")/m;
     const updated = original.replace(pattern, `$1${version}$2`);
     if (updated === original && !original.includes(`version = "${version}"`)) fail(`Could not update ${relative}`);
@@ -205,7 +213,8 @@ export function prepare(root, { version, notesFile, source }) {
   setVersions(root, version);
   fs.mkdirSync(path.dirname(notesTarget), { recursive: true });
   fs.copyFileSync(notesFile, notesTarget);
-  git(root, 'add', ...VERSION_FILES, path.relative(root, notesTarget));
+  const versionFiles = VERSION_FILES.filter(file => fs.existsSync(path.join(root, file)));
+  git(root, 'add', ...versionFiles, path.relative(root, notesTarget));
   git(root, 'commit', '-m', `Release Stacks ${tag}`);
   verifyPrepared(root, { version, notesFile, source: resolvedSource });
 }
@@ -342,7 +351,10 @@ function verifyHistoricalPrepared(root, { version, revision, notes }) {
     JSON.parse(content('package-lock.json')).packages?.['']?.version,
     JSON.parse(content('src-tauri/tauri.conf.json')).version,
     content('src-tauri/Cargo.toml').match(/^\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m)?.[1],
-    content('src-tauri/Cargo.lock').match(/^\[\[package\]\]\nname = "stacks"\nversion = "([^"]+)"/m)?.[1],
+    (() => {
+      const rootLock = spawnSync('git', ['cat-file', '-e', `${commit}:Cargo.lock`], { cwd: root }).status === 0;
+      return content(rootLock ? 'Cargo.lock' : 'src-tauri/Cargo.lock').match(/^\[\[package\]\]\nname = "stacks"\nversion = "([^"]+)"/m)?.[1];
+    })(),
   ];
   if (versionsAtCommit.some(value => value !== version)) fail(`Historical release commit versions differ from ${version}`);
   return parent;
