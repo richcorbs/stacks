@@ -48,9 +48,15 @@ check` still works.
   `automation.sock` (`createLocalCard`, `updateLocalCard`,
   `finishLocalCardRefinement` including approved children, `startLocalCardWork`,
   `agentLifecycle`).
-- DIFF: changed-file list, unified diff, reviewed marks (session state, like the
-  GUI), `n`/`p`, `[`/`]`, `gg`/`G`, visual select + OSC 52 yank, syntect line
-  highlighting, sticky hunk header.
+- DIFF: lazygit-inspired collapsible, compressed file tree with per-file
+  status and file counts; branch/ahead-behind/dirty/HEAD review context;
+  unified diff with reviewed marks (session state, like the GUI), `n`/`p`,
+  `[`/`]`, `gg`/`G`, `h`/`l` fold, visual select + OSC 52 yank, syntect line
+  highlighting and a sticky hunk header.
+- `L` in DIFF/Terminal opens **lazygit** in the card worktree as a normal PTY
+  pane. Staging, committing, branches, rebase and worktrees are delegated to
+  lazygit instead of being reimplemented; lazygit is optional
+  (`brew install lazygit` or `LAZYGIT_PATH`).
 - Terminal: real PTY + vt100 rendering, split panes (`Ctrl-W |/-o x z`), exact
   per-pane PTY resize, copy mode (`Ctrl-W [`), OSC 52 yank.
 - Global terminal: `Ctrl-G`, tabs in normal mode (`Ctrl-W n`, then `n`/`x`).
@@ -84,6 +90,33 @@ Consequences:
   workflow engine into `stacks-core`, make the Tauri crate a command adapter,
   and delete the parallel projection. The existing card #322 work is the seam.
 
+## Lazygit investigation
+
+I read lazygit 0.66.2’s source (`pkg/gui/presentation/files.go`,
+`pkg/gui/filetree`, the main-view/diff controllers and config docs) and used
+what translates cleanly to ratatui:
+
+Adopted:
+
+- **Compressed, collapsible file tree**: lazygit’s `CompressionLevel` /
+  single-child directory folding, `▼`/`▶` arrows, per-directory file counts,
+  and visual-depth indentation. Our DIFF now has `h`/`l`/`Enter` folding.
+- **Review context**: branch, ahead/behind, target, dirty/conflict state and
+  the HEAD subject, analogous to lazygit’s Status/commit context.
+- **Delegation instead of reimplementation**: `L` opens the real lazygit in
+  the card worktree as a normal PTY pane. Staging, committing, branch/rebase
+  and worktree operations live there, not in Stacks’ DIFF pane.
+- Existing shortcuts already matched lazygit’s model: context-sensitive footer
+  hints, `?` help, confirmation panels, hunk navigation, panel focus, theme
+  tokens.
+
+Deliberately not adopted:
+
+- Mouse handling (Stacks TUI is keyboard-only by requirement).
+- Lazygit’s command log overlay, config/keybinding file and commit graph; they
+  are git-workflow UI for a git client, while Stacks is a card/agent client.
+- Reimplementing line-level staging in the DIFF tab; that is why `L` exists.
+
 ## Native Pi decision
 
 The card's original Chat screen specified a custom transcript/composer over Pi
@@ -108,7 +141,8 @@ This is a deliberate scope change from the card text:
 - Full `src-tauri` → `stacks-core` extraction (above).
 - Superthread provider refinement/credential work, custom start-work setup
   commands, environment-creation cleanup, PR freshness/merge preflight parity.
-- Diff directory collapse is shown as flat directory headings.
+- Diff tree is lazygit-inspired but not lazygit: no line staging from the
+  Stacks DIFF pane; press `L` for the real lazygit UI.
 - Reviewed marks are per-session (the GUI also keeps them in session state).
 - Leaving a card stops its TUI terminal/Pi panes; there is no per-card session
   cache yet (the GUI caches per workspace/card).
@@ -121,8 +155,8 @@ This is a deliberate scope change from the card text:
 
 A reproducible screen walkthrough lives in
 `crates/stacks-tui/examples/demo-screens.script`. It opens the real board,
-palette, project picker, card #325, backend actions, DIFF, a real PTY, the
-native Pi pane, the global terminal, and help.
+palette, project picker, card #325, backend actions, DIFF, lazygit, a real PTY,
+the native Pi pane, the global terminal, and help.
 
 ```bash
 # Copy the live DB so the demo cannot write to the real one.

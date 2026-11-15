@@ -321,6 +321,10 @@ Stacks > Reset Window Settings
 - Chat/Work tabs run Pi's native TUI in a PTY (`pi --continue`) and report
   lifecycle through the extension. `Ctrl-W n` exits terminal input to normal
   mode because Esc belongs to Pi/the shell while a pane is focused.
+- The DIFF tab has a lazygit-inspired compressed/collapsible file tree and a
+  branch/ahead-behind/dirty/HEAD review line. `L` launches the real lazygit in
+  the card worktree as a PTY pane; staging/commit/branch operations are
+  intentionally delegated to it.
 - Terminal emulation is `vt100` behind `TerminalScreen`, with known differences
   in `crates/stacks-tui/DIVERGENCES.md`. No mouse or image rendering.
 - Current limitation: the wholesale `src-tauri/src` → `stacks-core` extraction

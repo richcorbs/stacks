@@ -9,7 +9,7 @@ are known differences from xterm/Ghostty, recorded instead of chased.
 | Graphics | No Kitty graphics protocol, no sixel, no iTerm inline images | Image output degrades to text/blank cells. Pi/CLI image previews are not visible. |
 | Unicode width | Cell width uses `unicode-width` 0.2 and `vt100` cell contents | Ambiguous-width and some grapheme clusters can differ from Ghostty. Combining marks are attached to the preceding cell. |
 | Wide cells | `is_wide_continuation` cells are skipped; the wide glyph advances two cells | Double-width CJK generally aligns; unusual emoji ZWJ sequences may not. |
-| Mouse | Mouse tracking is deliberately not enabled | TUIs that rely on mouse clicks cannot be driven. Keyboard-only by design. |
+| Mouse | Mouse tracking is deliberately not enabled | TUIs that rely on mouse clicks cannot be driven. Lazygit runs keyboard-only here; lazygit itself still works. |
 | OSC 52 | Clipboard yank is written to stdout as OSC 52 | Depends on the outer terminal allowing clipboard writes; no read-back. |
 | OSC 8 / titles | Hyperlinks, window title/icon queries are ignored | Links remain plain text; the TUI owns the title. |
 | Palette | 256/16-colour approximation when the outer terminal lacks truecolour | Slight colour shifts; status words/glyphs carry meaning independently. |

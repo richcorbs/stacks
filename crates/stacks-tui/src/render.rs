@@ -242,6 +242,8 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                     ("Space", "reviewed"),
                     ("n/p", "file"),
                     ("[ ]", "hunk"),
+                    ("h/l", "fold"),
+                    ("L", "lazygit"),
                     ("v", "select"),
                     ("Esc", "back"),
                 ],

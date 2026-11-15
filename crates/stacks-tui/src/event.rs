@@ -1,6 +1,6 @@
 //! Worker → UI messages.
 
-use stacks_core::diff::DiffFile;
+use stacks_core::diff::{DiffFile, GitReviewContext};
 use stacks_core::pty::PtyEvent;
 use stacks_core::{CardDetail, CardSnapshot, WorkflowAction};
 
@@ -18,7 +18,7 @@ pub enum CoreEvent {
     },
     DiffFiles {
         card_id: String,
-        result: Result<Vec<DiffFile>, String>,
+        result: Result<(Vec<DiffFile>, GitReviewContext), String>,
     },
     FileDiff {
         path: String,

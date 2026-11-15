@@ -60,6 +60,75 @@ pub struct ParsedDiff {
     pub hunk_starts: Vec<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitReviewContext {
+    pub branch: String,
+    pub target: String,
+    pub ahead: u32,
+    pub behind: u32,
+    pub dirty: bool,
+    pub conflicts: bool,
+    pub head: Option<String>,
+}
+
+/// LazyGit-style review context: branch, ahead/behind, dirty/conflict state and
+/// the current HEAD subject. Errors are tolerated (detached/empty repos) so the
+/// DIFF tab still renders files.
+pub fn review_context(worktree: &str, comparison_target: &str) -> GitReviewContext {
+    let target = comparison_target.trim();
+    let target = if target.is_empty() { "HEAD" } else { target };
+    let branch = git(worktree, &["branch", "--show-current"])
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "detached".to_string());
+    let (ahead, behind) = git(
+        worktree,
+        &[
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("{target}...HEAD"),
+        ],
+    )
+    .ok()
+    .and_then(|value| {
+        let mut parts = value.split_whitespace();
+        Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+    })
+    .map(|(behind, ahead): (u32, u32)| (ahead, behind))
+    .unwrap_or((0, 0));
+    let status = git(
+        worktree,
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+    )
+    .unwrap_or_default();
+    let dirty = !status.trim().is_empty();
+    let conflicts = status.lines().any(|line| {
+        let mut chars = line.chars();
+        matches!(
+            (chars.next(), chars.next()),
+            (Some('U'), Some(_))
+                | (Some(_), Some('U'))
+                | (Some('A'), Some('A'))
+                | (Some('D'), Some('D'))
+        )
+    });
+    let head = git(worktree, &["log", "-1", "--format=%h %s"])
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    GitReviewContext {
+        branch,
+        target: target.to_string(),
+        ahead,
+        behind,
+        dirty,
+        conflicts,
+        head,
+    }
+}
+
 pub fn changed_files(worktree: &str, comparison_target: &str) -> Result<Vec<DiffFile>, String> {
     let target = comparison_target.trim();
     let target = if target.is_empty() { "HEAD" } else { target };
@@ -294,6 +363,38 @@ index 1..2 100644
             .collect::<Vec<_>>();
         assert_eq!(added[0].new_line, Some(3));
         assert_eq!(added[1].new_line, Some(4));
+    }
+
+    #[test]
+    fn review_context_reports_branch_and_divergence() {
+        let dir = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .unwrap();
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(dir.path().join("a"), "a").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "initial"]);
+        run(&["branch", "main"]);
+        std::fs::write(dir.path().join("a"), "changed").unwrap();
+        std::fs::write(dir.path().join("new"), "new").unwrap();
+        let context = review_context(dir.path().to_str().unwrap(), "main");
+        assert!(context.dirty);
+        assert_eq!(context.target, "main");
+        assert!(
+            context
+                .head
+                .as_deref()
+                .unwrap_or_default()
+                .contains("initial")
+        );
     }
 
     #[test]

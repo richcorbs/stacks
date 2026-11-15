@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use stacks_core::WorkflowAction;
-use stacks_core::diff::{changed_files, file_diff};
+use stacks_core::diff::{changed_files, file_diff, review_context};
 use stacks_core::store::CardStore;
 
 use crate::event::{CoreEvent, EventSender};
@@ -124,7 +124,9 @@ pub fn load_diff_files(
     sender: EventSender,
 ) {
     spawn(sender.clone(), "diff-files", move |sender| {
-        let result = changed_files(&worktree, &target).map_err(|error| error.to_string());
+        let result = changed_files(&worktree, &target)
+            .map(|files| (files, review_context(&worktree, &target)))
+            .map_err(|error| error.to_string());
         sender.send(CoreEvent::DiffFiles { card_id, result });
     });
     let _ = store;

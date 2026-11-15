@@ -173,6 +173,31 @@ impl TerminalWorkspace {
         Ok(id)
     }
 
+    /// Spawn an arbitrary TUI program (lazygit) in its own pane.
+    pub fn open_program_raw(
+        &mut self,
+        cwd: &str,
+        program: &std::path::Path,
+        args: &[String],
+        cols: u16,
+        rows: u16,
+        env: &[(String, String)],
+        sink: PtySink,
+    ) -> Result<String, String> {
+        let id = format!("pane-{}", uuid::Uuid::new_v4());
+        let mut pane = Pane::new(id.clone(), cwd.to_string(), None, cols, rows);
+        let session =
+            PtySession::spawn_program(id.clone(), program, args, cwd, cols, rows, env, sink)?;
+        pane.generation = Some(session.generation.clone());
+        pane.session = Some(session);
+        self.panes.insert(id.clone(), pane);
+        if self.panes.len() == 1 {
+            self.tree = SplitNode::leaf(id.clone());
+            self.focused = id.clone();
+        }
+        Ok(id)
+    }
+
     /// Spawn a native program (Pi) in its own pane.
     pub fn open_program(
         &mut self,
