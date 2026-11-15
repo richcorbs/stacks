@@ -734,6 +734,7 @@ impl App {
                 match result {
                     Ok(card_id) => {
                         self.message = "Card created".into();
+                        self.new_card = None;
                         self.new_card_draft = None;
                         self.overlay = None;
                         self.refresh_board();
@@ -1892,15 +1893,25 @@ impl App {
         let Some(board) = self.board.as_ref() else {
             return;
         };
-        let Some(project) = self
+        let is_local = |project: &&Project| project.kanban_source.as_deref() != Some("superthread");
+        let scoped = self
             .project_scope
             .as_deref()
-            .and_then(|id| board.projects.iter().find(|project| project.id == id))
-            .or_else(|| board.projects.first())
-        else {
-            self.error = Some("Add a project in Stacks before creating a card".into());
+            .and_then(|id| board.projects.iter().find(|project| project.id == id));
+        let Some(project) = scoped.or_else(|| board.projects.iter().find(is_local)) else {
+            self.error = Some(
+                "Add a local project in Stacks before creating a card (Ctrl-O switches projects)"
+                    .into(),
+            );
             return;
         };
+        if !is_local(&project) {
+            self.error = Some(
+                "Cards can only be created in a local Kanban project; choose one with Ctrl-O"
+                    .into(),
+            );
+            return;
+        }
         let (title, content) = self
             .new_card_draft
             .take()

@@ -142,7 +142,9 @@ cargo run -p stacks-tui -- \
 The interactive path was also exercised through a real PTY with a vt100
 emulator (`pyte`): board, help, palette, project picker, settings, filter,
 card detail, DIFF, a shell command, the native Pi pane, the global terminal,
-and quit all passed.
+and quit all passed. A headless script also created a card and finished its
+refinement through the backend action, moving it from Needs refinement to
+Ready.
 
 ## Validation
 

@@ -269,3 +269,39 @@ fn automation_socket_reports_pi_lifecycle_into_the_card_status() {
     let detail = store.load_detail("local:325").unwrap();
     assert_eq!(detail.card.status, CardStatus::Refining);
 }
+
+#[test]
+fn new_card_flow_creates_and_opens_the_card() {
+    let (mut app, _dir) = app();
+    app.handle_key(Key::Char('n'));
+    app.type_text("TUI action smoke");
+    app.handle_key(Key::Tab);
+    app.type_text("Script-created card for the workflow action smoke test.");
+    assert_eq!(app.new_card.as_ref().map(|state| state.focus), Some(1));
+    app.handle_key(Key::Enter);
+    assert!(
+        app.in_flight > 0,
+        "submit did not start; error={:?} message={:?}",
+        app.error,
+        app.message
+    );
+    app.pump(1_000);
+    assert!(
+        app.new_card.is_none(),
+        "new-card state left behind; error={:?} message={:?}",
+        app.error,
+        app.message
+    );
+    assert!(
+        app.overlay.is_none(),
+        "overlay still open; error={:?} message={:?}",
+        app.error,
+        app.message
+    );
+    assert_eq!(app.screen, stacks_tui::app::Screen::Detail);
+    assert!(
+        app.detail
+            .as_ref()
+            .is_some_and(|detail| detail.card.title == "TUI action smoke")
+    );
+}

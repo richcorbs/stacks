@@ -79,14 +79,17 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
                 .selected_project()
                 .map(|project| project.name.clone())
                 .unwrap_or_else(|| "All projects".into());
-            left.push(Span::styled(
-                format!(
-                    "  {scope}  ·  {} cards",
+            let count = app
+                .selected_project()
+                .map(|project| app.project_count(&project.id))
+                .unwrap_or_else(|| {
                     app.board
                         .as_ref()
                         .map(|board| board.cards.len())
                         .unwrap_or(0)
-                ),
+                });
+            left.push(Span::styled(
+                format!("  {scope}  ·  {count} cards"),
                 Style::default().fg(theme.muted),
             ));
         }
