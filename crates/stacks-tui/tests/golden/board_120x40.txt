@@ -1,40 +1,40 @@
  Stacks   All projects  ·  3 cards
-PROJECTS                  │▾ Needs your action   1
-◆ All projects  3         │◆ #326 Wire the automation socket  Stacks
-◇ Arcasa  1               │▾ In progress   0
-◇ Stacks  2               │▾ Backlog   1
-                          │○ #325 Build a keyboard-only Rust TUI  Arcasa
-Ctrl-B hide · Ctrl-F scope│▸ Done   1
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
-                          │
+┌ PROJECTS 2 ─────────────┐┌ CARDS · All projects · 3 ─────────────────────────────────────────────────────────────────┐
+│◆ All projects  3        ││▾ Needs your action   1                                                                    │
+│◇ Arcasa  1              ││◆ #326 Wire the automation socket  Stacks                                                  │
+│◇ Stacks  2              ││▾ In progress   0                                                                          │
+│                         ││▾ Backlog   1                                                                              │
+│Ctrl-B hide · Ctrl-F     ││○ #325 Build a keyboard-only Rust TUI  Arcasa                                              │
+│                         ││▸ Done   1                                                                                 │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
+└─────────────────────────┘└───────────────────────────────────────────────────────────────────────────────────────────┘
  Ready  1/2  ◆ ready
 j/k move  ·  Enter open  ·  n new  ·  / filter  ·  Ctrl-F scope  ·  Ctrl-A done  ·  ? help

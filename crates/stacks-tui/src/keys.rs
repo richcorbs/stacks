@@ -219,7 +219,6 @@ pub const KEYMAP: &[KeyHelp] = &[
             ("gg / G", "Top / bottom"),
             ("h / l", "Fold / unfold directory"),
             ("Enter", "Toggle directory"),
-            ("L", "Open lazygit in the worktree"),
             ("v", "Visual select"),
         ],
     },

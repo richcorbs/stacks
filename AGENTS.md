@@ -74,6 +74,12 @@ settings, automation socket, native Pi launch). `crates/stacks-tui` is the
 keyboard-only terminal client. Do not add Tauri types to `stacks-core`, and do
 not reimplement workflow rules in the TUI: call core.
 
+Extraction progress: data paths, `settings_model`, `pty_command`,
+`process_group`, `repository_coordinator`, `pi_paths`, `git` and `github` now
+live in core; `src-tauri/src` re-exports them and keeps command adapters.
+The `kanban` repository/services are still Tauri-owned — moving them is the
+remaining Phase 1 work described in `docs/stacks-tui-325.md`.
+
 `src-tauri/src/lib.rs` wires the Tauri application together; behavior is split into focused modules:
 
 ```text
@@ -322,9 +328,8 @@ Stacks > Reset Window Settings
   lifecycle through the extension. `Ctrl-W n` exits terminal input to normal
   mode because Esc belongs to Pi/the shell while a pane is focused.
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and a
-  branch/ahead-behind/dirty/HEAD review line. `L` launches the real lazygit in
-  the card worktree as a PTY pane; staging/commit/branch operations are
-  intentionally delegated to it.
+  branch/ahead-behind/dirty/HEAD review line. Lazygit itself is not embedded;
+  only its UI patterns are reused.
 - Terminal emulation is `vt100` behind `TerminalScreen`, with known differences
   in `crates/stacks-tui/DIVERGENCES.md`. No mouse or image rendering.
 - Current limitation: the wholesale `src-tauri/src` → `stacks-core` extraction

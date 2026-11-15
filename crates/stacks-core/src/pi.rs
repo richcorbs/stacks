@@ -361,7 +361,7 @@ pub fn pi_sessions_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("STACKS_TUI_PI_SESSIONS") {
         return PathBuf::from(path);
     }
-    paths::app_data_dir()
+    paths::product_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("pi-sessions")
 }
@@ -392,7 +392,7 @@ pub fn extension_path() -> Option<PathBuf> {
 }
 
 pub fn project_trusted(project_path: &str) -> bool {
-    let Ok(dir) = paths::app_data_dir() else {
+    let Ok(dir) = paths::product_data_dir() else {
         return false;
     };
     let Ok(text) = std::fs::read_to_string(dir.join("pi-trusted-projects.json")) else {

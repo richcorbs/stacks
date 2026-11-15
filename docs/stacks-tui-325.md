@@ -53,10 +53,9 @@ check` still works.
   unified diff with reviewed marks (session state, like the GUI), `n`/`p`,
   `[`/`]`, `gg`/`G`, `h`/`l` fold, visual select + OSC 52 yank, syntect line
   highlighting and a sticky hunk header.
-- `L` in DIFF/Terminal opens **lazygit** in the card worktree as a normal PTY
-  pane. Staging, committing, branches, rebase and worktrees are delegated to
-  lazygit instead of being reimplemented; lazygit is optional
-  (`brew install lazygit` or `LAZYGIT_PATH`).
+- Lazygit is **not embedded**. Its useful UI patterns (tree compression,
+  bordered panels, review context) are reused; staging/commit/branch UI stays
+  a terminal tool, not a Stacks feature.
 - Terminal: real PTY + vt100 rendering, split panes (`Ctrl-W |/-o x z`), exact
   per-pane PTY resize, copy mode (`Ctrl-W [`), OSC 52 yank.
 - Global terminal: `Ctrl-G`, tabs in normal mode (`Ctrl-W n`, then `n`/`x`).
@@ -74,21 +73,33 @@ check` still works.
 ## Phase 1 status (important)
 
 This card originally asked for a mechanical move of `src-tauri/src/**` into
-`stacks-core` before building the TUI. That wholesale move was **not** done.
-Instead, `stacks-core` was bootstrapped from the Tauri-free card #322
-`stacks-cards`/`stacks-workflow` read/write model and extended with PTY,
-terminal, diff, settings, paths, native Pi and automation services.
+`stacks-core` before building the TUI. That wholesale move is **not** complete,
+but real modules now live in core and both hosts consume them.
 
-Consequences:
+Extracted so far (Tauri keeps thin `#[tauri::command]` adapters where needed):
 
-- Both hosts currently have their own persistence/workflow implementation:
-  the Tauri modules under `src-tauri/src` and `crates/stacks-core`.
-- They share the schema and the canonical status/capability rules, and the TUI
-  has no `tauri` dependency, but the "one implementation" gate for Phase 1 is
-  not fully met.
-- The next extraction should move the `src-tauri/src/kanban` repository and
-  workflow engine into `stacks-core`, make the Tauri crate a command adapter,
-  and delete the parallel projection. The existing card #322 work is the seam.
+- `paths` / data locations, including the production-copy guard
+- `settings_model`
+- `pty_command`, `process_group`
+- `repository_coordinator`
+- `pi_paths` discovery
+- `git` repository/diff/worktree implementation (17 moved tests)
+- `github` gh/PR/CI implementation (moved tests)
+
+Still Tauri-owned:
+
+- the `kanban` module (repository, cards, environments, delivery, cleanup,
+  provider sync, retention)
+- `store`, `settings`, `pty`, `pi_rpc`, `superthread`, `workspace_setup`,
+  `release`, `global_terminal`, `project_direct`, `automation` and shell/menu
+  code
+- the card #322 `stacks-core` read/write model remains a parallel projection
+  until the kanban repository is moved.
+
+Consequence: the TUI has no `tauri` dependency, and shared modules cannot
+drift between hosts, but the kanban repository/workflow still has two
+implementations. The next extraction step is the `src-tauri/src/kanban`
+repository and its dependent services, then deleting the parallel projection.
 
 ## Lazygit investigation
 
@@ -103,9 +114,12 @@ Adopted:
   and visual-depth indentation. Our DIFF now has `h`/`l`/`Enter` folding.
 - **Review context**: branch, ahead/behind, target, dirty/conflict state and
   the HEAD subject, analogous to lazygit’s Status/commit context.
-- **Delegation instead of reimplementation**: `L` opens the real lazygit in
-  the card worktree as a normal PTY pane. Staging, committing, branch/rebase
-  and worktree operations live there, not in Stacks’ DIFF pane.
+- **Panel framing**: bordered sections with titles/counts and focused-border
+  accents, plus horizontal section rules for detail bodies.
+- **Panel framing**: bordered sections with titles/counts (`PROJECTS 6`,
+  `CARDS · Stacks · 39`, `FILES 58`, `DIFF · path`), focused-border accents,
+  and inline section rules (`─ Overview · rev 18 · NORMAL ─…`) separating the
+  detail body from tabs and footer.
 - Existing shortcuts already matched lazygit’s model: context-sensitive footer
   hints, `?` help, confirmation panels, hunk navigation, panel focus, theme
   tokens.
@@ -115,7 +129,8 @@ Deliberately not adopted:
 - Mouse handling (Stacks TUI is keyboard-only by requirement).
 - Lazygit’s command log overlay, config/keybinding file and commit graph; they
   are git-workflow UI for a git client, while Stacks is a card/agent client.
-- Reimplementing line-level staging in the DIFF tab; that is why `L` exists.
+- Embedding lazygit or reimplementing line-level staging. Staging/commit/branch
+  operations remain a separate terminal tool, not part of Stacks.
 
 ## Native Pi decision
 
@@ -142,7 +157,7 @@ This is a deliberate scope change from the card text:
 - Superthread provider refinement/credential work, custom start-work setup
   commands, environment-creation cleanup, PR freshness/merge preflight parity.
 - Diff tree is lazygit-inspired but not lazygit: no line staging from the
-  Stacks DIFF pane; press `L` for the real lazygit UI.
+  Stacks DIFF pane.
 - Reviewed marks are per-session (the GUI also keeps them in session state).
 - Leaving a card stops its TUI terminal/Pi panes; there is no per-card session
   cache yet (the GUI caches per workspace/card).
@@ -155,8 +170,8 @@ This is a deliberate scope change from the card text:
 
 A reproducible screen walkthrough lives in
 `crates/stacks-tui/examples/demo-screens.script`. It opens the real board,
-palette, project picker, card #325, backend actions, DIFF, lazygit, a real PTY,
-the native Pi pane, the global terminal, and help.
+palette, project picker, card #325, backend actions, DIFF, a real PTY, the
+native Pi pane, the global terminal, and help.
 
 ```bash
 # Copy the live DB so the demo cannot write to the real one.

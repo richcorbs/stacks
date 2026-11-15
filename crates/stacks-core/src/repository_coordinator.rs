@@ -143,8 +143,8 @@ mod tests {
     use super::*;
     use std::{
         sync::{
-            atomic::{AtomicBool, AtomicUsize, Ordering},
             Barrier,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
         },
         thread,
         time::Duration,
@@ -229,15 +229,21 @@ mod tests {
             panic!("test poison");
         })
         .join();
-        assert!(coordinator
-            .coordinate(Path::new("poisoned"), || Ok(()))
-            .is_err());
-        assert!(coordinator
-            .coordinate(Path::new("poisoned"), || Ok(()))
-            .is_ok());
-        assert!(coordinator
-            .coordinate(Path::new("other"), || Ok(()))
-            .is_ok());
+        assert!(
+            coordinator
+                .coordinate(Path::new("poisoned"), || Ok(()))
+                .is_err()
+        );
+        assert!(
+            coordinator
+                .coordinate(Path::new("poisoned"), || Ok(()))
+                .is_ok()
+        );
+        assert!(
+            coordinator
+                .coordinate(Path::new("other"), || Ok(()))
+                .is_ok()
+        );
     }
 
     #[test]

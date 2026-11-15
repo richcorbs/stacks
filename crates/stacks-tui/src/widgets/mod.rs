@@ -51,6 +51,26 @@ pub fn base64(bytes: &[u8]) -> String {
     output
 }
 
+/// Horizontal rule with an optional inline label, lazygit-style section divider.
+pub fn section_rule(frame: &mut Frame, area: Rect, label: &str, theme: Theme) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let width = area.width as usize;
+    let text = if label.is_empty() {
+        "─".repeat(width)
+    } else {
+        let label = format!("─ {label} ");
+        let used = unicode_width::UnicodeWidthStr::width(label.as_str());
+        format!("{label}{}", "─".repeat(width.saturating_sub(used)))
+    };
+    frame.render_widget(
+        Paragraph::new(Span::styled(text, Style::default().fg(theme.muted)))
+            .style(Style::default().bg(theme.canvas)),
+        area,
+    );
+}
+
 pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width.saturating_sub(2)).max(10);
     let height = height.min(area.height.saturating_sub(2)).max(3);

@@ -1139,7 +1139,6 @@ impl App {
             }
             Key::Char('a') => self.open_actions(),
             Key::Char('e') => self.start_edit_card(),
-            Key::Char('L') => self.open_lazygit(),
             Key::Char('j') | Key::Down => self.scroll_detail(1),
             Key::Char('k') | Key::Up => self.scroll_detail(-1),
             Key::PageDown | Key::Ctrl('d') => self.scroll_detail(10),
@@ -1416,60 +1415,6 @@ impl App {
         print!("{}", crate::widgets::osc52(text));
         let _ = std::io::stdout().flush();
         self.message = format!("Yanked {} line(s) (OSC 52)", text.lines().count());
-    }
-
-    // ---- git / lazygit -----------------------------------------------
-
-    fn open_lazygit(&mut self) {
-        let lazygit = find_lazygit().ok_or_else(|| {
-            "lazygit not found. Install it with `brew install lazygit` or set LAZYGIT_PATH."
-                .to_string()
-        });
-        let lazygit = match lazygit {
-            Ok(path) => path,
-            Err(error) => {
-                self.error = Some(error);
-                return;
-            }
-        };
-        let Some((worktree, _target)) = self.diff_context() else {
-            self.error = Some("The card has no worktree for lazygit".into());
-            return;
-        };
-        let card_id = self
-            .detail
-            .as_ref()
-            .map(|detail| detail.card.id.clone())
-            .unwrap_or_default();
-        let env = vec![
-            ("STACKS_TUI".to_string(), "1".to_string()),
-            ("STACKS_CARD_ID".to_string(), card_id),
-        ];
-        let cols = self.cols.saturating_sub(4).max(20);
-        let rows = self.rows.saturating_sub(6).max(5);
-        let sink = self.pty_sink();
-        let already_open = !self.terminals.is_empty();
-        match self
-            .terminals
-            .open_program_raw(&worktree, &lazygit, &[], cols, rows, &env, sink)
-        {
-            Ok(id) => {
-                if already_open {
-                    let focused = self.terminals.focused.clone();
-                    self.terminals.tree =
-                        self.terminals
-                            .tree
-                            .split(&focused, id.clone(), SplitDirection::Row);
-                }
-                self.terminals.focused = id;
-                self.detail_tab = DetailTab::Terminal;
-                self.terminal_focus = true;
-                self.overlay = None;
-                self.message = format!("lazygit opened in {worktree}");
-                self.error = None;
-            }
-            Err(error) => self.error = Some(error),
-        }
     }
 
     // ---- native Pi panes ---------------------------------------------
@@ -2566,33 +2511,6 @@ impl App {
             "INPUT"
         }
     }
-}
-
-fn find_lazygit() -> Option<std::path::PathBuf> {
-    if let Some(path) = std::env::var_os("LAZYGIT_PATH") {
-        let path = std::path::PathBuf::from(path);
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    if let Some(paths) = std::env::var_os("PATH") {
-        for directory in std::env::split_paths(&paths) {
-            let candidate = directory.join("lazygit");
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let output = std::process::Command::new(shell)
-        .args(["-lic", "command -v lazygit"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!path.is_empty()).then(|| std::path::PathBuf::from(path))
 }
 
 /// Subsequence fuzzy match.

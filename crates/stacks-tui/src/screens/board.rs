@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, BoardRowKind},
+    app::{App, BoardRowKind, Focus},
     theme::status_glyph,
     widgets::{card_list::card_line, truncate},
 };
@@ -29,26 +29,17 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme;
-    let block = Block::default()
-        .borders(Borders::RIGHT)
-        .border_style(Style::default().fg(theme.panel))
-        .style(Style::default().bg(theme.panel));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    let mut lines = Vec::new();
-    lines.push(Line::from(Span::styled(
-        "PROJECTS",
-        Style::default().fg(theme.dim).add_modifier(Modifier::BOLD),
-    )));
+    let focused = app.focus == Focus::Sidebar;
     let total = app
         .board
         .as_ref()
         .map(|board| board.cards.len())
         .unwrap_or(0);
+    let mut lines = Vec::new();
     let selected = app.project_scope.is_none();
     lines.push(Line::from(vec![
         Span::styled(
-            if selected { "◆ " } else { "  " },
+            if selected { "◆ " } else { "◇ " },
             Style::default().fg(theme.accent),
         ),
         Span::styled(
@@ -82,9 +73,27 @@ fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Ctrl-B hide · Ctrl-F scope",
+        "Ctrl-B hide · Ctrl-F",
         Style::default().fg(theme.dim),
     )));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(if focused { theme.accent } else { theme.muted }))
+        .title(Span::styled(
+            format!(
+                " PROJECTS {} ",
+                app.board
+                    .as_ref()
+                    .map(|board| board.projects.len())
+                    .unwrap_or(0)
+            ),
+            Style::default()
+                .fg(if focused { theme.accent } else { theme.dim })
+                .add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(theme.panel));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(theme.panel)),
         inner,
@@ -93,6 +102,29 @@ fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_cards(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme;
+    let focused = app.focus == Focus::Board;
+    let scope = app
+        .selected_project()
+        .map(|project| project.name.clone())
+        .unwrap_or_else(|| "All projects".into());
+    let visible = app
+        .selected_project()
+        .map(|project| app.project_count(&project.id))
+        .or_else(|| app.board.as_ref().map(|board| board.cards.len()))
+        .unwrap_or(0);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(if focused { theme.accent } else { theme.muted }))
+        .title(Span::styled(
+            format!(" CARDS · {scope} · {visible} "),
+            Style::default()
+                .fg(if focused { theme.accent } else { theme.dim })
+                .add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(theme.canvas));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let area = inner;
     if app.board.is_none() {
         frame.render_widget(
             Paragraph::new(vec![

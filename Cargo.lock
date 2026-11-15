@@ -4157,6 +4157,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "stacks-core",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -4175,6 +4176,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs",
+ "ignore",
+ "libc",
  "portable-pty",
  "rusqlite",
  "serde",
@@ -4182,6 +4185,7 @@ dependencies = [
  "tempfile",
  "uuid",
  "vt100",
+ "wait-timeout",
 ]
 
 [[package]]

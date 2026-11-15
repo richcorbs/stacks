@@ -171,8 +171,34 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     render_context(frame, app, chunks[0]);
     let body = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(38), Constraint::Min(40)])
+        .constraints([Constraint::Length(40), Constraint::Min(40)])
         .split(chunks[1]);
+    let files_block = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .border_style(Style::default().fg(theme.muted))
+        .title(Span::styled(
+            format!(" FILES {} ", app.diff.files.len()),
+            Style::default().fg(theme.dim).add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(theme.panel));
+    let files_inner = files_block.inner(body[0]);
+    frame.render_widget(files_block, body[0]);
+    let diff_title = app
+        .diff
+        .path
+        .as_deref()
+        .map(|path| format!(" DIFF · {path} "))
+        .unwrap_or_else(|| " DIFF ".to_string());
+    let diff_block = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .border_style(Style::default().fg(theme.muted))
+        .title(Span::styled(
+            truncate(&diff_title, body[1].width.saturating_sub(2) as usize),
+            Style::default().fg(theme.dim).add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(theme.canvas));
+    let diff_inner = diff_block.inner(body[1]);
+    frame.render_widget(diff_block, body[1]);
 
     let rows = diff_rows(&app.diff.files, &app.diff.collapsed_dirs);
     let mut lines = Vec::new();
@@ -242,25 +268,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         "Space reviewed · n/p file · h/l fold",
         Style::default().fg(theme.dim),
     )));
-    let files_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(3)])
-        .split(body[0]);
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "CHANGED FILES",
-                Style::default().fg(theme.dim).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("  {}", app.diff.files.len()),
-                Style::default().fg(theme.dim),
-            ),
-        ]))
-        .style(Style::default().bg(theme.panel)),
-        files_chunks[0],
-    );
-    let height = files_chunks[1].height as usize;
+    let height = files_inner.height as usize;
     let selected_row = rows.iter().position(
         |row| matches!(row, DiffRowKind::File { index, .. } if *index == app.diff.selected),
     );
@@ -271,7 +279,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         Paragraph::new(lines)
             .style(Style::default().bg(theme.panel))
             .scroll((offset as u16, 0)),
-        files_chunks[1],
+        files_inner,
     );
 
     if let Some(parsed) = app.diff.parsed.as_ref() {
@@ -280,7 +288,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         let reviewed = app.diff.reviewed.contains(&path);
         diff_view::render(
             frame,
-            body[1],
+            diff_inner,
             DiffView {
                 parsed,
                 path: &path,
@@ -294,12 +302,12 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     } else if app.diff.files.is_empty() {
         frame.render_widget(
             Paragraph::new("No diff to show.").style(Style::default().fg(theme.dim)),
-            body[1],
+            diff_inner,
         );
     } else {
         frame.render_widget(
             Paragraph::new("Loading diff…").style(Style::default().fg(theme.dim)),
-            body[1],
+            diff_inner,
         );
     }
 }
@@ -359,10 +367,6 @@ fn render_context(frame: &mut Frame, app: &App, area: Rect) {
             ));
         }
     }
-    spans.push(Span::styled(
-        "   L lazygit",
-        Style::default().fg(theme.accent),
-    ));
     frame.render_widget(
         Paragraph::new(Line::from(spans)).style(Style::default().bg(theme.panel)),
         area,

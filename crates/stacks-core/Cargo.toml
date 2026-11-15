@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+ignore.workspace = true
+libc.workspace = true
 dirs.workspace = true
 portable-pty.workspace = true
 rusqlite.workspace = true
@@ -16,6 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 vt100.workspace = true
+wait-timeout.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
