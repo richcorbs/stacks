@@ -117,6 +117,33 @@ This is a deliberate scope change from the card text:
   refinement (`finishExternalCardRefinement`) and parent reassignment remain
   GUI-only and return explicit errors.
 
+## Showcase / demo
+
+A reproducible screen walkthrough lives in
+`crates/stacks-tui/examples/demo-screens.script`. It opens the real board,
+palette, project picker, card #325, backend actions, DIFF, a real PTY, the
+native Pi pane, the global terminal, and help.
+
+```bash
+# Copy the live DB so the demo cannot write to the real one.
+sqlite3 "$HOME/Library/Application Support/stacks/workflow.sqlite3" \
+  ".backup '/tmp/stacks-demo.sqlite3'"
+mkdir -p /tmp/stacks-tui-demo-data
+printf '{"tui_confirmation_delay_ms":0,"tui_hide_done":false}\n' \
+  > /tmp/stacks-tui-demo-data/settings.json
+
+STACKS_TUI_DATA_DIR=/tmp/stacks-tui-demo-data \
+STACKS_TUI_DB=/tmp/stacks-demo.sqlite3 \
+PI_PATH="$PWD/crates/stacks-tui/examples/fake-pi-demo.sh" \
+cargo run -p stacks-tui -- \
+  --script crates/stacks-tui/examples/demo-screens.script --cols 140 --rows 45
+```
+
+The interactive path was also exercised through a real PTY with a vt100
+emulator (`pyte`): board, help, palette, project picker, settings, filter,
+card detail, DIFF, a shell command, the native Pi pane, the global terminal,
+and quit all passed.
+
 ## Validation
 
 ```

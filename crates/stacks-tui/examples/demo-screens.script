@@ -1,0 +1,57 @@
+label Board · real Stacks data
+dump
+key ctrl-p
+type settings
+assert contains Command palette
+label Command palette · fuzzy
+dump
+key esc
+key ctrl-o
+label Project switcher
+dump
+key esc
+key /
+type keyboard-only
+key esc
+key enter
+wait 1200
+label Card #325 · Overview
+dump
+key a
+label Card #325 · backend actions
+dump
+key esc
+key 3
+wait 2000
+label Card #325 · DIFF
+dump
+key 4
+wait 1000
+paste echo PTY DEMO OK
+key enter
+wait 800
+label Card #325 · real PTY terminal
+dump
+key ctrl-w
+key n
+key esc
+key enter
+wait 900
+key 2
+wait 1200
+label Card #325 · native Pi pane
+dump
+key ctrl-w
+key n
+key esc
+key ctrl-g
+wait 700
+paste echo GLOBAL TERMINAL OK
+key enter
+wait 800
+label Global terminal overlay
+dump
+key ctrl-g
+key ?
+label Help · generated keymap
+dump
