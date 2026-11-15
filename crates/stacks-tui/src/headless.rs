@@ -105,6 +105,10 @@ pub fn run_script(
                     .and_then(|value| value.parse().ok())
                     .ok_or_else(|| context("resize needs cols rows".into()))?;
             }
+            "label" => {
+                println!("\n=== {rest} ===");
+                let _ = std::io::stdout().flush();
+            }
             "dump" => {
                 let screen = dump(app, *cols, *rows);
                 print!("{screen}");

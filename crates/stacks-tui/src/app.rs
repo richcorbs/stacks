@@ -1810,10 +1810,35 @@ impl App {
             }
         }
         items.sort_by(|left, right| {
-            let left_usage = self.usage.get(&left.id).copied().unwrap_or(0);
-            let right_usage = self.usage.get(&right.id).copied().unwrap_or(0);
-            right_usage
-                .cmp(&left_usage)
+            // Literal substring matches (e.g. "settings") must beat fuzzy
+            // card-title matches; then prefer recency, then stable labels.
+            let rank = |label: &str| {
+                if !query.is_empty() && label.to_ascii_lowercase().contains(&query) {
+                    0
+                } else {
+                    1
+                }
+            };
+            let kind = |action: &PaletteAction| {
+                if query.is_empty() {
+                    return 0;
+                }
+                match action {
+                    PaletteAction::Key(_) => 0,
+                    PaletteAction::Project(_) => 1,
+                    PaletteAction::Card(_) => 2,
+                }
+            };
+            kind(&left.action)
+                .cmp(&kind(&right.action))
+                .then(rank(&left.label).cmp(&rank(&right.label)))
+                .then(
+                    self.usage
+                        .get(&right.id)
+                        .copied()
+                        .unwrap_or(0)
+                        .cmp(&self.usage.get(&left.id).copied().unwrap_or(0)),
+                )
                 .then(left.label.cmp(&right.label))
         });
         self.palette_items = items;

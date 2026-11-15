@@ -81,46 +81,69 @@ pub fn lines(markdown: &str, width: usize, theme: Theme) -> Vec<Line<'static>> {
             continue;
         }
         for line in wrap(raw, width) {
-            output.push(inline_code(&line, theme));
+            output.push(inline(&line, theme));
         }
     }
     output
 }
 
-fn inline_code(line: &str, theme: Theme) -> Line<'static> {
+fn inline(line: &str, theme: Theme) -> Line<'static> {
     let mut spans = Vec::new();
     let mut rest = line;
-    while let Some(start) = rest.find('`') {
-        let (before, after) = rest.split_at(start);
-        if !before.is_empty() {
-            spans.push(Span::styled(
-                before.to_string(),
-                Style::default().fg(theme.text),
-            ));
-        }
-        let after = &after[1..];
-        if let Some(end) = after.find('`') {
-            spans.push(Span::styled(
-                after[..end].to_string(),
-                Style::default().fg(theme.info).bg(theme.raised),
-            ));
-            rest = &after[end + 1..];
-        } else {
-            spans.push(Span::styled(
-                format!("`{after}"),
-                Style::default().fg(theme.text),
-            ));
-            rest = "";
+    let mut bold = false;
+    while !rest.is_empty() {
+        let code = rest.find('`');
+        let emphasis = rest.find("**");
+        let next = match (code, emphasis) {
+            (Some(code), Some(emphasis)) if emphasis < code => Some((emphasis, SpanKind::Emphasis)),
+            (Some(code), _) => Some((code, SpanKind::Code)),
+            (None, Some(emphasis)) => Some((emphasis, SpanKind::Emphasis)),
+            (None, None) => None,
+        };
+        let Some((index, kind)) = next else {
+            push_text(&mut spans, rest, bold, theme);
             break;
+        };
+        let (before, after) = rest.split_at(index);
+        push_text(&mut spans, before, bold, theme);
+        match kind {
+            SpanKind::Code => {
+                let after = &after[1..];
+                if let Some(end) = after.find('`') {
+                    spans.push(Span::styled(
+                        after[..end].to_string(),
+                        Style::default().fg(theme.info).bg(theme.raised),
+                    ));
+                    rest = &after[end + 1..];
+                } else {
+                    push_text(&mut spans, &format!("`{after}"), bold, theme);
+                    rest = "";
+                }
+            }
+            SpanKind::Emphasis => {
+                bold = !bold;
+                rest = &after[2..];
+            }
         }
-    }
-    if !rest.is_empty() {
-        spans.push(Span::styled(
-            rest.to_string(),
-            Style::default().fg(theme.text),
-        ));
     }
     Line::from(spans)
+}
+
+#[derive(Clone, Copy)]
+enum SpanKind {
+    Code,
+    Emphasis,
+}
+
+fn push_text(spans: &mut Vec<Span<'static>>, text: &str, bold: bool, theme: Theme) {
+    if text.is_empty() {
+        return;
+    }
+    let mut style = Style::default().fg(theme.text);
+    if bold {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    spans.push(Span::styled(text.to_string(), style));
 }
 
 #[cfg(test)]

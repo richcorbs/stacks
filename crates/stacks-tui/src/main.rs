@@ -45,7 +45,7 @@ fn usage() -> &'static str {
        --dump-screen    render once to stdout and exit (TestBackend)\n\
        --cols / --rows  size for --dump-screen / --script\n\
        --script FILE    replay keys: `key ctrl-p`, `type Arcasa`, `wait 200`,\n\
-                        `assert contains …`, `resize 120 40`, `dump`\n\
+                        `assert contains …`, `resize 120 40`, `dump`, `label …`\n\
        -h, --help       this help\n\
      \n\
      Single instance: stacks-tui serves automation.sock; a running Stacks (GUI or TUI)\n\

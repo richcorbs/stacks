@@ -169,6 +169,23 @@ fn palette_fuzzy_matches_cards_and_projects() {
 }
 
 #[test]
+fn palette_prefers_a_literal_settings_command_over_fuzzy_card_titles() {
+    let (mut app, _dir) = app();
+    app.handle_key(Key::Ctrl('p'));
+    app.type_text("settings");
+    let first = &app.palette_items[0];
+    assert!(
+        first.label.to_ascii_lowercase().contains("settings"),
+        "first palette item was {:?}",
+        first.label
+    );
+    assert!(
+        first.hint != "Card",
+        "first palette item was a card: {first:?}"
+    );
+}
+
+#[test]
 fn help_renders_the_keymap_table() {
     let (mut app, _dir) = app();
     app.handle_key(Key::Char('?'));

@@ -131,33 +131,58 @@ pub fn truncate(text: &str, width: usize) -> String {
 }
 
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
-    use unicode_width::UnicodeWidthChar;
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
     let width = width.max(1);
     let mut lines = Vec::new();
     for raw in text.split('\n') {
-        let mut line = String::new();
-        let mut used = 0;
-        for character in raw.chars() {
-            if character == '\t' {
-                let spaces = 4 - (used % 4);
-                for _ in 0..spaces {
-                    line.push(' ');
+        if raw.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let leading = raw.len() - raw.trim_start_matches(' ').len();
+        let indent = &raw[..leading];
+        let content = &raw[leading..];
+        let mut current = indent.to_string();
+        let mut used = UnicodeWidthStr::width(indent);
+        for word in content.split(' ').filter(|word| !word.is_empty()) {
+            let word_width = UnicodeWidthStr::width(word);
+            let needs_space = !current.trim().is_empty();
+            if used + usize::from(needs_space) + word_width <= width {
+                if needs_space {
+                    current.push(' ');
+                    used += 1;
                 }
-                used += spaces;
+                current.push_str(word);
+                used += word_width;
                 continue;
             }
-            let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-            if used + character_width > width && used > 0 {
-                while line.ends_with(' ') {
-                    line.pop();
-                }
-                lines.push(std::mem::take(&mut line));
-                used = 0;
+            if !current.trim().is_empty() {
+                lines.push(current.trim_end().to_string());
             }
-            line.push(character);
-            used += character_width;
+            current.clear();
+            if word_width <= width {
+                current.push_str(word);
+                used = word_width;
+                continue;
+            }
+            // A single word longer than the viewport: hard-break it.
+            let mut chunk = String::new();
+            let mut chunk_width = 0;
+            for character in word.chars() {
+                let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
+                if chunk_width + character_width > width && !chunk.is_empty() {
+                    lines.push(std::mem::take(&mut chunk));
+                    chunk_width = 0;
+                }
+                chunk.push(character);
+                chunk_width += character_width;
+            }
+            current = chunk;
+            used = chunk_width;
         }
-        lines.push(line);
+        if !current.is_empty() || lines.is_empty() {
+            lines.push(current);
+        }
     }
     if lines.is_empty() {
         lines.push(String::new());
@@ -188,6 +213,8 @@ mod tests {
     #[test]
     fn wrapping_splits_on_display_width() {
         assert_eq!(wrap("abc def", 4), vec!["abc", "def"]);
+        assert_eq!(wrap("abc   def", 5), vec!["abc", "def"]);
+        assert_eq!(wrap("  indented line", 8), vec!["indented", "line"]);
         assert_eq!(wrap("a\nb", 10), vec!["a", "b"]);
     }
 }
