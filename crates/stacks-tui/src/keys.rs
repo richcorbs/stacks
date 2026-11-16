@@ -9,7 +9,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum Key {
     Char(char),
     Ctrl(char),
-    Cmd(char),
     Alt(char),
     Enter,
     Esc,
@@ -40,14 +39,11 @@ impl Key {
         }
         let modifiers = event.modifiers;
         let ctrl = modifiers.contains(KeyModifiers::CONTROL);
-        let command = modifiers.intersects(KeyModifiers::SUPER | KeyModifiers::META);
         let alt = modifiers.contains(KeyModifiers::ALT);
         let shift = modifiers.contains(KeyModifiers::SHIFT);
         Some(match event.code {
             KeyCode::Char(character) => {
-                if command {
-                    Key::Cmd(character.to_ascii_lowercase())
-                } else if ctrl {
+                if ctrl {
                     Key::Ctrl(character.to_ascii_lowercase())
                 } else if alt {
                     Key::Alt(character)
@@ -101,15 +97,6 @@ impl Key {
             "delete" | "del" => Key::Delete,
             "insert" => Key::Insert,
             "space" => Key::Char(' '),
-            _ if lower.starts_with("cmd-") => {
-                let rest = &token[4..];
-                let mut chars = rest.chars();
-                let character = chars.next()?;
-                if chars.next().is_some() {
-                    return None;
-                }
-                Key::Cmd(character.to_ascii_lowercase())
-            }
             _ if lower.starts_with("ctrl-") => {
                 let rest = &token[5..];
                 let mut chars = rest.chars();
@@ -139,7 +126,6 @@ impl Key {
             Key::Char(' ') => "Space".into(),
             Key::Char(character) => character.to_string(),
             Key::Ctrl(character) => format!("Ctrl-{}", character.to_ascii_uppercase()),
-            Key::Cmd(character) => format!("Cmd-{}", character.to_ascii_uppercase()),
             Key::Alt(character) => format!("Alt-{character}"),
             Key::Enter => "Enter".into(),
             Key::Esc => "Esc".into(),
@@ -211,7 +197,7 @@ pub const KEYMAP: &[KeyHelp] = &[
         group: "Card detail",
         entries: &[
             (
-                "1..6 / Cmd-1..6",
+                "1..6",
                 "Overview / Agent / Diff / Terminal / Server / Console",
             ),
             ("a", "Actions menu"),

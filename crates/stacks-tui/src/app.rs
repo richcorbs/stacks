@@ -950,15 +950,6 @@ impl App {
             self.request_quit();
             return;
         }
-        if let Key::Cmd(character @ '1'..='6') = key {
-            if self.screen == Screen::Detail && self.detail.is_some() {
-                let index = character as usize - '1' as usize;
-                if let Some(tab) = self.visible_detail_tabs().get(index) {
-                    self.select_tab(*tab);
-                }
-            }
-            return;
-        }
         if self.screen == Screen::Detail
             && self.detail_tab == DetailTab::Agent
             && self.terminal_focus
@@ -1281,7 +1272,7 @@ impl App {
                 }
                 self.close_detail();
             }
-            Key::Char(character @ '1'..='6') | Key::Cmd(character @ '1'..='6') => {
+            Key::Char(character @ '1'..='6') => {
                 let index = character as usize - '1' as usize;
                 let tabs = self.visible_detail_tabs();
                 if let Some(tab) = tabs.get(index) {
@@ -1822,7 +1813,6 @@ impl App {
         let key = match key {
             Key::Char(character) => stacks_core::terminal::Key::Char(*character),
             Key::Ctrl(character) => stacks_core::terminal::Key::Ctrl(*character),
-            Key::Cmd(_) => return None,
             Key::Alt(character) => stacks_core::terminal::Key::Alt(*character),
             Key::Enter => stacks_core::terminal::Key::Enter,
             Key::Esc => stacks_core::terminal::Key::Esc,

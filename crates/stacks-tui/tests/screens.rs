@@ -124,13 +124,13 @@ fn board_shows_real_projects_and_groups() {
 }
 
 #[test]
-fn cmd_number_selects_detail_tabs() {
+fn number_selects_detail_tabs() {
     let (mut app, _dir) = app();
     app.handle_key(Key::Enter);
     app.pump(1_000);
-    app.handle_key(Key::Cmd('3'));
+    app.handle_key(Key::Char('3'));
     assert_eq!(app.detail_tab, stacks_tui::app::DetailTab::Diff);
-    app.handle_key(Key::Cmd('2'));
+    app.handle_key(Key::Char('2'));
     assert_eq!(app.detail_tab, stacks_tui::app::DetailTab::Agent);
     assert_eq!(app.screen, stacks_tui::app::Screen::Detail);
 }
