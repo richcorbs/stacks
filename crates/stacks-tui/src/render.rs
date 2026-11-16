@@ -48,10 +48,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // The board already carries scope/count in its CARDS panel border; do not
     // spend a row repeating it above the project sidebar.
     let header_height = if app.screen == Screen::Board { 0 } else { 1 };
-    let status_height = if app.screen == Screen::Board
-        || app.error.is_some()
+    // The board keeps its footer to hints; status/position is only worth a
+    // row while something is actually wrong or in flight.
+    let status_height = if app.error.is_some()
         || app.in_flight > 0
-        || (!app.message.is_empty() && app.message != "Ready")
+        || (app.screen != Screen::Board && !app.message.is_empty() && app.message != "Ready")
     {
         1
     } else {
@@ -169,16 +170,6 @@ fn render_status(frame: &mut Frame, app: &mut App, area: Rect) {
         spans.push(Span::styled(
             format!(" {}", app.message),
             Style::default().fg(theme.muted),
-        ));
-    }
-    let position = match app.screen {
-        Screen::Board => screens::board::position(app),
-        Screen::Detail | Screen::Project => None,
-    };
-    if let Some(position) = position {
-        spans.push(Span::styled(
-            format!("  {position}"),
-            Style::default().fg(theme.dim),
         ));
     }
     if app.in_flight > 0 {

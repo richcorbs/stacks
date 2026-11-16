@@ -5,7 +5,8 @@
 │                         ││▾ IN PROGRESS   0                                                                          │
 │h or Tab to browse projec││▾ BACKLOG   1                                                                              │
 │                         ││  ○   #325 Build a keyboard-only Rust TUI  Arcasa                                          │
-│                         ││▸ DONE   1                                                                                 │
+│                         ││                                                                                           │
+│                         ││                                                                                           │
 │                         ││                                                                                           │
 │                         ││                                                                                           │
 │                         ││                                                                                           │
@@ -36,5 +37,4 @@
 │                         ││                                                                                           │
 │                         ││                                                                                           │
 └─────────────────────────┘└───────────────────────────────────────────────────────────────────────────────────────────┘
- Ready  1/2  ◆ ready
 j/k move  ·  Enter open  ·  h/l fold  ·  n new  ·  w workspace  ·  / filter  ·  Ctrl-F scope  ·  Ctrl-A done  ·  ? help
