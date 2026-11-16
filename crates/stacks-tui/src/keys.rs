@@ -202,6 +202,7 @@ pub const KEYMAP: &[KeyHelp] = &[
             ("D", "Delete the selected project"),
             ("S", "Sync Superthread cards"),
             ("P", "Configure Superthread provider"),
+            ("Ctrl-D", "Discover provider boards in P"),
             ("w", "Open project workspace"),
             (
                 "1..7",

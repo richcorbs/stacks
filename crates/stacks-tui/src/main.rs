@@ -27,6 +27,7 @@ struct Args {
     rows: u16,
     script: Option<PathBuf>,
     db: Option<PathBuf>,
+    shared: bool,
 }
 
 fn main() {
@@ -41,7 +42,8 @@ fn usage() -> &'static str {
      \n\
      Usage: stacks-tui [--db PATH] [--dump-screen] [--cols N --rows N] [--script FILE]\n\
      \n\
-       --db PATH        workflow.sqlite3 to read/write (default: shipped Stacks data)\n\
+       --db PATH        workflow.sqlite3 to read/write (default: shipped Stacks data)
+       --shared         run alongside the other Stacks client using a TUI-specific socket\n\
        --dump-screen    render once to stdout and exit (TestBackend)\n\
        --cols / --rows  size for --dump-screen / --script\n\
        --script FILE    replay keys: `key ctrl-p`, `type Arcasa`, `wait 200`,\n\
@@ -59,6 +61,7 @@ fn parse_args() -> Result<Option<Args>, String> {
         rows: 40,
         script: None,
         db: None,
+        shared: false,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -90,6 +93,7 @@ fn parse_args() -> Result<Option<Args>, String> {
                     iter.next().ok_or_else(|| "--db needs a path".to_string())?,
                 ));
             }
+            "--shared" => args.shared = true,
             other => return Err(format!("unknown argument {other:?}\n\n{}", usage())),
         }
     }
@@ -120,9 +124,18 @@ fn run() -> Result<(), String> {
             None
         }
     };
-    let socket = automation_socket_path();
+    let socket = if args.shared {
+        std::env::var_os("STACKS_TUI_AUTOMATION_SOCKET")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("stacks-tui-shared-automation.sock"))
+    } else {
+        automation_socket_path()
+    };
     let headless_mode = args.dump || args.script.is_some();
     let mut app = App::new(Arc::clone(&store), socket.clone(), board, headless_mode);
+    if args.shared {
+        app.message = "Shared mode: another Stacks client may be writing the same database".into();
+    }
 
     if headless_mode {
         let mut cols = args.cols;

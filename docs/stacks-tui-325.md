@@ -65,6 +65,9 @@ check` still works.
 - `Ctrl-,` settings cover confirmation delay, hide-Done, copy-on-select,
   scrollback, quit/delete confirmations, accent, and terminal font size.
   Values are patched into the shared `settings.json`.
+- `--shared` runs the TUI alongside another Stacks client on a TUI-specific
+  automation socket. Both clients still share the database, so concurrent
+  writes should be treated as a deliberate opt-in.
 - Attention: agent lifecycle changes for a non-selected card emit a terminal
   bell; the board card status is the durable signal.
 - Superthread projects: `P` configures the provider (enabled state, space,
@@ -202,31 +205,24 @@ This is a deliberate scope change from the card text:
 ## Known gaps / follow-ups
 
 - Full `src-tauri` → `stacks-core` extraction (above).
-- Remote-deletion reconciliation and the durable provider outbox journal remain
-  GUI/kanban-side. Provider refinement re-fetches and validates the
-  authoritative parent/child hierarchy; provider sync retries Start/Done column
-  moves for local cards that still need one. The TUI imports cards and retires
-  locally deleted provider cards.
+- Provider refinement re-fetches and validates the authoritative parent/child
+  hierarchy. Provider sync reconciles remotely deleted inactive cards, retries
+  Start/Done column moves from the persisted card state, and retires locally
+  deleted cards. The TUI uses the card row as its durable operation marker
+  rather than the GUI's separate outbox journal.
 - Custom start-work setup commands, environment-creation cleanup, PR
   freshness/merge preflight parity.
 - Diff tree is lazygit-inspired but not lazygit: no line staging from the
   Stacks DIFF pane.
 - Reviewed marks are per-session (the GUI also keeps them in session state).
-- Session caches are in-memory: leaving/reopening a card or project preserves
-  processes while the TUI runs. The last card/project, active tab, and terminal
-  split layout are restored on restart as fresh PTYs; live processes and Agent
-  split state do not survive. `project_direct` layout persistence is not wired
-  into the TUI yet.
+- Session caches are in-memory while the TUI runs. The last card/project,
+  active tab, and terminal/Agent split layout are restored on restart by
+  relaunching fresh PTYs; the processes themselves cannot survive a client
+  restart. `project_direct` layout metadata is not reused.
 - Background refresh reloads the board and selected worktree status from SQLite
   and Git every 15s. Projects using GitHub delivery refresh PR, CI, draft,
-  conflict, and open/closed/merged state from `gh` every 60s. Review state and
-  remote-deletion reconciliation for Superthread cards are not ported. Provider
-  cards deleted locally are retired locally so sync cannot resurrect them;
-  provider sync retries pending Start/Done column moves. The durable operation
-  journal remains GUI-side.
-- Release runs Release / Build & test / Publish in a managed PTY; after a
-  successful Build & test, `t` confirms and relaunches the TUI with the
-  installed build.
+  conflict, and open/closed/merged state from `gh` every 60s. Superthread sync
+  reconciles remotely deleted inactive cards and retries pending column moves.
 - Kitty/sixel/inline image output degrades to text (see `DIVERGENCES.md`).
 - The automation socket accepts the card-tool subset Pi needs. Superthread
   refinement (`finishExternalCardRefinement`) and parent reassignment remain

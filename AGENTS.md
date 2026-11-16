@@ -324,7 +324,9 @@ Stacks > Reset Window Settings
 
 - Run `cargo run -p stacks-tui` (interactive), or `--dump-screen` / `--script`
   for agent-verifiable, deterministic TestBackend output.
-- The TUI is single-instance through `automation.sock`; it serves Pi's card
+- The TUI is single-instance through `automation.sock`; `--shared` uses a
+  TUI-specific socket so it can run beside the GUI, with shared-database writes
+  as an explicit opt-in. it serves Pi's card
   tools (`createLocalCard`, `updateLocalCard`, `finishLocalCardRefinement`,
   `startLocalCardWork`) and `agentLifecycle` from
   `src-tauri/resources/stacks-cards.ts`. The GUI ignores `agentLifecycle`
@@ -338,8 +340,8 @@ Stacks > Reset Window Settings
   selected project. Project notes write through to `projects.notes`; the project
   Agent uses a dedicated persistent session directory. Card and project PTYs
   are cached by id while the TUI runs; the last card/project, tab, and terminal
-  split layout are restored on restart as fresh PTYs. Live processes and Agent
-  splits are not restored. The
+  split layout (including Agent panes) are restored on restart as fresh PTYs.
+  The
   project sidebar supports `n` add, `e` edit (name/path/target/commands/release),
   and `D` delete with the no-active-work guard.
 - Agent lifecycle changes for a non-selected card emit a terminal bell.
@@ -351,7 +353,8 @@ Stacks > Reset Window Settings
   provider cards; linked provider children can be approved during refinement;
   locally deleted provider cards are retired against re-import. Provider
   refinement re-fetches and validates the authoritative hierarchy. Remote-deletion
-  reconciliation and the durable outbox remain in the GUI/kanban repository.
+  reconciliation is handled by TUI sync, which also retries pending column
+  moves from persisted card state.
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and
   per-file review/comment state. `c`/`C` add file/overall feedback and `s`
   sends the composed review prompt to the Agent Pi pane. Lazygit itself is not

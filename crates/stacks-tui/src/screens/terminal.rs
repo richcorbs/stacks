@@ -25,6 +25,7 @@ pub struct Pane {
     pub cwd: String,
     pub command: Option<String>,
     pub managed: bool,
+    pub agent: bool,
     pub session: Option<PtySession>,
     pub screen: Box<dyn TerminalScreen>,
     pub generation: Option<String>,
@@ -97,6 +98,7 @@ impl Pane {
         cwd: String,
         command: Option<String>,
         managed: bool,
+        agent: bool,
         cols: u16,
         rows: u16,
         scrollback: usize,
@@ -106,6 +108,7 @@ impl Pane {
             cwd,
             command,
             managed,
+            agent,
             session: None,
             screen: Box::new(Vt100Screen::new(cols, rows, scrollback)),
             generation: None,
@@ -125,6 +128,8 @@ pub struct SavedPane {
     pub cwd: String,
     pub command: Option<String>,
     pub managed: bool,
+    #[serde(default)]
+    pub agent: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +177,7 @@ impl TerminalWorkspace {
                 cwd: pane.cwd.clone(),
                 command: pane.command.clone(),
                 managed: pane.managed,
+                agent: pane.agent,
             })
             .collect::<Vec<_>>();
         panes.sort_by(|left, right| left.id.cmp(&right.id));
@@ -189,6 +195,7 @@ impl TerminalWorkspace {
         cols: u16,
         rows: u16,
         sink: PtySink,
+        agent_launch: Option<&NativeLaunch>,
     ) -> Result<(), String> {
         self.close_all();
         for pane in saved.panes {
@@ -197,20 +204,37 @@ impl TerminalWorkspace {
                 pane.cwd.clone(),
                 pane.command.clone(),
                 pane.managed,
+                pane.agent,
                 cols,
                 rows,
                 self.scrollback,
             );
-            let session = PtySession::spawn_with_env(
-                pane.id.clone(),
-                &pane.cwd,
-                pane.command.as_deref(),
-                pane.managed,
-                cols,
-                rows,
-                &[],
-                sink.clone(),
-            )?;
+            let session = if pane.agent {
+                let launch = agent_launch.ok_or_else(|| {
+                    "The Agent launch is unavailable while restoring this layout".to_string()
+                })?;
+                PtySession::spawn_program(
+                    pane.id.clone(),
+                    &launch.program,
+                    &launch.args,
+                    &pane.cwd,
+                    cols,
+                    rows,
+                    &launch.env,
+                    sink.clone(),
+                )?
+            } else {
+                PtySession::spawn_with_env(
+                    pane.id.clone(),
+                    &pane.cwd,
+                    pane.command.as_deref(),
+                    pane.managed,
+                    cols,
+                    rows,
+                    &[],
+                    sink.clone(),
+                )?
+            };
             next.generation = Some(session.generation.clone());
             next.session = Some(session);
             self.panes.insert(pane.id, next);
@@ -281,6 +305,7 @@ impl TerminalWorkspace {
             cwd.to_string(),
             command.map(str::to_string),
             managed_service,
+            false,
             cols,
             rows,
             self.scrollback,
@@ -320,6 +345,7 @@ impl TerminalWorkspace {
             cwd.to_string(),
             None,
             false,
+            true,
             cols,
             rows,
             self.scrollback,

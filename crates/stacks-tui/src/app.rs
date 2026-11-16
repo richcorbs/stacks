@@ -11,7 +11,7 @@ use stacks_core::{
     CardDetail, CardSnapshot, CardStatus, CardSummary, DeliveryStep, DeliveryWorkflow, Project,
     WorkGroup, WorkflowAction, WorkflowActionPresentation, WorktreeStatus,
     diff::{DiffFile, GitReviewContext, ParsedDiff},
-    pi,
+    pi::{self, NativeLaunch},
     pty::{PtyEvent, PtySink},
     release::{ReleaseAction, ReleaseSetup, ReleaseState},
     settings::{self, TuiPreferences},
@@ -249,6 +249,7 @@ pub enum Overlay {
     NewProject,
     EditProject,
     SuperthreadConfig,
+    ProviderBoards,
     EditCard,
     FinishRefinement,
     Filter,
@@ -525,6 +526,9 @@ pub struct App {
     pub new_project: Option<NewProjectState>,
     pub edit_project: Option<EditProjectState>,
     pub superthread_config: Option<SuperthreadConfigState>,
+    pub provider_boards: Vec<core_bridge::DiscoveredBoard>,
+    pub provider_board_cursor: usize,
+    pub pending_agent_layout: Option<SavedWorkspace>,
     pub new_card_draft: Option<(String, String, String)>,
     pub edit_card: Option<EditCardState>,
     pub refinement: Option<RefinementState>,
@@ -621,6 +625,9 @@ impl App {
             new_project: None,
             edit_project: None,
             superthread_config: None,
+            provider_boards: Vec::new(),
+            provider_board_cursor: 0,
+            pending_agent_layout: None,
             new_card_draft: None,
             edit_card: None,
             refinement: None,
@@ -1059,6 +1066,51 @@ impl App {
         let _ = settings::save_ui_state(&state);
     }
 
+    fn card_agent_launch(&self) -> Result<NativeLaunch, String> {
+        let detail = self
+            .detail
+            .as_ref()
+            .ok_or_else(|| "Card detail is not loaded".to_string())?;
+        let project = detail
+            .card
+            .project(
+                self.board
+                    .as_ref()
+                    .map(|board| board.projects.as_slice())
+                    .unwrap_or(&[]),
+            )
+            .cloned()
+            .ok_or_else(|| "The card project was not found".to_string())?;
+        pi::native_launch(
+            &project,
+            Some((detail.card.id.as_str(), "work")),
+            pi::project_trusted(&project.path),
+            &self.automation_socket,
+        )
+    }
+
+    fn project_agent_launch(&self) -> Result<NativeLaunch, String> {
+        let state = self
+            .project
+            .as_ref()
+            .ok_or_else(|| "Project workspace is not open".to_string())?;
+        let project = self
+            .board
+            .as_ref()
+            .and_then(|board| {
+                board
+                    .projects
+                    .iter()
+                    .find(|project| project.id == state.project_id)
+            })
+            .ok_or_else(|| "The project was not found".to_string())?;
+        pi::native_launch_project(
+            project,
+            pi::project_trusted(&project.path),
+            &self.automation_socket,
+        )
+    }
+
     fn restore_terminal_layout(&mut self, state: &settings::TuiUiState) {
         let Some(tab) = state.terminal_tab.as_deref() else {
             return;
@@ -1081,12 +1133,32 @@ impl App {
         let Ok(layout) = serde_json::from_str::<SavedWorkspace>(encoded) else {
             return;
         };
+        let agent_launch = if current == "Agent" {
+            if self.screen == Screen::Detail && self.detail.is_none() {
+                self.pending_agent_layout = Some(layout);
+                return;
+            }
+            let launch = if self.screen == Screen::Detail {
+                self.card_agent_launch()
+            } else {
+                self.project_agent_launch()
+            };
+            match launch {
+                Ok(launch) => Some(launch),
+                Err(error) => {
+                    self.error = Some(format!("Could not restore Agent layout: {error}"));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let cols = self.cols.saturating_sub(4).max(20);
         let rows = self.rows.saturating_sub(8).max(5);
         let sink = self.pty_sink();
         match self
             .active_workspace_mut()
-            .restore(layout, cols, rows, sink)
+            .restore(layout, cols, rows, sink, agent_launch.as_ref())
         {
             Ok(()) => self.terminal_focus = true,
             Err(error) => self.error = Some(format!("Could not restore terminal layout: {error}")),
@@ -1215,6 +1287,19 @@ impl App {
                         self.error = Some(format!("Superthread sync failed: {error}"))
                     }
                     Err(_) => {}
+                }
+            }
+            CoreEvent::ProviderDiscovered(result) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                match result {
+                    Ok(boards) => {
+                        self.provider_boards = boards;
+                        self.provider_board_cursor = 0;
+                        self.overlay = Some(Overlay::ProviderBoards);
+                        self.message =
+                            format!("Choose a board ({} found)", self.provider_boards.len());
+                    }
+                    Err(error) => self.error = Some(format!("Discovery failed: {error}")),
                 }
             }
             CoreEvent::SuperthreadConfigured { project_id, result } => {
@@ -1379,7 +1464,35 @@ impl App {
                             self.refresh_diff();
                         }
                         if self.detail_tab.is_pi() {
-                            self.ensure_pi_pane(self.detail_tab);
+                            if let Some(layout) = self.pending_agent_layout.take() {
+                                match self.card_agent_launch() {
+                                    Ok(launch) => {
+                                        let cols = self.cols.saturating_sub(4).max(20);
+                                        let rows = self.rows.saturating_sub(8).max(5);
+                                        let sink = self.pty_sink();
+                                        match self.work.restore(
+                                            layout,
+                                            cols,
+                                            rows,
+                                            sink,
+                                            Some(&launch),
+                                        ) {
+                                            Ok(()) => self.terminal_focus = true,
+                                            Err(error) => {
+                                                self.error = Some(format!(
+                                                    "Could not restore Agent layout: {error}"
+                                                ))
+                                            }
+                                        }
+                                    }
+                                    Err(error) => {
+                                        self.error =
+                                            Some(format!("Could not restore Agent layout: {error}"))
+                                    }
+                                }
+                            } else {
+                                self.ensure_pi_pane(self.detail_tab);
+                            }
                         }
                     }
                     Err(error) => self.error = Some(error),
@@ -3809,6 +3922,74 @@ impl App {
         }
     }
 
+    fn discover_provider_boards(&mut self) {
+        let Some(state) = self.superthread_config.as_ref() else {
+            return;
+        };
+        if state.spaces.value.trim().is_empty() {
+            self.message = "Enter the Superthread space before discovering".into();
+            return;
+        }
+        self.in_flight += 1;
+        self.message = "Discovering Superthread boards…".into();
+        core_bridge::discover_superthread_boards(
+            state.spaces.value.trim().to_string(),
+            state.token_env.value.trim().to_string(),
+            self.sender.clone(),
+        );
+    }
+
+    fn handle_provider_boards_key(&mut self, key: Key) {
+        match key {
+            Key::Esc => self.overlay = Some(Overlay::SuperthreadConfig),
+            Key::Char('j') | Key::Down => {
+                self.provider_board_cursor = (self.provider_board_cursor + 1)
+                    .min(self.provider_boards.len().saturating_sub(1));
+            }
+            Key::Char('k') | Key::Up => {
+                self.provider_board_cursor = self.provider_board_cursor.saturating_sub(1);
+            }
+            Key::Enter => self.choose_provider_board(),
+            _ => {}
+        }
+    }
+
+    fn choose_provider_board(&mut self) {
+        let Some(board) = self.provider_boards.get(self.provider_board_cursor) else {
+            return;
+        };
+        let incoming = board
+            .lists
+            .iter()
+            .filter(|list| list.behavior != "started" && list.behavior != "closed")
+            .map(|list| list.id.clone())
+            .collect::<Vec<_>>();
+        let in_progress = board
+            .lists
+            .iter()
+            .find(|list| list.behavior == "started")
+            .map(|list| list.id.clone())
+            .unwrap_or_default();
+        let done = board
+            .lists
+            .iter()
+            .find(|list| list.behavior == "closed")
+            .map(|list| list.id.clone())
+            .unwrap_or_default();
+        let default_incoming = incoming.first().cloned().unwrap_or_default();
+        let board_id = board.id.clone();
+        let incoming = incoming.join(", ");
+        if let Some(state) = self.superthread_config.as_mut() {
+            state.board_id = TextInput::new(board_id);
+            state.incoming = TextInput::new(incoming);
+            state.default_incoming = TextInput::new(default_incoming);
+            state.in_progress = TextInput::new(in_progress);
+            state.done = TextInput::new(done);
+        }
+        self.overlay = Some(Overlay::SuperthreadConfig);
+        self.provider_boards.clear();
+    }
+
     fn submit_superthread_config(&mut self) {
         let Some(state) = self.superthread_config.as_ref() else {
             return;
@@ -3856,6 +4037,7 @@ impl App {
                 self.overlay = None;
             }
             Key::Ctrl('s') => self.submit_superthread_config(),
+            Key::Ctrl('d') => self.discover_provider_boards(),
             Key::Tab => state.focus = (state.focus + 1) % FIELDS,
             Key::BackTab => state.focus = (state.focus + FIELDS - 1) % FIELDS,
             Key::Enter if state.focus == 0 => state.enabled = !state.enabled,
@@ -4545,6 +4727,10 @@ impl App {
             }
             Overlay::SuperthreadConfig => {
                 self.handle_superthread_config_key(key);
+                true
+            }
+            Overlay::ProviderBoards => {
+                self.handle_provider_boards_key(key);
                 true
             }
             Overlay::EditCard => {

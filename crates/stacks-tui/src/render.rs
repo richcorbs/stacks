@@ -231,9 +231,13 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
         Some(Overlay::EditProject) => vec![("Tab", "field"), ("Ctrl-S", "save"), ("Esc", "cancel")],
         Some(Overlay::SuperthreadConfig) => vec![
             ("Tab", "field"),
+            ("Ctrl-D", "discover boards"),
             ("Ctrl-S", "validate & save"),
             ("Esc", "cancel"),
         ],
+        Some(Overlay::ProviderBoards) => {
+            vec![("j/k", "board"), ("Enter", "select"), ("Esc", "back")]
+        }
         Some(Overlay::FinishRefinement) => vec![
             ("Ctrl-S", "save & finish"),
             ("Alt-Enter", "newline"),

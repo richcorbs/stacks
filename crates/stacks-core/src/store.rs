@@ -2757,6 +2757,13 @@ impl CardStore {
         let now = unix_timestamp();
         let mut local_ids = HashMap::<String, String>::new();
         let mut parents = HashMap::<String, Option<String>>::new();
+        let provider_seen = cards
+            .iter()
+            .filter_map(|card| {
+                let id = card.id.trim();
+                (!id.is_empty() && !card.title.trim().is_empty()).then(|| id.to_string())
+            })
+            .collect::<HashSet<_>>();
         for card in &cards {
             let external_id = card.id.trim();
             if external_id.is_empty() || card.title.trim().is_empty() {
@@ -2896,6 +2903,32 @@ impl CardStore {
                 params![board_id, project_id],
             )
             .context("record Superthread board")?;
+        let local_rows = {
+            let mut statement = transaction.prepare(
+                "SELECT id, external_id FROM kanban_cards
+                 WHERE project_id=?1 AND external_provider='superthread' AND in_scope=1",
+            )?;
+            statement
+                .query_map([project_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .context("read local provider cards")?
+        };
+        for (local_id, external_id) in local_rows {
+            if provider_seen.contains(&external_id) {
+                continue;
+            }
+            transaction
+                .execute(
+                    "UPDATE kanban_cards SET in_scope=0, updated_at=?1
+                     WHERE id=?2 AND status IN ('needs_refinement','needs_refinement_input','ready')
+                       AND NOT EXISTS(SELECT 1 FROM card_environments e WHERE e.card_id=?2)
+                       AND NOT EXISTS(SELECT 1 FROM card_pull_requests pr WHERE pr.card_id=?2)",
+                    params![now, local_id],
+                )
+                .context("hide remotely deleted provider card")?;
+        }
         transaction.commit().context("commit Superthread sync")?;
         // Retry provider column moves for cards whose local workflow advanced
         // while a direct move was unavailable. This is a lightweight outbox

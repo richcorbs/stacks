@@ -50,6 +50,7 @@ pub enum CoreEvent {
         project_id: String,
         result: Result<(), String>,
     },
+    ProviderDiscovered(Result<Vec<crate::core_bridge::DiscoveredBoard>, String>),
     ReleaseInfo {
         project_id: String,
         result: Result<crate::core_bridge::ReleaseInfo, String>,

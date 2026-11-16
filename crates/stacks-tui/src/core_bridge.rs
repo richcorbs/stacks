@@ -10,6 +10,7 @@ use stacks_core::store::CardStore;
 use stacks_core::{
     diff::{changed_files, file_diff, review_context, worktree_status},
     release::{ReleaseAction, ReleaseSetup, ReleaseState},
+    superthread::SuperthreadList,
 };
 
 use crate::event::{CoreEvent, EventSender};
@@ -205,6 +206,50 @@ pub fn sync_superthread_card_status(store: Store, card_id: String, sender: Event
             .sync_superthread_card_status(&card_id, &service)
             .map_err(|error| error.to_string());
         sender.send(CoreEvent::ProviderCardSynced(result));
+    });
+}
+
+#[derive(Debug)]
+pub struct DiscoveredBoard {
+    pub id: String,
+    pub title: String,
+    pub lists: Vec<SuperthreadList>,
+}
+
+pub fn discover_superthread_boards(space: String, token_env: String, sender: EventSender) {
+    spawn(sender.clone(), "superthread-discovery", move |sender| {
+        let result = (|| {
+            let service = stacks_core::superthread::SuperthreadService::default();
+            service
+                .configure_token_env(&token_env)
+                .map_err(|error| error.to_string())?;
+            let boards = service
+                .boards(&[space])
+                .map_err(|error| error.to_string())?;
+            if !boards.complete {
+                return Err(boards
+                    .warnings
+                    .into_iter()
+                    .map(|warning| warning.message)
+                    .collect::<Vec<_>>()
+                    .join("; "));
+            }
+            boards
+                .boards
+                .into_iter()
+                .map(|board| {
+                    let lists = service
+                        .board_lists(&board.id)
+                        .map_err(|error| format!("{}: {error}", board.title))?;
+                    Ok(DiscoveredBoard {
+                        id: board.id,
+                        title: board.title,
+                        lists,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()
+        })();
+        sender.send(CoreEvent::ProviderDiscovered(result));
     });
 }
 

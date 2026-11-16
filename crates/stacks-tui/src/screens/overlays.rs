@@ -24,6 +24,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         Some(Overlay::NewProject) => render_new_project(frame, app, area),
         Some(Overlay::EditProject) => render_edit_project(frame, app, area),
         Some(Overlay::SuperthreadConfig) => render_superthread_config(frame, app, area),
+        Some(Overlay::ProviderBoards) => render_provider_boards(frame, app, area),
         Some(Overlay::EditCard) => render_edit_card(frame, app, area),
         Some(Overlay::FinishRefinement) => render_refinement(frame, app, area),
         Some(Overlay::Filter) => render_filter(frame, app, area),
@@ -559,6 +560,52 @@ fn render_superthread_config(frame: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(theme.dim),
         ))),
         chunks[5],
+    );
+}
+
+fn render_provider_boards(frame: &mut Frame, app: &mut App, area: Rect) {
+    let theme = app.theme;
+    let modal_area = centered(area, 80, 20.min(area.height.saturating_sub(4)).max(10));
+    modal(
+        frame,
+        modal_area,
+        "Superthread boards · Enter selects · Esc back",
+        theme,
+    );
+    let inner = modal_area.inner(ratatui::layout::Margin::new(2, 1));
+    let mut lines = Vec::new();
+    if app.provider_boards.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No boards found.",
+            Style::default().fg(theme.dim),
+        )));
+    }
+    for (index, board) in app.provider_boards.iter().enumerate() {
+        let selected = index == app.provider_board_cursor;
+        lines.push(Line::from(vec![
+            Span::styled(
+                if selected { "▶ " } else { "  " },
+                Style::default().fg(theme.accent),
+            ),
+            Span::styled(
+                format!("{} ", board.title),
+                Style::default()
+                    .fg(if selected { theme.text } else { theme.muted })
+                    .add_modifier(if selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+            ),
+            Span::styled(
+                format!("· {} lists", board.lists.len()),
+                Style::default().fg(theme.dim),
+            ),
+        ]));
+    }
+    frame.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(theme.panel)),
+        inner,
     );
 }
 fn render_edit_card(frame: &mut Frame, app: &mut App, area: Rect) {
