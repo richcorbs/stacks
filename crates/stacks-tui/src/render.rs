@@ -172,12 +172,6 @@ fn render_status(frame: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(theme.muted),
         ));
     }
-    if app.in_flight > 0 {
-        spans.push(Span::styled(
-            format!("  ● {} in flight", app.in_flight),
-            Style::default().fg(theme.warning),
-        ));
-    }
     frame.render_widget(
         Paragraph::new(Line::from(spans)).style(Style::default().bg(theme.panel)),
         area,
