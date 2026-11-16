@@ -31,9 +31,9 @@ pub enum GitStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GitChangeSummary {
-    added: u32,
-    modified: u32,
-    deleted: u32,
+    pub added: u32,
+    pub modified: u32,
+    pub deleted: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -145,14 +145,15 @@ pub struct WorktreeStatus {
 /// Compact card-list status: branch + change counts + divergence/conflicts.
 pub fn worktree_status(worktree: &str, comparison_target: &str) -> WorktreeStatus {
     let context = review_context(worktree, comparison_target);
-    let (created, changed, deleted, error) =
-        match crate::git::read_git_status(std::path::Path::new(worktree)) {
-            Some(crate::git::GitStatus::Ok(counts)) => {
-                (counts.created, counts.changed, counts.deleted, None)
-            }
-            Some(crate::git::GitStatus::Error { message }) => (0, 0, 0, Some(message)),
-            None => (0, 0, 0, Some("not a Git worktree".to_string())),
-        };
+    // Match the GUI's green/red badge: compare committed + staged + unstaged
+    // state against the target's merge base, not just `git status`.
+    let (created, changed, deleted, error) = match crate::git_repository::git_change_summary(
+        worktree.to_string(),
+        comparison_target.to_string(),
+    ) {
+        Ok(summary) => (summary.added, summary.modified, summary.deleted, None),
+        Err(error) => (0, 0, 0, Some(error)),
+    };
     WorktreeStatus {
         branch: context.branch,
         created,
