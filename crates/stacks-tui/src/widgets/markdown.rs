@@ -87,6 +87,98 @@ pub fn lines(markdown: &str, width: usize, theme: Theme) -> Vec<Line<'static>> {
     output
 }
 
+/// Card descriptions from Superthread arrive as HTML; local descriptions are
+/// Markdown. Convert provider HTML into a small Markdown subset before using
+/// the normal reading renderer.
+pub fn card_lines(content: &str, width: usize, theme: Theme) -> Vec<Line<'static>> {
+    let source = if looks_like_html(content) {
+        html_to_markdown(content)
+    } else {
+        content.to_string()
+    };
+    lines(&source, width, theme)
+}
+
+fn looks_like_html(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    [
+        "<p>", "<p ", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<div", "<br", "<ul", "<ol", "<li",
+        "<strong", "<em", "<code", "<a ",
+    ]
+    .iter()
+    .any(|tag| lower.contains(tag))
+}
+
+fn html_to_markdown(value: &str) -> String {
+    let mut output = String::new();
+    let mut index = 0;
+    while let Some(start) = value[index..].find('<') {
+        let start = index + start;
+        output.push_str(&decode_entities(&value[index..start]));
+        let Some(end) = value[start..].find('>') else {
+            output.push_str(&value[start..]);
+            return output;
+        };
+        let end = start + end;
+        let tag = value[start + 1..end].trim().to_ascii_lowercase();
+        let name = tag
+            .trim_start_matches('/')
+            .split_whitespace()
+            .next()
+            .unwrap_or_default();
+        let closing = tag.starts_with('/');
+        match name {
+            "p" | "div" | "br" | "ul" | "ol" | "tr" => output.push('\n'),
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                let level = name[1..].parse::<usize>().unwrap_or(1).min(6);
+                output.push_str("\n");
+                output.push_str(&"#".repeat(level));
+                output.push(' ');
+            }
+            "li" => {
+                if !closing {
+                    output.push_str("\n- ");
+                } else {
+                    output.push('\n');
+                }
+            }
+            "strong" | "b" if !closing => output.push_str("**"),
+            "strong" | "b" if closing => output.push_str("**"),
+            "em" | "i" if !closing => output.push('*'),
+            "em" | "i" if closing => output.push('*'),
+            "code" if !closing => output.push('`'),
+            "code" if closing => output.push('`'),
+            _ => {}
+        }
+        index = end + 1;
+    }
+    output.push_str(&decode_entities(&value[index..]));
+    let mut cleaned = String::new();
+    for line in output.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.trim().is_empty() {
+            if !cleaned.ends_with("\n\n") && !cleaned.is_empty() {
+                cleaned.push_str("\n\n");
+            }
+        } else {
+            cleaned.push_str(trimmed);
+            cleaned.push('\n');
+        }
+    }
+    cleaned.trim().to_string()
+}
+
+fn decode_entities(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+}
+
 fn inline(line: &str, theme: Theme) -> Line<'static> {
     let mut spans = Vec::new();
     let mut rest = line;
@@ -150,6 +242,18 @@ fn push_text(spans: &mut Vec<Span<'static>>, text: &str, bold: bool, theme: Them
 mod tests {
     use super::*;
     use crate::theme::ColorDepth;
+
+    #[test]
+    fn converts_provider_html_to_readable_markdown() {
+        let converted = html_to_markdown(
+            "<h2>Overview</h2><p>Replace <strong>files</strong> with URLs &amp; keep <code>id</code>.</p><ul><li>one</li><li>two</li></ul>",
+        );
+        assert!(converted.contains("## Overview"), "{converted}");
+        assert!(converted.contains("**files**"), "{converted}");
+        assert!(converted.contains("URLs & keep"), "{converted}");
+        assert!(converted.contains("- one"), "{converted}");
+        assert!(!converted.contains("<h2>"), "{converted}");
+    }
 
     #[test]
     fn renders_headings_lists_and_fences() {

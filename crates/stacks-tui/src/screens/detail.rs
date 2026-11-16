@@ -138,7 +138,7 @@ fn render_overview(frame: &mut Frame, app: &mut App, area: Rect) {
     let width = area.width as usize;
     let mut lines = Vec::new();
     if !detail.content.trim().is_empty() {
-        lines.extend(markdown::lines(&detail.content, width, theme));
+        lines.extend(markdown::card_lines(&detail.content, width, theme));
     } else {
         lines.push(Line::from(Span::styled(
             "No description yet. Press e to write one.",
