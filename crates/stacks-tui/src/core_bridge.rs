@@ -6,8 +6,11 @@
 use std::sync::Arc;
 
 use stacks_core::WorkflowAction;
-use stacks_core::diff::{changed_files, file_diff, review_context, worktree_status};
 use stacks_core::store::CardStore;
+use stacks_core::{
+    diff::{changed_files, file_diff, review_context, worktree_status},
+    release::{ReleaseAction, ReleaseSetup, ReleaseState},
+};
 
 use crate::event::{CoreEvent, EventSender};
 
@@ -102,6 +105,76 @@ pub fn create_card(
     });
 }
 
+#[derive(Debug)]
+pub struct ReleaseInfo {
+    pub setup: ReleaseSetup,
+    pub latest: Option<String>,
+    pub latest_error: Option<String>,
+    pub state: Option<ReleaseState>,
+    pub state_error: Option<String>,
+}
+
+pub fn load_release_info(store: Store, project_id: String, version: String, sender: EventSender) {
+    spawn(sender.clone(), "release-info", move |sender| {
+        let result = stacks_core::release::release_setup(&store, project_id.clone()).map(|setup| {
+            let (latest, latest_error) =
+                match stacks_core::release::release_latest(&store, project_id.clone()) {
+                    Ok(latest) => (Some(latest), None),
+                    Err(error) => (None, Some(error)),
+                };
+            let (state, state_error) =
+                match stacks_core::release::release_state(&store, project_id.clone(), version) {
+                    Ok(state) => (state, None),
+                    Err(error) => (None, Some(error)),
+                };
+            ReleaseInfo {
+                setup,
+                latest,
+                latest_error,
+                state,
+                state_error,
+            }
+        });
+        sender.send(CoreEvent::ReleaseInfo { project_id, result });
+    });
+}
+
+pub fn prepare_release(
+    store: Store,
+    project_id: String,
+    version: String,
+    action: ReleaseAction,
+    setup: ReleaseSetup,
+    sender: EventSender,
+) {
+    spawn(sender.clone(), "release-command", move |sender| {
+        let result = stacks_core::release::release_command(
+            &store,
+            project_id.clone(),
+            version.clone(),
+            setup.cwd.clone(),
+            setup.terminal_id.clone(),
+            Some(action),
+        )
+        .map(|command| (setup, command));
+        sender.send(CoreEvent::ReleasePrepared {
+            project_id,
+            version,
+            action,
+            result,
+        });
+    });
+}
+
+pub fn create_project(store: Store, name: String, path: String, sender: EventSender) {
+    spawn(sender.clone(), "create-project", move |sender| {
+        let result = store
+            .create_project(&name, &path)
+            .map_err(|error| error.to_string());
+        sender.send(CoreEvent::ProjectCreated(result));
+    });
+}
+
 pub fn reorder_backlog(
     store: Store,
     expected: Vec<String>,
@@ -144,9 +217,19 @@ pub fn load_worktree_status(
     });
 }
 
-pub fn load_file_diff(worktree: String, target: String, path: String, sender: EventSender) {
+pub fn load_file_diff(
+    worktree: String,
+    target: String,
+    owner: String,
+    path: String,
+    sender: EventSender,
+) {
     spawn(sender.clone(), "file-diff", move |sender| {
         let result = file_diff(&worktree, &target, &path).map_err(|error| error.to_string());
-        sender.send(CoreEvent::FileDiff { path, result });
+        sender.send(CoreEvent::FileDiff {
+            owner,
+            path,
+            result,
+        });
     });
 }

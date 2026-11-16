@@ -4,7 +4,7 @@ key w
 wait 300
 label Project workspace · notes
 dump
-key 3
+key 4
 wait 600
 label Project workspace · project terminal
 dump

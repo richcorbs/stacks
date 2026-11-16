@@ -3,7 +3,7 @@ use std::{path::Path, sync::Arc};
 use rusqlite::Connection;
 use stacks_core::{CardStatus, store::CardStore};
 use stacks_tui::{
-    app::{App, Screen},
+    app::{App, DetailTab, Screen},
     headless,
     keys::Key,
 };
@@ -165,8 +165,9 @@ fn card_detail_loads_overview_and_backend_actions() {
     assert!(screen.contains("#326"), "{screen}");
     assert!(screen.contains("Overview"), "{screen}");
     assert!(screen.contains("Agent"), "{screen}");
-    assert!(screen.contains("Start work"), "{screen}");
-    assert!(screen.contains("a actions"), "{screen}");
+    app.handle_key(Key::Char('a'));
+    let actions = headless::dump(&mut app, 120, 40);
+    assert!(actions.contains("Start work"), "{actions}");
 }
 
 #[test]
@@ -254,6 +255,71 @@ fn script_replays_keys_and_assertions() {
         "assert not-contains Command palette".to_string(),
     ];
     headless::run_script(&mut app, &lines, &mut cols, &mut rows).unwrap();
+}
+
+#[test]
+fn card_session_terminal_keeps_running_while_hidden() {
+    let (mut app, dir) = app();
+    let project_dir = dir.path().join("stacks");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    for project in &mut app.board.as_mut().unwrap().projects {
+        if project.id == "p2" {
+            project.path = project_dir.to_string_lossy().into_owned();
+        }
+    }
+    app.open_detail("local:326".into());
+    app.pump(500);
+    app.handle_key(Key::Char('4'));
+    app.pump(500);
+    app.type_text("echo CACHE_MARK");
+    app.handle_key(Key::Enter);
+    app.pump(500);
+    app.handle_key(Key::Ctrl('w'));
+    app.handle_key(Key::Ctrl('w'));
+    app.handle_key(Key::Esc);
+    app.open_detail("local:325".into());
+    app.pump(500);
+    app.close_detail();
+    app.open_detail("local:326".into());
+    app.pump(500);
+    let screen = headless::dump(&mut app, 120, 40);
+    assert!(screen.contains("CACHE_MARK"), "{screen}");
+}
+
+#[test]
+fn card_sessions_and_tab_survive_detail_navigation() {
+    let (mut app, _dir) = app();
+    app.open_detail("local:326".into());
+    app.detail_tab = DetailTab::Terminal;
+    app.terminal_focus = true;
+    app.close_detail();
+    assert!(app.card_sessions.contains_key("local:326"));
+    app.open_detail("local:326".into());
+    assert_eq!(app.detail_tab, DetailTab::Terminal);
+    assert!(app.terminal_focus);
+}
+
+#[test]
+fn adding_a_project_from_the_project_list_opens_its_workspace() {
+    let (mut app, dir) = app();
+    let project_dir = dir.path().join("new-project");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    app.handle_key(Key::Char('h'));
+    app.handle_key(Key::Char('n'));
+    app.type_text(project_dir.to_str().unwrap());
+    app.handle_key(Key::Tab);
+    app.type_text("New Project");
+    app.handle_key(Key::Enter);
+    app.pump(2_000);
+    assert_eq!(app.screen, Screen::Project);
+    assert!(
+        app.board
+            .as_ref()
+            .unwrap()
+            .projects
+            .iter()
+            .any(|project| project.name == "New Project")
+    );
 }
 
 #[test]

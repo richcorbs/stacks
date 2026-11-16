@@ -21,6 +21,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         Some(Overlay::Projects) => render_projects(frame, app, area),
         Some(Overlay::Actions) => render_actions(frame, app, area),
         Some(Overlay::NewCard) => render_new_card(frame, app, area),
+        Some(Overlay::NewProject) => render_new_project(frame, app, area),
         Some(Overlay::EditCard) => render_edit_card(frame, app, area),
         Some(Overlay::FinishRefinement) => render_refinement(frame, app, area),
         Some(Overlay::Filter) => render_filter(frame, app, area),
@@ -368,6 +369,49 @@ fn render_new_card(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
+fn render_new_project(frame: &mut Frame, app: &mut App, area: Rect) {
+    let theme = app.theme;
+    let Some(state) = app.new_project.as_ref() else {
+        return;
+    };
+    let modal_area = centered(area, 86, 14.min(area.height.saturating_sub(4)).max(10));
+    modal(
+        frame,
+        modal_area,
+        "Add project · Tab switches field · Enter/Ctrl-S adds",
+        theme,
+    );
+    let inner = modal_area.inner(ratatui::layout::Margin::new(2, 1));
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(1),
+        ])
+        .split(inner);
+    render_input(
+        frame,
+        chunks[0],
+        &state.path,
+        "Directory (absolute path)",
+        state.focus == 0,
+        theme,
+    );
+    render_input(
+        frame,
+        chunks[1],
+        &state.name,
+        "Name (optional, defaults to directory name)",
+        state.focus == 1,
+        theme,
+    );
+    frame.render_widget(
+        Paragraph::new("The directory must already exist. Local delivery defaults are used.")
+            .style(Style::default().fg(theme.dim)),
+        chunks[2],
+    );
+}
 fn render_edit_card(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme;
     let Some(state) = app.edit_card.as_ref() else {

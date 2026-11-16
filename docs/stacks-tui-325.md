@@ -41,17 +41,27 @@ check` still works.
   project scope, hide-Done, backlog reorder (`J`/`K`). Section headers are
   focusable and collapse with `Enter`; the selected card has a second line for
   branch, Git status and PR state.
-- Card detail: real content/events, revision and environment header, backend
-  `capabilities` footer in backend order with verbatim disabled reasons,
-  two-step confirmation with the configured delay, Overview/Agent/Diff/
-  Terminal tabs plus Server and Console when the project configures them.
+- Card detail: real content/events, revision and environment header and
+  backend `capabilities` in the actions menu (`a`) with verbatim disabled
+  reasons. Tabs are Overview/Agent/Diff/Terminal plus Server and Console when
+  the project configures them.
+- Card sessions are cached per card: switching to the board or another card
+  leaves its terminals, Server/Console and Agent running. Reopening restores
+  the tab, scroll position, split tree, review state and PTYs.
 - Project workspace: `w` from the project sidebar or board opens the selected
-  project. Tabs are Notes, Agent, Terminal and — when configured — Server and
-  Console. Notes are editable (`e`, `Ctrl-S`) and write through to the same
-  `projects.notes` field as the GUI. The Agent is a persistent project-scoped
-  Pi session under `pi-sessions/project-<project>`, the terminal starts in the
-  project root, and Server/Console run the project commands there. Each tab
-  keeps its own split tree and PTY sessions while the workspace is open.
+  project. Tabs are Notes, Agent, Diff, Terminal, and — when enabled/configured
+  — Release, Server and Console. Notes are editable (`e`, `Ctrl-S`) and write
+  through to the same `projects.notes` field as the GUI. The Agent is a
+  persistent project-scoped Pi session under `pi-sessions/project-<project>`,
+  the terminal starts in the project root, and Server/Console run the project
+  commands there. Project Diff uses the same review tree/comments as card
+  Diff; Release drives the repository's configured release commands in a
+  managed PTY. Project workspaces are cached per project while the app runs.
+- `n` in the project sidebar adds an existing directory as a local project;
+  the name defaults to the directory basename.
+- `Ctrl-,` settings cover confirmation delay, hide-Done, copy-on-select,
+  scrollback, quit/delete confirmations, accent, and terminal font size.
+  Values are patched into the shared `settings.json`.
 - Agent: **native Pi TUI in a managed PTY** (`pi --continue` with the
   bundled Stacks extension). Pi's card tools work because the TUI serves
   `automation.sock` (`createLocalCard`, `updateLocalCard`,
@@ -180,12 +190,16 @@ This is a deliberate scope change from the card text:
 - Diff tree is lazygit-inspired but not lazygit: no line staging from the
   Stacks DIFF pane.
 - Reviewed marks are per-session (the GUI also keeps them in session state).
-- Leaving a card stops its TUI terminal/Pi panes; there is no per-card session
-  cache yet (the GUI caches per workspace/card).
-- The project workspace is in-memory: notes and project Pi history persist, but
-  the selected project/tab and live project terminals/Server/Console do not
+- Session caches are in-memory: leaving/reopening a card or project preserves
+  processes while the TUI runs, but the selected card/tab and live PTYs do not
   survive a restart. `project_direct` layout persistence is available in core
   but not wired into the TUI yet.
+- Background refresh reloads the board and selected worktree status from SQLite
+  and Git every 15s. GitHub PR/CI polling and Superthread provider sync are not
+  ported, so those fields may remain stale until the GUI or another writer
+  updates them.
+- Release runs Release / Build & test / Publish in a managed PTY, but the GUI's
+  restart-to-test step and its local install flow are not wired into the TUI.
 - Kitty/sixel/inline image output degrades to text (see `DIVERGENCES.md`).
 - The automation socket accepts the card-tool subset Pi needs. Superthread
   refinement (`finishExternalCardRefinement`) and parent reassignment remain

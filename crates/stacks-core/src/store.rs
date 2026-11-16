@@ -2152,6 +2152,47 @@ impl CardStore {
         Ok(())
     }
 
+    pub fn create_project(&self, name: &str, path: &str) -> Result<String> {
+        let name = name.trim();
+        let raw_path = path.trim();
+        if name.is_empty() || raw_path.is_empty() {
+            bail!("Project name and directory are required");
+        }
+        let path = std::path::Path::new(raw_path)
+            .canonicalize()
+            .with_context(|| format!("Project directory does not exist: {raw_path}"))?;
+        if !path.is_dir() {
+            bail!("Project path must be a directory");
+        }
+        let path = path.to_string_lossy().into_owned();
+        let connection = self.open_writable()?;
+        let exists: Option<String> = connection
+            .query_row("SELECT id FROM projects WHERE path=?1", [&path], |row| {
+                row.get(0)
+            })
+            .optional()
+            .context("check project path")?;
+        if exists.is_some() {
+            bail!("That project directory is already added");
+        }
+        let sort_order: i64 = connection
+            .query_row(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM projects",
+                [],
+                |row| row.get(0),
+            )
+            .context("next project sort order")?;
+        let id = uuid::Uuid::new_v4().to_string();
+        connection
+            .execute(
+                "INSERT INTO projects(id,name,path,sort_order,notes,kanban_source,delivery_workflow,target_branch,release_config_path)
+                 VALUES (?1,?2,?3,?4,'','local','local_merge','main','.stacks/release.json')",
+                params![id, name, path, sort_order],
+            )
+            .context("create project")?;
+        Ok(id)
+    }
+
     pub fn save_project_notes(&self, project_id: &str, notes: &str) -> Result<()> {
         let connection = self.open_writable()?;
         let changed = connection

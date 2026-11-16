@@ -19,7 +19,7 @@ pub struct ReleaseConfig {
     #[serde(default)]
     pub restart_after_test: bool,
 }
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ReleaseAction {
     Release,
@@ -38,7 +38,7 @@ impl ReleaseConfig {
             .ok_or_else(|| "This release action is not configured".into())
     }
 }
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleaseSetup {
     pub cwd: String,
@@ -47,7 +47,7 @@ pub struct ReleaseSetup {
     pub can_publish: bool,
     pub restart_after_test: bool,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReleaseState {
     pub version: Option<String>,

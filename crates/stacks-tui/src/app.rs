@@ -13,6 +13,7 @@ use stacks_core::{
     diff::{DiffFile, GitReviewContext, ParsedDiff},
     pi,
     pty::{PtyEvent, PtySink},
+    release::{ReleaseAction, ReleaseSetup, ReleaseState},
     settings::{self, TuiPreferences},
 };
 
@@ -89,16 +90,20 @@ impl DetailTab {
 pub enum ProjectTab {
     Notes,
     Agent,
+    Diff,
     Terminal,
+    Release,
     Server,
     Console,
 }
 
 impl ProjectTab {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::Notes,
         Self::Agent,
+        Self::Diff,
         Self::Terminal,
+        Self::Release,
         Self::Server,
         Self::Console,
     ];
@@ -107,7 +112,9 @@ impl ProjectTab {
         match self {
             Self::Notes => "Notes",
             Self::Agent => "Agent",
+            Self::Diff => "Diff",
             Self::Terminal => "Terminal",
+            Self::Release => "Release",
             Self::Server => "Server",
             Self::Console => "Console",
         }
@@ -121,6 +128,38 @@ impl ProjectTab {
     }
 }
 
+pub struct ReleaseWorkspaceState {
+    pub version: TextInput,
+    pub editing: bool,
+    pub setup: Option<ReleaseSetup>,
+    pub latest: Option<String>,
+    pub latest_error: Option<String>,
+    pub state: Option<ReleaseState>,
+    pub state_error: Option<String>,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub terminal: TerminalWorkspace,
+    pub last_action: Option<(ReleaseAction, String)>,
+}
+
+impl ReleaseWorkspaceState {
+    fn new(owner: &str) -> Self {
+        Self {
+            version: TextInput::default(),
+            editing: false,
+            setup: None,
+            latest: None,
+            latest_error: None,
+            state: None,
+            state_error: None,
+            loading: false,
+            error: None,
+            terminal: TerminalWorkspace::new(format!("{owner}:release")),
+            last_action: None,
+        }
+    }
+}
+
 pub struct ProjectWorkspaceState {
     pub project_id: String,
     pub tab: ProjectTab,
@@ -131,6 +170,7 @@ pub struct ProjectWorkspaceState {
     pub terminal: TerminalWorkspace,
     pub server: TerminalWorkspace,
     pub console: TerminalWorkspace,
+    pub release: ReleaseWorkspaceState,
 }
 
 impl ProjectWorkspaceState {
@@ -145,7 +185,42 @@ impl ProjectWorkspaceState {
             terminal: TerminalWorkspace::new(format!("{owner}-terminal")),
             server: TerminalWorkspace::new(format!("{owner}-server")),
             console: TerminalWorkspace::new(format!("{owner}-console")),
+            release: ReleaseWorkspaceState::new(owner),
         }
+    }
+}
+
+pub struct CardSessions {
+    pub terminals: TerminalWorkspace,
+    pub work: TerminalWorkspace,
+    pub server: TerminalWorkspace,
+    pub console: TerminalWorkspace,
+    pub terminal_focus: bool,
+    pub detail_tab: DetailTab,
+    pub detail_scroll: u16,
+    pub diff: DiffState,
+}
+
+impl CardSessions {
+    fn new(card_id: &str) -> Self {
+        let owner = format!("card:{card_id}");
+        Self {
+            terminals: TerminalWorkspace::new(format!("{owner}:terminal")),
+            work: TerminalWorkspace::new(format!("{owner}:agent")),
+            server: TerminalWorkspace::new(format!("{owner}:server")),
+            console: TerminalWorkspace::new(format!("{owner}:console")),
+            terminal_focus: false,
+            detail_tab: DetailTab::Overview,
+            detail_scroll: 0,
+            diff: DiffState::default(),
+        }
+    }
+
+    fn close_all(&mut self) {
+        self.terminals.close_all();
+        self.work.close_all();
+        self.server.close_all();
+        self.console.close_all();
     }
 }
 
@@ -169,6 +244,7 @@ pub enum Overlay {
     Projects,
     Actions,
     NewCard,
+    NewProject,
     EditCard,
     FinishRefinement,
     Filter,
@@ -201,6 +277,13 @@ pub struct NewCardState {
     pub project_id: String,
     pub title: TextInput,
     pub content: TextArea,
+    pub focus: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewProjectState {
+    pub path: TextInput,
+    pub name: TextInput,
     pub focus: usize,
 }
 
@@ -242,6 +325,21 @@ pub struct ConfirmAction {
     pub primary_label: String,
     pub destructive: bool,
     pub workflow: Option<WorkflowRun>,
+    pub release: Option<ReleaseRun>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReleaseRun {
+    pub project_id: String,
+    pub version: String,
+    pub action: ReleaseAction,
+    pub setup: ReleaseSetup,
+}
+
+impl ReleaseRun {
+    fn action_label(&self) -> &'static str {
+        release_action_label(self.action)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -385,6 +483,7 @@ pub struct App {
     pub quit: bool,
 
     pub new_card: Option<NewCardState>,
+    pub new_project: Option<NewProjectState>,
     pub new_card_draft: Option<(String, String, String)>,
     pub edit_card: Option<EditCardState>,
     pub refinement: Option<RefinementState>,
@@ -398,6 +497,7 @@ pub struct App {
     pub usage: BTreeMap<String, u64>,
 
     pub diff: DiffState,
+    pub diff_owner: Option<String>,
     pub selected_git: Option<WorktreeStatus>,
     pub selected_git_error: Option<String>,
     pub selected_git_card: Option<String>,
@@ -407,6 +507,9 @@ pub struct App {
     pub server: TerminalWorkspace,
     pub console: TerminalWorkspace,
     pub project: Option<ProjectWorkspaceState>,
+    pub project_sessions: HashMap<String, ProjectWorkspaceState>,
+    pub card_sessions: HashMap<String, CardSessions>,
+    pub pending_project_open: Option<String>,
     pub terminal_focus: bool,
     pub global_tabs: Vec<GlobalTab>,
     pub global_active: usize,
@@ -419,6 +522,7 @@ pub struct App {
     pub error: Option<String>,
     pub in_flight: usize,
     pub started: Instant,
+    pub last_background_refresh: Instant,
     pub cols: u16,
     pub rows: u16,
     pub headless: bool,
@@ -470,6 +574,7 @@ impl App {
             pending: None,
             quit: false,
             new_card: None,
+            new_project: None,
             new_card_draft: None,
             edit_card: None,
             refinement: None,
@@ -482,6 +587,7 @@ impl App {
             project_picker_cursor: 0,
             usage: settings.command_usage_counts.clone().unwrap_or_default(),
             diff: DiffState::default(),
+            diff_owner: None,
             selected_git: None,
             selected_git_error: None,
             selected_git_card: None,
@@ -491,6 +597,9 @@ impl App {
             server: TerminalWorkspace::new("card-server"),
             console: TerminalWorkspace::new("card-console"),
             project: None,
+            project_sessions: HashMap::new(),
+            card_sessions: HashMap::new(),
+            pending_project_open: None,
             terminal_focus: false,
             global_tabs: Vec::new(),
             global_active: 0,
@@ -506,10 +615,12 @@ impl App {
             error: None,
             in_flight: 0,
             started: Instant::now(),
+            last_background_refresh: Instant::now(),
             cols: 120,
             rows: 40,
             headless,
         };
+        app.apply_workspace_preferences();
         app.recompute_rows();
         app.board_cursor = app.first_card_cursor().unwrap_or(0);
         app.sync_selected_git();
@@ -529,12 +640,15 @@ impl App {
         if self.message.starts_with("Project filter:") || self.message.starts_with("Scope:") {
             self.message.clear();
         }
+        let same = self.screen == Screen::Detail
+            && self.selected_card.as_deref() == Some(card_id.as_str());
+        if !same {
+            self.stash_card_sessions();
+            self.restore_card_sessions(&card_id);
+        }
         self.selected_card = Some(card_id.clone());
         self.screen = Screen::Detail;
         self.detail = None;
-        self.detail_tab = DetailTab::Overview;
-        self.detail_scroll = 0;
-        self.diff = DiffState::default();
         if let Some(index) = self
             .board_rows
             .iter()
@@ -553,20 +667,86 @@ impl App {
     }
 
     pub fn close_detail(&mut self) {
+        self.stash_card_sessions();
         self.screen = Screen::Board;
         self.detail = None;
         self.actions.clear();
         self.overlay = None;
-        self.stop_card_sessions();
         self.detail_scroll = 0;
         self.pending = None;
+        self.diff_owner = None;
         self.terminal_focus = false;
     }
 
-    fn stop_card_sessions(&mut self) {
-        self.work.close_all();
-        self.terminals.close_all();
+    fn stash_card_sessions(&mut self) {
+        let Some(card_id) = self.selected_card.clone() else {
+            return;
+        };
+        let has_work = self.screen == Screen::Detail
+            || !self.terminals.is_empty()
+            || !self.work.is_empty()
+            || !self.server.is_empty()
+            || !self.console.is_empty();
+        if !has_work {
+            return;
+        }
+        let sessions = CardSessions {
+            terminals: std::mem::replace(&mut self.terminals, TerminalWorkspace::new("card")),
+            work: std::mem::replace(&mut self.work, TerminalWorkspace::new("card-work")),
+            server: std::mem::replace(&mut self.server, TerminalWorkspace::new("card-server")),
+            console: std::mem::replace(&mut self.console, TerminalWorkspace::new("card-console")),
+            terminal_focus: self.terminal_focus,
+            detail_tab: self.detail_tab,
+            detail_scroll: self.detail_scroll,
+            diff: std::mem::take(&mut self.diff),
+        };
+        self.card_sessions.insert(card_id, sessions);
         self.terminal_focus = false;
+    }
+
+    fn restore_card_sessions(&mut self, card_id: &str) {
+        let sessions = self
+            .card_sessions
+            .remove(card_id)
+            .unwrap_or_else(|| CardSessions::new(card_id));
+        self.terminals = sessions.terminals;
+        self.work = sessions.work;
+        self.server = sessions.server;
+        self.console = sessions.console;
+        self.terminal_focus = sessions.terminal_focus;
+        self.detail_tab = sessions.detail_tab;
+        self.detail_scroll = sessions.detail_scroll;
+        self.diff = sessions.diff;
+        self.diff_owner = Some(card_id.to_string());
+        self.apply_workspace_preferences();
+    }
+
+    fn stop_card_sessions_for(&mut self, card_id: &str) {
+        if self.selected_card.as_deref() == Some(card_id) {
+            self.terminals.close_all();
+            self.work.close_all();
+            self.server.close_all();
+            self.console.close_all();
+            self.terminal_focus = false;
+        }
+        if let Some(mut sessions) = self.card_sessions.remove(card_id) {
+            sessions.close_all();
+        }
+    }
+
+    fn project_workspace_mut_by_id(
+        &mut self,
+        project_id: &str,
+    ) -> Option<&mut ProjectWorkspaceState> {
+        if self
+            .project
+            .as_ref()
+            .is_some_and(|state| state.project_id == project_id)
+        {
+            self.project.as_mut()
+        } else {
+            self.project_sessions.get_mut(project_id)
+        }
     }
 
     pub fn recompute_rows(&mut self) {
@@ -763,6 +943,14 @@ impl App {
         self.usage = settings.command_usage_counts.clone().unwrap_or_default();
         self.preferences = settings.tui_preferences();
         self.theme = theme::theme(self.depth, self.preferences.accent.as_deref());
+        self.apply_workspace_preferences();
+    }
+
+    fn apply_workspace_preferences(&mut self) {
+        let scrollback = self.preferences.terminal_scrollback as usize;
+        for workspace in self.workspaces_mut() {
+            workspace.scrollback = scrollback;
+        }
     }
 
     pub fn save_preferences(&mut self) {
@@ -785,8 +973,90 @@ impl App {
                         self.error = None;
                         self.recompute_rows();
                         self.sync_selected_git();
+                        if let Some(project_id) = self.pending_project_open.take() {
+                            self.open_project_workspace(project_id);
+                        }
                     }
                     Err(error) => self.error = Some(error),
+                }
+            }
+            CoreEvent::ProjectCreated(result) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                match result {
+                    Ok(project_id) => {
+                        self.message = "Project added".into();
+                        self.pending_project_open = Some(project_id);
+                        self.refresh_board();
+                    }
+                    Err(error) => self.error = Some(error),
+                }
+            }
+            CoreEvent::ReleaseInfo { project_id, result } => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                let Some(state) = self.project_workspace_mut_by_id(&project_id) else {
+                    return;
+                };
+                state.release.loading = false;
+                match result {
+                    Ok(info) => {
+                        state.release.latest = info.latest;
+                        state.release.latest_error = info.latest_error;
+                        state.release.state = info.state;
+                        state.release.state_error = info.state_error;
+                        state.release.setup = Some(info.setup);
+                        if state.release.version.value.trim().is_empty() {
+                            let suggestion = state
+                                .release
+                                .state
+                                .as_ref()
+                                .and_then(|release| release.version.clone())
+                                .or_else(|| {
+                                    state.release.latest.as_deref().and_then(next_patch_version)
+                                });
+                            if let Some(version) = suggestion {
+                                state.release.version = TextInput::new(version);
+                            }
+                        }
+                        state.release.error = None;
+                    }
+                    Err(error) => state.release.error = Some(error),
+                }
+            }
+            CoreEvent::ReleasePrepared {
+                project_id,
+                version,
+                action,
+                result,
+            } => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                let cols = self.cols.saturating_sub(4).max(20);
+                let rows = self.rows.saturating_sub(8).max(5);
+                let sink = self.pty_sink();
+                let Some(state) = self.project_workspace_mut_by_id(&project_id) else {
+                    return;
+                };
+                match result {
+                    Ok((setup, command)) => {
+                        state.release.terminal.close_all();
+                        state.release.setup = Some(setup.clone());
+                        state.release.last_action = Some((action, version.clone()));
+                        match state.release.terminal.open_managed(
+                            &setup.cwd,
+                            &command,
+                            cols,
+                            rows,
+                            &[],
+                            sink,
+                        ) {
+                            Ok(_) => {
+                                self.message =
+                                    format!("{} {} running", release_action_label(action), version);
+                                self.error = None;
+                            }
+                            Err(error) => state.release.error = Some(error),
+                        }
+                    }
+                    Err(error) => state.release.error = Some(error),
                 }
             }
             CoreEvent::Detail { card_id, result } => {
@@ -831,7 +1101,7 @@ impl App {
                                 | WorkflowAction::MergePr
                                 | WorkflowAction::MergeLocal
                         ) {
-                            self.stop_card_sessions();
+                            self.stop_card_sessions_for(&card_id);
                             if action == WorkflowAction::Close {
                                 let _ = self.store.complete_local_runtime_cleanup(&card_id, &[]);
                             }
@@ -845,7 +1115,7 @@ impl App {
             }
             CoreEvent::DiffFiles { card_id, result } => {
                 self.in_flight = self.in_flight.saturating_sub(1);
-                if self.selected_card.as_deref() != Some(card_id.as_str()) {
+                if self.active_diff_owner().as_deref() != Some(card_id.as_str()) {
                     return;
                 }
                 match result {
@@ -865,14 +1135,19 @@ impl App {
                     Err(error) => self.error = Some(error),
                 }
             }
-            CoreEvent::FileDiff { path, result } => {
+            CoreEvent::FileDiff {
+                owner,
+                path,
+                result,
+            } => {
                 self.in_flight = self.in_flight.saturating_sub(1);
-                if self
-                    .diff
-                    .files
-                    .get(self.diff.selected)
-                    .map(|file| file.path.as_str())
-                    != Some(path.as_str())
+                if self.active_diff_owner().as_deref() != Some(owner.as_str())
+                    || self
+                        .diff
+                        .files
+                        .get(self.diff.selected)
+                        .map(|file| file.path.as_str())
+                        != Some(path.as_str())
                 {
                     return;
                 }
@@ -999,6 +1274,20 @@ impl App {
             workspaces.push(&mut project.terminal);
             workspaces.push(&mut project.server);
             workspaces.push(&mut project.console);
+            workspaces.push(&mut project.release.terminal);
+        }
+        for project in self.project_sessions.values_mut() {
+            workspaces.push(&mut project.agent);
+            workspaces.push(&mut project.terminal);
+            workspaces.push(&mut project.server);
+            workspaces.push(&mut project.console);
+            workspaces.push(&mut project.release.terminal);
+        }
+        for sessions in self.card_sessions.values_mut() {
+            workspaces.push(&mut sessions.terminals);
+            workspaces.push(&mut sessions.work);
+            workspaces.push(&mut sessions.server);
+            workspaces.push(&mut sessions.console);
         }
         for tab in &mut self.global_tabs {
             workspaces.push(&mut tab.workspace);
@@ -1092,7 +1381,7 @@ impl App {
                     ProjectTab::Terminal => &state.terminal,
                     ProjectTab::Server => &state.server,
                     ProjectTab::Console => &state.console,
-                    ProjectTab::Notes => &state.terminal,
+                    ProjectTab::Notes | ProjectTab::Diff | ProjectTab::Release => &state.terminal,
                 };
             }
         }
@@ -1115,7 +1404,9 @@ impl App {
                     ProjectTab::Terminal => &mut state.terminal,
                     ProjectTab::Server => &mut state.server,
                     ProjectTab::Console => &mut state.console,
-                    ProjectTab::Notes => &mut state.terminal,
+                    ProjectTab::Notes | ProjectTab::Diff | ProjectTab::Release => {
+                        &mut state.terminal
+                    }
                 };
             }
         }
@@ -1152,6 +1443,13 @@ impl App {
             },
             Screen::Project => {
                 if self
+                    .project
+                    .as_ref()
+                    .is_some_and(|state| state.tab == ProjectTab::Diff)
+                {
+                    self.diff.scroll = 0;
+                    self.diff.hunk = 0;
+                } else if self
                     .project
                     .as_ref()
                     .is_some_and(|state| state.tab.is_terminal())
@@ -1196,7 +1494,12 @@ impl App {
     }
 
     pub fn project_tabs(&self) -> Vec<ProjectTab> {
-        let mut tabs = vec![ProjectTab::Notes, ProjectTab::Agent, ProjectTab::Terminal];
+        let mut tabs = vec![
+            ProjectTab::Notes,
+            ProjectTab::Agent,
+            ProjectTab::Diff,
+            ProjectTab::Terminal,
+        ];
         let Some(state) = self.project.as_ref() else {
             return tabs;
         };
@@ -1208,6 +1511,9 @@ impl App {
         }) else {
             return tabs;
         };
+        if project.releases_enabled {
+            tabs.push(ProjectTab::Release);
+        }
         if project
             .server_command
             .as_deref()
@@ -1252,21 +1558,36 @@ impl App {
             self.message = "Project was not found".into();
             return;
         };
+        self.stash_card_sessions();
         let same = self
             .project
             .as_ref()
             .is_some_and(|state| state.project_id == project_id);
         if !same {
-            self.project = Some(ProjectWorkspaceState::new(
-                project.id.clone(),
-                project.notes.clone(),
-                &format!("project:{}", project.id),
-            ));
+            if let Some(active) = self.project.take() {
+                self.project_sessions
+                    .insert(active.project_id.clone(), active);
+            }
+            self.project = Some(
+                self.project_sessions
+                    .remove(&project.id)
+                    .unwrap_or_else(|| {
+                        ProjectWorkspaceState::new(
+                            project.id.clone(),
+                            project.notes.clone(),
+                            &format!("project:{}", project.id),
+                        )
+                    }),
+            );
         }
         self.project_scope = Some(project.id);
         self.screen = Screen::Project;
         self.terminal_focus = false;
         self.message = String::new();
+        self.apply_workspace_preferences();
+        if let Some(tab) = self.project.as_ref().map(|state| state.tab) {
+            self.select_project_tab(tab);
+        }
     }
 
     fn select_project_tab(&mut self, tab: ProjectTab) {
@@ -1279,7 +1600,9 @@ impl App {
         match tab {
             ProjectTab::Notes => {}
             ProjectTab::Agent => self.ensure_project_agent(),
+            ProjectTab::Diff => self.refresh_project_diff(),
             ProjectTab::Terminal => self.ensure_project_terminal(),
+            ProjectTab::Release => self.load_release_info(),
             ProjectTab::Server | ProjectTab::Console => self.ensure_project_service(tab),
         }
     }
@@ -1422,11 +1745,159 @@ impl App {
         }
     }
 
+    fn load_release_info(&mut self) {
+        let Some(state) = self.project.as_ref() else {
+            return;
+        };
+        if state.release.loading {
+            return;
+        }
+        let project_id = state.project_id.clone();
+        let version = state.release.version.value.trim().to_string();
+        if let Some(state) = self.project.as_mut() {
+            state.release.loading = true;
+            state.release.error = None;
+        }
+        self.in_flight += 1;
+        core_bridge::load_release_info(
+            Arc::clone(&self.store),
+            project_id,
+            version,
+            self.sender.clone(),
+        );
+    }
+
+    fn release_draft_ready(&self) -> bool {
+        let Some(state) = self.project.as_ref() else {
+            return false;
+        };
+        let version = state.release.version.value.trim();
+        state.release.state.as_ref().is_some_and(|release| {
+            release.version.as_deref() == Some(version) && release.draft_ready
+        })
+    }
+
+    fn open_release_confirm(&mut self, action: ReleaseAction) {
+        let Some(state) = self.project.as_ref() else {
+            return;
+        };
+        let Some(setup) = state.release.setup.clone() else {
+            self.message = "Release setup is still loading".into();
+            return;
+        };
+        let version = state.release.version.value.trim().to_string();
+        if version.is_empty() {
+            self.message = "Enter a release version first".into();
+            return;
+        }
+        if state
+            .release
+            .terminal
+            .panes
+            .values()
+            .any(|pane| pane.alive())
+        {
+            self.message = "A release command is already running".into();
+            return;
+        }
+        if action == ReleaseAction::BuildAndTest && !setup.can_build_and_test {
+            self.message = "Build and test is not configured for this project".into();
+            return;
+        }
+        if action == ReleaseAction::Publish && !setup.can_publish {
+            self.message = "Publishing is not configured for this project".into();
+            return;
+        }
+        if action != ReleaseAction::Release && !self.release_draft_ready() {
+            self.message = "Build and publish require a ready draft for this version".into();
+            return;
+        }
+        let label = release_action_label(action);
+        let detail = match action {
+            ReleaseAction::Release => format!(
+                "Run the configured release command for {version} in {}.",
+                setup.cwd
+            ),
+            ReleaseAction::BuildAndTest => {
+                format!("Build and test the signed draft for {version}. This does not publish.")
+            }
+            ReleaseAction::Publish => {
+                format!("Publish {version} as the latest release. This affects updater users.")
+            }
+        };
+        self.open_confirm(ConfirmAction {
+            title: format!("{label} {version}?"),
+            detail,
+            primary_label: label.into(),
+            destructive: action == ReleaseAction::Publish,
+            workflow: None,
+            release: Some(ReleaseRun {
+                project_id: state.project_id.clone(),
+                version,
+                action,
+                setup,
+            }),
+        });
+    }
+
+    fn handle_release_key(&mut self, key: Key) {
+        let Some(state) = self.project.as_ref() else {
+            return;
+        };
+        if state.release.editing {
+            match key {
+                Key::Esc => {
+                    if let Some(state) = self.project.as_mut() {
+                        state.release.editing = false;
+                    }
+                }
+                Key::Enter | Key::Ctrl('s') => {
+                    if let Some(state) = self.project.as_mut() {
+                        state.release.editing = false;
+                    }
+                    self.load_release_info();
+                }
+                _ => {
+                    if let Some(state) = self.project.as_mut() {
+                        state.release.version.handle(&key);
+                    }
+                }
+            }
+            return;
+        }
+        match key {
+            Key::Esc => {
+                self.screen = Screen::Board;
+                self.terminal_focus = false;
+            }
+            Key::Char('e') => {
+                if let Some(state) = self.project.as_mut() {
+                    state.release.editing = true;
+                }
+            }
+            Key::Char('r') => self.open_release_confirm(ReleaseAction::Release),
+            Key::Char('b') => self.open_release_confirm(ReleaseAction::BuildAndTest),
+            Key::Char('p') => self.open_release_confirm(ReleaseAction::Publish),
+            Key::Char('R') => self.load_release_info(),
+            Key::Tab => self.cycle_project_tab(false),
+            Key::BackTab => self.cycle_project_tab(true),
+            _ => {}
+        }
+    }
+
     fn handle_project_key(&mut self, key: Key) {
         let Some(state) = self.project.as_ref() else {
             self.screen = Screen::Board;
             return;
         };
+        if state.tab == ProjectTab::Release {
+            self.handle_release_key(key);
+            return;
+        }
+        if state.tab == ProjectTab::Diff {
+            self.handle_diff_key(key);
+            return;
+        }
         if state.tab == ProjectTab::Notes {
             if state.notes_editing {
                 match key {
@@ -1633,6 +2104,7 @@ impl App {
                     }
                 }
             }
+            Key::Char('n') if self.focus == Focus::Sidebar => self.start_new_project(),
             Key::Char('n') => self.start_new_card(),
             Key::Char('w') => self.open_project_from_context(),
             Key::Char('J') => self.reorder(1),
@@ -2068,17 +2540,28 @@ impl App {
             self.message = "Add a comment or overall feedback before submitting".into();
             return;
         }
-        self.select_tab(DetailTab::Agent);
         let flattened = prompt.replace('\r', "").replace('\n', " ");
-        match self.work.write(format!("{flattened}\r").as_bytes()) {
-            Ok(()) => {
+        let result = if self.screen == Screen::Project {
+            self.select_project_tab(ProjectTab::Agent);
+            self.project
+                .as_mut()
+                .map(|state| state.agent.write(format!("{flattened}\r").as_bytes()))
+        } else {
+            self.select_tab(DetailTab::Agent);
+            Some(self.work.write(format!("{flattened}\r").as_bytes()))
+        };
+        match result {
+            Some(Ok(())) => {
                 self.diff.comments.clear();
                 self.diff.overall_comment.clear();
                 self.diff.reviewed.clear();
                 self.message = "Diff feedback sent to Agent".into();
                 self.terminal_focus = true;
             }
-            Err(error) => self.error = Some(format!("Could not send feedback to Agent: {error}")),
+            Some(Err(error)) => {
+                self.error = Some(format!("Could not send feedback to Agent: {error}"))
+            }
+            None => self.error = Some("Project Agent is not available".into()),
         }
     }
 
@@ -2090,6 +2573,13 @@ impl App {
             Key::Char('c') => self.open_diff_comment(false),
             Key::Char('C') => self.open_diff_comment(true),
             Key::Char('s') => self.submit_diff_feedback(),
+            Key::Char('r') => {
+                if self.screen == Screen::Project {
+                    self.refresh_project_diff();
+                } else {
+                    self.refresh_diff();
+                }
+            }
             Key::Char(' ') => {
                 if let Some(file) = self.diff.files.get(self.diff.selected) {
                     let path = file.path.clone();
@@ -2102,7 +2592,14 @@ impl App {
             Key::Char('p') | Key::BackTab => self.step_diff_file(-1),
             Key::Char(']') => self.step_hunk(1),
             Key::Char('[') => self.step_hunk(-1),
-            Key::Esc => self.close_detail(),
+            Key::Esc => {
+                if self.screen == Screen::Project {
+                    self.screen = Screen::Board;
+                    self.terminal_focus = false;
+                } else {
+                    self.close_detail();
+                }
+            }
             Key::Char('j') | Key::Down => self.diff.scroll = self.diff.scroll.saturating_add(1),
             Key::Char('k') | Key::Up => self.diff.scroll = self.diff.scroll.saturating_sub(1),
             _ => {}
@@ -2170,8 +2667,17 @@ impl App {
         let Some((worktree, target)) = self.diff_context() else {
             return;
         };
+        let Some(owner) = self.active_diff_owner() else {
+            return;
+        };
         self.in_flight += 1;
-        core_bridge::load_file_diff(worktree, target, file.path.clone(), self.sender.clone());
+        core_bridge::load_file_diff(
+            worktree,
+            target,
+            owner,
+            file.path.clone(),
+            self.sender.clone(),
+        );
     }
 
     fn step_hunk(&mut self, delta: i32) {
@@ -2187,7 +2693,41 @@ impl App {
         self.diff.scroll = parsed.hunk_starts[next] as u16;
     }
 
+    pub fn active_diff_owner(&self) -> Option<String> {
+        match self.screen {
+            Screen::Detail if self.detail_tab == DetailTab::Diff => self.selected_card.clone(),
+            Screen::Project
+                if self
+                    .project
+                    .as_ref()
+                    .is_some_and(|state| state.tab == ProjectTab::Diff) =>
+            {
+                self.project
+                    .as_ref()
+                    .map(|state| format!("project:{}", state.project_id))
+            }
+            _ => None,
+        }
+    }
+
+    fn prepare_diff_owner(&mut self, owner: &str) {
+        if self.diff_owner.as_deref() != Some(owner) {
+            self.diff = DiffState::default();
+            self.diff_owner = Some(owner.to_string());
+        }
+    }
+
     fn diff_context(&self) -> Option<(String, String)> {
+        if self.screen == Screen::Project {
+            let state = self.project.as_ref()?;
+            let project = self
+                .board
+                .as_ref()?
+                .projects
+                .iter()
+                .find(|project| project.id == state.project_id)?;
+            return Some((project.path.clone(), project.target_branch.clone()));
+        }
         let detail = self.detail.as_ref()?;
         let board = self.board.as_ref()?;
         let project = detail.card.project(&board.projects)?;
@@ -2215,10 +2755,31 @@ impl App {
             self.error = Some("The card has no project context for a diff".into());
             return;
         };
+        self.prepare_diff_owner(&card_id);
         self.in_flight += 1;
         core_bridge::load_diff_files(
             Arc::clone(&self.store),
             card_id,
+            worktree,
+            target,
+            self.sender.clone(),
+        );
+    }
+
+    fn refresh_project_diff(&mut self) {
+        let Some(state) = self.project.as_ref() else {
+            return;
+        };
+        let owner = format!("project:{}", state.project_id);
+        let Some((worktree, target)) = self.diff_context() else {
+            self.error = Some("The project has no context for a diff".into());
+            return;
+        };
+        self.prepare_diff_owner(&owner);
+        self.in_flight += 1;
+        core_bridge::load_diff_files(
+            Arc::clone(&self.store),
+            owner,
             worktree,
             target,
             self.sender.clone(),
@@ -2748,6 +3309,63 @@ impl App {
         self.recompute_rows();
     }
 
+    fn start_new_project(&mut self) {
+        self.new_project = Some(NewProjectState {
+            path: TextInput::default(),
+            name: TextInput::default(),
+            focus: 0,
+        });
+        self.overlay = Some(Overlay::NewProject);
+    }
+
+    fn submit_new_project(&mut self) {
+        let Some(state) = self.new_project.as_ref() else {
+            return;
+        };
+        let path = state.path.value.trim().to_string();
+        if path.is_empty() {
+            self.message = "Project directory is required".into();
+            return;
+        }
+        let name = if state.name.value.trim().is_empty() {
+            std::path::Path::new(&path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("Project")
+                .to_string()
+        } else {
+            state.name.value.trim().to_string()
+        };
+        self.new_project = None;
+        self.overlay = None;
+        self.in_flight += 1;
+        self.message = format!("Adding project {name}…");
+        core_bridge::create_project(Arc::clone(&self.store), name, path, self.sender.clone());
+    }
+
+    fn handle_new_project_key(&mut self, key: Key) {
+        let Some(state) = self.new_project.as_mut() else {
+            return;
+        };
+        match key {
+            Key::Esc => {
+                self.new_project = None;
+                self.overlay = None;
+            }
+            Key::Tab => state.focus = 1 - state.focus,
+            Key::Ctrl('s') => self.submit_new_project(),
+            Key::Enter if state.focus == 0 => state.focus = 1,
+            Key::Enter => self.submit_new_project(),
+            _ => {
+                if state.focus == 0 {
+                    state.path.handle(&key);
+                } else {
+                    state.name.handle(&key);
+                }
+            }
+        }
+    }
+
     fn start_new_card(&mut self) {
         let Some(board) = self.board.as_ref() else {
             return;
@@ -2877,7 +3495,7 @@ impl App {
 
     fn request_quit(&mut self) {
         let busy = self.is_busy();
-        if !busy {
+        if !busy || !self.preferences.confirm_close {
             self.quit = true;
             return;
         }
@@ -2887,6 +3505,7 @@ impl App {
             primary_label: "Quit".into(),
             destructive: true,
             workflow: None,
+            release: None,
         });
     }
 
@@ -2935,6 +3554,17 @@ impl App {
                 workflow.feature_environment,
                 self.sender.clone(),
             );
+        } else if let Some(release) = action.release {
+            self.in_flight += 1;
+            self.message = format!("Preparing {} {}…", release.action_label(), release.version);
+            core_bridge::prepare_release(
+                Arc::clone(&self.store),
+                release.project_id,
+                release.version,
+                release.action,
+                release.setup,
+                self.sender.clone(),
+            );
         } else {
             self.quit = true;
         }
@@ -2972,6 +3602,7 @@ impl App {
                     WorkflowAction::MergeLocal | WorkflowAction::MergePr | WorkflowAction::Close
                 ),
                 workflow: Some(run),
+                release: None,
             });
         } else {
             self.in_flight += 1;
@@ -3088,6 +3719,10 @@ impl App {
                 self.handle_new_card_key(key);
                 true
             }
+            Overlay::NewProject => {
+                self.handle_new_project_key(key);
+                true
+            }
             Overlay::EditCard => {
                 self.handle_edit_card_key(key);
                 true
@@ -3125,7 +3760,7 @@ impl App {
     }
 
     fn handle_settings_key(&mut self, key: Key) {
-        const FIELDS: usize = 5;
+        const FIELDS: usize = 8;
         match key {
             Key::Esc => {
                 self.overlay = None;
@@ -3152,12 +3787,18 @@ impl App {
                 let next = (index as i32 + delta).clamp(0, steps.len() as i32 - 1) as usize;
                 self.preferences.confirmation_delay_ms = steps[next];
             }
-            1 => self.preferences.copy_on_select = !self.preferences.copy_on_select,
-            2 => {
-                let current = self.preferences.terminal_font_size.unwrap_or(14) as i32;
-                self.preferences.terminal_font_size = Some((current + delta).clamp(8, 32) as u32);
-            }
+            1 => self.preferences.hide_done = !self.preferences.hide_done,
+            2 => self.preferences.copy_on_select = !self.preferences.copy_on_select,
             3 => {
+                let steps = [1_000, 2_000, 5_000, 10_000, 20_000, 50_000];
+                let current = self.preferences.terminal_scrollback;
+                let index = steps.iter().position(|step| *step == current).unwrap_or(3);
+                let next = (index as i32 + delta).clamp(0, steps.len() as i32 - 1) as usize;
+                self.preferences.terminal_scrollback = steps[next];
+            }
+            4 => self.preferences.confirm_close = !self.preferences.confirm_close,
+            5 => self.preferences.confirm_delete = !self.preferences.confirm_delete,
+            6 => {
                 let choices = theme::accent_choices();
                 let current = self
                     .preferences
@@ -3168,12 +3809,16 @@ impl App {
                 let next = (current as i32 + delta).rem_euclid(choices.len() as i32) as usize;
                 self.preferences.accent = Some(choices[next].to_string());
             }
-            4 => self.preferences.hide_done = !self.preferences.hide_done,
+            7 => {
+                let current = self.preferences.terminal_font_size.unwrap_or(14) as i32;
+                self.preferences.terminal_font_size = Some((current + delta).clamp(8, 32) as u32);
+            }
             _ => {}
         }
         self.hide_done = self.preferences.hide_done;
         self.theme = theme::theme(self.depth, self.preferences.accent.as_deref());
         self.save_preferences();
+        self.apply_workspace_preferences();
         self.recompute_rows();
     }
 
@@ -3264,9 +3909,36 @@ impl App {
             || self.server.panes.values().any(|pane| pane.alive())
             || self.console.panes.values().any(|pane| pane.alive())
             || self.project.as_ref().is_some_and(|state| {
-                [&state.agent, &state.terminal, &state.server, &state.console]
-                    .iter()
-                    .any(|workspace| workspace.panes.values().any(|pane| pane.alive()))
+                [
+                    &state.agent,
+                    &state.terminal,
+                    &state.server,
+                    &state.console,
+                    &state.release.terminal,
+                ]
+                .iter()
+                .any(|workspace| workspace.panes.values().any(|pane| pane.alive()))
+            })
+            || self.project_sessions.values().any(|state| {
+                [
+                    &state.agent,
+                    &state.terminal,
+                    &state.server,
+                    &state.console,
+                    &state.release.terminal,
+                ]
+                .iter()
+                .any(|workspace| workspace.panes.values().any(|pane| pane.alive()))
+            })
+            || self.card_sessions.values().any(|sessions| {
+                [
+                    &sessions.terminals,
+                    &sessions.work,
+                    &sessions.server,
+                    &sessions.console,
+                ]
+                .iter()
+                .any(|workspace| workspace.panes.values().any(|pane| pane.alive()))
             })
             || self
                 .global_tabs
@@ -3294,6 +3966,21 @@ impl App {
         if let Some(confirm) = self.confirm.as_mut() {
             if confirm.ready() && !confirm.focus_primary {
                 confirm.focus_primary = true;
+            }
+        }
+        if !self.headless
+            && self.confirm.is_none()
+            && self.overlay.is_none()
+            && self.in_flight == 0
+            && self.last_background_refresh.elapsed() >= Duration::from_secs(15)
+        {
+            self.last_background_refresh = Instant::now();
+            self.selected_git_card = None;
+            self.refresh_board();
+            if self.screen == Screen::Detail {
+                if let Some(card_id) = self.selected_card.clone() {
+                    self.load_detail(card_id);
+                }
             }
         }
     }
@@ -3335,6 +4022,23 @@ impl App {
             self.handle_key(Key::Char(character));
         }
     }
+}
+
+fn release_action_label(action: ReleaseAction) -> &'static str {
+    match action {
+        ReleaseAction::Release => "Release",
+        ReleaseAction::BuildAndTest => "Build & test",
+        ReleaseAction::Publish => "Publish",
+    }
+}
+
+fn next_patch_version(latest: &str) -> Option<String> {
+    let raw = latest.trim().trim_start_matches('v');
+    let mut parts = raw.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next()?.parse::<u64>().ok()?;
+    let patch = parts.next()?.parse::<u64>().ok()?;
+    Some(format!("{major}.{minor}.{}", patch + 1))
 }
 
 /// Flatten a group into parent-first hierarchy order. A card is indented only

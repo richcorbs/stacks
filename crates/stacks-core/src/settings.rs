@@ -79,6 +79,9 @@ pub struct TuiPreferences {
     pub accent: Option<String>,
     pub copy_on_select: bool,
     pub terminal_font_size: Option<u32>,
+    pub terminal_scrollback: u32,
+    pub confirm_close: bool,
+    pub confirm_delete: bool,
 }
 
 impl Default for TuiPreferences {
@@ -89,6 +92,9 @@ impl Default for TuiPreferences {
             accent: None,
             copy_on_select: true,
             terminal_font_size: None,
+            terminal_scrollback: 10_000,
+            confirm_close: true,
+            confirm_delete: true,
         }
     }
 }
@@ -107,6 +113,12 @@ impl AppSettings {
                 .filter(|value| !value.trim().is_empty()),
             copy_on_select: self.copy_on_select.unwrap_or(true),
             terminal_font_size: self.terminal_font_size,
+            terminal_scrollback: self
+                .terminal_scrollback
+                .unwrap_or(10_000)
+                .clamp(100, 200_000),
+            confirm_close: self.confirm_close.unwrap_or(true),
+            confirm_delete: self.confirm_delete.unwrap_or(true),
         }
     }
 }
@@ -159,6 +171,18 @@ pub fn save_tui_preferences(preferences: &TuiPreferences) -> Result<AppSettings,
     object.insert(
         "copy_on_select".into(),
         Value::Bool(preferences.copy_on_select),
+    );
+    object.insert(
+        "terminal_scrollback".into(),
+        Value::from(preferences.terminal_scrollback.clamp(100, 200_000)),
+    );
+    object.insert(
+        "confirm_close".into(),
+        Value::Bool(preferences.confirm_close),
+    );
+    object.insert(
+        "confirm_delete".into(),
+        Value::Bool(preferences.confirm_delete),
     );
     if let Some(size) = preferences.terminal_font_size {
         object.insert("terminal_font_size".into(), Value::from(size.clamp(8, 32)));

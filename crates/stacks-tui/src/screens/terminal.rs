@@ -90,13 +90,20 @@ fn slice_line(line: &str, start: usize, end: usize) -> String {
 }
 
 impl Pane {
-    fn new(id: String, cwd: String, command: Option<String>, cols: u16, rows: u16) -> Self {
+    fn new(
+        id: String,
+        cwd: String,
+        command: Option<String>,
+        cols: u16,
+        rows: u16,
+        scrollback: usize,
+    ) -> Self {
         Self {
             id,
             cwd,
             command,
             session: None,
-            screen: Box::new(Vt100Screen::new(cols, rows, 2_000)),
+            screen: Box::new(Vt100Screen::new(cols, rows, scrollback)),
             generation: None,
             exited: None,
             copy: None,
@@ -116,6 +123,7 @@ pub struct TerminalWorkspace {
     pub rows: u16,
     pub owner: String,
     pub maximized: bool,
+    pub scrollback: usize,
 }
 
 impl TerminalWorkspace {
@@ -128,6 +136,7 @@ impl TerminalWorkspace {
             rows: 24,
             owner: owner.into(),
             maximized: false,
+            scrollback: 10_000,
         }
     }
 
@@ -187,6 +196,7 @@ impl TerminalWorkspace {
             command.map(str::to_string),
             cols,
             rows,
+            self.scrollback,
         );
         let session = PtySession::spawn_with_env(
             id.clone(),
@@ -218,7 +228,14 @@ impl TerminalWorkspace {
         sink: PtySink,
     ) -> Result<String, String> {
         let id = format!("pane-{}", uuid::Uuid::new_v4());
-        let mut pane = Pane::new(id.clone(), cwd.to_string(), None, cols, rows);
+        let mut pane = Pane::new(
+            id.clone(),
+            cwd.to_string(),
+            None,
+            cols,
+            rows,
+            self.scrollback,
+        );
         let session = PtySession::spawn_program(
             id.clone(),
             &launch.program,

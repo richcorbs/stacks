@@ -10,7 +10,8 @@ use ratatui::{
 
 use crate::{
     app::{App, ProjectTab},
-    widgets::{markdown, render_text_area, tabs},
+    screens::diff,
+    widgets::{markdown, render_input, render_text_area, tabs},
 };
 
 pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -58,6 +59,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .unwrap_or(ProjectTab::Notes);
     match tab {
         ProjectTab::Notes => render_notes(frame, app, body),
+        ProjectTab::Diff => diff::render(frame, app, body),
+        ProjectTab::Release => render_release(frame, app, body),
         ProjectTab::Agent | ProjectTab::Terminal | ProjectTab::Server | ProjectTab::Console => {
             render_terminal(frame, app, body)
         }
@@ -112,6 +115,115 @@ fn render_notes(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
+fn render_release(frame: &mut Frame, app: &mut App, area: Rect) {
+    let theme = app.theme;
+    let focused = app
+        .project
+        .as_ref()
+        .is_some_and(|state| state.release.editing);
+    let depth = app.depth;
+    let Some(state) = app.project.as_mut() else {
+        return;
+    };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(3),
+        ])
+        .split(area);
+    render_input(
+        frame,
+        chunks[0],
+        &state.release.version,
+        "RELEASE VERSION · e edit · Enter reload",
+        focused,
+        theme,
+    );
+    let latest = state.release.latest.clone().unwrap_or_else(|| {
+        state
+            .release
+            .latest_error
+            .clone()
+            .map(|error| format!("unavailable — {error}"))
+            .unwrap_or_else(|| "loading…".into())
+    });
+    let draft = match state.release.state.as_ref() {
+        Some(release) if release.published => "published",
+        Some(release) if release.draft_ready => "draft ready",
+        Some(_) => "not ready",
+        None => "unknown",
+    };
+    let status = state
+        .release
+        .error
+        .clone()
+        .or_else(|| state.release.state_error.clone())
+        .unwrap_or_else(|| {
+            state
+                .release
+                .last_action
+                .as_ref()
+                .map(|(action, version)| format!("{action:?} {version}"))
+                .unwrap_or_default()
+        });
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("  Latest: ", Style::default().fg(theme.dim)),
+            Span::styled(latest, Style::default().fg(theme.muted)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Draft:  ", Style::default().fg(theme.dim)),
+            Span::styled(draft, Style::default().fg(theme.text)),
+            Span::styled(
+                "   r release · b build & test · p publish · R refresh",
+                Style::default().fg(theme.dim),
+            ),
+        ]),
+        Line::from(Span::styled(
+            if status.is_empty() {
+                String::new()
+            } else {
+                format!("  {status}")
+            },
+            Style::default().fg(theme.muted),
+        )),
+        Line::from(""),
+    ];
+    frame.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(theme.canvas)),
+        ratatui::layout::Rect {
+            x: chunks[1].x,
+            y: chunks[1].y,
+            width: chunks[1].width,
+            height: chunks[1].height + 3,
+        },
+    );
+    if !state.release.terminal.is_empty() {
+        state
+            .release
+            .terminal
+            .resize(chunks[5].width, chunks[5].height);
+        state
+            .release
+            .terminal
+            .render(frame, chunks[5], false, depth);
+    } else {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "Press r to run the configured release command.",
+                Style::default().fg(theme.dim),
+            )))
+            .style(Style::default().bg(theme.canvas)),
+            chunks[5],
+        );
+    }
+}
+
 fn render_terminal(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme;
     let focused = app.terminal_focus;
@@ -124,7 +236,7 @@ fn render_terminal(frame: &mut Frame, app: &mut App, area: Rect) {
         ProjectTab::Terminal => (&mut state.terminal, "Project Terminal"),
         ProjectTab::Server => (&mut state.server, "Project Server"),
         ProjectTab::Console => (&mut state.console, "Project Console"),
-        ProjectTab::Notes => return,
+        ProjectTab::Notes | ProjectTab::Diff | ProjectTab::Release => return,
     };
     if workspace.is_empty() {
         frame.render_widget(

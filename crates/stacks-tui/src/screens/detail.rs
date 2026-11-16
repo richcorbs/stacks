@@ -63,7 +63,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         parts.push("no worktree".to_string());
     }
     let meta = parts.join("  ·  ");
-    let footer_height = if app.actions.is_empty() { 1 } else { 2 };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -72,8 +71,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(6),
-            Constraint::Length(1),
-            Constraint::Length(footer_height),
         ])
         .split(area);
     frame.render_widget(
@@ -121,9 +118,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         DetailTab::Console => terminal::render_service(frame, app, body, DetailTab::Console),
         DetailTab::Terminal => terminal::render_card(frame, app, body),
     }
-
-    crate::widgets::section_rule(frame, chunks[5], "", theme);
-    render_footer(frame, app, chunks[6]);
 }
 
 fn tab_enabled(app: &App, tab: DetailTab) -> bool {
@@ -180,60 +174,6 @@ fn render_overview(frame: &mut Frame, app: &mut App, area: Rect) {
             .style(Style::default().bg(theme.canvas))
             .wrap(Wrap { trim: false })
             .scroll((offset, 0)),
-        area,
-    );
-}
-
-fn render_footer(frame: &mut Frame, app: &mut App, area: Rect) {
-    let theme = app.theme;
-    let mut lines = Vec::new();
-    if app.actions.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "No actions for this card state.",
-            Style::default().fg(theme.dim),
-        )));
-    } else {
-        let mut spans = Vec::new();
-        for (index, action) in app.actions.iter().enumerate() {
-            if index > 0 {
-                spans.push(Span::styled("  ", Style::default().fg(theme.dim)));
-            }
-            let style = if action.disabled_reason.is_some() {
-                Style::default().fg(theme.dim)
-            } else if action.primary {
-                Style::default()
-                    .fg(theme.canvas)
-                    .bg(theme.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else if matches!(
-                action.appearance,
-                stacks_core::WorkflowActionAppearance::DangerGhost
-            ) {
-                Style::default().fg(theme.danger)
-            } else {
-                Style::default().fg(theme.muted)
-            };
-            // Keep intrinsic padding around every label; no leading markers.
-            spans.push(Span::styled(format!(" {} ", action.label), style));
-        }
-        lines.push(Line::from(spans));
-        let disabled = app
-            .actions
-            .iter()
-            .find_map(|action| action.disabled_reason.clone());
-        lines.push(Line::from(Span::styled(
-            disabled.unwrap_or_else(|| "a actions · 1..6 tabs · Esc back".into()),
-            Style::default().fg(if app.actions.iter().any(|a| a.disabled_reason.is_some()) {
-                theme.warning
-            } else {
-                theme.dim
-            }),
-        )));
-    }
-    frame.render_widget(
-        Paragraph::new(lines)
-            .style(Style::default().bg(theme.panel))
-            .wrap(Wrap { trim: true }),
         area,
     );
 }

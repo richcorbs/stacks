@@ -2,7 +2,10 @@
 
 use stacks_core::diff::{DiffFile, GitReviewContext, WorktreeStatus};
 use stacks_core::pty::PtyEvent;
-use stacks_core::{CardDetail, CardSnapshot, WorkflowAction};
+use stacks_core::{
+    CardDetail, CardSnapshot, WorkflowAction,
+    release::{ReleaseAction, ReleaseSetup},
+};
 
 #[derive(Debug)]
 pub enum CoreEvent {
@@ -21,6 +24,7 @@ pub enum CoreEvent {
         result: Result<(Vec<DiffFile>, GitReviewContext), String>,
     },
     FileDiff {
+        owner: String,
         path: String,
         result: Result<String, String>,
     },
@@ -30,6 +34,17 @@ pub enum CoreEvent {
     },
     Reorder(Result<(), String>),
     Created(Result<String, String>),
+    ProjectCreated(Result<String, String>),
+    ReleaseInfo {
+        project_id: String,
+        result: Result<crate::core_bridge::ReleaseInfo, String>,
+    },
+    ReleasePrepared {
+        project_id: String,
+        version: String,
+        action: ReleaseAction,
+        result: Result<(ReleaseSetup, String), String>,
+    },
     Edited(Result<(), String>),
     AutomationChanged {
         card_id: String,

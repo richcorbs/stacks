@@ -197,8 +197,12 @@ pub const KEYMAP: &[KeyHelp] = &[
     KeyHelp {
         group: "Project",
         entries: &[
+            ("n", "New project from the project list"),
             ("w", "Open project workspace"),
-            ("1..5", "Notes / Agent / Terminal / Server / Console"),
+            (
+                "1..7",
+                "Notes / Agent / Diff / Terminal / Release / Server / Console",
+            ),
             ("e", "Edit project notes"),
             ("Ctrl-S", "Save project notes"),
             ("Esc", "Back"),
