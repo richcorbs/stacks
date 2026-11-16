@@ -166,6 +166,49 @@ pub fn prepare_release(
     });
 }
 
+pub fn sync_project_pull_requests(
+    store: Store,
+    project_id: String,
+    path: String,
+    sender: EventSender,
+) {
+    spawn(sender.clone(), "pull-requests", move |sender| {
+        let result = stacks_core::github::github_pull_requests(path).and_then(|response| {
+            store
+                .sync_project_pull_requests(
+                    &project_id,
+                    &response.repository,
+                    &response.pull_requests,
+                )
+                .map_err(|error| error.to_string())
+        });
+        sender.send(CoreEvent::PullRequestsSynced(result));
+    });
+}
+
+pub fn delete_project(store: Store, project_id: String, sender: EventSender) {
+    spawn(sender.clone(), "delete-project", move |sender| {
+        let result = store
+            .delete_project(&project_id)
+            .map_err(|error| error.to_string());
+        sender.send(CoreEvent::ProjectDeleted { project_id, result });
+    });
+}
+
+pub fn update_project(
+    store: Store,
+    project_id: String,
+    update: stacks_core::store::ProjectSettingsUpdate,
+    sender: EventSender,
+) {
+    spawn(sender.clone(), "update-project", move |sender| {
+        let result = store
+            .update_project(&project_id, &update)
+            .map_err(|error| error.to_string());
+        sender.send(CoreEvent::ProjectUpdated(result));
+    });
+}
+
 pub fn create_project(store: Store, name: String, path: String, sender: EventSender) {
     spawn(sender.clone(), "create-project", move |sender| {
         let result = store

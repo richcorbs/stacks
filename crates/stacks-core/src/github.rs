@@ -12,7 +12,7 @@ use wait_timeout::ChildExt;
 
 const GITHUB_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum GithubStatus {
     Pending,
@@ -23,22 +23,36 @@ pub enum GithubStatus {
     Unknown,
 }
 
+impl GithubStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Success => "success",
+            Self::Failure => "failure",
+            Self::Skipped => "skipped",
+            Self::NoCi => "no_ci",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct GithubPullRequest {
-    number: u64,
-    title: String,
-    author: String,
-    ci_status: GithubStatus,
-    has_merge_conflicts: bool,
-    head_ref_name: String,
-    url: String,
-    draft: bool,
+    pub number: u64,
+    pub title: String,
+    pub author: String,
+    pub ci_status: GithubStatus,
+    pub has_merge_conflicts: bool,
+    pub head_ref_name: String,
+    pub head_revision: Option<String>,
+    pub url: String,
+    pub draft: bool,
 }
 
 #[derive(Debug, Serialize)]
 pub struct GithubPullRequestsResponse {
-    repository: String,
-    pull_requests: Vec<GithubPullRequest>,
+    pub repository: String,
+    pub pull_requests: Vec<GithubPullRequest>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -184,7 +198,7 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
             "--limit",
             "100",
             "--json",
-            "number,title,author,statusCheckRollup,mergeable,mergeStateStatus,headRefName,url,isDraft",
+            "number,title,author,statusCheckRollup,mergeable,mergeStateStatus,headRefName,headRefOid,url,isDraft",
         ],
     )?;
     let values: Vec<serde_json::Value> = serde_json::from_str(&output)
@@ -210,6 +224,10 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
                     .as_str()
                     .unwrap_or_default()
                     .to_string(),
+                head_revision: value["headRefOid"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
                 url: value["url"].as_str().unwrap_or_default().to_string(),
                 draft: value["isDraft"].as_bool().unwrap_or(false),
             })

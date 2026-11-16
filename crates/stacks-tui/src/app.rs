@@ -8,8 +8,8 @@ use std::{
 };
 
 use stacks_core::{
-    CardDetail, CardSnapshot, CardStatus, CardSummary, DeliveryStep, Project, WorkGroup,
-    WorkflowAction, WorkflowActionPresentation, WorktreeStatus,
+    CardDetail, CardSnapshot, CardStatus, CardSummary, DeliveryStep, DeliveryWorkflow, Project,
+    WorkGroup, WorkflowAction, WorkflowActionPresentation, WorktreeStatus,
     diff::{DiffFile, GitReviewContext, ParsedDiff},
     pi,
     pty::{PtyEvent, PtySink},
@@ -165,6 +165,7 @@ pub struct ProjectWorkspaceState {
     pub tab: ProjectTab,
     pub notes: TextArea,
     pub notes_editing: bool,
+    pub notes_dirty: bool,
     pub notes_scroll: u16,
     pub agent: TerminalWorkspace,
     pub terminal: TerminalWorkspace,
@@ -180,6 +181,7 @@ impl ProjectWorkspaceState {
             tab: ProjectTab::Notes,
             notes: TextArea::new(notes),
             notes_editing: false,
+            notes_dirty: false,
             notes_scroll: 0,
             agent: TerminalWorkspace::new(format!("{owner}-agent")),
             terminal: TerminalWorkspace::new(format!("{owner}-terminal")),
@@ -245,6 +247,7 @@ pub enum Overlay {
     Actions,
     NewCard,
     NewProject,
+    EditProject,
     EditCard,
     FinishRefinement,
     Filter,
@@ -288,6 +291,20 @@ pub struct NewProjectState {
 }
 
 #[derive(Debug, Clone)]
+pub struct EditProjectState {
+    pub project_id: String,
+    pub name: TextInput,
+    pub path: TextInput,
+    pub target_branch: TextInput,
+    pub start_work: TextInput,
+    pub server: TextInput,
+    pub console: TextInput,
+    pub release_config: TextInput,
+    pub releases_enabled: bool,
+    pub focus: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct EditCardState {
     pub card_id: String,
     pub revision: i64,
@@ -326,6 +343,7 @@ pub struct ConfirmAction {
     pub destructive: bool,
     pub workflow: Option<WorkflowRun>,
     pub release: Option<ReleaseRun>,
+    pub project_delete: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -484,6 +502,7 @@ pub struct App {
 
     pub new_card: Option<NewCardState>,
     pub new_project: Option<NewProjectState>,
+    pub edit_project: Option<EditProjectState>,
     pub new_card_draft: Option<(String, String, String)>,
     pub edit_card: Option<EditCardState>,
     pub refinement: Option<RefinementState>,
@@ -523,6 +542,7 @@ pub struct App {
     pub in_flight: usize,
     pub started: Instant,
     pub last_background_refresh: Instant,
+    pub last_pr_refresh: Instant,
     pub cols: u16,
     pub rows: u16,
     pub headless: bool,
@@ -575,6 +595,7 @@ impl App {
             quit: false,
             new_card: None,
             new_project: None,
+            edit_project: None,
             new_card_draft: None,
             edit_card: None,
             refinement: None,
@@ -616,6 +637,7 @@ impl App {
             in_flight: 0,
             started: Instant::now(),
             last_background_refresh: Instant::now(),
+            last_pr_refresh: Instant::now(),
             cols: 120,
             rows: 40,
             headless,
@@ -986,6 +1008,50 @@ impl App {
                     Ok(project_id) => {
                         self.message = "Project added".into();
                         self.pending_project_open = Some(project_id);
+                        self.refresh_board();
+                    }
+                    Err(error) => self.error = Some(error),
+                }
+            }
+            CoreEvent::PullRequestsSynced(result) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                if let Ok(updated) = result {
+                    if updated > 0 {
+                        self.refresh_board();
+                    }
+                }
+            }
+            CoreEvent::ProjectDeleted { project_id, result } => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                match result {
+                    Ok(()) => {
+                        self.project_sessions.remove(&project_id);
+                        if self
+                            .project
+                            .as_ref()
+                            .is_some_and(|state| state.project_id == project_id)
+                        {
+                            self.project = None;
+                            if self.screen == Screen::Project {
+                                self.screen = Screen::Board;
+                            }
+                        }
+                        if self.project_scope.as_deref() == Some(project_id.as_str()) {
+                            self.project_scope = None;
+                        }
+                        self.message = "Project deleted".into();
+                        self.error = None;
+                        self.refresh_board();
+                    }
+                    Err(error) => self.error = Some(error),
+                }
+            }
+            CoreEvent::ProjectUpdated(result) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                match result {
+                    Ok(()) => {
+                        self.message = "Project updated".into();
+                        self.error = None;
                         self.refresh_board();
                     }
                     Err(error) => self.error = Some(error),
@@ -1558,6 +1624,9 @@ impl App {
             self.message = "Project was not found".into();
             return;
         };
+        if self.project.as_ref().is_some_and(|state| state.notes_dirty) {
+            self.save_project_notes();
+        }
         self.stash_card_sessions();
         let same = self
             .project
@@ -1591,6 +1660,13 @@ impl App {
     }
 
     fn select_project_tab(&mut self, tab: ProjectTab) {
+        if self
+            .project
+            .as_ref()
+            .is_some_and(|state| state.tab == ProjectTab::Notes && state.notes_dirty)
+        {
+            self.save_project_notes();
+        }
         let Some(state) = self.project.as_mut() else {
             return;
         };
@@ -1837,6 +1913,7 @@ impl App {
                 action,
                 setup,
             }),
+            project_delete: None,
         });
     }
 
@@ -1909,7 +1986,9 @@ impl App {
                     }
                     _ => {
                         if let Some(state) = self.project.as_mut() {
-                            state.notes.handle(&key);
+                            if state.notes.handle(&key) {
+                                state.notes_dirty = true;
+                            }
                         }
                     }
                 }
@@ -1921,7 +2000,12 @@ impl App {
                         state.notes_editing = true;
                     }
                 }
-                Key::Esc => self.screen = Screen::Board,
+                Key::Esc => {
+                    if state.notes_dirty {
+                        self.save_project_notes();
+                    }
+                    self.screen = Screen::Board;
+                }
                 Key::Char('j') | Key::Down => {
                     if let Some(state) = self.project.as_mut() {
                         state.notes_scroll = state.notes_scroll.saturating_add(1);
@@ -2007,6 +2091,7 @@ impl App {
                 }
                 if let Some(state) = self.project.as_mut() {
                     state.notes_editing = false;
+                    state.notes_dirty = false;
                 }
                 self.message = "Project notes saved".into();
                 self.error = None;
@@ -2105,6 +2190,8 @@ impl App {
                 }
             }
             Key::Char('n') if self.focus == Focus::Sidebar => self.start_new_project(),
+            Key::Char('e') if self.focus == Focus::Sidebar => self.start_edit_project(),
+            Key::Char('D') if self.focus == Focus::Sidebar => self.start_delete_project(),
             Key::Char('n') => self.start_new_card(),
             Key::Char('w') => self.open_project_from_context(),
             Key::Char('J') => self.reorder(1),
@@ -3309,6 +3396,143 @@ impl App {
         self.recompute_rows();
     }
 
+    fn sidebar_project(&self) -> Option<Project> {
+        if self.focus == Focus::Sidebar && self.sidebar_cursor > 0 {
+            self.board
+                .as_ref()
+                .and_then(|board| board.projects.get(self.sidebar_cursor - 1))
+                .cloned()
+        } else {
+            self.selected_project().cloned()
+        }
+    }
+
+    fn start_delete_project(&mut self) {
+        let Some(project) = self.sidebar_project() else {
+            self.message = "Select a project to delete".into();
+            return;
+        };
+        self.open_confirm(ConfirmAction {
+            title: format!("Delete {}?", project.name),
+            detail: "This removes the project and its completed cards after active cards and worktrees are cleaned up. This cannot be undone.".into(),
+            primary_label: "Delete".into(),
+            destructive: true,
+            workflow: None,
+            release: None,
+            project_delete: Some(project.id),
+        });
+    }
+
+    fn start_edit_project(&mut self) {
+        let Some(project) = self.sidebar_project() else {
+            self.message = "Select a project to edit".into();
+            return;
+        };
+        self.edit_project = Some(EditProjectState {
+            project_id: project.id.clone(),
+            name: TextInput::new(project.name),
+            path: TextInput::new(project.path),
+            target_branch: TextInput::new(project.target_branch),
+            start_work: TextInput::new(project.start_work_command.unwrap_or_default()),
+            server: TextInput::new(project.server_command.unwrap_or_default()),
+            console: TextInput::new(project.console_command.unwrap_or_default()),
+            release_config: TextInput::new(project.release_config_path),
+            releases_enabled: project.releases_enabled,
+            focus: 0,
+        });
+        self.overlay = Some(Overlay::EditProject);
+    }
+
+    fn submit_edit_project(&mut self) {
+        let Some(state) = self.edit_project.as_ref() else {
+            return;
+        };
+        let update = stacks_core::store::ProjectSettingsUpdate {
+            name: state.name.value.trim().to_string(),
+            path: state.path.value.trim().to_string(),
+            target_branch: state.target_branch.value.trim().to_string(),
+            start_work_command: Some(state.start_work.value.trim().to_string()),
+            server_command: Some(state.server.value.trim().to_string()),
+            console_command: Some(state.console.value.trim().to_string()),
+            releases_enabled: state.releases_enabled,
+            release_config_path: state.release_config.value.trim().to_string(),
+        };
+        let project_id = state.project_id.clone();
+        self.edit_project = None;
+        self.overlay = None;
+        self.in_flight += 1;
+        self.message = "Saving project settings…".into();
+        self.project_sessions.remove(&project_id);
+        if self
+            .project
+            .as_ref()
+            .is_some_and(|state| state.project_id == project_id)
+        {
+            self.project = None;
+            if self.screen == Screen::Project {
+                self.screen = Screen::Board;
+            }
+        }
+        core_bridge::update_project(
+            Arc::clone(&self.store),
+            project_id,
+            update,
+            self.sender.clone(),
+        );
+    }
+
+    fn handle_edit_project_key(&mut self, key: Key) {
+        const FIELDS: usize = 8;
+        let Some(state) = self.edit_project.as_mut() else {
+            return;
+        };
+        match key {
+            Key::Esc => {
+                self.edit_project = None;
+                self.overlay = None;
+            }
+            Key::Ctrl('s') => self.submit_edit_project(),
+            Key::Tab => state.focus = (state.focus + 1) % FIELDS,
+            Key::BackTab => state.focus = (state.focus + FIELDS - 1) % FIELDS,
+            Key::Enter if state.focus == 7 => {
+                state.releases_enabled = !state.releases_enabled;
+            }
+            Key::Enter if state.focus + 1 < FIELDS => {
+                state.focus += 1;
+            }
+            Key::Enter => self.submit_edit_project(),
+            _ => match state.focus {
+                0 => {
+                    state.name.handle(&key);
+                }
+                1 => {
+                    state.path.handle(&key);
+                }
+                2 => {
+                    state.target_branch.handle(&key);
+                }
+                3 => {
+                    state.start_work.handle(&key);
+                }
+                4 => {
+                    state.server.handle(&key);
+                }
+                5 => {
+                    state.console.handle(&key);
+                }
+                6 => {
+                    state.release_config.handle(&key);
+                }
+                7 => {
+                    if key == Key::Char(' ') {
+                        state.releases_enabled = !state.releases_enabled;
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+
     fn start_new_project(&mut self) {
         self.new_project = Some(NewProjectState {
             path: TextInput::default(),
@@ -3494,6 +3718,9 @@ impl App {
     }
 
     fn request_quit(&mut self) {
+        if self.project.as_ref().is_some_and(|state| state.notes_dirty) {
+            self.save_project_notes();
+        }
         let busy = self.is_busy();
         if !busy || !self.preferences.confirm_close {
             self.quit = true;
@@ -3506,6 +3733,7 @@ impl App {
             destructive: true,
             workflow: None,
             release: None,
+            project_delete: None,
         });
     }
 
@@ -3565,6 +3793,10 @@ impl App {
                 release.setup,
                 self.sender.clone(),
             );
+        } else if let Some(project_id) = action.project_delete {
+            self.in_flight += 1;
+            self.message = "Deleting project…".into();
+            core_bridge::delete_project(Arc::clone(&self.store), project_id, self.sender.clone());
         } else {
             self.quit = true;
         }
@@ -3603,6 +3835,7 @@ impl App {
                 ),
                 workflow: Some(run),
                 release: None,
+                project_delete: None,
             });
         } else {
             self.in_flight += 1;
@@ -3721,6 +3954,10 @@ impl App {
             }
             Overlay::NewProject => {
                 self.handle_new_project_key(key);
+                true
+            }
+            Overlay::EditProject => {
+                self.handle_edit_project_key(key);
                 true
             }
             Overlay::EditCard => {
@@ -3981,6 +4218,37 @@ impl App {
                 if let Some(card_id) = self.selected_card.clone() {
                     self.load_detail(card_id);
                 }
+            }
+        }
+        if !self.headless
+            && self.confirm.is_none()
+            && self.overlay.is_none()
+            && self.in_flight == 0
+            && self.last_pr_refresh.elapsed() >= Duration::from_secs(60)
+        {
+            self.last_pr_refresh = Instant::now();
+            let projects = self
+                .board
+                .as_ref()
+                .map(|board| {
+                    board
+                        .projects
+                        .iter()
+                        .filter(|project| {
+                            project.delivery_workflow == DeliveryWorkflow::GithubPullRequest
+                        })
+                        .map(|project| (project.id.clone(), project.path.clone()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            for (project_id, path) in projects {
+                self.in_flight += 1;
+                core_bridge::sync_project_pull_requests(
+                    Arc::clone(&self.store),
+                    project_id,
+                    path,
+                    self.sender.clone(),
+                );
             }
         }
     }

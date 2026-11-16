@@ -22,6 +22,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         Some(Overlay::Actions) => render_actions(frame, app, area),
         Some(Overlay::NewCard) => render_new_card(frame, app, area),
         Some(Overlay::NewProject) => render_new_project(frame, app, area),
+        Some(Overlay::EditProject) => render_edit_project(frame, app, area),
         Some(Overlay::EditCard) => render_edit_card(frame, app, area),
         Some(Overlay::FinishRefinement) => render_refinement(frame, app, area),
         Some(Overlay::Filter) => render_filter(frame, app, area),
@@ -410,6 +411,77 @@ fn render_new_project(frame: &mut Frame, app: &mut App, area: Rect) {
         Paragraph::new("The directory must already exist. Local delivery defaults are used.")
             .style(Style::default().fg(theme.dim)),
         chunks[2],
+    );
+}
+
+fn render_edit_project(frame: &mut Frame, app: &mut App, area: Rect) {
+    let theme = app.theme;
+    let Some(state) = app.edit_project.as_ref() else {
+        return;
+    };
+    let modal_area = centered(area, 100, 20.min(area.height.saturating_sub(4)).max(14));
+    modal(
+        frame,
+        modal_area,
+        "Edit project · Tab switches field · Ctrl-S saves",
+        theme,
+    );
+    let inner = modal_area.inner(ratatui::layout::Margin::new(2, 1));
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(1),
+        ])
+        .split(inner);
+    let fields = [
+        (&state.name, "Name", 0),
+        (&state.path, "Directory", 1),
+        (&state.target_branch, "Target branch", 2),
+        (&state.start_work, "Start work command", 3),
+        (&state.server, "Server command", 4),
+        (&state.console, "Console command", 5),
+        (&state.release_config, "Release config path", 6),
+    ];
+    for (index, (input, title, focus)) in fields.iter().enumerate() {
+        let row = index / 2;
+        let column = index % 2;
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[row]);
+        render_input(
+            frame,
+            columns[column],
+            input,
+            title,
+            state.focus == *focus,
+            theme,
+        );
+    }
+    let releases_style = if state.focus == 7 {
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                format!(
+                    "  [{}] Releases enabled",
+                    if state.releases_enabled { "x" } else { " " }
+                ),
+                releases_style,
+            )),
+            Line::from(Span::styled(
+                "Enter toggles this row; Ctrl-S saves. Superthread credentials are unchanged.",
+                Style::default().fg(theme.dim),
+            )),
+        ]),
+        rows[4],
     );
 }
 fn render_edit_card(frame: &mut Frame, app: &mut App, area: Rect) {

@@ -46,6 +46,18 @@ pub struct ApprovedChildSpec {
     pub content: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ProjectSettingsUpdate {
+    pub name: String,
+    pub path: String,
+    pub target_branch: String,
+    pub start_work_command: Option<String>,
+    pub server_command: Option<String>,
+    pub console_command: Option<String>,
+    pub releases_enabled: bool,
+    pub release_config_path: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct CardStore {
     path: PathBuf,
@@ -2149,6 +2161,226 @@ impl CardStore {
             children.is_some(),
         )?;
         transaction.commit().context("commit finish refinement")?;
+        Ok(())
+    }
+
+    pub fn sync_project_pull_requests(
+        &self,
+        project_id: &str,
+        repository: &str,
+        pull_requests: &[crate::github::GithubPullRequest],
+    ) -> Result<usize> {
+        if pull_requests.is_empty() {
+            return Ok(0);
+        }
+        let connection = self.open_writable()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT c.id, e.branch
+                 FROM kanban_cards c
+                 JOIN card_environments e ON e.card_id=c.id
+                 WHERE c.project_id=?1 AND e.branch <> ''",
+            )
+            .context("prepare pull request sync")?;
+        let cards = statement
+            .query_map([project_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .context("read pull request cards")?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect pull request cards")?;
+        drop(statement);
+        let mut updated = 0usize;
+        for (card_id, branch) in cards {
+            let Some(pr) = pull_requests.iter().find(|pr| pr.head_ref_name == branch) else {
+                continue;
+            };
+            connection
+                .execute(
+                    "INSERT INTO card_pull_requests
+                     (card_id,repository,number,title,url,state,draft,ci_status,review_state,has_conflicts,mergeable,head_revision,updated_at)
+                     VALUES (?1,?2,?3,?4,?5,'open',?6,?7,'unknown',?8,?9,?10,unixepoch())
+                     ON CONFLICT(card_id) DO UPDATE SET
+                       repository=excluded.repository, number=excluded.number, title=excluded.title,
+                       url=excluded.url, state='open', draft=excluded.draft, ci_status=excluded.ci_status,
+                       has_conflicts=excluded.has_conflicts, mergeable=excluded.mergeable,
+                       head_revision=excluded.head_revision, updated_at=excluded.updated_at",
+                    params![
+                        card_id,
+                        repository,
+                        pr.number as i64,
+                        pr.title,
+                        pr.url,
+                        pr.draft as i64,
+                        pr.ci_status.as_str(),
+                        pr.has_merge_conflicts as i64,
+                        (!pr.has_merge_conflicts) as i64,
+                        pr.head_revision.as_deref(),
+                    ],
+                )
+                .context("upsert card pull request")?;
+            updated += 1;
+        }
+        Ok(updated)
+    }
+
+    pub fn delete_project(&self, project_id: &str) -> Result<()> {
+        let mut connection = self.open_writable()?;
+        let transaction = connection.transaction().context("begin project deletion")?;
+        let source: String = transaction
+            .query_row(
+                "SELECT COALESCE(kanban_source,'local') FROM projects WHERE id=?1",
+                [project_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("find project")?
+            .ok_or_else(|| {
+                anyhow::anyhow!("Project could not be deleted because it was not found")
+            })?;
+        let active: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM kanban_cards WHERE project_id=?1 AND status != 'done'",
+                [project_id],
+                |row| row.get(0),
+            )
+            .context("count active project cards")?;
+        let environments: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM card_environments e JOIN kanban_cards c ON c.id=e.card_id WHERE e.project_id=?1 OR c.project_id=?1",
+                [project_id],
+                |row| row.get(0),
+            )
+            .context("count project environments")?;
+        if active > 0 || environments > 0 {
+            bail!(
+                "Project deletion is blocked: finish its {active} active card(s) and clean up its {environments} card environment(s) first."
+            );
+        }
+        let mut statement = transaction
+            .prepare(
+                "SELECT id FROM kanban_cards WHERE project_id=?1 AND external_provider != 'superthread'",
+            )
+            .context("list removable project cards")?;
+        let removed = statement
+            .query_map([project_id], |row| row.get::<_, String>(0))
+            .context("read removable project cards")?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect removable project cards")?;
+        drop(statement);
+        for table in [
+            "card_events",
+            "card_pull_requests",
+            "environment_creation_operations",
+            "card_cleanup_operations",
+            "scripted_delivery_operations",
+        ] {
+            let sql = format!(
+                "DELETE FROM {table} WHERE card_id IN (SELECT id FROM kanban_cards WHERE project_id=?1 AND external_provider != 'superthread')"
+            );
+            transaction
+                .execute(&sql, [project_id])
+                .with_context(|| format!("delete {table} for project"))?;
+        }
+        if source == "superthread" {
+            transaction
+                .execute(
+                    "UPDATE kanban_cards SET project_id=NULL, in_scope=0 WHERE project_id=?1 AND external_provider='superthread'",
+                    [project_id],
+                )
+                .context("detach Superthread cards")?;
+        }
+        transaction
+            .execute(
+                "DELETE FROM kanban_cards WHERE project_id=?1 AND external_provider != 'superthread'",
+                [project_id],
+            )
+            .context("delete project cards")?;
+        transaction
+            .execute(
+                "DELETE FROM kanban_project_sequences WHERE project_id=?1",
+                [project_id],
+            )
+            .context("delete project sequence")?;
+        transaction
+            .execute("DELETE FROM projects WHERE id=?1", [project_id])
+            .context("delete project")?;
+        transaction.commit().context("commit project deletion")?;
+        for card_id in removed {
+            if let Ok(directory) = crate::paths::card_directory(&card_id) {
+                if directory.exists() {
+                    std::fs::remove_dir_all(&directory)
+                        .with_context(|| format!("remove card files for {card_id}"))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn update_project(&self, project_id: &str, update: &ProjectSettingsUpdate) -> Result<()> {
+        let name = update.name.trim();
+        let raw_path = update.path.trim();
+        let target_branch = update.target_branch.trim();
+        if name.is_empty() || raw_path.is_empty() || target_branch.is_empty() {
+            bail!("Project name, directory, and target branch are required");
+        }
+        let path = std::path::Path::new(raw_path)
+            .canonicalize()
+            .with_context(|| format!("Project directory does not exist: {raw_path}"))?;
+        if !path.is_dir() {
+            bail!("Project path must be a directory");
+        }
+        let path = path.to_string_lossy().into_owned();
+        let release_config = if update.release_config_path.trim().is_empty() {
+            ".stacks/release.json"
+        } else {
+            update.release_config_path.trim()
+        };
+        let connection = self.open_writable()?;
+        let duplicate: Option<String> = connection
+            .query_row(
+                "SELECT id FROM projects WHERE path=?1 AND id<>?2",
+                params![path, project_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("check project path")?;
+        if duplicate.is_some() {
+            bail!("That project directory is already added");
+        }
+        let changed = connection
+            .execute(
+                "UPDATE projects SET name=?1, path=?2, target_branch=?3,
+                    start_work_command=?4, server_command=?5, console_command=?6,
+                    releases_enabled=?7, release_config_path=?8 WHERE id=?9",
+                params![
+                    name,
+                    path,
+                    target_branch,
+                    update
+                        .start_work_command
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty()),
+                    update
+                        .server_command
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty()),
+                    update
+                        .console_command
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty()),
+                    update.releases_enabled as i64,
+                    release_config,
+                    project_id
+                ],
+            )
+            .context("update project")?;
+        if changed != 1 {
+            bail!("Project was not found");
+        }
         Ok(())
     }
 

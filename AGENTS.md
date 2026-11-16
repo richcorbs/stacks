@@ -337,8 +337,12 @@ Stacks > Reset Window Settings
   Diff, Terminal, and enabled Release / configured Server/Console tabs for the
   selected project. Project notes write through to `projects.notes`; the project
   Agent uses a dedicated persistent session directory. Card and project PTYs
-  are cached by id while the TUI runs (not restored across restarts). `n` in the
-  project sidebar adds an existing directory as a local project.
+  are cached by id while the TUI runs (not restored across restarts). The
+  project sidebar supports `n` add, `e` edit (name/path/target/commands/release),
+  and `D` delete with the no-active-work guard.
+- Background refresh reloads the board/worktree every 15s and refreshes open
+  GitHub PR/CI state for GitHub-delivery projects every 60s. Provider sync and
+  closed/merged PR transition polling remain GUI-side.
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and
   per-file review/comment state. `c`/`C` add file/overall feedback and `s`
   sends the composed review prompt to the Agent Pi pane. Lazygit itself is not

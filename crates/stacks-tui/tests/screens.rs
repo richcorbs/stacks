@@ -1,9 +1,13 @@
 use std::{path::Path, sync::Arc};
 
 use rusqlite::Connection;
-use stacks_core::{CardStatus, store::CardStore};
+use stacks_core::{
+    CardStatus,
+    github::{GithubPullRequest, GithubStatus},
+    store::CardStore,
+};
 use stacks_tui::{
-    app::{App, DetailTab, Screen},
+    app::{App, DetailTab, Focus, Screen},
     headless,
     keys::Key,
 };
@@ -284,6 +288,113 @@ fn card_session_terminal_keeps_running_while_hidden() {
     app.pump(500);
     let screen = headless::dump(&mut app, 120, 40);
     assert!(screen.contains("CACHE_MARK"), "{screen}");
+}
+
+#[test]
+fn pull_request_sync_updates_card_pr_and_ci_state() {
+    let (mut app, dir) = app();
+    let connection = Connection::open(dir.path().join("workflow.sqlite3")).unwrap();
+    connection
+        .execute(
+            "INSERT INTO card_environments
+             (id,card_id,project_id,worktree_path,branch,lifecycle_state,revision,created_at,updated_at)
+             VALUES ('e1','local:326','p2','/tmp/stacks','feature-326','ready',1,1,1)",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+    let updated = app
+        .store
+        .sync_project_pull_requests(
+            "p2",
+            "org/repo",
+            &[GithubPullRequest {
+                number: 42,
+                title: "Card PR".into(),
+                author: "dev".into(),
+                ci_status: GithubStatus::Success,
+                has_merge_conflicts: false,
+                head_ref_name: "feature-326".into(),
+                head_revision: Some("abc".into()),
+                url: "https://example.invalid/42".into(),
+                draft: false,
+            }],
+        )
+        .unwrap();
+    assert_eq!(updated, 1);
+    app.refresh_board();
+    app.pump(1_000);
+    let card = app
+        .board
+        .as_ref()
+        .unwrap()
+        .cards
+        .iter()
+        .find(|card| card.id == "local:326")
+        .unwrap();
+    assert_eq!(card.pull_request.as_ref().unwrap().number, 42);
+    assert_eq!(card.pull_request.as_ref().unwrap().ci_status, "success");
+}
+
+#[test]
+fn project_settings_can_be_edited_from_the_project_list() {
+    let (mut app, dir) = app();
+    let project_dir = dir.path().join("edited-project");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    app.handle_key(Key::Char('h'));
+    app.handle_key(Key::Char('j'));
+    app.handle_key(Key::Char('j'));
+    app.handle_key(Key::Char('e'));
+    let state = app.edit_project.as_mut().unwrap();
+    state.name = stacks_tui::widgets::TextInput::new("Renamed Project");
+    state.path = stacks_tui::widgets::TextInput::new(project_dir.to_string_lossy());
+    state.server = stacks_tui::widgets::TextInput::new("npm run dev");
+    app.handle_key(Key::Ctrl('s'));
+    app.pump(1_000);
+    let project = app
+        .board
+        .as_ref()
+        .unwrap()
+        .projects
+        .iter()
+        .find(|project| project.name == "Renamed Project")
+        .unwrap();
+    assert_eq!(project.server_command.as_deref(), Some("npm run dev"));
+}
+
+#[test]
+fn a_project_without_active_work_can_be_deleted() {
+    let (mut app, dir) = app();
+    let project_dir = dir.path().join("deletable-project");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    let project_id = app
+        .store
+        .create_project("Deletable", project_dir.to_str().unwrap())
+        .unwrap();
+    app.refresh_board();
+    app.pump(500);
+    app.focus = Focus::Sidebar;
+    app.sidebar_cursor = app
+        .board
+        .as_ref()
+        .unwrap()
+        .projects
+        .iter()
+        .position(|project| project.id == project_id)
+        .unwrap()
+        + 1;
+    app.preferences.confirmation_delay_ms = 0;
+    app.handle_key(Key::Char('D'));
+    app.handle_key(Key::Char('1'));
+    app.pump(1_000);
+    assert!(
+        !app.board
+            .as_ref()
+            .unwrap()
+            .projects
+            .iter()
+            .any(|project| project.id == project_id)
+    );
 }
 
 #[test]

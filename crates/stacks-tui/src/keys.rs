@@ -198,6 +198,8 @@ pub const KEYMAP: &[KeyHelp] = &[
         group: "Project",
         entries: &[
             ("n", "New project from the project list"),
+            ("e", "Edit the selected project"),
+            ("D", "Delete the selected project"),
             ("w", "Open project workspace"),
             (
                 "1..7",

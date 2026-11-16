@@ -35,6 +35,12 @@ pub enum CoreEvent {
     Reorder(Result<(), String>),
     Created(Result<String, String>),
     ProjectCreated(Result<String, String>),
+    ProjectUpdated(Result<(), String>),
+    ProjectDeleted {
+        project_id: String,
+        result: Result<(), String>,
+    },
+    PullRequestsSynced(Result<usize, String>),
     ReleaseInfo {
         project_id: String,
         result: Result<crate::core_bridge::ReleaseInfo, String>,

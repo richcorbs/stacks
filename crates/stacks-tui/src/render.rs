@@ -220,11 +220,15 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
             ("Esc", "close"),
         ],
         Some(Overlay::Actions) => vec![("j/k", "choose"), ("Enter", "run"), ("Esc", "close")],
-        Some(Overlay::NewCard) | Some(Overlay::NewProject) | Some(Overlay::EditCard) => vec![
+        Some(Overlay::NewCard) | Some(Overlay::EditCard) => vec![
             ("Tab", "field"),
             ("Enter/Ctrl-S", "submit"),
             ("Esc", "keep draft / cancel"),
         ],
+        Some(Overlay::NewProject) => {
+            vec![("Tab", "field"), ("Enter/Ctrl-S", "add"), ("Esc", "cancel")]
+        }
+        Some(Overlay::EditProject) => vec![("Tab", "field"), ("Ctrl-S", "save"), ("Esc", "cancel")],
         Some(Overlay::FinishRefinement) => vec![
             ("Ctrl-S", "save & finish"),
             ("Alt-Enter", "newline"),
@@ -250,8 +254,9 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
             Screen::Board if app.focus == crate::app::Focus::Sidebar => vec![
                 ("j/k", "project"),
                 ("Enter", "filter"),
-                ("n", "project"),
-                ("Esc/Tab", "cards"),
+                ("n", "new"),
+                ("e", "edit"),
+                ("D", "delete"),
                 ("w", "workspace"),
                 ("Ctrl-F", "cycle"),
             ],

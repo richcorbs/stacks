@@ -57,8 +57,10 @@ check` still works.
   commands there. Project Diff uses the same review tree/comments as card
   Diff; Release drives the repository's configured release commands in a
   managed PTY. Project workspaces are cached per project while the app runs.
-- `n` in the project sidebar adds an existing directory as a local project;
-  the name defaults to the directory basename.
+- The project sidebar supports `n` to add an existing directory as a local
+  project (name defaults to the directory basename), `e` to edit its name,
+  path, target branch, commands, release config/enabled flag, and `D` to delete
+  it when it has no active cards or worktrees.
 - `Ctrl-,` settings cover confirmation delay, hide-Done, copy-on-select,
   scrollback, quit/delete confirmations, accent, and terminal font size.
   Values are patched into the shared `settings.json`.
@@ -195,9 +197,10 @@ This is a deliberate scope change from the card text:
   survive a restart. `project_direct` layout persistence is available in core
   but not wired into the TUI yet.
 - Background refresh reloads the board and selected worktree status from SQLite
-  and Git every 15s. GitHub PR/CI polling and Superthread provider sync are not
-  ported, so those fields may remain stale until the GUI or another writer
-  updates them.
+  and Git every 15s. Projects using GitHub delivery refresh their open PR, CI,
+  draft, and conflict state from `gh` every 60s. Closed/merged PR transitions,
+  review state, and Superthread provider sync are not ported, so those fields
+  can remain stale until the GUI or another writer updates them.
 - Release runs Release / Build & test / Publish in a managed PTY, but the GUI's
   restart-to-test step and its local install flow are not wired into the TUI.
 - Kitty/sixel/inline image output degrades to text (see `DIVERGENCES.md`).
