@@ -154,8 +154,10 @@ fn run() -> Result<(), String> {
             "{error}\n\nQuit the other Stacks instance, or start with --dump-screen for an offline render."
         ))
     })?;
+    app.restore_ui_state();
 
     let result = run_interactive(&mut app);
+    app.save_ui_state();
     let relaunch = app.relaunch;
     drop(app);
     drop(guard);

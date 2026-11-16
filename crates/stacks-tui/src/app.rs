@@ -987,6 +987,93 @@ impl App {
         );
     }
 
+    pub fn save_ui_state(&self) {
+        if self.headless {
+            return;
+        }
+        let (screen, project_id, card_id, detail_tab, project_tab) = match self.screen {
+            Screen::Board => ("board", None, None, None, None),
+            Screen::Detail => (
+                "card",
+                self.detail
+                    .as_ref()
+                    .and_then(|detail| detail.card.project_id.clone()),
+                self.selected_card.clone(),
+                Some(self.detail_tab.index()),
+                None,
+            ),
+            Screen::Project => (
+                "project",
+                self.project.as_ref().map(|state| state.project_id.clone()),
+                None,
+                None,
+                self.project
+                    .as_ref()
+                    .map(|state| state.tab.label().to_string()),
+            ),
+        };
+        let state = settings::TuiUiState {
+            screen: screen.into(),
+            project_id,
+            card_id,
+            detail_tab,
+            project_tab,
+        };
+        let _ = settings::save_ui_state(&state);
+    }
+
+    pub fn restore_ui_state(&mut self) {
+        if self.headless {
+            return;
+        }
+        let state = settings::load_ui_state();
+        match state.screen.as_str() {
+            "card" => {
+                let Some(card_id) = state.card_id else {
+                    return;
+                };
+                if !self
+                    .board
+                    .as_ref()
+                    .is_some_and(|board| board.cards.iter().any(|card| card.id == card_id))
+                {
+                    return;
+                }
+                self.open_detail(card_id);
+                if let Some(tab) = state
+                    .detail_tab
+                    .and_then(|index| DetailTab::ALL.get(index).copied())
+                {
+                    self.detail_tab = tab;
+                }
+            }
+            "project" => {
+                let Some(project_id) = state.project_id else {
+                    return;
+                };
+                if !self.board.as_ref().is_some_and(|board| {
+                    board
+                        .projects
+                        .iter()
+                        .any(|project| project.id == project_id)
+                }) {
+                    return;
+                }
+                self.open_project_workspace(project_id);
+                if let Some(label) = state.project_tab.as_deref() {
+                    if let Some(tab) = self
+                        .project_tabs()
+                        .into_iter()
+                        .find(|tab| tab.label() == label)
+                    {
+                        self.select_project_tab(tab);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn apply_preferences(&mut self) {
         let settings = settings::load();
         self.usage = settings.command_usage_counts.clone().unwrap_or_default();

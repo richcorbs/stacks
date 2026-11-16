@@ -156,6 +156,75 @@ pub fn load_from(path: PathBuf) -> AppSettings {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TuiUiState {
+    pub screen: String,
+    pub project_id: Option<String>,
+    pub card_id: Option<String>,
+    pub detail_tab: Option<usize>,
+    pub project_tab: Option<String>,
+}
+
+pub fn load_ui_state() -> TuiUiState {
+    let _guard = lock().lock();
+    let value = read_value_unlocked();
+    TuiUiState {
+        screen: value
+            .get("tui_last_screen")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        project_id: value
+            .get("tui_last_project_id")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        card_id: value
+            .get("tui_last_card_id")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        detail_tab: value
+            .get("tui_last_detail_tab")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+        project_tab: value
+            .get("tui_last_project_tab")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+pub fn save_ui_state(state: &TuiUiState) -> Result<(), String> {
+    let _guard = lock().lock();
+    let mut value = read_value_unlocked();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "settings.json must contain an object".to_string())?;
+    object.insert("tui_last_screen".into(), Value::String(state.screen.clone()));
+    for (key, value_opt) in [
+        ("tui_last_project_id", state.project_id.as_ref()),
+        ("tui_last_card_id", state.card_id.as_ref()),
+        ("tui_last_project_tab", state.project_tab.as_ref()),
+    ] {
+        match value_opt {
+            Some(value) => {
+                object.insert(key.into(), Value::String(value.clone()));
+            }
+            None => {
+                object.remove(key);
+            }
+        }
+    }
+    match state.detail_tab {
+        Some(tab) => {
+            object.insert("tui_last_detail_tab".into(), Value::from(tab as u64));
+        }
+        None => {
+            object.remove("tui_last_detail_tab");
+        }
+    }
+    write_value_unlocked(&value)
+}
+
 /// Merge the TUI's editable fields into the on-disk object.
 pub fn save_tui_preferences(preferences: &TuiPreferences) -> Result<AppSettings, String> {
     let _guard = lock().lock();
