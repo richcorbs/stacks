@@ -202,11 +202,11 @@ This is a deliberate scope change from the card text:
 ## Known gaps / follow-ups
 
 - Full `src-tauri` → `stacks-core` extraction (above).
-- Remote-deletion reconciliation and the durable provider outbox remain
-  GUI/kanban-side. Provider refinement now re-fetches and validates the
-  authoritative parent/child hierarchy before approving it; the TUI imports
-  cards, retires locally deleted provider cards, and moves Start/Done columns
-  directly.
+- Remote-deletion reconciliation and the durable provider outbox journal remain
+  GUI/kanban-side. Provider refinement re-fetches and validates the
+  authoritative parent/child hierarchy; provider sync retries Start/Done column
+  moves for local cards that still need one. The TUI imports cards and retires
+  locally deleted provider cards.
 - Custom start-work setup commands, environment-creation cleanup, PR
   freshness/merge preflight parity.
 - Diff tree is lazygit-inspired but not lazygit: no line staging from the
@@ -217,13 +217,15 @@ This is a deliberate scope change from the card text:
   survive a restart. `project_direct` layout persistence is available in core
   but not wired into the TUI yet.
 - Background refresh reloads the board and selected worktree status from SQLite
-  and Git every 15s. Projects using GitHub delivery refresh their open PR, CI,
-  draft, conflict, and open/closed/merged state from `gh` every 60s. Review
-  state and remote-deletion reconciliation for Superthread cards are not
-  ported. Provider cards deleted locally are retired locally so sync cannot
-  resurrect them; the durable provider outbox remains GUI-side.
-- Release runs Release / Build & test / Publish in a managed PTY, but the GUI's
-  restart-to-test step and its local install flow are not wired into the TUI.
+  and Git every 15s. Projects using GitHub delivery refresh PR, CI, draft,
+  conflict, and open/closed/merged state from `gh` every 60s. Review state and
+  remote-deletion reconciliation for Superthread cards are not ported. Provider
+  cards deleted locally are retired locally so sync cannot resurrect them;
+  provider sync retries pending Start/Done column moves. The durable operation
+  journal remains GUI-side.
+- Release runs Release / Build & test / Publish in a managed PTY; after a
+  successful Build & test, `t` confirms and relaunches the TUI with the
+  installed build.
 - Kitty/sixel/inline image output degrades to text (see `DIVERGENCES.md`).
 - The automation socket accepts the card-tool subset Pi needs. Superthread
   refinement (`finishExternalCardRefinement`) and parent reassignment remain

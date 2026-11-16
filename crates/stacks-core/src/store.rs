@@ -2897,6 +2897,25 @@ impl CardStore {
             )
             .context("record Superthread board")?;
         transaction.commit().context("commit Superthread sync")?;
+        // Retry provider column moves for cards whose local workflow advanced
+        // while a direct move was unavailable. This is a lightweight outbox
+        // convergence pass; the GUI keeps the durable operation journal.
+        let connection = self.open_read_only()?;
+        let mut statement = connection.prepare(
+            "SELECT id FROM kanban_cards
+             WHERE project_id=?1 AND external_provider='superthread'
+               AND status IN ('agent_working','done')",
+        )?;
+        let pending = statement
+            .query_map([project_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("read provider move candidates")?;
+        drop(statement);
+        drop(connection);
+        for card_id in pending {
+            self.sync_superthread_card_status(&card_id, service)
+                .map_err(|error| anyhow::anyhow!("Superthread column move failed: {error}"))?;
+        }
         Ok(local_ids.len())
     }
 
