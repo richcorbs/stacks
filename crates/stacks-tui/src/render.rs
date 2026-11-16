@@ -233,16 +233,23 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 ("Esc/Tab", "cards"),
                 ("Ctrl-F", "cycle"),
             ],
-            Screen::Board => vec![
-                ("j/k", "move"),
-                ("Enter", "open"),
-                ("h", "projects"),
-                ("n", "new"),
-                ("/", "filter"),
-                ("Ctrl-F", "scope"),
-                ("Ctrl-A", "done"),
-                ("?", "help"),
-            ],
+            Screen::Board => {
+                let group = app
+                    .board_rows
+                    .get(app.board_cursor)
+                    .is_some_and(|row| row.kind == crate::app::BoardRowKind::Group);
+                vec![
+                    ("j/k", "move"),
+                    ("Enter", if group { "collapse" } else { "open" }),
+                    ("h/l", "collapse"),
+                    ("h", "projects"),
+                    ("n", "new"),
+                    ("/", "filter"),
+                    ("Ctrl-F", "scope"),
+                    ("Ctrl-A", "done"),
+                    ("?", "help"),
+                ]
+            }
             Screen::Detail => match app.detail_tab {
                 crate::app::DetailTab::Overview => vec![
                     ("1..5", "tabs"),

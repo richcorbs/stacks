@@ -337,3 +337,30 @@ fn positive_filter_matches_external_id_and_title() {
     assert!(screen.contains("#325"), "{screen}");
     assert!(!screen.contains("#326"), "{screen}");
 }
+
+#[test]
+fn section_headers_are_focusable_and_collapse() {
+    let (mut app, _dir) = app();
+    app.board_cursor = 0;
+    assert_eq!(app.board_rows[0].kind, stacks_tui::app::BoardRowKind::Group);
+    app.handle_key(Key::Enter);
+    assert!(app.collapsed_groups[0]);
+    let screen = headless::dump(&mut app, 120, 40);
+    assert!(!screen.contains("#326"), "{screen}");
+    app.handle_key(Key::Enter);
+    assert!(!app.collapsed_groups[0]);
+    let screen = headless::dump(&mut app, 120, 40);
+    assert!(screen.contains("#326"), "{screen}");
+}
+
+#[test]
+fn card_numbers_and_titles_align_after_section_indent() {
+    let (mut app, _dir) = app();
+    let screen = headless::dump(&mut app, 120, 40);
+    let line_326 = screen.lines().find(|line| line.contains("#326")).unwrap();
+    let line_325 = screen.lines().find(|line| line.contains("#325")).unwrap();
+    let wire_column = line_326[..line_326.find("Wire").unwrap()].chars().count();
+    let build_column = line_325[..line_325.find("Build").unwrap()].chars().count();
+    assert_eq!(wire_column, build_column, "{line_326}\n{line_325}");
+    assert!(line_326.contains("#326 "), "{line_326}");
+}

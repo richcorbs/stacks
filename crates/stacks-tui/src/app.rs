@@ -412,6 +412,7 @@ impl App {
             headless,
         };
         app.recompute_rows();
+        app.board_cursor = app.first_card_cursor().unwrap_or(0);
         app
     }
 
@@ -546,14 +547,8 @@ impl App {
         self.board_cursor = self
             .board_cursor
             .min(self.board_rows.len().saturating_sub(1));
-        if !self
-            .board_rows
-            .get(self.board_cursor)
-            .is_some_and(|row| row.kind == BoardRowKind::Card)
-        {
-            if let Some(index) = self.first_card_cursor() {
-                self.board_cursor = index;
-            }
+        if self.board_rows.is_empty() {
+            self.board_cursor = 0;
         }
     }
 
@@ -922,11 +917,7 @@ impl App {
 
     fn scroll_to_top(&mut self) {
         match self.screen {
-            Screen::Board => {
-                if let Some(index) = self.first_card_cursor() {
-                    self.board_cursor = index;
-                }
-            }
+            Screen::Board => self.board_cursor = 0,
             Screen::Detail => match self.detail_tab {
                 DetailTab::Diff => {
                     self.diff.scroll = 0;
@@ -949,13 +940,7 @@ impl App {
             Key::Char('k') | Key::Up => self.move_board(-1),
             Key::Char('g') => self.pending = Some(Pending::G),
             Key::Char('G') => {
-                if let Some(index) = self
-                    .board_rows
-                    .iter()
-                    .rposition(|row| row.kind == BoardRowKind::Card)
-                {
-                    self.board_cursor = index;
-                }
+                self.board_cursor = self.board_rows.len().saturating_sub(1);
             }
             Key::Ctrl('d') => self.move_board(10),
             Key::Ctrl('u') => self.move_board(-10),
@@ -1007,22 +992,34 @@ impl App {
                 }
             }
             Key::Char('h') | Key::Left => {
-                if let Some(row) = self.board_rows.get(self.board_cursor) {
-                    if row.kind == BoardRowKind::Card && row.has_children && row.expanded {
-                        self.collapsed_parents
-                            .insert(row.card_id.clone().unwrap_or_default());
-                        self.recompute_rows();
-                    } else {
-                        self.focus_sidebar();
+                if let Some(row) = self.board_rows.get(self.board_cursor).cloned() {
+                    match row.kind {
+                        BoardRowKind::Group => {
+                            self.collapsed_groups[row.group_index] = true;
+                            self.recompute_rows();
+                        }
+                        BoardRowKind::Card if row.has_children && row.expanded => {
+                            self.collapsed_parents
+                                .insert(row.card_id.clone().unwrap_or_default());
+                            self.recompute_rows();
+                        }
+                        BoardRowKind::Card => self.focus_sidebar(),
                     }
                 }
             }
             Key::Char('l') | Key::Right => {
-                if let Some(row) = self.board_rows.get(self.board_cursor) {
-                    if row.kind == BoardRowKind::Card && row.has_children && !row.expanded {
-                        self.collapsed_parents
-                            .remove(row.card_id.as_deref().unwrap_or_default());
-                        self.recompute_rows();
+                if let Some(row) = self.board_rows.get(self.board_cursor).cloned() {
+                    match row.kind {
+                        BoardRowKind::Group => {
+                            self.collapsed_groups[row.group_index] = false;
+                            self.recompute_rows();
+                        }
+                        BoardRowKind::Card if row.has_children && !row.expanded => {
+                            self.collapsed_parents
+                                .remove(row.card_id.as_deref().unwrap_or_default());
+                            self.recompute_rows();
+                        }
+                        BoardRowKind::Card => {}
                     }
                 }
             }
@@ -1076,17 +1073,8 @@ impl App {
                 .unwrap_or_else(|| "PROJECTS".into());
             return;
         }
-        let mut index = self.board_cursor as i32;
-        loop {
-            index += delta.signum();
-            if index < 0 || index >= self.board_rows.len() as i32 {
-                break;
-            }
-            if self.board_rows[index as usize].kind == BoardRowKind::Card {
-                self.board_cursor = index as usize;
-                break;
-            }
-        }
+        let last = self.board_rows.len().saturating_sub(1) as i32;
+        self.board_cursor = (self.board_cursor as i32 + delta).clamp(0, last) as usize;
     }
 
     fn sidebar_cursor_label(&self) -> Option<String> {

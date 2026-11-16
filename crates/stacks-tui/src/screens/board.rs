@@ -210,6 +210,20 @@ fn render_cards(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
     let width = area.width as usize;
+    let number_width = app
+        .board
+        .as_ref()
+        .map(|board| {
+            board
+                .cards
+                .iter()
+                .map(|card| card.external_id.chars().count())
+                .max()
+                .unwrap_or(3)
+                .max(3)
+                + 1
+        })
+        .unwrap_or(4);
     let rows = &app.board_rows;
     let mut lines = Vec::new();
     let projects = app
@@ -255,6 +269,7 @@ fn render_cards(frame: &mut Frame, app: &mut App, area: Rect) {
                         selected,
                         row.depth,
                         marker,
+                        number_width,
                         app.project_scope.is_none(),
                     ));
                 }
@@ -289,6 +304,15 @@ fn render_cards(frame: &mut Frame, app: &mut App, area: Rect) {
 
 /// Status-right text: group and visible card counts.
 pub fn position(app: &App) -> Option<String> {
+    if let Some(row) = app.board_rows.get(app.board_cursor) {
+        if row.kind == BoardRowKind::Group {
+            return Some(format!(
+                "{} · {} cards",
+                row.label.to_uppercase(),
+                row.count
+            ));
+        }
+    }
     let index = app
         .board_rows
         .iter()

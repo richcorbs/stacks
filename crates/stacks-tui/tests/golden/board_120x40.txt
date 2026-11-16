@@ -1,9 +1,9 @@
 ┌ PROJECTS 2 ─────────────┐┌ CARDS · All projects · 3 ─────────────────────────────────────────────────────────────────┐
 │◆ All projects         3 ││▾ NEEDS YOUR ACTION   1                                                                    │
-│◇ Arcasa               1 ││◆ #326 Wire the automation socket  Stacks                                                  │
+│◇ Arcasa               1 ││  ◆   #326 Wire the automation socket  Stacks                                              │
 │◇ Stacks               2 ││▾ IN PROGRESS   0                                                                          │
 │                         ││▾ BACKLOG   1                                                                              │
-│h or Tab to browse projec││○ #325 Build a keyboard-only Rust TUI  Arcasa                                              │
+│h or Tab to browse projec││  ○   #325 Build a keyboard-only Rust TUI  Arcasa                                          │
 │                         ││▸ DONE   1                                                                                 │
 │                         ││                                                                                           │
 │                         ││                                                                                           │
@@ -37,4 +37,4 @@
 │                         ││                                                                                           │
 └─────────────────────────┘└───────────────────────────────────────────────────────────────────────────────────────────┘
  Ready  1/2  ◆ ready
-j/k move  ·  Enter open  ·  h projects  ·  n new  ·  / filter  ·  Ctrl-F scope  ·  Ctrl-A done  ·  ? help
+j/k move  ·  Enter open  ·  h/l collapse  ·  h projects  ·  n new  ·  / filter  ·  Ctrl-F scope  ·  Ctrl-A done  ·  ? he

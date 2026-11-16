@@ -18,15 +18,22 @@ pub fn card_line(
     selected: bool,
     depth: usize,
     marker: Option<char>,
+    number_width: usize,
     show_project: bool,
 ) -> Line<'static> {
     let (glyph, _) = status_glyph(card.status);
-    let mut indent = "  ".repeat(depth);
-    if let Some(marker) = marker {
-        indent.push(marker);
-        indent.push(' ');
-    }
-    let number = format!("#{}", card.external_id);
+    // Section titles start at column 0; their text starts at column 2. Every
+    // card starts at that same column, then uses a fixed disclosure slot so
+    // status glyphs, numbers and titles line up across siblings.
+    let indent = "  ".repeat(depth + 1);
+    let slot = marker
+        .map(|marker| format!("{marker} "))
+        .unwrap_or_else(|| "  ".into());
+    let number = format!(
+        "#{:<width$}",
+        card.external_id,
+        width = number_width.max(2).saturating_sub(1)
+    );
     let project = card.project(projects);
     let mut metadata = Vec::new();
     if show_project {
@@ -55,14 +62,17 @@ pub fn card_line(
         metadata.push("child".into());
     }
     let metadata = metadata.join(" · ");
-    let used = indent.width() + glyph.width() + 1 + number.width() + 1 + metadata.width() + 3;
-    let title_width = width.saturating_sub(used);
+    let metadata_width = if metadata.is_empty() {
+        0
+    } else {
+        2 + metadata.width()
+    };
+    let before_title = indent.width() + 1 + 1 + 2 + number.width() + 1;
+    let title_width = width
+        .saturating_sub(before_title)
+        .saturating_sub(metadata_width);
     let title = truncate(&card.title, title_width.max(8));
 
-    let indent_width = indent.width();
-    let number_width = number.width();
-    let title_width_used = title.width();
-    let metadata_width = metadata.width();
     let base = if selected {
         Style::default().bg(theme.selected)
     } else {
@@ -76,22 +86,22 @@ pub fn card_line(
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(" ", base),
+        Span::styled(slot, base.fg(theme.dim)),
         Span::styled(number, base.fg(theme.muted)),
         Span::styled(" ", base),
         Span::styled(
-            title,
-            base.fg(if selected { theme.text } else { theme.text })
-                .add_modifier(if selected {
-                    Modifier::BOLD
-                } else {
-                    Modifier::empty()
-                }),
+            title.clone(),
+            base.fg(theme.text).add_modifier(if selected {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
         ),
     ];
     if !metadata.is_empty() {
         spans.push(Span::styled(format!("  {metadata}"), base.fg(theme.dim)));
     }
-    let used = indent_width + glyph.width() + number_width + title_width_used + metadata_width + 4;
+    let used = before_title + title.width() + metadata_width;
     if selected && used < width {
         spans.push(Span::styled(" ".repeat(width - used), base));
     }
