@@ -1544,13 +1544,6 @@ impl CardStore {
             .project(&snapshot.projects)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("The card's project is missing"))?;
-        if project
-            .start_work_command
-            .as_deref()
-            .is_some_and(|command| !command.trim().is_empty())
-        {
-            bail!("Custom start-work commands are not available in the native app yet");
-        }
         if detail.workflow_context.status != WorkflowStatus::Ready {
             bail!("Card changed; reload before starting work");
         }
@@ -1574,15 +1567,34 @@ impl CardStore {
         }
         let target_revision = git_text(["-C", target, "rev-parse", "HEAD"])?;
         let target_revision = target_revision.trim().to_string();
-        let add = std::process::Command::new("git")
-            .args(["-C", target, "worktree", "add", "-b", &branch, &worktree])
-            .output()
-            .context("run git worktree add")?;
-        if !add.status.success() {
-            bail!(
-                "git worktree add failed: {}",
-                String::from_utf8_lossy(&add.stderr).trim()
-            );
+        if let Some(template) = project
+            .start_work_command
+            .as_deref()
+            .map(str::trim)
+            .filter(|command| !command.is_empty())
+        {
+            let command = template
+                .replace("{card_number}", &detail.card.external_id)
+                .replace("{card_title}", &shell_quote(&detail.card.title))
+                .replace("{branch}", &shell_quote(&branch))
+                .replace("{worktree}", &shell_quote(&worktree));
+            run_start_work_command(target, &command)?;
+            if !Path::new(&worktree).is_dir() {
+                bail!(
+                    "Custom start-work command completed but did not create the worktree at {worktree}"
+                );
+            }
+        } else {
+            let add = std::process::Command::new("git")
+                .args(["-C", target, "worktree", "add", "-b", &branch, &worktree])
+                .output()
+                .context("run git worktree add")?;
+            if !add.status.success() {
+                bail!(
+                    "git worktree add failed: {}",
+                    String::from_utf8_lossy(&add.stderr).trim()
+                );
+            }
         }
         let cleanup_git = || {
             let _ = std::process::Command::new("git")
@@ -4017,6 +4029,32 @@ fn lane_order(connection: &Connection, status: CardStatus) -> Result<Vec<String>
             .then(left.2.cmp(&right.2))
     });
     Ok(ids.into_iter().map(|(_, _, id)| id).collect())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn run_start_work_command(cwd: &str, command: &str) -> Result<()> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let output = std::process::Command::new(&shell)
+        .args(["-lic", command])
+        .current_dir(cwd)
+        .output()
+        .with_context(|| format!("run start-work command in {cwd}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        bail!(
+            "Start-work command failed: {}",
+            if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            }
+        );
+    }
+    Ok(())
 }
 
 fn mark_card_ready(

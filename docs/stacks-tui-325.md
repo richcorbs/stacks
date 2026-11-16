@@ -210,8 +210,8 @@ This is a deliberate scope change from the card text:
   Start/Done column moves from the persisted card state, and retires locally
   deleted cards. The TUI uses the card row as its durable operation marker
   rather than the GUI's separate outbox journal.
-- Custom start-work setup commands, environment-creation cleanup, PR
-  freshness/merge preflight parity.
+- Environment-creation cleanup and the GUI's full PR freshness/merge preflight
+  parity remain GUI-side. Local custom start-work setup commands are supported.
 - Diff tree is lazygit-inspired but not lazygit: no line staging from the
   Stacks DIFF pane.
 - Reviewed marks are per-session (the GUI also keeps them in session state).

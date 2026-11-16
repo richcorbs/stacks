@@ -335,6 +335,8 @@ Stacks > Reset Window Settings
   lifecycle through the extension. `Ctrl-W` twice leaves Pi/shell/service
   input for normal mode. Server and Console tabs appear only when the project
   and card environment provide them.
+- Local start work supports project `start_work_command` templates
+  (`{card_number}`, `{card_title}`, `{branch}`, `{worktree}`).
 - Project workspace: `w` from the board or project sidebar opens Notes, Agent,
   Diff, Terminal, and enabled Release / configured Server/Console tabs for the
   selected project. Project notes write through to `projects.notes`; the project
