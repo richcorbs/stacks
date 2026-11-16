@@ -2975,19 +2975,26 @@ impl CardStore {
         // convergence pass; the GUI keeps the durable operation journal.
         let connection = self.open_read_only()?;
         let mut statement = connection.prepare(
-            "SELECT id FROM kanban_cards
+            "SELECT id, external_id FROM kanban_cards
              WHERE project_id=?1 AND external_provider='superthread'
                AND status IN ('agent_working','done')",
         )?;
         let pending = statement
-            .query_map([project_id], |row| row.get::<_, String>(0))?
+            .query_map([project_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
             .collect::<rusqlite::Result<Vec<_>>>()
             .context("read provider move candidates")?;
         drop(statement);
         drop(connection);
-        for card_id in pending {
-            self.sync_superthread_card_status(&card_id, service)
-                .map_err(|error| anyhow::anyhow!("Superthread column move failed: {error}"))?;
+        for (card_id, external_id) in pending {
+            // Cards no longer present on the provider board may be archived or
+            // deleted; moving them would produce a provider 400 and must not
+            // fail the whole board sync.
+            if !provider_seen.contains(&external_id) {
+                continue;
+            }
+            let _ = self.sync_superthread_card_status(&card_id, service);
         }
         Ok(local_ids.len())
     }
