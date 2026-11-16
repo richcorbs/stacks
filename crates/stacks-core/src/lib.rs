@@ -30,6 +30,7 @@ pub mod repository_coordinator;
 pub mod settings;
 pub mod settings_model;
 pub mod store;
+pub mod superthread;
 pub mod terminal;
 pub mod workflow;
 

@@ -248,6 +248,7 @@ pub enum Overlay {
     NewCard,
     NewProject,
     EditProject,
+    SuperthreadConfig,
     EditCard,
     FinishRefinement,
     Filter,
@@ -305,6 +306,21 @@ pub struct EditProjectState {
 }
 
 #[derive(Debug, Clone)]
+pub struct SuperthreadConfigState {
+    pub project_id: String,
+    pub enabled: bool,
+    pub spaces: TextInput,
+    pub token_env: TextInput,
+    pub workspace_slug: TextInput,
+    pub board_id: TextInput,
+    pub incoming: TextInput,
+    pub default_incoming: TextInput,
+    pub in_progress: TextInput,
+    pub done: TextInput,
+    pub focus: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct EditCardState {
     pub card_id: String,
     pub revision: i64,
@@ -317,6 +333,7 @@ pub struct EditCardState {
 pub struct RefinementState {
     pub card_id: String,
     pub revision: i64,
+    pub provider: String,
     pub content: TextArea,
 }
 
@@ -503,6 +520,7 @@ pub struct App {
     pub new_card: Option<NewCardState>,
     pub new_project: Option<NewProjectState>,
     pub edit_project: Option<EditProjectState>,
+    pub superthread_config: Option<SuperthreadConfigState>,
     pub new_card_draft: Option<(String, String, String)>,
     pub edit_card: Option<EditCardState>,
     pub refinement: Option<RefinementState>,
@@ -543,6 +561,7 @@ pub struct App {
     pub started: Instant,
     pub last_background_refresh: Instant,
     pub last_pr_refresh: Instant,
+    pub last_provider_refresh: Instant,
     pub cols: u16,
     pub rows: u16,
     pub headless: bool,
@@ -596,6 +615,7 @@ impl App {
             new_card: None,
             new_project: None,
             edit_project: None,
+            superthread_config: None,
             new_card_draft: None,
             edit_card: None,
             refinement: None,
@@ -638,6 +658,7 @@ impl App {
             started: Instant::now(),
             last_background_refresh: Instant::now(),
             last_pr_refresh: Instant::now(),
+            last_provider_refresh: Instant::now(),
             cols: 120,
             rows: 40,
             headless,
@@ -1013,6 +1034,58 @@ impl App {
                     Err(error) => self.error = Some(error),
                 }
             }
+            CoreEvent::SuperthreadSynced { manual, result } => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                match result {
+                    Ok(updated) => {
+                        if manual {
+                            self.message = format!("Superthread sync: {updated} card(s)");
+                        }
+                        if updated > 0 {
+                            self.refresh_board();
+                        }
+                    }
+                    Err(error) if manual => {
+                        self.error = Some(format!("Superthread sync failed: {error}"))
+                    }
+                    Err(_) => {}
+                }
+            }
+            CoreEvent::SuperthreadConfigured { project_id, result } => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                match result {
+                    Ok(()) => {
+                        self.project_sessions.remove(&project_id);
+                        if self
+                            .project
+                            .as_ref()
+                            .is_some_and(|state| state.project_id == project_id)
+                        {
+                            self.project = None;
+                            if self.screen == Screen::Project {
+                                self.screen = Screen::Board;
+                            }
+                        }
+                        self.message = "Superthread configuration saved".into();
+                        self.error = None;
+                        self.refresh_board();
+                    }
+                    Err(error) => {
+                        self.error = Some(format!("Superthread configuration failed: {error}"))
+                    }
+                }
+            }
+            CoreEvent::ProviderCardSynced(result) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                match result {
+                    Ok(true) => {
+                        self.message = "Superthread card moved".into();
+                        self.refresh_board();
+                    }
+                    Ok(false) => {}
+                    Err(error) => self.error = Some(format!("Superthread update failed: {error}")),
+                }
+            }
             CoreEvent::PullRequestsSynced(result) => {
                 self.in_flight = self.in_flight.saturating_sub(1);
                 if let Ok(updated) = result {
@@ -1160,6 +1233,12 @@ impl App {
                         if self.selected_card.as_deref() == Some(card_id.as_str()) {
                             self.load_detail(card_id.clone());
                         }
+                        self.in_flight += 1;
+                        core_bridge::sync_superthread_card_status(
+                            Arc::clone(&self.store),
+                            card_id.clone(),
+                            self.sender.clone(),
+                        );
                         if matches!(
                             action,
                             WorkflowAction::Close
@@ -1967,6 +2046,16 @@ impl App {
             self.screen = Screen::Board;
             return;
         };
+        if !(state.tab == ProjectTab::Notes && state.notes_editing) {
+            if key == Key::Char('S') {
+                self.sync_superthread_from_context();
+                return;
+            }
+            if key == Key::Char('P') {
+                self.start_superthread_config();
+                return;
+            }
+        }
         if state.tab == ProjectTab::Release {
             self.handle_release_key(key);
             return;
@@ -2192,6 +2281,9 @@ impl App {
             Key::Char('n') if self.focus == Focus::Sidebar => self.start_new_project(),
             Key::Char('e') if self.focus == Focus::Sidebar => self.start_edit_project(),
             Key::Char('D') if self.focus == Focus::Sidebar => self.start_delete_project(),
+            Key::Char('S') if self.focus == Focus::Sidebar => self.sync_superthread_from_context(),
+            Key::Char('S') => self.sync_superthread_from_context(),
+            Key::Char('P') if self.focus == Focus::Sidebar => self.start_superthread_config(),
             Key::Char('n') => self.start_new_card(),
             Key::Char('w') => self.open_project_from_context(),
             Key::Char('J') => self.reorder(1),
@@ -3396,6 +3488,203 @@ impl App {
         self.recompute_rows();
     }
 
+    fn start_superthread_config(&mut self) {
+        let project = if self.screen == Screen::Project {
+            self.project
+                .as_ref()
+                .and_then(|state| {
+                    self.board.as_ref().and_then(|board| {
+                        board
+                            .projects
+                            .iter()
+                            .find(|project| project.id == state.project_id)
+                    })
+                })
+                .cloned()
+        } else {
+            self.sidebar_project()
+        };
+        let Some(project) = project else {
+            self.message = "Select a project to configure".into();
+            return;
+        };
+        match self.store.superthread_project_config(&project.id) {
+            Ok(config) => {
+                self.superthread_config = Some(SuperthreadConfigState {
+                    project_id: project.id,
+                    enabled: config.enabled,
+                    spaces: TextInput::new(config.spaces),
+                    token_env: TextInput::new(config.api_token_env_var),
+                    workspace_slug: TextInput::new(config.workspace_slug.unwrap_or_default()),
+                    board_id: TextInput::new(config.board_id),
+                    incoming: TextInput::new(config.incoming_column_ids.join(", ")),
+                    default_incoming: TextInput::new(config.default_incoming_column_id),
+                    in_progress: TextInput::new(config.in_progress_column_id),
+                    done: TextInput::new(config.done_column_id),
+                    focus: 0,
+                });
+                self.overlay = Some(Overlay::SuperthreadConfig);
+            }
+            Err(error) => self.error = Some(error.to_string()),
+        }
+    }
+
+    fn submit_superthread_config(&mut self) {
+        let Some(state) = self.superthread_config.as_ref() else {
+            return;
+        };
+        let config = stacks_core::store::SuperthreadProjectConfig {
+            enabled: state.enabled,
+            spaces: state.spaces.value.trim().to_string(),
+            api_token_env_var: state.token_env.value.trim().to_string(),
+            workspace_slug: Some(state.workspace_slug.value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            board_id: state.board_id.value.trim().to_string(),
+            incoming_column_ids: state
+                .incoming
+                .value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
+            default_incoming_column_id: state.default_incoming.value.trim().to_string(),
+            in_progress_column_id: state.in_progress.value.trim().to_string(),
+            done_column_id: state.done.value.trim().to_string(),
+        };
+        let project_id = state.project_id.clone();
+        self.superthread_config = None;
+        self.overlay = None;
+        self.in_flight += 1;
+        self.message = "Validating Superthread mapping…".into();
+        core_bridge::configure_superthread_project(
+            Arc::clone(&self.store),
+            project_id,
+            config,
+            self.sender.clone(),
+        );
+    }
+
+    fn handle_superthread_config_key(&mut self, key: Key) {
+        const FIELDS: usize = 9;
+        let Some(state) = self.superthread_config.as_mut() else {
+            return;
+        };
+        match key {
+            Key::Esc => {
+                self.superthread_config = None;
+                self.overlay = None;
+            }
+            Key::Ctrl('s') => self.submit_superthread_config(),
+            Key::Tab => state.focus = (state.focus + 1) % FIELDS,
+            Key::BackTab => state.focus = (state.focus + FIELDS - 1) % FIELDS,
+            Key::Enter if state.focus == 0 => state.enabled = !state.enabled,
+            Key::Enter if state.focus + 1 < FIELDS => state.focus += 1,
+            Key::Enter => self.submit_superthread_config(),
+            _ => match state.focus {
+                1 => {
+                    state.spaces.handle(&key);
+                }
+                2 => {
+                    state.token_env.handle(&key);
+                }
+                3 => {
+                    state.workspace_slug.handle(&key);
+                }
+                4 => {
+                    state.board_id.handle(&key);
+                }
+                5 => {
+                    state.incoming.handle(&key);
+                }
+                6 => {
+                    state.default_incoming.handle(&key);
+                }
+                7 => {
+                    state.in_progress.handle(&key);
+                }
+                8 => {
+                    state.done.handle(&key);
+                }
+                _ => {
+                    if key == Key::Char(' ') {
+                        state.enabled = !state.enabled;
+                    }
+                }
+            },
+        }
+    }
+
+    fn sync_superthread_from_context(&mut self) {
+        let project = if self.screen == Screen::Project {
+            self.project
+                .as_ref()
+                .and_then(|state| {
+                    self.board.as_ref().and_then(|board| {
+                        board
+                            .projects
+                            .iter()
+                            .find(|project| project.id == state.project_id)
+                    })
+                })
+                .cloned()
+        } else if self.focus == Focus::Board {
+            self.selected_project().cloned().or_else(|| {
+                self.selected_board_card()
+                    .and_then(|card| {
+                        self.board.as_ref().and_then(|board| {
+                            board.projects.iter().find(|project| {
+                                Some(project.id.as_str()) == card.project_id.as_deref()
+                            })
+                        })
+                    })
+                    .cloned()
+            })
+        } else {
+            self.sidebar_project()
+        };
+        let Some(project) = project else {
+            self.message = "Select a Superthread project to sync".into();
+            return;
+        };
+        if project.kanban_source.as_deref() != Some("superthread") {
+            self.message = "This project is not configured for Superthread".into();
+            return;
+        }
+        self.in_flight += 1;
+        self.message = "Syncing Superthread cards…".into();
+        core_bridge::sync_superthread_project(
+            Arc::clone(&self.store),
+            project.id,
+            true,
+            self.sender.clone(),
+        );
+    }
+
+    fn background_superthread_projects(&mut self) {
+        let projects = self
+            .board
+            .as_ref()
+            .map(|board| {
+                board
+                    .projects
+                    .iter()
+                    .filter(|project| project.kanban_source.as_deref() == Some("superthread"))
+                    .map(|project| project.id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for project_id in projects {
+            self.in_flight += 1;
+            core_bridge::sync_superthread_project(
+                Arc::clone(&self.store),
+                project_id,
+                false,
+                self.sender.clone(),
+            );
+        }
+    }
+
     fn sidebar_project(&self) -> Option<Project> {
         if self.focus == Focus::Sidebar && self.sidebar_cursor > 0 {
             self.board
@@ -3652,6 +3941,7 @@ impl App {
         self.refinement = Some(RefinementState {
             card_id: detail.card.id.clone(),
             revision: detail.card.workflow_revision,
+            provider: detail.card.provider.clone(),
             content: TextArea::new(detail.content.clone()),
         });
         self.overlay = Some(Overlay::FinishRefinement);
@@ -3703,13 +3993,23 @@ impl App {
             return;
         }
         self.in_flight += 1;
-        core_bridge::finish_refinement(
-            Arc::clone(&self.store),
-            state.card_id,
-            state.revision,
-            state.content.value,
-            self.sender.clone(),
-        );
+        if state.provider == "superthread" {
+            core_bridge::finish_refinement_linked(
+                Arc::clone(&self.store),
+                state.card_id,
+                state.revision,
+                state.content.value,
+                self.sender.clone(),
+            );
+        } else {
+            core_bridge::finish_refinement(
+                Arc::clone(&self.store),
+                state.card_id,
+                state.revision,
+                state.content.value,
+                self.sender.clone(),
+            );
+        }
     }
 
     fn open_confirm(&mut self, action: ConfirmAction) {
@@ -3958,6 +4258,10 @@ impl App {
             }
             Overlay::EditProject => {
                 self.handle_edit_project_key(key);
+                true
+            }
+            Overlay::SuperthreadConfig => {
+                self.handle_superthread_config_key(key);
                 true
             }
             Overlay::EditCard => {
@@ -4250,6 +4554,15 @@ impl App {
                     self.sender.clone(),
                 );
             }
+        }
+        if !self.headless
+            && self.confirm.is_none()
+            && self.overlay.is_none()
+            && self.in_flight == 0
+            && self.last_provider_refresh.elapsed() >= Duration::from_secs(300)
+        {
+            self.last_provider_refresh = Instant::now();
+            self.background_superthread_projects();
         }
     }
 

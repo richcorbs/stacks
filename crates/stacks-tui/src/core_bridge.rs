@@ -74,6 +74,21 @@ pub fn finish_refinement(
     });
 }
 
+pub fn finish_refinement_linked(
+    store: Store,
+    card_id: String,
+    revision: i64,
+    content: String,
+    sender: EventSender,
+) {
+    spawn(sender.clone(), "refinement-linked", move |sender| {
+        let result = store
+            .finish_refinement_with_linked_children(&card_id, revision, &content)
+            .map_err(|error| error.to_string());
+        sender.send(CoreEvent::Edited(result));
+    });
+}
+
 pub fn update_card(
     store: Store,
     card_id: String,
@@ -163,6 +178,46 @@ pub fn prepare_release(
             action,
             result,
         });
+    });
+}
+
+pub fn configure_superthread_project(
+    store: Store,
+    project_id: String,
+    config: stacks_core::store::SuperthreadProjectConfig,
+    sender: EventSender,
+) {
+    spawn(sender.clone(), "superthread-config", move |sender| {
+        let service = stacks_core::superthread::SuperthreadService::default();
+        let result = store
+            .configure_superthread_project(&project_id, &config, &service)
+            .map_err(|error| error.to_string());
+        sender.send(CoreEvent::SuperthreadConfigured { project_id, result });
+    });
+}
+
+pub fn sync_superthread_card_status(store: Store, card_id: String, sender: EventSender) {
+    spawn(sender.clone(), "superthread-card", move |sender| {
+        let service = stacks_core::superthread::SuperthreadService::default();
+        let result = store
+            .sync_superthread_card_status(&card_id, &service)
+            .map_err(|error| error.to_string());
+        sender.send(CoreEvent::ProviderCardSynced(result));
+    });
+}
+
+pub fn sync_superthread_project(
+    store: Store,
+    project_id: String,
+    manual: bool,
+    sender: EventSender,
+) {
+    spawn(sender.clone(), "superthread-sync", move |sender| {
+        let service = stacks_core::superthread::SuperthreadService::default();
+        let result = store
+            .sync_superthread_project(&project_id, &service)
+            .map_err(|error| error.to_string());
+        sender.send(CoreEvent::SuperthreadSynced { manual, result });
     });
 }
 

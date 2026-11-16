@@ -229,6 +229,11 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
             vec![("Tab", "field"), ("Enter/Ctrl-S", "add"), ("Esc", "cancel")]
         }
         Some(Overlay::EditProject) => vec![("Tab", "field"), ("Ctrl-S", "save"), ("Esc", "cancel")],
+        Some(Overlay::SuperthreadConfig) => vec![
+            ("Tab", "field"),
+            ("Ctrl-S", "validate & save"),
+            ("Esc", "cancel"),
+        ],
         Some(Overlay::FinishRefinement) => vec![
             ("Ctrl-S", "save & finish"),
             ("Alt-Enter", "newline"),
@@ -294,6 +299,8 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                     crate::app::ProjectTab::Notes => vec![
                         ("e/Enter", "edit"),
                         ("j/k", "scroll"),
+                        ("S", "sync"),
+                        ("P", "provider"),
                         ("Esc", "back"),
                         ("Tab", "tabs"),
                     ],
@@ -320,6 +327,8 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                     ],
                     _ => vec![
                         ("i/Enter", "focus"),
+                        ("S", "sync"),
+                        ("P", "provider"),
                         ("Esc", "back"),
                         ("Tab", "tabs"),
                         ("Ctrl-W |/-", "split"),

@@ -18,6 +18,7 @@ crates/stacks-core/            Tauri-free product services
   src/pty.rs                   portable-pty lifecycle
   src/terminal.rs              TerminalScreen trait + vt100 backend
   src/pi.rs                    native Pi launch + optional RPC client
+  src/superthread.rs           shared Superthread CLI client + mapping validation
   src/automation.rs            automation.sock card tools + Pi lifecycle
   src/settings.rs              settings.json read/patch
   src/paths.rs                 shipped data-dir resolution
@@ -64,6 +65,15 @@ check` still works.
 - `Ctrl-,` settings cover confirmation delay, hide-Done, copy-on-select,
   scrollback, quit/delete confirmations, accent, and terminal font size.
   Values are patched into the shared `settings.json`.
+- Superthread projects: `P` configures the provider (enabled state, space,
+  token env var, workspace slug, board and column IDs) through the shared `st`
+  mapping validation; `S` syncs the configured board, importing/updating
+  provider cards and hierarchy. New cards enter Needs refinement; existing
+  local workflow state is preserved. Project-agent refinement approves imported
+  provider children. Start/Done transitions move the provider card to the
+  configured In progress/Done columns. Background provider sync runs every
+  five minutes. The shared Superthread CLI client in `stacks-core` is also
+  used by the Tauri adapters.
 - Agent: **native Pi TUI in a managed PTY** (`pi --continue` with the
   bundled Stacks extension). Pi's card tools work because the TUI serves
   `automation.sock` (`createLocalCard`, `updateLocalCard`,
@@ -112,6 +122,7 @@ Extracted so far (Tauri keeps thin `#[tauri::command]` adapters where needed):
 - **the canonical `workflow` engine** — `src-tauri/src/kanban/workflow.rs` is
   now a re-export of `stacks_core::workflow`, so transitions, capabilities,
   lifecycle rules and status metadata are single-source for both hosts
+- the Superthread CLI client and mapping validation (Tauri commands are now thin adapters)
 - `global_terminal` and `project_direct` database operations/validation
 - `release` policy/config/process execution
 - `open` editor/URL helpers
@@ -123,9 +134,9 @@ Still Tauri-owned:
 
 - the `kanban` repository internals (cards, environments, delivery, cleanup,
   provider sync, retention)
-- `store`, `settings`, `pty`, `pty_cwd`, `pi_rpc`, `superthread`,
-  `workspace_setup`, `app_idle`, `database_backup`, `dev_seed`, `automation`,
-  menu/window code
+- `store`, `settings`, `pty`, `pty_cwd`, `pi_rpc`, `workspace_setup`,
+  `app_idle`, `database_backup`, `dev_seed`, `automation`, menu/window code
+- the `kanban` provider sync/refinement/outbox implementation
 - the card #322 `stacks-core` read/write model remains a parallel projection
   until the kanban repository is moved.
 
@@ -187,8 +198,11 @@ This is a deliberate scope change from the card text:
 ## Known gaps / follow-ups
 
 - Full `src-tauri` → `stacks-core` extraction (above).
-- Superthread provider refinement/credential work, custom start-work setup
-  commands, environment-creation cleanup, PR freshness/merge preflight parity.
+- Authoritative remote hierarchy validation, provider retirement, and the
+  durable provider outbox remain GUI/kanban-side. The TUI imports cards,
+  approves linked children, and moves Start/Done columns directly.
+- Custom start-work setup commands, environment-creation cleanup, PR
+  freshness/merge preflight parity.
 - Diff tree is lazygit-inspired but not lazygit: no line staging from the
   Stacks DIFF pane.
 - Reviewed marks are per-session (the GUI also keeps them in session state).
@@ -198,9 +212,10 @@ This is a deliberate scope change from the card text:
   but not wired into the TUI yet.
 - Background refresh reloads the board and selected worktree status from SQLite
   and Git every 15s. Projects using GitHub delivery refresh their open PR, CI,
-  draft, and conflict state from `gh` every 60s. Closed/merged PR transitions,
-  review state, and Superthread provider sync are not ported, so those fields
-  can remain stale until the GUI or another writer updates them.
+  draft, and conflict state from `gh` every 60s. Superthread cards sync every
+  five minutes (and on `S`). Closed/merged PR transitions, review state,
+  provider retirement, and the durable provider outbox are not ported, so those
+  fields can remain stale until the GUI or another writer updates them.
 - Release runs Release / Build & test / Publish in a managed PTY, but the GUI's
   restart-to-test step and its local install flow are not wired into the TUI.
 - Kitty/sixel/inline image output degrades to text (see `DIVERGENCES.md`).

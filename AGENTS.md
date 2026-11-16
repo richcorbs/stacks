@@ -81,8 +81,8 @@ Extraction progress: data paths, `settings_model`, `pty_command`,
 command adapters. Shell adapters use a profile-aware `CardStore`, while the TUI
 uses shipped production data. The `kanban` repository/services (cards,
 environments, delivery, cleanup, provider sync, retention) plus `store`,
-`settings`, `pty`, `pi_rpc`, `superthread` and `workspace_setup` are still
-Tauri-owned — moving them is the remaining Phase 1 work described in
+`settings`, `pty`, `pi_rpc`, and `workspace_setup` are still Tauri-owned —
+moving them is the remaining Phase 1 work described in
 `docs/stacks-tui-325.md`.
 
 `src-tauri/src/lib.rs` wires the Tauri application together; behavior is split into focused modules:
@@ -92,7 +92,7 @@ src-tauri/src/pty.rs              PTY lifecycle and I/O
 src-tauri/src/pi_rpc.rs           persistent Pi RPC processes and project trust
 src-tauri/src/git.rs              repository status and diffs
 src-tauri/src/github.rs           GitHub CLI integration
-src-tauri/src/superthread.rs      Superthread CLI integration
+src-tauri/src/superthread.rs      Thin Tauri adapters over stacks-core Superthread client
 src-tauri/src/automation/         running-app command-line automation
 src-tauri/src/settings.rs         settings persistence
 src-tauri/src/store.rs            project/workspace persistence
@@ -340,9 +340,13 @@ Stacks > Reset Window Settings
   are cached by id while the TUI runs (not restored across restarts). The
   project sidebar supports `n` add, `e` edit (name/path/target/commands/release),
   and `D` delete with the no-active-work guard.
-- Background refresh reloads the board/worktree every 15s and refreshes open
-  GitHub PR/CI state for GitHub-delivery projects every 60s. Provider sync and
-  closed/merged PR transition polling remain GUI-side.
+- Background refresh reloads the board/worktree every 15s, refreshes open
+  GitHub PR/CI state for GitHub-delivery projects every 60s, and syncs
+  Superthread cards every 5 minutes. `S` syncs on demand; `P` validates and
+  saves provider mapping through the shared `st` client. Start/Done transitions
+  move provider cards; linked provider children can be approved during
+  refinement. Provider retirement, authoritative remote hierarchy validation,
+  and the durable outbox remain in the GUI/kanban repository.
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and
   per-file review/comment state. `c`/`C` add file/overall feedback and `s`
   sends the composed review prompt to the Agent Pi pane. Lazygit itself is not

@@ -23,6 +23,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         Some(Overlay::NewCard) => render_new_card(frame, app, area),
         Some(Overlay::NewProject) => render_new_project(frame, app, area),
         Some(Overlay::EditProject) => render_edit_project(frame, app, area),
+        Some(Overlay::SuperthreadConfig) => render_superthread_config(frame, app, area),
         Some(Overlay::EditCard) => render_edit_card(frame, app, area),
         Some(Overlay::FinishRefinement) => render_refinement(frame, app, area),
         Some(Overlay::Filter) => render_filter(frame, app, area),
@@ -482,6 +483,82 @@ fn render_edit_project(frame: &mut Frame, app: &mut App, area: Rect) {
             )),
         ]),
         rows[4],
+    );
+}
+
+fn render_superthread_config(frame: &mut Frame, app: &mut App, area: Rect) {
+    let theme = app.theme;
+    let Some(state) = app.superthread_config.as_ref() else {
+        return;
+    };
+    let modal_area = centered(area, 100, 25.min(area.height.saturating_sub(4)).max(14));
+    modal(
+        frame,
+        modal_area,
+        "Superthread provider · Tab field · Ctrl-S validate & save",
+        theme,
+    );
+    let inner = modal_area.inner(ratatui::layout::Margin::new(2, 1));
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(1),
+        ])
+        .split(inner);
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            format!(
+                "  [{}] Use Superthread as the provider",
+                if state.enabled { "x" } else { " " }
+            ),
+            if state.focus == 0 {
+                Style::default()
+                    .fg(theme.text)
+                    .add_modifier(ratatui::style::Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.muted)
+            },
+        )))
+        .style(Style::default().bg(theme.panel)),
+        chunks[0],
+    );
+    let fields = [
+        (&state.spaces, "Spaces (one name)", 1),
+        (&state.token_env, "Token env var", 2),
+        (&state.workspace_slug, "Workspace slug", 3),
+        (&state.board_id, "Board ID", 4),
+        (&state.incoming, "Incoming column IDs (comma)", 5),
+        (&state.default_incoming, "Default incoming column ID", 6),
+        (&state.in_progress, "In progress column ID", 7),
+        (&state.done, "Done column ID", 8),
+    ];
+    for (index, (input, title, focus)) in fields.iter().enumerate() {
+        let row = index / 2;
+        let column = index % 2;
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split([chunks[1], chunks[2], chunks[3], chunks[4]][row.min(3)]);
+        render_input(
+            frame,
+            columns[column],
+            input,
+            title,
+            state.focus == *focus,
+            theme,
+        );
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Ctrl-S validates the mapping with `st` and creates/updates the provider binding.",
+            Style::default().fg(theme.dim),
+        ))),
+        chunks[5],
     );
 }
 fn render_edit_card(frame: &mut Frame, app: &mut App, area: Rect) {

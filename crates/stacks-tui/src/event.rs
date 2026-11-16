@@ -41,6 +41,15 @@ pub enum CoreEvent {
         result: Result<(), String>,
     },
     PullRequestsSynced(Result<usize, String>),
+    SuperthreadSynced {
+        manual: bool,
+        result: Result<usize, String>,
+    },
+    ProviderCardSynced(Result<bool, String>),
+    SuperthreadConfigured {
+        project_id: String,
+        result: Result<(), String>,
+    },
     ReleaseInfo {
         project_id: String,
         result: Result<crate::core_bridge::ReleaseInfo, String>,

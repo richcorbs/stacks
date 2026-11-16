@@ -47,6 +47,19 @@ pub struct ApprovedChildSpec {
 }
 
 #[derive(Debug, Clone)]
+pub struct SuperthreadProjectConfig {
+    pub enabled: bool,
+    pub spaces: String,
+    pub api_token_env_var: String,
+    pub workspace_slug: Option<String>,
+    pub board_id: String,
+    pub incoming_column_ids: Vec<String>,
+    pub default_incoming_column_id: String,
+    pub in_progress_column_id: String,
+    pub done_column_id: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ProjectSettingsUpdate {
     pub name: String,
     pub path: String,
@@ -1974,6 +1987,42 @@ impl CardStore {
     /// Finish refinement from the native client: save the final plan and move
     /// the card to Ready. Child breakdown approval is included so Pi's
     /// `finish_refinement` tool works unchanged against a native host.
+    /// Finish refinement for a provider parent whose children were already
+    /// imported by sync. The provider children are approved as-is.
+    pub fn finish_refinement_with_linked_children(
+        &self,
+        card_id: &str,
+        expected_revision: i64,
+        content: &str,
+    ) -> Result<()> {
+        let connection = self.open_read_only()?;
+        let mut statement = connection
+            .prepare("SELECT id,title,content FROM kanban_cards WHERE parent_id=?1 ORDER BY id")?;
+        let children = statement
+            .query_map([card_id], |row| {
+                Ok(ApprovedChildSpec {
+                    id: Some(row.get::<_, String>(0)?),
+                    title: row.get::<_, String>(1)?,
+                    content: row.get::<_, String>(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("read linked provider children")?;
+        drop(statement);
+        drop(connection);
+        if children.is_empty() {
+            self.finish_refinement(card_id, expected_revision, content)
+        } else {
+            self.finish_refinement_with_children(
+                card_id,
+                expected_revision,
+                None,
+                content,
+                Some(&children),
+            )
+        }
+    }
+
     pub fn finish_refinement(
         &self,
         card_id: &str,
@@ -2077,7 +2126,7 @@ impl CardStore {
                         })?;
                     if child_project.as_deref() != Some(project_id.as_str())
                         || child_parent.as_deref() != Some(card_id)
-                        || !provider.starts_with("local:")
+                        || !(provider.starts_with("local:") || provider == "superthread")
                         || status != "needs_refinement"
                     {
                         bail!(
@@ -2162,6 +2211,463 @@ impl CardStore {
         )?;
         transaction.commit().context("commit finish refinement")?;
         Ok(())
+    }
+
+    /// Move a Superthread-backed card to its configured in-progress/done
+    /// column after a local workflow transition. Returns false for local cards
+    /// or cards that are already in the target column.
+    pub fn superthread_project_config(&self, project_id: &str) -> Result<SuperthreadProjectConfig> {
+        let connection = self.open_read_only()?;
+        let row = connection
+            .query_row(
+                "SELECT COALESCE(kanban_source,'local'), COALESCE(superthread_spaces,''),
+                        COALESCE(superthread_api_token_env_var,'ST_TOKEN'),
+                        superthread_workspace_slug, COALESCE(superthread_board_id,''),
+                        COALESCE(superthread_incoming_columns,'[]'),
+                        COALESCE(superthread_default_incoming_column_id,''),
+                        COALESCE(superthread_in_progress_column_id,''),
+                        COALESCE(superthread_done_column_id,'')
+                 FROM projects WHERE id=?1",
+                [project_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, String>(8)?,
+                    ))
+                },
+            )
+            .optional()
+            .context("read Superthread configuration")?
+            .ok_or_else(|| anyhow::anyhow!("The project was not found"))?;
+        let incoming_columns = serde_json::from_str::<Vec<serde_json::Value>>(&row.5)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|column| {
+                column
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect::<Vec<_>>();
+        Ok(SuperthreadProjectConfig {
+            enabled: row.0 == "superthread",
+            spaces: row.1,
+            api_token_env_var: row.2,
+            workspace_slug: row.3,
+            board_id: row.4,
+            incoming_column_ids: incoming_columns,
+            default_incoming_column_id: row.6,
+            in_progress_column_id: row.7,
+            done_column_id: row.8,
+        })
+    }
+
+    pub fn configure_superthread_project(
+        &self,
+        project_id: &str,
+        config: &SuperthreadProjectConfig,
+        service: &crate::superthread::SuperthreadService,
+    ) -> Result<()> {
+        let mut connection = self.open_writable()?;
+        if !config.enabled {
+            connection
+                .execute(
+                    "UPDATE projects SET kanban_source='local', superthread_binding_id=NULL WHERE id=?1",
+                    [project_id],
+                )
+                .context("disable Superthread project")?;
+            return Ok(());
+        }
+        let draft = crate::superthread::SuperthreadMappingDraft {
+            spaces: config.spaces.clone(),
+            board_id: config.board_id.clone(),
+            incoming_column_ids: config.incoming_column_ids.clone(),
+            default_incoming_column_id: config.default_incoming_column_id.clone(),
+            in_progress_column_id: config.in_progress_column_id.clone(),
+            done_column_id: config.done_column_id.clone(),
+            api_token_env_var: config.api_token_env_var.clone(),
+        };
+        let tested = service.test_mapping(&draft).map_err(anyhow::Error::msg)?;
+        let workspace_slug = config
+            .workspace_slug
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| tested.workspace_slug.clone());
+        let transaction = connection
+            .transaction()
+            .context("begin Superthread configuration")?;
+        let current_binding: Option<String> = transaction
+            .query_row(
+                "SELECT superthread_binding_id FROM projects WHERE id=?1",
+                [project_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("read project binding")?
+            .flatten();
+        let owner: Option<String> = transaction
+            .query_row(
+                "SELECT p.name FROM superthread_bindings b JOIN projects p ON p.id=b.project_id
+                 WHERE b.workspace_id=?1 AND b.space_id=?2 AND b.board_id=?3 AND b.project_id<>?4 LIMIT 1",
+                params![
+                    tested.workspace_id,
+                    tested.space_id,
+                    tested.board_id,
+                    project_id
+                ],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("check Superthread binding ownership")?;
+        if let Some(owner) = owner {
+            bail!("That Superthread workspace, space, and board are already owned by {owner}");
+        }
+        let binding_id = current_binding.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        transaction
+            .execute(
+                "UPDATE superthread_bindings SET state='retired', updated_at=unixepoch()
+                 WHERE project_id=?1 AND state='active' AND id<>?2",
+                params![project_id, binding_id],
+            )
+            .context("retire previous Superthread binding")?;
+        transaction
+            .execute(
+                "INSERT INTO superthread_bindings
+                 (id,project_id,workspace_id,workspace_name,space_id,space_name,board_id,board_name,
+                  token_env_var,app_slug,validation_revision,validated_at,state,created_at,updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,1,unixepoch(),'active',unixepoch(),unixepoch())
+                 ON CONFLICT(id) DO UPDATE SET
+                   workspace_id=excluded.workspace_id, workspace_name=excluded.workspace_name,
+                   space_id=excluded.space_id, space_name=excluded.space_name,
+                   board_id=excluded.board_id, board_name=excluded.board_name,
+                   token_env_var=excluded.token_env_var, app_slug=excluded.app_slug,
+                   validation_revision=superthread_bindings.validation_revision+1,
+                   validated_at=unixepoch(), state='active', updated_at=unixepoch()",
+                params![
+                    binding_id,
+                    project_id,
+                    tested.workspace_id,
+                    tested.workspace_name,
+                    tested.space_id,
+                    tested.space_name,
+                    tested.board_id,
+                    tested.board_name,
+                    config.api_token_env_var.trim(),
+                    workspace_slug,
+                ],
+            )
+            .context("save Superthread binding")?;
+        let incoming = serde_json::to_string(&tested.incoming_columns)
+            .context("serialize incoming columns")?;
+        transaction
+            .execute(
+                "UPDATE projects SET kanban_source='superthread', superthread_binding_id=?1,
+                    superthread_spaces=?2, superthread_workspace_slug=?3,
+                    superthread_workspace_id=?4, superthread_workspace_name=?5,
+                    superthread_space_id=?6, superthread_space_name=?7,
+                    superthread_board_id=?8, superthread_board_name=?9,
+                    superthread_incoming_columns=?10, superthread_default_incoming_column_id=?11,
+                    superthread_in_progress_column_id=?12, superthread_in_progress_column_name=?13,
+                    superthread_done_column_id=?14, superthread_done_column_name=?15,
+                    superthread_api_token_env_var=?16,
+                    superthread_mapping_revision=superthread_mapping_revision+1
+                 WHERE id=?17",
+                params![
+                    binding_id,
+                    config.spaces.trim(),
+                    workspace_slug,
+                    tested.workspace_id,
+                    tested.workspace_name,
+                    tested.space_id,
+                    tested.space_name,
+                    tested.board_id,
+                    tested.board_name,
+                    incoming,
+                    tested.default_incoming_column_id,
+                    tested.in_progress_column_id,
+                    tested.in_progress_column_name,
+                    tested.done_column_id,
+                    tested.done_column_name,
+                    config.api_token_env_var.trim(),
+                    project_id,
+                ],
+            )
+            .context("save Superthread project mapping")?;
+        transaction
+            .execute(
+                "UPDATE kanban_cards SET binding_id=?1
+                 WHERE project_id=?2 AND external_provider='superthread' AND binding_id IS NULL",
+                params![binding_id, project_id],
+            )
+            .context("adopt Superthread cards")?;
+        transaction
+            .commit()
+            .context("commit Superthread configuration")?;
+        Ok(())
+    }
+
+    pub fn sync_superthread_card_status(
+        &self,
+        card_id: &str,
+        service: &crate::superthread::SuperthreadService,
+    ) -> Result<bool> {
+        let read_connection = self.open_read_only()?;
+        let row = read_connection
+            .query_row(
+                "SELECT c.external_provider, c.external_id, c.board_id, c.list_id, c.status,
+                        COALESCE(p.superthread_api_token_env_var,'ST_TOKEN'),
+                        COALESCE(p.superthread_in_progress_column_id,''),
+                        COALESCE(p.superthread_in_progress_column_name,''),
+                        COALESCE(p.superthread_done_column_id,''),
+                        COALESCE(p.superthread_done_column_name,'')
+                 FROM kanban_cards c JOIN projects p ON p.id=c.project_id
+                 WHERE c.id=?1",
+                [card_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
+                    ))
+                },
+            )
+            .optional()
+            .context("read Superthread card state")?;
+        drop(read_connection);
+        let Some((
+            provider,
+            external_id,
+            board_id,
+            list_id,
+            status,
+            token_env,
+            in_progress_id,
+            in_progress_name,
+            done_id,
+            done_name,
+        )) = row
+        else {
+            return Ok(false);
+        };
+        if provider != "superthread" || board_id.trim().is_empty() {
+            return Ok(false);
+        }
+        let (target_id, target_name) = if status == "agent_working" {
+            (in_progress_id, in_progress_name)
+        } else if status == "done" {
+            (done_id, done_name)
+        } else {
+            return Ok(false);
+        };
+        if target_id.trim().is_empty() || target_id == list_id {
+            return Ok(false);
+        }
+        service
+            .configure_token_env(&token_env)
+            .map_err(anyhow::Error::msg)?;
+        service
+            .move_card(&external_id, &board_id, &target_id)
+            .map_err(anyhow::Error::msg)?;
+        let connection = self.open_writable()?;
+        connection
+            .execute(
+                "UPDATE kanban_cards SET list_id=?1, list_title=?2, updated_at=unixepoch() WHERE id=?3",
+                params![target_id, target_name, card_id],
+            )
+            .context("record Superthread card move")?;
+        Ok(true)
+    }
+
+    /// Import/update cards from the project's configured Superthread board.
+    /// Local workflow state is preserved for existing cards; new cards enter
+    /// Needs refinement. Provider deletions are intentionally not turned into
+    /// local deletes here.
+    pub fn sync_superthread_project(
+        &self,
+        project_id: &str,
+        service: &crate::superthread::SuperthreadService,
+    ) -> Result<usize> {
+        let read_connection = self.open_read_only()?;
+        let config = read_connection
+            .query_row(
+                "SELECT COALESCE(kanban_source,'local'), COALESCE(superthread_spaces,''),
+                        superthread_workspace_slug, COALESCE(superthread_board_id,''),
+                        COALESCE(superthread_api_token_env_var,'ST_TOKEN'),
+                        superthread_binding_id,
+                        COALESCE(superthread_done_column_id,'')
+                 FROM projects WHERE id=?1",
+                [project_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, String>(6)?,
+                    ))
+                },
+            )
+            .optional()
+            .context("read Superthread project configuration")?
+            .ok_or_else(|| anyhow::anyhow!("The project was not found"))?;
+        drop(read_connection);
+        let (source, _spaces, workspace_slug, board_id, token_env, binding_id, done_column_id) =
+            config;
+        if source != "superthread" {
+            bail!("This project is not configured for Superthread");
+        }
+        if board_id.trim().is_empty() || binding_id.is_none() {
+            bail!("Configure the Superthread board and binding before syncing");
+        }
+        service
+            .configure_token_env(&token_env)
+            .map_err(anyhow::Error::msg)?;
+        let cards = service
+            .board_cards(&board_id, workspace_slug.as_deref())
+            .map_err(anyhow::Error::msg)?;
+        let mut connection = self.open_writable()?;
+        let transaction = connection.transaction().context("begin Superthread sync")?;
+        let now = unix_timestamp();
+        let mut local_ids = HashMap::<String, String>::new();
+        let mut parents = HashMap::<String, Option<String>>::new();
+        for card in &cards {
+            let external_id = card.id.trim();
+            if external_id.is_empty() || card.title.trim().is_empty() {
+                continue;
+            }
+            if !done_column_id.is_empty() && card.list_id == done_column_id {
+                continue;
+            }
+            let existing: Option<String> = transaction
+                .query_row(
+                    "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
+                    params![binding_id, external_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("resolve Superthread card")?;
+            let local_id = if let Some(id) = existing {
+                id
+            } else {
+                let legacy = format!("superthread:{external_id}");
+                let occupied: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM kanban_cards WHERE id=?1)",
+                        [&legacy],
+                        |row| row.get(0),
+                    )
+                    .context("check Superthread card identity")?;
+                if !occupied {
+                    legacy
+                } else {
+                    let qualified = format!(
+                        "superthread:{}:{external_id}",
+                        binding_id.as_deref().unwrap_or("binding")
+                    );
+                    let occupied: bool = transaction
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM kanban_cards WHERE id=?1)",
+                            [&qualified],
+                            |row| row.get(0),
+                        )
+                        .context("check Superthread card identity")?;
+                    if occupied {
+                        bail!("Superthread card identity collision for {external_id}");
+                    }
+                    qualified
+                }
+            };
+            let parent_external = card
+                .task_parent
+                .as_ref()
+                .map(|parent| parent.id.trim().to_string());
+            let parent_title = card.task_parent.as_ref().map(|parent| parent.title.clone());
+            let assignees =
+                serde_json::to_string(&card.assignee_names).unwrap_or_else(|_| "[]".into());
+            transaction
+                .execute(
+                    "INSERT INTO kanban_cards
+                     (id, external_provider, external_id, title, content, board_id, board_title,
+                      list_id, list_title, card_url, assignee_names, status, project_id,
+                      provider_parent_title, provider_child_count, hierarchy_finalized,
+                      created_at, updated_at, sort_order, in_scope, binding_id)
+                     VALUES (?1,'superthread',?2,?3,COALESCE(?4,''),?5,?6,?7,?8,?9,?10,
+                             'needs_refinement',?11,?12,?13,0,?14,?14,
+                             (SELECT COALESCE(MAX(sort_order),-1)+1 FROM kanban_cards WHERE status='needs_refinement'),
+                             1,?15)
+                     ON CONFLICT(id) DO UPDATE SET
+                       title=excluded.title,
+                       content=CASE WHEN ?4 IS NULL THEN kanban_cards.content ELSE excluded.content END,
+                       board_id=excluded.board_id, board_title=excluded.board_title,
+                       list_id=excluded.list_id, list_title=excluded.list_title,
+                       card_url=excluded.card_url, assignee_names=excluded.assignee_names,
+                       project_id=excluded.project_id,
+                       provider_parent_title=excluded.provider_parent_title,
+                       provider_child_count=excluded.provider_child_count,
+                       in_scope=1, binding_id=excluded.binding_id, updated_at=excluded.updated_at",
+                    params![
+                        local_id,
+                        external_id,
+                        card.title.trim(),
+                        card.content.as_deref(),
+                        card.board_id,
+                        card.board_title,
+                        card.list_id,
+                        card.list_title,
+                        card.card_url,
+                        assignees,
+                        project_id,
+                        parent_title,
+                        card.total_task_children.unwrap_or(0) as i64,
+                        now,
+                        binding_id.as_deref(),
+                    ],
+                )
+                .context("upsert Superthread card")?;
+            local_ids.insert(external_id.to_string(), local_id);
+            parents.insert(external_id.to_string(), parent_external);
+        }
+        for (external_id, parent_external) in parents {
+            let Some(parent_external) = parent_external else {
+                continue;
+            };
+            let Some(parent_id) = local_ids.get(&parent_external) else {
+                continue;
+            };
+            let Some(local_id) = local_ids.get(&external_id) else {
+                continue;
+            };
+            transaction
+                .execute(
+                    "UPDATE kanban_cards SET parent_id=?1, provider_parent_title=NULL WHERE id=?2",
+                    params![parent_id, local_id],
+                )
+                .context("link Superthread parent card")?;
+        }
+        transaction
+            .execute(
+                "UPDATE projects SET superthread_board_id=?1 WHERE id=?2",
+                params![board_id, project_id],
+            )
+            .context("record Superthread board")?;
+        transaction.commit().context("commit Superthread sync")?;
+        Ok(local_ids.len())
     }
 
     pub fn sync_project_pull_requests(

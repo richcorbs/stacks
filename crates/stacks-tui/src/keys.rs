@@ -200,6 +200,8 @@ pub const KEYMAP: &[KeyHelp] = &[
             ("n", "New project from the project list"),
             ("e", "Edit the selected project"),
             ("D", "Delete the selected project"),
+            ("S", "Sync Superthread cards"),
+            ("P", "Configure Superthread provider"),
             ("w", "Open project workspace"),
             (
                 "1..7",
