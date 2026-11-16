@@ -231,9 +231,9 @@ pub const KEYMAP: &[KeyHelp] = &[
         group: "Agent",
         entries: &[
             ("i", "Focus native Pi pane"),
-            ("Alt-W Alt-W", "Release input / tab bar"),
+            ("Ctrl-\\", "Release input"),
+            ("Alt-W then [", "Copy mode"),
             ("Esc", "Back (normal mode)"),
-            ("Alt-W [", "Copy mode"),
             ("r", "Restart an exited Pi session"),
         ],
     },
@@ -262,7 +262,7 @@ pub const KEYMAP: &[KeyHelp] = &[
             ("Ctrl-W then z", "Maximize pane"),
             ("Ctrl-W then [", "Copy mode (vi)"),
             ("Ctrl-W then q", "Close pane"),
-            ("Ctrl-W Ctrl-W", "Release input / tab bar"),
+            ("Ctrl-\\", "Release input / tab bar"),
         ],
     },
     KeyHelp {
@@ -282,6 +282,7 @@ mod tests {
     #[test]
     fn parses_script_tokens() {
         assert_eq!(Key::parse("ctrl-p"), Some(Key::Ctrl('p')));
+        assert_eq!(Key::parse("ctrl-\\"), Some(Key::Ctrl('\\')));
         assert_eq!(Key::parse("Alt-Enter"), Some(Key::Alt('E')));
         assert_eq!(Key::parse("space"), Some(Key::Char(' ')));
         assert_eq!(Key::parse("f5"), Some(Key::F(5)));
@@ -310,7 +311,7 @@ mod tests {
             .join(" ");
         for key in [
             "Ctrl-Q", "Ctrl-P", "Ctrl-O", "Ctrl-G", "Ctrl-R", "Ctrl-,", "Ctrl-B", "Ctrl-W",
-            "Ctrl-D", "Ctrl-U", "Ctrl-W", "i",
+            "Ctrl-D", "Ctrl-U", "Ctrl-W", "Ctrl-\\", "i",
         ] {
             assert!(help.contains(key), "{key} missing from help");
         }

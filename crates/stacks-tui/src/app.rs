@@ -3501,6 +3501,11 @@ impl App {
         if self.active_workspace().is_empty() {
             return false;
         }
+        if matches!(key, Key::Ctrl('\\') | Key::Ctrl('^') | Key::Ctrl('6')) {
+            self.terminal_focus = false;
+            self.message = String::new();
+            return true;
+        }
         let prefix = if self.agent_terminal_context() {
             Key::Alt('w')
         } else {
@@ -3655,6 +3660,11 @@ impl App {
     }
 
     fn handle_global_terminal_key(&mut self, key: Key) -> bool {
+        if matches!(key, Key::Ctrl('\\') | Key::Ctrl('^') | Key::Ctrl('6')) {
+            self.global_terminal_focus = false;
+            self.message = String::new();
+            return true;
+        }
         if key == Key::Ctrl('g') {
             self.overlay = None;
             return true;
