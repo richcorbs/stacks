@@ -1,10 +1,10 @@
 ┌ PROJECTS 2 ─────────────┐┌ CARDS · All projects · 3 ─────────────────────────────────────────────────────────────────┐
-│◆ All projects         3 ││▾ Needs your action   1                                                                    │
+│◆ All projects         3 ││▾ NEEDS YOUR ACTION   1                                                                    │
 │◇ Arcasa               1 ││◆ #326 Wire the automation socket  Stacks                                                  │
-│◇ Stacks               2 ││▾ In progress   0                                                                          │
-│                         ││▾ Backlog   1                                                                              │
+│◇ Stacks               2 ││▾ IN PROGRESS   0                                                                          │
+│                         ││▾ BACKLOG   1                                                                              │
 │h or Tab to browse projec││○ #325 Build a keyboard-only Rust TUI  Arcasa                                              │
-│                         ││▸ Done   1                                                                                 │
+│                         ││▸ DONE   1                                                                                 │
 │                         ││                                                                                           │
 │                         ││                                                                                           │
 │                         ││                                                                                           │

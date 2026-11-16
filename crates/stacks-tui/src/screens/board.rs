@@ -232,7 +232,7 @@ fn render_cards(frame: &mut Frame, app: &mut App, area: Rect) {
                     .add_modifier(Modifier::BOLD);
                 lines.push(Line::from(vec![
                     Span::styled(format!("{marker} "), style),
-                    Span::styled(row.label.clone(), style),
+                    Span::styled(row.label.to_uppercase(), style),
                     Span::styled(format!("   {}", row.count), Style::default().fg(theme.dim)),
                 ]));
             }

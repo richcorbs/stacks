@@ -113,8 +113,8 @@ fn board_shows_real_projects_and_groups() {
     let (mut app, _dir) = app();
     let screen = headless::dump(&mut app, 120, 40);
     assert!(screen.contains("Arcasa"), "{screen}");
-    assert!(screen.contains("Needs your action"), "{screen}");
-    assert!(screen.contains("Backlog"), "{screen}");
+    assert!(screen.contains("NEEDS YOUR ACTION"), "{screen}");
+    assert!(screen.contains("BACKLOG"), "{screen}");
     assert!(screen.contains("#325"), "{screen}");
     assert!(
         screen.contains("Build a keyboard-only Rust TUI"),
