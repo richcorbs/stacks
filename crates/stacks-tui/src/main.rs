@@ -134,6 +134,9 @@ fn run() -> Result<(), String> {
             headless::run_script(&mut app, &lines, &mut cols, &mut rows)?;
         }
         if args.dump || args.script.is_some() {
+            if args.script.is_none() {
+                app.wait(300);
+            }
             print!("{}", headless::dump(&mut app, cols, rows));
             let _ = std::io::stdout().flush();
         }

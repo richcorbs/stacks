@@ -272,12 +272,25 @@ fn render_cards(frame: &mut Frame, app: &mut App, area: Rect) {
                         number_width,
                         app.project_scope.is_none(),
                     ));
+                    if selected {
+                        lines.push(details_line(
+                            app,
+                            card,
+                            row.depth,
+                            number_width,
+                            width,
+                            theme,
+                        ));
+                    }
                 }
             }
         }
     }
     let height = area.height as usize;
-    let offset = app.board_cursor.saturating_sub(height.saturating_sub(1));
+    let detail_rows = usize::from(app.selected_board_card().is_some());
+    let offset = app
+        .board_cursor
+        .saturating_sub(height.saturating_sub(1 + detail_rows));
     frame.render_widget(
         Paragraph::new(lines)
             .style(Style::default().bg(theme.canvas))
@@ -300,6 +313,82 @@ fn render_cards(frame: &mut Frame, app: &mut App, area: Rect) {
             },
         );
     }
+}
+
+fn details_line(
+    app: &App,
+    card: &stacks_core::CardSummary,
+    depth: usize,
+    number_width: usize,
+    width: usize,
+    theme: crate::theme::Theme,
+) -> Line<'static> {
+    let title_column = 2 * (depth + 1) + 1 + 1 + 2 + number_width + 1;
+    let branch = app
+        .selected_git
+        .as_ref()
+        .map(|status| status.branch.clone())
+        .or_else(|| {
+            card.environment
+                .as_ref()
+                .map(|environment| environment.branch.clone())
+        })
+        .unwrap_or_else(|| "no worktree".into());
+    let git = if card.environment.is_none() {
+        "—".to_string()
+    } else if app.selected_git_loading {
+        "git checking…".to_string()
+    } else if let Some(error) = app.selected_git_error.as_ref() {
+        format!("git ◆ {}", truncate(error, 60))
+    } else if let Some(status) = app.selected_git.as_ref() {
+        let mut parts = Vec::new();
+        if status.conflicts {
+            parts.push("conflicts".to_string());
+        } else if status.dirty {
+            parts.push(format!(
+                "+{} ~{} -{}",
+                status.created, status.changed, status.deleted
+            ));
+            parts.push("dirty".to_string());
+        } else {
+            parts.push("clean".to_string());
+        }
+        if status.ahead > 0 || status.behind > 0 {
+            parts.push(format!("↑{} ↓{}", status.ahead, status.behind));
+        }
+        format!("git {}", parts.join(" · "))
+    } else {
+        "git —".to_string()
+    };
+    let pull_request = card
+        .pull_request
+        .as_ref()
+        .map(|pull_request| {
+            format!(
+                "PR #{} {}{} · CI {} · review {}",
+                pull_request.number,
+                pull_request.state,
+                if pull_request.draft { " draft" } else { "" },
+                pull_request.ci_status,
+                pull_request.review_state
+            )
+        })
+        .unwrap_or_else(|| "no PR".into());
+    let text = format!(
+        "{}  ·  {}  ·  {}",
+        truncate(&branch, 34),
+        truncate(&git, 24),
+        pull_request
+    );
+    let available = width.saturating_sub(title_column);
+    Line::from(Span::styled(
+        format!(
+            "{}{}",
+            " ".repeat(title_column),
+            truncate(&text, available.max(8))
+        ),
+        Style::default().fg(theme.muted).bg(theme.raised),
+    ))
 }
 
 /// Status-right text: group and visible card counts.

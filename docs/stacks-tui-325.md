@@ -36,9 +36,11 @@ check` still works.
 
 ## What works
 
-- Board: project sidebar, four product groups (`Needs your action`, `In
-  progress`, `Backlog`, `Done`), hierarchy indentation/collapse, filters,
-  project scope, hide-Done, backlog reorder (`J`/`K`).
+- Board: project sidebar, four product groups (`NEEDS YOUR ACTION`, `IN
+  PROGRESS`, `BACKLOG`, `DONE`), hierarchy indentation/collapse, filters,
+  project scope, hide-Done, backlog reorder (`J`/`K`). Section headers are
+  focusable and collapse with `Enter`; the selected card has a second line for
+  branch, Git status and PR state.
 - Card detail: real content/events, revision and environment header, backend
   `capabilities` footer in backend order with verbatim disabled reasons,
   two-step confirmation with the configured delay, Overview/Chat/Diff/Terminal/

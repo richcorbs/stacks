@@ -1,6 +1,6 @@
 //! Worker → UI messages.
 
-use stacks_core::diff::{DiffFile, GitReviewContext};
+use stacks_core::diff::{DiffFile, GitReviewContext, WorktreeStatus};
 use stacks_core::pty::PtyEvent;
 use stacks_core::{CardDetail, CardSnapshot, WorkflowAction};
 
@@ -23,6 +23,10 @@ pub enum CoreEvent {
     FileDiff {
         path: String,
         result: Result<String, String>,
+    },
+    WorktreeStatus {
+        card_id: String,
+        result: Result<WorktreeStatus, String>,
     },
     Reorder(Result<(), String>),
     Created(Result<String, String>),

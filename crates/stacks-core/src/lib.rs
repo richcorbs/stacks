@@ -33,7 +33,7 @@ pub mod store;
 pub mod terminal;
 pub mod workflow;
 
-pub use diff::{GitReviewContext, review_context};
+pub use diff::{GitReviewContext, WorktreeStatus, review_context, worktree_status};
 pub use grouping::{
     backlog_cards, delivery_step, group_cards, merge_filtered_lane_order, work_group,
 };

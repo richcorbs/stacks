@@ -9,7 +9,7 @@ use std::{
 
 use stacks_core::{
     CardDetail, CardSnapshot, CardStatus, CardSummary, DeliveryStep, Project, WorkGroup,
-    WorkflowAction, WorkflowActionPresentation,
+    WorkflowAction, WorkflowActionPresentation, WorktreeStatus,
     diff::{DiffFile, GitReviewContext, ParsedDiff},
     pi,
     pty::{PtyEvent, PtySink},
@@ -312,6 +312,10 @@ pub struct App {
     pub usage: BTreeMap<String, u64>,
 
     pub diff: DiffState,
+    pub selected_git: Option<WorktreeStatus>,
+    pub selected_git_error: Option<String>,
+    pub selected_git_card: Option<String>,
+    pub selected_git_loading: bool,
     pub terminals: TerminalWorkspace,
     pub chat: TerminalWorkspace,
     pub work: TerminalWorkspace,
@@ -389,6 +393,10 @@ impl App {
             project_picker_cursor: 0,
             usage: settings.command_usage_counts.clone().unwrap_or_default(),
             diff: DiffState::default(),
+            selected_git: None,
+            selected_git_error: None,
+            selected_git_card: None,
+            selected_git_loading: false,
             terminals: TerminalWorkspace::new("card"),
             chat: TerminalWorkspace::new("card-chat"),
             work: TerminalWorkspace::new("card-work"),
@@ -413,11 +421,13 @@ impl App {
         };
         app.recompute_rows();
         app.board_cursor = app.first_card_cursor().unwrap_or(0);
+        app.sync_selected_git();
         app
     }
 
     pub fn refresh_board(&mut self) {
         self.loading_board = true;
+        self.selected_git_card = None;
         self.in_flight += 1;
         core_bridge::load_board(Arc::clone(&self.store), self.sender.clone());
     }
@@ -462,6 +472,7 @@ impl App {
             self.board_cursor = 0;
             return;
         };
+        let previous_card = self.selected_board_card().map(|card| card.id.clone());
         let mut rows = Vec::new();
         let filter = self.filter.to_ascii_lowercase();
         let filtering = !filter.is_empty();
@@ -548,6 +559,17 @@ impl App {
         self.board_cursor = self
             .board_cursor
             .min(self.board_rows.len().saturating_sub(1));
+        if let Some(card_id) = previous_card {
+            if let Some(index) = self
+                .board_rows
+                .iter()
+                .position(|row| row.card_id.as_deref() == Some(card_id.as_str()))
+            {
+                self.board_cursor = index;
+            } else if let Some(index) = self.first_card_cursor() {
+                self.board_cursor = index;
+            }
+        }
         if self.board_rows.is_empty() {
             self.board_cursor = 0;
         }
@@ -593,6 +615,46 @@ impl App {
             .unwrap_or(0)
     }
 
+    fn sync_selected_git(&mut self) {
+        let Some(card) = self.selected_board_card().cloned() else {
+            self.selected_git = None;
+            self.selected_git_error = None;
+            self.selected_git_card = None;
+            self.selected_git_loading = false;
+            return;
+        };
+        if self.selected_git_card.as_deref() == Some(card.id.as_str()) {
+            return;
+        }
+        self.selected_git_card = Some(card.id.clone());
+        self.selected_git = None;
+        self.selected_git_error = None;
+        let Some(board) = self.board.as_ref() else {
+            self.selected_git_loading = false;
+            return;
+        };
+        let Some(environment) = card.environment.as_ref() else {
+            self.selected_git_loading = false;
+            return;
+        };
+        let target = environment
+            .target_branch
+            .clone()
+            .or_else(|| {
+                card.project(&board.projects)
+                    .map(|project| project.target_branch.clone())
+            })
+            .unwrap_or_else(|| "main".into());
+        self.selected_git_loading = true;
+        self.in_flight += 1;
+        core_bridge::load_worktree_status(
+            card.id.clone(),
+            environment.worktree_path.clone(),
+            target,
+            self.sender.clone(),
+        );
+    }
+
     pub fn apply_preferences(&mut self) {
         let settings = settings::load();
         self.usage = settings.command_usage_counts.clone().unwrap_or_default();
@@ -619,6 +681,7 @@ impl App {
                         self.board = Some(board);
                         self.error = None;
                         self.recompute_rows();
+                        self.sync_selected_git();
                     }
                     Err(error) => self.error = Some(error),
                 }
@@ -769,6 +832,23 @@ impl App {
                     self.load_detail(card_id);
                 }
             }
+            CoreEvent::WorktreeStatus { card_id, result } => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                if self.selected_git_card.as_deref() != Some(card_id.as_str()) {
+                    return;
+                }
+                self.selected_git_loading = false;
+                match result {
+                    Ok(status) => {
+                        self.selected_git = Some(status);
+                        self.selected_git_error = None;
+                    }
+                    Err(error) => {
+                        self.selected_git = None;
+                        self.selected_git_error = Some(error);
+                    }
+                }
+            }
             CoreEvent::Pty { pane, event } => match event {
                 PtyEvent::Data {
                     terminal_id,
@@ -815,6 +895,11 @@ impl App {
     // ---- key dispatch ------------------------------------------------
 
     pub fn handle_key(&mut self, key: Key) {
+        self.dispatch_key(key);
+        self.sync_selected_git();
+    }
+
+    fn dispatch_key(&mut self, key: Key) {
         self.error = None;
         if self.confirm.is_some() {
             self.handle_confirm_key(key);

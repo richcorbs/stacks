@@ -124,6 +124,13 @@ fn board_shows_real_projects_and_groups() {
 }
 
 #[test]
+fn selected_card_shows_branch_git_and_pr_detail_line() {
+    let (mut app, _dir) = app();
+    let screen = headless::dump(&mut app, 120, 40);
+    assert!(screen.contains("no worktree  ·  —  ·  no PR"), "{screen}");
+}
+
+#[test]
 fn below_minimum_size_keeps_state_and_explains() {
     let (mut app, _dir) = app();
     let small = headless::dump(&mut app, 80, 24);

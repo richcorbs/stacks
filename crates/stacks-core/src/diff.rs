@@ -129,6 +129,43 @@ pub fn review_context(worktree: &str, comparison_target: &str) -> GitReviewConte
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorktreeStatus {
+    pub branch: String,
+    pub created: u32,
+    pub changed: u32,
+    pub deleted: u32,
+    pub dirty: bool,
+    pub conflicts: bool,
+    pub ahead: u32,
+    pub behind: u32,
+    pub error: Option<String>,
+}
+
+/// Compact card-list status: branch + change counts + divergence/conflicts.
+pub fn worktree_status(worktree: &str, comparison_target: &str) -> WorktreeStatus {
+    let context = review_context(worktree, comparison_target);
+    let (created, changed, deleted, error) =
+        match crate::git::read_git_status(std::path::Path::new(worktree)) {
+            Some(crate::git::GitStatus::Ok(counts)) => {
+                (counts.created, counts.changed, counts.deleted, None)
+            }
+            Some(crate::git::GitStatus::Error { message }) => (0, 0, 0, Some(message)),
+            None => (0, 0, 0, Some("not a Git worktree".to_string())),
+        };
+    WorktreeStatus {
+        branch: context.branch,
+        created,
+        changed,
+        deleted,
+        dirty: context.dirty,
+        conflicts: context.conflicts,
+        ahead: context.ahead,
+        behind: context.behind,
+        error,
+    }
+}
+
 pub fn changed_files(worktree: &str, comparison_target: &str) -> Result<Vec<DiffFile>, String> {
     let target = comparison_target.trim();
     let target = if target.is_empty() { "HEAD" } else { target };

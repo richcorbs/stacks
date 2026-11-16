@@ -41,20 +41,6 @@ pub fn card_line(
             metadata.push(project.name.clone());
         }
     }
-    if let Some(environment) = &card.environment {
-        metadata.push(format!(
-            "{} @ {}",
-            environment.branch,
-            environment
-                .worktree_path
-                .rsplit('/')
-                .next()
-                .unwrap_or_default()
-        ));
-    }
-    if let Some(pull_request) = &card.pull_request {
-        metadata.push(format!("PR #{}", pull_request.number));
-    }
     if !card.children.is_empty() {
         metadata.push(format!("{} children", card.children.len()));
     }

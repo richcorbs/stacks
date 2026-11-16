@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use stacks_core::WorkflowAction;
-use stacks_core::diff::{changed_files, file_diff, review_context};
+use stacks_core::diff::{changed_files, file_diff, review_context, worktree_status};
 use stacks_core::store::CardStore;
 
 use crate::event::{CoreEvent, EventSender};
@@ -130,6 +130,18 @@ pub fn load_diff_files(
         sender.send(CoreEvent::DiffFiles { card_id, result });
     });
     let _ = store;
+}
+
+pub fn load_worktree_status(
+    card_id: String,
+    worktree: String,
+    target: String,
+    sender: EventSender,
+) {
+    spawn(sender.clone(), "worktree-status", move |sender| {
+        let result = Ok(worktree_status(&worktree, &target));
+        sender.send(CoreEvent::WorktreeStatus { card_id, result });
+    });
 }
 
 pub fn load_file_diff(worktree: String, target: String, path: String, sender: EventSender) {
