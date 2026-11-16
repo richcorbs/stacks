@@ -53,7 +53,7 @@ check` still works.
 - DIFF: lazygit-inspired collapsible, compressed file tree with per-file
   status and file counts; branch/ahead-behind/dirty/HEAD review context;
   unified diff with reviewed marks (session state, like the GUI), `n`/`p`,
-  `[`/`]`, `gg`/`G`, `h`/`l` fold, visual select + OSC 52 yank, syntect line
+  `[`/`]`, `gg`/`G`, `h`/`l` fold, syntect line
   highlighting and a sticky hunk header. `c` comments on the selected file,
   `C` writes overall feedback, and `s` composes the GUI prompt format and sends
   it to the Agent Pi composer.

@@ -277,7 +277,6 @@ pub struct DiffState {
     pub path: Option<String>,
     pub scroll: u16,
     pub hunk: usize,
-    pub visual: Option<usize>,
 }
 
 pub struct GlobalTab {
@@ -1622,45 +1621,11 @@ impl App {
             Key::Char('p') | Key::BackTab => self.step_diff_file(-1),
             Key::Char(']') => self.step_hunk(1),
             Key::Char('[') => self.step_hunk(-1),
-            Key::Char('v') => {
-                self.diff.visual = Some(self.diff.scroll as usize);
-                self.message = "Visual select: j/k extend, y yank, Esc cancel".into();
-            }
-            Key::Char('y') if self.diff.visual.is_some() => self.yank_diff_selection(),
-            Key::Esc => {
-                if self.diff.visual.take().is_some() {
-                    self.message = "Selection cancelled".into();
-                } else {
-                    self.close_detail();
-                }
-            }
+            Key::Esc => self.close_detail(),
             Key::Char('j') | Key::Down => self.diff.scroll = self.diff.scroll.saturating_add(1),
             Key::Char('k') | Key::Up => self.diff.scroll = self.diff.scroll.saturating_sub(1),
             _ => {}
         }
-    }
-
-    fn yank_diff_selection(&mut self) {
-        let Some(parsed) = self.diff.parsed.as_ref() else {
-            return;
-        };
-        let start = self.diff.visual.unwrap_or(0);
-        let end = self.diff.scroll as usize;
-        let (start, end) = if start <= end {
-            (start, end)
-        } else {
-            (end, start)
-        };
-        let text = parsed
-            .lines
-            .iter()
-            .skip(start)
-            .take(end.saturating_sub(start) + 1)
-            .map(|line| line.text.clone())
-            .collect::<Vec<_>>()
-            .join("\n");
-        self.diff.visual = None;
-        self.yank(&text);
     }
 
     fn toggle_diff_directory(&mut self, collapse: Option<bool>) {

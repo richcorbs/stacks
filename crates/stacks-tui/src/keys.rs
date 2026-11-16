@@ -226,7 +226,6 @@ pub const KEYMAP: &[KeyHelp] = &[
             ("gg / G", "Top / bottom"),
             ("h / l", "Fold / unfold directory"),
             ("Enter", "Toggle directory"),
-            ("v", "Visual select"),
         ],
     },
     KeyHelp {
