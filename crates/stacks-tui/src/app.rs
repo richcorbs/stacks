@@ -429,9 +429,16 @@ impl Confirm {
         self.started.elapsed() >= self.delay
     }
 
-    pub fn countdown(&self) -> String {
+    pub fn countdown_seconds(&self) -> Option<u64> {
         let remaining = self.delay.saturating_sub(self.started.elapsed());
-        format!("{:.1}s", remaining.as_secs_f32().max(0.0))
+        let millis = remaining.as_millis();
+        if millis == 0 {
+            None
+        } else if millis <= 500 {
+            Some(0)
+        } else {
+            Some((millis.div_ceil(1000)) as u64)
+        }
     }
 
     pub fn toggle_focus(&mut self) {
@@ -4555,10 +4562,7 @@ impl App {
                 // applies; focusing primary early must not bypass it.
                 confirm.focus_primary = true;
                 match confirm.outcome() {
-                    ConfirmOutcome::Pending => {
-                        self.message =
-                            format!("Waiting for confirmation ({})", confirm.countdown());
-                    }
+                    ConfirmOutcome::Pending => {}
                     ConfirmOutcome::Cancelled => {
                         self.confirm = None;
                         self.message = "Cancelled".into();

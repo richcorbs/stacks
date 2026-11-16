@@ -65,7 +65,6 @@ fn render_confirm(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(1),
             Constraint::Min(2),
             Constraint::Length(1),
-            Constraint::Length(1),
         ])
         .split(inner);
     frame.render_widget(
@@ -80,19 +79,6 @@ fn render_confirm(frame: &mut Frame, app: &mut App, area: Rect) {
             .style(Style::default().fg(theme.muted))
             .wrap(Wrap { trim: false }),
         chunks[1],
-    );
-    let outcome = confirm.outcome();
-    let status = match outcome {
-        ConfirmOutcome::Pending => format!(
-            "two-step confirmation: {} — the primary action stays disabled",
-            confirm.countdown()
-        ),
-        _ => String::new(),
-    };
-    frame.render_widget(
-        Paragraph::new(Span::styled(status, Style::default().fg(theme.warning)))
-            .wrap(Wrap { trim: false }),
-        chunks[2],
     );
     let mut spans = Vec::new();
     let cancel_style = if !confirm.focus_primary {
@@ -122,15 +108,19 @@ fn render_confirm(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     spans.push(Span::styled(" [ 2  No / Esc ] ", cancel_style));
     spans.push(Span::raw("   "));
+    let primary_label = match confirm.countdown_seconds() {
+        Some(seconds) => format!("{} ({seconds})", confirm.primary_label),
+        None => confirm.primary_label.clone(),
+    };
     spans.push(Span::styled(
-        format!(" [ 1  {} ] ", truncate(&confirm.primary_label, 26)),
+        format!(" [ 1  {} ] ", truncate(&primary_label, 26)),
         primary_style,
     ));
     spans.push(Span::styled(
         "    1 / 2 choose · Tab move",
         Style::default().fg(theme.dim),
     ));
-    frame.render_widget(Paragraph::new(Line::from(spans)), chunks[3]);
+    frame.render_widget(Paragraph::new(Line::from(spans)), chunks[2]);
 }
 
 fn render_palette(frame: &mut Frame, app: &mut App, area: Rect) {
