@@ -122,19 +122,6 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
             ));
         }
     }
-    let mode = if app.screen == Screen::Detail
-        && (app.detail_tab.is_pi() || app.detail_tab.is_terminal())
-    {
-        app.session_focus()
-    } else {
-        ""
-    };
-    if mode == "INPUT" {
-        left.push(Span::styled(
-            "  INPUT ",
-            Style::default().fg(theme.canvas).bg(theme.accent),
-        ));
-    }
     if app.is_busy() {
         left.push(Span::styled("  ●", Style::default().fg(theme.warning)));
     }

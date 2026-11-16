@@ -2833,14 +2833,6 @@ impl App {
             self.handle_key(Key::Char(character));
         }
     }
-
-    pub fn session_focus(&self) -> &'static str {
-        if !self.terminal_focus {
-            "NORMAL"
-        } else {
-            "INPUT"
-        }
-    }
 }
 
 /// Flatten a group into parent-first hierarchy order. A card is indented only
