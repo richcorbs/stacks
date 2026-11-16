@@ -3558,16 +3558,6 @@ impl App {
     }
 
     fn handle_pane_prefix(&mut self, key: Key) -> bool {
-        let release = if self.agent_terminal_context() {
-            Key::Alt('w')
-        } else {
-            Key::Ctrl('w')
-        };
-        if key == release {
-            self.terminal_focus = false;
-            self.message = String::new();
-            return true;
-        }
         match key {
             Key::Char('|') | Key::Char('-') => {
                 let direction = if key == Key::Char('|') {
@@ -3667,11 +3657,6 @@ impl App {
         }
         if self.pending == Some(Pending::CtrlW) {
             self.pending = None;
-            if key == Key::Ctrl('w') {
-                self.global_terminal_focus = false;
-                self.message = String::new();
-                return true;
-            }
             if let Some(tab) = self.global_tabs.get_mut(self.global_active) {
                 let workspace = &mut tab.workspace;
                 match key {
@@ -4554,7 +4539,7 @@ impl App {
         match key {
             Key::Esc | Key::Char('n') | Key::Char('2') => {
                 self.confirm = None;
-                self.message = "Cancelled".into();
+                self.message.clear();
             }
             Key::Tab | Key::BackTab => confirm.toggle_focus(),
             Key::Char('1') | Key::Char('y') | Key::Enter => {
@@ -4565,7 +4550,7 @@ impl App {
                     ConfirmOutcome::Pending => {}
                     ConfirmOutcome::Cancelled => {
                         self.confirm = None;
-                        self.message = "Cancelled".into();
+                        self.message.clear();
                     }
                     ConfirmOutcome::Confirmed => {
                         let action = self.confirm.take().unwrap().into_action();
@@ -4925,7 +4910,7 @@ impl App {
         match key {
             Key::Esc => {
                 self.overlay = None;
-                self.message = "Edit cancelled".into();
+                self.message.clear();
             }
             Key::Tab => state.focus = 1 - state.focus,
             Key::Ctrl('s') => self.submit_edit_card(),
@@ -5133,10 +5118,7 @@ impl App {
 }
 
 fn is_terminal_release(key: &Key) -> bool {
-    matches!(
-        key,
-        Key::Ctrl('\\') | Key::Ctrl('^') | Key::Ctrl('6') | Key::Ctrl('_') | Key::F(12)
-    )
+    matches!(key, Key::Ctrl('^') | Key::Ctrl('6') | Key::F(12))
 }
 
 fn release_action_label(action: ReleaseAction) -> &'static str {
