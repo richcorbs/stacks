@@ -50,8 +50,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let header_height = if app.screen == Screen::Board { 0 } else { 1 };
     // The board keeps its footer to hints; status/position is only worth a
     // row while something is actually wrong or in flight.
+    let agent_screen =
+        app.screen == Screen::Detail && app.detail_tab == crate::app::DetailTab::Agent;
     let status_height = if app.error.is_some()
-        || (app.screen != Screen::Board && !app.message.is_empty() && app.message != "Ready")
+        || (app.screen != Screen::Board
+            && !agent_screen
+            && !app.message.is_empty()
+            && app.message != "Ready")
     {
         1
     } else {

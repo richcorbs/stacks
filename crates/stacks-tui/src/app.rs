@@ -704,6 +704,7 @@ impl App {
         // context and must not follow the user into card detail.
         if self.message.starts_with("Project filter:")
             || self.message.starts_with("Scope:")
+            || self.message.starts_with("PROJECTS")
             || self.message.starts_with('▶')
         {
             self.message.clear();
@@ -2653,7 +2654,6 @@ impl App {
             })
             .unwrap_or(0);
         self.sidebar_cursor = index;
-        self.message = "PROJECTS · j/k move · Enter filter · Esc back".into();
     }
 
     fn move_board(&mut self, delta: i32) {
