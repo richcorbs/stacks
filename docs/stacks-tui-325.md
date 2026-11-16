@@ -202,10 +202,11 @@ This is a deliberate scope change from the card text:
 ## Known gaps / follow-ups
 
 - Full `src-tauri` → `stacks-core` extraction (above).
-- Authoritative remote hierarchy validation, remote-deletion reconciliation,
-  and the durable provider outbox remain GUI/kanban-side. The TUI imports cards,
-  approves linked children, retires locally deleted provider cards, and moves
-  Start/Done columns directly.
+- Remote-deletion reconciliation and the durable provider outbox remain
+  GUI/kanban-side. Provider refinement now re-fetches and validates the
+  authoritative parent/child hierarchy before approving it; the TUI imports
+  cards, retires locally deleted provider cards, and moves Start/Done columns
+  directly.
 - Custom start-work setup commands, environment-creation cleanup, PR
   freshness/merge preflight parity.
 - Diff tree is lazygit-inspired but not lazygit: no line staging from the

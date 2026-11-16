@@ -74,16 +74,17 @@ pub fn finish_refinement(
     });
 }
 
-pub fn finish_refinement_linked(
+pub fn finish_superthread_refinement(
     store: Store,
     card_id: String,
     revision: i64,
     content: String,
     sender: EventSender,
 ) {
-    spawn(sender.clone(), "refinement-linked", move |sender| {
+    spawn(sender.clone(), "refinement-provider", move |sender| {
+        let service = stacks_core::superthread::SuperthreadService::default();
         let result = store
-            .finish_refinement_with_linked_children(&card_id, revision, &content)
+            .finish_superthread_refinement(&card_id, revision, &content, &service)
             .map_err(|error| error.to_string());
         sender.send(CoreEvent::Edited(result));
     });

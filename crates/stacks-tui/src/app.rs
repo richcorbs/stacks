@@ -4076,7 +4076,7 @@ impl App {
         }
         self.in_flight += 1;
         if state.provider == "superthread" {
-            core_bridge::finish_refinement_linked(
+            core_bridge::finish_superthread_refinement(
                 Arc::clone(&self.store),
                 state.card_id,
                 state.revision,

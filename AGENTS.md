@@ -347,9 +347,9 @@ Stacks > Reset Window Settings
   saves provider mapping through the shared `st` client. New cards in provider
   projects are created in Superthread and imported. Start/Done transitions move
   provider cards; linked provider children can be approved during refinement;
-  locally deleted provider cards are retired against re-import. Authoritative
-  remote hierarchy validation, remote-deletion reconciliation, and the durable
-  outbox remain in the GUI/kanban repository.
+  locally deleted provider cards are retired against re-import. Provider
+  refinement re-fetches and validates the authoritative hierarchy. Remote-deletion
+  reconciliation and the durable outbox remain in the GUI/kanban repository.
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and
   per-file review/comment state. `c`/`C` add file/overall feedback and `s`
   sends the composed review prompt to the Agent Pi pane. Lazygit itself is not

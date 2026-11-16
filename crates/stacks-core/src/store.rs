@@ -2073,6 +2073,133 @@ impl CardStore {
     /// `finish_refinement` tool works unchanged against a native host.
     /// Finish refinement for a provider parent whose children were already
     /// imported by sync. The provider children are approved as-is.
+    /// Validate the authoritative Superthread parent/child hierarchy before
+    /// approving a provider refinement, then persist the local refinement.
+    pub fn finish_superthread_refinement(
+        &self,
+        card_id: &str,
+        expected_revision: i64,
+        content: &str,
+        service: &crate::superthread::SuperthreadService,
+    ) -> Result<()> {
+        let read_connection = self.open_read_only()?;
+        let row = read_connection
+            .query_row(
+                "SELECT c.external_id,c.project_id,c.workflow_revision,
+                        COALESCE(p.kanban_source,'local'),p.superthread_workspace_slug,
+                        COALESCE(p.superthread_board_id,''),
+                        COALESCE(p.superthread_incoming_columns,'[]'),
+                        COALESCE(p.superthread_api_token_env_var,'ST_TOKEN'),
+                        c.binding_id
+                 FROM kanban_cards c JOIN projects p ON p.id=c.project_id WHERE c.id=?1",
+                [card_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                    ))
+                },
+            )
+            .optional()
+            .context("read Superthread refinement context")?
+            .ok_or_else(|| anyhow::anyhow!("The card was not found"))?;
+        drop(read_connection);
+        let (
+            external_id,
+            project_id,
+            revision,
+            source,
+            workspace_slug,
+            board_id,
+            incoming_json,
+            token_env,
+            binding_id,
+        ) = row;
+        if source != "superthread" {
+            bail!("This card does not belong to a Superthread project");
+        }
+        if revision != expected_revision {
+            bail!("Card changed; reload before finishing refinement");
+        }
+        let incoming = serde_json::from_str::<Vec<serde_json::Value>>(&incoming_json)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|column| {
+                column
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect::<std::collections::HashSet<_>>();
+        service
+            .configure_token_env(&token_env)
+            .map_err(anyhow::Error::msg)?;
+        let parent = service
+            .card(&external_id, workspace_slug.as_deref())
+            .map_err(anyhow::Error::msg)?;
+        if parent.id != external_id || parent.board_id != board_id {
+            bail!("Superthread returned a different parent card or board");
+        }
+        if !incoming.contains(parent.list_id.trim()) {
+            bail!("The Superthread parent is no longer in a configured Incoming column");
+        }
+        let child_count = parent.total_task_children.ok_or_else(|| {
+            anyhow::anyhow!("Superthread parent did not report total_task_children")
+        })?;
+        let child_ids = parent
+            .task_children
+            .as_ref()
+            .map(|children| {
+                children
+                    .iter()
+                    .map(|child| child.task_id.trim().to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if child_ids.len() as u64 != child_count {
+            bail!("Superthread parent hierarchy is incomplete; retry");
+        }
+        let mut children = Vec::with_capacity(child_ids.len());
+        for child_id in &child_ids {
+            let child = service
+                .card(child_id, workspace_slug.as_deref())
+                .map_err(anyhow::Error::msg)?;
+            if child.task_parent.as_ref().map(|parent| parent.id.trim())
+                != Some(external_id.as_str())
+                || child.board_id != board_id
+                || !incoming.contains(child.list_id.trim())
+            {
+                bail!("Superthread child {child_id} is no longer in the configured hierarchy");
+            }
+            children.push(child);
+        }
+        self.sync_superthread_project(&project_id, service)?;
+        let connection = self.open_read_only()?;
+        let mut statement = connection
+            .prepare("SELECT external_id FROM kanban_cards WHERE binding_id=?1 AND parent_id=?2")?;
+        let local_children = statement
+            .query_map(params![binding_id, card_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<std::collections::HashSet<_>>>()
+            .context("read local provider children")?;
+        let provider_children = child_ids
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        if local_children != provider_children {
+            bail!("Local provider children changed during validation; retry finish_refinement");
+        }
+        drop(statement);
+        drop(connection);
+        self.finish_refinement_with_linked_children(card_id, expected_revision, content)
+    }
+
     pub fn finish_refinement_with_linked_children(
         &self,
         card_id: &str,
