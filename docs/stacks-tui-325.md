@@ -224,9 +224,9 @@ This is a deliberate scope change from the card text:
   conflict, and open/closed/merged state from `gh` every 60s. Superthread sync
   reconciles remotely deleted inactive cards and retries pending column moves.
 - Kitty/sixel/inline image output degrades to text (see `DIVERGENCES.md`).
-- The automation socket accepts the card-tool subset Pi needs. Superthread
-  refinement (`finishExternalCardRefinement`) and parent reassignment remain
-  GUI-only and return explicit errors.
+- The automation socket accepts the card-tool subset Pi needs, including
+  provider creation/refinement; parent reassignment remains GUI-only and returns
+  an explicit error.
 
 ## Showcase / demo
 

@@ -226,11 +226,13 @@ fn dispatch(
                 .title
                 .as_deref()
                 .ok_or_else(|| "A card title is required".to_string())?;
+            let service = crate::superthread::SuperthreadService::default();
             let card_id = store
-                .create_card(
+                .create_project_card(
                     project_id,
                     title,
                     request.description.as_deref().unwrap_or(""),
+                    &service,
                 )
                 .map_err(|error| error.to_string())?;
             host.state_changed(&card_id);
@@ -276,15 +278,27 @@ fn dispatch(
             let detail = store
                 .load_detail(card_id)
                 .map_err(|error| error.to_string())?;
-            store
-                .finish_refinement_with_children(
-                    card_id,
-                    detail.card.workflow_revision,
-                    request.title.as_deref(),
-                    content,
-                    request.children.as_deref(),
-                )
-                .map_err(|error| error.to_string())?;
+            if detail.card.provider == "superthread" {
+                let service = crate::superthread::SuperthreadService::default();
+                store
+                    .finish_superthread_refinement(
+                        card_id,
+                        detail.card.workflow_revision,
+                        content,
+                        &service,
+                    )
+                    .map_err(|error| error.to_string())?;
+            } else {
+                store
+                    .finish_refinement_with_children(
+                        card_id,
+                        detail.card.workflow_revision,
+                        request.title.as_deref(),
+                        content,
+                        request.children.as_deref(),
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
             host.state_changed(card_id);
             Ok("Saved the final brief and finished refinement".into())
         }
@@ -306,6 +320,8 @@ fn dispatch(
             store
                 .start_local_work(card_id, detail.card.workflow_revision)
                 .map_err(|error| error.to_string())?;
+            let service = crate::superthread::SuperthreadService::default();
+            let _ = store.sync_superthread_card_status(card_id, &service);
             host.state_changed(card_id);
             let detail = store
                 .load_detail(card_id)
@@ -318,10 +334,30 @@ fn dispatch(
                 None => Ok("Started work".into()),
             }
         }
-        "finishExternalCardRefinement" => Err(
-            "Superthread refinement is not available from stacks-tui yet; use the Stacks app"
-                .into(),
-        ),
+        "finishExternalCardRefinement" => {
+            let card_id = request
+                .card_id
+                .as_deref()
+                .ok_or_else(|| "A scoped card ID is required".to_string())?;
+            let content = request
+                .content
+                .as_deref()
+                .ok_or_else(|| "A final card description is required".to_string())?;
+            let detail = store
+                .load_detail(card_id)
+                .map_err(|error| error.to_string())?;
+            let service = crate::superthread::SuperthreadService::default();
+            store
+                .finish_superthread_refinement(
+                    card_id,
+                    detail.card.workflow_revision,
+                    content,
+                    &service,
+                )
+                .map_err(|error| error.to_string())?;
+            host.state_changed(card_id);
+            Ok("Validated the Superthread hierarchy and finished refinement".into())
+        }
         "agentLifecycle" => {
             let card_id = request
                 .card_id
