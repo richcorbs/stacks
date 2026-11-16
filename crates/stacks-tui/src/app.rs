@@ -972,7 +972,7 @@ impl App {
             && self.active_workspace().active_copy().is_none()
         {
             self.terminal_focus = false;
-            self.message = "NORMAL — i to focus Pi, Esc to go back".into();
+            self.message = String::new();
             return;
         }
         if self.terminal_owns_keyboard() {
@@ -1277,12 +1277,12 @@ impl App {
             Key::Esc => {
                 if self.detail_tab.is_pi() && self.terminal_focus {
                     self.terminal_focus = false;
-                    self.message = "NORMAL — i to focus Pi, Esc to go back".into();
+                    self.message = String::new();
                     return;
                 }
                 if self.detail_tab.is_terminal() && self.terminal_focus {
                     self.terminal_focus = false;
-                    self.message = "NORMAL — i to focus terminal, Esc to go back".into();
+                    self.message = String::new();
                     return;
                 }
                 self.close_detail();
@@ -1928,7 +1928,7 @@ impl App {
     fn handle_pane_prefix(&mut self, key: Key) -> bool {
         if key == Key::Char('n') {
             self.terminal_focus = false;
-            self.message = "NORMAL — i to focus, n/x for tabs, Esc back".into();
+            self.message = String::new();
             return true;
         }
         match key {
@@ -2027,7 +2027,7 @@ impl App {
             self.pending = None;
             if key == Key::Char('n') {
                 self.global_terminal_focus = false;
-                self.message = "NORMAL — i to focus, n/x tabs, Esc close".into();
+                self.message = String::new();
                 return true;
             }
             if let Some(tab) = self.global_tabs.get_mut(self.global_active) {

@@ -39,18 +39,4 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect, _tab: DetailTab) {
     }
     workspace.resize(area.width, area.height);
     workspace.render(frame, area, focused, depth);
-    if !focused {
-        let hint = Rect {
-            y: area.y + area.height.saturating_sub(1),
-            height: 1,
-            ..area
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                " NORMAL — i focuses Pi · Esc goes back ",
-                Style::default().fg(theme.canvas).bg(theme.warning),
-            )),
-            hint,
-        );
-    }
 }

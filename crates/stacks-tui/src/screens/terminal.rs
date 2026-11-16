@@ -493,42 +493,13 @@ pub fn render_service(
     }
     workspace.resize(area.width, area.height);
     workspace.render(frame, area, focused, depth);
-    if !focused {
-        let hint = Rect {
-            y: area.y + area.height.saturating_sub(1),
-            height: 1,
-            ..area
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                " NORMAL — i focuses service · Ctrl-W [ copy · Esc back ",
-                Style::default().fg(theme.canvas).bg(theme.warning),
-            )),
-            hint,
-        );
-    }
 }
 
 pub fn render_card(frame: &mut Frame, app: &mut crate::app::App, area: Rect) {
-    let theme = app.theme;
     let depth = app.depth;
     let focused = app.terminal_focus;
     app.terminals.resize(area.width, area.height);
     app.terminals.render(frame, area, focused, depth);
-    if !focused && !app.terminals.is_empty() {
-        let hint = Rect {
-            y: area.y + area.height.saturating_sub(1),
-            height: 1,
-            ..area
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                " NORMAL — i focuses terminal · Ctrl-W | split · Esc back ",
-                Style::default().fg(theme.canvas).bg(theme.warning),
-            )),
-            hint,
-        );
-    }
 }
 
 fn layout_tree(node: &SplitNode, area: Rect, output: &mut Vec<(String, Rect)>) {

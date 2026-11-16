@@ -55,9 +55,9 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     let hint = if app.global_terminal_focus {
-        " Ctrl-G close · Ctrl-W n normal mode · Ctrl-W [ copy "
+        " Ctrl-G close · Ctrl-W n tabs · Ctrl-W [ copy "
     } else {
-        " NORMAL · n new tab · x close tab · Tab next · i focus · Esc close "
+        " Tab bar · n new tab · x close tab · Tab next · i focus · Esc close "
     };
     frame.render_widget(
         Paragraph::new(Span::styled(

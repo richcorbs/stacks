@@ -129,14 +129,10 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         ""
     };
-    if !mode.is_empty() {
+    if mode == "INPUT" {
         left.push(Span::styled(
-            format!("  {mode} "),
-            Style::default().fg(theme.canvas).bg(if mode == "INPUT" {
-                theme.accent
-            } else {
-                theme.warning
-            }),
+            "  INPUT ",
+            Style::default().fg(theme.canvas).bg(theme.accent),
         ));
     }
     if app.is_busy() {
@@ -279,11 +275,7 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 ],
                 crate::app::DetailTab::Agent => {
                     if app.terminal_focus {
-                        vec![
-                            ("Esc", "normal mode"),
-                            ("Ctrl-W [", "copy"),
-                            ("Ctrl-Q", "quit"),
-                        ]
+                        vec![("Esc", "release"), ("Ctrl-W [", "copy"), ("Ctrl-Q", "quit")]
                     } else {
                         vec![("i/Enter", "focus"), ("Esc", "back"), ("Tab", "tabs")]
                     }
@@ -293,7 +285,7 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 | crate::app::DetailTab::Console => {
                     if app.terminal_focus {
                         vec![
-                            ("Ctrl-W n", "normal mode"),
+                            ("Ctrl-W n", "release"),
                             ("Ctrl-W [", "copy"),
                             ("Ctrl-Q", "quit"),
                         ]
