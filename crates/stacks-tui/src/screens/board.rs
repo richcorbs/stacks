@@ -337,28 +337,16 @@ fn details_line(
     let git = if card.environment.is_none() {
         "—".to_string()
     } else if app.selected_git_loading {
-        "git checking…".to_string()
+        "checking…".to_string()
     } else if let Some(error) = app.selected_git_error.as_ref() {
-        format!("git ◆ {}", truncate(error, 60))
+        format!("◆ {}", truncate(error, 60))
     } else if let Some(status) = app.selected_git.as_ref() {
-        let mut parts = Vec::new();
-        if status.conflicts {
-            parts.push("conflicts".to_string());
-        } else if status.dirty {
-            parts.push(format!(
-                "+{} ~{} -{}",
-                status.created, status.changed, status.deleted
-            ));
-            parts.push("dirty".to_string());
-        } else {
-            parts.push("clean".to_string());
-        }
-        if status.ahead > 0 || status.behind > 0 {
-            parts.push(format!("↑{} ↓{}", status.ahead, status.behind));
-        }
-        format!("git {}", parts.join(" · "))
+        format!(
+            "+{} ~{} -{}",
+            status.created, status.changed, status.deleted
+        )
     } else {
-        "git —".to_string()
+        "—".to_string()
     };
     let pull_request = card
         .pull_request
