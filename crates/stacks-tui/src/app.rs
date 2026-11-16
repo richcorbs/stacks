@@ -964,16 +964,6 @@ impl App {
             self.request_quit();
             return;
         }
-        if self.screen == Screen::Detail
-            && (self.detail_tab.is_pi() || self.detail_tab.is_terminal())
-            && self.terminal_focus
-            && key == Key::Ctrl(']')
-            && self.active_workspace().active_copy().is_none()
-        {
-            self.terminal_focus = false;
-            self.message = String::new();
-            return;
-        }
         if self.terminal_owns_keyboard() {
             self.handle_terminal_key(key);
             return;
@@ -1925,6 +1915,11 @@ impl App {
     }
 
     fn handle_pane_prefix(&mut self, key: Key) -> bool {
+        if key == Key::Ctrl('w') {
+            self.terminal_focus = false;
+            self.message = String::new();
+            return true;
+        }
         match key {
             Key::Char('|') | Key::Char('-') => {
                 let direction = if key == Key::Char('|') {
@@ -2017,13 +2012,13 @@ impl App {
             self.overlay = None;
             return true;
         }
-        if self.global_terminal_focus && key == Key::Ctrl(']') {
-            self.global_terminal_focus = false;
-            self.message = String::new();
-            return true;
-        }
         if self.pending == Some(Pending::CtrlW) {
             self.pending = None;
+            if key == Key::Ctrl('w') {
+                self.global_terminal_focus = false;
+                self.message = String::new();
+                return true;
+            }
             if let Some(tab) = self.global_tabs.get_mut(self.global_active) {
                 let workspace = &mut tab.workspace;
                 match key {

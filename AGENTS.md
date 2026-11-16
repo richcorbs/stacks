@@ -330,9 +330,9 @@ Stacks > Reset Window Settings
   `src-tauri/resources/stacks-cards.ts`. The GUI ignores `agentLifecycle`
   because it infers lifecycle from its RPC stream.
 - The Agent tab runs Pi's native TUI in a PTY (`pi --continue`) and reports
-  lifecycle through the extension. `Ctrl-]` leaves Pi/shell/service input for
-  normal mode. Server and Console tabs appear only when the project and card
-  environment provide them.
+  lifecycle through the extension. `Ctrl-W` twice leaves Pi/shell/service
+  input for normal mode. Server and Console tabs appear only when the project
+  and card environment provide them.
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and
   per-file review/comment state. `c`/`C` add file/overall feedback and `s`
   sends the composed review prompt to the Agent Pi pane. Lazygit itself is not

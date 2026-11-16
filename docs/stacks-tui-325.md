@@ -62,8 +62,8 @@ check` still works.
   a terminal tool, not a Stacks feature.
 - Terminal: real PTY + vt100 rendering, split panes (`Ctrl-W |/-o x z`), exact
   per-pane PTY resize, copy mode (`Ctrl-W [`), OSC 52 yank.
-- Global terminal: `Ctrl-G`, `Ctrl-]` to release input and use `n`/`x` for
-  tabs.
+- Global terminal: `Ctrl-G`, `Ctrl-W` twice to release input and use `n`/`x`
+  for tabs.
 - Command palette (`Ctrl-P`/`:`), project switcher (`Ctrl-O`), settings
   (`Ctrl-,`) written through to `settings.json`, generated help (`?`).
 - Headless verification:
@@ -161,8 +161,9 @@ This is a deliberate scope change from the card text:
   headless/automation use, but the TUI does not use it.
 - The shared extension now emits lifecycle for card sessions. The shipping GUI
   ignores the unknown automation action; it still infers lifecycle from RPC.
-- `Ctrl-]` leaves Pi, shell, service and global-terminal input for normal
-  mode; global-rail shortcuts work there.
+- `Ctrl-W` twice leaves Pi, shell, service and global-terminal input for
+  normal mode; global-rail shortcuts work there. A single `Ctrl-W` remains the
+  pane prefix (`|`, `-`, `o`, `x`, `z`, `[`).
 
 ## Known gaps / follow-ups
 

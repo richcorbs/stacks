@@ -210,7 +210,7 @@ pub const KEYMAP: &[KeyHelp] = &[
         group: "Agent",
         entries: &[
             ("i", "Focus native Pi pane"),
-            ("Ctrl-]", "Release input / tab bar"),
+            ("Ctrl-W Ctrl-W", "Release input / tab bar"),
             ("Esc", "Back (normal mode)"),
             ("Ctrl-W [", "Copy mode"),
             ("r", "Restart an exited Pi session"),
@@ -239,7 +239,7 @@ pub const KEYMAP: &[KeyHelp] = &[
             ("Ctrl-W then z", "Maximize pane"),
             ("Ctrl-W then [", "Copy mode (vi)"),
             ("Ctrl-W then q", "Close pane"),
-            ("Ctrl-]", "Release input / tab bar"),
+            ("Ctrl-W Ctrl-W", "Release input / tab bar"),
         ],
     },
     KeyHelp {
