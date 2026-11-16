@@ -224,8 +224,7 @@ pub const KEYMAP: &[KeyHelp] = &[
         group: "Agent",
         entries: &[
             ("i", "Focus native Pi pane"),
-            ("Ctrl-W then n", "Normal mode (leave Pi input)"),
-            ("Esc", "Back (normal mode)"),
+            ("Esc", "Normal mode when input-focused; back in normal mode"),
             ("Ctrl-W [", "Copy mode"),
             ("r", "Restart an exited Pi session"),
         ],

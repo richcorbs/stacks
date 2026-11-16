@@ -254,7 +254,7 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
             }
             Screen::Detail => match app.detail_tab {
                 crate::app::DetailTab::Overview => vec![
-                    ("1..5", "tabs"),
+                    ("1..6", "tabs"),
                     ("e", "edit"),
                     ("a", "actions"),
                     ("Esc", "back"),
@@ -267,10 +267,20 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                     ("v", "select"),
                     ("Esc", "back"),
                 ],
+                crate::app::DetailTab::Agent => {
+                    if app.terminal_focus {
+                        vec![
+                            ("Esc", "normal mode"),
+                            ("Ctrl-W [", "copy"),
+                            ("Ctrl-Q", "quit"),
+                        ]
+                    } else {
+                        vec![("i/Enter", "focus"), ("Esc", "back"), ("Tab", "tabs")]
+                    }
+                }
                 crate::app::DetailTab::Terminal
                 | crate::app::DetailTab::Server
-                | crate::app::DetailTab::Console
-                | crate::app::DetailTab::Agent => {
+                | crate::app::DetailTab::Console => {
                     if app.terminal_focus {
                         vec![
                             ("Ctrl-W n", "normal mode"),

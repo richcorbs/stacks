@@ -959,6 +959,16 @@ impl App {
             }
             return;
         }
+        if self.screen == Screen::Detail
+            && self.detail_tab == DetailTab::Agent
+            && self.terminal_focus
+            && key == Key::Esc
+            && self.active_workspace().active_copy().is_none()
+        {
+            self.terminal_focus = false;
+            self.message = "NORMAL — i to focus Pi, Esc to go back".into();
+            return;
+        }
         if self.terminal_owns_keyboard() {
             self.handle_terminal_key(key);
             return;

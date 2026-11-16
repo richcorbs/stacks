@@ -159,8 +159,9 @@ This is a deliberate scope change from the card text:
   headless/automation use, but the TUI does not use it.
 - The shared extension now emits lifecycle for card sessions. The shipping GUI
   ignores the unknown automation action; it still infers lifecycle from RPC.
-- `Ctrl-W n` is a new normal-mode escape hatch because Esc belongs to Pi while
-  the pane has input focus. Global-rail shortcuts work in normal mode.
+- Agent uses `Esc` to leave Pi input for normal mode. Shell/service tabs use
+  `Ctrl-W n` because Esc belongs to the shell there; global-rail shortcuts work
+  in normal mode.
 
 ## Known gaps / follow-ups
 
