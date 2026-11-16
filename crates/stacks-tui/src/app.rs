@@ -3501,7 +3501,7 @@ impl App {
         if self.active_workspace().is_empty() {
             return false;
         }
-        if matches!(key, Key::Ctrl('\\') | Key::Ctrl('^') | Key::Ctrl('6')) {
+        if is_terminal_release(&key) {
             self.terminal_focus = false;
             self.message = String::new();
             return true;
@@ -3660,7 +3660,7 @@ impl App {
     }
 
     fn handle_global_terminal_key(&mut self, key: Key) -> bool {
-        if matches!(key, Key::Ctrl('\\') | Key::Ctrl('^') | Key::Ctrl('6')) {
+        if is_terminal_release(&key) {
             self.global_terminal_focus = false;
             self.message = String::new();
             return true;
@@ -5137,6 +5137,13 @@ impl App {
             self.handle_key(Key::Char(character));
         }
     }
+}
+
+fn is_terminal_release(key: &Key) -> bool {
+    matches!(
+        key,
+        Key::Ctrl('\\') | Key::Ctrl('^') | Key::Ctrl('6') | Key::Ctrl('_') | Key::F(12)
+    )
 }
 
 fn release_action_label(action: ReleaseAction) -> &'static str {

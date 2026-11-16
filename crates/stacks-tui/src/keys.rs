@@ -231,7 +231,8 @@ pub const KEYMAP: &[KeyHelp] = &[
         group: "Agent",
         entries: &[
             ("i", "Focus native Pi pane"),
-            ("Ctrl-\\", "Release input"),
+            ("Ctrl-^", "Release input"),
+            ("F12", "Release fallback"),
             ("Alt-W then [", "Copy mode"),
             ("Esc", "Back (normal mode)"),
             ("r", "Restart an exited Pi session"),
@@ -262,7 +263,7 @@ pub const KEYMAP: &[KeyHelp] = &[
             ("Ctrl-W then z", "Maximize pane"),
             ("Ctrl-W then [", "Copy mode (vi)"),
             ("Ctrl-W then q", "Close pane"),
-            ("Ctrl-\\", "Release input / tab bar"),
+            ("Ctrl-^", "Release input / tab bar"),
         ],
     },
     KeyHelp {
@@ -311,7 +312,7 @@ mod tests {
             .join(" ");
         for key in [
             "Ctrl-Q", "Ctrl-P", "Ctrl-O", "Ctrl-G", "Ctrl-R", "Ctrl-,", "Ctrl-B", "Ctrl-W",
-            "Ctrl-D", "Ctrl-U", "Ctrl-W", "Ctrl-\\", "i",
+            "Ctrl-D", "Ctrl-U", "Ctrl-W", "Ctrl-^", "i",
         ] {
             assert!(help.contains(key), "{key} missing from help");
         }

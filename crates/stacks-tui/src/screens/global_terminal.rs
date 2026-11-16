@@ -55,7 +55,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     let hint = if app.global_terminal_focus {
-        " Ctrl-G close · Ctrl-\\ release · Ctrl-W [ copy "
+        " Ctrl-G close · Ctrl-^ release · Ctrl-W [ copy "
     } else {
         " Tab bar · n new tab · x close tab · Tab next · i focus · Esc close "
     };

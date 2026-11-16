@@ -8,7 +8,7 @@ key 4
 wait 600
 label Project workspace · project terminal
 dump
-key ctrl-\
+key ctrl-^
 key esc
 key ctrl-p
 type settings
@@ -42,7 +42,7 @@ key enter
 wait 800
 label Card #325 · real PTY terminal
 dump
-key ctrl-\
+key ctrl-^
 key esc
 key enter
 wait 900
@@ -50,7 +50,7 @@ key 2
 wait 1200
 label Card #325 · native Pi pane
 dump
-key ctrl-\
+key ctrl-^
 key esc
 key ctrl-g
 wait 700

@@ -96,11 +96,11 @@ check` still works.
 - Lazygit is **not embedded**. Its useful UI patterns (tree compression,
   bordered panels, review context) are reused; staging/commit/branch UI stays
   a terminal tool, not a Stacks feature.
-- Native Pi Agent: `Alt-W` is the pane prefix so Pi keeps `Ctrl-W`; `Ctrl-\`
+- Native Pi Agent: `Alt-W` is the pane prefix so Pi keeps `Ctrl-W`; `Ctrl-^`
   releases input.
 - Terminal: real PTY + vt100 rendering, split panes (`Ctrl-W |/-o x z`), exact
   per-pane PTY resize, copy mode (`Ctrl-W [`), OSC 52 yank.
-- Global terminal: `Ctrl-G`; `Ctrl-\` releases input; use `n`/`x` for tabs.
+- Global terminal: `Ctrl-G`; `Ctrl-^` releases input; use `n`/`x` for tabs.
 - Command palette (`Ctrl-P`/`:`), project switcher (`Ctrl-O`), settings
   (`Ctrl-,`) written through to `settings.json`, generated help (`?`).
 - Headless verification:
@@ -199,7 +199,7 @@ This is a deliberate scope change from the card text:
   headless/automation use, but the TUI does not use it.
 - The shared extension now emits lifecycle for card sessions. The shipping GUI
   ignores the unknown automation action; it still infers lifecycle from RPC.
-- `Ctrl-\` releases input for normal mode everywhere. Native Pi uses `Alt-W`
+- `Ctrl-^` releases input for normal mode everywhere. Native Pi uses `Alt-W`
   as its pane prefix so Pi receives `Ctrl-W` for word deletion; shells,
   services, and the global terminal keep `Ctrl-W` as their pane prefix.
 
