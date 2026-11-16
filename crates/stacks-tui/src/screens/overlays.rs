@@ -99,7 +99,8 @@ fn render_confirm(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         Style::default().fg(theme.muted)
     };
-    let primary_style = if confirm.focus_primary && confirm.ready() {
+    let primary_focused = confirm.focus_primary;
+    let primary_style = if primary_focused && confirm.ready() {
         Style::default()
             .fg(theme.canvas)
             .bg(if confirm.destructive {
@@ -108,17 +109,21 @@ fn render_confirm(frame: &mut Frame, app: &mut App, area: Rect) {
                 theme.accent
             })
             .add_modifier(Modifier::BOLD)
+    } else if primary_focused {
+        Style::default()
+            .fg(theme.warning)
+            .add_modifier(Modifier::UNDERLINED)
     } else {
         Style::default().fg(theme.dim)
     };
-    spans.push(Span::styled(" [ No / Esc ] ", cancel_style));
+    spans.push(Span::styled(" [ 2  No / Esc ] ", cancel_style));
     spans.push(Span::raw("   "));
     spans.push(Span::styled(
-        format!(" [ {} ] ", truncate(&confirm.primary_label, 26)),
+        format!(" [ 1  {} ] ", truncate(&confirm.primary_label, 26)),
         primary_style,
     ));
     spans.push(Span::styled(
-        "    Tab to move",
+        "    1 / 2 choose · Tab move",
         Style::default().fg(theme.dim),
     ));
     frame.render_widget(Paragraph::new(Line::from(spans)), chunks[3]);

@@ -2398,24 +2398,30 @@ impl App {
             return;
         };
         match key {
-            Key::Esc | Key::Char('n') => {
+            Key::Esc | Key::Char('n') | Key::Char('2') => {
                 self.confirm = None;
                 self.message = "Cancelled".into();
             }
             Key::Tab | Key::BackTab => confirm.toggle_focus(),
-            Key::Char('y') | Key::Enter => match confirm.outcome() {
-                ConfirmOutcome::Pending => {
-                    self.message = format!("Waiting for confirmation ({})", confirm.countdown());
+            Key::Char('1') | Key::Char('y') | Key::Enter => {
+                // Numbered primary shortcut. The confirmation delay still
+                // applies; focusing primary early must not bypass it.
+                confirm.focus_primary = true;
+                match confirm.outcome() {
+                    ConfirmOutcome::Pending => {
+                        self.message =
+                            format!("Waiting for confirmation ({})", confirm.countdown());
+                    }
+                    ConfirmOutcome::Cancelled => {
+                        self.confirm = None;
+                        self.message = "Cancelled".into();
+                    }
+                    ConfirmOutcome::Confirmed => {
+                        let action = self.confirm.take().unwrap().into_action();
+                        self.run_confirm(action);
+                    }
                 }
-                ConfirmOutcome::Cancelled => {
-                    self.confirm = None;
-                    self.message = "Cancelled".into();
-                }
-                ConfirmOutcome::Confirmed => {
-                    let action = self.confirm.take().unwrap().into_action();
-                    self.run_confirm(action);
-                }
-            },
+            }
             _ => {}
         }
     }

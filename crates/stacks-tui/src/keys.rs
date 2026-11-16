@@ -245,8 +245,8 @@ pub const KEYMAP: &[KeyHelp] = &[
     KeyHelp {
         group: "Confirm",
         entries: &[
-            ("y", "Confirm"),
-            ("n / Esc", "Cancel (initial focus, delayed primary)"),
+            ("1 / y", "Confirm (after the delay)"),
+            ("2 / n / Esc", "Cancel (initial focus)"),
             ("Tab / Shift-Tab", "Move"),
         ],
     },

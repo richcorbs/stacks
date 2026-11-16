@@ -175,8 +175,8 @@ fn render_hints(frame: &mut Frame, app: &mut App, area: Rect) {
 fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
     if app.confirm.is_some() {
         return vec![
-            ("y", "confirm after delay"),
-            ("n/Esc", "cancel"),
+            ("1 / y", "confirm after delay"),
+            ("2 / n", "cancel"),
             ("Tab", "move focus"),
         ];
     }
