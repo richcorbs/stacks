@@ -51,7 +51,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // The board keeps its footer to hints; status/position is only worth a
     // row while something is actually wrong or in flight.
     let status_height = if app.error.is_some()
-        || app.in_flight > 0
         || (app.screen != Screen::Board && !app.message.is_empty() && app.message != "Ready")
     {
         1
