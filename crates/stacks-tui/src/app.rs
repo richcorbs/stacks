@@ -361,6 +361,7 @@ pub struct ConfirmAction {
     pub workflow: Option<WorkflowRun>,
     pub release: Option<ReleaseRun>,
     pub project_delete: Option<String>,
+    pub relaunch: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -550,6 +551,7 @@ pub struct App {
     pub project_sessions: HashMap<String, ProjectWorkspaceState>,
     pub card_sessions: HashMap<String, CardSessions>,
     pub pending_project_open: Option<String>,
+    pub relaunch: bool,
     pub terminal_focus: bool,
     pub global_tabs: Vec<GlobalTab>,
     pub global_active: usize,
@@ -644,6 +646,7 @@ impl App {
             project_sessions: HashMap::new(),
             card_sessions: HashMap::new(),
             pending_project_open: None,
+            relaunch: false,
             terminal_focus: false,
             global_tabs: Vec::new(),
             global_active: 0,
@@ -2003,6 +2006,40 @@ impl App {
                 setup,
             }),
             project_delete: None,
+            relaunch: false,
+        });
+    }
+
+    fn release_build_completed(&self) -> bool {
+        self.project.as_ref().is_some_and(|state| {
+            state
+                .release
+                .last_action
+                .as_ref()
+                .is_some_and(|(action, _)| *action == ReleaseAction::BuildAndTest)
+                && state
+                    .release
+                    .terminal
+                    .panes
+                    .values()
+                    .any(|pane| pane.exited == Some(Some(0)))
+        })
+    }
+
+    fn start_restart_to_test(&mut self) {
+        if !self.release_build_completed() {
+            self.message = "Build & test must complete successfully first".into();
+            return;
+        }
+        self.open_confirm(ConfirmAction {
+            title: "Restart Stacks TUI to test?".into(),
+            detail: "Terminals and agents will stop, then the TUI will relaunch with the installed build.".into(),
+            primary_label: "Restart".into(),
+            destructive: true,
+            workflow: None,
+            release: None,
+            project_delete: None,
+            relaunch: true,
         });
     }
 
@@ -2045,6 +2082,7 @@ impl App {
             Key::Char('b') => self.open_release_confirm(ReleaseAction::BuildAndTest),
             Key::Char('p') => self.open_release_confirm(ReleaseAction::Publish),
             Key::Char('R') => self.load_release_info(),
+            Key::Char('t') => self.start_restart_to_test(),
             Key::Tab => self.cycle_project_tab(false),
             Key::BackTab => self.cycle_project_tab(true),
             _ => {}
@@ -3791,6 +3829,7 @@ impl App {
             workflow: None,
             release: None,
             project_delete: Some(project.id),
+            relaunch: false,
         });
     }
 
@@ -4116,6 +4155,7 @@ impl App {
             workflow: None,
             release: None,
             project_delete: None,
+            relaunch: false,
         });
     }
 
@@ -4218,6 +4258,7 @@ impl App {
                 workflow: Some(run),
                 release: None,
                 project_delete: None,
+                relaunch: false,
             });
         } else {
             self.in_flight += 1;

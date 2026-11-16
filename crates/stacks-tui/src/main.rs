@@ -156,9 +156,29 @@ fn run() -> Result<(), String> {
     })?;
 
     let result = run_interactive(&mut app);
+    let relaunch = app.relaunch;
     drop(app);
     drop(guard);
+    if relaunch {
+        relaunch_tui()?;
+    }
     result
+}
+
+fn relaunch_tui() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut command = std::process::Command::new(exe);
+    command.args(std::env::args_os().skip(1));
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        return Err(command.exec().to_string());
+    }
+    #[cfg(not(unix))]
+    {
+        command.spawn().map_err(|error| error.to_string())?;
+        Ok(())
+    }
 }
 
 fn automation_socket_path() -> PathBuf {

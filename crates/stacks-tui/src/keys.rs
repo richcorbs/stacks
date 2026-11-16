@@ -209,6 +209,7 @@ pub const KEYMAP: &[KeyHelp] = &[
             ),
             ("e", "Edit project notes"),
             ("Ctrl-S", "Save project notes"),
+            ("t", "Restart to test after Release Build & test"),
             ("Esc", "Back"),
         ],
     },

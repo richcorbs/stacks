@@ -319,6 +319,7 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                         ("r", "release"),
                         ("b", "build & test"),
                         ("p", "publish"),
+                        ("t", "restart to test"),
                         ("R", "refresh"),
                         ("Esc", "back"),
                     ],
