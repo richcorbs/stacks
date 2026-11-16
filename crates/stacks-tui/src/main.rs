@@ -28,6 +28,7 @@ struct Args {
     script: Option<PathBuf>,
     db: Option<PathBuf>,
     shared: bool,
+    production: bool,
 }
 
 fn main() {
@@ -43,6 +44,7 @@ fn usage() -> &'static str {
      Usage: stacks-tui [--db PATH] [--dump-screen] [--cols N --rows N] [--script FILE]\n\
      \n\
        --db PATH        workflow.sqlite3 to read/write (default: shipped Stacks data)
+       --production     ignore STACKS_TUI_* sandbox overrides and use ~/Library/Application Support/stacks
        --shared         run alongside the other Stacks client using a TUI-specific socket\n\
        --dump-screen    render once to stdout and exit (TestBackend)\n\
        --cols / --rows  size for --dump-screen / --script\n\
@@ -62,6 +64,7 @@ fn parse_args() -> Result<Option<Args>, String> {
         script: None,
         db: None,
         shared: false,
+        production: false,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -94,6 +97,7 @@ fn parse_args() -> Result<Option<Args>, String> {
                 ));
             }
             "--shared" => args.shared = true,
+            "--production" => args.production = true,
             other => return Err(format!("unknown argument {other:?}\n\n{}", usage())),
         }
     }
@@ -105,6 +109,21 @@ fn run() -> Result<(), String> {
         println!("{}", usage());
         return Ok(());
     };
+    if args.production {
+        if args.db.is_some() {
+            return Err("--production cannot be combined with --db".into());
+        }
+        for variable in [
+            "STACKS_TUI_DATA_DIR",
+            "STACKS_TUI_DB",
+            "STACKS_TUI_AUTOMATION_SOCKET",
+            "STACKS_TUI_PI_SESSIONS",
+        ] {
+            unsafe {
+                std::env::remove_var(variable);
+            }
+        }
+    }
     if let Some(db) = args.db.as_ref() {
         // Before any worker thread starts; every later read uses the same env.
         unsafe {
@@ -135,6 +154,8 @@ fn run() -> Result<(), String> {
     let mut app = App::new(Arc::clone(&store), socket.clone(), board, headless_mode);
     if args.shared {
         app.message = "Shared mode: another Stacks client may be writing the same database".into();
+    } else if args.production {
+        app.message = "Using production Stacks data".into();
     }
 
     if headless_mode {
