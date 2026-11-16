@@ -340,6 +340,7 @@ Stacks > Reset Window Settings
   are cached by id while the TUI runs (not restored across restarts). The
   project sidebar supports `n` add, `e` edit (name/path/target/commands/release),
   and `D` delete with the no-active-work guard.
+- Agent lifecycle changes for a non-selected card emit a terminal bell.
 - Background refresh reloads the board/worktree every 15s, refreshes open
   GitHub PR/CI state for GitHub-delivery projects every 60s, and syncs
   Superthread cards every 5 minutes. `S` syncs on demand; `P` validates and

@@ -454,11 +454,13 @@ impl Confirm {
 #[derive(Debug, Clone)]
 pub struct DiffComment {
     pub path: String,
+    pub line: Option<u32>,
     pub body: String,
 }
 
 pub struct DiffCommentEditor {
     pub path: Option<String>,
+    pub line: Option<u32>,
     pub input: TextArea,
 }
 
@@ -475,6 +477,7 @@ pub struct DiffState {
     pub path: Option<String>,
     pub scroll: u16,
     pub hunk: usize,
+    pub line: usize,
 }
 
 pub struct GlobalTab {
@@ -1272,6 +1275,7 @@ impl App {
                         self.diff.path = None;
                         self.diff.hunk = 0;
                         self.diff.scroll = 0;
+                        self.diff.line = 0;
                         if !self.diff.files.is_empty() {
                             self.open_diff_file(0);
                         }
@@ -1349,6 +1353,11 @@ impl App {
                 }
             }
             CoreEvent::AutomationChanged { card_id, message } => {
+                if !self.headless && self.selected_card.as_deref() != Some(card_id.as_str()) {
+                    use std::io::Write;
+                    print!("\x07");
+                    let _ = std::io::stdout().flush();
+                }
                 self.message = message;
                 self.refresh_board();
                 if self.selected_card.as_deref() == Some(card_id.as_str()) {
@@ -1577,6 +1586,7 @@ impl App {
                 DetailTab::Diff => {
                     self.diff.scroll = 0;
                     self.diff.hunk = 0;
+                    self.diff.line = 0;
                 }
                 DetailTab::Terminal | DetailTab::Agent | DetailTab::Server | DetailTab::Console => {
                     let workspace = self.active_workspace_mut();
@@ -2644,13 +2654,55 @@ impl App {
                 .diff
                 .comments
                 .iter()
-                .find(|comment| comment.path == path)
+                .find(|comment| comment.path == path && comment.line.is_none())
                 .map(|comment| comment.body.clone())
                 .unwrap_or_default(),
             None => self.diff.overall_comment.clone(),
         };
         self.diff_comment = Some(DiffCommentEditor {
             path,
+            line: None,
+            input: TextArea::new(existing),
+        });
+        self.overlay = Some(Overlay::DiffComment);
+    }
+
+    fn open_diff_line_comment(&mut self) {
+        let Some(parsed) = self.diff.parsed.as_ref() else {
+            self.message = "Open a file diff before commenting on a line".into();
+            return;
+        };
+        let Some(line) = parsed.lines.get(self.diff.line) else {
+            self.message = "Select a code line first".into();
+            return;
+        };
+        if matches!(
+            line.kind,
+            stacks_core::diff::DiffLineKind::Hunk
+                | stacks_core::diff::DiffLineKind::Header
+                | stacks_core::diff::DiffLineKind::Meta
+        ) {
+            self.message = "Select an added, removed, or context line".into();
+            return;
+        }
+        let Some(number) = line.new_line.or(line.old_line) else {
+            self.message = "This line has no line number".into();
+            return;
+        };
+        let Some(path) = self.diff.path.clone() else {
+            self.message = "No file is selected".into();
+            return;
+        };
+        let existing = self
+            .diff
+            .comments
+            .iter()
+            .find(|comment| comment.path == path && comment.line == Some(number))
+            .map(|comment| comment.body.clone())
+            .unwrap_or_default();
+        self.diff_comment = Some(DiffCommentEditor {
+            path: Some(path),
+            line: Some(number),
             input: TextArea::new(existing),
         });
         self.overlay = Some(Overlay::DiffComment);
@@ -2669,17 +2721,20 @@ impl App {
             Key::Ctrl('s') => {
                 let body = editor.input.value.trim().to_string();
                 if let Some(path) = editor.path.clone() {
+                    let line = editor.line;
                     if body.is_empty() {
-                        self.diff.comments.retain(|comment| comment.path != path);
+                        self.diff
+                            .comments
+                            .retain(|comment| !(comment.path == path && comment.line == line));
                     } else if let Some(comment) = self
                         .diff
                         .comments
                         .iter_mut()
-                        .find(|comment| comment.path == path)
+                        .find(|comment| comment.path == path && comment.line == line)
                     {
                         comment.body = body;
                     } else {
-                        self.diff.comments.push(DiffComment { path, body });
+                        self.diff.comments.push(DiffComment { path, line, body });
                     }
                 } else {
                     self.diff.overall_comment = body;
@@ -2710,7 +2765,11 @@ impl App {
             .filter(|comment| !comment.body.trim().is_empty())
             .enumerate()
         {
-            lines.push(format!("{}. [git diff] {}", index + 1, comment.path));
+            let location = match comment.line {
+                Some(line) => format!("{}:{}", comment.path, line),
+                None => comment.path.clone(),
+            };
+            lines.push(format!("{}. [git diff] {}", index + 1, location));
             lines.push(format!("   {}", comment.body.trim()));
             lines.push(String::new());
         }
@@ -2751,6 +2810,9 @@ impl App {
             Key::Enter => self.toggle_diff_directory(None),
             Key::Char('c') => self.open_diff_comment(false),
             Key::Char('C') => self.open_diff_comment(true),
+            Key::Char('L') => self.open_diff_line_comment(),
+            Key::Char('J') => self.move_diff_line(1),
+            Key::Char('K') => self.move_diff_line(-1),
             Key::Char('s') => self.submit_diff_feedback(),
             Key::Char('r') => {
                 if self.screen == Screen::Project {
@@ -2782,6 +2844,24 @@ impl App {
             Key::Char('j') | Key::Down => self.diff.scroll = self.diff.scroll.saturating_add(1),
             Key::Char('k') | Key::Up => self.diff.scroll = self.diff.scroll.saturating_sub(1),
             _ => {}
+        }
+    }
+
+    fn move_diff_line(&mut self, delta: i32) {
+        let Some(parsed) = self.diff.parsed.as_ref() else {
+            return;
+        };
+        if parsed.lines.is_empty() {
+            return;
+        }
+        let next = (self.diff.line as i32 + delta)
+            .clamp(0, parsed.lines.len().saturating_sub(1) as i32) as usize;
+        self.diff.line = next;
+        let visible = self.rows.saturating_sub(10).max(1) as usize;
+        if next < self.diff.scroll as usize {
+            self.diff.scroll = next as u16;
+        } else if next >= self.diff.scroll as usize + visible {
+            self.diff.scroll = (next + 1 - visible) as u16;
         }
     }
 
@@ -2838,6 +2918,7 @@ impl App {
         self.diff.selected = index;
         self.diff.scroll = 0;
         self.diff.hunk = 0;
+        self.diff.line = 0;
         self.diff.parsed = None;
         self.diff.path = None;
         let Some(file) = self.diff.files.get(index) else {
@@ -2869,6 +2950,7 @@ impl App {
         let next =
             (self.diff.hunk as i32 + delta).clamp(0, parsed.hunk_starts.len() as i32 - 1) as usize;
         self.diff.hunk = next;
+        self.diff.line = parsed.hunk_starts[next];
         self.diff.scroll = parsed.hunk_starts[next] as u16;
     }
 

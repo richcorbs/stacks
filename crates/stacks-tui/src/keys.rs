@@ -240,6 +240,8 @@ pub const KEYMAP: &[KeyHelp] = &[
         entries: &[
             ("Space", "Mark file reviewed"),
             ("c / C", "Comment on file / overall"),
+            ("L", "Comment on the selected diff line"),
+            ("J / K", "Move the line cursor"),
             ("s", "Send review feedback to Agent"),
             ("n / p", "Next / previous file"),
             ("[ / ]", "Next / previous hunk"),

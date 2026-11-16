@@ -65,6 +65,8 @@ check` still works.
 - `Ctrl-,` settings cover confirmation delay, hide-Done, copy-on-select,
   scrollback, quit/delete confirmations, accent, and terminal font size.
   Values are patched into the shared `settings.json`.
+- Attention: agent lifecycle changes for a non-selected card emit a terminal
+  bell; the board card status is the durable signal.
 - Superthread projects: `P` configures the provider (enabled state, space,
   token env var, workspace slug, board and column IDs) through the shared `st`
   mapping validation; `S` syncs the configured board, importing/updating
@@ -85,8 +87,9 @@ check` still works.
   unified diff with reviewed marks (session state, like the GUI), `n`/`p`,
   `[`/`]`, `gg`/`G`, `h`/`l` fold, syntect line
   highlighting and a sticky hunk header. `c` comments on the selected file,
-  `C` writes overall feedback, and `s` composes the GUI prompt format and sends
-  it to the Agent Pi composer.
+  `L` comments on the cursor line (`J`/`K` move it), `C` writes overall
+  feedback, and `s` composes the GUI prompt format and sends it to the Agent Pi
+  composer.
 - Lazygit is **not embedded**. Its useful UI patterns (tree compression,
   bordered panels, review context) are reused; staging/commit/branch UI stays
   a terminal tool, not a Stacks feature.

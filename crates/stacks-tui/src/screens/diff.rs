@@ -302,7 +302,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                 parsed,
                 path: &path,
                 reviewed,
-                selected: None,
+                selected: Some(app.diff.line),
                 theme,
                 highlighter,
             },
