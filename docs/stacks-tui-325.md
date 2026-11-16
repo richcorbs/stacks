@@ -70,9 +70,10 @@ check` still works.
   mapping validation; `S` syncs the configured board, importing/updating
   provider cards and hierarchy. New cards enter Needs refinement; existing
   local workflow state is preserved. Project-agent refinement approves imported
-  provider children. Start/Done transitions move the provider card to the
-  configured In progress/Done columns. Background provider sync runs every
-  five minutes. The shared Superthread CLI client in `stacks-core` is also
+  provider children. New cards in provider projects are created remotely in
+  the default incoming column and imported. Start/Done transitions move the
+  provider card to the configured In progress/Done columns. Background
+  provider sync runs every five minutes. The shared Superthread CLI client in `stacks-core` is also
   used by the Tauri adapters.
 - Agent: **native Pi TUI in a managed PTY** (`pi --continue` with the
   bundled Stacks extension). Pi's card tools work because the TUI serves
@@ -198,9 +199,10 @@ This is a deliberate scope change from the card text:
 ## Known gaps / follow-ups
 
 - Full `src-tauri` → `stacks-core` extraction (above).
-- Authoritative remote hierarchy validation, provider retirement, and the
-  durable provider outbox remain GUI/kanban-side. The TUI imports cards,
-  approves linked children, and moves Start/Done columns directly.
+- Authoritative remote hierarchy validation, remote-deletion reconciliation,
+  and the durable provider outbox remain GUI/kanban-side. The TUI imports cards,
+  approves linked children, retires locally deleted provider cards, and moves
+  Start/Done columns directly.
 - Custom start-work setup commands, environment-creation cleanup, PR
   freshness/merge preflight parity.
 - Diff tree is lazygit-inspired but not lazygit: no line staging from the
@@ -212,10 +214,10 @@ This is a deliberate scope change from the card text:
   but not wired into the TUI yet.
 - Background refresh reloads the board and selected worktree status from SQLite
   and Git every 15s. Projects using GitHub delivery refresh their open PR, CI,
-  draft, and conflict state from `gh` every 60s. Superthread cards sync every
-  five minutes (and on `S`). Closed/merged PR transitions, review state,
-  provider retirement, and the durable provider outbox are not ported, so those
-  fields can remain stale until the GUI or another writer updates them.
+  draft, conflict, and open/closed/merged state from `gh` every 60s. Review
+  state and remote-deletion reconciliation for Superthread cards are not
+  ported. Provider cards deleted locally are retired locally so sync cannot
+  resurrect them; the durable provider outbox remains GUI-side.
 - Release runs Release / Build & test / Publish in a managed PTY, but the GUI's
   restart-to-test step and its local install flow are not wired into the TUI.
 - Kitty/sixel/inline image output degrades to text (see `DIVERGENCES.md`).

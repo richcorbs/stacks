@@ -343,10 +343,12 @@ Stacks > Reset Window Settings
 - Background refresh reloads the board/worktree every 15s, refreshes open
   GitHub PR/CI state for GitHub-delivery projects every 60s, and syncs
   Superthread cards every 5 minutes. `S` syncs on demand; `P` validates and
-  saves provider mapping through the shared `st` client. Start/Done transitions
-  move provider cards; linked provider children can be approved during
-  refinement. Provider retirement, authoritative remote hierarchy validation,
-  and the durable outbox remain in the GUI/kanban repository.
+  saves provider mapping through the shared `st` client. New cards in provider
+  projects are created in Superthread and imported. Start/Done transitions move
+  provider cards; linked provider children can be approved during refinement;
+  locally deleted provider cards are retired against re-import. Authoritative
+  remote hierarchy validation, remote-deletion reconciliation, and the durable
+  outbox remain in the GUI/kanban repository.
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and
   per-file review/comment state. `c`/`C` add file/overall feedback and `s`
   sends the composed review prompt to the Agent Pi pane. Lazygit itself is not

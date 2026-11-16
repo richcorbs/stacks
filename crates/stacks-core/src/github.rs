@@ -47,6 +47,7 @@ pub struct GithubPullRequest {
     pub head_revision: Option<String>,
     pub url: String,
     pub draft: bool,
+    pub state: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,7 +83,13 @@ pub struct GithubActionRunsResponse {
 }
 
 pub fn github_pull_requests(path: String) -> Result<GithubPullRequestsResponse, String> {
-    load_pull_requests(&path)
+    load_pull_requests(&path, "open")
+}
+
+/// Full-state PR list used by background board sync. The existing command
+/// keeps its open-PR semantics.
+pub fn github_pull_requests_all(path: String) -> Result<GithubPullRequestsResponse, String> {
+    load_pull_requests(&path, "all")
 }
 
 pub fn github_current_pull_request(
@@ -184,7 +191,7 @@ pub fn current_pull_request_for_path(
     }))
 }
 
-fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> {
+fn load_pull_requests(path: &str, state: &str) -> Result<GithubPullRequestsResponse, String> {
     let repository = repository_name(path)?;
     let output = run_gh(
         Some(Path::new(path)),
@@ -194,11 +201,11 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
             "--repo",
             &repository,
             "--state",
-            "open",
+            state,
             "--limit",
             "100",
             "--json",
-            "number,title,author,statusCheckRollup,mergeable,mergeStateStatus,headRefName,headRefOid,url,isDraft",
+            "number,title,author,statusCheckRollup,mergeable,mergeStateStatus,headRefName,headRefOid,url,isDraft,state",
         ],
     )?;
     let values: Vec<serde_json::Value> = serde_json::from_str(&output)
@@ -230,6 +237,10 @@ fn load_pull_requests(path: &str) -> Result<GithubPullRequestsResponse, String> 
                     .map(str::to_string),
                 url: value["url"].as_str().unwrap_or_default().to_string(),
                 draft: value["isDraft"].as_bool().unwrap_or(false),
+                state: value["state"]
+                    .as_str()
+                    .unwrap_or("open")
+                    .to_ascii_lowercase(),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;

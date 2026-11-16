@@ -318,6 +318,7 @@ fn pull_request_sync_updates_card_pr_and_ci_state() {
                 head_revision: Some("abc".into()),
                 url: "https://example.invalid/42".into(),
                 draft: false,
+                state: "open".into(),
             }],
         )
         .unwrap();

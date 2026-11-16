@@ -195,9 +195,6 @@ impl CardStore {
             bail!("This workflow action is not available in the native app yet");
         }
         let detail = self.load_detail(card_id)?;
-        if detail.card.provider != "local" {
-            bail!("Native workflow actions are currently limited to local cards");
-        }
         if detail.card.workflow_revision != expected_revision {
             bail!("Card changed; reload before trying again");
         }
@@ -213,6 +210,33 @@ impl CardStore {
         let mut connection = self.open_write()?;
         let transaction = connection.transaction().context("begin workflow action")?;
         if action == WorkflowAction::Delete {
+            if detail.card.provider == "superthread" {
+                let binding: Option<String> = transaction
+                    .query_row(
+                        "SELECT binding_id FROM kanban_cards WHERE id=?1",
+                        [card_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .context("read provider binding")?
+                    .flatten();
+                let external_id: String = transaction
+                    .query_row(
+                        "SELECT external_id FROM kanban_cards WHERE id=?1",
+                        [card_id],
+                        |row| row.get(0),
+                    )
+                    .context("read provider identity")?;
+                if let Some(binding) = binding {
+                    transaction
+                        .execute(
+                            "INSERT OR IGNORE INTO retired_provider_cards(binding_id,external_id,retired_at)
+                             VALUES (?1,?2,unixepoch())",
+                            params![binding, external_id],
+                        )
+                        .context("retire provider card")?;
+                }
+            }
             let changed = transaction
                 .execute("DELETE FROM kanban_cards WHERE id=?1", [card_id])
                 .context("delete card")?;
@@ -785,9 +809,6 @@ impl CardStore {
         use crate::workflow::WorkflowAction;
 
         let detail = self.load_detail(card_id)?;
-        if detail.card.provider != "local" {
-            bail!("Native cleanup is currently limited to local cards");
-        }
         let capability = detail
             .capabilities
             .iter()
@@ -1202,9 +1223,6 @@ impl CardStore {
         use crate::workflow::WorkflowAction;
 
         let detail = self.load_detail(card_id)?;
-        if detail.card.provider != "local" {
-            bail!("Native target merge is currently limited to local cards");
-        }
         let capability = detail
             .capabilities
             .iter()
@@ -1275,9 +1293,6 @@ impl CardStore {
         use crate::workflow::{WorkflowAction, WorkflowActor};
 
         let detail = self.load_detail(card_id)?;
-        if detail.card.provider != "local" {
-            bail!("Native local merge is currently limited to local cards");
-        }
         let capability = detail
             .capabilities
             .iter()
@@ -1444,9 +1459,6 @@ impl CardStore {
         use crate::workflow::{WorkflowAction, WorkflowActor};
 
         let detail = self.load_detail(card_id)?;
-        if detail.card.provider != "local" {
-            bail!("Native approval is currently limited to local cards");
-        }
         let environment = detail
             .card
             .environment
@@ -1509,9 +1521,6 @@ impl CardStore {
         use crate::workflow::{CardStatus as WorkflowStatus, WorkflowAction, WorkflowActor};
 
         let detail = self.load_detail(card_id)?;
-        if detail.card.provider != "local" {
-            bail!("Native Start work is currently limited to local cards");
-        }
         if detail.card.status != CardStatus::Ready {
             bail!("The card must be Ready before work can start");
         }
@@ -1886,6 +1895,81 @@ impl CardStore {
     }
 
     /// Create a local draft card in the same lane the GUI's New Card uses.
+    /// Create a card using the project's provider when configured. Local
+    /// projects use the existing local sequence; Superthread projects create
+    /// the remote card and then import it through the normal sync path.
+    pub fn create_project_card(
+        &self,
+        project_id: &str,
+        title: &str,
+        content: &str,
+        service: &crate::superthread::SuperthreadService,
+    ) -> Result<String> {
+        let read_connection = self.open_read_only()?;
+        let source: Option<String> = read_connection
+            .query_row(
+                "SELECT COALESCE(kanban_source,'local') FROM projects WHERE id=?1",
+                [project_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("read project source")?;
+        let source = source.ok_or_else(|| anyhow::anyhow!("The project was not found"))?;
+        if source != "superthread" {
+            return self.create_card(project_id, title, content);
+        }
+        let config = read_connection
+            .query_row(
+                "SELECT COALESCE(superthread_board_id,''),
+                        COALESCE(superthread_default_incoming_column_id,''),
+                        superthread_workspace_slug,
+                        COALESCE(superthread_api_token_env_var,'ST_TOKEN'),
+                        superthread_binding_id
+                 FROM projects WHERE id=?1",
+                [project_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                },
+            )
+            .optional()
+            .context("read project provider configuration")?
+            .ok_or_else(|| anyhow::anyhow!("The project was not found"))?;
+        drop(read_connection);
+        let (board_id, list_id, workspace_slug, token_env, binding_id) = config;
+        if board_id.trim().is_empty() || list_id.trim().is_empty() {
+            bail!("Configure the Superthread board and incoming column first");
+        }
+        service
+            .configure_token_env(&token_env)
+            .map_err(anyhow::Error::msg)?;
+        let created = service
+            .create_card(
+                &board_id,
+                &list_id,
+                title,
+                content,
+                workspace_slug.as_deref(),
+            )
+            .map_err(anyhow::Error::msg)?;
+        self.sync_superthread_project(project_id, service)?;
+        let connection = self.open_read_only()?;
+        let local_id: Option<String> = connection
+            .query_row(
+                "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
+                params![binding_id, created.id],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("resolve created Superthread card")?;
+        local_id.ok_or_else(|| anyhow::anyhow!("The created Superthread card was not imported"))
+    }
+
     pub fn create_card(&self, project_id: &str, title: &str, content: &str) -> Result<String> {
         let title = title.trim();
         if title.is_empty() {
@@ -2554,6 +2638,25 @@ impl CardStore {
             if !done_column_id.is_empty() && card.list_id == done_column_id {
                 continue;
             }
+            let has_retired: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='retired_provider_cards')",
+                    [],
+                    |row| row.get(0),
+                )
+                .context("check retirement journal")?;
+            if has_retired {
+                let retired: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM retired_provider_cards WHERE binding_id=?1 AND external_id=?2)",
+                        params![binding_id, external_id],
+                        |row| row.get(0),
+                    )
+                    .context("check retired provider card")?;
+                if retired {
+                    continue;
+                }
+            }
             let existing: Option<String> = transaction
                 .query_row(
                     "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
@@ -2705,10 +2808,10 @@ impl CardStore {
                 .execute(
                     "INSERT INTO card_pull_requests
                      (card_id,repository,number,title,url,state,draft,ci_status,review_state,has_conflicts,mergeable,head_revision,updated_at)
-                     VALUES (?1,?2,?3,?4,?5,'open',?6,?7,'unknown',?8,?9,?10,unixepoch())
+                     VALUES (?1,?2,?3,?4,?5,?11,?6,?7,'unknown',?8,?9,?10,unixepoch())
                      ON CONFLICT(card_id) DO UPDATE SET
                        repository=excluded.repository, number=excluded.number, title=excluded.title,
-                       url=excluded.url, state='open', draft=excluded.draft, ci_status=excluded.ci_status,
+                       url=excluded.url, state=excluded.state, draft=excluded.draft, ci_status=excluded.ci_status,
                        has_conflicts=excluded.has_conflicts, mergeable=excluded.mergeable,
                        head_revision=excluded.head_revision, updated_at=excluded.updated_at",
                     params![
@@ -2722,6 +2825,11 @@ impl CardStore {
                         pr.has_merge_conflicts as i64,
                         (!pr.has_merge_conflicts) as i64,
                         pr.head_revision.as_deref(),
+                        if matches!(pr.state.as_str(), "open" | "closed" | "merged") {
+                            pr.state.as_str()
+                        } else {
+                            "open"
+                        },
                     ],
                 )
                 .context("upsert card pull request")?;

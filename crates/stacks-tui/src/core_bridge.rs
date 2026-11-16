@@ -113,8 +113,9 @@ pub fn create_card(
     sender: EventSender,
 ) {
     spawn(sender.clone(), "create", move |sender| {
+        let service = stacks_core::superthread::SuperthreadService::default();
         let result = store
-            .create_card(&project_id, &title, &content)
+            .create_project_card(&project_id, &title, &content, &service)
             .map_err(|error| error.to_string());
         sender.send(CoreEvent::Created(result));
     });
@@ -228,7 +229,7 @@ pub fn sync_project_pull_requests(
     sender: EventSender,
 ) {
     spawn(sender.clone(), "pull-requests", move |sender| {
-        let result = stacks_core::github::github_pull_requests(path).and_then(|response| {
+        let result = stacks_core::github::github_pull_requests_all(path).and_then(|response| {
             store
                 .sync_project_pull_requests(
                     &project_id,
