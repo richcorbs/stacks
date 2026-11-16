@@ -463,8 +463,9 @@ impl App {
         };
         let mut rows = Vec::new();
         let filter = self.filter.to_ascii_lowercase();
+        let filtering = !filter.is_empty();
         for (group_index, group) in WorkGroup::ALL.into_iter().enumerate() {
-            if self.hide_done && group == WorkGroup::Done {
+            if self.hide_done && group == WorkGroup::Done && !filtering {
                 continue;
             }
             let mut cards = stacks_core::group_cards(&board.cards, group, &board.projects)
@@ -495,7 +496,9 @@ impl App {
                     .then(left.created_at.cmp(&right.created_at))
                     .then(left.id.cmp(&right.id))
             });
-            let collapsed = self.collapsed_groups[group_index];
+            // A search must reveal matches even inside a collapsed Done/Backlog
+            // group; otherwise a valid card looks like "no cards match".
+            let collapsed = self.collapsed_groups[group_index] && !filtering;
             rows.push(BoardRow {
                 kind: BoardRowKind::Group,
                 group,
@@ -977,10 +980,14 @@ impl App {
                         .and_then(|board| board.projects.get(index - 1))
                         .map(|project| project.id.clone())
                 };
-                self.focus = Focus::Board;
                 self.recompute_rows();
+                self.focus = Focus::Sidebar;
+                self.message = match self.selected_project() {
+                    Some(project) => format!("Project filter: {}", project.name),
+                    None => "Project filter: all projects".into(),
+                };
             }
-            Key::Char('l') if self.focus == Focus::Sidebar => {
+            Key::Char('l') | Key::Right | Key::Esc if self.focus == Focus::Sidebar => {
                 self.focus = Focus::Board;
             }
             Key::Enter => {
@@ -1006,7 +1013,7 @@ impl App {
                             .insert(row.card_id.clone().unwrap_or_default());
                         self.recompute_rows();
                     } else {
-                        self.focus = Focus::Sidebar;
+                        self.focus_sidebar();
                     }
                 }
             }
@@ -1022,9 +1029,34 @@ impl App {
             Key::Char('n') => self.start_new_card(),
             Key::Char('J') => self.reorder(1),
             Key::Char('K') => self.reorder(-1),
-            Key::Tab => self.focus = Focus::Sidebar,
+            Key::Tab => {
+                if self.focus == Focus::Sidebar {
+                    self.focus = Focus::Board;
+                } else {
+                    self.focus_sidebar();
+                }
+            }
             _ => {}
         }
+    }
+
+    fn focus_sidebar(&mut self) {
+        self.focus = Focus::Sidebar;
+        let index = self
+            .board
+            .as_ref()
+            .and_then(|board| {
+                self.project_scope.as_deref().and_then(|scope| {
+                    board
+                        .projects
+                        .iter()
+                        .position(|project| project.id == scope)
+                        .map(|index| index + 1)
+                })
+            })
+            .unwrap_or(0);
+        self.sidebar_cursor = index;
+        self.message = "PROJECTS · j/k move · Enter filter · Esc back".into();
     }
 
     fn move_board(&mut self, delta: i32) {
@@ -1039,6 +1071,9 @@ impl App {
                 .unwrap_or(1);
             let next = self.sidebar_cursor as i32 + delta;
             self.sidebar_cursor = next.clamp(0, count as i32 - 1) as usize;
+            self.message = self
+                .sidebar_cursor_label()
+                .unwrap_or_else(|| "PROJECTS".into());
             return;
         }
         let mut index = self.board_cursor as i32;
@@ -1052,6 +1087,17 @@ impl App {
                 break;
             }
         }
+    }
+
+    fn sidebar_cursor_label(&self) -> Option<String> {
+        let board = self.board.as_ref()?;
+        if self.sidebar_cursor == 0 {
+            return Some("▶ All projects".into());
+        }
+        board
+            .projects
+            .get(self.sidebar_cursor.saturating_sub(1))
+            .map(|project| format!("▶ {}", project.name))
     }
 
     fn cycle_project_scope(&mut self) {

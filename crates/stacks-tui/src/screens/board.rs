@@ -35,58 +35,109 @@ fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
         .as_ref()
         .map(|board| board.cards.len())
         .unwrap_or(0);
+    let active_name = app
+        .selected_project()
+        .map(|project| project.name.clone())
+        .unwrap_or_else(|| "All projects".into());
     let mut lines = Vec::new();
-    let selected = app.project_scope.is_none();
-    lines.push(Line::from(vec![
-        Span::styled(
-            if selected { "◆ " } else { "◇ " },
-            Style::default().fg(theme.accent),
-        ),
-        Span::styled(
-            "All projects",
+
+    let render_row = |lines: &mut Vec<Line<'static>>,
+                      index: usize,
+                      label: String,
+                      count: usize,
+                      active: bool,
+                      accent: ratatui::style::Color| {
+        let cursor = focused && index == app.sidebar_cursor;
+        let marker = if cursor {
+            "▶"
+        } else if active {
+            "◆"
+        } else {
+            "◇"
+        };
+        let row_style = if cursor {
             Style::default()
-                .fg(if selected { theme.text } else { theme.muted })
-                .bg(if selected {
-                    theme.selected
-                } else {
-                    theme.panel
-                }),
-        ),
-        Span::styled(format!("  {total}"), Style::default().fg(theme.dim)),
-    ]));
+                .fg(theme.text)
+                .bg(theme.selected)
+                .add_modifier(Modifier::BOLD)
+        } else if active {
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.raised)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.muted).bg(theme.panel)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{marker} "),
+                Style::default()
+                    .fg(if cursor { theme.accent } else { accent })
+                    .bg(if cursor { theme.selected } else { theme.panel }),
+            ),
+            Span::styled(format!("{:<18}", truncate(&label, 18)), row_style),
+            Span::styled(
+                format!("{count:>4}"),
+                Style::default()
+                    .fg(if cursor { theme.text } else { theme.dim })
+                    .bg(if cursor { theme.selected } else { theme.panel }),
+            ),
+        ]));
+    };
+
+    render_row(
+        &mut lines,
+        0,
+        "All projects".into(),
+        total,
+        app.project_scope.is_none(),
+        theme.accent,
+    );
     if let Some(board) = app.board.as_ref() {
-        for project in &board.projects {
+        for (index, project) in board.projects.iter().enumerate() {
             let active = app.project_scope.as_deref() == Some(project.id.as_str());
-            let color = crate::theme::project_accent(app.depth, project.color_id.as_deref());
-            let count = app.project_count(&project.id);
-            lines.push(Line::from(vec![
-                Span::styled(if active { "◆ " } else { "◇ " }, Style::default().fg(color)),
-                Span::styled(
-                    truncate(&project.name, 18),
-                    Style::default()
-                        .fg(if active { theme.text } else { theme.muted })
-                        .bg(if active { theme.selected } else { theme.panel }),
-                ),
-                Span::styled(format!("  {count}"), Style::default().fg(theme.dim)),
-            ]));
+            let accent = crate::theme::project_accent(app.depth, project.color_id.as_deref());
+            render_row(
+                &mut lines,
+                index + 1,
+                project.name.clone(),
+                app.project_count(&project.id),
+                active,
+                accent,
+            );
         }
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Ctrl-B hide · Ctrl-F",
-        Style::default().fg(theme.dim),
+        if focused {
+            "j/k move · Enter filter · Esc back"
+        } else {
+            "h or Tab to browse projects"
+        },
+        Style::default().fg(if focused { theme.accent } else { theme.dim }),
     )));
+
+    let project_count = app
+        .board
+        .as_ref()
+        .map(|board| board.projects.len())
+        .unwrap_or(0);
+    let title = if app.project_scope.is_some() {
+        format!(" PROJECTS {project_count} · {active_name} ")
+    } else {
+        format!(
+            " PROJECTS {} ",
+            app.board
+                .as_ref()
+                .map(|board| board.projects.len())
+                .unwrap_or(0)
+        )
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(if focused { theme.accent } else { theme.muted }))
         .title(Span::styled(
-            format!(
-                " PROJECTS {} ",
-                app.board
-                    .as_ref()
-                    .map(|board| board.projects.len())
-                    .unwrap_or(0)
-            ),
+            truncate(&title, area.width.saturating_sub(2) as usize),
             Style::default()
                 .fg(if focused { theme.accent } else { theme.dim })
                 .add_modifier(Modifier::BOLD),

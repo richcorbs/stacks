@@ -183,6 +183,9 @@ pub const KEYMAP: &[KeyHelp] = &[
         entries: &[
             ("n", "New card"),
             ("Enter", "Open card"),
+            ("h / Tab", "Focus project list"),
+            ("j / k (projects)", "Move project"),
+            ("Enter (projects)", "Filter by project"),
             ("/", "Filter"),
             ("Ctrl-F", "Project scope"),
             ("Ctrl-A", "Hide Done"),

@@ -186,9 +186,17 @@ native Pi pane, the global terminal, and help.
 # Copy the live DB so the demo cannot write to the real one.
 sqlite3 "$HOME/Library/Application Support/stacks/workflow.sqlite3" \
   ".backup '/tmp/stacks-demo.sqlite3'"
+# Pi chat history is JSONL under cards/<card>/pi-sessions. Copy it when you
+# want native Chat/Work panes to resume existing conversations.
+rsync -a "$HOME/Library/Application Support/stacks/cards/" \
+  /tmp/stacks-tui-demo-data/cards/
 mkdir -p /tmp/stacks-tui-demo-data
 printf '{"tui_confirmation_delay_ms":0,"tui_hide_done":false}\n' \
   > /tmp/stacks-tui-demo-data/settings.json
+# Pi session JSONL files hold chat history; copy them with the DB so the
+# native Chat/Work panes resume existing conversations.
+rsync -a "$HOME/Library/Application Support/stacks/cards/" \
+  /tmp/stacks-tui-demo-data/cards/
 
 STACKS_TUI_DATA_DIR=/tmp/stacks-tui-demo-data \
 STACKS_TUI_DB=/tmp/stacks-demo.sqlite3 \

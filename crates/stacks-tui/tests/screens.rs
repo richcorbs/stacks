@@ -186,6 +186,26 @@ fn palette_prefers_a_literal_settings_command_over_fuzzy_card_titles() {
 }
 
 #[test]
+fn project_sidebar_is_keyboard_navigable_and_filters_on_enter() {
+    let (mut app, _dir) = app();
+    app.handle_key(Key::Tab);
+    assert_eq!(app.focus, stacks_tui::app::Focus::Sidebar);
+    app.handle_key(Key::Char('j'));
+    assert_eq!(app.sidebar_cursor, 1);
+    let screen = headless::dump(&mut app, 120, 40);
+    assert!(screen.contains("▶ Arcasa"), "{screen}");
+    app.handle_key(Key::Enter);
+    assert_eq!(app.project_scope.as_deref(), Some("p1"));
+    assert_eq!(app.focus, stacks_tui::app::Focus::Sidebar);
+    let screen = headless::dump(&mut app, 120, 40);
+    assert!(screen.contains("PROJECTS 2 · Arcasa"), "{screen}");
+    assert!(screen.contains("#325"), "{screen}");
+    assert!(!screen.contains("#326"), "{screen}");
+    app.handle_key(Key::Esc);
+    assert_eq!(app.focus, stacks_tui::app::Focus::Board);
+}
+
+#[test]
 fn help_renders_the_keymap_table() {
     let (mut app, _dir) = app();
     app.handle_key(Key::Char('?'));
@@ -304,4 +324,16 @@ fn new_card_flow_creates_and_opens_the_card() {
             .as_ref()
             .is_some_and(|detail| detail.card.title == "TUI action smoke")
     );
+}
+
+#[test]
+fn positive_filter_matches_external_id_and_title() {
+    let (mut app, _dir) = app();
+    app.handle_key(Key::Char('/'));
+    app.type_text("325");
+    app.handle_key(Key::Esc);
+    assert_eq!(app.filter, "325");
+    let screen = headless::dump(&mut app, 120, 40);
+    assert!(screen.contains("#325"), "{screen}");
+    assert!(!screen.contains("#326"), "{screen}");
 }

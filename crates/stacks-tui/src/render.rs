@@ -45,16 +45,21 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         return;
     }
 
+    // The board already carries scope/count in its CARDS panel border; do not
+    // spend a row repeating it above the project sidebar.
+    let header_height = if app.screen == Screen::Board { 0 } else { 1 };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
+            Constraint::Length(header_height),
             Constraint::Min(10),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
         .split(area);
-    render_header(frame, app, chunks[0]);
+    if header_height > 0 {
+        render_header(frame, app, chunks[0]);
+    }
     match app.screen {
         Screen::Board => screens::board::render(frame, app, chunks[1]),
         Screen::Detail => screens::detail::render(frame, app, chunks[1]),
@@ -222,9 +227,16 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
             ("Ctrl-W [", "copy"),
         ],
         None => match app.screen {
+            Screen::Board if app.focus == crate::app::Focus::Sidebar => vec![
+                ("j/k", "project"),
+                ("Enter", "filter"),
+                ("Esc/Tab", "cards"),
+                ("Ctrl-F", "cycle"),
+            ],
             Screen::Board => vec![
                 ("j/k", "move"),
                 ("Enter", "open"),
+                ("h", "projects"),
                 ("n", "new"),
                 ("/", "filter"),
                 ("Ctrl-F", "scope"),

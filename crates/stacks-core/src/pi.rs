@@ -244,7 +244,20 @@ fn native_launch_with(
     automation_socket: &Path,
 ) -> Result<NativeLaunch, String> {
     let session_dir = match card {
-        Some((card_id, thread)) => card_session_dir(card_id, thread),
+        Some((card_id, thread)) => {
+            let directory = card_session_dir(card_id, thread);
+            // The GUI renamed the planning thread from "main" to "planning".
+            // A native pane must find the same persisted conversation.
+            if thread == "planning" && !directory.exists() {
+                if let Some(parent) = directory.parent() {
+                    let legacy = parent.join("main");
+                    if legacy.is_dir() {
+                        let _ = std::fs::rename(&legacy, &directory);
+                    }
+                }
+            }
+            directory
+        }
         None => pi_sessions_dir(),
     };
     std::fs::create_dir_all(&session_dir)
