@@ -75,10 +75,15 @@ keyboard-only terminal client. Do not add Tauri types to `stacks-core`, and do
 not reimplement workflow rules in the TUI: call core.
 
 Extraction progress: data paths, `settings_model`, `pty_command`,
-`process_group`, `repository_coordinator`, `pi_paths`, `git` and `github` now
-live in core; `src-tauri/src` re-exports them and keeps command adapters.
-The `kanban` repository/services are still Tauri-owned — moving them is the
-remaining Phase 1 work described in `docs/stacks-tui-325.md`.
+`process_group`, `repository_coordinator`, `pi_paths`, `git`, `github`,
+`global_terminal`, `project_direct`, `release`, `open` and the canonical
+`workflow` engine now live in core; `src-tauri/src` re-exports them and keeps
+command adapters. Shell adapters use a profile-aware `CardStore`, while the TUI
+uses shipped production data. The `kanban` repository/services (cards,
+environments, delivery, cleanup, provider sync, retention) plus `store`,
+`settings`, `pty`, `pi_rpc`, `superthread` and `workspace_setup` are still
+Tauri-owned — moving them is the remaining Phase 1 work described in
+`docs/stacks-tui-325.md`.
 
 `src-tauri/src/lib.rs` wires the Tauri application together; behavior is split into focused modules:
 

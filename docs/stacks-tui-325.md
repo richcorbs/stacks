@@ -85,14 +85,23 @@ Extracted so far (Tauri keeps thin `#[tauri::command]` adapters where needed):
 - `pi_paths` discovery
 - `git` repository/diff/worktree implementation (17 moved tests)
 - `github` gh/PR/CI implementation (moved tests)
+- **the canonical `workflow` engine** — `src-tauri/src/kanban/workflow.rs` is
+  now a re-export of `stacks_core::workflow`, so transitions, capabilities,
+  lifecycle rules and status metadata are single-source for both hosts
+- `global_terminal` and `project_direct` database operations/validation
+- `release` policy/config/process execution
+- `open` editor/URL helpers
+
+Shell adapters take a profile-aware `CardStore`, so a debug Tauri app still
+uses `stacks-dev` while the TUI uses shipped production data.
 
 Still Tauri-owned:
 
-- the `kanban` module (repository, cards, environments, delivery, cleanup,
+- the `kanban` repository internals (cards, environments, delivery, cleanup,
   provider sync, retention)
-- `store`, `settings`, `pty`, `pi_rpc`, `superthread`, `workspace_setup`,
-  `release`, `global_terminal`, `project_direct`, `automation` and shell/menu
-  code
+- `store`, `settings`, `pty`, `pty_cwd`, `pi_rpc`, `superthread`,
+  `workspace_setup`, `app_idle`, `database_backup`, `dev_seed`, `automation`,
+  menu/window code
 - the card #322 `stacks-core` read/write model remains a parallel projection
   until the kanban repository is moved.
 

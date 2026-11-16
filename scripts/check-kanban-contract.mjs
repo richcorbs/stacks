@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-const rust = fs.readFileSync(new URL('../src-tauri/src/kanban/workflow.rs', import.meta.url), 'utf8');
+const rust = fs.readFileSync(new URL('../crates/stacks-core/src/workflow.rs', import.meta.url), 'utf8');
 const source = fs.readFileSync(new URL('../src/kanban/workflowContract.generated.ts', import.meta.url), 'utf8');
 
 const statusValues = [...rust.matchAll(/^\s+\w+ => "([a-z_]+)",$/gm)].slice(0, 8).map((match) => match[1]);

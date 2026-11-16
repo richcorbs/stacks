@@ -3,7 +3,7 @@ import fs from 'node:fs';
 // Deliberately small serde fixture generator: fail closed on syntax it cannot
 // represent rather than silently widening a wire field to any.
 const domain = fs.readFileSync(process.env.KANBAN_CONTRACT_DOMAIN ?? new URL('../src-tauri/src/kanban/domain.rs', import.meta.url), 'utf8');
-const workflow = fs.readFileSync(new URL('../src-tauri/src/kanban/workflow.rs', import.meta.url), 'utf8');
+const workflow = fs.readFileSync(new URL('../crates/stacks-core/src/workflow.rs', import.meta.url), 'utf8');
 const commands = fs.readFileSync(process.env.KANBAN_CONTRACT_COMMANDS ?? new URL('../src-tauri/src/kanban/commands.rs', import.meta.url), 'utf8');
 const target = new URL('../src/kanban/boundaryContract.generated.ts', import.meta.url);
 const specs = {

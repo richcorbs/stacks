@@ -25,6 +25,13 @@ mod store;
 mod superthread;
 mod workspace_setup;
 pub use stacks_core::{process_group, pty_command, repository_coordinator, settings_model};
+
+/// The profile-aware store used by Tauri shell adapters. Native/TUI clients use
+/// `stacks_core::CardStore::default_store()` (production data).
+pub(crate) fn profile_store() -> Result<stacks_core::CardStore, String> {
+    let path = fs_paths::app_data_file(stacks_core::paths::DATABASE_FILE)?;
+    Ok(stacks_core::CardStore::new(path))
+}
 use app_events::{handle_menu_event, setup_main_window};
 use dev_seed::startup_card_recovery_allowed;
 use automation::AutomationState;

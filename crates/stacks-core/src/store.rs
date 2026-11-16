@@ -2208,6 +2208,43 @@ impl CardStore {
         }
     }
 
+    /// Run a read-only projection against this database. TUI/native services use
+    /// this to share connection policy instead of duplicating SQLite flags.
+    pub fn with_read_connection<T>(
+        &self,
+        work: impl FnOnce(&mut Connection) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut connection = self.open_read_only().map_err(|error| error.to_string())?;
+        connection
+            .pragma_update(None, "query_only", "ON")
+            .map_err(|error| error.to_string())?;
+        work(&mut connection)
+    }
+
+    /// Run a write inside a transaction, matching the Tauri backend's
+    /// `with_write_connection` contract.
+    pub fn with_write_connection<T>(
+        &self,
+        work: impl FnOnce(&mut Connection) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut connection = self.open_writable().map_err(|error| error.to_string())?;
+        connection
+            .execute_batch("BEGIN")
+            .map_err(|error| error.to_string())?;
+        match work(&mut connection) {
+            Ok(result) => {
+                connection
+                    .execute_batch("COMMIT")
+                    .map_err(|error| error.to_string())?;
+                Ok(result)
+            }
+            Err(error) => {
+                let _ = connection.execute_batch("ROLLBACK");
+                Err(error)
+            }
+        }
+    }
+
     fn open_write(&self) -> Result<Connection> {
         Connection::open_with_flags(
             &self.path,
