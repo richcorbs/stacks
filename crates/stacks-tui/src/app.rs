@@ -2764,7 +2764,7 @@ impl App {
                 }
             }
             Key::Char('a') => self.open_actions(),
-            Key::Char('e') => self.start_edit_card(),
+            Key::Char('e') if self.detail_tab == DetailTab::Overview => self.start_edit_card(),
             Key::Char('j') | Key::Down => self.scroll_detail(1),
             Key::Char('k') | Key::Up => self.scroll_detail(-1),
             Key::PageDown | Key::Ctrl('d') => self.scroll_detail(10),
