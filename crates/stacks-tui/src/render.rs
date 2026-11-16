@@ -211,7 +211,13 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
             ("Esc", "close"),
         ],
         Some(Overlay::Actions) => vec![("j/k", "choose"), ("Enter", "run"), ("Esc", "close")],
-        Some(Overlay::NewCard) | Some(Overlay::EditCard) => vec![
+        Some(Overlay::NewCard) => vec![
+            ("Tab/Shift-Tab", "field"),
+            ("h/l", "project"),
+            ("Enter/Ctrl-S", "submit"),
+            ("Esc", "keep draft"),
+        ],
+        Some(Overlay::EditCard) => vec![
             ("Tab", "field"),
             ("Enter/Ctrl-S", "submit"),
             ("Esc", "keep draft / cancel"),

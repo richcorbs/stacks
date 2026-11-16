@@ -280,6 +280,8 @@ pub struct BoardRow {
 #[derive(Debug, Clone)]
 pub struct NewCardState {
     pub project_id: String,
+    pub projects: Vec<(String, String)>,
+    pub project_index: usize,
     pub title: TextInput,
     pub content: TextArea,
     pub focus: usize,
@@ -4346,35 +4348,53 @@ impl App {
         let Some(board) = self.board.as_ref() else {
             return;
         };
-        let is_local = |project: &&Project| project.kanban_source.as_deref() != Some("superthread");
-        let scoped = self
-            .project_scope
-            .as_deref()
-            .and_then(|id| board.projects.iter().find(|project| project.id == id));
-        let Some(project) = scoped.or_else(|| board.projects.iter().find(is_local)) else {
-            self.error = Some(
-                "Add a local project in Stacks before creating a card (Ctrl-O switches projects)"
-                    .into(),
-            );
-            return;
-        };
-        if !is_local(&project) {
-            self.error = Some(
-                "Cards can only be created in a local Kanban project; choose one with Ctrl-O"
-                    .into(),
-            );
+        if board.projects.is_empty() {
+            self.error = Some("Add a project before creating a card".into());
             return;
         }
+        let projects = board
+            .projects
+            .iter()
+            .map(|project| {
+                let kind = if project.kanban_source.as_deref() == Some("superthread") {
+                    "superthread"
+                } else {
+                    "local"
+                };
+                (project.id.clone(), format!("{} · {kind}", project.name))
+            })
+            .collect::<Vec<_>>();
+        let preferred = self
+            .project_scope
+            .as_deref()
+            .or_else(|| {
+                self.detail
+                    .as_ref()
+                    .and_then(|detail| detail.card.project_id.as_deref())
+            })
+            .or_else(|| {
+                board
+                    .projects
+                    .iter()
+                    .find(|project| project.kanban_source.as_deref() != Some("superthread"))
+                    .map(|project| project.id.as_str())
+            });
+        let project_index = preferred
+            .and_then(|id| projects.iter().position(|(project_id, _)| project_id == id))
+            .unwrap_or(0);
+        let project_id = projects[project_index].0.clone();
         let (title, content) = self
             .new_card_draft
             .take()
             .map(|(_, title, content)| (title, content))
             .unwrap_or_default();
         self.new_card = Some(NewCardState {
-            project_id: project.id.clone(),
+            project_id,
+            projects,
+            project_index,
             title: TextInput::new(title),
             content: TextArea::new(content),
-            focus: 0,
+            focus: 1,
         });
         self.overlay = Some(Overlay::NewCard);
     }
@@ -4846,17 +4866,32 @@ impl App {
                 self.overlay = None;
                 self.message = "Draft kept; press n to resume".into();
             }
-            Key::Tab => state.focus = 1 - state.focus,
-            Key::Enter if state.focus == 0 => state.focus = 1,
+            Key::Tab => state.focus = (state.focus + 1) % 3,
+            Key::BackTab => state.focus = (state.focus + 2) % 3,
+            Key::Left | Key::Char('h') if state.focus == 0 => {
+                state.project_index = state
+                    .project_index
+                    .saturating_sub(1)
+                    .min(state.projects.len().saturating_sub(1));
+                state.project_id = state.projects[state.project_index].0.clone();
+            }
+            Key::Right | Key::Char('l') if state.focus == 0 => {
+                state.project_index =
+                    (state.project_index + 1).min(state.projects.len().saturating_sub(1));
+                state.project_id = state.projects[state.project_index].0.clone();
+            }
+            Key::Enter if state.focus < 2 => state.focus += 1,
             Key::Enter => self.submit_new_card(),
             Key::Ctrl('s') => self.submit_new_card(),
-            _ => {
-                if state.focus == 0 {
+            _ => match state.focus {
+                1 => {
                     state.title.handle(&key);
-                } else {
+                }
+                2 => {
                     state.content.handle(&key);
                 }
-            }
+                _ => {}
+            },
         }
     }
 

@@ -342,33 +342,48 @@ fn render_new_card(frame: &mut Frame, app: &mut App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Min(8),
             Constraint::Length(1),
         ])
         .split(inner);
+    let project_name = state
+        .projects
+        .get(state.project_index)
+        .map(|(_, name)| name.clone())
+        .unwrap_or_default();
+    let project_input = TextInput::new(project_name);
     render_input(
         frame,
         chunks[0],
+        &project_input,
+        "Project · h/l or ←/→",
+        state.focus == 0,
+        theme,
+    );
+    render_input(
+        frame,
+        chunks[1],
         &state.title,
         "Title",
-        state.focus == 0,
+        state.focus == 1,
         theme,
     );
     render_text_area(
         frame,
-        chunks[1],
+        chunks[2],
         &state.content.value,
-        Some(state.content.cursor).filter(|_| state.focus == 1),
+        Some(state.content.cursor).filter(|_| state.focus == 2),
         "Description (Alt-Enter newline)",
-        state.focus == 1,
+        state.focus == 2,
         theme,
     );
     frame.render_widget(
         Paragraph::new(
-            "Enter on title moves to description; Enter on description creates. Esc keeps a draft.",
+            "h/l selects the project; Enter moves fields; Enter on description creates. Esc keeps a draft.",
         )
         .style(Style::default().fg(theme.dim)),
-        chunks[2],
+        chunks[3],
     );
 }
 

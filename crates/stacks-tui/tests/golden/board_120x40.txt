@@ -5,7 +5,7 @@
 │                         ││▾ IN PROGRESS   0                                                                          │
 │h or Tab to browse projec││▾ BACKLOG   1                                                                              │
 │                         ││  ○   #325 Build a keyboard-only Rust TUI  Arcasa                                          │
-│                         ││                                                                                           │
+│                         ││▸ DONE   1                                                                                 │
 │                         ││                                                                                           │
 │                         ││                                                                                           │
 │                         ││                                                                                           │

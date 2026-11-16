@@ -112,7 +112,10 @@ fn app() -> (App, tempfile::TempDir) {
     fixture(&path);
     let store = Arc::new(CardStore::new(path));
     let board = store.load_snapshot().unwrap();
-    let app = App::new(store, dir.path().join("automation.sock"), Some(board), true);
+    let mut app = App::new(store, dir.path().join("automation.sock"), Some(board), true);
+    app.hide_done = false;
+    app.preferences.hide_done = false;
+    app.recompute_rows();
     (app, dir)
 }
 
@@ -526,13 +529,26 @@ fn automation_socket_reports_pi_lifecycle_into_the_card_status() {
 }
 
 #[test]
+fn new_card_dialog_can_change_project() {
+    let (mut app, _dir) = app();
+    app.handle_key(Key::Char('n'));
+    app.handle_key(Key::BackTab);
+    let first = app.new_card.as_ref().unwrap().project_id.clone();
+    app.handle_key(Key::Right);
+    let second = app.new_card.as_ref().unwrap().project_id.clone();
+    assert_ne!(first, second);
+    app.handle_key(Key::Left);
+    assert_eq!(app.new_card.as_ref().unwrap().project_id, first);
+}
+
+#[test]
 fn new_card_flow_creates_and_opens_the_card() {
     let (mut app, _dir) = app();
     app.handle_key(Key::Char('n'));
     app.type_text("TUI action smoke");
     app.handle_key(Key::Tab);
     app.type_text("Script-created card for the workflow action smoke test.");
-    assert_eq!(app.new_card.as_ref().map(|state| state.focus), Some(1));
+    assert_eq!(app.new_card.as_ref().map(|state| state.focus), Some(2));
     app.handle_key(Key::Enter);
     assert!(
         app.in_flight > 0,
