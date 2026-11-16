@@ -1,7 +1,7 @@
 //! Application state machine: focus, screens, overlays and key dispatch.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -515,14 +515,15 @@ impl App {
             if collapsed {
                 continue;
             }
-            let card_ids = cards
-                .iter()
-                .map(|card| card.id.clone())
-                .collect::<HashSet<_>>();
-            for card in &cards {
+            let ordered = order_group_cards(&cards);
+            let mut hidden: HashSet<String> = HashSet::new();
+            for (card_index, depth) in ordered {
+                let card = &cards[card_index];
                 if let Some(parent) = card.parent.as_ref() {
-                    if self.collapsed_parents.contains(&parent.id) && card_ids.contains(&parent.id)
+                    if hidden.contains(&parent.id)
+                        || (!filtering && self.collapsed_parents.contains(&parent.id))
                     {
+                        hidden.insert(card.id.clone());
                         continue;
                     }
                 }
@@ -534,7 +535,7 @@ impl App {
                     label: card.title.clone(),
                     count: 0,
                     collapsed: false,
-                    depth: usize::from(card.parent.is_some()),
+                    depth,
                     has_children: !card.children.is_empty(),
                     expanded: !self.collapsed_parents.contains(&card.id),
                 });
@@ -2545,6 +2546,64 @@ impl App {
             "INPUT"
         }
     }
+}
+
+/// Flatten a group into parent-first hierarchy order. A card is indented only
+/// when its parent is present in the same group; otherwise it is a root (for
+/// example when the parent has a different effective status or is filtered out).
+fn order_group_cards(cards: &[CardSummary]) -> Vec<(usize, usize)> {
+    let ids: HashSet<&str> = cards.iter().map(|card| card.id.as_str()).collect();
+    let mut children: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut roots = Vec::new();
+    for (index, card) in cards.iter().enumerate() {
+        match card
+            .parent
+            .as_ref()
+            .filter(|parent| ids.contains(parent.id.as_str()))
+        {
+            Some(parent) => children.entry(parent.id.as_str()).or_default().push(index),
+            None => roots.push(index),
+        }
+    }
+    let key = |index: usize| {
+        let card = &cards[index];
+        (card.sort_order, card.created_at, card.id.clone())
+    };
+    roots.sort_by_key(|index| key(*index));
+    for list in children.values_mut() {
+        list.sort_by_key(|index| key(*index));
+    }
+    let mut ordered = Vec::new();
+    let mut visited = HashSet::new();
+    fn walk(
+        index: usize,
+        depth: usize,
+        cards: &[CardSummary],
+        children: &HashMap<&str, Vec<usize>>,
+        visited: &mut HashSet<usize>,
+        ordered: &mut Vec<(usize, usize)>,
+    ) {
+        if !visited.insert(index) {
+            return;
+        }
+        ordered.push((index, depth));
+        if let Some(list) = children.get(cards[index].id.as_str()) {
+            for child in list {
+                walk(*child, depth + 1, cards, children, visited, ordered);
+            }
+        }
+    }
+    for root in roots {
+        walk(root, 0, cards, &children, &mut visited, &mut ordered);
+    }
+    // Defensive fallback for malformed cycles: show every remaining card as a
+    // root rather than dropping it.
+    for index in 0..cards.len() {
+        if !visited.contains(&index) {
+            walk(index, 0, cards, &children, &mut visited, &mut ordered);
+        }
+    }
+    ordered
 }
 
 /// Subsequence fuzzy match.
