@@ -4950,9 +4950,8 @@ impl App {
         self.active_workspace()
     }
 
-    pub fn is_busy(&self) -> bool {
-        self.in_flight > 0
-            || self.work.panes.values().any(|pane| pane.alive())
+    pub fn has_live_sessions(&self) -> bool {
+        self.work.panes.values().any(|pane| pane.alive())
             || self.terminals.panes.values().any(|pane| pane.alive())
             || self.server.panes.values().any(|pane| pane.alive())
             || self.console.panes.values().any(|pane| pane.alive())
@@ -4994,6 +4993,10 @@ impl App {
                 .any(|tab| tab.workspace.panes.values().any(|pane| pane.alive()))
     }
 
+    pub fn is_busy(&self) -> bool {
+        self.in_flight > 0 || self.has_live_sessions()
+    }
+
     pub fn elapsed(&self) -> Duration {
         self.started.elapsed()
     }
@@ -5017,6 +5020,7 @@ impl App {
             }
         }
         if !self.headless
+            && !self.terminal_focus
             && self.confirm.is_none()
             && self.overlay.is_none()
             && self.in_flight == 0
@@ -5032,6 +5036,7 @@ impl App {
             }
         }
         if !self.headless
+            && !self.terminal_focus
             && self.confirm.is_none()
             && self.overlay.is_none()
             && self.in_flight == 0
@@ -5063,6 +5068,7 @@ impl App {
             }
         }
         if !self.headless
+            && !self.terminal_focus
             && self.confirm.is_none()
             && self.overlay.is_none()
             && self.in_flight == 0

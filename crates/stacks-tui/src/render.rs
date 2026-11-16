@@ -148,7 +148,7 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
             ));
         }
     }
-    if app.is_busy() {
+    if app.has_live_sessions() {
         left.push(Span::styled("  ●", Style::default().fg(theme.warning)));
     }
     frame.render_widget(
