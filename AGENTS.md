@@ -332,8 +332,9 @@ Stacks > Reset Window Settings
   `src-tauri/resources/stacks-cards.ts`. The GUI ignores `agentLifecycle`
   because it infers lifecycle from its RPC stream.
 - The Agent tab runs Pi's native TUI in a PTY (`pi --continue`) and reports
-  lifecycle through the extension. `Ctrl-W` twice leaves Pi/shell/service
-  input for normal mode. Server and Console tabs appear only when the project
+  lifecycle through the extension. `Alt-W` twice leaves the native Pi pane for
+  normal mode; shells/services keep `Ctrl-W`. Pi therefore receives `Ctrl-W`
+  for word deletion instead of losing the pane. Server and Console tabs appear only when the project
   and card environment provide them.
 - Local start work supports project `start_work_command` templates
   (`{card_number}`, `{card_title}`, `{branch}`, `{worktree}`).

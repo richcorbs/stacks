@@ -52,8 +52,8 @@ key 2
 wait 1200
 label Card #325 · native Pi pane
 dump
-key ctrl-w
-key ctrl-w
+key alt-w
+key alt-w
 key esc
 key ctrl-g
 wait 700

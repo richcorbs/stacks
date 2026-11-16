@@ -317,11 +317,17 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                         ("R", "refresh"),
                         ("Esc", "back"),
                     ],
-                    _ if app.terminal_focus => vec![
-                        ("Ctrl-W Ctrl-W", "release"),
-                        ("Ctrl-W [", "copy"),
-                        ("Ctrl-Q", "quit"),
-                    ],
+                    _ if app.terminal_focus => {
+                        if tab == crate::app::ProjectTab::Agent {
+                            vec![("Alt-W Alt-W", "release"), ("Ctrl-Q", "quit")]
+                        } else {
+                            vec![
+                                ("Ctrl-W Ctrl-W", "release"),
+                                ("Ctrl-W [", "copy"),
+                                ("Ctrl-Q", "quit"),
+                            ]
+                        }
+                    }
                     _ => vec![
                         ("i/Enter", "focus"),
                         ("S", "sync"),
@@ -351,7 +357,7 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 ],
                 crate::app::DetailTab::Agent => {
                     if app.terminal_focus {
-                        vec![("Ctrl-W Ctrl-W", "release"), ("Ctrl-Q", "quit")]
+                        vec![("Alt-W Alt-W", "release"), ("Ctrl-Q", "quit")]
                     } else {
                         vec![("i/Enter", "focus"), ("Esc", "back"), ("Tab", "tabs")]
                     }

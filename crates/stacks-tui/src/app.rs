@@ -1789,6 +1789,17 @@ impl App {
         self.handle_key(Key::Paste(text));
     }
 
+    fn agent_terminal_context(&self) -> bool {
+        match self.screen {
+            Screen::Detail => self.detail_tab.is_pi(),
+            Screen::Project => self
+                .project
+                .as_ref()
+                .is_some_and(|state| state.tab == ProjectTab::Agent),
+            Screen::Board => false,
+        }
+    }
+
     fn terminal_owns_keyboard(&self) -> bool {
         if self.overlay.is_some() || !self.terminal_focus {
             return false;
@@ -3490,7 +3501,12 @@ impl App {
         if self.active_workspace().is_empty() {
             return false;
         }
-        if key == Key::Ctrl('w') {
+        let prefix = if self.agent_terminal_context() {
+            Key::Alt('w')
+        } else {
+            Key::Ctrl('w')
+        };
+        if key == prefix {
             self.pending = Some(Pending::CtrlW);
             return true;
         }
@@ -3541,7 +3557,12 @@ impl App {
     }
 
     fn handle_pane_prefix(&mut self, key: Key) -> bool {
-        if key == Key::Ctrl('w') {
+        let release = if self.agent_terminal_context() {
+            Key::Alt('w')
+        } else {
+            Key::Ctrl('w')
+        };
+        if key == release {
             self.terminal_focus = false;
             self.message = String::new();
             return true;
