@@ -695,7 +695,10 @@ impl App {
     pub fn open_detail(&mut self, card_id: String) {
         // Scope is already visible in the board panel title; it is not card
         // context and must not follow the user into card detail.
-        if self.message.starts_with("Project filter:") || self.message.starts_with("Scope:") {
+        if self.message.starts_with("Project filter:")
+            || self.message.starts_with("Scope:")
+            || self.message.starts_with('▶')
+        {
             self.message.clear();
         }
         let same = self.screen == Screen::Detail
@@ -2663,24 +2666,10 @@ impl App {
                 .unwrap_or(1);
             let next = self.sidebar_cursor as i32 + delta;
             self.sidebar_cursor = next.clamp(0, count as i32 - 1) as usize;
-            self.message = self
-                .sidebar_cursor_label()
-                .unwrap_or_else(|| "PROJECTS".into());
             return;
         }
         let last = self.board_rows.len().saturating_sub(1) as i32;
         self.board_cursor = (self.board_cursor as i32 + delta).clamp(0, last) as usize;
-    }
-
-    fn sidebar_cursor_label(&self) -> Option<String> {
-        let board = self.board.as_ref()?;
-        if self.sidebar_cursor == 0 {
-            return Some("▶ All projects".into());
-        }
-        board
-            .projects
-            .get(self.sidebar_cursor.saturating_sub(1))
-            .map(|project| format!("▶ {}", project.name))
     }
 
     fn cycle_project_scope(&mut self) {
