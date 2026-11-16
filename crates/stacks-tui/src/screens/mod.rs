@@ -5,5 +5,6 @@ pub mod diff;
 pub mod global_terminal;
 pub mod help;
 pub mod overlays;
+pub mod project;
 pub mod settings;
 pub mod terminal;

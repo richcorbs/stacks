@@ -30,6 +30,7 @@ use crate::{
 pub enum Screen {
     Board,
     Detail,
+    Project,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -81,6 +82,70 @@ impl DetailTab {
 
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Terminal | Self::Server | Self::Console)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProjectTab {
+    Notes,
+    Agent,
+    Terminal,
+    Server,
+    Console,
+}
+
+impl ProjectTab {
+    pub const ALL: [Self; 5] = [
+        Self::Notes,
+        Self::Agent,
+        Self::Terminal,
+        Self::Server,
+        Self::Console,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Notes => "Notes",
+            Self::Agent => "Agent",
+            Self::Terminal => "Terminal",
+            Self::Server => "Server",
+            Self::Console => "Console",
+        }
+    }
+
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Agent | Self::Terminal | Self::Server | Self::Console
+        )
+    }
+}
+
+pub struct ProjectWorkspaceState {
+    pub project_id: String,
+    pub tab: ProjectTab,
+    pub notes: TextArea,
+    pub notes_editing: bool,
+    pub notes_scroll: u16,
+    pub agent: TerminalWorkspace,
+    pub terminal: TerminalWorkspace,
+    pub server: TerminalWorkspace,
+    pub console: TerminalWorkspace,
+}
+
+impl ProjectWorkspaceState {
+    fn new(project_id: String, notes: String, owner: &str) -> Self {
+        Self {
+            project_id,
+            tab: ProjectTab::Notes,
+            notes: TextArea::new(notes),
+            notes_editing: false,
+            notes_scroll: 0,
+            agent: TerminalWorkspace::new(format!("{owner}-agent")),
+            terminal: TerminalWorkspace::new(format!("{owner}-terminal")),
+            server: TerminalWorkspace::new(format!("{owner}-server")),
+            console: TerminalWorkspace::new(format!("{owner}-console")),
+        }
     }
 }
 
@@ -341,6 +406,7 @@ pub struct App {
     pub work: TerminalWorkspace,
     pub server: TerminalWorkspace,
     pub console: TerminalWorkspace,
+    pub project: Option<ProjectWorkspaceState>,
     pub terminal_focus: bool,
     pub global_tabs: Vec<GlobalTab>,
     pub global_active: usize,
@@ -424,6 +490,7 @@ impl App {
             work: TerminalWorkspace::new("card-work"),
             server: TerminalWorkspace::new("card-server"),
             console: TerminalWorkspace::new("card-console"),
+            project: None,
             terminal_focus: false,
             global_tabs: Vec::new(),
             global_active: 0,
@@ -457,6 +524,11 @@ impl App {
     }
 
     pub fn open_detail(&mut self, card_id: String) {
+        // Scope is already visible in the board panel title; it is not card
+        // context and must not follow the user into card detail.
+        if self.message.starts_with("Project filter:") || self.message.starts_with("Scope:") {
+            self.message.clear();
+        }
         self.selected_card = Some(card_id.clone());
         self.screen = Screen::Detail;
         self.detail = None;
@@ -922,6 +994,12 @@ impl App {
             &mut self.server,
             &mut self.console,
         ];
+        if let Some(project) = self.project.as_mut() {
+            workspaces.push(&mut project.agent);
+            workspaces.push(&mut project.terminal);
+            workspaces.push(&mut project.server);
+            workspaces.push(&mut project.console);
+        }
         for tab in &mut self.global_tabs {
             workspaces.push(&mut tab.workspace);
         }
@@ -982,6 +1060,7 @@ impl App {
             _ => match self.screen {
                 Screen::Board => self.handle_board_key(key),
                 Screen::Detail => self.handle_detail_key(key),
+                Screen::Project => self.handle_project_key(key),
             },
         }
     }
@@ -991,22 +1070,32 @@ impl App {
     }
 
     fn terminal_owns_keyboard(&self) -> bool {
-        if self.overlay.is_some() {
+        if self.overlay.is_some() || !self.terminal_focus {
             return false;
         }
-        if self.screen != Screen::Detail {
-            return false;
-        }
-        if !self.terminal_focus {
-            return false;
-        }
-        matches!(
-            self.detail_tab,
-            DetailTab::Terminal | DetailTab::Agent | DetailTab::Server | DetailTab::Console
-        ) && !self.active_workspace().is_empty()
+        let relevant = match self.screen {
+            Screen::Detail => self.detail_tab.is_pi() || self.detail_tab.is_terminal(),
+            Screen::Project => self
+                .project
+                .as_ref()
+                .is_some_and(|state| state.tab.is_terminal()),
+            Screen::Board => false,
+        };
+        relevant && !self.active_workspace().is_empty()
     }
 
     fn active_workspace(&self) -> &TerminalWorkspace {
+        if self.screen == Screen::Project {
+            if let Some(state) = self.project.as_ref() {
+                return match state.tab {
+                    ProjectTab::Agent => &state.agent,
+                    ProjectTab::Terminal => &state.terminal,
+                    ProjectTab::Server => &state.server,
+                    ProjectTab::Console => &state.console,
+                    ProjectTab::Notes => &state.terminal,
+                };
+            }
+        }
         match (self.screen, self.detail_tab) {
             (Screen::Detail, DetailTab::Terminal) => &self.terminals,
             (Screen::Detail, DetailTab::Agent) => &self.work,
@@ -1019,6 +1108,17 @@ impl App {
     }
 
     pub fn active_workspace_mut(&mut self) -> &mut TerminalWorkspace {
+        if self.screen == Screen::Project {
+            if let Some(state) = self.project.as_mut() {
+                return match state.tab {
+                    ProjectTab::Agent => &mut state.agent,
+                    ProjectTab::Terminal => &mut state.terminal,
+                    ProjectTab::Server => &mut state.server,
+                    ProjectTab::Console => &mut state.console,
+                    ProjectTab::Notes => &mut state.terminal,
+                };
+            }
+        }
         match (self.screen, self.detail_tab) {
             (Screen::Detail, DetailTab::Terminal) => &mut self.terminals,
             (Screen::Detail, DetailTab::Agent) => &mut self.work,
@@ -1050,6 +1150,397 @@ impl App {
                 }
                 DetailTab::Overview => self.detail_scroll = 0,
             },
+            Screen::Project => {
+                if self
+                    .project
+                    .as_ref()
+                    .is_some_and(|state| state.tab.is_terminal())
+                {
+                    let workspace = self.active_workspace_mut();
+                    if let Some(pane) = workspace.focused_pane_mut() {
+                        pane.screen.scroll(usize::MAX / 2);
+                    }
+                }
+            }
+        }
+    }
+
+    fn open_project_from_context(&mut self) {
+        let project_id = if self.focus == Focus::Sidebar {
+            let index = self.sidebar_cursor;
+            self.board.as_ref().and_then(|board| {
+                if index == 0 {
+                    self.project_scope.clone()
+                } else {
+                    board
+                        .projects
+                        .get(index - 1)
+                        .map(|project| project.id.clone())
+                }
+            })
+        } else {
+            self.project_scope.clone().or_else(|| {
+                self.selected_board_card()
+                    .and_then(|card| card.project_id.clone())
+            })
+        }
+        .or_else(|| {
+            self.board
+                .as_ref()
+                .and_then(|board| board.projects.first().map(|project| project.id.clone()))
+        });
+        match project_id {
+            Some(project_id) => self.open_project_workspace(project_id),
+            None => self.message = "No project available for a project workspace".into(),
+        }
+    }
+
+    pub fn project_tabs(&self) -> Vec<ProjectTab> {
+        let mut tabs = vec![ProjectTab::Notes, ProjectTab::Agent, ProjectTab::Terminal];
+        let Some(state) = self.project.as_ref() else {
+            return tabs;
+        };
+        let Some(project) = self.board.as_ref().and_then(|board| {
+            board
+                .projects
+                .iter()
+                .find(|project| project.id == state.project_id)
+        }) else {
+            return tabs;
+        };
+        if project
+            .server_command
+            .as_deref()
+            .is_some_and(|command| !command.trim().is_empty())
+        {
+            tabs.push(ProjectTab::Server);
+        }
+        if project
+            .console_command
+            .as_deref()
+            .is_some_and(|command| !command.trim().is_empty())
+        {
+            tabs.push(ProjectTab::Console);
+        }
+        tabs
+    }
+
+    pub fn project_tab_index(&self) -> usize {
+        self.project
+            .as_ref()
+            .map(|state| {
+                self.project_tabs()
+                    .iter()
+                    .position(|tab| *tab == state.tab)
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0)
+    }
+
+    fn open_project_workspace(&mut self, project_id: String) {
+        let Some(project) = self
+            .board
+            .as_ref()
+            .and_then(|board| {
+                board
+                    .projects
+                    .iter()
+                    .find(|project| project.id == project_id)
+            })
+            .cloned()
+        else {
+            self.message = "Project was not found".into();
+            return;
+        };
+        let same = self
+            .project
+            .as_ref()
+            .is_some_and(|state| state.project_id == project_id);
+        if !same {
+            self.project = Some(ProjectWorkspaceState::new(
+                project.id.clone(),
+                project.notes.clone(),
+                &format!("project:{}", project.id),
+            ));
+        }
+        self.project_scope = Some(project.id);
+        self.screen = Screen::Project;
+        self.terminal_focus = false;
+        self.message = String::new();
+    }
+
+    fn select_project_tab(&mut self, tab: ProjectTab) {
+        let Some(state) = self.project.as_mut() else {
+            return;
+        };
+        state.tab = tab;
+        state.notes_editing = false;
+        self.terminal_focus = false;
+        match tab {
+            ProjectTab::Notes => {}
+            ProjectTab::Agent => self.ensure_project_agent(),
+            ProjectTab::Terminal => self.ensure_project_terminal(),
+            ProjectTab::Server | ProjectTab::Console => self.ensure_project_service(tab),
+        }
+    }
+
+    fn ensure_project_agent(&mut self) {
+        let Some(project) = self
+            .project
+            .as_ref()
+            .and_then(|state| {
+                self.board.as_ref().and_then(|board| {
+                    board
+                        .projects
+                        .iter()
+                        .find(|project| project.id == state.project_id)
+                })
+            })
+            .cloned()
+        else {
+            return;
+        };
+        if self
+            .project
+            .as_ref()
+            .is_some_and(|state| !state.agent.is_empty())
+        {
+            return;
+        }
+        let trusted = pi::project_trusted(&project.path);
+        let launch = match pi::native_launch_project(&project, trusted, &self.automation_socket) {
+            Ok(launch) => launch,
+            Err(error) => {
+                self.error = Some(error);
+                return;
+            }
+        };
+        let cols = self.cols.saturating_sub(4).max(20);
+        let rows = self.rows.saturating_sub(6).max(5);
+        let sink = self.pty_sink();
+        let Some(state) = self.project.as_mut() else {
+            return;
+        };
+        match state
+            .agent
+            .open_program(&project.path, &launch, cols, rows, sink)
+        {
+            Ok(_) => {
+                self.terminal_focus = true;
+                self.error = None;
+            }
+            Err(error) => self.error = Some(error),
+        }
+    }
+
+    fn ensure_project_terminal(&mut self) {
+        let Some(project) = self
+            .project
+            .as_ref()
+            .and_then(|state| {
+                self.board.as_ref().and_then(|board| {
+                    board
+                        .projects
+                        .iter()
+                        .find(|project| project.id == state.project_id)
+                })
+            })
+            .cloned()
+        else {
+            return;
+        };
+        if self
+            .project
+            .as_ref()
+            .is_some_and(|state| !state.terminal.is_empty())
+        {
+            return;
+        }
+        let cols = self.cols.saturating_sub(4).max(20);
+        let rows = self.rows.saturating_sub(6).max(5);
+        let sink = self.pty_sink();
+        let Some(state) = self.project.as_mut() else {
+            return;
+        };
+        match state
+            .terminal
+            .open_pane(&project.path, None, cols, rows, &[], sink)
+        {
+            Ok(_) => {
+                self.terminal_focus = true;
+                self.error = None;
+            }
+            Err(error) => self.error = Some(error),
+        }
+    }
+
+    fn ensure_project_service(&mut self, tab: ProjectTab) {
+        let Some(project) = self
+            .project
+            .as_ref()
+            .and_then(|state| {
+                self.board.as_ref().and_then(|board| {
+                    board
+                        .projects
+                        .iter()
+                        .find(|project| project.id == state.project_id)
+                })
+            })
+            .cloned()
+        else {
+            return;
+        };
+        let command = match tab {
+            ProjectTab::Server => project.server_command.clone(),
+            ProjectTab::Console => project.console_command.clone(),
+            _ => None,
+        };
+        let Some(command) = command.filter(|command| !command.trim().is_empty()) else {
+            self.error = Some("This service is not configured for the project".into());
+            return;
+        };
+        let cols = self.cols.saturating_sub(4).max(20);
+        let rows = self.rows.saturating_sub(6).max(5);
+        let sink = self.pty_sink();
+        let Some(state) = self.project.as_mut() else {
+            return;
+        };
+        let workspace = match tab {
+            ProjectTab::Server => &mut state.server,
+            ProjectTab::Console => &mut state.console,
+            _ => return,
+        };
+        if !workspace.is_empty() {
+            return;
+        }
+        match workspace.open_managed(&project.path, &command, cols, rows, &[], sink) {
+            Ok(_) => {
+                self.terminal_focus = true;
+                self.error = None;
+            }
+            Err(error) => self.error = Some(error),
+        }
+    }
+
+    fn handle_project_key(&mut self, key: Key) {
+        let Some(state) = self.project.as_ref() else {
+            self.screen = Screen::Board;
+            return;
+        };
+        if state.tab == ProjectTab::Notes {
+            if state.notes_editing {
+                match key {
+                    Key::Ctrl('s') => self.save_project_notes(),
+                    Key::Esc => {
+                        if let Some(state) = self.project.as_mut() {
+                            state.notes_editing = false;
+                        }
+                    }
+                    _ => {
+                        if let Some(state) = self.project.as_mut() {
+                            state.notes.handle(&key);
+                        }
+                    }
+                }
+                return;
+            }
+            match key {
+                Key::Char('e') => {
+                    if let Some(state) = self.project.as_mut() {
+                        state.notes_editing = true;
+                    }
+                }
+                Key::Esc => self.screen = Screen::Board,
+                Key::Char('j') | Key::Down => {
+                    if let Some(state) = self.project.as_mut() {
+                        state.notes_scroll = state.notes_scroll.saturating_add(1);
+                    }
+                }
+                Key::Char('k') | Key::Up => {
+                    if let Some(state) = self.project.as_mut() {
+                        state.notes_scroll = state.notes_scroll.saturating_sub(1);
+                    }
+                }
+                Key::Enter | Key::Char('i') => {
+                    if let Some(state) = self.project.as_mut() {
+                        state.notes_editing = true;
+                    }
+                }
+                Key::Char(character @ '1'..='5') => {
+                    let index = character as usize - '1' as usize;
+                    if let Some(tab) = self.project_tabs().get(index).copied() {
+                        self.select_project_tab(tab);
+                    }
+                }
+                Key::Tab | Key::BackTab => self.cycle_project_tab(key == Key::BackTab),
+                _ => {}
+            }
+            return;
+        }
+        match key {
+            Key::Esc => self.screen = Screen::Board,
+            Key::Char('i') | Key::Enter => self.terminal_focus = true,
+            Key::Char(character @ '1'..='5') => {
+                let index = character as usize - '1' as usize;
+                if let Some(tab) = self.project_tabs().get(index).copied() {
+                    self.select_project_tab(tab);
+                }
+            }
+            Key::Tab => self.cycle_project_tab(false),
+            Key::BackTab => self.cycle_project_tab(true),
+            Key::Char('j') | Key::Down => self.active_workspace_mut().scroll_focused(-1),
+            Key::Char('k') | Key::Up => self.active_workspace_mut().scroll_focused(1),
+            Key::PageDown | Key::Ctrl('d') => self.active_workspace_mut().scroll_focused(-10),
+            Key::PageUp | Key::Ctrl('u') => self.active_workspace_mut().scroll_focused(10),
+            Key::Char('g') => self.pending = Some(Pending::G),
+            Key::Char('G') => {
+                let workspace = self.active_workspace_mut();
+                if let Some(pane) = workspace.focused_pane_mut() {
+                    pane.screen.scroll(0);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn cycle_project_tab(&mut self, backwards: bool) {
+        let tabs = self.project_tabs();
+        if tabs.is_empty() {
+            return;
+        }
+        let current = self.project_tab_index();
+        let next = if backwards {
+            (current + tabs.len() - 1) % tabs.len()
+        } else {
+            (current + 1) % tabs.len()
+        };
+        self.select_project_tab(tabs[next]);
+    }
+
+    fn save_project_notes(&mut self) {
+        let Some(state) = self.project.as_ref() else {
+            return;
+        };
+        let project_id = state.project_id.clone();
+        let notes = state.notes.value.clone();
+        match self.store.save_project_notes(&project_id, &notes) {
+            Ok(()) => {
+                if let Some(board) = self.board.as_mut() {
+                    if let Some(project) = board
+                        .projects
+                        .iter_mut()
+                        .find(|project| project.id == project_id)
+                    {
+                        project.notes = notes;
+                    }
+                }
+                if let Some(state) = self.project.as_mut() {
+                    state.notes_editing = false;
+                }
+                self.message = "Project notes saved".into();
+                self.error = None;
+            }
+            Err(error) => self.error = Some(error.to_string()),
         }
     }
 
@@ -1143,6 +1634,7 @@ impl App {
                 }
             }
             Key::Char('n') => self.start_new_card(),
+            Key::Char('w') => self.open_project_from_context(),
             Key::Char('J') => self.reorder(1),
             Key::Char('K') => self.reorder(-1),
             Key::Tab => {
@@ -2234,15 +2726,25 @@ impl App {
     }
 
     fn execute_project(&mut self) {
-        let Some(board) = self.board.as_ref() else {
-            return;
-        };
-        if self.project_picker_cursor == 0 {
-            self.project_scope = None;
-        } else if let Some(project) = board.projects.get(self.project_picker_cursor - 1) {
-            self.project_scope = Some(project.id.clone());
-        }
+        let selected = self.board.as_ref().and_then(|board| {
+            (self.project_picker_cursor > 0)
+                .then(|| board.projects.get(self.project_picker_cursor - 1))
+                .flatten()
+                .map(|project| project.id.clone())
+        });
         self.overlay = None;
+        if self.screen == Screen::Project {
+            match selected {
+                Some(project_id) => self.open_project_workspace(project_id),
+                None => {
+                    self.project_scope = None;
+                    self.screen = Screen::Board;
+                    self.terminal_focus = false;
+                }
+            }
+            return;
+        }
+        self.project_scope = selected;
         self.recompute_rows();
     }
 
@@ -2761,6 +3263,11 @@ impl App {
             || self.terminals.panes.values().any(|pane| pane.alive())
             || self.server.panes.values().any(|pane| pane.alive())
             || self.console.panes.values().any(|pane| pane.alive())
+            || self.project.as_ref().is_some_and(|state| {
+                [&state.agent, &state.terminal, &state.server, &state.console]
+                    .iter()
+                    .any(|workspace| workspace.panes.values().any(|pane| pane.alive()))
+            })
             || self
                 .global_tabs
                 .iter()

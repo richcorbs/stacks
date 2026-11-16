@@ -26,7 +26,7 @@ crates/stacks-tui/             ratatui/crossterm binary
   src/app.rs                   state machine + key dispatch
   src/render.rs                frame composition, minimum size guard
   src/keys.rs                  key vocabulary + the help table
-  src/screens/                 board, detail, chat, diff, terminal, ...
+  src/screens/                 board, detail, project, chat, diff, terminal, ...
   src/widgets/                 text input, tabs, markdown, diff renderer
 ```
 
@@ -45,6 +45,13 @@ check` still works.
   `capabilities` footer in backend order with verbatim disabled reasons,
   two-step confirmation with the configured delay, Overview/Agent/Diff/
   Terminal tabs plus Server and Console when the project configures them.
+- Project workspace: `w` from the project sidebar or board opens the selected
+  project. Tabs are Notes, Agent, Terminal and — when configured — Server and
+  Console. Notes are editable (`e`, `Ctrl-S`) and write through to the same
+  `projects.notes` field as the GUI. The Agent is a persistent project-scoped
+  Pi session under `pi-sessions/project-<project>`, the terminal starts in the
+  project root, and Server/Console run the project commands there. Each tab
+  keeps its own split tree and PTY sessions while the workspace is open.
 - Agent: **native Pi TUI in a managed PTY** (`pi --continue` with the
   bundled Stacks extension). Pi's card tools work because the TUI serves
   `automation.sock` (`createLocalCard`, `updateLocalCard`,
@@ -175,6 +182,10 @@ This is a deliberate scope change from the card text:
 - Reviewed marks are per-session (the GUI also keeps them in session state).
 - Leaving a card stops its TUI terminal/Pi panes; there is no per-card session
   cache yet (the GUI caches per workspace/card).
+- The project workspace is in-memory: notes and project Pi history persist, but
+  the selected project/tab and live project terminals/Server/Console do not
+  survive a restart. `project_direct` layout persistence is available in core
+  but not wired into the TUI yet.
 - Kitty/sixel/inline image output degrades to text (see `DIVERGENCES.md`).
 - The automation socket accepts the card-tool subset Pi needs. Superthread
   refinement (`finishExternalCardRefinement`) and parent reassignment remain
@@ -184,8 +195,8 @@ This is a deliberate scope change from the card text:
 
 A reproducible screen walkthrough lives in
 `crates/stacks-tui/examples/demo-screens.script`. It opens the real board,
-palette, project picker, card #325, backend actions, DIFF, a real PTY, the
-native Pi pane, the global terminal, and help.
+project workspace, palette, project picker, card #325, backend actions, DIFF, a
+real PTY, the native Pi pane, the global terminal, and help.
 
 ```bash
 # Copy the live DB so the demo cannot write to the real one.

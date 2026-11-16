@@ -37,4 +37,4 @@
 │                         ││                                                                                           │
 └─────────────────────────┘└───────────────────────────────────────────────────────────────────────────────────────────┘
  Ready  1/2  ◆ ready
-j/k move  ·  Enter open  ·  h/l collapse  ·  h projects  ·  n new  ·  / filter  ·  Ctrl-F scope  ·  Ctrl-A done  ·  ? he
+j/k move  ·  Enter open  ·  h/l fold  ·  n new  ·  w workspace  ·  / filter  ·  Ctrl-F scope  ·  Ctrl-A done  ·  ? help

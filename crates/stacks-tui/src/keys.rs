@@ -182,6 +182,7 @@ pub const KEYMAP: &[KeyHelp] = &[
         group: "Board",
         entries: &[
             ("n", "New card"),
+            ("w", "Project workspace"),
             ("Enter", "Open card"),
             ("h / Tab", "Focus project list"),
             ("j / k (projects)", "Move project"),
@@ -191,6 +192,16 @@ pub const KEYMAP: &[KeyHelp] = &[
             ("Ctrl-A", "Hide Done"),
             ("J / K", "Reorder backlog"),
             ("Ctrl-B", "Toggle project sidebar"),
+        ],
+    },
+    KeyHelp {
+        group: "Project",
+        entries: &[
+            ("w", "Open project workspace"),
+            ("1..5", "Notes / Agent / Terminal / Server / Console"),
+            ("e", "Edit project notes"),
+            ("Ctrl-S", "Save project notes"),
+            ("Esc", "Back"),
         ],
     },
     KeyHelp {
@@ -275,7 +286,7 @@ mod tests {
             }
         }
         let groups: Vec<_> = KEYMAP.iter().map(|help| help.group).collect();
-        assert_eq!(groups.len(), 8);
+        assert_eq!(groups.len(), 9);
     }
 
     #[test]

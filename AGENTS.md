@@ -333,6 +333,11 @@ Stacks > Reset Window Settings
   lifecycle through the extension. `Ctrl-W` twice leaves Pi/shell/service
   input for normal mode. Server and Console tabs appear only when the project
   and card environment provide them.
+- Project workspace: `w` from the board or project sidebar opens Notes, Agent,
+  Terminal, and configured Server/Console tabs for the selected project. Project
+  notes write through to `projects.notes`; the project Agent uses a dedicated
+  persistent session directory. Project workspace terminals are currently
+  in-memory (not restored across restarts).
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and
   per-file review/comment state. `c`/`C` add file/overall feedback and `s`
   sends the composed review prompt to the Agent Pi pane. Lazygit itself is not

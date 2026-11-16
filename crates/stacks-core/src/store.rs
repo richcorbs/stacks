@@ -2152,6 +2152,20 @@ impl CardStore {
         Ok(())
     }
 
+    pub fn save_project_notes(&self, project_id: &str, notes: &str) -> Result<()> {
+        let connection = self.open_writable()?;
+        let changed = connection
+            .execute(
+                "UPDATE projects SET notes=?1 WHERE id=?2",
+                params![notes, project_id],
+            )
+            .context("save project notes")?;
+        if changed != 1 {
+            bail!("Project notes could not be saved because the project was not found");
+        }
+        Ok(())
+    }
+
     /// Dispatch a backend capability to its core implementation. The TUI never
     /// decides whether an action is allowed; `capabilities` owns that and this
     /// mapping only routes the chosen action.

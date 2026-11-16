@@ -72,6 +72,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     match app.screen {
         Screen::Board => screens::board::render(frame, app, chunks[1]),
         Screen::Detail => screens::detail::render(frame, app, chunks[1]),
+        Screen::Project => screens::project::render(frame, app, chunks[1]),
     }
     if status_height > 0 {
         render_status(frame, app, chunks[2]);
@@ -100,6 +101,31 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
                 format!("  {scope}"),
                 Style::default().fg(theme.muted),
             ));
+        }
+        Screen::Project => {
+            let project = app.project.as_ref().and_then(|state| {
+                app.board.as_ref().and_then(|board| {
+                    board
+                        .projects
+                        .iter()
+                        .find(|project| project.id == state.project_id)
+                })
+            });
+            if let Some(project) = project {
+                left.push(Span::styled(
+                    format!(" {}", truncate(&project.name, 36)),
+                    Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                ));
+                left.push(Span::styled(
+                    format!(
+                        "  {}",
+                        truncate(&project.path, area.width.saturating_sub(46) as usize)
+                    ),
+                    Style::default().fg(theme.muted),
+                ));
+            } else {
+                left.push(Span::styled(" Project", Style::default().fg(theme.text)));
+            }
         }
         Screen::Detail => {
             if let Some(detail) = app.detail.as_ref() {
@@ -147,7 +173,7 @@ fn render_status(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let position = match app.screen {
         Screen::Board => screens::board::position(app),
-        Screen::Detail => None,
+        Screen::Detail | Screen::Project => None,
     };
     if let Some(position) = position {
         spans.push(Span::styled(
@@ -225,6 +251,7 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 ("j/k", "project"),
                 ("Enter", "filter"),
                 ("Esc/Tab", "cards"),
+                ("w", "workspace"),
                 ("Ctrl-F", "cycle"),
             ],
             Screen::Board => {
@@ -235,14 +262,47 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 vec![
                     ("j/k", "move"),
                     ("Enter", if group { "collapse" } else { "open" }),
-                    ("h/l", "collapse"),
-                    ("h", "projects"),
+                    ("h/l", "fold"),
                     ("n", "new"),
+                    ("w", "workspace"),
                     ("/", "filter"),
                     ("Ctrl-F", "scope"),
                     ("Ctrl-A", "done"),
                     ("?", "help"),
                 ]
+            }
+            Screen::Project => {
+                let tab = app
+                    .project
+                    .as_ref()
+                    .map(|state| state.tab)
+                    .unwrap_or(crate::app::ProjectTab::Notes);
+                let editing = app
+                    .project
+                    .as_ref()
+                    .is_some_and(|state| state.notes_editing);
+                match tab {
+                    crate::app::ProjectTab::Notes if editing => {
+                        vec![("type", "notes"), ("Ctrl-S", "save"), ("Esc", "done")]
+                    }
+                    crate::app::ProjectTab::Notes => vec![
+                        ("e/Enter", "edit"),
+                        ("j/k", "scroll"),
+                        ("Esc", "back"),
+                        ("Tab", "tabs"),
+                    ],
+                    _ if app.terminal_focus => vec![
+                        ("Ctrl-W Ctrl-W", "release"),
+                        ("Ctrl-W [", "copy"),
+                        ("Ctrl-Q", "quit"),
+                    ],
+                    _ => vec![
+                        ("i/Enter", "focus"),
+                        ("Esc", "back"),
+                        ("Tab", "tabs"),
+                        ("Ctrl-W |/-", "split"),
+                    ],
+                }
             }
             Screen::Detail => match app.detail_tab {
                 crate::app::DetailTab::Overview => vec![

@@ -260,6 +260,26 @@ fn native_launch_with(
         }
         None => pi_sessions_dir(),
     };
+    native_launch_with_session(
+        program,
+        extension,
+        project,
+        card,
+        trusted,
+        automation_socket,
+        session_dir,
+    )
+}
+
+fn native_launch_with_session(
+    program: PathBuf,
+    extension: PathBuf,
+    project: &crate::model::Project,
+    card: Option<(&str, &str)>,
+    trusted: bool,
+    automation_socket: &Path,
+    session_dir: PathBuf,
+) -> Result<NativeLaunch, String> {
     std::fs::create_dir_all(&session_dir)
         .map_err(|error| format!("Could not create the Pi session directory: {error}"))?;
     let mut args = vec![
@@ -318,6 +338,32 @@ fn native_launch_with(
         }
     }
     Ok(NativeLaunch { program, args, env })
+}
+
+/// Project-workspace Pi session directory (one persistent project agent).
+pub fn project_session_dir(project_id: &str) -> PathBuf {
+    pi_sessions_dir().join(format!("project-{}", safe_session_key(project_id)))
+}
+
+pub fn native_launch_project(
+    project: &crate::model::Project,
+    trusted: bool,
+    automation_socket: &Path,
+) -> Result<NativeLaunch, String> {
+    let program =
+        find_pi().ok_or_else(|| "Pi CLI not found. Install `pi` or set PI_PATH.".to_string())?;
+    let extension = extension_path()
+        .filter(|path| path.is_file())
+        .ok_or_else(|| "The bundled Stacks Pi extension was not found".to_string())?;
+    native_launch_with_session(
+        program,
+        extension,
+        project,
+        None,
+        trusted,
+        automation_socket,
+        project_session_dir(&project.id),
+    )
 }
 
 fn resolve_env(name: &str) -> Option<String> {

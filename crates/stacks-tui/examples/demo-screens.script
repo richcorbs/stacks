@@ -1,5 +1,16 @@
 label Board · real Stacks data
 dump
+key w
+wait 300
+label Project workspace · notes
+dump
+key 3
+wait 600
+label Project workspace · project terminal
+dump
+key ctrl-w
+key ctrl-w
+key esc
 key ctrl-p
 type settings
 assert contains Command palette

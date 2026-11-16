@@ -2,7 +2,11 @@ use std::{path::Path, sync::Arc};
 
 use rusqlite::Connection;
 use stacks_core::{CardStatus, store::CardStore};
-use stacks_tui::{app::App, headless, keys::Key};
+use stacks_tui::{
+    app::{App, Screen},
+    headless,
+    keys::Key,
+};
 
 fn fixture(path: &Path) {
     let connection = Connection::open(path).unwrap();
@@ -250,6 +254,40 @@ fn script_replays_keys_and_assertions() {
         "assert not-contains Command palette".to_string(),
     ];
     headless::run_script(&mut app, &lines, &mut cols, &mut rows).unwrap();
+}
+
+#[test]
+fn opening_card_detail_drops_board_scope_message() {
+    let (mut app, _dir) = app();
+    app.message = "Project filter: all projects".into();
+    app.open_detail("local:326".into());
+    assert!(app.message.is_empty(), "{}", app.message);
+}
+
+#[test]
+fn project_workspace_opens_and_saves_notes() {
+    let (mut app, dir) = app();
+    let mut cols = 120;
+    let mut rows = 40;
+    let lines = [
+        "key w".to_string(),
+        "assert contains 1 Notes".to_string(),
+        "key e".to_string(),
+        "type Project scratch pad".to_string(),
+        "key ctrl-s".to_string(),
+    ];
+    headless::run_script(&mut app, &lines, &mut cols, &mut rows).unwrap();
+    assert_eq!(app.screen, Screen::Project);
+    let project_id = app.project.as_ref().unwrap().project_id.clone();
+    let notes: String = Connection::open(dir.path().join("workflow.sqlite3"))
+        .unwrap()
+        .query_row(
+            "SELECT notes FROM projects WHERE id=?1",
+            [project_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(notes, "Project scratch pad");
 }
 
 #[test]
