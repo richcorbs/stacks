@@ -43,9 +43,9 @@ check` still works.
   branch, Git status and PR state.
 - Card detail: real content/events, revision and environment header, backend
   `capabilities` footer in backend order with verbatim disabled reasons,
-  two-step confirmation with the configured delay, Overview/Chat/Diff/Terminal/
-  Work tabs.
-- Chat/Work: **native Pi TUI in a managed PTY** (`pi --continue` with the
+  two-step confirmation with the configured delay, Overview/Agent/Diff/
+  Terminal tabs plus Server and Console when the project configures them.
+- Agent: **native Pi TUI in a managed PTY** (`pi --continue` with the
   bundled Stacks extension). Pi's card tools work because the TUI serves
   `automation.sock` (`createLocalCard`, `updateLocalCard`,
   `finishLocalCardRefinement` including approved children, `startLocalCardWork`,
@@ -189,14 +189,14 @@ native Pi pane, the global terminal, and help.
 sqlite3 "$HOME/Library/Application Support/stacks/workflow.sqlite3" \
   ".backup '/tmp/stacks-demo.sqlite3'"
 # Pi chat history is JSONL under cards/<card>/pi-sessions. Copy it when you
-# want native Chat/Work panes to resume existing conversations.
+# want the native Agent pane to resume existing conversations.
 rsync -a "$HOME/Library/Application Support/stacks/cards/" \
   /tmp/stacks-tui-demo-data/cards/
 mkdir -p /tmp/stacks-tui-demo-data
 printf '{"tui_confirmation_delay_ms":0,"tui_hide_done":false}\n' \
   > /tmp/stacks-tui-demo-data/settings.json
 # Pi session JSONL files hold chat history; copy them with the DB so the
-# native Chat/Work panes resume existing conversations.
+# the native Agent pane resumes existing conversations.
 rsync -a "$HOME/Library/Application Support/stacks/cards/" \
   /tmp/stacks-tui-demo-data/cards/
 

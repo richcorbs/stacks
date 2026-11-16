@@ -11,7 +11,7 @@ use ratatui::{
 use crate::{
     app::{App, DetailTab},
     screens::{chat, diff, terminal},
-    theme::{status_color, status_glyph},
+    theme::status_glyph,
     widgets::{markdown, tabs, truncate},
 };
 
@@ -34,46 +34,41 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let card = detail.card.clone();
-    let (glyph, word) = status_glyph(card.status);
-    let mut header = Vec::new();
-    header.push(Line::from(vec![
-        Span::styled(
-            glyph,
-            Style::default()
-                .fg(status_color(theme, card.status))
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" ", Style::default()),
-        Span::styled(
-            card.title.clone(),
-            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("  #{}", card.external_id),
-            Style::default().fg(theme.dim),
-        ),
-    ]));
-    let mut meta = vec![word.to_string(), format!("rev {}", card.workflow_revision)];
+    let (_, word) = status_glyph(card.status);
+
+    let mut parts = vec![word.to_string()];
     if let Some(environment) = &card.environment {
-        meta.push(environment.branch.clone());
-        meta.push(environment.worktree_path.clone());
+        let branch_width = (area.width as usize / 4).clamp(12, 30);
+        let path_width = (area.width as usize / 3).clamp(16, 44);
+        parts.push(truncate(&environment.branch, branch_width));
+        parts.push(truncate(&environment.worktree_path, path_width));
+        let counts = if app.selected_git_card.as_deref() == Some(card.id.as_str()) {
+            if app.selected_git_loading {
+                "checking…".to_string()
+            } else if let Some(error) = app.selected_git_error.as_ref() {
+                format!("◆ {}", truncate(error, 40))
+            } else if let Some(status) = app.selected_git.as_ref() {
+                format!(
+                    "+{} ~{} -{}",
+                    status.created, status.changed, status.deleted
+                )
+            } else {
+                "—".to_string()
+            }
+        } else {
+            "—".to_string()
+        };
+        parts.push(counts);
+    } else {
+        parts.push("no worktree".to_string());
     }
-    if let Some(pull_request) = &card.pull_request {
-        meta.push(format!(
-            "PR #{} {}",
-            pull_request.number, pull_request.ci_status
-        ));
-    }
-    header.push(Line::from(Span::styled(
-        truncate(&meta.join("  ·  "), area.width as usize),
-        Style::default().fg(theme.muted),
-    )));
-    let header_height = header.len() as u16;
+    let meta = parts.join("  ·  ");
     let footer_height = if app.actions.is_empty() { 1 } else { 2 };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(header_height),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(6),
@@ -82,54 +77,56 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         ])
         .split(area);
     frame.render_widget(
-        Paragraph::new(header).style(Style::default().bg(theme.canvas)),
+        Paragraph::new(Line::from(Span::styled(
+            truncate(&meta, area.width.saturating_sub(2) as usize),
+            Style::default().fg(theme.muted),
+        )))
+        .style(Style::default().bg(theme.canvas)),
         chunks[0],
     );
+    // Intentional breathing room above the tab bar; the title lives once in
+    // the app header, and this line carries workflow/worktree context.
+    frame.render_widget(
+        Paragraph::new("").style(Style::default().bg(theme.canvas)),
+        chunks[1],
+    );
 
-    let tab_entries = DetailTab::ALL
+    let tab_entries = app
+        .visible_detail_tabs()
         .iter()
-        .map(|tab| tabs::Tab {
-            number: tab.index() + 1,
+        .enumerate()
+        .map(|(index, tab)| tabs::Tab {
+            number: index + 1,
             label: tab.label(),
             enabled: tab_enabled(app, *tab),
         })
         .collect::<Vec<_>>();
     tabs::render(
         frame,
-        chunks[1],
+        chunks[2],
         theme,
         &tab_entries,
         app.detail_tab_index(),
     );
-
-    crate::widgets::section_rule(
-        frame,
-        chunks[2],
-        &format!(
-            "{} · rev {} · {}",
-            app.detail_tab.label(),
-            card.workflow_revision,
-            app.session_focus()
-        ),
-        theme,
-    );
-    let body = chunks[3];
+    crate::widgets::section_rule(frame, chunks[3], "", theme);
+    let body = chunks[4];
     match app.detail_tab {
         DetailTab::Overview => render_overview(frame, app, body),
-        DetailTab::Chat => chat::render(frame, app, body, DetailTab::Chat),
-        DetailTab::Work => chat::render(frame, app, body, DetailTab::Work),
+        DetailTab::Agent => chat::render(frame, app, body, DetailTab::Agent),
         DetailTab::Diff => diff::render(frame, app, body),
+        DetailTab::Server => terminal::render_service(frame, app, body, DetailTab::Server),
+        DetailTab::Console => terminal::render_service(frame, app, body, DetailTab::Console),
         DetailTab::Terminal => terminal::render_card(frame, app, body),
     }
 
-    crate::widgets::section_rule(frame, chunks[4], "", theme);
-    render_footer(frame, app, chunks[5]);
+    crate::widgets::section_rule(frame, chunks[5], "", theme);
+    render_footer(frame, app, chunks[6]);
 }
 
 fn tab_enabled(app: &App, tab: DetailTab) -> bool {
     match tab {
-        DetailTab::Overview | DetailTab::Chat => true,
-        DetailTab::Diff | DetailTab::Terminal | DetailTab::Work => app
+        DetailTab::Overview | DetailTab::Server | DetailTab::Console => true,
+        DetailTab::Diff | DetailTab::Terminal | DetailTab::Agent => app
             .detail
             .as_ref()
             .is_some_and(|detail| detail.card.environment.is_some()),
@@ -233,7 +230,7 @@ fn render_footer(frame: &mut Frame, app: &mut App, area: Rect) {
             .iter()
             .find_map(|action| action.disabled_reason.clone());
         lines.push(Line::from(Span::styled(
-            disabled.unwrap_or_else(|| "a actions · 1..4 tabs · Esc back".into()),
+            disabled.unwrap_or_else(|| "a actions · 1..6 tabs · Esc back".into()),
             Style::default().fg(if app.actions.iter().any(|a| a.disabled_reason.is_some()) {
                 theme.warning
             } else {

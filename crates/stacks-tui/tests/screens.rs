@@ -124,6 +124,18 @@ fn board_shows_real_projects_and_groups() {
 }
 
 #[test]
+fn cmd_number_selects_detail_tabs() {
+    let (mut app, _dir) = app();
+    app.handle_key(Key::Enter);
+    app.pump(1_000);
+    app.handle_key(Key::Cmd('3'));
+    assert_eq!(app.detail_tab, stacks_tui::app::DetailTab::Diff);
+    app.handle_key(Key::Cmd('2'));
+    assert_eq!(app.detail_tab, stacks_tui::app::DetailTab::Agent);
+    assert_eq!(app.screen, stacks_tui::app::Screen::Detail);
+}
+
+#[test]
 fn selected_card_shows_branch_git_and_pr_detail_line() {
     let (mut app, _dir) = app();
     let screen = headless::dump(&mut app, 120, 40);
@@ -148,7 +160,7 @@ fn card_detail_loads_overview_and_backend_actions() {
     let screen = headless::dump(&mut app, 120, 40);
     assert!(screen.contains("#326"), "{screen}");
     assert!(screen.contains("Overview"), "{screen}");
-    assert!(screen.contains("Chat"), "{screen}");
+    assert!(screen.contains("Agent"), "{screen}");
     assert!(screen.contains("Start work"), "{screen}");
     assert!(screen.contains("a actions"), "{screen}");
 }

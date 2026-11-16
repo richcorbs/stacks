@@ -1,4 +1,4 @@
-//! Native Pi Chat/Work panes (Pi's own TUI in a managed PTY).
+//! Native Pi Agent pane (Pi's own TUI in a managed PTY).
 
 use ratatui::{
     Frame,
@@ -50,11 +50,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect, tab: DetailTab) {
     );
     let focused = app.terminal_focus;
     let depth = app.depth;
-    let workspace = if tab == DetailTab::Work {
-        &mut app.work
-    } else {
-        &mut app.chat
-    };
+    let _ = tab;
+    let workspace = &mut app.work;
     if workspace.is_empty() {
         frame.render_widget(
             Paragraph::new(vec![

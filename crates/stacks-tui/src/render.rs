@@ -11,7 +11,7 @@ use ratatui::{
 use crate::{
     app::{App, Overlay, Screen},
     screens,
-    theme::Theme,
+    theme::{Theme, status_color, status_glyph},
     widgets::centered_message,
 };
 
@@ -91,18 +91,28 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
             ));
         }
         Screen::Detail => {
+            if let Some(detail) = app.detail.as_ref() {
+                let (glyph, _) = status_glyph(detail.card.status);
+                left.push(Span::styled(
+                    glyph.to_string(),
+                    Style::default()
+                        .fg(status_color(theme, detail.card.status))
+                        .add_modifier(Modifier::BOLD),
+                ));
+                left.push(Span::styled(" ", Style::default()));
+            }
             let title = screens::detail::title(app);
             left.push(Span::styled(
                 format!(
-                    "  {}",
-                    truncate(&title, area.width.saturating_sub(4) as usize)
+                    "{}",
+                    truncate(&title, area.width.saturating_sub(6) as usize)
                 ),
                 Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
             ));
         }
     }
     let mode = if app.screen == Screen::Detail
-        && (app.detail_tab.is_pi() || app.detail_tab == crate::app::DetailTab::Terminal)
+        && (app.detail_tab.is_pi() || app.detail_tab.is_terminal())
     {
         app.session_focus()
     } else {
@@ -258,8 +268,9 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                     ("Esc", "back"),
                 ],
                 crate::app::DetailTab::Terminal
-                | crate::app::DetailTab::Chat
-                | crate::app::DetailTab::Work => {
+                | crate::app::DetailTab::Server
+                | crate::app::DetailTab::Console
+                | crate::app::DetailTab::Agent => {
                     if app.terminal_focus {
                         vec![
                             ("Ctrl-W n", "normal mode"),

@@ -329,9 +329,10 @@ Stacks > Reset Window Settings
   `startLocalCardWork`) and `agentLifecycle` from
   `src-tauri/resources/stacks-cards.ts`. The GUI ignores `agentLifecycle`
   because it infers lifecycle from its RPC stream.
-- Chat/Work tabs run Pi's native TUI in a PTY (`pi --continue`) and report
+- The Agent tab runs Pi's native TUI in a PTY (`pi --continue`) and reports
   lifecycle through the extension. `Ctrl-W n` exits terminal input to normal
-  mode because Esc belongs to Pi/the shell while a pane is focused.
+  mode because Esc belongs to Pi/the shell while a pane is focused. Server and
+  Console tabs appear only when the project and card environment provide them.
 - The DIFF tab has a lazygit-inspired compressed/collapsible file tree and a
   branch/ahead-behind/dirty/HEAD review line. Lazygit itself is not embedded;
   only its UI patterns are reused.

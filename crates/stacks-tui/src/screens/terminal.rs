@@ -153,6 +153,33 @@ impl TerminalWorkspace {
         env: &[(&str, &str)],
         sink: PtySink,
     ) -> Result<String, String> {
+        self.open_pane_mode(cwd, command, false, cols, rows, env, sink)
+    }
+
+    /// Start a configured project service: the command owns the PTY and exits
+    /// when it finishes instead of returning to an interactive shell.
+    pub fn open_managed(
+        &mut self,
+        cwd: &str,
+        command: &str,
+        cols: u16,
+        rows: u16,
+        env: &[(&str, &str)],
+        sink: PtySink,
+    ) -> Result<String, String> {
+        self.open_pane_mode(cwd, Some(command), true, cols, rows, env, sink)
+    }
+
+    fn open_pane_mode(
+        &mut self,
+        cwd: &str,
+        command: Option<&str>,
+        managed_service: bool,
+        cols: u16,
+        rows: u16,
+        env: &[(&str, &str)],
+        sink: PtySink,
+    ) -> Result<String, String> {
         let id = format!("pane-{}", uuid::Uuid::new_v4());
         let mut pane = Pane::new(
             id.clone(),
@@ -161,8 +188,16 @@ impl TerminalWorkspace {
             cols,
             rows,
         );
-        let session =
-            PtySession::spawn_with_env(id.clone(), cwd, command, false, cols, rows, env, sink)?;
+        let session = PtySession::spawn_with_env(
+            id.clone(),
+            cwd,
+            command,
+            managed_service,
+            cols,
+            rows,
+            env,
+            sink,
+        )?;
         pane.generation = Some(session.generation.clone());
         pane.session = Some(session);
         self.panes.insert(id.clone(), pane);
@@ -428,6 +463,49 @@ impl TerminalWorkspace {
             let is_focused = focused && pane_id == self.focused;
             render_pane(frame, pane_area, pane, is_focused, depth, theme);
         }
+    }
+}
+
+pub fn render_service(
+    frame: &mut Frame,
+    app: &mut crate::app::App,
+    area: Rect,
+    tab: crate::app::DetailTab,
+) {
+    let theme = app.theme;
+    let depth = app.depth;
+    let focused = app.terminal_focus;
+    let workspace = match tab {
+        crate::app::DetailTab::Server => &mut app.server,
+        crate::app::DetailTab::Console => &mut app.console,
+        _ => return,
+    };
+    if workspace.is_empty() {
+        frame.render_widget(
+            Paragraph::new(format!(
+                "{} is not running. Configure it in the project settings.",
+                tab.label()
+            ))
+            .style(Style::default().fg(theme.muted).bg(theme.canvas)),
+            area,
+        );
+        return;
+    }
+    workspace.resize(area.width, area.height);
+    workspace.render(frame, area, focused, depth);
+    if !focused {
+        let hint = Rect {
+            y: area.y + area.height.saturating_sub(1),
+            height: 1,
+            ..area
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                " NORMAL — i focuses service · Ctrl-W [ copy · Esc back ",
+                Style::default().fg(theme.canvas).bg(theme.warning),
+            )),
+            hint,
+        );
     }
 }
 

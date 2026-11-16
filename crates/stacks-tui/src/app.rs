@@ -35,19 +35,21 @@ pub enum Screen {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DetailTab {
     Overview,
-    Chat,
+    Agent,
     Diff,
     Terminal,
-    Work,
+    Server,
+    Console,
 }
 
 impl DetailTab {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Overview,
-        Self::Chat,
+        Self::Agent,
         Self::Diff,
         Self::Terminal,
-        Self::Work,
+        Self::Server,
+        Self::Console,
     ];
 
     pub fn index(self) -> usize {
@@ -57,15 +59,16 @@ impl DetailTab {
     pub fn label(self) -> &'static str {
         match self {
             Self::Overview => "Overview",
-            Self::Chat => "Chat",
+            Self::Agent => "Agent",
             Self::Diff => "Diff",
             Self::Terminal => "Terminal",
-            Self::Work => "Work",
+            Self::Server => "Server",
+            Self::Console => "Console",
         }
     }
 
     pub fn thread(self) -> &'static str {
-        if self == Self::Work {
+        if self == Self::Agent {
             "work"
         } else {
             "planning"
@@ -73,7 +76,11 @@ impl DetailTab {
     }
 
     pub fn is_pi(self) -> bool {
-        matches!(self, Self::Chat | Self::Work)
+        matches!(self, Self::Agent)
+    }
+
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Terminal | Self::Server | Self::Console)
     }
 }
 
@@ -317,8 +324,9 @@ pub struct App {
     pub selected_git_card: Option<String>,
     pub selected_git_loading: bool,
     pub terminals: TerminalWorkspace,
-    pub chat: TerminalWorkspace,
     pub work: TerminalWorkspace,
+    pub server: TerminalWorkspace,
+    pub console: TerminalWorkspace,
     pub terminal_focus: bool,
     pub global_tabs: Vec<GlobalTab>,
     pub global_active: usize,
@@ -398,8 +406,9 @@ impl App {
             selected_git_card: None,
             selected_git_loading: false,
             terminals: TerminalWorkspace::new("card"),
-            chat: TerminalWorkspace::new("card-chat"),
             work: TerminalWorkspace::new("card-work"),
+            server: TerminalWorkspace::new("card-server"),
+            console: TerminalWorkspace::new("card-console"),
             terminal_focus: false,
             global_tabs: Vec::new(),
             global_active: 0,
@@ -439,6 +448,14 @@ impl App {
         self.detail_tab = DetailTab::Overview;
         self.detail_scroll = 0;
         self.diff = DiffState::default();
+        if let Some(index) = self
+            .board_rows
+            .iter()
+            .position(|row| row.card_id.as_deref() == Some(card_id.as_str()))
+        {
+            self.board_cursor = index;
+            self.sync_selected_git();
+        }
         self.load_detail(card_id);
     }
 
@@ -460,7 +477,6 @@ impl App {
     }
 
     fn stop_card_sessions(&mut self) {
-        self.chat.close_all();
         self.work.close_all();
         self.terminals.close_all();
         self.terminal_focus = false;
@@ -885,7 +901,12 @@ impl App {
     }
 
     fn workspaces_mut(&mut self) -> Vec<&mut TerminalWorkspace> {
-        let mut workspaces = vec![&mut self.terminals, &mut self.chat, &mut self.work];
+        let mut workspaces = vec![
+            &mut self.terminals,
+            &mut self.work,
+            &mut self.server,
+            &mut self.console,
+        ];
         for tab in &mut self.global_tabs {
             workspaces.push(&mut tab.workspace);
         }
@@ -929,6 +950,15 @@ impl App {
             self.request_quit();
             return;
         }
+        if let Key::Cmd(character @ '1'..='6') = key {
+            if self.screen == Screen::Detail && self.detail.is_some() {
+                let index = character as usize - '1' as usize;
+                if let Some(tab) = self.visible_detail_tabs().get(index) {
+                    self.select_tab(*tab);
+                }
+            }
+            return;
+        }
         if self.terminal_owns_keyboard() {
             self.handle_terminal_key(key);
             return;
@@ -967,15 +997,14 @@ impl App {
         }
         matches!(
             self.detail_tab,
-            DetailTab::Terminal | DetailTab::Chat | DetailTab::Work
+            DetailTab::Terminal | DetailTab::Agent | DetailTab::Server | DetailTab::Console
         ) && !self.active_workspace().is_empty()
     }
 
     fn active_workspace(&self) -> &TerminalWorkspace {
         match (self.screen, self.detail_tab) {
             (Screen::Detail, DetailTab::Terminal) => &self.terminals,
-            (Screen::Detail, DetailTab::Chat) => &self.chat,
-            (Screen::Detail, DetailTab::Work) => &self.work,
+            (Screen::Detail, DetailTab::Agent) => &self.work,
             _ => self
                 .global_tabs
                 .get(self.global_active)
@@ -987,8 +1016,7 @@ impl App {
     pub fn active_workspace_mut(&mut self) -> &mut TerminalWorkspace {
         match (self.screen, self.detail_tab) {
             (Screen::Detail, DetailTab::Terminal) => &mut self.terminals,
-            (Screen::Detail, DetailTab::Chat) => &mut self.chat,
-            (Screen::Detail, DetailTab::Work) => &mut self.work,
+            (Screen::Detail, DetailTab::Agent) => &mut self.work,
             _ => {
                 let index = self
                     .global_active
@@ -1009,7 +1037,7 @@ impl App {
                     self.diff.scroll = 0;
                     self.diff.hunk = 0;
                 }
-                DetailTab::Terminal | DetailTab::Chat | DetailTab::Work => {
+                DetailTab::Terminal | DetailTab::Agent | DetailTab::Server | DetailTab::Console => {
                     let workspace = self.active_workspace_mut();
                     if let Some(pane) = workspace.focused_pane_mut() {
                         pane.screen.scroll(usize::MAX / 2);
@@ -1236,26 +1264,34 @@ impl App {
                     self.message = "NORMAL — i to focus Pi, Esc to go back".into();
                     return;
                 }
-                if self.detail_tab == DetailTab::Terminal && self.terminal_focus {
+                if self.detail_tab.is_terminal() && self.terminal_focus {
                     self.terminal_focus = false;
                     self.message = "NORMAL — i to focus terminal, Esc to go back".into();
                     return;
                 }
                 self.close_detail();
             }
-            Key::Char('1') => self.select_tab(DetailTab::Overview),
-            Key::Char('2') => self.select_tab(DetailTab::Chat),
-            Key::Char('3') => self.select_tab(DetailTab::Diff),
-            Key::Char('4') => self.select_tab(DetailTab::Terminal),
-            Key::Char('5') => self.select_tab(DetailTab::Work),
+            Key::Char(character @ '1'..='6') | Key::Cmd(character @ '1'..='6') => {
+                let index = character as usize - '1' as usize;
+                let tabs = self.visible_detail_tabs();
+                if let Some(tab) = tabs.get(index) {
+                    self.select_tab(*tab);
+                }
+            }
             Key::Tab => {
-                let next = (self.detail_tab.index() + 1) % DetailTab::ALL.len();
-                self.select_tab(DetailTab::ALL[next]);
+                let tabs = self.visible_detail_tabs();
+                let next = (self.detail_tab_index() + 1) % tabs.len().max(1);
+                if let Some(tab) = tabs.get(next) {
+                    self.select_tab(*tab);
+                }
             }
             Key::BackTab => {
+                let tabs = self.visible_detail_tabs();
                 let next =
-                    (self.detail_tab.index() + DetailTab::ALL.len() - 1) % DetailTab::ALL.len();
-                self.select_tab(DetailTab::ALL[next]);
+                    (self.detail_tab_index() + tabs.len().saturating_sub(1)) % tabs.len().max(1);
+                if let Some(tab) = tabs.get(next) {
+                    self.select_tab(*tab);
+                }
             }
             Key::Char('a') => self.open_actions(),
             Key::Char('e') => self.start_edit_card(),
@@ -1269,7 +1305,7 @@ impl App {
                     if let Some(parsed) = self.diff.parsed.as_ref() {
                         self.diff.scroll = parsed.lines.len().saturating_sub(1) as u16;
                     }
-                } else if self.detail_tab.is_pi() || self.detail_tab == DetailTab::Terminal {
+                } else if self.detail_tab.is_pi() || self.detail_tab.is_terminal() {
                     let workspace = self.active_workspace_mut();
                     if let Some(pane) = workspace.focused_pane_mut() {
                         pane.screen.scroll(0);
@@ -1279,7 +1315,7 @@ impl App {
                 }
             }
             Key::Char('i') | Key::Enter
-                if self.detail_tab.is_pi() || self.detail_tab == DetailTab::Terminal =>
+                if self.detail_tab.is_pi() || self.detail_tab.is_terminal() =>
             {
                 self.terminal_focus = true;
             }
@@ -1297,16 +1333,99 @@ impl App {
             }
             _ => match self.detail_tab {
                 DetailTab::Diff => self.handle_diff_key(key),
-                DetailTab::Terminal => {
+                DetailTab::Terminal | DetailTab::Server | DetailTab::Console => {
                     self.handle_terminal_key(key);
                 }
-                DetailTab::Chat | DetailTab::Work => {
+                DetailTab::Agent => {
                     if self.handle_terminal_key(key) {
                         return;
                     }
                 }
                 DetailTab::Overview => {}
             },
+        }
+    }
+
+    pub fn visible_detail_tabs(&self) -> Vec<DetailTab> {
+        let mut tabs = vec![
+            DetailTab::Overview,
+            DetailTab::Agent,
+            DetailTab::Diff,
+            DetailTab::Terminal,
+        ];
+        let Some(detail) = self.detail.as_ref() else {
+            return tabs;
+        };
+        if detail.card.environment.is_none() {
+            return tabs;
+        }
+        let Some(project) = self.detail_project() else {
+            return tabs;
+        };
+        if project
+            .server_command
+            .as_deref()
+            .is_some_and(|command| !command.trim().is_empty())
+        {
+            tabs.push(DetailTab::Server);
+        }
+        if project
+            .console_command
+            .as_deref()
+            .is_some_and(|command| !command.trim().is_empty())
+        {
+            tabs.push(DetailTab::Console);
+        }
+        tabs
+    }
+
+    fn ensure_service(&mut self, tab: DetailTab) {
+        let (command, cwd) = {
+            let Some(detail) = self.detail.as_ref() else {
+                return;
+            };
+            let Some(project) = self.detail_project() else {
+                self.error = Some("The card has no project for this service".into());
+                return;
+            };
+            let command = match tab {
+                DetailTab::Server => project.server_command.clone(),
+                DetailTab::Console => project.console_command.clone(),
+                _ => None,
+            };
+            let Some(command) = command.filter(|command| !command.trim().is_empty()) else {
+                self.error = Some("This service is not configured for the project".into());
+                return;
+            };
+            let Some(environment) = detail.card.environment.as_ref() else {
+                self.error = Some("The card has no worktree for this service".into());
+                return;
+            };
+            (command, environment.worktree_path.clone())
+        };
+        let cols = self.cols.saturating_sub(4).max(20);
+        let rows = self.rows.saturating_sub(8).max(5);
+        let card_id = self
+            .detail
+            .as_ref()
+            .map(|detail| detail.card.id.clone())
+            .unwrap_or_default();
+        let env = [("STACKS_CARD_ID", card_id.as_str()), ("STACKS_TUI", "1")];
+        let sink = self.pty_sink();
+        let workspace = match tab {
+            DetailTab::Server => &mut self.server,
+            DetailTab::Console => &mut self.console,
+            _ => return,
+        };
+        if !workspace.is_empty() {
+            return;
+        }
+        match workspace.open_managed(&cwd, &command, cols, rows, &env, sink) {
+            Ok(_) => {
+                self.message = format!("{} started", tab.label());
+                self.error = None;
+            }
+            Err(error) => self.error = Some(error),
         }
     }
 
@@ -1325,8 +1444,12 @@ impl App {
                 self.ensure_card_terminal();
                 self.terminal_focus = true;
             }
-            DetailTab::Chat | DetailTab::Work => {
+            DetailTab::Agent => {
                 self.ensure_pi_pane(tab);
+                self.terminal_focus = true;
+            }
+            DetailTab::Server | DetailTab::Console => {
+                self.ensure_service(tab);
                 self.terminal_focus = true;
             }
             DetailTab::Overview => self.terminal_focus = false,
@@ -1342,7 +1465,7 @@ impl App {
                     self.diff.scroll = self.diff.scroll.saturating_sub((-delta) as u16);
                 }
             }
-            DetailTab::Terminal | DetailTab::Chat | DetailTab::Work => {
+            DetailTab::Terminal | DetailTab::Agent | DetailTab::Server | DetailTab::Console => {
                 let workspace = self.active_workspace_mut();
                 workspace.scroll_focused(-delta);
             }
@@ -1554,7 +1677,7 @@ impl App {
             return;
         };
         let card_id = detail.card.id.clone();
-        let cwd = if tab == DetailTab::Work {
+        let cwd = if tab == DetailTab::Agent {
             detail
                 .card
                 .environment
@@ -1583,7 +1706,7 @@ impl App {
         let workspace = self.pi_workspace_mut(tab);
         match workspace.open_program(&cwd, &launch, cols, rows, sink) {
             Ok(_) => {
-                self.message = if tab == DetailTab::Work {
+                self.message = if tab == DetailTab::Agent {
                     "Pi work session started".into()
                 } else {
                     "Pi planning session started".into()
@@ -1594,20 +1717,12 @@ impl App {
         }
     }
 
-    fn pi_workspace(&self, tab: DetailTab) -> &TerminalWorkspace {
-        if tab == DetailTab::Work {
-            &self.work
-        } else {
-            &self.chat
-        }
+    fn pi_workspace(&self, _tab: DetailTab) -> &TerminalWorkspace {
+        &self.work
     }
 
-    fn pi_workspace_mut(&mut self, tab: DetailTab) -> &mut TerminalWorkspace {
-        if tab == DetailTab::Work {
-            &mut self.work
-        } else {
-            &mut self.chat
-        }
+    fn pi_workspace_mut(&mut self, _tab: DetailTab) -> &mut TerminalWorkspace {
+        &mut self.work
     }
 
     fn stop_pi_workspace(&mut self, tab: DetailTab) {
@@ -1697,6 +1812,7 @@ impl App {
         let key = match key {
             Key::Char(character) => stacks_core::terminal::Key::Char(*character),
             Key::Ctrl(character) => stacks_core::terminal::Key::Ctrl(*character),
+            Key::Cmd(_) => return None,
             Key::Alt(character) => stacks_core::terminal::Key::Alt(*character),
             Key::Enter => stacks_core::terminal::Key::Enter,
             Key::Esc => stacks_core::terminal::Key::Esc,
@@ -2556,9 +2672,10 @@ impl App {
 
     pub fn is_busy(&self) -> bool {
         self.in_flight > 0
-            || self.chat.panes.values().any(|pane| pane.alive())
             || self.work.panes.values().any(|pane| pane.alive())
             || self.terminals.panes.values().any(|pane| pane.alive())
+            || self.server.panes.values().any(|pane| pane.alive())
+            || self.console.panes.values().any(|pane| pane.alive())
             || self
                 .global_tabs
                 .iter()
@@ -2574,7 +2691,10 @@ impl App {
     }
 
     pub fn detail_tab_index(&self) -> usize {
-        self.detail_tab.index()
+        self.visible_detail_tabs()
+            .iter()
+            .position(|tab| *tab == self.detail_tab)
+            .unwrap_or(0)
     }
 
     /// Drive time-based UI (confirmation focus) from the render loop.
