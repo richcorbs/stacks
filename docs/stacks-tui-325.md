@@ -54,7 +54,9 @@ check` still works.
   status and file counts; branch/ahead-behind/dirty/HEAD review context;
   unified diff with reviewed marks (session state, like the GUI), `n`/`p`,
   `[`/`]`, `gg`/`G`, `h`/`l` fold, visual select + OSC 52 yank, syntect line
-  highlighting and a sticky hunk header.
+  highlighting and a sticky hunk header. `c` comments on the selected file,
+  `C` writes overall feedback, and `s` composes the GUI prompt format and sends
+  it to the Agent Pi composer.
 - Lazygit is **not embedded**. Its useful UI patterns (tree compression,
   bordered panels, review context) are reused; staging/commit/branch UI stays
   a terminal tool, not a Stacks feature.

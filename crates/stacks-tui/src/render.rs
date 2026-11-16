@@ -48,12 +48,21 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // The board already carries scope/count in its CARDS panel border; do not
     // spend a row repeating it above the project sidebar.
     let header_height = if app.screen == Screen::Board { 0 } else { 1 };
+    let status_height = if app.screen == Screen::Board
+        || app.error.is_some()
+        || app.in_flight > 0
+        || (!app.message.is_empty() && app.message != "Ready")
+    {
+        1
+    } else {
+        0
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(header_height),
             Constraint::Min(10),
-            Constraint::Length(1),
+            Constraint::Length(status_height),
             Constraint::Length(1),
         ])
         .split(area);
@@ -64,7 +73,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Screen::Board => screens::board::render(frame, app, chunks[1]),
         Screen::Detail => screens::detail::render(frame, app, chunks[1]),
     }
-    render_status(frame, app, chunks[2]);
+    if status_height > 0 {
+        render_status(frame, app, chunks[2]);
+    }
     render_hints(frame, app, chunks[3]);
     screens::overlays::render(frame, app, area);
 }
@@ -153,15 +164,7 @@ fn render_status(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let position = match app.screen {
         Screen::Board => screens::board::position(app),
-        Screen::Detail => Some(format!(
-            "{} · {} · rev {}",
-            app.detail_tab.label(),
-            app.session_focus(),
-            app.detail
-                .as_ref()
-                .map(|detail| detail.card.workflow_revision)
-                .unwrap_or_default()
-        )),
+        Screen::Detail => None,
     };
     if let Some(position) = position {
         spans.push(Span::styled(
@@ -222,6 +225,12 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
             ("type", "filter"),
             ("Enter/Esc", "apply"),
             ("Ctrl-U", "clear"),
+        ],
+        Some(Overlay::DiffComment) => vec![
+            ("type", "feedback"),
+            ("Alt-Enter", "newline"),
+            ("Ctrl-S", "save"),
+            ("Esc", "cancel"),
         ],
         Some(Overlay::GlobalTerminal) => vec![
             ("Ctrl-G", "close"),

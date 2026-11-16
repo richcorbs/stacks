@@ -219,6 +219,8 @@ pub const KEYMAP: &[KeyHelp] = &[
         group: "Diff",
         entries: &[
             ("Space", "Mark file reviewed"),
+            ("c / C", "Comment on file / overall"),
+            ("s", "Send review feedback to Agent"),
             ("n / p", "Next / previous file"),
             ("[ / ]", "Next / previous hunk"),
             ("gg / G", "Top / bottom"),

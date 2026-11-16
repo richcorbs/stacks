@@ -333,9 +333,10 @@ Stacks > Reset Window Settings
   lifecycle through the extension. `Esc` leaves Pi input for normal mode;
   shell/service tabs use `Ctrl-W n`. Server and Console tabs appear only when
   the project and card environment provide them.
-- The DIFF tab has a lazygit-inspired compressed/collapsible file tree and a
-  branch/ahead-behind/dirty/HEAD review line. Lazygit itself is not embedded;
-  only its UI patterns are reused.
+- The DIFF tab has a lazygit-inspired compressed/collapsible file tree and
+  per-file review/comment state. `c`/`C` add file/overall feedback and `s`
+  sends the composed review prompt to the Agent Pi pane. Lazygit itself is not
+  embedded; only its UI patterns are reused.
 - Terminal emulation is `vt100` behind `TerminalScreen`, with known differences
   in `crates/stacks-tui/DIVERGENCES.md`. No mouse or image rendering.
 - Current limitation: the wholesale `src-tauri/src` → `stacks-core` extraction

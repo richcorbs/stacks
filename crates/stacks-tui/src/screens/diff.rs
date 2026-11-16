@@ -164,15 +164,10 @@ pub fn parent_dir(path: &str) -> Option<String> {
 
 pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme;
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(4)])
-        .split(area);
-    render_context(frame, app, chunks[0]);
     let body = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(40), Constraint::Min(40)])
-        .split(chunks[1]);
+        .split(area);
     let files_block = ratatui::widgets::Block::default()
         .borders(ratatui::widgets::Borders::ALL)
         .border_style(Style::default().fg(theme.muted))
@@ -238,6 +233,12 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                 };
                 let selected = *index == app.diff.selected;
                 let reviewed = app.diff.reviewed.contains(&file.path);
+                let comments = app
+                    .diff
+                    .comments
+                    .iter()
+                    .filter(|comment| comment.path == file.path && !comment.body.trim().is_empty())
+                    .count();
                 let name = file.path.rsplit('/').next().unwrap_or(&file.path);
                 lines.push(Line::from(vec![
                     Span::styled("  ".repeat(*depth), Style::default()),
@@ -259,13 +260,21 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                         if reviewed { " ✓" } else { "" },
                         Style::default().fg(theme.success),
                     ),
+                    Span::styled(
+                        if comments > 0 {
+                            format!(" ✎{comments}")
+                        } else {
+                            String::new()
+                        },
+                        Style::default().fg(theme.info),
+                    ),
                 ]));
             }
         }
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Space reviewed · n/p file · h/l fold",
+        "Space reviewed · c/C comment · s send · n/p file",
         Style::default().fg(theme.dim),
     )));
     let height = files_inner.height as usize;
@@ -310,67 +319,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             diff_inner,
         );
     }
-}
-
-fn render_context(frame: &mut Frame, app: &App, area: Rect) {
-    let theme = app.theme;
-    let context = app.diff.context.as_ref();
-    let branch = context
-        .map(|context| context.branch.clone())
-        .or_else(|| {
-            app.detail
-                .as_ref()
-                .and_then(|detail| detail.card.environment.as_ref())
-                .map(|environment| environment.branch.clone())
-        })
-        .unwrap_or_else(|| "detached".into());
-    let mut spans = vec![
-        Span::styled(
-            format!(" {branch} "),
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" worktree ", Style::default().fg(theme.dim)),
-    ];
-    if let Some(context) = context {
-        if context.ahead > 0 || context.behind > 0 {
-            spans.push(Span::styled(
-                format!("↑{} ↓{}  ", context.ahead, context.behind),
-                Style::default().fg(theme.info),
-            ));
-        }
-        spans.push(Span::styled(
-            format!("target {}  ", context.target),
-            Style::default().fg(theme.muted),
-        ));
-        spans.push(Span::styled(
-            if context.conflicts {
-                "◆ conflicts  "
-            } else if context.dirty {
-                "● dirty  "
-            } else {
-                "✓ clean  "
-            },
-            Style::default().fg(if context.conflicts {
-                theme.danger
-            } else if context.dirty {
-                theme.warning
-            } else {
-                theme.success
-            }),
-        ));
-        if let Some(head) = &context.head {
-            spans.push(Span::styled(
-                truncate(head, area.width.saturating_sub(60) as usize),
-                Style::default().fg(theme.dim),
-            ));
-        }
-    }
-    frame.render_widget(
-        Paragraph::new(Line::from(spans)).style(Style::default().bg(theme.panel)),
-        area,
-    );
 }
 
 fn file_color(status: DiffFileStatus, theme: crate::theme::Theme) -> ratatui::style::Color {

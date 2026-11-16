@@ -24,6 +24,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         Some(Overlay::EditCard) => render_edit_card(frame, app, area),
         Some(Overlay::FinishRefinement) => render_refinement(frame, app, area),
         Some(Overlay::Filter) => render_filter(frame, app, area),
+        Some(Overlay::DiffComment) => render_diff_comment(frame, app, area),
         Some(Overlay::GlobalTerminal) => {}
         None => {}
     }
@@ -421,6 +422,30 @@ fn render_refinement(frame: &mut Frame, app: &mut App, area: Rect) {
         &state.content.value,
         Some(state.content.cursor),
         "Final brief",
+        true,
+        theme,
+    );
+}
+
+fn render_diff_comment(frame: &mut Frame, app: &mut App, area: Rect) {
+    let theme = app.theme;
+    let Some(editor) = app.diff_comment.as_ref() else {
+        return;
+    };
+    let title = editor
+        .path
+        .as_deref()
+        .map(|path| format!("Diff feedback · {path} · Ctrl-S save"))
+        .unwrap_or_else(|| "Overall diff feedback · Ctrl-S save".into());
+    let modal_area = centered(area, 90, area.height.saturating_sub(6).max(14));
+    modal(frame, modal_area, &title, theme);
+    let inner = modal_area.inner(ratatui::layout::Margin::new(1, 1));
+    render_text_area(
+        frame,
+        inner,
+        &editor.input.value,
+        Some(editor.input.cursor),
+        "Feedback for the Agent",
         true,
         theme,
     );

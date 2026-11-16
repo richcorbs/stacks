@@ -108,6 +108,7 @@ pub enum Overlay {
     FinishRefinement,
     Filter,
     GlobalTerminal,
+    DiffComment,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,11 +253,24 @@ impl Confirm {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DiffComment {
+    pub path: String,
+    pub body: String,
+}
+
+pub struct DiffCommentEditor {
+    pub path: Option<String>,
+    pub input: TextArea,
+}
+
 #[derive(Debug, Default)]
 pub struct DiffState {
     pub files: Vec<DiffFile>,
     pub selected: usize,
     pub reviewed: HashSet<String>,
+    pub overall_comment: String,
+    pub comments: Vec<DiffComment>,
     pub collapsed_dirs: HashSet<String>,
     pub context: Option<GitReviewContext>,
     pub parsed: Option<ParsedDiff>,
@@ -311,6 +325,7 @@ pub struct App {
     pub edit_card: Option<EditCardState>,
     pub refinement: Option<RefinementState>,
     pub filter_input: TextInput,
+    pub diff_comment: Option<DiffCommentEditor>,
     pub palette_query: TextInput,
     pub palette_items: Vec<PaletteItem>,
     pub palette_cursor: usize,
@@ -394,6 +409,7 @@ impl App {
             edit_card: None,
             refinement: None,
             filter_input: TextInput::default(),
+            diff_comment: None,
             palette_query: TextInput::default(),
             palette_items: Vec::new(),
             palette_cursor: 0,
@@ -1480,11 +1496,120 @@ impl App {
         }
     }
 
+    fn open_diff_comment(&mut self, overall: bool) {
+        let path = if overall {
+            None
+        } else {
+            match self.diff.files.get(self.diff.selected) {
+                Some(file) => Some(file.path.clone()),
+                None => {
+                    self.message = "Select a changed file before commenting".into();
+                    return;
+                }
+            }
+        };
+        let existing = match path.as_deref() {
+            Some(path) => self
+                .diff
+                .comments
+                .iter()
+                .find(|comment| comment.path == path)
+                .map(|comment| comment.body.clone())
+                .unwrap_or_default(),
+            None => self.diff.overall_comment.clone(),
+        };
+        self.diff_comment = Some(DiffCommentEditor {
+            path,
+            input: TextArea::new(existing),
+        });
+        self.overlay = Some(Overlay::DiffComment);
+    }
+
+    fn handle_diff_comment_key(&mut self, key: Key) {
+        let Some(editor) = self.diff_comment.as_mut() else {
+            self.overlay = None;
+            return;
+        };
+        match key {
+            Key::Esc => {
+                self.overlay = None;
+                self.diff_comment = None;
+            }
+            Key::Ctrl('s') => {
+                let body = editor.input.value.trim().to_string();
+                if let Some(path) = editor.path.clone() {
+                    if body.is_empty() {
+                        self.diff.comments.retain(|comment| comment.path != path);
+                    } else if let Some(comment) = self
+                        .diff
+                        .comments
+                        .iter_mut()
+                        .find(|comment| comment.path == path)
+                    {
+                        comment.body = body;
+                    } else {
+                        self.diff.comments.push(DiffComment { path, body });
+                    }
+                } else {
+                    self.diff.overall_comment = body;
+                }
+                self.overlay = None;
+                self.diff_comment = None;
+                self.message = "Diff feedback saved".into();
+            }
+            _ => {
+                editor.input.handle(&key);
+            }
+        }
+    }
+
+    fn submit_diff_feedback(&mut self) {
+        let mut lines = vec![
+            "Please address the following feedback".to_string(),
+            String::new(),
+        ];
+        if !self.diff.overall_comment.trim().is_empty() {
+            lines.push(self.diff.overall_comment.trim().to_string());
+            lines.push(String::new());
+        }
+        for (index, comment) in self
+            .diff
+            .comments
+            .iter()
+            .filter(|comment| !comment.body.trim().is_empty())
+            .enumerate()
+        {
+            lines.push(format!("{}. [git diff] {}", index + 1, comment.path));
+            lines.push(format!("   {}", comment.body.trim()));
+            lines.push(String::new());
+        }
+        let prompt = lines.join("\n").trim().to_string();
+        if prompt == "Please address the following feedback" {
+            self.message = "Add a comment or overall feedback before submitting".into();
+            return;
+        }
+        self.select_tab(DetailTab::Agent);
+        let flattened = prompt.replace('\r', "").replace('\n', " ");
+        match self.work.write(format!("{flattened}\r").as_bytes()) {
+            Ok(()) => {
+                self.diff.comments.clear();
+                self.diff.overall_comment.clear();
+                self.diff.reviewed.clear();
+                self.message = "Diff feedback sent to Agent".into();
+                self.terminal_focus = true;
+            }
+            Err(error) => self.error = Some(format!("Could not send feedback to Agent: {error}")),
+        }
+    }
+
     fn handle_diff_key(&mut self, key: Key) {
         match key {
             Key::Char('h') => self.toggle_diff_directory(Some(true)),
             Key::Char('l') => self.toggle_diff_directory(Some(false)),
             Key::Enter => self.toggle_diff_directory(None),
+            Key::Char('c') => self.open_diff_comment(false),
+            Key::Char('C') => self.open_diff_comment(true),
+            Key::Char('s') => self.submit_diff_feedback(),
             Key::Char(' ') => {
                 if let Some(file) = self.diff.files.get(self.diff.selected) {
                     let path = file.path.clone();
@@ -1707,11 +1832,7 @@ impl App {
         let workspace = self.pi_workspace_mut(tab);
         match workspace.open_program(&cwd, &launch, cols, rows, sink) {
             Ok(_) => {
-                self.message = if tab == DetailTab::Agent {
-                    "Pi work session started".into()
-                } else {
-                    "Pi planning session started".into()
-                };
+                self.message = String::new();
                 self.error = None;
             }
             Err(error) => self.error = Some(error),
@@ -2511,6 +2632,10 @@ impl App {
             }
             Overlay::FinishRefinement => {
                 self.handle_refinement_key(key);
+                true
+            }
+            Overlay::DiffComment => {
+                self.handle_diff_comment_key(key);
                 true
             }
             Overlay::Filter => {
