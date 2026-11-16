@@ -270,6 +270,8 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 ],
                 crate::app::DetailTab::Diff => vec![
                     ("Space", "reviewed"),
+                    ("c/C", "comment"),
+                    ("s", "send Agent"),
                     ("n/p", "file"),
                     ("[ ]", "hunk"),
                     ("h/l", "fold"),

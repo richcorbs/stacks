@@ -193,7 +193,7 @@ fn render_footer(frame: &mut Frame, app: &mut App, area: Rect) {
         let mut spans = Vec::new();
         for (index, action) in app.actions.iter().enumerate() {
             if index > 0 {
-                spans.push(Span::styled("  ·  ", Style::default().fg(theme.dim)));
+                spans.push(Span::styled("   ", Style::default().fg(theme.dim)));
             }
             let style = if action.disabled_reason.is_some() {
                 Style::default().fg(theme.dim)
