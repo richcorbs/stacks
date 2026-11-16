@@ -442,15 +442,29 @@ impl TerminalWorkspace {
     pub fn resize(&mut self, cols: u16, rows: u16) {
         self.cols = cols.max(2);
         self.rows = rows.max(1);
-        let leaves = self.tree.leaves();
-        let count = leaves.len().max(1) as u16;
-        let per_cols = (self.cols / count).max(2);
-        let per_rows = (self.rows / count).max(1);
+        let mut areas = Vec::new();
+        layout_tree(
+            &self.tree,
+            Rect {
+                x: 0,
+                y: 0,
+                width: self.cols,
+                height: self.rows,
+            },
+            &mut areas,
+        );
+        let count = self.panes.len().max(1) as u16;
         for pane in self.panes.values_mut() {
+            let area = areas
+                .iter()
+                .find(|(id, _)| id == &pane.id)
+                .map(|(_, area)| *area);
             let (cols, rows) = if self.maximized && pane.id == self.focused {
                 (self.cols, self.rows)
+            } else if let Some(area) = area {
+                (area.width.max(2), area.height.max(1))
             } else {
-                (per_cols, per_rows)
+                ((self.cols / count).max(2), (self.rows / count).max(1))
             };
             pane.screen.resize(cols, rows);
             if let Some(session) = pane.session.as_mut() {
@@ -826,4 +840,33 @@ fn shared_sink(sender: crate::event::EventSender, pane: String) -> PtySink {
             event,
         });
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resize_matches_split_pane_areas() {
+        let mut workspace = TerminalWorkspace::new("test");
+        workspace.panes.insert(
+            "a".into(),
+            Pane::new("a".into(), "/tmp".into(), None, false, false, 80, 24, 100),
+        );
+        workspace.panes.insert(
+            "b".into(),
+            Pane::new("b".into(), "/tmp".into(), None, false, false, 80, 24, 100),
+        );
+        workspace.tree = SplitNode::Split {
+            direction: SplitDirection::Row,
+            ratio: 0.5,
+            manual: false,
+            first: Box::new(SplitNode::leaf("a")),
+            second: Box::new(SplitNode::leaf("b")),
+        };
+        workspace.focused = "a".into();
+        workspace.resize(100, 30);
+        assert_eq!(workspace.panes["a"].screen.size(), (50, 30));
+        assert_eq!(workspace.panes["b"].screen.size(), (49, 30));
+    }
 }
