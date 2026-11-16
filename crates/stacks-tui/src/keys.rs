@@ -51,7 +51,13 @@ impl Key {
                     Key::Char(character)
                 }
             }
-            KeyCode::Enter => Key::Enter,
+            KeyCode::Enter => {
+                if ctrl || shift {
+                    Key::Ctrl('j')
+                } else {
+                    Key::Enter
+                }
+            }
             KeyCode::Esc => Key::Esc,
             KeyCode::Tab if shift => Key::BackTab,
             KeyCode::Tab => Key::Tab,
@@ -232,6 +238,7 @@ pub const KEYMAP: &[KeyHelp] = &[
         entries: &[
             ("i", "Focus native Pi pane"),
             ("Ctrl-^", "Release input"),
+            ("Shift-Enter / Ctrl-J", "Insert newline in Pi"),
             ("F12", "Release fallback"),
             ("Alt-W then [", "Copy mode"),
             ("Esc", "Back (normal mode)"),

@@ -97,7 +97,7 @@ check` still works.
   bordered panels, review context) are reused; staging/commit/branch UI stays
   a terminal tool, not a Stacks feature.
 - Native Pi Agent: `Alt-W` is the pane prefix so Pi keeps `Ctrl-W`; `Ctrl-^`
-  releases input.
+  releases input. `Shift-Enter` or `Ctrl-J` inserts a newline in Pi's editor.
 - Terminal: real PTY + vt100 rendering, split panes (`Ctrl-W |/-o x z`), exact
   per-pane PTY resize, copy mode (`Ctrl-W [`), OSC 52 yank.
 - Global terminal: `Ctrl-G`; `Ctrl-^` releases input; use `n`/`x` for tabs.

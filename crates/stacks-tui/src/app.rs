@@ -2803,18 +2803,11 @@ impl App {
                 self.stop_pi_workspace(self.detail_tab);
                 self.ensure_pi_pane(self.detail_tab);
             }
-            _ => match self.detail_tab {
-                DetailTab::Diff => self.handle_diff_key(key),
-                DetailTab::Terminal | DetailTab::Server | DetailTab::Console => {
-                    self.handle_terminal_key(key);
+            _ => {
+                if self.detail_tab == DetailTab::Diff {
+                    self.handle_diff_key(key);
                 }
-                DetailTab::Agent => {
-                    if self.handle_terminal_key(key) {
-                        return;
-                    }
-                }
-                DetailTab::Overview => {}
-            },
+            }
         }
     }
 
