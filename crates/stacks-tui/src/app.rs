@@ -1641,11 +1641,6 @@ impl App {
                 }
             }
             CoreEvent::AutomationChanged { card_id, .. } => {
-                if !self.headless && self.selected_card.as_deref() != Some(card_id.as_str()) {
-                    use std::io::Write;
-                    print!("\x07");
-                    let _ = std::io::stdout().flush();
-                }
                 self.refresh_board();
                 if self.selected_card.as_deref() == Some(card_id.as_str()) {
                     self.load_detail(card_id);

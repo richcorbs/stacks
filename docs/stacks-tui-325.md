@@ -68,8 +68,8 @@ check` still works.
 - `--shared` runs the TUI alongside another Stacks client on a TUI-specific
   automation socket. Both clients still share the database, so concurrent
   writes should be treated as a deliberate opt-in.
-- Attention: agent lifecycle changes for a non-selected card emit a terminal
-  bell; the board card status is the durable signal.
+- Agent lifecycle changes update the board/card status; no terminal bell is
+  emitted, avoiding visual-bell flashes in the alternate screen.
 - Superthread projects: `P` configures the provider (enabled state, space,
   token env var, workspace slug, board and column IDs) through the shared `st`
   mapping validation; `S` syncs the configured board, importing/updating
