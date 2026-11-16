@@ -230,6 +230,16 @@ impl CardStore {
                 if let Some(binding) = binding {
                     transaction
                         .execute(
+                            "CREATE TABLE IF NOT EXISTS retired_provider_cards (
+                                binding_id TEXT NOT NULL, external_id TEXT NOT NULL,
+                                retired_at INTEGER NOT NULL,
+                                PRIMARY KEY(binding_id, external_id)
+                             )",
+                            [],
+                        )
+                        .context("ensure provider retirement journal")?;
+                    transaction
+                        .execute(
                             "INSERT OR IGNORE INTO retired_provider_cards(binding_id,external_id,retired_at)
                              VALUES (?1,?2,unixepoch())",
                             params![binding, external_id],
@@ -1549,8 +1559,8 @@ impl CardStore {
         }
 
         let target = project.path.trim_end_matches('/');
-        let branch = local_work_branch(&detail.card.external_id, &detail.card.title);
-        let worktree = format!("{target}-card-{}", detail.card.external_id);
+        let mut branch = local_work_branch(&detail.card.external_id, &detail.card.title);
+        let mut worktree = format!("{target}-card-{}", detail.card.external_id);
         if Path::new(&worktree).exists() {
             bail!("The worktree path already exists: {worktree}");
         }
@@ -1578,11 +1588,29 @@ impl CardStore {
                 .replace("{card_title}", &shell_quote(&detail.card.title))
                 .replace("{branch}", &shell_quote(&branch))
                 .replace("{worktree}", &shell_quote(&worktree));
-            run_start_work_command(target, &command)?;
+            let output = run_start_work_command(target, &command)?;
+            if let Some(detected) = output.lines().rev().find_map(|line| {
+                let line = line.trim();
+                let candidate = line
+                    .strip_prefix("[stwork] Entering ")
+                    .map(|value| value.trim_end_matches("..."))
+                    .or_else(|| line.strip_prefix("Path: "))
+                    .unwrap_or(line);
+                (!candidate.is_empty() && Path::new(candidate).is_dir())
+                    .then(|| candidate.to_string())
+            }) {
+                worktree = detected;
+            }
             if !Path::new(&worktree).is_dir() {
                 bail!(
-                    "Custom start-work command completed but did not create the worktree at {worktree}"
+                    "Custom start-work command completed but did not create a worktree (expected {worktree})"
                 );
+            }
+            branch = git_text(["-C", &worktree, "branch", "--show-current"])?
+                .trim()
+                .to_string();
+            if branch.is_empty() {
+                bail!("Custom start-work command left the worktree without a branch");
             }
         } else {
             let add = std::process::Command::new("git")
@@ -4035,11 +4063,13 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn run_start_work_command(cwd: &str, command: &str) -> Result<()> {
+fn run_start_work_command(cwd: &str, command: &str) -> Result<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let output = std::process::Command::new(&shell)
         .args(["-lic", command])
         .current_dir(cwd)
+        .env("STACKS_WORKSPACE_SETUP", "1")
+        .stdin(std::process::Stdio::null())
         .output()
         .with_context(|| format!("run start-work command in {cwd}"))?;
     if !output.status.success() {
@@ -4054,7 +4084,7 @@ fn run_start_work_command(cwd: &str, command: &str) -> Result<()> {
             }
         );
     }
-    Ok(())
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn mark_card_ready(
