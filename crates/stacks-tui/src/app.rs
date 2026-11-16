@@ -955,9 +955,8 @@ impl App {
                     }
                 }
                 Pending::CtrlW => {
-                    if self.handle_pane_prefix(key.clone()) {
-                        return;
-                    }
+                    self.handle_pane_prefix(key.clone());
+                    return;
                 }
             }
         }
@@ -966,9 +965,9 @@ impl App {
             return;
         }
         if self.screen == Screen::Detail
-            && self.detail_tab == DetailTab::Agent
+            && (self.detail_tab.is_pi() || self.detail_tab.is_terminal())
             && self.terminal_focus
-            && key == Key::Esc
+            && key == Key::Ctrl(']')
             && self.active_workspace().active_copy().is_none()
         {
             self.terminal_focus = false;
@@ -1926,11 +1925,6 @@ impl App {
     }
 
     fn handle_pane_prefix(&mut self, key: Key) -> bool {
-        if key == Key::Char('n') {
-            self.terminal_focus = false;
-            self.message = String::new();
-            return true;
-        }
         match key {
             Key::Char('|') | Key::Char('-') => {
                 let direction = if key == Key::Char('|') {
@@ -2023,13 +2017,13 @@ impl App {
             self.overlay = None;
             return true;
         }
+        if self.global_terminal_focus && key == Key::Ctrl(']') {
+            self.global_terminal_focus = false;
+            self.message = String::new();
+            return true;
+        }
         if self.pending == Some(Pending::CtrlW) {
             self.pending = None;
-            if key == Key::Char('n') {
-                self.global_terminal_focus = false;
-                self.message = String::new();
-                return true;
-            }
             if let Some(tab) = self.global_tabs.get_mut(self.global_active) {
                 let workspace = &mut tab.workspace;
                 match key {
@@ -2931,7 +2925,6 @@ fn key_from_help(label: &str) -> Option<Key> {
         "Ctrl-W then z" => Some(Key::Ctrl('w')),
         "Ctrl-W then [" => Some(Key::Ctrl('w')),
         "Ctrl-W then q" => Some(Key::Ctrl('w')),
-        "Ctrl-W then n" => Some(Key::Ctrl('w')),
         "Ctrl-C" => Some(Key::Ctrl('c')),
         "Alt-Enter" => Some(Key::Alt('\r')),
         "/" => Some(Key::Char('/')),

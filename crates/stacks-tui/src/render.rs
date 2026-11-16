@@ -217,7 +217,7 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
         ],
         Some(Overlay::GlobalTerminal) => vec![
             ("Ctrl-G", "close"),
-            ("Ctrl-W n", "normal/tabs"),
+            ("Ctrl-]", "release / tabs"),
             ("Ctrl-W [", "copy"),
         ],
         None => match app.screen {
@@ -262,7 +262,11 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 ],
                 crate::app::DetailTab::Agent => {
                     if app.terminal_focus {
-                        vec![("Esc", "release"), ("Ctrl-W [", "copy"), ("Ctrl-Q", "quit")]
+                        vec![
+                            ("Ctrl-]", "release"),
+                            ("Ctrl-W [", "copy"),
+                            ("Ctrl-Q", "quit"),
+                        ]
                     } else {
                         vec![("i/Enter", "focus"), ("Esc", "back"), ("Tab", "tabs")]
                     }
@@ -272,7 +276,7 @@ fn hint_entries(app: &App) -> Vec<(&'static str, &'static str)> {
                 | crate::app::DetailTab::Console => {
                     if app.terminal_focus {
                         vec![
-                            ("Ctrl-W n", "release"),
+                            ("Ctrl-]", "release"),
                             ("Ctrl-W [", "copy"),
                             ("Ctrl-Q", "quit"),
                         ]

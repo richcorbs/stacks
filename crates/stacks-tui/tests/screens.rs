@@ -233,7 +233,7 @@ fn help_renders_the_keymap_table() {
     assert!(screen.contains("Ctrl-P"), "{screen}");
     app.handle_key(Key::Char('G'));
     let screen = headless::dump(&mut app, 120, 40);
-    assert!(screen.contains("Normal mode"), "{screen}");
+    assert!(screen.contains("Release input"), "{screen}");
 }
 
 #[test]

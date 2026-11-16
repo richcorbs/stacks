@@ -62,7 +62,8 @@ check` still works.
   a terminal tool, not a Stacks feature.
 - Terminal: real PTY + vt100 rendering, split panes (`Ctrl-W |/-o x z`), exact
   per-pane PTY resize, copy mode (`Ctrl-W [`), OSC 52 yank.
-- Global terminal: `Ctrl-G`, tabs in normal mode (`Ctrl-W n`, then `n`/`x`).
+- Global terminal: `Ctrl-G`, `Ctrl-]` to release input and use `n`/`x` for
+  tabs.
 - Command palette (`Ctrl-P`/`:`), project switcher (`Ctrl-O`), settings
   (`Ctrl-,`) written through to `settings.json`, generated help (`?`).
 - Headless verification:
@@ -131,8 +132,7 @@ Adopted:
   accents, plus horizontal section rules for detail bodies.
 - **Panel framing**: bordered sections with titles/counts (`PROJECTS 6`,
   `CARDS · Stacks · 39`, `FILES 58`, `DIFF · path`), focused-border accents,
-  and inline section rules (`─ Overview · rev 18 · NORMAL ─…`) separating the
-  detail body from tabs and footer.
+  and inline section rules separating the detail body from the footer.
 - Existing shortcuts already matched lazygit’s model: context-sensitive footer
   hints, `?` help, confirmation panels, hunk navigation, panel focus, theme
   tokens.
@@ -161,9 +161,8 @@ This is a deliberate scope change from the card text:
   headless/automation use, but the TUI does not use it.
 - The shared extension now emits lifecycle for card sessions. The shipping GUI
   ignores the unknown automation action; it still infers lifecycle from RPC.
-- Agent uses `Esc` to leave Pi input for normal mode. Shell/service tabs use
-  `Ctrl-W n` because Esc belongs to the shell there; global-rail shortcuts work
-  in normal mode.
+- `Ctrl-]` leaves Pi, shell, service and global-terminal input for normal
+  mode; global-rail shortcuts work there.
 
 ## Known gaps / follow-ups
 
