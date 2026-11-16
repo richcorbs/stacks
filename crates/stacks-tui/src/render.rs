@@ -71,30 +71,22 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
 fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme;
-    let mut left = vec![Span::styled(
-        " Stacks ",
-        Style::default()
-            .fg(theme.canvas)
-            .bg(theme.accent)
-            .add_modifier(Modifier::BOLD),
-    )];
+    let mut left = Vec::new();
     match app.screen {
         Screen::Board => {
+            left.push(Span::styled(
+                " Stacks ",
+                Style::default()
+                    .fg(theme.canvas)
+                    .bg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ));
             let scope = app
                 .selected_project()
                 .map(|project| project.name.clone())
                 .unwrap_or_else(|| "All projects".into());
-            let count = app
-                .selected_project()
-                .map(|project| app.project_count(&project.id))
-                .unwrap_or_else(|| {
-                    app.board
-                        .as_ref()
-                        .map(|board| board.cards.len())
-                        .unwrap_or(0)
-                });
             left.push(Span::styled(
-                format!("  {scope}  ·  {count} cards"),
+                format!("  {scope}"),
                 Style::default().fg(theme.muted),
             ));
         }
@@ -103,9 +95,9 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
             left.push(Span::styled(
                 format!(
                     "  {}",
-                    truncate(&title, area.width.saturating_sub(28) as usize)
+                    truncate(&title, area.width.saturating_sub(4) as usize)
                 ),
-                Style::default().fg(theme.text),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
             ));
         }
     }

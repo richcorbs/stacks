@@ -34,12 +34,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let card = detail.card.clone();
-    let board_projects = app
-        .board
-        .as_ref()
-        .map(|board| board.projects.clone())
-        .unwrap_or_default();
-    let project = card.project(&board_projects);
     let (glyph, word) = status_glyph(card.status);
     let mut header = Vec::new();
     header.push(Line::from(vec![
@@ -59,13 +53,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(theme.dim),
         ),
     ]));
-    let mut meta = vec![
-        project
-            .map(|project| project.name.clone())
-            .unwrap_or_else(|| "no project".into()),
-        word.to_string(),
-        format!("rev {}", card.workflow_revision),
-    ];
+    let mut meta = vec![word.to_string(), format!("rev {}", card.workflow_revision)];
     if let Some(environment) = &card.environment {
         meta.push(environment.branch.clone());
         meta.push(environment.worktree_path.clone());
@@ -269,8 +257,12 @@ pub fn title(app: &App) -> String {
         .detail_project()
         .map(|project| project.name.clone())
         .unwrap_or_default();
-    format!(
-        "{project} · #{} {}",
-        detail.card.external_id, detail.card.title
-    )
+    if project.is_empty() {
+        format!("#{} {}", detail.card.external_id, detail.card.title)
+    } else {
+        format!(
+            "{project} · #{} {}",
+            detail.card.external_id, detail.card.title
+        )
+    }
 }
