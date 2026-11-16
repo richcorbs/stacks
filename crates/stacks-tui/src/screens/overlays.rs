@@ -83,7 +83,7 @@ fn render_confirm(frame: &mut Frame, app: &mut App, area: Rect) {
             "two-step confirmation: {} — the primary action stays disabled",
             confirm.countdown()
         ),
-        _ => "ready".to_string(),
+        _ => String::new(),
     };
     frame.render_widget(
         Paragraph::new(Span::styled(status, Style::default().fg(theme.warning)))
