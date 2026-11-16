@@ -163,6 +163,8 @@ pub struct TuiUiState {
     pub card_id: Option<String>,
     pub detail_tab: Option<usize>,
     pub project_tab: Option<String>,
+    pub terminal_tab: Option<String>,
+    pub terminal_layout: Option<String>,
 }
 
 pub fn load_ui_state() -> TuiUiState {
@@ -190,6 +192,14 @@ pub fn load_ui_state() -> TuiUiState {
             .get("tui_last_project_tab")
             .and_then(Value::as_str)
             .map(str::to_string),
+        terminal_tab: value
+            .get("tui_last_terminal_tab")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        terminal_layout: value
+            .get("tui_last_terminal_layout")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     }
 }
 
@@ -199,11 +209,16 @@ pub fn save_ui_state(state: &TuiUiState) -> Result<(), String> {
     let object = value
         .as_object_mut()
         .ok_or_else(|| "settings.json must contain an object".to_string())?;
-    object.insert("tui_last_screen".into(), Value::String(state.screen.clone()));
+    object.insert(
+        "tui_last_screen".into(),
+        Value::String(state.screen.clone()),
+    );
     for (key, value_opt) in [
         ("tui_last_project_id", state.project_id.as_ref()),
         ("tui_last_card_id", state.card_id.as_ref()),
         ("tui_last_project_tab", state.project_tab.as_ref()),
+        ("tui_last_terminal_tab", state.terminal_tab.as_ref()),
+        ("tui_last_terminal_layout", state.terminal_layout.as_ref()),
     ] {
         match value_opt {
             Some(value) => {

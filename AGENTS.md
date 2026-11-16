@@ -337,8 +337,9 @@ Stacks > Reset Window Settings
   Diff, Terminal, and enabled Release / configured Server/Console tabs for the
   selected project. Project notes write through to `projects.notes`; the project
   Agent uses a dedicated persistent session directory. Card and project PTYs
-  are cached by id while the TUI runs; the last card/project and tab are
-  restored on restart, but live PTYs/splits are not. The
+  are cached by id while the TUI runs; the last card/project, tab, and terminal
+  split layout are restored on restart as fresh PTYs. Live processes and Agent
+  splits are not restored. The
   project sidebar supports `n` add, `e` edit (name/path/target/commands/release),
   and `D` delete with the no-active-work guard.
 - Agent lifecycle changes for a non-selected card emit a terminal bell.

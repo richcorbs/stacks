@@ -17,6 +17,7 @@ crossterm.workspace = true
 dirs.workspace = true
 ratatui.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 stacks-core = { path = "../stacks-core" }
 syntect.workspace = true
 unicode-width.workspace = true

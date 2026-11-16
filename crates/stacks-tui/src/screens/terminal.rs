@@ -11,6 +11,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
+use serde::{Deserialize, Serialize};
 use stacks_core::{
     pi::NativeLaunch,
     pty::{PtyEvent, PtySession, PtySink},
@@ -23,6 +24,7 @@ pub struct Pane {
     pub id: String,
     pub cwd: String,
     pub command: Option<String>,
+    pub managed: bool,
     pub session: Option<PtySession>,
     pub screen: Box<dyn TerminalScreen>,
     pub generation: Option<String>,
@@ -94,6 +96,7 @@ impl Pane {
         id: String,
         cwd: String,
         command: Option<String>,
+        managed: bool,
         cols: u16,
         rows: u16,
         scrollback: usize,
@@ -102,6 +105,7 @@ impl Pane {
             id,
             cwd,
             command,
+            managed,
             session: None,
             screen: Box::new(Vt100Screen::new(cols, rows, scrollback)),
             generation: None,
@@ -113,6 +117,22 @@ impl Pane {
     pub fn alive(&self) -> bool {
         self.exited.is_none()
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedPane {
+    pub id: String,
+    pub cwd: String,
+    pub command: Option<String>,
+    pub managed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedWorkspace {
+    pub tree: SplitNode,
+    pub focused: String,
+    pub maximized: bool,
+    pub panes: Vec<SavedPane>,
 }
 
 pub struct TerminalWorkspace {
@@ -138,6 +158,72 @@ impl TerminalWorkspace {
             maximized: false,
             scrollback: 10_000,
         }
+    }
+
+    pub fn snapshot(&self) -> Option<SavedWorkspace> {
+        if self.panes.is_empty() {
+            return None;
+        }
+        let mut panes = self
+            .panes
+            .values()
+            .map(|pane| SavedPane {
+                id: pane.id.clone(),
+                cwd: pane.cwd.clone(),
+                command: pane.command.clone(),
+                managed: pane.managed,
+            })
+            .collect::<Vec<_>>();
+        panes.sort_by(|left, right| left.id.cmp(&right.id));
+        Some(SavedWorkspace {
+            tree: self.tree.clone(),
+            focused: self.focused.clone(),
+            maximized: self.maximized,
+            panes,
+        })
+    }
+
+    pub fn restore(
+        &mut self,
+        saved: SavedWorkspace,
+        cols: u16,
+        rows: u16,
+        sink: PtySink,
+    ) -> Result<(), String> {
+        self.close_all();
+        for pane in saved.panes {
+            let mut next = Pane::new(
+                pane.id.clone(),
+                pane.cwd.clone(),
+                pane.command.clone(),
+                pane.managed,
+                cols,
+                rows,
+                self.scrollback,
+            );
+            let session = PtySession::spawn_with_env(
+                pane.id.clone(),
+                &pane.cwd,
+                pane.command.as_deref(),
+                pane.managed,
+                cols,
+                rows,
+                &[],
+                sink.clone(),
+            )?;
+            next.generation = Some(session.generation.clone());
+            next.session = Some(session);
+            self.panes.insert(pane.id, next);
+        }
+        self.tree = saved.tree;
+        self.focused = saved.focused;
+        if !self.panes.contains_key(&self.focused) {
+            if let Some(first) = self.panes.keys().next() {
+                self.focused = first.clone();
+            }
+        }
+        self.maximized = saved.maximized;
+        Ok(())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -194,6 +280,7 @@ impl TerminalWorkspace {
             id.clone(),
             cwd.to_string(),
             command.map(str::to_string),
+            managed_service,
             cols,
             rows,
             self.scrollback,
@@ -232,6 +319,7 @@ impl TerminalWorkspace {
             id.clone(),
             cwd.to_string(),
             None,
+            false,
             cols,
             rows,
             self.scrollback,

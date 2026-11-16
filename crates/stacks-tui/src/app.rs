@@ -21,7 +21,7 @@ use crate::{
     core_bridge::{self, Store},
     event::{CoreEvent, EventBus, EventSender},
     keys::{KEYMAP, Key},
-    screens::terminal::TerminalWorkspace,
+    screens::terminal::{SavedWorkspace, TerminalWorkspace},
     split_tree::SplitDirection,
     theme::{self, ColorDepth, Theme},
     widgets::{TextArea, TextInput},
@@ -1012,14 +1012,85 @@ impl App {
                     .map(|state| state.tab.label().to_string()),
             ),
         };
+        let (terminal_tab, terminal_layout) =
+            if self.screen == Screen::Detail && self.detail_tab.is_terminal() {
+                (
+                    Some(self.detail_tab.label().to_string()),
+                    match self.detail_tab {
+                        DetailTab::Terminal => self.terminals.snapshot(),
+                        DetailTab::Server => self.server.snapshot(),
+                        DetailTab::Console => self.console.snapshot(),
+                        _ => None,
+                    }
+                    .and_then(|layout| serde_json::to_string(&layout).ok()),
+                )
+            } else if self.screen == Screen::Project
+                && self
+                    .project
+                    .as_ref()
+                    .is_some_and(|state| state.tab.is_terminal())
+            {
+                (
+                    self.project
+                        .as_ref()
+                        .map(|state| state.tab.label().to_string()),
+                    self.project
+                        .as_ref()
+                        .and_then(|state| match state.tab {
+                            ProjectTab::Terminal => state.terminal.snapshot(),
+                            ProjectTab::Server => state.server.snapshot(),
+                            ProjectTab::Console => state.console.snapshot(),
+                            _ => None,
+                        })
+                        .and_then(|layout| serde_json::to_string(&layout).ok()),
+                )
+            } else {
+                (None, None)
+            };
         let state = settings::TuiUiState {
             screen: screen.into(),
             project_id,
             card_id,
             detail_tab,
             project_tab,
+            terminal_tab,
+            terminal_layout,
         };
         let _ = settings::save_ui_state(&state);
+    }
+
+    fn restore_terminal_layout(&mut self, state: &settings::TuiUiState) {
+        let Some(tab) = state.terminal_tab.as_deref() else {
+            return;
+        };
+        let current = match self.screen {
+            Screen::Detail => self.detail_tab.label(),
+            Screen::Project => self
+                .project
+                .as_ref()
+                .map(|state| state.tab.label())
+                .unwrap_or_default(),
+            Screen::Board => return,
+        };
+        if current != tab {
+            return;
+        }
+        let Some(encoded) = state.terminal_layout.as_deref() else {
+            return;
+        };
+        let Ok(layout) = serde_json::from_str::<SavedWorkspace>(encoded) else {
+            return;
+        };
+        let cols = self.cols.saturating_sub(4).max(20);
+        let rows = self.rows.saturating_sub(8).max(5);
+        let sink = self.pty_sink();
+        match self
+            .active_workspace_mut()
+            .restore(layout, cols, rows, sink)
+        {
+            Ok(()) => self.terminal_focus = true,
+            Err(error) => self.error = Some(format!("Could not restore terminal layout: {error}")),
+        }
     }
 
     pub fn restore_ui_state(&mut self) {
@@ -1029,7 +1100,7 @@ impl App {
         let state = settings::load_ui_state();
         match state.screen.as_str() {
             "card" => {
-                let Some(card_id) = state.card_id else {
+                let Some(card_id) = state.card_id.clone() else {
                     return;
                 };
                 if !self
@@ -1046,9 +1117,10 @@ impl App {
                 {
                     self.detail_tab = tab;
                 }
+                self.restore_terminal_layout(&state);
             }
             "project" => {
-                let Some(project_id) = state.project_id else {
+                let Some(project_id) = state.project_id.clone() else {
                     return;
                 };
                 if !self.board.as_ref().is_some_and(|board| {
@@ -1069,6 +1141,7 @@ impl App {
                         self.select_project_tab(tab);
                     }
                 }
+                self.restore_terminal_layout(&state);
             }
             _ => {}
         }
@@ -4953,5 +5026,6 @@ impl TerminalWorkspace {
         self.panes.clear();
         self.focused.clear();
         self.tree = crate::split_tree::SplitNode::leaf("");
+        self.maximized = false;
     }
 }

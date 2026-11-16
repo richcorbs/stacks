@@ -213,9 +213,10 @@ This is a deliberate scope change from the card text:
   Stacks DIFF pane.
 - Reviewed marks are per-session (the GUI also keeps them in session state).
 - Session caches are in-memory: leaving/reopening a card or project preserves
-  processes while the TUI runs. The last card/project and active tab survive a
-  restart, but live PTYs and split layouts do not; `project_direct` layout
-  persistence is available in core but not wired into the TUI yet.
+  processes while the TUI runs. The last card/project, active tab, and terminal
+  split layout are restored on restart as fresh PTYs; live processes and Agent
+  split state do not survive. `project_direct` layout persistence is not wired
+  into the TUI yet.
 - Background refresh reloads the board and selected worktree status from SQLite
   and Git every 15s. Projects using GitHub delivery refresh PR, CI, draft,
   conflict, and open/closed/merged state from `gh` every 60s. Review state and

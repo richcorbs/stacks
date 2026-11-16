@@ -4198,6 +4198,7 @@ dependencies = [
  "ratatui",
  "rusqlite",
  "serde",
+ "serde_json",
  "stacks-core",
  "syntect",
  "tempfile",
