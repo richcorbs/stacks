@@ -70,7 +70,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Min(6),
             Constraint::Length(1),
             Constraint::Length(footer_height),
@@ -108,8 +107,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         &tab_entries,
         app.detail_tab_index(),
     );
-    crate::widgets::section_rule(frame, chunks[3], "", theme);
-    let body = chunks[4];
+    let body = chunks[3];
     match app.detail_tab {
         DetailTab::Overview => render_overview(frame, app, body),
         DetailTab::Agent => chat::render(frame, app, body, DetailTab::Agent),
@@ -119,8 +117,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         DetailTab::Terminal => terminal::render_card(frame, app, body),
     }
 
-    crate::widgets::section_rule(frame, chunks[5], "", theme);
-    render_footer(frame, app, chunks[6]);
+    crate::widgets::section_rule(frame, chunks[4], "", theme);
+    render_footer(frame, app, chunks[5]);
 }
 
 fn tab_enabled(app: &App, tab: DetailTab) -> bool {
