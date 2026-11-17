@@ -19,6 +19,10 @@ use crate::process_group;
 
 const SETUP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const MAX_SETUP_OUTPUT_BYTES: usize = 256 * 1024;
+/// A descendant that escaped the setup process group (or a daemon that keeps the
+/// inherited pipes open) can hold the output readers forever. Cancellation and
+/// completion must never wait on that indefinitely.
+const SETUP_READER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Default)]
 pub struct WorkspaceSetupState {
@@ -113,6 +117,17 @@ pub(crate) fn run_workspace_setup_durable(
     cancelled: &AtomicBool,
     result_path: &std::path::Path,
 ) -> Result<WorkspaceSetupResult, String> {
+    let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    run_workspace_setup_with_shell(command, cwd, cancelled, result_path, &shell)
+}
+
+fn run_workspace_setup_with_shell(
+    command: String,
+    cwd: String,
+    cancelled: &AtomicBool,
+    result_path: &std::path::Path,
+    shell: &str,
+) -> Result<WorkspaceSetupResult, String> {
     if command.trim().is_empty() {
         return Err("Setup command cannot be empty".to_string());
     }
@@ -121,8 +136,14 @@ pub(crate) fn run_workspace_setup_durable(
     }
     let _ = std::fs::remove_file(result_path);
 
-    let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let script = r#"
+# An interactive shell with job control gives every command its own process
+# group, so killing this shell's group would miss a running setup command and
+# let it outlive cancellation while it holds our output pipes open. Keep the
+# whole command tree in one group; `set +m` covers sh/bash/zsh and the
+# `unsetopt` line covers zsh explicitly (it is a no-op elsewhere).
+set +m 2>/dev/null
+(unsetopt monitor) 2>/dev/null || true
 eval "$STACKS_SETUP_COMMAND"
 __stacks_status=$?
 if [ "$__stacks_status" -eq 0 ]; then
@@ -168,39 +189,33 @@ exit "$__stacks_status"
             return Err("Could not read workspace setup output".to_string());
         }
     };
-    let stdout_reader = thread::spawn(move || read_stream(stdout));
-    let stderr_reader = thread::spawn(move || read_stream(stderr));
+    let mut stdout_reader = Some(thread::spawn(move || read_stream(stdout)));
+    let mut stderr_reader = Some(thread::spawn(move || read_stream(stderr)));
 
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if cancelled.load(Ordering::Acquire) => {
-                process_group::terminate(&mut child, Duration::from_millis(500));
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
+                abort_setup(&mut child, stdout_reader.take(), stderr_reader.take());
                 return Err("Workspace setup cancelled".to_string());
             }
             Ok(None) if started.elapsed() < SETUP_TIMEOUT => {
                 thread::sleep(Duration::from_millis(50))
             }
             Ok(None) => {
-                process_group::terminate(&mut child, Duration::from_millis(500));
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
+                abort_setup(&mut child, stdout_reader.take(), stderr_reader.take());
                 return Err("Workspace setup timed out after 10 minutes".to_string());
             }
             Err(error) => {
-                process_group::terminate(&mut child, Duration::from_millis(500));
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
+                abort_setup(&mut child, stdout_reader.take(), stderr_reader.take());
                 return Err(format!("Could not wait for workspace setup: {error}"));
             }
         }
     };
 
-    let stdout = stdout_reader.join().unwrap_or_default();
-    let stderr = stderr_reader.join().unwrap_or_default();
+    let stdout = join_reader(stdout_reader.take()).unwrap_or_default();
+    let stderr = join_reader(stderr_reader.take()).unwrap_or_default();
     let output = [stdout.trim(), stderr.trim()]
         .into_iter()
         .filter(|value| !value.is_empty())
@@ -233,6 +248,33 @@ exit "$__stacks_status"
         cwd: final_cwd.to_string(),
         output,
     })
+}
+
+/// Terminate the setup process group, then wait briefly for the output readers.
+/// A setup command that escaped the group keeps the pipe write ends open, so the
+/// join is bounded: cancellation returns even when a descendant is still alive.
+fn abort_setup(
+    child: &mut std::process::Child,
+    stdout_reader: Option<thread::JoinHandle<String>>,
+    stderr_reader: Option<thread::JoinHandle<String>>,
+) {
+    process_group::terminate(child, Duration::from_millis(500));
+    let _ = join_reader(stdout_reader);
+    let _ = join_reader(stderr_reader);
+}
+
+fn join_reader(reader: Option<thread::JoinHandle<String>>) -> Option<String> {
+    let reader = reader?;
+    let deadline = Instant::now() + SETUP_READER_JOIN_TIMEOUT;
+    while !reader.is_finished() {
+        if Instant::now() >= deadline {
+            // Detach: the thread exits when the last writer closes the pipe. The
+            // caller gets no partial output instead of waiting without a bound.
+            return None;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    reader.join().ok()
 }
 
 fn read_stream(mut stream: impl Read) -> String {
@@ -312,6 +354,86 @@ mod tests {
         assert!(!pid_path.exists());
         assert!(!unrelated.load(Ordering::Acquire));
         state.finish("environment:other", &unrelated);
+    }
+
+    fn process_exists(pid: i32) -> bool {
+        // Signal 0 probes for existence without delivering anything.
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    /// A job-control shell gives each command its own process group, so killing
+    /// the setup shell's group used to miss the running command: it survived
+    /// cancellation, kept the output pipes open, and the cancel path blocked
+    /// until it finished (15s+ in CI, where `SHELL` is bash). Run the cancel path
+    /// under every shell Stacks may find and require the grandchild to die.
+    #[test]
+    fn cancellation_kills_grandchildren_under_every_available_shell() {
+        for shell in ["/bin/zsh", "/bin/bash", "/bin/sh"] {
+            if !std::path::Path::new(shell).exists() {
+                continue;
+            }
+            let state = std::sync::Arc::new(WorkspaceSetupState::default());
+            let flag = state.begin("environment:retiring").unwrap();
+            let root = tempfile::tempdir().unwrap();
+            let result_path = root.path().join("result");
+            let pid_path = result_path.with_extension("pid");
+            let cwd = root.path().to_string_lossy().into_owned();
+            let worker_state = std::sync::Arc::clone(&state);
+            let shell = shell.to_string();
+            let worker_shell = shell.clone();
+            let worker = std::thread::spawn(move || {
+                let result = super::run_workspace_setup_with_shell(
+                    "sleep 30".into(),
+                    cwd,
+                    &flag,
+                    &result_path,
+                    &worker_shell,
+                );
+                worker_state.finish("environment:retiring", &flag);
+                result
+            });
+            let started = std::time::Instant::now();
+            while !pid_path.exists() {
+                assert!(started.elapsed() < std::time::Duration::from_secs(5));
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            // The pid file holds the setup shell's pid; its child is what escaped.
+            let setup_pid: i32 = std::fs::read_to_string(&pid_path)
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            let cancelled_at = std::time::Instant::now();
+            state.cancel_and_wait("environment:retiring").unwrap();
+            assert!(
+                cancelled_at.elapsed() < std::time::Duration::from_secs(10),
+                "{shell}: cancellation took {:?}",
+                cancelled_at.elapsed()
+            );
+            assert!(worker.join().unwrap().err().unwrap().contains("cancelled"));
+            assert!(!process_exists(setup_pid), "{shell}: setup shell {setup_pid} survived cancellation");
+            // The command itself must be gone too, not orphaned to launchd.
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let survivors = running_sleep_pids();
+            assert!(survivors.is_empty(), "{shell}: setup command survived cancellation: {survivors:?}");
+        }
+    }
+
+    /// Any `sleep 30` still running is a leaked setup command from this test.
+    fn running_sleep_pids() -> Vec<i32> {
+        let output = std::process::Command::new("ps")
+            .args(["-axo", "pid=,args="])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.trim().splitn(2, char::is_whitespace);
+                let pid = parts.next()?.trim().parse::<i32>().ok()?;
+                let args = parts.next()?.trim();
+                (args == "sleep 30").then_some(pid)
+            })
+            .collect()
     }
 
     #[test]
