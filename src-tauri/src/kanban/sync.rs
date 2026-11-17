@@ -30,6 +30,31 @@ pub(in crate::kanban) fn kanban_sync_superthread_cards_operation(
     })
 }
 
+fn card_has_live_work(connection: &Connection, card_id: &str) -> Result<bool, String> {
+    connection.query_row("SELECT EXISTS(SELECT 1 FROM kanban_cards c WHERE c.id=?1 AND (c.status='refining' OR c.delivery_operation_stage IS NOT NULL OR EXISTS(SELECT 1 FROM card_environments WHERE card_id=c.id) OR EXISTS(SELECT 1 FROM card_pull_requests WHERE card_id=c.id) OR EXISTS(SELECT 1 FROM card_target_merge_operations WHERE card_id=c.id) OR EXISTS(SELECT 1 FROM environment_creation_operations WHERE card_id=c.id) OR EXISTS(SELECT 1 FROM card_cleanup_operations WHERE card_id=c.id AND status!='completed') OR EXISTS(SELECT 1 FROM provider_sync_operations WHERE card_id=c.id AND state IN ('pending','running','failed'))))", [card_id], |row| row.get::<_, bool>(0)).map_err(db_error)
+}
+
+fn record_provider_sync_event(connection: &Connection, card_id: &str, from: &str, to: &str, summary: &str) -> Result<(), String> {
+    connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'system','provider_sync','success',?3,?4,?5)", params![card_id, unix_timestamp(), from, to, summary]).map_err(db_error)?;
+    Ok(())
+}
+
+fn record_provider_sync_info(connection: &Connection, card_id: &str, status: &str) -> Result<(), String> {
+    let summary = format!("Superthread sync left card at {status}; work in flight");
+    let exists: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM card_events WHERE card_id=?1 AND actor='system' AND event_type='provider_sync' AND summary=?2)", params![card_id, summary], |row| row.get(0)).map_err(db_error)?;
+    if !exists { record_provider_sync_event(connection, card_id, status, status, &summary)?; }
+    Ok(())
+}
+
+fn apply_provisional_done(connection: &Connection, card_id: &str, now: i64, summary: &str) -> Result<(), String> {
+    let status: String = connection.query_row("SELECT status FROM kanban_cards WHERE id=?1", [card_id], |row| row.get(0)).map_err(db_error)?;
+    if !["needs_refinement", "needs_refinement_input", "ready", "agent_working", "needs_human", "approved"].contains(&status.as_str()) { return Ok(()); }
+    if card_has_live_work(connection, card_id)? { return record_provider_sync_info(connection, card_id, &status); }
+    let changed = connection.execute("UPDATE kanban_cards SET scope_suspended=1,scope_prior_status=status,status='done',completion_outcome='closed',workflow_revision=workflow_revision+1,in_scope=1,updated_at=?1 WHERE id=?2 AND scope_suspended=0", params![now, card_id]).map_err(db_error)?;
+    if changed > 0 { record_provider_sync_event(connection, card_id, &status, "done", summary)?; }
+    Ok(())
+}
+
 pub(in crate::kanban) fn sync_cards(
     connection: &mut Connection,
     owner_project_id: &str,
@@ -37,31 +62,35 @@ pub(in crate::kanban) fn sync_cards(
 ) -> Result<Vec<KanbanCard>, String> {
     let owner = connection
         .query_row(
-            "SELECT name, COALESCE(kanban_source, 'local'), COALESCE(superthread_spaces, ''), COALESCE(superthread_board_id,''), COALESCE(superthread_incoming_columns,'[]') FROM projects WHERE id=?1",
+            "SELECT name, COALESCE(kanban_source, 'local'), COALESCE(superthread_spaces, ''), COALESCE(superthread_board_id,''), COALESCE(superthread_incoming_columns,'[]'), COALESCE(superthread_done_column_id,''), COALESCE(superthread_in_progress_column_id,'') FROM projects WHERE id=?1",
             [owner_project_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?)),
         )
         .optional()
         .map_err(db_error)?;
     match owner {
         None => return Err("Superthread sync owner project was not found.".to_string()),
-        Some((name, source, _, _, _)) if source != "superthread" => {
+        Some((name, source, _, _, _, _, _)) if source != "superthread" => {
             return Err(format!(
                 "Project {name} is not the configured Superthread owner."
             ))
         }
-        Some((name, _, spaces, _, _)) if spaces.trim().is_empty() => {
+        Some((name, _, spaces, _, _, _, _)) if spaces.trim().is_empty() => {
             return Err(format!(
                 "Configure Superthread spaces on {name} before syncing."
             ));
         }
-        Some((name, _, _, board, _)) if board.trim().is_empty() => {
+        Some((name, _, _, board, _, _, _)) if board.trim().is_empty() => {
             return Err(format!(
                 "Configure the Superthread board and columns on {name} before syncing."
             ));
         }
         Some(_) => {}
     }
+    let (configured_board_id, done_column_id, in_progress_column_id): (String, String, String) = connection.query_row(
+        "SELECT COALESCE(superthread_board_id,''), COALESCE(superthread_done_column_id,''), COALESCE(superthread_in_progress_column_id,'') FROM projects WHERE id=?1",
+        [owner_project_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).map_err(db_error)?;
     let binding_id = active_superthread_binding(connection, owner_project_id)?;
 
     let now = unix_timestamp();
@@ -127,15 +156,6 @@ pub(in crate::kanban) fn sync_cards(
         if transaction.query_row("SELECT EXISTS(SELECT 1 FROM retired_provider_cards WHERE binding_id=?1 AND external_id=?2)", params![binding_id,card.id.trim()], |r| r.get::<_, bool>(0)).map_err(db_error)? {
             continue;
         }
-        let existing_id = transaction
-            .query_row(
-                "SELECT id FROM kanban_cards WHERE binding_id=?1 AND external_id=?2",
-                params![binding_id, card.id.trim()],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(db_error)?;
-        let was_existing = existing_id.is_some();
         let local_id = resolve_superthread_local_id(&transaction, &binding_id, card.id.trim())?;
         let parent_local_id = if let Some(parent_external_id) = card.task_parent_id.as_deref() {
             transaction
@@ -189,22 +209,23 @@ pub(in crate::kanban) fn sync_cards(
                 binding_id,
             ],
         ).map_err(db_error)?;
-        match card.in_scope {
-            Some(false) if was_existing => {
-                transaction.execute(
-                    "UPDATE kanban_cards SET scope_suspended=1,scope_prior_status=status,status='done',completion_outcome='closed',workflow_revision=workflow_revision+1,in_scope=1,updated_at=?1
-                     WHERE id=?2 AND scope_suspended=0 AND status IN ('needs_refinement','needs_refinement_input','ready')",
-                    params![now, local_id],
-                ).map_err(db_error)?;
+        let is_done = !done_column_id.is_empty() && card.list_id == done_column_id;
+        let is_in_progress = !in_progress_column_id.is_empty() && card.list_id == in_progress_column_id;
+        let current_status: String = transaction.query_row("SELECT status FROM kanban_cards WHERE id=?1", [&local_id], |row| row.get(0)).map_err(db_error)?;
+        let eligible = ["needs_refinement", "needs_refinement_input", "ready", "agent_working", "needs_human", "approved"];
+        if matches!(card.in_scope, Some(_)) && is_done && eligible.contains(&current_status.as_str()) {
+            if card_has_live_work(&transaction, &local_id)? { record_provider_sync_info(&transaction, &local_id, &current_status)?; }
+            else {
+                let changed = transaction.execute("UPDATE kanban_cards SET status='done',completion_outcome='closed',scope_suspended=0,scope_prior_status=NULL,in_scope=1,workflow_revision=workflow_revision+1,updated_at=?1 WHERE id=?2 AND status IN ('needs_refinement','needs_refinement_input','ready','agent_working','needs_human','approved')", params![now, local_id]).map_err(db_error)?;
+                if changed > 0 { record_provider_sync_event(&transaction, &local_id, &current_status, "done", "Superthread Done column moved this card to Done")?; }
             }
-            Some(true) => {
-                transaction.execute(
-                    "UPDATE kanban_cards SET status=scope_prior_status,completion_outcome=NULL,scope_suspended=0,scope_prior_status=NULL,workflow_revision=workflow_revision+1,in_scope=1,updated_at=?1
-                     WHERE id=?2 AND scope_suspended=1 AND scope_prior_status IS NOT NULL",
-                    params![now, local_id],
-                ).map_err(db_error)?;
-            }
-            Some(false) | None => {}
+        } else if matches!(card.in_scope, Some(_)) && is_done && current_status == "done" {
+            let changed = transaction.execute("UPDATE kanban_cards SET scope_suspended=0,scope_prior_status=NULL,in_scope=1,workflow_revision=workflow_revision+1,updated_at=?1 WHERE id=?2 AND scope_suspended=1", params![now, local_id]).map_err(db_error)?;
+            if changed > 0 { record_provider_sync_event(&transaction, &local_id, "done", "done", "Superthread Done column finalized this card")?; }
+        } else if !is_in_progress && matches!(card.in_scope, Some(false)) {
+            apply_provisional_done(&transaction, &local_id, now, "Superthread card moved outside Incoming")?;
+        } else if matches!(card.in_scope, Some(true)) {
+            transaction.execute("UPDATE kanban_cards SET status=scope_prior_status,completion_outcome=NULL,scope_suspended=0,scope_prior_status=NULL,workflow_revision=workflow_revision+1,in_scope=1,updated_at=?1 WHERE id=?2 AND scope_suspended=1 AND scope_prior_status IS NOT NULL", params![now, local_id]).map_err(db_error)?;
         }
     }
     // An active environment, advanced workflow, PR or pending operation must
@@ -298,25 +319,20 @@ pub(in crate::kanban) fn sync_cards(
         .map_err(db_error)?;
     if complete {
         let retained = transaction
-            .prepare("SELECT external_id FROM kanban_cards WHERE binding_id=?1")
+            .prepare("SELECT external_id,id,board_id FROM kanban_cards WHERE binding_id=?1")
             .map_err(db_error)?
-            .query_map([&binding_id], |row| row.get::<_, String>(0))
+            .query_map([&binding_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
             .map_err(db_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(db_error)?;
-        for external_id in retained {
+        for (external_id, local_id, board_id) in retained {
             if !fetched_ids.contains(&external_id) {
-                transaction
-                    .execute(
-                        "UPDATE kanban_cards SET in_scope=0, updated_at=?1
-                         WHERE binding_id=?2 AND external_id=?3
-                           AND NOT EXISTS (
-                             SELECT 1 FROM kanban_cards parent
-                             WHERE parent.id=kanban_cards.parent_id AND parent.binding_id=?2 AND parent.in_scope=1
-                           )",
-                        params![now, binding_id, external_id],
-                    )
-                    .map_err(db_error)?;
+                let has_parent = transaction.query_row("SELECT EXISTS(SELECT 1 FROM kanban_cards parent WHERE parent.id=(SELECT parent_id FROM kanban_cards WHERE id=?1) AND parent.binding_id=?2 AND parent.in_scope=1)", params![local_id, binding_id], |row| row.get::<_, bool>(0)).map_err(db_error)?;
+                if !has_parent && board_id == configured_board_id {
+                    apply_provisional_done(&transaction, &local_id, now, "Superthread card absent from a complete snapshot")?;
+                } else if !has_parent {
+                    transaction.execute("UPDATE kanban_cards SET in_scope=0,updated_at=?1 WHERE id=?2", params![now, local_id]).map_err(db_error)?;
+                }
             }
         }
     }
