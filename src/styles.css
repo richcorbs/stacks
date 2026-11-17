@@ -1242,6 +1242,11 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piToolCard summary { min-height: 30px; padding: 0 9px; display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; }
 .piToolCard summary::-webkit-details-marker { display: none; }
 .piToolCard summary strong { position: relative; top: -1px; min-width: 0; overflow: hidden; color: #91a2b4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: max(8px, calc(var(--pi-font-size, 13px) - 3px)); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.piToolCard.bash .piToolExpandedCommand { display: none; }
+.piToolCard.bash[open] summary { align-items: flex-start; padding-top: 7px; padding-bottom: 7px; }
+.piToolCard.bash[open] .piToolSummaryLabel { display: none; }
+.piToolCard.bash[open] .piToolExpandedCommand { display: block; overflow: visible; overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-word; }
+.piToolCard.bash[open] .piToolStatus { flex: 0 0 auto; margin-top: 3px; }
 .piToolStatus { flex: 0 0 7px; width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: #52667a; }
 .piToolCard.running .piToolStatus { border: 1.5px solid #c7a357; border-top-color: transparent; background: transparent; animation: githubCiSpin .8s linear infinite; }
 .piToolCard.complete .piToolStatus { background: transparent; }

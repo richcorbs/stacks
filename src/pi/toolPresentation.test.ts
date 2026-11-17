@@ -25,8 +25,12 @@ describe('Pi tool presentation', () => {
     expect(piToolSummary('write', { file_path: '/tmp/report.md' }, true).label).toBe('writing report.md');
   });
 
-  it('describes running bash calls by command', () => {
-    expect(piToolSummary('bash', { command: 'npm run test\necho done' }, true).label).toBe('running: npm run test');
+  it('keeps the collapsed bash label separate from the complete command', () => {
+    expect(piToolSummary('bash', { command: 'npm run test\necho done' }, true)).toEqual({
+      label: 'running: npm run test',
+      command: 'npm run test\necho done',
+      title: 'npm run test\necho done',
+    });
   });
 
   it('builds an edit diff from replacement arguments when result details are unavailable', () => {

@@ -19,7 +19,7 @@ export function piToolSummary(name: string, args: unknown, running: boolean) {
     const command = stringValue(values.command) || 'command';
     const preview = command.split('\n')[0].trim();
     const commandLabel = preview.length > 140 ? `${preview.slice(0, 137)}…` : preview;
-    return { label: `${running ? 'running' : 'ran'}: ${commandLabel}`, title: command };
+    return { label: `${running ? 'running' : 'ran'}: ${commandLabel}`, command, title: command };
   }
   return { label: normalizedName, title: normalizedName };
 }

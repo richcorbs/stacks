@@ -148,8 +148,14 @@ export function PiToolCard({ name, args, output, status, details, live = false }
   const summary = piToolSummary(normalizedName, args, live && status === 'running');
   const diff = normalizedName === 'edit' && status !== 'error' ? piEditDiff(details, args) : null;
   const body = normalizedName === 'bash' ? output : formatToolDetails(args, output);
-  return <details className={`piToolCard ${live ? '' : 'historical'} ${status}`} title={summary.title}>
-    <summary><strong>{summary.label}</strong><span className="piToolStatus" /></summary>
+  const isBash = normalizedName === 'bash';
+  const expandedCommand = isBash && 'command' in summary ? summary.command : null;
+  return <details className={`piToolCard ${isBash ? 'bash ' : ''}${live ? '' : 'historical'} ${status}`} title={summary.title}>
+    <summary>
+      <strong className="piToolSummaryLabel">{summary.label}</strong>
+      {expandedCommand !== null && <strong className="piToolExpandedCommand">{expandedCommand}</strong>}
+      <span className="piToolStatus" />
+    </summary>
     {diff ? <DiffView diff={diff} /> : <pre>{truncateDisplay(body)}</pre>}
   </details>;
 }
