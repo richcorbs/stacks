@@ -88,6 +88,23 @@ describe('handleEditableClipboardKeyDown', () => {
     expect(test.control.selectionEnd).toBe(11);
   });
 
+  it('normalizes line endings for copied multiline selections', async () => {
+    const test = setup({ key: 'c', selectionStart: 0, selectionEnd: 13, value: 'first\r\nsecond' });
+
+    await test.run();
+
+    expect(test.writeText).toHaveBeenCalledWith('first\nsecond');
+  });
+
+  it('normalizes line endings for cut selections', async () => {
+    const test = setup({ key: 'x', selectionStart: 0, selectionEnd: 13, value: 'first\r\nsecond' });
+
+    await test.run();
+
+    expect(test.writeText).toHaveBeenCalledWith('first\nsecond');
+    expect(test.setValue).toHaveBeenCalledWith('');
+  });
+
   it('writes before cutting a selection, joins the remaining text, and restores focus', async () => {
     const test = setup({ key: 'x', selectionStart: 5, selectionEnd: 11 });
 

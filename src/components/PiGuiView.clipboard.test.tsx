@@ -174,6 +174,13 @@ describe('PiGuiView clipboard integration', () => {
     expectNoSubmission();
   });
 
+  it('normalizes multiline composer selections before copying', async () => {
+    const { textarea, input, key } = await mount(undefined, 'first\r\nsecond');
+    input.setSelectionRange(0, 13);
+    await act(async () => textarea().props.onKeyDown(key('c')));
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('first\nsecond');
+  });
+
   it('preserves text and selection and shows an error after a failed cut', async () => {
     const { textarea, input, key } = await mount();
     vi.mocked(writeText).mockRejectedValue(new Error('denied'));

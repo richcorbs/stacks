@@ -23,6 +23,7 @@ import { handleDialogShortcut } from './dialogShortcut';
 import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiSessionBoundaryEntry, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
+import { normalizeClipboardText } from '../clipboard';
 
 // Runtime-only: pane IDs survive Pi restarts and view remounts, but not an app restart.
 const dismissedMcpTerminalIds = new Set<string>();
@@ -532,7 +533,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   async function copySelection() {
     if (!selectionPopup) return;
     try {
-      await writeText(selectionPopup.text);
+      await writeText(normalizeClipboardText(selectionPopup.text));
       clearGuiSelection();
       showAppToast('Copied to clipboard');
     } catch (error) {

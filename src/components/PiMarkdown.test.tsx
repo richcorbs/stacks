@@ -60,7 +60,7 @@ describe('PiMarkdown', () => {
     ['single trailing LF', 'echo hello\n', 'echo hello'],
     ['single trailing CRLF', 'echo hello\r\n', 'echo hello'],
     ['repeated trailing line endings', 'echo hello\n\r\n\n', 'echo hello'],
-    ['internal newlines and other content', 'echo first\r\necho second\n  echo third  \n\n', 'echo first\r\necho second\n  echo third  '],
+    ['internal newlines and other content', 'echo first\r\necho second\n  echo third  \n\n', 'echo first\necho second\n  echo third  '],
     ['no trailing line ending', 'echo hello  ', 'echo hello  '],
   ])('copies code correctly for %s', async (_case, code, expected) => {
     vi.mocked(writeText).mockResolvedValue(undefined);
