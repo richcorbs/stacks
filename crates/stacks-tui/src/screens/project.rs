@@ -207,10 +207,6 @@ fn render_release(frame: &mut Frame, app: &mut App, area: Rect) {
         state
             .release
             .terminal
-            .resize(chunks[5].width, chunks[5].height);
-        state
-            .release
-            .terminal
             .render(frame, chunks[5], false, depth);
     } else {
         frame.render_widget(
@@ -256,6 +252,5 @@ fn render_terminal(frame: &mut Frame, app: &mut App, area: Rect) {
         );
         return;
     }
-    workspace.resize(area.width, area.height);
     workspace.render(frame, area, focused, depth);
 }

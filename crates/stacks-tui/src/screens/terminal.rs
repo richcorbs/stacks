@@ -636,14 +636,12 @@ pub fn render_service(
         );
         return;
     }
-    workspace.resize(area.width, area.height);
     workspace.render(frame, area, focused, depth);
 }
 
 pub fn render_card(frame: &mut Frame, app: &mut crate::app::App, area: Rect) {
     let depth = app.depth;
     let focused = app.terminal_focus;
-    app.terminals.resize(area.width, area.height);
     app.terminals.render(frame, area, focused, depth);
 }
 

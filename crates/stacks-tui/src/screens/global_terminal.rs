@@ -44,7 +44,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .global_active
         .min(app.global_tabs.len().saturating_sub(1));
     if let Some(tab) = app.global_tabs.get_mut(active) {
-        tab.workspace.resize(chunks[1].width, chunks[1].height);
         tab.workspace
             .render(frame, chunks[1], app.global_terminal_focus, app.depth);
     } else {

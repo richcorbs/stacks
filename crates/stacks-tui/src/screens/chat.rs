@@ -37,6 +37,5 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect, _tab: DetailTab) {
         );
         return;
     }
-    workspace.resize(area.width, area.height);
     workspace.render(frame, area, focused, depth);
 }
