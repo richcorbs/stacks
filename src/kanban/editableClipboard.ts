@@ -1,3 +1,5 @@
+import { normalizeClipboardText } from '../clipboard';
+
 export type EditableClipboardControl = Pick<
   HTMLInputElement | HTMLTextAreaElement,
   'focus' | 'selectionEnd' | 'selectionStart' | 'setSelectionRange' | 'value'
@@ -73,13 +75,13 @@ export async function handleEditableClipboardKeyDown({
 
   try {
     if (action === 'copy') {
-      if (selection) await writeText(selection);
+      if (selection) await writeText(normalizeClipboardText(selection));
       return true;
     }
 
     if (action === 'cut') {
       if (!selection) return true;
-      await writeText(selection);
+      await writeText(normalizeClipboardText(selection));
       if (!isCurrent()) return true;
       applyReplacement(control, replaceSelection(value, selectionStart, selectionEnd, ''), setValue, requestFrame, isCurrent);
       return true;

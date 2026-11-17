@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { ExternalLink } from './ExternalLink';
+import { normalizeClipboardText } from '../clipboard';
 
 const chatSanitizationSchema: NonNullable<Parameters<typeof rehypeSanitize>[0]> = {
   tagNames: [
@@ -55,7 +56,7 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   async function copyCode() {
     const code = preRef.current?.querySelector('code')?.textContent ?? preRef.current?.textContent ?? '';
     try {
-      await writeText(code.replace(/(?:\r?\n)+$/, ''));
+      await writeText(normalizeClipboardText(code.replace(/(?:\r?\n)+$/, '')));
       setCopied(true);
       if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200);

@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { normalizeClipboardText } from '../clipboard';
 
 /** Only the focused composer opts in; all other editing shortcuts remain native. */
 export function handleComposerClipboard(
@@ -19,7 +20,7 @@ export function handleComposerClipboard(
   // Do not overwrite the clipboard when there is no selection.
   if (start === end) return true;
 
-  void writeText(value.slice(start, end)).then(() => {
+  void writeText(normalizeClipboardText(value.slice(start, end))).then(() => {
     if (key !== 'x') return;
     // Clipboard IPC is async: never delete a newer draft or a changed selection,
     // or move focus back from another terminal/dialog after the write completes.

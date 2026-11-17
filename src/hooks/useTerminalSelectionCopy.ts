@@ -2,6 +2,7 @@ import { useEffect, useRef, type MutableRefObject } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Terminal } from '@xterm/xterm';
 import { applicationEvents } from '../applicationEvents';
+import { normalizeClipboardText } from '../clipboard';
 
 function trimTrailingHorizontalWhitespace(text: string) {
   return text.replace(/[^\S\r\n]+$/gm, '');
@@ -17,7 +18,7 @@ export function useTerminalSelectionCopy(termRef: MutableRefObject<Terminal | nu
         if (!term?.hasSelection()) return;
         const selection = trimTrailingHorizontalWhitespace(term.getSelection());
         if (!selection) return;
-        writeText(selection)
+        writeText(normalizeClipboardText(selection))
           .then(() => {
             term.clearSelection();
             const rect = term.element?.closest('.terminal')?.getBoundingClientRect();
