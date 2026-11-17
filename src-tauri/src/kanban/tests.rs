@@ -1882,6 +1882,28 @@ fn finishing_refinement_records_each_actual_in_progress_source() {
 }
 
 #[test]
+fn stale_finalized_flag_without_children_keeps_the_leaf_workflow() {
+    // A local card whose children were removed (or whose refinement finalized an
+    // empty breakdown) keeps hierarchy_finalized=1 in the database. Trusting that
+    // flag made every capability disappear and refused every transition, leaving
+    // the card inert in the UI with no way to close it.
+    let connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    test_project(&connection, "local-owner", "local", "/tmp/local");
+    connection.execute(
+        "INSERT INTO kanban_cards (id, external_provider, external_id, title, status, project_id, hierarchy_finalized, created_at, updated_at)
+         VALUES ('local:zombie', 'local:local-owner', '1', 'Finalized with no children', 'ready', 'local-owner', 1, 1, 1)", [],
+    ).unwrap();
+    let context = workflow_context_for_card(&connection, &get_card(&connection, "local:zombie").unwrap().unwrap()).unwrap();
+    assert!(!context.hierarchy_finalized);
+    let actions: Vec<_> = workflow::capabilities(&context).into_iter().map(|capability| capability.action).collect();
+    assert!(actions.contains(&WorkflowAction::Close), "close must stay available: {actions:?}");
+    assert!(apply_workflow_transition(
+        &connection, "local:zombie", WorkflowActor::User, WorkflowAction::Close, Some(1), "close", None,
+    ).is_ok());
+}
+
+#[test]
 fn blocks_project_deletion_while_cards_are_active() {
     let connection = Connection::open_in_memory().unwrap();
     migrate(&connection).unwrap();

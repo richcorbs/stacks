@@ -684,7 +684,11 @@ pub(in crate::kanban) fn workflow_context_for_card(
         project_present && ((card.provider == "superthread") == (source == "superthread"));
     Ok(WorkflowContext {
         status: card.status,
-        hierarchy_finalized: card.hierarchy_finalized || (card.provider == "superthread" && repository::has_linked_children(connection, &card.id)?),
+        // A finalized aggregate exists only while it still has linked children. A flag
+        // left behind after its children were removed must not brick the card: with no
+        // children there is no aggregate, so the ordinary leaf workflow still applies.
+        hierarchy_finalized: repository::has_linked_children(connection, &card.id)?
+            && (card.hierarchy_finalized || card.provider == "superthread"),
         provider_compatible,
         project_present,
         delivery_workflow,
