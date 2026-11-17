@@ -29,9 +29,38 @@ describe('Pi settled transcript rendering', () => {
     });
 
     const card = renderer.root.findByType('details');
-    expect(card.props.className.split(' ')).toEqual(expect.arrayContaining(['piToolCard', 'historical', status]));
+    expect(card.props.className.split(' ')).toEqual(expect.arrayContaining(['piToolCard', 'bash', 'historical', status]));
     expect(renderer.root.findByProps({ className: 'piToolStatus' })).toBeTruthy();
     expect(JSON.stringify(renderer.toJSON())).toContain('tool output');
+  });
+
+  it('renders the compact bash label and complete multiline command in the header', async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    const command = 'printf "  first  \\nsecond\\n"\n  npm run test';
+    await act(async () => {
+      renderer = TestRenderer.create(<PiToolCard name="bash" args={{ command }} output="tool output" status="complete" />);
+    });
+
+    const summary = renderer.root.findByType('summary');
+    expect(summary.findByProps({ className: 'piToolSummaryLabel' }).children).toEqual(['ran: printf "  first  \\nsecond\\n"']);
+    expect(summary.findByProps({ className: 'piToolExpandedCommand' }).children).toEqual([command]);
+
+    await act(async () => {
+      renderer.update(<PiToolCard name="bash" args={{ command }} output="tool output" status="complete" live />);
+    });
+    expect(renderer.root.findByType('details').props.className.split(' ')).toEqual(expect.arrayContaining(['bash']));
+    expect(renderer.root.findByProps({ className: 'piToolExpandedCommand' }).children).toEqual([command]);
+  });
+
+  it('does not add expanded bash presentation to other tools', async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<PiToolCard name="read" args={{ path: 'file.txt' }} output="contents" status="complete" />);
+    });
+
+    const card = renderer.root.findByType('details');
+    expect(card.props.className.split(' ')).not.toContain('bash');
+    expect(renderer.root.findAllByProps({ className: 'piToolExpandedCommand' })).toHaveLength(0);
   });
 
   it('does not rerender visible settled Markdown when older history is prepended', async () => {
