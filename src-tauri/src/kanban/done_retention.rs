@@ -33,7 +33,7 @@ pub struct DoneCleanupResult {
 }
 
 pub(super) fn preview(connection: &Connection, now: i64) -> Result<DoneCleanupPreview, String> {
-    let candidates = connection.prepare("SELECT id,done_entered_at FROM kanban_cards WHERE status='done' AND done_entered_at < ?1 ORDER BY id").map_err(db_error)?
+    let candidates = connection.prepare("SELECT id,done_entered_at FROM kanban_cards WHERE status='done' AND scope_suspended=0 AND done_entered_at < ?1 ORDER BY id").map_err(db_error)?
         .query_map([now - RETENTION_SECONDS], |r| Ok(DoneCleanupCandidate { id:r.get(0)?, done_entered_at:r.get(1)? })).map_err(db_error)?
         .collect::<Result<Vec<_>,_>>().map_err(db_error)?;
     let pending_artifacts = connection
@@ -52,7 +52,7 @@ fn eligible(
     candidate: &DoneCleanupCandidate,
     now: i64,
 ) -> Result<bool, String> {
-    connection.query_row("SELECT EXISTS(SELECT 1 FROM kanban_cards WHERE id=?1 AND status='done' AND done_entered_at=?2 AND done_entered_at<?3)", params![candidate.id,candidate.done_entered_at,now-RETENTION_SECONDS], |r| r.get(0)).map_err(db_error)
+    connection.query_row("SELECT EXISTS(SELECT 1 FROM kanban_cards WHERE id=?1 AND status='done' AND scope_suspended=0 AND done_entered_at=?2 AND done_entered_at<?3)", params![candidate.id,candidate.done_entered_at,now-RETENTION_SECONDS], |r| r.get(0)).map_err(db_error)
 }
 
 // Stable identity, not mutable presentation fields. The timestamp separately

@@ -1383,7 +1383,8 @@ fn superthread_scope_suspension_is_reversible_and_preserves_active_states() {
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).unwrap();
     assert_eq!(suspended, ("done".into(), Some("closed".into()), 1, Some("ready".into())));
-    assert_eq!(connection.query_row("SELECT status FROM kanban_cards WHERE external_id='active'", [], |row| row.get::<_, String>(0)).unwrap(), "agent_working");
+    assert_eq!(connection.query_row("SELECT status FROM kanban_cards WHERE external_id='active'", [], |row| row.get::<_, String>(0)).unwrap(), "done");
+    assert_eq!(connection.query_row("SELECT scope_suspended FROM kanban_cards WHERE external_id='active'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
 
     sync_cards(&mut connection, "owner", test_superthread_snapshot(vec![
         superthread_card("planning", None, "board", "Incoming", true),
@@ -1438,7 +1439,7 @@ fn superthread_snapshots_reconcile_only_when_complete_and_restore_retained_rows(
     ).unwrap();
     assert_eq!(
         row,
-        ("Saved".into(), "new-board".into(), 1, "approved".into(), 1)
+        ("Saved".into(), "new-board".into(), 1, "done".into(), 2)
     );
     assert_eq!(
         connection
