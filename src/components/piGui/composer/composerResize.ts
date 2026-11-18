@@ -9,30 +9,48 @@ export type ComposerResizeOptions = {
   getChatScroll?: () => ChatScroll | null | undefined;
   schedule?: (callback: FrameRequestCallback) => number;
   cancel?: (handle: number) => void;
+  defer?: (callback: () => void) => number;
+  cancelDefer?: (handle: number) => void;
 };
 
 /**
  * Keep the composer autosized and the transcript pinned while either box changes.
  *
- * The scroll correction runs synchronously on every resize notification. An
- * inactive or occluded webview withholds animation frames, and `layout()` is
- * deliberately frame-independent (see `createChatScroll`); routing it through a
- * frame leaves the transcript unpinned exactly when the composer collapses on
- * submit. The coalesced frame is only for re-measuring the input once the new box
- * has settled, which is a post-layout read rather than a visibility requirement.
+ * Neither the scroll correction nor the autosize runs inside ResizeObserver
+ * delivery. Writing `scrollTop` there re-enters the observer — WebKit then
+ * re-runs layout mid-keystroke, which drops the composer's focus and swallows
+ * input on exactly the events that resize these boxes: a line wrapping, the
+ * composer collapsing on submit, and a message arriving.
+ *
+ * The correction is deferred on a timer rather than an animation frame, because
+ * an inactive or occluded webview withholds frames and following the bottom must
+ * not depend on one (see `createChatScroll`). The frame is only a coalesced second
+ * pass for re-measuring the input once its new box has settled.
  */
-export function observeComposerResize({ input, pane, getChatScroll, schedule = requestAnimationFrame, cancel = cancelAnimationFrame }: ComposerResizeOptions) {
+export function observeComposerResize({ input, pane, getChatScroll, schedule = requestAnimationFrame, cancel = cancelAnimationFrame, defer = (callback) => window.setTimeout(callback, 0), cancelDefer = (handle) => window.clearTimeout(handle) }: ComposerResizeOptions) {
   const resize = () => {
     resizeComposerInput(input);
     getChatScroll?.()?.layout();
   };
   resize();
   let frame = 0;
-  if (typeof ResizeObserver === 'undefined') return () => { cancel(frame); };
+  let follow = 0;
+  const scheduleFollow = () => {
+    if (follow) return;
+    follow = defer(() => {
+      follow = 0;
+      getChatScroll?.()?.layout();
+    });
+  };
+  if (typeof ResizeObserver === 'undefined') {
+    return () => {
+      cancel(frame);
+      if (follow) cancelDefer(follow);
+    };
+  }
   const observer = new ResizeObserver(() => {
-    getChatScroll?.()?.layout();
-    cancel(frame);
-    frame = schedule(resize);
+    scheduleFollow();
+    if (!frame) frame = schedule(resize);
   });
   if (input.parentElement) observer.observe(input.parentElement);
   if (pane) {
@@ -42,6 +60,7 @@ export function observeComposerResize({ input, pane, getChatScroll, schedule = r
   }
   return () => {
     cancel(frame);
+    if (follow) cancelDefer(follow);
     observer.disconnect();
   };
 }

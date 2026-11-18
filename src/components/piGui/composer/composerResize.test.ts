@@ -5,24 +5,26 @@ import { observeComposerResize } from './composerResize';
 type ObserverCallback = () => void;
 
 /**
- * The transcript must be re-pinned by the resize notification itself, not by a
- * later animation frame: an inactive or occluded webview withholds frames, and
- * `tests/pi-chat-scroll.mjs` simulates exactly that by holding every frame while
- * the composer collapses on submit.
+ * These box changes happen while the user is typing: a line wraps, the composer
+ * collapses on submit, a message arrives. Writing scrollTop inside the observer
+ * callback re-entered it and (in WebKit) dropped the composer's focus and
+ * swallowed input, so the callback must only *schedule* work.
  */
 describe('composer resize wiring', () => {
   let callbacks: ObserverCallback[];
   let observed: Element[];
   let disconnected: number;
   let pendingFrames: Map<number, FrameRequestCallback>;
-  let nextFrame: number;
+  let pendingTimers: Map<number, () => void>;
+  let nextHandle: number;
 
   beforeEach(() => {
     callbacks = [];
     observed = [];
     disconnected = 0;
     pendingFrames = new Map();
-    nextFrame = 0;
+    pendingTimers = new Map();
+    nextHandle = 0;
     vi.stubGlobal('ResizeObserver', class {
       private callback: ObserverCallback;
       constructor(callback: ObserverCallback) {
@@ -36,9 +38,14 @@ describe('composer resize wiring', () => {
 
   const notifyResize = () => callbacks.forEach((callback) => callback());
   const runFrame = () => {
-    const due = [...pendingFrames.entries()];
+    const due = [...pendingFrames.values()];
     pendingFrames.clear();
-    due.forEach(([, callback]) => callback(0));
+    due.forEach((callback) => callback(0));
+  };
+  const runTimers = () => {
+    const due = [...pendingTimers.values()];
+    pendingTimers.clear();
+    due.forEach((callback) => callback());
   };
 
   function setup() {
@@ -54,15 +61,17 @@ describe('composer resize wiring', () => {
     document.body.appendChild(pane);
 
     const layout = vi.fn();
-    const scroll: { layout: typeof layout } = { layout };
+    const scroll = { layout };
     const dispose = observeComposerResize({
       input,
       pane,
       getChatScroll: () => scroll,
-      schedule: (callback) => { const handle = ++nextFrame; pendingFrames.set(handle, callback); return handle; },
+      schedule: (callback) => { const handle = ++nextHandle; pendingFrames.set(handle, callback); return handle; },
       cancel: (handle) => { pendingFrames.delete(handle); },
+      defer: (callback) => { const handle = ++nextHandle; pendingTimers.set(handle, callback); return handle; },
+      cancelDefer: (handle) => { pendingTimers.delete(handle); },
     });
-    return { input, parent, pane, conversation, layout, dispose };
+    return { input, parent, pane, conversation, layout, scroll, dispose };
   }
 
   it('observes the composer, the pane and the conversation', () => {
@@ -71,30 +80,38 @@ describe('composer resize wiring', () => {
     dispose();
   });
 
-  it('re-pins the transcript synchronously, before any frame runs', () => {
+  it('never writes layout inside observer delivery', () => {
     const { layout, dispose } = setup();
     layout.mockClear();
     notifyResize();
-    expect(layout).toHaveBeenCalled();
+    expect(layout).not.toHaveBeenCalled();
     dispose();
   });
 
-  it('still coalesces the input remeasure onto a single frame', () => {
+  it('re-pins the transcript without any animation frame', () => {
+    const { layout, dispose } = setup();
+    layout.mockClear();
+    notifyResize();
+    expect(pendingFrames.size).toBe(1);
+    runTimers();                       // timers run in an occluded webview
+    expect(layout).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  it('coalesces repeated notifications into one correction and one frame', () => {
     const { layout, dispose } = setup();
     layout.mockClear();
     notifyResize();
     notifyResize();
     notifyResize();
-    expect(layout).toHaveBeenCalledTimes(3);
+    expect(pendingTimers.size).toBe(1);
     expect(pendingFrames.size).toBe(1);
-    runFrame();
-    expect(layout).toHaveBeenCalledTimes(4);
+    runTimers();
+    expect(layout).toHaveBeenCalledTimes(1);
     dispose();
   });
 
   it('follows a replaced transcript instance instead of a captured one', () => {
-    // Tabs remount the transcript, which disposes the old chat-scroll and creates a
-    // new one. A captured reference would pin a dead instance forever.
     let live = { layout: vi.fn() };
     const input = document.createElement('textarea');
     const parent = document.createElement('div');
@@ -104,22 +121,27 @@ describe('composer resize wiring', () => {
       getChatScroll: () => live,
       schedule: () => 1,
       cancel: () => {},
+      defer: (callback) => { const handle = ++nextHandle; pendingTimers.set(handle, callback); return handle; },
+      cancelDefer: (handle) => { pendingTimers.delete(handle); },
     });
     live.layout.mockClear();
     notifyResize();
+    runTimers();
     expect(live.layout).toHaveBeenCalled();
     const replacement = { layout: vi.fn() };
     live = replacement;
     notifyResize();
+    runTimers();
     expect(replacement.layout).toHaveBeenCalled();
     dispose();
   });
 
-  it('cancels the pending frame and disconnects on teardown', () => {
+  it('cancels pending work and disconnects on teardown', () => {
     const { dispose } = setup();
     notifyResize();
-    expect(pendingFrames.size).toBe(1);
+    expect(pendingTimers.size).toBe(1);
     dispose();
+    expect(pendingTimers.size).toBe(0);
     expect(pendingFrames.size).toBe(0);
     expect(disconnected).toBe(1);
   });
