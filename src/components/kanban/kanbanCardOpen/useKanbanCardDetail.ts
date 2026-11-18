@@ -20,6 +20,10 @@ export function useKanbanCardDetail({ board, selectedCardId, selectedCard, selec
   selectCard: (cardId: string) => void;
   clearSelection: (expectedCardId?: string) => void;
 }) {
+  // Selection/detail/card snapshots are shared mutable controller state, not
+  // callback plumbing: event handlers assign them eagerly before React commits
+  // and async continuations, subscriptions, and the detail coordinator compare
+  // against them. An Effect Event cannot stand in for these transitional reads.
   const selectedCardIdRef = useRef(selectedCardId);
   selectedCardIdRef.current = selectedCardId;
   const [selectedDetail, setSelectedDetail] = useState<KanbanCard | null>(null);
@@ -34,6 +38,8 @@ export function useKanbanCardDetail({ board, selectedCardId, selectedCard, selec
   const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
   const selectedDetailRef = useRef(selectedDetail);
   selectedDetailRef.current = selectedDetail;
+  // Mirror of the canonical board snapshot for synchronous/async detail checks;
+  // it is also read by handlers, so it is not an effect-owned subscription input.
   const boardCardsRef = useRef(board.cards);
   boardCardsRef.current = board.cards;
   const eventRequestGenerationRef = useRef(0);
@@ -202,6 +208,8 @@ export function useKanbanCardDetail({ board, selectedCardId, selectedCard, selec
     clearSelection(expectedCardId);
   }
 
+  // openPaletteCard is a public palette callback, so it may not be an Effect
+  // Event; the ref keeps it stable while still opening the current detail flow.
   const openCardRef = useRef(openCard);
   openCardRef.current = openCard;
   useEffect(() => {

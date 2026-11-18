@@ -33,6 +33,9 @@ export function useCardTerminalWorkspace({ card, cardPath, activeView, setAction
   layoutRevisionRef: MutableRefObject<number>;
 }) {
   const initialShellId = cardTerminalId(card.id, 'shell');
+  // The persistent shell controller creates panes from UI-triggered commands,
+  // not only from an effect-owned subscription, so this stays mutable
+  // controller input rather than an Effect Event.
   const cardPathRef = useRef(cardPath);
   cardPathRef.current = cardPath;
   const coordinatorRef = useRef<LayoutSaveCoordinator<CardLayoutSnapshot, KanbanCard> | null>(null);

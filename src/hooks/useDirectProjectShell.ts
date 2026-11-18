@@ -15,6 +15,8 @@ import { useWorkspaceShell } from '../components/WorkspaceShellView';
 export function useDirectProjectShell(project: Project, active: boolean) {
   const owner = useMemo(() => ({ kind: 'project' as const, projectId: project.id }), [project.id]);
   const workspaceId = workOwnerId(owner);
+  // The persistent shell controller's UI-triggered commands read the current
+  // project path; this is mutable controller input, not an effect callback.
   const projectPathRef = useRef(project.path);
   projectPathRef.current = project.path;
   const coordinatorRef = useRef<LayoutSaveCoordinator<DirectWorkLayoutSnapshot, ProjectDirectWorkState> | null>(null);

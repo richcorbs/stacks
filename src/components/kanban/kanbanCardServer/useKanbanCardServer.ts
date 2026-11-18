@@ -9,6 +9,8 @@ export function useKanbanCardServer({ boardCardsRef }: {
   boardCardsRef: { current: KanbanCardSummary[] };
 }) {
   const [cardServices, setCardServices] = useState<Record<string, CardServices>>({});
+  // Server handoff handlers read the latest services synchronously before they
+  // await; this is mutable orchestration state, not an effect subscription.
   const cardServicesRef = useRef(cardServices);
   cardServicesRef.current = cardServices;
   const [serverHandoff, setServerHandoff] = useState<{ targetCardId: string; externalId: string } | null>(null);

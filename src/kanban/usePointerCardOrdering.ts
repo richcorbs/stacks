@@ -72,9 +72,14 @@ export function usePointerCardOrdering({
   const visibleCardsRef = useRef(visibleCards);
   const reorderRef = useRef(reorder);
   const dragPreviewRef = useRef<CardDragPreview | null>(null);
-  allCardsRef.current = allCards;
-  visibleCardsRef.current = visibleCards;
-  reorderRef.current = reorder;
+  // These refs feed the window pointer listeners installed once for the life of
+  // the hook. Commit them in an effect: a render that never commits must not be
+  // able to change which cards or reorder callback a live gesture observes.
+  useEffect(() => {
+    allCardsRef.current = allCards;
+    visibleCardsRef.current = visibleCards;
+    reorderRef.current = reorder;
+  }, [allCards, visibleCards, reorder]);
 
   function laneCardIds(status: KanbanStatus) {
     return visibleCardsRef.current.filter((card) => card.status === status).map((card) => card.id);

@@ -52,8 +52,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [composerError, setComposerError] = useState<string | null>(null);
   const paneRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const promptRef = useRef(prompt);
-  promptRef.current = prompt;
   const selectionRef = useRef({ start: 0, end: 0 });
   const cutCaretRef = useRef<number | null>(null);
   const mcp = usePiMcpBanner({ terminalId: terminal.id, cwd, project, pi, setComposerError });
@@ -62,6 +60,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   usePiGuiLifecycle({ pi, terminalId: terminal.id, projectId: project.id, active, visible, restartRequestNonce });
 
   const composerFocusAllowed = active && visible && !pi.starting && !modalUiRequest && !mcp.confirmTrust && !mcp.confirmRestart;
+  // scheduleComposerFocus is also called by UI handlers, and the ref read must
+  // happen inside the deferred animation frame. That is not an effect-owned
+  // subscription, so it stays mutable focus state rather than an Effect Event.
   const composerFocusAllowedRef = useRef(composerFocusAllowed);
   composerFocusAllowedRef.current = composerFocusAllowed;
   const scheduleComposerFocus = useCallback(() => {
@@ -96,7 +97,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   usePiFileDrops({
     terminalId: terminal.id,
     cwd,
-    promptRef,
+    prompt,
     selectionRef,
     inputRef,
     setPrompt,

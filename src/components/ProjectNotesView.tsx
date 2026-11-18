@@ -12,8 +12,12 @@ export function ProjectNotesView({ projectId, active, focusRequest }: { projectI
   const clipboardOperationRef = useRef(0);
   const activeRef = useRef(active);
   const modelRef = useRef(model);
-  activeRef.current = active;
-  modelRef.current = model;
+  // Clipboard validation happens after an await from a UI handler. Mirror the
+  // committed owner/activity rather than writing these refs during render.
+  useEffect(() => {
+    activeRef.current = active;
+    modelRef.current = model;
+  }, [active, model]);
 
   useEffect(() => {
     const unregister = registerProjectNotes(model);

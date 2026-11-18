@@ -23,6 +23,8 @@ export function useDirectProjectWork({ projects, projectsHydrated, cards, cardsH
   setProjectPickerCurrentProjectId: (projectId: string | null) => void;
 }) {
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
+  // Async project switching compares against the in-flight selection before it
+  // commits; keep this as mutable controller state.
   const directWorkProjectIdRef = useRef<string | null>(null);
   directWorkProjectIdRef.current = directWorkProjectId;
   const [directWorkInitialView, setDirectWorkInitialView] = useState<WorkView | undefined>();

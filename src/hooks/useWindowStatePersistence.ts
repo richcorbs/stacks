@@ -5,6 +5,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 type SavedWindowState = { width: number; height: number; x: number; y: number };
 
 export function useWindowStatePersistence(delayMs = 300) {
+  // Latest observed window geometry for the debounced native save. This is
+  // mutable persistence bookkeeping, not callback plumbing.
   const stateRef = useRef<SavedWindowState | null>(null);
 
   useEffect(() => {

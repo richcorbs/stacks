@@ -71,3 +71,9 @@ Passed:
 
 No installed app was replaced or restarted. Native GUI/focus smoke testing was
 not performed; no native integration or focus behavior was intentionally changed.
+
+> Continuation: `docs/use-effect-event-334.md` converts the deferred candidates
+> (native menu shortcuts, activity notifications, terminal restart/search, Pi
+> file drops, pointer ordering and board keyboard navigation) and records the
+> triage of the remaining mutable-state refs.
+

@@ -114,6 +114,9 @@ export function usePiComposer({ pi, composerDraftKey, prompt, setPrompt, beginSu
   }
 
   const quickResponseSessionEligible = canSendPiQuickResponse(pi);
+  // Kept as mutable request state, not callback plumbing: the quick-response
+  // flow rechecks eligibility across an await from a UI handler, so this cannot
+  // be an effect-owned Effect Event.
   const quickResponseInFlightRef = useRef(false);
   const quickResponseSessionEligibleRef = useRef(quickResponseSessionEligible);
   quickResponseSessionEligibleRef.current = quickResponseSessionEligible;

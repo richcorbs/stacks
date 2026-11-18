@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
