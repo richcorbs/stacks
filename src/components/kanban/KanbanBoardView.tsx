@@ -19,7 +19,6 @@ import { BoardCardServerServices } from './BoardCardServerServices';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
 import { projectColorAttribute } from '../../projectColor';
-import { workGroup } from '../../kanban/workflowGroups';
 import { fetchCleanupPreflight, fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
 import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 import { useLoadingCoordinator } from '../../loadingState';
@@ -33,6 +32,8 @@ import { useKanbanLaunchRecovery } from './kanbanLaunchRecovery/useKanbanLaunchR
 import { useKanbanCardDetail } from './kanbanCardOpen/useKanbanCardDetail';
 import { useKanbanCardServer } from './kanbanCardServer/useKanbanCardServer';
 import { useDirectProjectWork } from './kanbanDirectWork/useDirectProjectWork';
+import { usePaletteCardPublication } from './kanbanPalette/usePaletteCardPublication';
+import { useKanbanLaneToggles } from './kanbanLaneToggles/useKanbanLaneToggles';
 import { useKanbanMergedPr } from './kanbanMergedPr/useKanbanMergedPr';
 
 export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
@@ -125,53 +126,32 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     return applicationEvents.subscribe('open-project-switcher', handleOpenProjectSwitcher);
   }, [pointerOrdering.draggingId, newCard.open, openLaneMenu, projectSwitcherOpen, selectedCardId]);
 
-  const openPaletteCard = openCardById;
+  usePaletteCardPublication({
+    onPaletteCardsChange,
+    visibleCards,
+    projects,
+    openCard: openCardById,
+    selectedCard,
+    selectedDetail,
+    directWorkProjectId,
+    cardDetailWorkflowRef,
+  });
 
-  useEffect(() => {
-    onPaletteCardsChange({
-      cards: visibleCards,
-      projects,
-      openCard: openPaletteCard,
-      selectedCard: selectedCard?.id === selectedDetail?.id ? selectedDetail : null,
-      openWorkspace: selectedCard
-        ? { kind: 'card', cardId: selectedCard.id, projectId: selectedCard.project_id, worktreePath: selectedCard.environment?.worktree_path ?? null }
-        : directWorkProjectId ? { kind: 'project', projectId: directWorkProjectId } : null,
-      runSelectedAction: (action) => cardDetailWorkflowRef.current?.run(action),
-    });
-  }, [onPaletteCardsChange, openPaletteCard, projects, selectedCard, selectedDetail, directWorkProjectId, visibleCards]);
-
-  useEffect(() => () => onPaletteCardsChange(null), [onPaletteCardsChange]);
-
-  function toggleListGroup(group: 'attention' | 'progress', collapsed: boolean, onChange: (collapsed: boolean) => void) {
-    if (!collapsed) {
-      setKeyboardFocusedCardId((currentId) => (
-        visibleCards.some((card) => card.id === currentId && workGroup(card, { projects, prChecks }) === group) ? null : currentId
-      ));
-    }
-    onChange(!collapsed);
-  }
-
-  function toggleBacklogCollapsed() {
-    const collapsed = !backlogCollapsed;
-    if (collapsed) {
-      setKeyboardFocusedCardId((currentId) => (
-        visibleCards.some((card) => card.id === currentId && card.status === 'needs_refinement') ? null : currentId
-      ));
-    }
-    onBacklogCollapsedChange(collapsed);
-  }
-
-  function toggleDoneCollapsed() {
-    const collapsed = !doneCollapsed;
-    setOpenLaneMenu(null);
-    if (collapsed) {
-      setKeyboardFocusedCardId((currentId) => (
-        visibleCards.some((card) => card.id === currentId && card.status === 'done') ? null : currentId
-      ));
-    }
-    onDoneCollapsedChange(collapsed);
-  }
-
+  const { toggleListGroup, toggleBacklogCollapsed, toggleDoneCollapsed } = useKanbanLaneToggles({
+    visibleCards,
+    projects,
+    prChecks,
+    backlogCollapsed,
+    onBacklogCollapsedChange,
+    doneCollapsed,
+    onDoneCollapsedChange,
+    attentionCollapsed,
+    onAttentionCollapsedChange,
+    progressCollapsed,
+    onProgressCollapsedChange,
+    setFocusedCardId: setKeyboardFocusedCardId,
+    setOpenLaneMenu,
+  });
   return (
     <div className="kanbanView" ref={navigationRootRef}>
       <header className="kanbanHeader">
