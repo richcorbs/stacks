@@ -290,6 +290,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     onNewProject: () => { void openProjectDialog(); }, onEditProject: editProject,
     onDeleteProject: setConfirmDeleteProjectId, onOpenSettings: () => setSettingsOpen(true),
     onRestartApp: () => { void invoke('restart_app'); },
+    onCheckForUpdates: () => events.publish('check-for-updates', undefined),
     onCleanUpDoneCards: () => { void cleanUpDone(); },
     onOpenDirectoryInEditor: (path) => { void invoke('open_path_in_editor', { path, editor: appSettings.editor_app }); },
     onRunOneTimeCommand: () => setOneTimeCommandOpen(true),
