@@ -9,7 +9,7 @@ import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand,
 import { subscribePiFileDrops } from '../pi/fileDropBroker';
 import { handleComposerClipboard } from '../pi/composerClipboard';
 import { activePathToken, applyPathCompletion, formatDroppedPathReference, insertPathReferences } from '../pi/pathReferences';
-import type { PiCommand, PiModel, PiSessionContext } from '../pi/types';
+import type { PiCommand } from '../pi/types';
 import { hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, visiblePiMessages } from '../pi/transcript';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { listenForPiPrompt } from '../pi/promptEvent';
@@ -25,6 +25,8 @@ import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequ
 import { PiPendingOutput, PiQueuedMessage } from './piGui/pendingOutput/PiPendingOutput';
 import { PiMcpBanner, PiMcpCommandStatus } from './piGui/mcp/PiMcpBanner';
 import { useMcpBannerDismissal, usePiMcpBanner } from './piGui/mcp/usePiMcpBanner';
+import { PiContextBar } from './piGui/modelPicker/PiContextBar';
+import { usePiModelPicker } from './piGui/modelPicker/usePiModelPicker';
 import { normalizeClipboardText } from '../clipboard';
 
 export { PiPendingOutput, PiQueuedMessage, PiMcpCommandStatus, useMcpBannerDismissal };
@@ -64,8 +66,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [composerError, setComposerError] = useState<string | null>(null);
   const [extensionInput, setExtensionInput] = useState('');
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
-  const [contextPicker, setContextPicker] = useState<'model' | 'thinking' | null>(null);
-  const [contextPickerBusy, setContextPickerBusy] = useState(false);
   const [quickResponseSubmitting, setQuickResponseSubmitting] = useState(false);
   const [revealedMessageCount, setRevealedMessageCount] = useState(INITIAL_RENDERED_PI_MESSAGES);
   const paneRef = useRef<HTMLDivElement | null>(null);
@@ -198,6 +198,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     });
   }, [composerFocusAllowed]);
 
+  const modelPicker = usePiModelPicker({ pi, onFocusComposer: scheduleComposerFocus });
   useEffect(() => {
     scheduleComposerFocus();
     const focusRequestedPane = (request: { terminalId?: string }) => {
@@ -296,20 +297,12 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   useEffect(() => {
     const dismiss = (event: MouseEvent) => {
       const target = event.target as Element | null;
-      if (!target?.closest('.piContextPicker')) setContextPicker(null);
       if (target?.closest('.piSelectionPopup')) return;
       preventSummaryToggleRef.current = false;
       setSelectionPopup(null);
     };
-    const dismissWithEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setContextPicker(null);
-    };
     window.addEventListener('mousedown', dismiss);
-    window.addEventListener('keydown', dismissWithEscape);
-    return () => {
-      window.removeEventListener('mousedown', dismiss);
-      window.removeEventListener('keydown', dismissWithEscape);
-    };
+    return () => window.removeEventListener('mousedown', dismiss);
   }, []);
 
   useLayoutEffect(() => {
@@ -507,28 +500,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setPrompt((current) => current ? `${current}\n\n${selectionPopup.text}` : selectionPopup.text);
     clearGuiSelection();
     scheduleComposerFocus();
-  }
-
-  async function chooseModel(model: PiModel) {
-    setContextPickerBusy(true);
-    try {
-      await pi.selectModel(model);
-      setContextPicker(null);
-      scheduleComposerFocus();
-    } finally {
-      setContextPickerBusy(false);
-    }
-  }
-
-  async function chooseThinkingLevel(level: string) {
-    setContextPickerBusy(true);
-    try {
-      await pi.selectThinkingLevel(level);
-      setContextPicker(null);
-      scheduleComposerFocus();
-    } finally {
-      setContextPickerBusy(false);
-    }
   }
 
   const { hiddenCount: hiddenMessageCount, messages: visibleMessages } = visiblePiMessages(pi.messages, revealedMessageCount);
@@ -802,62 +773,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('no').catch(console.error)}>NO</button>
           <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('what do you recommend?').catch(console.error)}>RECOMMEND</button>
         </div>
-        <div className="piGuiContext piGuiContextBar" aria-label="Pi session context">
-          <ContextPicker
-          kind="model"
-          open={contextPicker === 'model'}
-          value={pi.context.modelName || pi.context.modelId || 'starting…'}
-          title={[pi.context.provider, pi.context.modelId].filter(Boolean).join(' / ')}
-          disabled={pi.starting}
-          onToggle={() => setContextPicker((current) => current === 'model' ? null : 'model')}
-        >
-          {pi.effectiveModels.length === 0
-            ? <div className="piContextPickerEmpty">No configured models</div>
-            : pi.effectiveModels.map((model) => {
-              const selected = model.id === pi.context.modelId && model.provider === pi.context.provider;
-              return <button
-                type="button"
-                role="option"
-                aria-selected={selected}
-                className={selected ? 'selected' : ''}
-                disabled={contextPickerBusy}
-                key={`${model.provider}:${model.id}`}
-                onClick={() => chooseModel(model).catch(() => {})}
-              >
-                <span><strong>{model.name || model.id}</strong><small>{model.provider} · {model.id}</small></span>
-                <i aria-hidden="true">{selected ? '✓' : ''}</i>
-              </button>;
-            })}
-        </ContextPicker>
-        <ContextSeparator />
-        <ContextPicker
-          kind="thinking"
-          open={contextPicker === 'thinking'}
-          value={pi.context.thinkingLevel || '—'}
-          title={`Thinking effort: ${pi.context.thinkingLevel || 'unknown'}`}
-          disabled={pi.starting}
-          onToggle={() => setContextPicker((current) => current === 'thinking' ? null : 'thinking')}
-        >
-          {pi.availableThinkingLevels.length === 0
-            ? <div className="piContextPickerEmpty">No effort options</div>
-            : pi.availableThinkingLevels.map((level) => {
-              const selected = level === pi.context.thinkingLevel;
-              return <button
-                type="button"
-                role="option"
-                aria-selected={selected}
-                className={selected ? 'selected' : ''}
-                disabled={contextPickerBusy}
-                key={level}
-                onClick={() => chooseThinkingLevel(level).catch(() => {})}
-              >
-                <span><strong>{level}</strong></span>
-                <i aria-hidden="true">{selected ? '✓' : ''}</i>
-              </button>;
-            })}
-        </ContextPicker>
-          {pi.context.contextPercent !== null && <><ContextSeparator /><ContextUsage context={pi.context} /></>}
-        </div>
+        <PiContextBar pi={pi} model={modelPicker} />
         <div className="piGuiFooterBalance" aria-hidden="true" />
       </div>
 
@@ -891,47 +807,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       )}
     </div>
   );
-}
-
-function ContextPicker({ kind, open, value, title, disabled, onToggle, children }: {
-  kind: 'model' | 'thinking';
-  open: boolean;
-  value: string;
-  title: string;
-  disabled: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  const label = kind === 'model' ? 'model' : 'thinking effort';
-  return <div className={`piContextPicker piContextPicker-${kind}`}>
-    <button
-      className="piContextPickerTrigger"
-      type="button"
-      title={`${title || value} · Change ${label}`}
-      aria-label={`Change Pi ${label}. Current: ${value}`}
-      aria-haspopup="listbox"
-      aria-expanded={open}
-      disabled={disabled}
-      onClick={onToggle}
-    >
-      <span>{value}</span>
-    </button>
-    {open && <div className="piContextPickerMenu" role="listbox" aria-label={`Available Pi ${label} options`}>{children}</div>}
-  </div>;
-}
-
-function ContextSeparator() {
-  return <span className="piContextSeparator" aria-hidden="true">•</span>;
-}
-
-function ContextUsage({ context }: { context: PiSessionContext }) {
-  const percent = Math.max(0, Math.min(100, context.contextPercent ?? 0));
-  const tokens = context.contextTokens === null ? 'unknown' : context.contextTokens.toLocaleString();
-  const windowSize = context.contextWindow === null ? 'unknown' : context.contextWindow.toLocaleString();
-  const tooltip = `${tokens} / ${windowSize} tokens · ${Math.round(percent)}%`;
-  return <span className="piContextUsage" data-tooltip={tooltip} aria-label={`Context usage: ${tooltip}`}>
-    <span className="piContextDonut" style={{ background: `conic-gradient(#a9b6c2 ${percent * 3.6}deg, #647484 0deg)` }} />
-  </span>;
 }
 
 function resizeComposerInput(input: HTMLTextAreaElement) {
