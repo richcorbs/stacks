@@ -23,7 +23,10 @@ import { handleDialogShortcut } from './dialogShortcut';
 import { PiMarkdown } from './PiMarkdown';
 import { collectToolArgs, messageText, PiSessionBoundaryEntry, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
+import { PiPendingOutput, PiQueuedMessage } from './piGui/pendingOutput/PiPendingOutput';
 import { normalizeClipboardText } from '../clipboard';
+
+export { PiPendingOutput, PiQueuedMessage };
 
 // Runtime-only: pane IDs survive Pi restarts and view remounts, but not an app restart.
 const dismissedMcpTerminalIds = new Set<string>();
@@ -953,36 +956,6 @@ export function PiMcpCommandStatus({ status, notice, onDismiss }: { status: 'unk
   return <div className="piMcpCommandStatus" role="status" aria-live="polite">
     <span>MCP connection: {status}.{notice ? ` ${notice}` : ' Waiting for Pi status; check the MCP configuration if this does not update.'}</span>
     <button type="button" aria-label="Dismiss MCP command status" onMouseDown={(event) => event.preventDefault()} onClick={onDismiss}>×</button>
-  </div>;
-}
-
-export function PiPendingOutput({ isStreaming, hasActiveStreamingText, queuedSteering, queuedFollowUps }: {
-  isStreaming: boolean;
-  hasActiveStreamingText: boolean;
-  queuedSteering: string[];
-  queuedFollowUps: string[];
-}) {
-  return <>
-    {isStreaming && !hasActiveStreamingText && (
-      <div className="piWorkingIndicator" role="status" aria-label="Pi is thinking" aria-live="polite">
-        <span className="piWorkingDots" aria-hidden="true"><i /><i /><i /></span>
-      </div>
-    )}
-    {queuedSteering.map((message, index) => <PiQueuedMessage key={`steer:${message}:${index}`} kind="steering">{message}</PiQueuedMessage>)}
-    {queuedFollowUps.map((message, index) => <PiQueuedMessage key={`follow-up:${message}:${index}`} kind="follow-up">{message}</PiQueuedMessage>)}
-  </>;
-}
-
-export function PiQueuedMessage({ children, kind }: { children: string; kind: 'steering' | 'follow-up' }) {
-  const steering = kind === 'steering';
-  return <div
-    className={`piMessage piMessageUser piQueuedMessage ${steering ? 'piQueuedSteering' : 'piQueuedFollowUp'}`}
-    aria-label={steering ? 'Queued steering message' : 'Queued follow-up'}
-  >
-    <div className="piMessageText">
-      <small>{steering ? 'Steering' : 'Follow up'}</small>
-      <div className="piQueuedMessageContent piMarkdown"><PiMarkdown>{children}</PiMarkdown></div>
-    </div>
   </div>;
 }
 
