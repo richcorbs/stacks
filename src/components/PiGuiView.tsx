@@ -6,9 +6,8 @@ import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { projectColorAttribute } from '../projectColor';
 import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, isMcpStatusCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
-import { subscribePiFileDrops } from '../pi/fileDropBroker';
 import { handleComposerClipboard } from '../pi/composerClipboard';
-import { activePathToken, applyPathCompletion, formatDroppedPathReference, insertPathReferences } from '../pi/pathReferences';
+import { activePathToken, applyPathCompletion } from '../pi/pathReferences';
 import type { PiCommand } from '../pi/types';
 import { hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, visiblePiMessages } from '../pi/transcript';
 import { listenForPiEditorText } from '../pi/editorTextEvent';
@@ -30,6 +29,7 @@ import { usePiModelPicker } from './piGui/modelPicker/usePiModelPicker';
 import { PiSelectionPopup } from './piGui/selectionPopup/PiSelectionPopup';
 import { usePiSelectionPopup } from './piGui/selectionPopup/usePiSelectionPopup';
 import { usePiPathReferences } from './piGui/pathReferences/usePiPathReferences';
+import { usePiFileDrops } from './piGui/fileDrops/usePiFileDrops';
 
 export { PiPendingOutput, PiQueuedMessage, PiMcpCommandStatus, useMcpBannerDismissal };
 
@@ -250,23 +250,20 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       });
   }), [pi.isStreaming, pi.prompt, pi.restart, pi.starting, pi.stopped, terminal.id]);
 
-  useEffect(() => subscribePiFileDrops(terminal.id, (dropped) => {
-    if (dropped.length === 0) {
-      setComposerError('No filesystem items were included in the drop');
-      return;
-    }
-    const references = dropped.map((path) => formatDroppedPathReference(path, cwd));
-    const edit = insertPathReferences(promptRef.current, selectionRef.current.start, selectionRef.current.end, references);
-    selectionRef.current = { start: edit.cursor, end: edit.cursor };
-    setPrompt(edit.value);
-    setComposerError(null);
-    setSelectedCommandIndex(-1);
-    paths.setCompletionCursor(edit.cursor);
-    scheduleComposerFocus();
-    requestAnimationFrame(() => inputRef.current?.setSelectionRange(selectionRef.current.start, selectionRef.current.end));
-  }), [cwd, scheduleComposerFocus, terminal.id]);
-
   const paths = usePiPathReferences({ prompt, cwd, commands: pi.commands, setComposerError });
+  usePiFileDrops({
+    terminalId: terminal.id,
+    cwd,
+    promptRef,
+    selectionRef,
+    inputRef,
+    setPrompt,
+    setComposerError,
+    setSelectedCommandIndex,
+    setCompletionCursor: paths.setCompletionCursor,
+    onFocusComposer: scheduleComposerFocus,
+  });
+
 
   useLayoutEffect(() => {
     if (visible) chatScrollRef.current?.layout();
