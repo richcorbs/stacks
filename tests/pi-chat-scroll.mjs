@@ -62,6 +62,17 @@ try {
         composer: input ? input.value.slice(0, 24) : null,
       };
     });
+    const sendEnabled = () => page.waitForFunction(() => {
+      const send = document.querySelector('button[aria-label="Send"][title="Send"]');
+      return Boolean(send) && !send.disabled;
+    }, null, { polling: 25, timeout: 1000 });
+    const typePrompt = async (content, label) => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await page.locator('textarea').fill(content);
+        if (await sendEnabled().then(() => true, () => false)) return;
+      }
+      throw new Error(`${label} composer: send never became enabled: ` + JSON.stringify(await describeTranscript()));
+    };
     const bottom = async label => {
       // Timer polling deliberately does not depend on the animation frames that
       // an inactive WKWebView can withhold. Inspect the actual clipping chain,
@@ -74,9 +85,8 @@ try {
       } catch (error) {
         // A bare timeout on a slow runner is undiagnosable; report the geometry
         // that made it fail so the next CI failure identifies itself.
-        error.message = `${label}: transcript never reached the bottom within ${BOTTOM_TIMEOUT_MS}ms: `
-          + JSON.stringify(await describeTranscript());
-        throw error;
+        throw new Error(`${label}: transcript never reached the bottom within ${BOTTOM_TIMEOUT_MS}ms: `
+          + JSON.stringify(await describeTranscript()), { cause: error });
       }
       const geometry = await page.locator('.piGuiConversation').evaluate(viewport => {
         const message = viewport.querySelector('.piGuiTranscript').lastElementChild;
@@ -117,7 +127,7 @@ try {
           const label = `${engine.name()} ${card ? 'card' : 'workspace'} ${suspended ? 'inactive' : 'active'} ${kind}`;
           await hold(false);
           await update({ messages: [{ role: 'user', content: 'Earlier history\n\n'.repeat(35), timestamp: Date.now() }], streamingText: '', isStreaming: false });
-          await page.locator('textarea').fill(content);
+          await typePrompt(content, label);
           await settle();
           await pause(); // Sending restores following from older history.
           await hold(suspended);
@@ -130,8 +140,7 @@ try {
             null,
             { polling: 25, timeout: BOTTOM_TIMEOUT_MS },
           ).catch(async error => {
-            error.message = `${label} submit: message never appended: ` + JSON.stringify(await describeTranscript());
-            throw error;
+            throw new Error(`${label} submit: message never appended: ` + JSON.stringify(await describeTranscript()), { cause: error });
           });
           await bottom(`${label} submit/composer collapse`);
           const messages = await page.evaluate(() => [...document.querySelectorAll('.piGuiTranscript > .piMessage')].length);
