@@ -29,6 +29,7 @@ import { PiContextBar } from './piGui/modelPicker/PiContextBar';
 import { usePiModelPicker } from './piGui/modelPicker/usePiModelPicker';
 import { PiSelectionPopup } from './piGui/selectionPopup/PiSelectionPopup';
 import { usePiSelectionPopup } from './piGui/selectionPopup/usePiSelectionPopup';
+import { usePiPathReferences } from './piGui/pathReferences/usePiPathReferences';
 
 export { PiPendingOutput, PiQueuedMessage, PiMcpCommandStatus, useMcpBannerDismissal };
 
@@ -61,9 +62,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const modalUiRequest = pi.uiRequest && !isStructuredPiUiRequest(pi.uiRequest) ? pi.uiRequest : null;
   const { prompt, setPrompt, beginSubmission } = useComposerDraft(composerDraftKey);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
-  const [pathSuggestions, setPathSuggestions] = useState<Array<{ path: string; isDir: boolean }>>([]);
-  const [selectedPathIndex, setSelectedPathIndex] = useState(0);
-  const [completionCursor, setCompletionCursor] = useState(0);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [extensionInput, setExtensionInput] = useState('');
   const [quickResponseSubmitting, setQuickResponseSubmitting] = useState(false);
@@ -98,7 +96,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const quickResponseInFlightRef = useRef(false);
   const selectionRef = useRef({ start: 0, end: 0 });
   const cutCaretRef = useRef<number | null>(null);
-  const pathRequestRef = useRef(0);
   const knownSessionIdRef = useRef('');
   const pendingPrependAnchorRef = useRef<{ height: number; top: number } | null>(null);
   const mcp = usePiMcpBanner({ terminalId: terminal.id, cwd, project, pi, setComposerError });
@@ -253,72 +250,49 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       });
   }), [pi.isStreaming, pi.prompt, pi.restart, pi.starting, pi.stopped, terminal.id]);
 
-  useEffect(() => subscribePiFileDrops(terminal.id, (paths) => {
-    if (paths.length === 0) {
+  useEffect(() => subscribePiFileDrops(terminal.id, (dropped) => {
+    if (dropped.length === 0) {
       setComposerError('No filesystem items were included in the drop');
       return;
     }
-    const references = paths.map((path) => formatDroppedPathReference(path, cwd));
+    const references = dropped.map((path) => formatDroppedPathReference(path, cwd));
     const edit = insertPathReferences(promptRef.current, selectionRef.current.start, selectionRef.current.end, references);
     selectionRef.current = { start: edit.cursor, end: edit.cursor };
     setPrompt(edit.value);
     setComposerError(null);
     setSelectedCommandIndex(-1);
-    setCompletionCursor(edit.cursor);
+    paths.setCompletionCursor(edit.cursor);
     scheduleComposerFocus();
     requestAnimationFrame(() => inputRef.current?.setSelectionRange(selectionRef.current.start, selectionRef.current.end));
   }), [cwd, scheduleComposerFocus, terminal.id]);
 
-  useEffect(() => {
-    const token = activePathToken(prompt, completionCursor);
-    if (!token || matchingSlashCommands(pi.commands, prompt).length > 0) {
-      pathRequestRef.current += 1;
-      setPathSuggestions([]);
-      return;
-    }
-    const request = ++pathRequestRef.current;
-    const timer = window.setTimeout(() => {
-      invoke<Array<{ path: string; isDir: boolean }>>('discover_pi_paths', { root: cwd, query: token.query, limit: 50 })
-        .then((results) => {
-          if (pathRequestRef.current !== request) return;
-          setPathSuggestions(results);
-          setSelectedPathIndex(0);
-          setComposerError(null);
-        })
-        .catch((error) => {
-          if (pathRequestRef.current !== request) return;
-          setPathSuggestions([]);
-          setComposerError(`Could not find workspace files: ${String(error)}`);
-        });
-    }, 120);
-    return () => window.clearTimeout(timer);
-  }, [completionCursor, cwd, pi.commands, prompt]);
+  const paths = usePiPathReferences({ prompt, cwd, commands: pi.commands, setComposerError });
 
   useLayoutEffect(() => {
     if (visible) chatScrollRef.current?.layout();
   }, [pi.isStreaming, pi.messages, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, pi.uiRequest, visible]);
 
   const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
-  const completionToken = activePathToken(prompt, completionCursor);
-  const matchingPaths = matchingCommands.length === 0 && completionToken ? pathSuggestions : [];
+  const completionToken = activePathToken(prompt, paths.completionCursor);
+  const matchingPaths = matchingCommands.length === 0 && completionToken ? paths.suggestions : [];
   const hasStreamingText = hasVisiblePiStreamingText(pi.streamingText);
   const hasActiveStreamingText = hasStreamingText && pi.isStreamingText;
 
   function chooseCommand(command: PiCommand) {
     setPrompt(applySlashCommand(command));
     setSelectedCommandIndex(-1);
-    setPathSuggestions([]);
+    paths.clearSuggestions();
     scheduleComposerFocus();
   }
 
   function choosePath(path: { path: string; isDir: boolean }) {
-    const token = activePathToken(prompt, completionCursor);
+    const token = activePathToken(prompt, paths.completionCursor);
     if (!token) return;
     const edit = applyPathCompletion(prompt, token, path.path, path.isDir);
     setPrompt(edit.value);
     selectionRef.current = { start: edit.cursor, end: edit.cursor };
-    setCompletionCursor(edit.cursor);
-    setPathSuggestions([]);
+    paths.setCompletionCursor(edit.cursor);
+    paths.clearSuggestions();
     scheduleComposerFocus();
     requestAnimationFrame(() => inputRef.current?.setSelectionRange(edit.cursor, edit.cursor));
   }
@@ -398,7 +372,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     historyDraftRef.current = '';
     const finishSubmission = composerDraftKey ? beginSubmission() : null;
     if (!finishSubmission) setPrompt('');
-    setPathSuggestions([]);
+    paths.clearSuggestions();
     setComposerError(null);
     mcp.setCommandVisible(isMcpStatusCommand(message));
     chatScrollRef.current?.resume();
@@ -562,8 +536,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             {matchingPaths.map((path, index) => <button
               type="button"
               role="option"
-              aria-selected={index === selectedPathIndex}
-              className={index === selectedPathIndex ? 'selected' : ''}
+              aria-selected={index === paths.selectedIndex}
+              className={index === paths.selectedIndex ? 'selected' : ''}
               key={`${path.isDir ? 'directory' : 'file'}:${path.path}`}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => choosePath(path)}
@@ -584,14 +558,14 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             onSelect={(event) => {
               const { selectionStart: start, selectionEnd: end } = event.currentTarget;
               selectionRef.current = { start, end };
-              setCompletionCursor(end);
+              paths.setCompletionCursor(end);
             }}
             onChange={(event) => {
               historyIndexRef.current = null;
               historyDraftRef.current = '';
               const cursor = event.target.selectionEnd;
               selectionRef.current = { start: event.target.selectionStart, end: cursor };
-              setCompletionCursor(cursor);
+              paths.setCompletionCursor(cursor);
               setPrompt(event.target.value);
               setSelectedCommandIndex(0);
               setComposerError(null);
@@ -602,7 +576,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
                 historyDraftRef.current = '';
                 selectionRef.current = { start: caret, end: caret };
                 cutCaretRef.current = caret;
-                setCompletionCursor(caret);
+                paths.setCompletionCursor(caret);
                 setPrompt(value);
                 setSelectedCommandIndex(0);
                 setComposerError(null);
@@ -627,7 +601,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               if (matchingPaths.length > 0 && !event.metaKey && !event.ctrlKey && !event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                 event.preventDefault();
                 const direction = event.key === 'ArrowDown' ? 1 : -1;
-                setSelectedPathIndex((current) => (current + direction + matchingPaths.length) % matchingPaths.length);
+                paths.setSelectedIndex((current) => (current + direction + matchingPaths.length) % matchingPaths.length);
                 return;
               }
               if (matchingCommands.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
@@ -658,13 +632,13 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
                   );
                   if (boundary === null) return;
                   selectionRef.current = { start: boundary, end: boundary };
-                  setCompletionCursor(boundary);
+                  paths.setCompletionCursor(boundary);
                   input.setSelectionRange(boundary, boundary);
                 });
               }
               if (matchingPaths.length > 0 && !event.metaKey && !event.ctrlKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
                 event.preventDefault();
-                choosePath(matchingPaths[Math.max(0, selectedPathIndex)]);
+                choosePath(matchingPaths[Math.max(0, paths.selectedIndex)]);
                 return;
               }
               if (matchingCommands.length > 0 && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
@@ -674,8 +648,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               }
               if (event.key === 'Escape' && matchingPaths.length > 0) {
                 event.preventDefault();
-                pathRequestRef.current += 1;
-                setPathSuggestions([]);
+                paths.dismiss();
                 return;
               }
               if (event.key === 'Escape' && matchingCommands.length > 0) {
