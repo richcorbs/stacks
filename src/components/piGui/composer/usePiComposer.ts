@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import { applySlashCommand, isGuiBuiltinCommand, isMcpStatusCommand, matchingSlashCommands } from '../../../pi/commands';
 import { activePathToken, applyPathCompletion } from '../../../pi/pathReferences';
@@ -36,7 +36,7 @@ export function usePiComposer({ pi, composerDraftKey, prompt, setPrompt, beginSu
 }) {
   const [quickResponseSubmitting, setQuickResponseSubmitting] = useState(false);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
     const resize = () => {
@@ -61,7 +61,7 @@ export function usePiComposer({ pi, composerDraftKey, prompt, setPrompt, beginSu
     };
   }, []);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (inputRef.current) resizeComposerInput(inputRef.current);
     chatScrollRef.current?.layout();
   }, [fontSize, prompt]);
@@ -73,14 +73,14 @@ export function usePiComposer({ pi, composerDraftKey, prompt, setPrompt, beginSu
     inputRef.current?.setSelectionRange(caret, caret);
   }, [prompt]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!pi.editorTextRequest) return;
     setPrompt(pi.editorTextRequest.text);
     setSelectedCommandIndex(-1);
     if (active && visible) onFocusComposer();
   }, [pi.editorTextRequest, onFocusComposer]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     return listenForPiEditorText((request) => {
       if (request.terminalId !== terminalId || !active || !visible) return;
       setPrompt(request.text);

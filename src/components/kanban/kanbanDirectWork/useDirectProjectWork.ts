@@ -67,7 +67,7 @@ export function useDirectProjectWork({ projects, projectsHydrated, cards, cardsH
       })();
     };
     return applicationEvents.subscribe('notification-route', route);
-  }, [applyCardSnapshot, cards, cardsHydrated, openCard, projects, projectsHydrated, replaceDirectWork]);
+  }, [applyCardSnapshot, cards, cardsHydrated, projects, projectsHydrated, replaceDirectWork]);
 
   useEffect(() => {
     if (!projectsHydrated || !cardsHydrated || !pendingNotificationRouteRef.current) return;

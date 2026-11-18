@@ -1,6 +1,5 @@
 import { applicationEvents } from '../applicationEvents';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { projectColorAttribute } from '../projectColor';
 

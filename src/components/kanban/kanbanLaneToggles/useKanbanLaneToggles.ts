@@ -4,7 +4,7 @@ import type { PrCheck } from '../../../kanban/deliveryStep';
 import { workGroup } from '../../../kanban/workflowGroups';
 
 /** Lane collapse toggles that also clear keyboard focus inside a collapsing group. */
-export function useKanbanLaneToggles({ visibleCards, projects, prChecks, backlogCollapsed, onBacklogCollapsedChange, doneCollapsed, onDoneCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, setFocusedCardId, setOpenLaneMenu }: {
+export function useKanbanLaneToggles({ visibleCards, projects, prChecks, backlogCollapsed, onBacklogCollapsedChange, doneCollapsed, onDoneCollapsedChange, setFocusedCardId, setOpenLaneMenu }: {
   visibleCards: KanbanCardSummary[];
   projects: Project[];
   prChecks: Record<string, PrCheck>;
@@ -12,10 +12,6 @@ export function useKanbanLaneToggles({ visibleCards, projects, prChecks, backlog
   onBacklogCollapsedChange: (collapsed: boolean) => void;
   doneCollapsed: boolean;
   onDoneCollapsedChange: (collapsed: boolean) => void;
-  attentionCollapsed: boolean;
-  onAttentionCollapsedChange: (collapsed: boolean) => void;
-  progressCollapsed: boolean;
-  onProgressCollapsedChange: (collapsed: boolean) => void;
   setFocusedCardId: (update: (currentId: string | null) => string | null) => void;
   setOpenLaneMenu: (status: KanbanStatus | null) => void;
 }) {

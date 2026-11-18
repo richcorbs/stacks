@@ -87,6 +87,7 @@ export function usePiMcpBanner({ terminalId, cwd, project, pi, setComposerError 
     setConfirmTrust,
     trustChanged,
     requestRestart,
+    restart: () => pi.restart(),
     trustDirectory,
   };
 }
