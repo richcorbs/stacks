@@ -45,14 +45,39 @@ try {
     const update = patch => page.evaluate(patch => window.chatTest.updateSession(patch), patch);
     const hold = value => page.evaluate(value => window.holdChatFrames(value), value);
     const settle = () => page.waitForTimeout(100);
+    // A shared runner is several times slower than a laptop. The assertion here is
+    // that following the bottom is *eventual and frame-independent*, not that it
+    // lands inside one animation frame, so the window is generous; a transcript
+    // that never re-pins still fails.
+    const BOTTOM_TIMEOUT_MS = 10_000;
+    const describeTranscript = () => page.evaluate(() => {
+      const viewport = document.querySelector('.piGuiConversation');
+      const input = document.querySelector('textarea');
+      return {
+        gap: Math.round(viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop),
+        scrollTop: Math.round(viewport.scrollTop),
+        scrollHeight: viewport.scrollHeight,
+        clientHeight: viewport.clientHeight,
+        messages: document.querySelectorAll('.piGuiTranscript > .piMessage').length,
+        composer: input ? input.value.slice(0, 24) : null,
+      };
+    });
     const bottom = async label => {
       // Timer polling deliberately does not depend on the animation frames that
       // an inactive WKWebView can withhold. Inspect the actual clipping chain,
       // not just scrollHeight or the inner scrollport's rectangle.
-      await page.waitForFunction(() => {
-        const viewport = document.querySelector('.piGuiConversation');
-        return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 1;
-      }, null, { polling: 25, timeout: 2000 });
+      try {
+        await page.waitForFunction(() => {
+          const viewport = document.querySelector('.piGuiConversation');
+          return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 1;
+        }, null, { polling: 25, timeout: BOTTOM_TIMEOUT_MS });
+      } catch (error) {
+        // A bare timeout on a slow runner is undiagnosable; report the geometry
+        // that made it fail so the next CI failure identifies itself.
+        error.message = `${label}: transcript never reached the bottom within ${BOTTOM_TIMEOUT_MS}ms: `
+          + JSON.stringify(await describeTranscript());
+        throw error;
+      }
       const geometry = await page.locator('.piGuiConversation').evaluate(viewport => {
         const message = viewport.querySelector('.piGuiTranscript').lastElementChild;
         const time = message.querySelector('time');
@@ -97,7 +122,17 @@ try {
           await pause(); // Sending restores following from older history.
           await hold(suspended);
           await page.locator('textarea').press('Enter');
-          await settle();
+          // Wait for the submit to land before judging the scroll: a fixed sleep is
+          // what made this unreliable on a loaded runner, and a submit that never
+          // landed should say so instead of looking like a follow failure.
+          await page.waitForFunction(
+            () => document.querySelectorAll('.piGuiTranscript > .piMessage').length === 2,
+            null,
+            { polling: 25, timeout: BOTTOM_TIMEOUT_MS },
+          ).catch(async error => {
+            error.message = `${label} submit: message never appended: ` + JSON.stringify(await describeTranscript());
+            throw error;
+          });
           await bottom(`${label} submit/composer collapse`);
           const messages = await page.evaluate(() => [...document.querySelectorAll('.piGuiTranscript > .piMessage')].length);
           assert.equal(messages, 2);
