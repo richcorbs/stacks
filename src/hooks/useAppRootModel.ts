@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { hasActiveConfirmation } from '../components/ConfirmationBoundary';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useDoneCleanup } from './useDoneCleanup';
@@ -12,6 +11,7 @@ import { useAppCloseRequest, useAppToastEvents } from './useAppWindowEvents';
 import { useAppWindowFocusClass } from './useAppWindowFocusClass';
 import { useToast } from './useToast';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
+import { useMenuShortcutListener } from './useMenuShortcutListener';
 import { useAppStyle } from './useAppStyle';
 import { useNativeFileDropRouter } from './useNativeFileDropRouter';
 import { clampTerminalFontSize, clampUiFontSize } from '../settings';
@@ -25,8 +25,7 @@ import { deletePiSessionController, getRetainedPiSessionController } from '../pi
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
 import type { KanbanCard } from '../kanban/types';
 import { disposeTerminalSessions, disposeTerminalSessionsWithPrefix } from '../terminalSessionManager';
-import { runShortcutAction } from '../shortcutActions';
-import type { ShortcutAction, ShortcutHandlers } from '../shortcutTypes';
+import type { ShortcutHandlers } from '../shortcutTypes';
 import { buildCardPaletteItems, workspaceEditorDirectory, type CardPaletteRegistration } from '../commandPaletteCards';
 import { launchWorkAgent } from '../kanban/workAgentLauncher';
 import { flushAllProjectNotes } from '../projectNotes';
@@ -128,6 +127,8 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
       .then(([nextStore, settings]) => { setStore(nextStore); setAppSettings(resolveAppSettings(settings)); })
       .catch(console.error).finally(() => { setLoaded(true); loading.settleStartup('projects'); });
   }, [loading]);
+  // Settings persistence bookkeeping: previous persisted value, pending field
+  // set, and the serialized save chain. These are not callback mirrors.
   const persistedSettingsRef = useRef<ResolvedAppSettings | null>(null);
   const pendingSettingsFieldsRef = useRef(new Set<keyof ResolvedAppSettings>());
   const settingsSaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -321,13 +322,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     runCardTerminalAction: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : action === 'previous-pane' || action === 'next-pane' ? { type: 'navigate-pane', direction: action === 'previous-pane' ? -1 : 1 } : { type: action }),
   };
   useKeyboardShortcuts(shortcutHandlers, loading.isInteractionBlocked);
-  const shortcutRef = useRef(shortcutHandlers); shortcutRef.current = shortcutHandlers;
-  useEffect(() => {
-    const listener = getCurrentWindow().listen<string>('menu-shortcut', (event) => {
-      if (!loading.isInteractionBlocked() && !hasActiveConfirmation()) runShortcutAction(event.payload as ShortcutAction, shortcutRef.current);
-    });
-    return () => { listener.then((unlisten) => unlisten()).catch(console.error); };
-  }, [loading]);
+  useMenuShortcutListener(shortcutHandlers, loading.isInteractionBlocked);
 
   return {
     appStyle: useAppStyle(appSettings),

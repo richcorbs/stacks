@@ -53,6 +53,10 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   );
   const creationProjects = creationAvailability.destinations;
   const { selectedCardId, selectedCard, selectCard, clearSelection } = useCanonicalCardSelection(board.cards);
+  // Selection/detail/card snapshots are shared mutable controller state, not
+  // callback plumbing: event handlers assign them eagerly before React commits
+  // and async continuations, subscriptions, and the detail coordinator compare
+  // against them. An Effect Event cannot stand in for these transitional reads.
   const selectedCardIdRef = useRef(selectedCardId);
   selectedCardIdRef.current = selectedCardId;
   const [selectedDetail, setSelectedDetail] = useState<KanbanCard | null>(null);
@@ -72,6 +76,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   const [detailRefreshError, setDetailRefreshError] = useState<{ cardId: string; message: string } | null>(null);
   const selectedDetailRef = useRef(selectedDetail);
   selectedDetailRef.current = selectedDetail;
+  // Mirror of the canonical board snapshot for synchronous/async detail checks;
+  // it is also read by handlers, so it is not an effect-owned subscription input.
   const boardCardsRef = useRef(board.cards);
   boardCardsRef.current = board.cards;
   const eventRequestGenerationRef = useRef(0);
@@ -138,6 +144,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     },
   });
   const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
+  // Async project switching compares against the in-flight selection before it
+  // commits; keep this as mutable controller state.
   const directWorkProjectIdRef = useRef<string | null>(null);
   directWorkProjectIdRef.current = directWorkProjectId;
   const [directWorkInitialView, setDirectWorkInitialView] = useState<WorkView | undefined>();
@@ -145,6 +153,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   const directWorkNavigationNonceRef = useRef(0);
   const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
   const [cardServices, setCardServices] = useState<Record<string, CardServices>>({});
+  // Server handoff handlers read the latest services synchronously before they
+  // await; this is mutable orchestration state, not an effect subscription.
   const cardServicesRef = useRef(cardServices);
   cardServicesRef.current = cardServices;
   const [serverHandoff, setServerHandoff] = useState<{ targetCardId: string; externalId: string } | null>(null);
@@ -465,6 +475,8 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
 
   const openCardRef = useRef(openCard);
   boardCardsRef.current = board.cards;
+  // openPaletteCard is a public palette callback, so it may not be an Effect
+  // Event; the ref keeps it stable while still opening the current detail flow.
   openCardRef.current = openCard;
   useEffect(() => {
     const pending = new Map<string, number>();

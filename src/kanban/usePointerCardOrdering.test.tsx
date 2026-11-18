@@ -308,6 +308,17 @@ describe('usePointerCardOrdering pointer lifecycle', () => {
     act(() => ordering.cancelPointerDrag());
   });
 
+  it('uses the latest committed reorder callback without re-registering pointer listeners', async () => {
+    const first = await render([card('a'), card('b')]);
+    const second = vi.fn(async () => {});
+    await act(async () => { renderer.update(<Harness cards={[card('a'), card('b')]} reorder={second} />); });
+    pointElement = listElement('needs_refinement');
+    act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));
+    await act(async () => ordering.finishPointerDrag(pointerEvent({ clientY: 100, clientX: 30 })));
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledOnce();
+  });
+
   it('tears down on unmount and ignores a later release', async () => {
     const reorder = await render();
     act(() => ordering.beginPointerDrag(pointerEvent(), card('a')));

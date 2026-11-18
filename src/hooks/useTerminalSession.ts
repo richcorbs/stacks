@@ -50,6 +50,8 @@ export function useTerminalSession({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [sessionRestartNonce, setSessionRestartNonce] = useState(0);
+  // Deferred session attachment and focus lifecycle read this inside async
+  // work; it is mutable terminal lifecycle state, not an effect-owned callback.
   const activeRef = useRef(active);
   activeRef.current = active;
 

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KanbanCardSummary } from './types';
 import type { DeliveryContext } from './deliveryStep';
 import { adjacentListCard, keyboardNavigableCards } from './boardNavigation';
@@ -37,7 +37,10 @@ export function useBoardKeyboardNavigation({
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const navigationRootRef = useRef<HTMLDivElement>(null);
   const focusedCardIdRef = useRef(focusedCardId);
-  focusedCardIdRef.current = focusedCardId;
+  // Selection is mutable controller state: the key handler advances it eagerly
+  // for repeated keys, while this effect mirrors committed changes without a
+  // render-time write.
+  useEffect(() => { focusedCardIdRef.current = focusedCardId; }, [focusedCardId]);
   const [revealRequest, setRevealRequest] = useState<{ cardId: string } | null>(null);
   const handledRevealRequest = useRef(revealRequest);
   const keyboardCards = useMemo(
@@ -68,37 +71,39 @@ export function useBoardKeyboardNavigation({
     return () => cancelAnimationFrame(frame);
   }, [revealRequest, shortcutBlocked, selectedCard]);
 
-  useEffect(() => {
-    const handleBoardNavigation = (event: KeyboardEvent) => {
-      if (shortcutBlocked || event.metaKey || event.ctrlKey || event.altKey || isEditableElement(event.target)) return;
-      if (event.key === 'n') {
-        if (event.shiftKey || selectedCard || !creationAvailable) return;
-        event.preventDefault();
-        openNewCard();
-        return;
-      }
-      if (selectedCard || (event.target as Element | null)?.closest?.('.kanbanListGroupHeader')) return;
-      const arrowDirection = arrowDirections[event.key];
-      if (arrowDirection && event.shiftKey) return;
-      const key = arrowDirection ?? event.key.toLocaleLowerCase();
-      if (!['j', 'k', 'enter'].includes(key)) return;
-      if (key === 'enter') {
-        const card = keyboardCards.find((candidate) => candidate.id === focusedCardIdRef.current);
-        if (!card) return;
-        event.preventDefault();
-        openCard(card);
-        return;
-      }
-      const nextCard = adjacentListCard(keyboardCards, focusedCardIdRef.current, key as 'j' | 'k', deliveryContext);
-      if (!nextCard) return;
+  const handleBoardNavigation = useEffectEvent((event: KeyboardEvent) => {
+    if (shortcutBlocked || event.metaKey || event.ctrlKey || event.altKey || isEditableElement(event.target)) return;
+    if (event.key === 'n') {
+      if (event.shiftKey || selectedCard || !creationAvailable) return;
       event.preventDefault();
-      focusedCardIdRef.current = nextCard.id;
-      setFocusedCardId(nextCard.id);
-      setRevealRequest({ cardId: nextCard.id });
-    };
-    window.addEventListener('keydown', handleBoardNavigation);
-    return () => window.removeEventListener('keydown', handleBoardNavigation);
-  }, [keyboardCards, focusedCardId, selectedCard, creationAvailable, shortcutBlocked, openNewCard, openCard, deliveryContext]);
+      openNewCard();
+      return;
+    }
+    if (selectedCard || (event.target as Element | null)?.closest?.('.kanbanListGroupHeader')) return;
+    const arrowDirection = arrowDirections[event.key];
+    if (arrowDirection && event.shiftKey) return;
+    const key = arrowDirection ?? event.key.toLocaleLowerCase();
+    if (!['j', 'k', 'enter'].includes(key)) return;
+    if (key === 'enter') {
+      const card = keyboardCards.find((candidate) => candidate.id === focusedCardIdRef.current);
+      if (!card) return;
+      event.preventDefault();
+      openCard(card);
+      return;
+    }
+    const nextCard = adjacentListCard(keyboardCards, focusedCardIdRef.current, key as 'j' | 'k', deliveryContext);
+    if (!nextCard) return;
+    event.preventDefault();
+    focusedCardIdRef.current = nextCard.id;
+    setFocusedCardId(nextCard.id);
+    setRevealRequest({ cardId: nextCard.id });
+  });
+
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => handleBoardNavigation(event);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
 
   return { focusedCardId, setFocusedCardId, navigationRootRef };
 }

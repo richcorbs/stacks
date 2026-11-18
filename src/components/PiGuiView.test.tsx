@@ -1,7 +1,9 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
+import { deliverPiFileDrop } from '../pi/fileDropBroker';
 import { PiGuiView, PiMcpCommandStatus, PiPendingOutput, PiQueuedMessage, useMcpBannerDismissal } from './PiGuiView';
 
 const pi = vi.hoisted(() => ({
@@ -64,8 +66,23 @@ describe('PiGuiView MCP dismissal focus', () => {
       visible = state.visible ?? visible;
       renderer.update(view());
     });
-    return { input, textarea, close, update };
+    return { input, textarea, close, update, change, terminalId };
   }
+
+  it('reads the latest committed draft when an image is dropped', async () => {
+    const { textarea, change, terminalId } = await mount('persistent');
+    act(() => { deliverPiFileDrop(terminalId, ['/tmp/first.png']); });
+    expect(textarea().props.value).toContain('hello world');
+    expect(textarea().props.value).toContain('@first.png');
+
+    // The drop subscription is installed once; the second drop must use the
+    // newly committed draft rather than a value captured at subscription time.
+    change('second draft');
+    act(() => { deliverPiFileDrop(terminalId, ['/tmp/second.png']); });
+    expect(textarea().props.value).toContain('second draft');
+    expect(textarea().props.value).toContain('@second.png');
+    expect(textarea().props.value).not.toContain('hello world');
+  });
 
   describe.each(['persistent', 'command'] as const)('%s banner', (kind) => {
     it.each([[5, 5], [3, 8]])('preserves the draft and selection %i–%i on mouse dismissal', async (start, end) => {

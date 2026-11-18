@@ -1,6 +1,6 @@
 import { ConfirmationBoundary } from './ConfirmationBoundary';
 import { applicationEvents, showAppToast } from '../applicationEvents';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -91,8 +91,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const paneRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const promptRef = useRef(prompt);
-  promptRef.current = prompt;
+  // File-drop delivery is an effect-owned subscription. Read the latest
+  // committed draft through an Effect Event instead of writing a ref during render.
+  const readPrompt = useEffectEvent(() => prompt);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<ReturnType<typeof createChatScroll> | null>(null);
   useLayoutEffect(() => {
@@ -146,6 +147,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [cwd, project.path, project.enable_mcp]);
 
   const quickResponseSessionEligible = canSendPiQuickResponse(pi);
+  // Kept as mutable request state, not callback plumbing: the quick-response
+  // flow rechecks eligibility across an await from a UI handler, so this cannot
+  // be an effect-owned Effect Event.
   const quickResponseSessionEligibleRef = useRef(quickResponseSessionEligible);
   quickResponseSessionEligibleRef.current = quickResponseSessionEligible;
 
@@ -228,6 +232,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [prompt]);
 
   const composerFocusAllowed = active && visible && !pi.starting && !modalUiRequest && !confirmMcpTrust && !confirmMcpRestart;
+  // scheduleComposerFocus is also called by UI handlers, and the ref read must
+  // happen inside the deferred animation frame. That is not an effect-owned
+  // subscription, so it stays mutable focus state rather than an Effect Event.
   const composerFocusAllowedRef = useRef(composerFocusAllowed);
   composerFocusAllowedRef.current = composerFocusAllowed;
   const scheduleComposerFocus = useCallback(() => {
@@ -299,7 +306,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       return;
     }
     const references = paths.map((path) => formatDroppedPathReference(path, cwd));
-    const edit = insertPathReferences(promptRef.current, selectionRef.current.start, selectionRef.current.end, references);
+    const edit = insertPathReferences(readPrompt(), selectionRef.current.start, selectionRef.current.end, references);
     selectionRef.current = { start: edit.cursor, end: edit.cursor };
     setPrompt(edit.value);
     setComposerError(null);

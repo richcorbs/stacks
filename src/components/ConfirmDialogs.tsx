@@ -41,7 +41,9 @@ export function useConfirmation(ownerKey: unknown = null) {
   const sequence = useRef(0);
   const pending = useRef<((accepted: boolean) => void) | null>(null);
   const owner = useRef(ownerKey);
-  owner.current = ownerKey;
+  // Async confirmation settlement must compare against the committed owner, not
+  // a render that may never commit.
+  useEffect(() => { owner.current = ownerKey; }, [ownerKey]);
   const settle = useCallback((accepted: boolean) => {
     const resolve = pending.current;
     pending.current = null;
