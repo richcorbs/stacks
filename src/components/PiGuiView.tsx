@@ -1,8 +1,8 @@
-import { applicationEvents, showAppToast } from '../applicationEvents';
+import { applicationEvents } from '../applicationEvents';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { projectColorAttribute } from '../projectColor';
 import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, isMcpStatusCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
@@ -27,7 +27,8 @@ import { PiMcpBanner, PiMcpCommandStatus } from './piGui/mcp/PiMcpBanner';
 import { useMcpBannerDismissal, usePiMcpBanner } from './piGui/mcp/usePiMcpBanner';
 import { PiContextBar } from './piGui/modelPicker/PiContextBar';
 import { usePiModelPicker } from './piGui/modelPicker/usePiModelPicker';
-import { normalizeClipboardText } from '../clipboard';
+import { PiSelectionPopup } from './piGui/selectionPopup/PiSelectionPopup';
+import { usePiSelectionPopup } from './piGui/selectionPopup/usePiSelectionPopup';
 
 export { PiPendingOutput, PiQueuedMessage, PiMcpCommandStatus, useMcpBannerDismissal };
 
@@ -65,7 +66,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const [completionCursor, setCompletionCursor] = useState(0);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [extensionInput, setExtensionInput] = useState('');
-  const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
   const [quickResponseSubmitting, setQuickResponseSubmitting] = useState(false);
   const [revealedMessageCount, setRevealedMessageCount] = useState(INITIAL_RENDERED_PI_MESSAGES);
   const paneRef = useRef<HTMLDivElement | null>(null);
@@ -93,7 +93,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, []);
   const previousVisibleRef = useRef(visible);
   const handledRestartNonceRef = useRef(0);
-  const preventSummaryToggleRef = useRef(false);
   const historyIndexRef = useRef<number | null>(null);
   const historyDraftRef = useRef('');
   const quickResponseInFlightRef = useRef(false);
@@ -199,6 +198,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, [composerFocusAllowed]);
 
   const modelPicker = usePiModelPicker({ pi, onFocusComposer: scheduleComposerFocus });
+  const selection = usePiSelectionPopup({ paneRef, setPrompt, onFocusComposer: scheduleComposerFocus });
   useEffect(() => {
     scheduleComposerFocus();
     const focusRequestedPane = (request: { terminalId?: string }) => {
@@ -293,17 +293,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     }, 120);
     return () => window.clearTimeout(timer);
   }, [completionCursor, cwd, pi.commands, prompt]);
-
-  useEffect(() => {
-    const dismiss = (event: MouseEvent) => {
-      const target = event.target as Element | null;
-      if (target?.closest('.piSelectionPopup')) return;
-      preventSummaryToggleRef.current = false;
-      setSelectionPopup(null);
-    };
-    window.addEventListener('mousedown', dismiss);
-    return () => window.removeEventListener('mousedown', dismiss);
-  }, []);
 
   useLayoutEffect(() => {
     if (visible) chatScrollRef.current?.layout();
@@ -429,41 +418,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     });
   }
 
-  function showSelectionPopup(event: React.MouseEvent<HTMLDivElement>) {
-    const selection = window.getSelection();
-    const text = selection?.toString() || '';
-    const pane = paneRef.current;
-    if (!selection || !text.trim() || selection.rangeCount === 0 || !pane) {
-      setSelectionPopup(null);
-      preventSummaryToggleRef.current = false;
-      return;
-    }
-    const range = selection.getRangeAt(0);
-    const ancestor = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-      ? range.commonAncestorContainer as Element
-      : range.commonAncestorContainer.parentElement;
-    if (!ancestor?.closest('.piGuiPane')) return;
-    const anchorElement = selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode as Element : selection.anchorNode?.parentElement;
-    const focusElement = selection.focusNode?.nodeType === Node.ELEMENT_NODE ? selection.focusNode as Element : selection.focusNode?.parentElement;
-    preventSummaryToggleRef.current = Boolean(ancestor.closest('summary') || anchorElement?.closest('summary') || focusElement?.closest('summary'));
-    const selectionRect = range.getBoundingClientRect();
-    const paneRect = pane.getBoundingClientRect();
-    const centerX = selectionRect.width ? selectionRect.left + selectionRect.width / 2 : event.clientX;
-    const showBelow = selectionRect.top - paneRect.top < 40;
-    setSelectionPopup({
-      text,
-      x: Math.min(paneRect.width - 75, Math.max(75, centerX - paneRect.left)),
-      y: showBelow ? selectionRect.bottom - paneRect.top + 6 : selectionRect.top - paneRect.top - 6,
-      below: showBelow,
-    });
-  }
-
-  function clearGuiSelection() {
-    window.getSelection()?.removeAllRanges();
-    preventSummaryToggleRef.current = false;
-    setSelectionPopup(null);
-  }
-
   async function pasteIntoComposer() {
     const input = inputRef.current;
     const selectionStart = input?.selectionStart ?? prompt.length;
@@ -480,26 +434,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     setSelectedCommandIndex(0);
     scheduleComposerFocus();
     requestAnimationFrame(() => inputRef.current?.setSelectionRange(cursor, cursor));
-  }
-
-  async function copySelection() {
-    if (!selectionPopup) return;
-    try {
-      await writeText(normalizeClipboardText(selectionPopup.text));
-      clearGuiSelection();
-      showAppToast('Copied to clipboard');
-    } catch (error) {
-      showAppToast(`Could not copy: ${String(error)}`);
-    } finally {
-      scheduleComposerFocus();
-    }
-  }
-
-  function copySelectionToChat() {
-    if (!selectionPopup) return;
-    setPrompt((current) => current ? `${current}\n\n${selectionPopup.text}` : selectionPopup.text);
-    clearGuiSelection();
-    scheduleComposerFocus();
   }
 
   const { hiddenCount: hiddenMessageCount, messages: visibleMessages } = visiblePiMessages(pi.messages, revealedMessageCount);
@@ -523,16 +457,16 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       onMouseDown={() => {
         if (!active) onFocus();
       }}
-      onMouseUp={showSelectionPopup}
+      onMouseUp={selection.showSelectionPopup}
       onClick={(event) => {
         if ((event.target as Element).closest('button, a, input, textarea, summary, .piSelectionPopup')) return;
         if (!window.getSelection()?.toString().trim()) inputRef.current?.focus();
       }}
       onClickCapture={(event) => {
-        if (!preventSummaryToggleRef.current || !(event.target as Element).closest('summary')) return;
+        if (!selection.preventSummaryToggleRef.current || !(event.target as Element).closest('summary')) return;
         event.preventDefault();
         event.stopPropagation();
-        preventSummaryToggleRef.current = false;
+        selection.preventSummaryToggleRef.current = false;
       }}
     >
       <TerminalControls
@@ -545,7 +479,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       />
       <div className="piGuiConversation" ref={scrollRef} onScroll={() => {
         chatScrollRef.current?.scroll();
-        setSelectionPopup(null);
+        selection.clearSelection();
       }} onWheel={(event) => {
         // Capture scroll-away intent even when a streaming layout change occurs
         // in the same frame as the user's wheel/trackpad input.
@@ -777,16 +711,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
         <div className="piGuiFooterBalance" aria-hidden="true" />
       </div>
 
-      {selectionPopup && (
-        <div
-          className={`piSelectionPopup ${selectionPopup.below ? 'below' : ''}`}
-          style={{ left: selectionPopup.x, top: selectionPopup.y }}
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          <button type="button" title="Copy to clipboard" onClick={() => copySelection().catch(() => {})}>Copy</button>
-          <button type="button" title="Copy to chat" onClick={copySelectionToChat}>To chat</button>
-        </div>
-      )}
+      <PiSelectionPopup selection={selection.selectionPopup} onCopy={() => selection.copySelection().catch(() => {})} onCopyToChat={selection.copySelectionToChat} />
 
       {modalUiRequest && (
         <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={modalUiRequest.title} onKeyDown={handleDialogShortcut}>
