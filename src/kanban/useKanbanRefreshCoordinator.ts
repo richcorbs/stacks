@@ -50,12 +50,16 @@ export function useKanbanRefreshCoordinator({
   intervalMs?: number;
 }): KanbanRefreshState {
   const snapshotRef = useRef(snapshotOf(cards, projects, visibleCards, activeCardId));
+  // The refresh coordinator is a persistent object created once and reads its
+  // latest inputs asynchronously. These are mutable controller state, not
+  // callbacks owned by a React effect.
   snapshotRef.current = snapshotOf(cards, projects, visibleCards, activeCardId);
   const patchCardRef = useRef(patchCard);
   patchCardRef.current = patchCard;
   const latestHealthRef = useRef(new Map<string, { identity: string; health: CardEnvironmentHealth }>());
   const [statusCache, setStatusCache] = useState<Record<string, CachedStatus>>({});
   const statusCacheRef = useRef(statusCache);
+  // Async refresh cycles reconcile against the cache owned by this hook.
   statusCacheRef.current = statusCache;
   const [summaryCache, setSummaryCache] = useState<CachedSummary>(null);
   const [prChecks, setPrChecks] = useState<KanbanRefreshState['prChecks']>({});

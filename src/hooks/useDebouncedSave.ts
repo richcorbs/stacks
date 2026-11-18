@@ -6,6 +6,8 @@ export type SaveStoreNow = (store: Store) => Promise<void>;
 
 export function useDebouncedStoreSave(loaded: boolean, store: Store, delayMs = 250): SaveStoreNow {
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  // Persistence-chain bookkeeping: serializes saves, it is not a render-written
+  // callback mirror.
 
   const saveStoreNow = useCallback<SaveStoreNow>((nextStore) => {
     const save = saveChainRef.current

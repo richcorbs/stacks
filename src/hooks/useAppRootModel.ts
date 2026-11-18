@@ -127,6 +127,8 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
       .then(([nextStore, settings]) => { setStore(nextStore); setAppSettings(resolveAppSettings(settings)); })
       .catch(console.error).finally(() => { setLoaded(true); loading.settleStartup('projects'); });
   }, [loading]);
+  // Settings persistence bookkeeping: previous persisted value, pending field
+  // set, and the serialized save chain. These are not callback mirrors.
   const persistedSettingsRef = useRef<ResolvedAppSettings | null>(null);
   const pendingSettingsFieldsRef = useRef(new Set<keyof ResolvedAppSettings>());
   const settingsSaveChainRef = useRef<Promise<unknown>>(Promise.resolve());

@@ -15,6 +15,7 @@ import type { BoardChange, KanbanCard, KanbanCardSummary, SuperthreadIntegration
 /** React is only responsible for controller lifetime and external-store projection. */
 export function useKanbanBoard(provider: SuperthreadIntegration | SuperthreadIntegration[] | null) {
   const controllerRef = useRef<KanbanController | null>(null);
+  // Lazy persistent controller handle; not callback plumbing.
   if (!controllerRef.current) controllerRef.current = createBrowserKanbanController();
   const controller = controllerRef.current;
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
