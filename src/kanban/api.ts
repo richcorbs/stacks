@@ -1,10 +1,23 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { BoundaryRequest_kanban_card_snapshot, BoundaryRequest_kanban_cleanup_preflight, BoundaryRequest_kanban_start_environment, BoundaryRequest_kanban_cleanup_environment_creation, BoundaryRequest_kanban_apply_pi_lifecycle_intent, BoundaryRequest_kanban_close_card, BoundaryRequest_kanban_retry_runtime_cleanup } from './boundaryContract.generated';
-import type { BoardChange, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardEventCursor, CardEventPage, CardSnapshot, CleanupInventory, CleanupPreflight, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
+import type { BoardChange, BoardHealthReport, BoardSnapshot, CardEnvironmentHealth, CardEnvironmentPane, CardEventCursor, CardEventPage, CardSnapshot, CleanupInventory, CleanupPreflight, KanbanCard, KanbanStatus, KanbanWorkflowAction, PiLifecycleIntent, SuperthreadSnapshot } from './types';
 import type { SplitNode } from '../types';
 
 export function fetchKanbanCards() {
   return invoke<BoardSnapshot>('kanban_cards');
+}
+
+export function fetchBoardHealth() {
+  return invoke<BoardHealthReport>('kanban_board_health');
+}
+
+export function cleanupBoardHealthEnvironment(finding: { card_id: string; environment_id: string; environment_revision: number }) {
+  return invoke<BoardHealthReport>('kanban_board_health_cleanup_environment', {
+    cardId: finding.card_id,
+    environmentId: finding.environment_id,
+    expectedEnvironmentRevision: finding.environment_revision,
+    confirmed: true,
+  });
 }
 
 export async function fetchKanbanCard(id: string) {

@@ -74,6 +74,29 @@ export type CleanupPreflight = {
 };
 export type CleanupInventory = { entries: CleanupPreflight[]; eligible_merged: number; blocked: number; closed: number; completed: number };
 
+export type BoardHealthFinding = {
+  invariant: 'finalized_parent_without_children' | 'stale_parent_child_count' | 'environment_worktree_missing' | 'done_card_retention_blocked' | 'unactionable_card' | string;
+  card_id: string;
+  card_title: string;
+  status: string;
+  project_id: string | null;
+  environment_id: string | null;
+  environment_revision: number | null;
+  workflow_revision: number;
+  summary: string;
+  reasons: string[];
+  repaired: boolean;
+  action: 'repair_parent_metadata' | 'cleanup_environment' | string | null;
+  action_label: string | null;
+};
+
+export type BoardHealthReport = {
+  findings: BoardHealthFinding[];
+  repaired: number;
+  board_revision: number;
+  scanned_at: number;
+};
+
 export type CardCleanupOperation = {
   status: 'pending' | 'failed' | 'completed';
   phase: 'runtime_sessions' | 'validate_repository' | 'remove_worktree' | 'delete_local_branch' | 'delete_remote_branch' | 'remove_metadata' | 'record_completion';
