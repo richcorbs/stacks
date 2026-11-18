@@ -5,7 +5,6 @@ import { canonicalCardById } from '../../kanban/boardStore';
 import type { CardEventCursor, CardEventPage, CleanupInventory, CleanupPreflight, KanbanCard, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import { canProjectSelectedDetail, detailIsCurrent, mergeCardEvents, SelectedDetailRequestCoordinator, type DetailRequestKind } from '../../kanban/selectedDetailRequestCoordinator';
 import { DetailSessionCache } from '../../kanban/detailSessionCache';
-import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { DirectProjectWork } from '../DirectProjectWork';
@@ -20,7 +19,6 @@ import { KanbanList } from './KanbanList';
 import { BoardCardServerServices } from './BoardCardServerServices';
 import type { CardServices } from '../../kanban/useCardServices';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
-import { startLaunchCardRecovery, startupCardRecoveryAllowed } from '../../kanban/launchRecovery';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
 import { flushProjectNotes } from '../../projectNotes';
 import { projectColorAttribute } from '../../projectColor';
@@ -37,6 +35,8 @@ import { useBoardPrMerge } from '../../kanban/useBoardPrMerge';
 import { BoardPrMergeDialog } from './BoardPrMergeDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
 import { useKanbanProjectScope } from './kanbanProjectScope/useKanbanProjectScope';
+import { useKanbanBoardRefresh } from './kanbanRefresh/useKanbanBoardRefresh';
+import { useKanbanLaunchRecovery } from './kanbanLaunchRecovery/useKanbanLaunchRecovery';
 
 export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
@@ -88,14 +88,12 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   const openingEventPageRef = useRef<{ cardId: string; generation: number; page: CardEventPage } | null>(null);
   const detailCoordinatorRef = useRef<SelectedDetailRequestCoordinator<{ card: KanbanCard }> | null>(null);
   useEffect(() => () => { detailCoordinatorRef.current?.select(null); }, []);
-  const launchRecoveryStartedRef = useRef(false);
   const pendingNotificationRouteRef = useRef<NotificationRoute | null>(null);
-  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshCard } = useKanbanRefreshCoordinator({
-    cards: board.cards,
+  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshCard } = useKanbanBoardRefresh({
+    board,
     projects,
     visibleCards,
     activeCardId: selectedCardId,
-    patchCard: board.patchCard,
   });
   const [mergeCleanup, setMergeCleanup] = useState<{ card: KanbanCard; inventory: CleanupInventory; restoreFocus: () => void } | null>(null);
   const prMerge = useBoardPrMerge({
@@ -234,14 +232,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     if (!board.loading) loading.settleStartup('cards');
   }, [board.loading, loading]);
 
-  useEffect(() => {
-    if (projectsHydrated && board.cardsHydrated && !launchRecoveryStartedRef.current) {
-      launchRecoveryStartedRef.current = true;
-      startupCardRecoveryAllowed()
-        .then((allowed) => allowed ? startLaunchCardRecovery(board.cards, projects) : undefined)
-        .catch(console.error);
-    }
-  }, [board.cards, board.cardsHydrated, board.load, projects, projectsHydrated]);
+  useKanbanLaunchRecovery({ board, projects, projectsHydrated });
 
   const replaceDirectWork = useCallback(async (projectId: string | null, view?: WorkView, requestNavigation = false) => {
     const current = directWorkProjectIdRef.current;
