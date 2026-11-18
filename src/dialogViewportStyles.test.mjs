@@ -48,11 +48,11 @@ describe('window-constrained dialogs', () => {
   });
 
   it('separates scroll bodies from actions in all form and confirmation variants', () => {
-    for (const path of ['Dialogs', 'ConfirmDialogs', 'OneTimeCommandDialog', 'AppUpdater', 'PiGuiView', 'SettingsDialog', 'kanban/NewCardDialog', 'kanban/BoardPrMergeDialog', 'kanban/ServerHandoffDialog', 'kanban/CleanupPreflightDialog']) {
+    for (const path of ['Dialogs', 'ConfirmDialogs', 'OneTimeCommandDialog', 'AppUpdater', 'piGui/extensionDialog/PiExtensionDialog', 'SettingsDialog', 'kanban/NewCardDialog', 'kanban/BoardPrMergeDialog', 'kanban/ServerHandoffDialog', 'kanban/CleanupPreflightDialog']) {
       expect(component(path), path).toContain('dialogBody');
     }
     expect(component('Dialogs')).toContain('showHeading={false}');
     expect(component('SettingsDialog')).toMatch(/<\/div>\s*<div className="settingsPageActions">/);
-    expect(component('PiGuiView')).toMatch(/<\/div>\s*<div className="piExtensionActions">/);
+    expect(component('piGui/extensionDialog/PiExtensionDialog')).toMatch(/<\/div>\s*<div className="piExtensionActions">/);
   });
 });
