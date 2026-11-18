@@ -7,6 +7,7 @@ import { listenForPiEditorText } from '../../../pi/editorTextEvent';
 import type { PiCommand } from '../../../pi/types';
 import type { PiSessionModel } from '../../../pi/usePiSession';
 import type { createChatScroll } from '../../../pi/chatScroll';
+import { observeComposerResize, resizeComposerInput } from './composerResize';
 import type { PiPathReferencesModel } from '../pathReferences/usePiPathReferences';
 import type { PiComposerHistoryModel } from './usePiComposerHistory';
 
@@ -39,26 +40,7 @@ export function usePiComposer({ pi, composerDraftKey, prompt, setPrompt, beginSu
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    const resize = () => {
-      resizeComposerInput(input);
-      chatScrollRef.current?.layout();
-    };
-    resize();
-    let resizeFrame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(resizeFrame);
-      resizeFrame = requestAnimationFrame(resize);
-    });
-    if (input.parentElement) observer.observe(input.parentElement);
-    if (paneRef.current) {
-      observer.observe(paneRef.current);
-      const conversation = paneRef.current.querySelector<HTMLElement>(':scope > .piGuiConversation');
-      if (conversation) observer.observe(conversation);
-    }
-    return () => {
-      cancelAnimationFrame(resizeFrame);
-      observer.disconnect();
-    };
+    return observeComposerResize({ input, pane: paneRef.current, getChatScroll: () => chatScrollRef.current });
   }, []);
 
   useEffect(() => {
@@ -205,20 +187,4 @@ export function usePiComposer({ pi, composerDraftKey, prompt, setPrompt, beginSu
 
 export type PiComposerModel = ReturnType<typeof usePiComposer>;
 
-export function resizeComposerInput(input: HTMLTextAreaElement) {
-  const pane = input.closest<HTMLElement>('.piGuiPane');
-  const conversation = pane?.querySelector<HTMLElement>(':scope > .piGuiConversation');
-  const currentHeight = Math.max(23, input.offsetHeight);
-  let availableGrowth = 0;
-  if (conversation) {
-    const style = getComputedStyle(conversation);
-    const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-    availableGrowth = Math.max(0, conversation.clientHeight - verticalPadding);
-  }
-  const maxHeight = Math.max(23, currentHeight + availableGrowth);
-  input.style.height = 'auto';
-  const height = Math.min(input.scrollHeight, maxHeight);
-  input.style.maxHeight = `${maxHeight}px`;
-  input.style.height = `${height}px`;
-  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
-}
+export { resizeComposerInput } from './composerResize';
