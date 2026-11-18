@@ -24,5 +24,3 @@ export function usePiSession(paneId: string, cwd: string, workspaceId: string, p
     setViewOpen: controller.setViewOpen,
   };
 }
-
-export type PiSessionModel = ReturnType<typeof usePiSession>;
