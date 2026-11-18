@@ -2,24 +2,17 @@ import { applicationEvents } from '../applicationEvents';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { readText } from '@tauri-apps/plugin-clipboard-manager';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
 import { projectColorAttribute } from '../projectColor';
-import { applySlashCommand, boundaryForUnmovedHistoryArrow, isGuiBuiltinCommand, isMcpStatusCommand, matchingSlashCommands, shouldCycleCommandHistory } from '../pi/commands';
-import { handleComposerClipboard } from '../pi/composerClipboard';
-import { activePathToken, applyPathCompletion } from '../pi/pathReferences';
-import type { PiCommand } from '../pi/types';
+
 import { hasVisiblePiStreamingText, INITIAL_RENDERED_PI_MESSAGES, nextPiMessageLimit, prependAnchoredScrollTop, visiblePiMessages } from '../pi/transcript';
-import { listenForPiEditorText } from '../pi/editorTextEvent';
 import { listenForPiPrompt } from '../pi/promptEvent';
-import { canSendPiQuickResponse, sendPiQuickResponse, type PiQuickResponse } from '../pi/quickResponse';
 import { usePiSession } from '../pi/usePiSession';
 import { useComposerDraft } from '../pi/useComposerDraft';
 import { createChatScroll } from '../pi/chatScroll';
 import { TerminalControls } from './TerminalControls';
-import { handleDialogShortcut } from './dialogShortcut';
 import { PiMarkdown } from './PiMarkdown';
-import { collectToolArgs, messageText, PiSessionBoundaryEntry, PiSettledMessages, PiToolCard } from './PiTranscript';
+import { collectToolArgs, PiSessionBoundaryEntry, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
 import { PiPendingOutput, PiQueuedMessage } from './piGui/pendingOutput/PiPendingOutput';
 import { PiMcpBanner, PiMcpCommandStatus } from './piGui/mcp/PiMcpBanner';
@@ -30,6 +23,11 @@ import { PiSelectionPopup } from './piGui/selectionPopup/PiSelectionPopup';
 import { usePiSelectionPopup } from './piGui/selectionPopup/usePiSelectionPopup';
 import { usePiPathReferences } from './piGui/pathReferences/usePiPathReferences';
 import { usePiFileDrops } from './piGui/fileDrops/usePiFileDrops';
+import { PiComposer, PiQuickResponses } from './piGui/composer/PiComposer';
+import { usePiComposer } from './piGui/composer/usePiComposer';
+import { usePiComposerHistory } from './piGui/composer/usePiComposerHistory';
+import { usePiComposerKeys } from './piGui/composer/usePiComposerKeys';
+import { PiExtensionDialog } from './piGui/extensionDialog/PiExtensionDialog';
 
 export { PiPendingOutput, PiQueuedMessage, PiMcpCommandStatus, useMcpBannerDismissal };
 
@@ -63,8 +61,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const { prompt, setPrompt, beginSubmission } = useComposerDraft(composerDraftKey);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [composerError, setComposerError] = useState<string | null>(null);
-  const [extensionInput, setExtensionInput] = useState('');
-  const [quickResponseSubmitting, setQuickResponseSubmitting] = useState(false);
   const [revealedMessageCount, setRevealedMessageCount] = useState(INITIAL_RENDERED_PI_MESSAGES);
   const paneRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -91,18 +87,11 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   }, []);
   const previousVisibleRef = useRef(visible);
   const handledRestartNonceRef = useRef(0);
-  const historyIndexRef = useRef<number | null>(null);
-  const historyDraftRef = useRef('');
-  const quickResponseInFlightRef = useRef(false);
   const selectionRef = useRef({ start: 0, end: 0 });
   const cutCaretRef = useRef<number | null>(null);
   const knownSessionIdRef = useRef('');
   const pendingPrependAnchorRef = useRef<{ height: number; top: number } | null>(null);
   const mcp = usePiMcpBanner({ terminalId: terminal.id, cwd, project, pi, setComposerError });
-
-  const quickResponseSessionEligible = canSendPiQuickResponse(pi);
-  const quickResponseSessionEligibleRef = useRef(quickResponseSessionEligible);
-  quickResponseSessionEligibleRef.current = quickResponseSessionEligible;
 
   useEffect(() => {
     pi.setViewOpen(active && visible);
@@ -145,43 +134,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     pi.restart().catch(() => {});
   }, [pi.restart, restartRequestNonce]);
 
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    const resize = () => {
-      resizeComposerInput(input);
-      chatScrollRef.current?.layout();
-    };
-    resize();
-    let resizeFrame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(resizeFrame);
-      resizeFrame = requestAnimationFrame(resize);
-    });
-    if (input.parentElement) observer.observe(input.parentElement);
-    if (paneRef.current) {
-      observer.observe(paneRef.current);
-      const conversation = paneRef.current.querySelector<HTMLElement>(':scope > .piGuiConversation');
-      if (conversation) observer.observe(conversation);
-    }
-    return () => {
-      cancelAnimationFrame(resizeFrame);
-      observer.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (inputRef.current) resizeComposerInput(inputRef.current);
-    chatScrollRef.current?.layout();
-  }, [fontSize, prompt]);
-
-  useLayoutEffect(() => {
-    if (cutCaretRef.current === null) return;
-    const caret = cutCaretRef.current;
-    cutCaretRef.current = null;
-    inputRef.current?.setSelectionRange(caret, caret);
-  }, [prompt]);
-
   const composerFocusAllowed = active && visible && !pi.starting && !modalUiRequest && !mcp.confirmTrust && !mcp.confirmRestart;
   const composerFocusAllowedRef = useRef(composerFocusAllowed);
   composerFocusAllowedRef.current = composerFocusAllowed;
@@ -212,25 +164,6 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   useEffect(() => {
     if (!modalUiRequest && !mcp.confirmTrust && !mcp.confirmRestart) scheduleComposerFocus();
   }, [mcp.confirmRestart, mcp.confirmTrust, modalUiRequest, scheduleComposerFocus]);
-
-  useEffect(() => {
-    setExtensionInput(pi.uiRequest?.prefill || '');
-  }, [pi.uiRequest]);
-
-  useEffect(() => {
-    if (!pi.editorTextRequest) return;
-    setPrompt(pi.editorTextRequest.text);
-    setSelectedCommandIndex(-1);
-    if (active && visible) scheduleComposerFocus();
-  }, [pi.editorTextRequest, scheduleComposerFocus]);
-
-  useEffect(() => listenForPiEditorText((request) => {
-    if (request.terminalId !== terminal.id || !active || !visible) return;
-    setPrompt(request.text);
-    setSelectedCommandIndex(-1);
-    request.acknowledge();
-    scheduleComposerFocus();
-  }), [active, scheduleComposerFocus, terminal.id, visible]);
 
   useEffect(() => listenForPiPrompt((request) => {
     if (request.terminalId !== terminal.id || pi.starting || pi.isStreaming) return;
@@ -264,148 +197,50 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     onFocusComposer: scheduleComposerFocus,
   });
 
+  const history = usePiComposerHistory({
+    prompt,
+    setPrompt,
+    messages: pi.messages,
+    inputRef,
+    setSelectedCommandIndex,
+  });
+  const composer = usePiComposer({
+    pi,
+    composerDraftKey,
+    prompt,
+    setPrompt,
+    beginSubmission,
+    paths,
+    history,
+    selectedCommandIndex,
+    setSelectedCommandIndex,
+    inputRef,
+    selectionRef,
+    cutCaretRef,
+    paneRef,
+    chatScrollRef,
+    setComposerError,
+    onFocusComposer: scheduleComposerFocus,
+    onMcpCommandStatus: mcp.setCommandVisible,
+    active,
+    visible,
+    terminalId: terminal.id,
+    fontSize,
+  });
+  const composerKeys = usePiComposerKeys({
+    composer,
+    history,
+    paths,
+    setPrompt,
+    setComposerError,
+    inputRef,
+    selectionRef,
+    cutCaretRef,
+  });
 
   useLayoutEffect(() => {
     if (visible) chatScrollRef.current?.layout();
   }, [pi.isStreaming, pi.messages, pi.queuedFollowUps, pi.queuedSteering, pi.streamingText, pi.tools, pi.uiRequest, visible]);
-
-  const matchingCommands = selectedCommandIndex >= 0 ? matchingSlashCommands(pi.commands, prompt) : [];
-  const completionToken = activePathToken(prompt, paths.completionCursor);
-  const matchingPaths = matchingCommands.length === 0 && completionToken ? paths.suggestions : [];
-  const hasStreamingText = hasVisiblePiStreamingText(pi.streamingText);
-  const hasActiveStreamingText = hasStreamingText && pi.isStreamingText;
-
-  function chooseCommand(command: PiCommand) {
-    setPrompt(applySlashCommand(command));
-    setSelectedCommandIndex(-1);
-    paths.clearSuggestions();
-    scheduleComposerFocus();
-  }
-
-  function choosePath(path: { path: string; isDir: boolean }) {
-    const token = activePathToken(prompt, paths.completionCursor);
-    if (!token) return;
-    const edit = applyPathCompletion(prompt, token, path.path, path.isDir);
-    setPrompt(edit.value);
-    selectionRef.current = { start: edit.cursor, end: edit.cursor };
-    paths.setCompletionCursor(edit.cursor);
-    paths.clearSuggestions();
-    scheduleComposerFocus();
-    requestAnimationFrame(() => inputRef.current?.setSelectionRange(edit.cursor, edit.cursor));
-  }
-
-  function cyclePromptHistory(direction: -1 | 1) {
-    const history = pi.messages
-      .filter((message) => message.role === 'user')
-      .map((message) => messageText(message.content).trim())
-      .filter(Boolean);
-    if (history.length === 0) return false;
-
-    let index = historyIndexRef.current;
-    let nextPrompt: string;
-    if (direction === -1) {
-      if (index === null) {
-        historyDraftRef.current = prompt;
-        index = history.length - 1;
-      } else {
-        index = Math.max(0, index - 1);
-      }
-      nextPrompt = history[index];
-    } else {
-      if (index === null) return false;
-      if (index < history.length - 1) {
-        index += 1;
-        nextPrompt = history[index];
-      } else {
-        index = null;
-        nextPrompt = historyDraftRef.current;
-      }
-    }
-    historyIndexRef.current = index;
-    setPrompt(nextPrompt);
-    setSelectedCommandIndex(-1);
-    requestAnimationFrame(() => inputRef.current?.setSelectionRange(nextPrompt.length, nextPrompt.length));
-    return true;
-  }
-
-  function exitPromptHistory() {
-    if (historyIndexRef.current === null) return false;
-    const draft = historyDraftRef.current;
-    historyIndexRef.current = null;
-    historyDraftRef.current = '';
-    setPrompt(draft);
-    setSelectedCommandIndex(-1);
-    requestAnimationFrame(() => inputRef.current?.setSelectionRange(draft.length, draft.length));
-    return true;
-  }
-
-  async function submitQuickResponse(message: PiQuickResponse) {
-    if (!quickResponseSessionEligibleRef.current || quickResponseInFlightRef.current) return;
-    quickResponseInFlightRef.current = true;
-    setQuickResponseSubmitting(true);
-    try {
-      await sendPiQuickResponse(message, {
-        isEligible: () => quickResponseSessionEligibleRef.current,
-        dismissStructuredUiRequest: pi.dismissStructuredUiRequest,
-        prompt: pi.prompt,
-      });
-    } finally {
-      quickResponseInFlightRef.current = false;
-      setQuickResponseSubmitting(false);
-      scheduleComposerFocus();
-    }
-  }
-
-  async function submit(behavior: 'prompt' | 'followUp' = 'prompt') {
-    const message = prompt.trim();
-    const slashName = message.startsWith('/') ? message.slice(1).split(/\s/, 1)[0] : '';
-    const extensionCommand = pi.commands.some((command) => command.name === slashName && command.source === 'extension');
-    const builtinCommand = isGuiBuiltinCommand(slashName);
-    if (!message || (pi.isStreaming && builtinCommand)) return;
-    // Claim inline controls synchronously so a click cannot race this submit.
-    // Pi receives cancellation; the text remains an ordinary prompt/steer/follow-up.
-    const structuredRequestDismissal = pi.dismissStructuredUiRequest();
-    historyIndexRef.current = null;
-    historyDraftRef.current = '';
-    const finishSubmission = composerDraftKey ? beginSubmission() : null;
-    if (!finishSubmission) setPrompt('');
-    paths.clearSuggestions();
-    setComposerError(null);
-    mcp.setCommandVisible(isMcpStatusCommand(message));
-    chatScrollRef.current?.resume();
-    await structuredRequestDismissal.catch(() => {});
-    const send = builtinCommand
-      ? pi.runBuiltinCommand(message)
-      : pi.isStreaming && extensionCommand
-        ? pi.prompt(message, [])
-        : pi.isStreaming && behavior === 'followUp'
-          ? pi.followUp(message, [])
-          : pi.isStreaming
-            ? pi.steer(message, [])
-            : pi.prompt(message, []);
-    await send.then(() => finishSubmission?.(true), () => {
-      if (finishSubmission) finishSubmission(false);
-      else setPrompt(message);
-    });
-  }
-
-  async function pasteIntoComposer() {
-    const input = inputRef.current;
-    const selectionStart = input?.selectionStart ?? prompt.length;
-    const selectionEnd = input?.selectionEnd ?? selectionStart;
-    const text = await readText();
-    if (!text) return;
-    let cursor = selectionStart + text.length;
-    setPrompt((current) => {
-      const start = Math.min(selectionStart, current.length);
-      const end = Math.min(Math.max(selectionEnd, start), current.length);
-      cursor = start + text.length;
-      return `${current.slice(0, start)}${text}${current.slice(end)}`;
-    });
-    setSelectedCommandIndex(0);
-    scheduleComposerFocus();
-    requestAnimationFrame(() => inputRef.current?.setSelectionRange(cursor, cursor));
-  }
 
   const { hiddenCount: hiddenMessageCount, messages: visibleMessages } = visiblePiMessages(pi.messages, revealedMessageCount);
   const historicalToolArgs = useMemo(() => collectToolArgs(pi.messages), [pi.messages]);
@@ -417,6 +252,9 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
     chatScrollRef.current?.pause();
     setRevealedMessageCount((current) => nextPiMessageLimit(current, pi.messages.length));
   }
+
+  const hasStreamingText = hasVisiblePiStreamingText(pi.streamingText);
+  const hasActiveStreamingText = hasStreamingText && pi.isStreamingText;
 
   return (
     <div
@@ -512,212 +350,32 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       />
       {pi.error && <div className="piGuiError"><span>{pi.error}</span><button type="button" onClick={mcp.requestRestart}>Restart Pi</button></div>}
 
-      <div className="piComposer">
-        <div className="piComposerRow">
-          <div className="piComposerContent">
-          {matchingCommands.length > 0 && <div className="piCommandMenu" role="listbox" aria-label="Pi commands">
-            {matchingCommands.map((command, index) => <button
-              type="button"
-              role="option"
-              aria-selected={index === selectedCommandIndex}
-              className={index === selectedCommandIndex ? 'selected' : ''}
-              key={`${command.source}:${command.name}`}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => chooseCommand(command)}
-            >
-              <span><strong>/{command.name}</strong>{command.description && <small>{command.description}</small>}</span>
-              <em>{command.source}{command.location ? ` · ${command.location}` : ''}</em>
-            </button>)}
-          </div>}
-          {matchingPaths.length > 0 && <div className="piCommandMenu piPathMenu" role="listbox" aria-label="Workspace files">
-            {matchingPaths.map((path, index) => <button
-              type="button"
-              role="option"
-              aria-selected={index === paths.selectedIndex}
-              className={index === paths.selectedIndex ? 'selected' : ''}
-              key={`${path.isDir ? 'directory' : 'file'}:${path.path}`}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => choosePath(path)}
-            >
-              <span><strong>{path.path}{path.isDir ? '/' : ''}</strong></span>
-              <em>{path.isDir ? 'directory' : 'file'}</em>
-            </button>)}
-          </div>}
-          {composerError && <div className="piComposerError">{composerError}</div>}
-          <textarea
-            ref={inputRef}
-            data-card-composer={composerDraftKey ? '' : undefined}
-            className={prompt.includes('\n') ? undefined : 'singleLine'}
-            value={prompt}
-            rows={1}
-            placeholder={pi.isStreaming ? 'Steer Pi… (↩) · follow up (⌥↩)' : 'Ask Pi…'}
-            disabled={pi.starting}
-            onSelect={(event) => {
-              const { selectionStart: start, selectionEnd: end } = event.currentTarget;
-              selectionRef.current = { start, end };
-              paths.setCompletionCursor(end);
-            }}
-            onChange={(event) => {
-              historyIndexRef.current = null;
-              historyDraftRef.current = '';
-              const cursor = event.target.selectionEnd;
-              selectionRef.current = { start: event.target.selectionStart, end: cursor };
-              paths.setCompletionCursor(cursor);
-              setPrompt(event.target.value);
-              setSelectedCommandIndex(0);
-              setComposerError(null);
-            }}
-            onKeyDown={(event) => {
-              if (handleComposerClipboard(event, (value, caret) => {
-                historyIndexRef.current = null;
-                historyDraftRef.current = '';
-                selectionRef.current = { start: caret, end: caret };
-                cutCaretRef.current = caret;
-                paths.setCompletionCursor(caret);
-                setPrompt(value);
-                setSelectedCommandIndex(0);
-                setComposerError(null);
-              }, (error) => setComposerError(`Could not ${event.key.toLowerCase() === 'x' ? 'cut' : 'copy'}: ${String(error)}`))) return;
-              if (event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-                event.preventDefault();
-                event.stopPropagation();
-                cyclePromptHistory(event.key === 'ArrowUp' ? -1 : 1);
-                return;
-              }
-              if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'v') {
-                event.preventDefault();
-                event.stopPropagation();
-                pasteIntoComposer().catch(console.error);
-                return;
-              }
-              if (event.key === 'Enter' && event.altKey && !event.metaKey && !event.ctrlKey) {
-                event.preventDefault();
-                submit('followUp').catch(console.error);
-                return;
-              }
-              if (matchingPaths.length > 0 && !event.metaKey && !event.ctrlKey && !event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-                event.preventDefault();
-                const direction = event.key === 'ArrowDown' ? 1 : -1;
-                paths.setSelectedIndex((current) => (current + direction + matchingPaths.length) % matchingPaths.length);
-                return;
-              }
-              if (matchingCommands.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-                event.preventDefault();
-                const direction = event.key === 'ArrowDown' ? 1 : -1;
-                setSelectedCommandIndex((current) => (current + direction + matchingCommands.length) % matchingCommands.length);
-                return;
-              }
-              if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-                const input = event.currentTarget;
-                const direction = event.key === 'ArrowUp' ? -1 : 1;
-                const value = input.value;
-                const selectionStart = input.selectionStart;
-                const selectionEnd = input.selectionEnd;
-                if (shouldCycleCommandHistory(value, direction, selectionStart, selectionEnd)) {
-                  if (cyclePromptHistory(direction)) event.preventDefault();
-                  return;
-                }
-                if (selectionStart === selectionEnd) requestAnimationFrame(() => {
-                  if (inputRef.current !== input || document.activeElement !== input || input.value !== value) return;
-                  const boundary = boundaryForUnmovedHistoryArrow(
-                    value,
-                    direction,
-                    selectionStart,
-                    selectionEnd,
-                    input.selectionStart,
-                    input.selectionEnd,
-                  );
-                  if (boundary === null) return;
-                  selectionRef.current = { start: boundary, end: boundary };
-                  paths.setCompletionCursor(boundary);
-                  input.setSelectionRange(boundary, boundary);
-                });
-              }
-              if (matchingPaths.length > 0 && !event.metaKey && !event.ctrlKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
-                event.preventDefault();
-                choosePath(matchingPaths[Math.max(0, paths.selectedIndex)]);
-                return;
-              }
-              if (matchingCommands.length > 0 && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
-                event.preventDefault();
-                chooseCommand(matchingCommands[Math.max(0, selectedCommandIndex)]);
-                return;
-              }
-              if (event.key === 'Escape' && matchingPaths.length > 0) {
-                event.preventDefault();
-                paths.dismiss();
-                return;
-              }
-              if (event.key === 'Escape' && matchingCommands.length > 0) {
-                event.preventDefault();
-                setSelectedCommandIndex(-1);
-                return;
-              }
-              if (event.key === 'Escape' && exitPromptHistory()) {
-                event.preventDefault();
-                return;
-              }
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                submit().catch(console.error);
-              }
-            }}
-          />
-          </div>
-          {pi.isStreaming ? (
-            <button className="piComposerAction stop" type="button" onClick={() => pi.abort().catch(() => {})} title="Stop Pi" aria-label="Stop Pi"><span className="piStopSquare" aria-hidden="true" /></button>
-          ) : (
-            <button className="piComposerAction" type="button" disabled={!prompt.trim() || pi.starting} onClick={() => submit().catch(console.error)} title="Send" aria-label="Send"><svg className="piSendArrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M4.5 6.5 8 3l3.5 3.5" /></svg></button>
-          )}
-        </div>
-      </div>
+      <PiComposer
+        pi={pi}
+        prompt={prompt}
+        composerDraftKey={composerDraftKey}
+        composerError={composerError}
+        composer={composer}
+        paths={paths}
+        keys={composerKeys}
+        inputRef={inputRef}
+      />
       <div className="piGuiFooter">
-        <div className="piQuickResponses" aria-label="Quick responses">
-          <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('yes').catch(console.error)}>YES</button>
-          <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('no').catch(console.error)}>NO</button>
-          <button type="button" disabled={!quickResponseSessionEligible || quickResponseSubmitting} onClick={() => submitQuickResponse('what do you recommend?').catch(console.error)}>RECOMMEND</button>
-        </div>
+        <PiQuickResponses
+          eligible={composer.quickResponseSessionEligible}
+          submitting={composer.quickResponseSubmitting}
+          onRespond={(response) => composer.submitQuickResponse(response).catch(console.error)}
+        />
         <PiContextBar pi={pi} model={modelPicker} />
         <div className="piGuiFooterBalance" aria-hidden="true" />
       </div>
 
       <PiSelectionPopup selection={selection.selectionPopup} onCopy={() => selection.copySelection().catch(() => {})} onCopyToChat={selection.copySelectionToChat} />
 
-      {modalUiRequest && (
-        <div className="piExtensionOverlay" role="dialog" aria-modal="true" aria-label={modalUiRequest.title} onKeyDown={handleDialogShortcut}>
-          <div className="piExtensionDialog">
-            <strong>{modalUiRequest.title}</strong>
-            <div className="dialogBody">
-            {modalUiRequest.message && <p>{modalUiRequest.message}</p>}
-            {modalUiRequest.method === 'editor'
-              ? <textarea autoFocus rows={7} value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />
-              : <input autoFocus value={extensionInput} onChange={(event) => setExtensionInput(event.target.value)} />}
-            </div>
-            <div className="piExtensionActions">
-              <button type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { cancelled: true }).catch(() => {})}>Cancel</button>
-              <button className="primary" data-dialog-primary type="button" onClick={() => pi.respondToUiRequest(modalUiRequest.id, { value: extensionInput }).catch(() => {})}>Submit</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PiExtensionDialog
+        request={modalUiRequest}
+        onRespond={(id, response) => { pi.respondToUiRequest(id, response).catch(() => {}); }}
+      />
     </div>
   );
-}
-
-function resizeComposerInput(input: HTMLTextAreaElement) {
-  const pane = input.closest<HTMLElement>('.piGuiPane');
-  const conversation = pane?.querySelector<HTMLElement>(':scope > .piGuiConversation');
-  const currentHeight = Math.max(23, input.offsetHeight);
-  let availableGrowth = 0;
-  if (conversation) {
-    const style = getComputedStyle(conversation);
-    const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-    availableGrowth = Math.max(0, conversation.clientHeight - verticalPadding);
-  }
-  const maxHeight = Math.max(23, currentHeight + availableGrowth);
-  input.style.height = 'auto';
-  const height = Math.min(input.scrollHeight, maxHeight);
-  input.style.maxHeight = `${maxHeight}px`;
-  input.style.height = `${height}px`;
-  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
 }
