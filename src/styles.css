@@ -962,6 +962,25 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   color: #6f8195;
   font-size: var(--fs-11);
 }
+.boardHealthToolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.boardHealthToolbar .settingsHint { margin: 4px 0 0; max-width: 62ch; }
+.boardHealthToolbar > button { flex: none; border: 1px solid #2d3d4f; background: var(--surface-hover); color: inherit; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.boardHealthToolbar > button:disabled { cursor: default; opacity: .55; }
+.boardHealthFindings { display: grid; gap: 10px; }
+.boardHealthFinding { min-width: 0; display: grid; gap: 6px; padding: 12px; border: 1px solid #2d3d4f; border-radius: 8px; background: rgb(10 10 10 / .45); }
+.boardHealthFinding.repaired { border-color: #315d4b; }
+.boardHealthFinding > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; }
+.boardHealthFinding > header span { color: #8091a5; font-size: var(--fs-11); }
+.boardHealthFinding p { margin: 0; }
+.boardHealthFinding ul { margin: 0; padding-left: 18px; color: #9aa9ba; }
+.boardHealthInvariant { color: #b7c6d6; font-weight: 600; }
+.boardHealthOutcome { color: #8295a8; font-size: var(--fs-11); }
+.boardHealthFinding.repaired .boardHealthOutcome { color: #8fb9a3; }
+.boardHealthAction { display: flex; justify-content: flex-end; }
+.boardHealthAction button { border: 1px solid #2d3d4f; background: var(--surface-hover); color: inherit; border-radius: 8px; padding: 7px 11px; cursor: pointer; }
+.boardHealthConfirm { display: grid; gap: 8px; margin-top: 6px; padding: 10px; border: 1px solid #7f3434; border-radius: 8px; background: var(--surface-parent); }
+.boardHealthConfirm .modalActions { margin: 0; }
+.boardHealthEmpty { color: #8fb9a3; }
 .settingsInlineField {
   display: flex;
   gap: 8px;

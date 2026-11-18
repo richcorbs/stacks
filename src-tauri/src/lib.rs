@@ -42,7 +42,8 @@ use github::{
 use global_terminal::{global_terminal_load_or_create, global_terminal_save};
 use kanban::{
     kanban_abort_target_merge, kanban_apply_pi_lifecycle_intent, kanban_apply_workflow_action,
-    kanban_approve_and_commit, kanban_cancel_scripted_deployment, kanban_card_events,
+    kanban_approve_and_commit, kanban_board_health, kanban_board_health_cleanup_environment,
+    kanban_cancel_scripted_deployment, kanban_card_events,
     kanban_card_snapshot, kanban_cards, kanban_cleanup_environment, kanban_cleanup_environment_creation,
     kanban_cleanup_inventory, kanban_cleanup_preflight,
     kanban_close_card, kanban_confirm_scripted_deployed, kanban_create_local_card,
@@ -111,6 +112,16 @@ fn finish_startup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         if let Err(error) = kanban::run_pending_once(provider, None) {
             eprintln!("Startup Superthread synchronization failed: {error}");
         }
+    });
+    // Report-only and deliberately after window setup: startup must never repair
+    // silently or block the first frame on filesystem/Git inspection.
+    tauri::async_runtime::spawn_blocking(move || match kanban::startup_board_health_report() {
+        Ok(report) if !report.findings.is_empty() => eprintln!(
+            "Board health startup report: {} finding(s); open Settings > Diagnostics to review",
+            report.findings.len()
+        ),
+        Ok(_) => {}
+        Err(error) => eprintln!("Board health startup report failed: {error}"),
     });
     setup_main_window(app)?;
     let state = app.state::<AutomationState>().inner().clone();
@@ -231,6 +242,8 @@ pub fn run() {
             github_action_runs,
             github_merge_pull_request,
             kanban_cards,
+            kanban_board_health,
+            kanban_board_health_cleanup_environment,
             kanban_card_snapshot,
             kanban_card_events,
             kanban_create_local_card,

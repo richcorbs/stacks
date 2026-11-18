@@ -21,11 +21,12 @@ import {
   TerminalSettingsSection,
 } from './SettingsSections';
 import { NotificationsSettingsSection } from './NotificationsSettingsSection';
+import { BoardHealthPanel } from './BoardHealthPanel';
 import { DialogFields } from './DialogFields';
 import { projectSettingsDraft, projectSettingsEqual } from '../projectSettings';
 import { projectColor } from '../projectColor';
 
-export type GlobalSettingsSection = 'interface' | 'terminal' | 'confirmations' | 'notifications' | 'editor' | 'superthread';
+export type GlobalSettingsSection = 'interface' | 'terminal' | 'confirmations' | 'notifications' | 'editor' | 'superthread' | 'diagnostics';
 export type SettingsPageId = `global:${GlobalSettingsSection}` | `project:${string}`;
 
 const GLOBAL_SECTIONS: Array<{ id: GlobalSettingsSection; label: string }> = [
@@ -35,6 +36,7 @@ const GLOBAL_SECTIONS: Array<{ id: GlobalSettingsSection; label: string }> = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'editor', label: 'Editor' },
   { id: 'superthread', label: 'Superthread' },
+  { id: 'diagnostics', label: 'Diagnostics' },
 ];
 
 const SECTION_FIELDS: Record<GlobalSettingsSection, Array<keyof ResolvedAppSettings>> = {
@@ -44,6 +46,7 @@ const SECTION_FIELDS: Record<GlobalSettingsSection, Array<keyof ResolvedAppSetti
   notifications: ['activity_notifications'],
   editor: ['editor_app'],
   superthread: ['superthread_enabled'],
+  diagnostics: [],
 };
 
 function normalizeGlobal(draft: ResolvedAppSettings): ResolvedAppSettings {
@@ -254,6 +257,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
               {section === 'notifications' && <NotificationsSettingsSection draft={globalDraft} update={(patch) => setGlobalDraft((current) => ({ ...current, ...patch }))} onUnavailable={onNotificationsUnavailable} />}
               {section === 'editor' && <EditorSettingsSection draft={globalDraft} update={(patch) => setGlobalDraft((current) => ({ ...current, ...patch }))} chooseEditorApp={chooseEditorApp} />}
               {section === 'superthread' && <section className="settingsSection"><h3>Superthread</h3><label className="checkboxLabel"><input type="checkbox" checked={globalDraft.superthread_enabled} onChange={(event) => setGlobalDraft((current) => ({ ...current, superthread_enabled: event.target.checked }))} />Enable Superthread integration</label><div className="settingsHint">Spaces, URL slug, and start-work command are configured on the owning project.</div></section>}
+              {section === 'diagnostics' && <BoardHealthPanel />}
               {projectPageDraft && <div className="dialogFields settingsProjectFields"><DialogFields dialog={projectPageDraft} setDialog={setProjectDraft} firstInputRef={firstInputRef} showHeading={false} /></div>}
             </fieldset>
             {pageError && <div className="dialogSubmitError" role="alert">{pageError}</div>}
@@ -261,7 +265,7 @@ export function SettingsDialog({ settings, projects, initialPage, onPageChange, 
             <div className="settingsPageActions">
               {project && <button data-card-action="danger" type="button" className="dangerAction" disabled={saving} onClick={() => setDeleteConfirm(true)}>Delete Project</button>}
               <span />
-              {section && <button data-card-action="secondary" type="button" disabled={saving} onClick={restoreDefaults}>Restore Defaults</button>}
+              {section && section !== 'diagnostics' && <button data-card-action="secondary" type="button" disabled={saving} onClick={restoreDefaults}>Restore Defaults</button>}
               <button data-card-action="primary" type="button" className="primaryAction" disabled={saving || !dirty} onClick={() => void save()}>Save</button>
             </div>
           </main>

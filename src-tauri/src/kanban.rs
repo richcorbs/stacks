@@ -41,6 +41,7 @@ mod environment;
 mod git_effects;
 mod github_delivery;
 mod health;
+mod hygiene;
 mod local_delivery;
 mod parent_reconciliation;
 mod provider_sync;
@@ -59,6 +60,7 @@ pub(crate) use cards::{
 };
 pub use commands::*;
 pub use domain::*;
+pub use hygiene::{kanban_board_health, kanban_board_health_cleanup_environment};
 pub use parent_reconciliation::{kanban_parent_state_preflight, kanban_repair_parent_state};
 #[allow(unused_imports)]
 pub use environment::{EnvironmentStartPreflight, WorkflowOperationResult};
@@ -76,6 +78,7 @@ pub(crate) use repository::{
     reset_database_initialization, with_board_mutation, with_read_connection, with_write_connection,
     CURRENT_SCHEMA_MIGRATION,
 };
+pub(crate) use hygiene::startup_board_health_report;
 pub(crate) use superthread_refinement::finish_superthread_refinement;
 
 #[cfg(test)]
