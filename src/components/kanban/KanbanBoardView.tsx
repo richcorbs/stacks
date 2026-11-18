@@ -6,7 +6,6 @@ import type { CardEventCursor, CardEventPage, CleanupInventory, CleanupPreflight
 import { canProjectSelectedDetail, detailIsCurrent, mergeCardEvents, SelectedDetailRequestCoordinator, type DetailRequestKind } from '../../kanban/selectedDetailRequestCoordinator';
 import { DetailSessionCache } from '../../kanban/detailSessionCache';
 import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
-import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, superthreadSyncAvailability } from '../../kanban/projectScope';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { DirectProjectWork } from '../DirectProjectWork';
@@ -37,21 +36,15 @@ import { ServerHandoffDialog } from './ServerHandoffDialog';
 import { useBoardPrMerge } from '../../kanban/useBoardPrMerge';
 import { BoardPrMergeDialog } from './BoardPrMergeDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
+import { useKanbanProjectScope } from './kanbanProjectScope/useKanbanProjectScope';
 
 export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
-  const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
-  const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
-  const syncAvailability = superthreadSyncAvailability(superthreadEnabled, projects, filterProjectId);
-  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
-  const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct' | 'notes' | 'release'>('filter');
-  const [projectPickerCurrentProjectId, setProjectPickerCurrentProjectId] = useState<string | null>(null);
-  const visibleCards = useMemo(() => filterKanbanCards(board.cards, filterProjectId), [board.cards, filterProjectId]);
-  const creationAvailability = useMemo(
-    () => cardCreationAvailability(projects, selectedProject, superthreadEnabled),
-    [projects, selectedProject, superthreadEnabled],
-  );
-  const creationProjects = creationAvailability.destinations;
+  const {
+    filterProjectId, selectedProject, syncAvailability, visibleCards, creationAvailability, creationProjects,
+    projectSwitcherOpen, setProjectSwitcherOpen, projectPickerPurpose, setProjectPickerPurpose,
+    projectPickerCurrentProjectId, setProjectPickerCurrentProjectId,
+  } = useKanbanProjectScope({ projects, selectedProjectId, onSelectProject, superthreadEnabled, cards: board.cards });
   const { selectedCardId, selectedCard, selectCard, clearSelection } = useCanonicalCardSelection(board.cards);
   const selectedCardIdRef = useRef(selectedCardId);
   selectedCardIdRef.current = selectedCardId;
@@ -249,10 +242,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         .catch(console.error);
     }
   }, [board.cards, board.cardsHydrated, board.load, projects, projectsHydrated]);
-
-  useEffect(() => {
-    if (selectedProjectId && !filterProjectId) onSelectProject(null);
-  }, [filterProjectId, onSelectProject, selectedProjectId]);
 
   const replaceDirectWork = useCallback(async (projectId: string | null, view?: WorkView, requestNavigation = false) => {
     const current = directWorkProjectIdRef.current;
