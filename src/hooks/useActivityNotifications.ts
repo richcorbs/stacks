@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent, useRef } from 'react';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import type { AppAttention } from '../appAttention';
 import { getVisibleWorkPresence } from '../appAttention';
@@ -19,16 +19,17 @@ export function useActivityNotifications({
   projects: Project[];
   showToast: (message: string) => void;
 }) {
-  const settingsRef = useRef(settings);
-  const projectsRef = useRef(projects);
   const deduplicatorRef = useRef(new AttentionDeduplicator());
-  settingsRef.current = settings;
-  projectsRef.current = projects;
+  // Reads happen at delivery time: the enabled flag before any await and the
+  // project list *after* the card fetch. Effect Events keep both reads on the
+  // latest committed render without writing refs during render.
+  const readSettings = useEffectEvent(() => settings);
+  const readProjects = useEffectEvent(() => projects);
 
   useEffect(() => {
     const handleAttention = (attention: AppAttention) => {
       if (!attention?.lifecycleKey || !deduplicatorRef.current.accept(attention.lifecycleKey)) return;
-      if (!settingsRef.current.activity_notifications) return;
+      if (!readSettings().activity_notifications) return;
       if (document.hasFocus() && isExactViewVisible(attention)) return;
       void deliver(attention);
     };
@@ -42,7 +43,7 @@ export function useActivityNotifications({
       try {
         const card = attention.owner.kind === 'card' ? (await fetchKanbanCard(attention.owner.cardId)).card : undefined;
         const projectId = attention.owner.kind === 'project' ? attention.owner.projectId : card?.project_id;
-        const project = projectsRef.current.find((candidate) => candidate.id === projectId);
+        const project = readProjects().find((candidate) => candidate.id === projectId);
         if (!project) return;
         try {
           sendNotification(notificationContent(attention, { project, card }));

@@ -26,6 +26,8 @@ export function useTerminalActivation({
 }) {
   const wasVisibleRef = useRef(visible);
   const wasActiveRef = useRef(active);
+  // Previous-activation tracking for scroll/focus decisions. It is deliberately
+  // updated by the activation effect, not a callback mirror.
   const wasAtBottomWhenDeactivatedRef = useRef(true);
 
   useEffect(() => {

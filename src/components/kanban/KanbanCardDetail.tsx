@@ -118,6 +118,8 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const requestClose = async () => { if (await detail.mayLeave()) onClose(); };
   const navigateToParent = async (parentId: string) => { if (await detail.mayLeave()) { detail.cancel(); setActiveView('overview'); onNavigate(parentId, 'overview'); } };
   const confirmation = useConfirmation(`${card.id}:${card.record_revision}:${card.workflow_revision}:${card.environment?.revision}`);
+  // Workflow actions await backend work and re-read the card to guard a stale
+  // action. This is mutable request state shared with the async executor.
   const currentCardRef = useRef(card);
   currentCardRef.current = card;
   const workflow = useWorkflowOperation();
@@ -131,6 +133,8 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const environmentRevisionRef = useRef(card.environment?.revision ?? 0);
   const layoutRevisionRef = useRef(card.environment?.layout_revision ?? 0);
   const onCardUpdatedRef = useRef(onCardUpdated);
+  // Passed into useCardTerminalWorkspace's persistent coordinator, which may
+  // invoke it outside the component's effects; it is not effect-owned.
   onCardUpdatedRef.current = onCardUpdated;
   const diffReview = useDiffReview(card.id);
   const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
@@ -381,6 +385,8 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
 
   const workflowActionsRef = useRef(workflowActions);
   const performWorkflowActionRef = useRef(performWorkflowAction);
+  // Read by the parent-registered workflow controller and shortcut confirmation
+  // handlers, both of which invoke them outside this component's effects.
   performWorkflowActionRef.current = performWorkflowAction;
   workflowActionsRef.current = workflowActions;
   useEffect(() => {

@@ -289,6 +289,25 @@ describe('list keyboard navigation', () => {
     expect(openNewCard).not.toHaveBeenCalled();
   });
 
+  it('keeps one keydown subscription while navigation inputs change', async () => {
+    const add = vi.spyOn(fakeWindow, 'addEventListener');
+    const remove = vi.spyOn(fakeWindow, 'removeEventListener');
+    await render({ visibleCards: cards });
+    expect(add).toHaveBeenCalledOnce();
+
+    await act(async () => renderer.update(<Harness {...options({ visibleCards: cards, selectedCard: card })} />));
+    await act(async () => renderer.update(<Harness {...options({ visibleCards: cards, shortcutBlocked: true })} />));
+    await act(async () => renderer.update(<Harness {...options({ visibleCards: cards })} />));
+    expect(add).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
+
+    act(() => navigation.setFocusedCardId('ready-1'));
+    expect(key('ArrowDown').defaultPrevented).toBe(true);
+    expect(navigation.focusedCardId).toBe('ready-2');
+    await act(async () => renderer.unmount());
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
   it('preserves card navigation and Enter', async () => {
     await render();
     expect(key('j').defaultPrevented).toBe(true);
