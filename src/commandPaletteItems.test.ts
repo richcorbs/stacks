@@ -7,15 +7,28 @@ function options(overrides: Partial<CommandPaletteItemOptions> = {}): CommandPal
     store: { projects: [project] }, selectedKanbanProject: project, superthreadEnabled: true, cardTerminal: null, workspaceDirectory: null,
     onCleanUpDoneCards: vi.fn(), onNewProject: vi.fn(), onEditProject: vi.fn(), onDeleteProject: vi.fn(), onOpenSettings: vi.fn(), onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(), onRunOneTimeCommand: vi.fn(), onNewCard: vi.fn(), onDirectProjectWork: vi.fn(),
-    onAddProjectNote: vi.fn(), onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), ...overrides,
+    onAddProjectNote: vi.fn(), onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), onCheckForUpdates: vi.fn(), ...overrides,
   };
 }
 
 describe('command palette items', () => {
   it('contains only board/project commands without a card terminal', () => {
     expect(buildCommandPaletteItems(options()).map((item) => item.id)).toEqual([
-      'clean-up-done-cards', 'new-card', 'direct-project-work', 'add-project-note', 'release-project', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks',
+      'clean-up-done-cards', 'new-card', 'direct-project-work', 'add-project-note', 'release-project', 'new-project', 'edit-project', 'delete-project', 'settings', 'restart-stacks', 'check-for-updates',
     ]);
+  });
+
+  it('offers a Check for updates command that forwards to the manual update check', () => {
+    const onCheckForUpdates = vi.fn();
+    const item = buildCommandPaletteItems(options({ onCheckForUpdates })).find((candidate) => candidate.id === 'check-for-updates');
+
+    expect(item).toMatchObject({
+      title: 'Check for updates',
+      subtitle: 'Stacks > Check for Updates…',
+      keywords: 'update upgrade version release latest newer check updater',
+    });
+    item?.action();
+    expect(onCheckForUpdates).toHaveBeenCalledOnce();
   });
 
   it('offers global Done cleanup regardless of project, provider or terminal selection', () => {

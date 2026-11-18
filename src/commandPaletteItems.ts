@@ -14,6 +14,7 @@ export type CommandPaletteItemOptions = {
   onDeleteProject: (projectId: string) => void;
   onOpenSettings: () => void;
   onRestartApp: () => void;
+  onCheckForUpdates: () => void;
   onOpenDirectoryInEditor: (path: string) => void;
   onRunOneTimeCommand: () => void;
   onNewCard: (project: Project | null) => void;
@@ -40,6 +41,7 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
     { id: 'delete-project', title: 'Delete project', subtitle: project?.name ?? 'Select a project first', keywords: 'remove delete project directory', danger: true, action: () => { if (project) options.onDeleteProject(project.id); } },
     { id: 'settings', title: 'Settings', subtitle: '⌘,', keywords: 'preferences config font editor confirmations theme color terminal', action: options.onOpenSettings },
     { id: 'restart-stacks', title: 'Restart Stacks', subtitle: 'Relaunch the app and load the installed build', keywords: 'restart reload relaunch app update build', action: options.onRestartApp },
+    { id: 'check-for-updates', title: 'Check for updates', subtitle: 'Stacks > Check for Updates…', keywords: 'update upgrade version release latest newer check updater', action: options.onCheckForUpdates },
   ];
 
   const directory = options.workspaceDirectory?.trim();

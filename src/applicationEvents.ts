@@ -16,6 +16,7 @@ export type AppEventMap = {
   'new-card': { projectId?: string };
   'open-direct-work': { projectId?: string; view?: WorkView; chooseProject?: boolean };
   'open-project-switcher': undefined;
+  'check-for-updates': undefined;
   'card-tab-shortcut': { number?: number; direction?: -1 | 1 };
   'card-workflow-action': { cardId?: string; action?: string };
   'card-terminal-split': { direction?: 'row' | 'column'; pane?: string };
