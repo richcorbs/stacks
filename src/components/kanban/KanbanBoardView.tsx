@@ -8,7 +8,6 @@ import { DetailSessionCache } from '../../kanban/detailSessionCache';
 import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { DirectProjectWork } from '../DirectProjectWork';
-import type { WorkNavigationRequest, WorkView } from '../../directWork';
 import { useBoardKeyboardNavigation } from '../../kanban/useBoardKeyboardNavigation';
 import { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
 import type { CardView } from '../../kanban/cardView';
@@ -19,12 +18,9 @@ import { KanbanList } from './KanbanList';
 import { BoardCardServerServices } from './BoardCardServerServices';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
-import { flushProjectNotes } from '../../projectNotes';
 import { projectColorAttribute } from '../../projectColor';
 import { workGroup } from '../../kanban/workflowGroups';
-import type { NotificationRoute } from '../../appAttention';
 import { fetchCleanupPreflight, fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
-import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
 import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 import { useLoadingCoordinator } from '../../loadingState';
 import { launchPlanningAgent } from '../../kanban/planningLauncher';
@@ -36,6 +32,7 @@ import { useKanbanBoardRefresh } from './kanbanRefresh/useKanbanBoardRefresh';
 import { useKanbanLaunchRecovery } from './kanbanLaunchRecovery/useKanbanLaunchRecovery';
 import { useKanbanCardDetail } from './kanbanCardOpen/useKanbanCardDetail';
 import { useKanbanCardServer } from './kanbanCardServer/useKanbanCardServer';
+import { useDirectProjectWork } from './kanbanDirectWork/useDirectProjectWork';
 import { useKanbanMergedPr } from './kanbanMergedPr/useKanbanMergedPr';
 
 export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
@@ -59,7 +56,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     cardDetailWorkflowRef, setCardDetailWorkflow, boardCardsRef, openCard, openCardById,
     closeCardDetail, hydrateCardDetails, projectSelectedDetail, loadOlderEvents, forgetDetail, refreshDetail,
   } = detail;
-  const pendingNotificationRouteRef = useRef<NotificationRoute | null>(null);
   const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshCard } = useKanbanBoardRefresh({
     board,
     projects,
@@ -74,12 +70,18 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     onStartCleanup: () => setOpenLaneMenu(null),
   });
 
-  const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
-  const directWorkProjectIdRef = useRef<string | null>(null);
-  directWorkProjectIdRef.current = directWorkProjectId;
-  const [directWorkInitialView, setDirectWorkInitialView] = useState<WorkView | undefined>();
-  const [directWorkNavigationRequest, setDirectWorkNavigationRequest] = useState<WorkNavigationRequest | null>(null);
-  const directWorkNavigationNonceRef = useRef(0);
+  const { directWorkProjectId, directWorkInitialView, directWorkNavigationRequest, replaceDirectWork } = useDirectProjectWork({
+    projects,
+    projectsHydrated,
+    cards: board.cards,
+    cardsHydrated: board.cardsHydrated,
+    applyCardSnapshot: board.applyCardSnapshot,
+    openCard,
+    setProjectSwitcherOpen,
+    setProjectPickerPurpose,
+    setProjectPickerCurrentProjectId,
+  });
+
   const {
     cardServices, displayedCardServices, serverHandoff, setServerHandoff, serverActionPending,
     serverActionPendingRef, updateCardServices, runServerAction, toggleCardServer,
@@ -113,72 +115,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   }, [board.loading, loading]);
 
   useKanbanLaunchRecovery({ board, projects, projectsHydrated });
-
-  const replaceDirectWork = useCallback(async (projectId: string | null, view?: WorkView, requestNavigation = false) => {
-    const current = directWorkProjectIdRef.current;
-    if (current && current !== projectId) {
-      try { await flushProjectNotes(current); } catch { return false; }
-    }
-    setDirectWorkInitialView(view);
-    setDirectWorkNavigationRequest(requestNavigation && view
-      ? { view, nonce: ++directWorkNavigationNonceRef.current }
-      : null);
-    setDirectWorkProjectId(projectId);
-    return true;
-  }, []);
-
-  useEffect(() => {
-    const route = (detail: NotificationRoute) => {
-      if (!projectsHydrated || !board.cardsHydrated) {
-        pendingNotificationRouteRef.current = detail;
-        return;
-      }
-      if (detail.ownerKind === 'project' && detail.projectId && projects.some((project) => project.id === detail.projectId)) {
-        void replaceDirectWork(detail.projectId, detail.targetView === 'agent' ? 'agent' : detail.targetView);
-        return;
-      }
-      if (detail.ownerKind !== 'card' || !detail.cardId) return;
-      void (async () => {
-        const card = board.cards.find((candidate) => candidate.id === detail.cardId)
-          ?? (await fetchKanbanCard(detail.cardId!).then(({ card: loaded }) => loaded).catch(() => null));
-        if (!card || !projects.some((project) => project.id === card.project_id)) return;
-        if (!board.cards.some((candidate) => candidate.id === card.id)) board.applyCardSnapshot(card);
-        const view: CardView = detail.targetView === 'agent' ? 'chat' : detail.targetView;
-        await openCard(card, view);
-        if (detail.targetView === 'terminal' && detail.terminalId) {
-          window.setTimeout(() => dispatchCardTerminalCommand({ type: 'focus', paneId: detail.terminalId! }), 0);
-        }
-      })();
-    };
-    return applicationEvents.subscribe('notification-route', route);
-  }, [board.applyCardSnapshot, board.cards, board.cardsHydrated, projects, projectsHydrated, replaceDirectWork]);
-
-  useEffect(() => {
-    if (!projectsHydrated || !board.cardsHydrated || !pendingNotificationRouteRef.current) return;
-    const route = pendingNotificationRouteRef.current;
-    pendingNotificationRouteRef.current = null;
-    applicationEvents.publish('notification-route', route);
-  }, [board.cardsHydrated, projectsHydrated]);
-
-  useEffect(() => {
-    const openDirectWork = (detail: { projectId?: string; view?: WorkView; chooseProject?: boolean }) => {
-      const project = projects.find((candidate) => candidate.id === detail.projectId);
-      if (detail.chooseProject && detail.view === 'notes') {
-        setProjectPickerCurrentProjectId(project?.id ?? null);
-        setProjectPickerPurpose('notes');
-        setProjectSwitcherOpen(true);
-      } else if (project && (detail?.view !== 'release' || project.releases_enabled)) {
-        void replaceDirectWork(project.id, detail?.view);
-      } else if (detail?.view === 'release') {
-        // Opening the picker must not wait on release inspection (which can call GitHub).
-        // The selected project's Release tab shows any configuration error itself.
-        setProjectPickerPurpose('release'); setProjectSwitcherOpen(true);
-      } else {
-        setProjectPickerPurpose('direct'); setProjectSwitcherOpen(true);
-      }
-    };
-    return applicationEvents.subscribe('open-direct-work', openDirectWork);
-  }, [projects, replaceDirectWork]);
 
   useEffect(() => {
     const handleOpenProjectSwitcher = () => {
