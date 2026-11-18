@@ -1,230 +1,77 @@
-import { applicationEvents, showAppToast } from '../../applicationEvents';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Project } from '../../types';
-import { canonicalCardById } from '../../kanban/boardStore';
-import type { CardEventCursor, CardEventPage, CleanupInventory, CleanupPreflight, KanbanCard, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
-import { canProjectSelectedDetail, detailIsCurrent, mergeCardEvents, SelectedDetailRequestCoordinator, type DetailRequestKind } from '../../kanban/selectedDetailRequestCoordinator';
-import { DetailSessionCache } from '../../kanban/detailSessionCache';
-import { useKanbanRefreshCoordinator } from '../../kanban/useKanbanRefreshCoordinator';
-import { cardCreationAvailability, filterKanbanCards, resolveKanbanProjectFilter, superthreadSyncAvailability } from '../../kanban/projectScope';
-import { ProjectSwitcherDialog } from '../ProjectSwitcherDialog';
-import { AsyncButtonLabel } from '../AsyncButtonLabel';
-import { DirectProjectWork } from '../DirectProjectWork';
-import type { WorkNavigationRequest, WorkView } from '../../directWork';
+import { applicationEvents } from '../../applicationEvents';
+import { useEffect, useState } from 'react';
+import type { KanbanStatus } from '../../kanban/types';
 import { useBoardKeyboardNavigation } from '../../kanban/useBoardKeyboardNavigation';
 import { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering';
-import type { CardView } from '../../kanban/cardView';
 import type { KanbanBoardModel, KanbanBoardProps } from '../KanbanBoard';
-import { KanbanCardDetail, type CardDetailWorkflowController } from './KanbanCardDetail';
 import { NewCardDialog } from './NewCardDialog';
-import { KanbanList } from './KanbanList';
-import { BoardCardServerServices } from './BoardCardServerServices';
-import type { CardServices } from '../../kanban/useCardServices';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
-import { startLaunchCardRecovery, startupCardRecoveryAllowed } from '../../kanban/launchRecovery';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
-import { flushProjectNotes } from '../../projectNotes';
-import { projectColorAttribute } from '../../projectColor';
-import { workGroup } from '../../kanban/workflowGroups';
-import type { NotificationRoute } from '../../appAttention';
-import { fetchCleanupPreflight, fetchCleanupInventory, fetchKanbanCard, fetchKanbanCardEvents } from '../../kanban/api';
-import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
-import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 import { useLoadingCoordinator } from '../../loadingState';
 import { launchPlanningAgent } from '../../kanban/planningLauncher';
-import { CardServerShutdownError, findConflictingCardServer, handoffCardServer } from '../../kanban/cardServerHandoff';
-import { ServerHandoffDialog } from './ServerHandoffDialog';
-import { useBoardPrMerge } from '../../kanban/useBoardPrMerge';
-import { BoardPrMergeDialog } from './BoardPrMergeDialog';
-import { CardDetailLoadingShell } from './CardDetailLoadingShell';
+import { useKanbanProjectScope } from './kanbanProjectScope/useKanbanProjectScope';
+import { useKanbanBoardRefresh } from './kanbanRefresh/useKanbanBoardRefresh';
+import { useKanbanLaunchRecovery } from './kanbanLaunchRecovery/useKanbanLaunchRecovery';
+import { useKanbanCardDetail } from './kanbanCardOpen/useKanbanCardDetail';
+import { KanbanCardDetailOverlay } from './kanbanCardOpen/KanbanCardDetailOverlay';
+import { KanbanBoardHeader } from './kanbanHeader/KanbanBoardHeader';
+import { KanbanBoardLanes } from './kanbanList/KanbanBoardLanes';
+import { KanbanProjectSwitcherDialog } from './kanbanProjectScope/KanbanProjectSwitcherDialog';
+import { KanbanMergedPrDialogs } from './kanbanMergedPr/KanbanMergedPrDialogs';
+import { DirectProjectWorkOverlay } from './kanbanDirectWork/DirectProjectWorkOverlay';
+import { useKanbanCardServer } from './kanbanCardServer/useKanbanCardServer';
+import { useDirectProjectWork } from './kanbanDirectWork/useDirectProjectWork';
+import { usePaletteCardPublication } from './kanbanPalette/usePaletteCardPublication';
+import { useKanbanLaneToggles } from './kanbanLaneToggles/useKanbanLaneToggles';
+import { useKanbanMergedPr } from './kanbanMergedPr/useKanbanMergedPr';
 
 export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
-  const filterProjectId = resolveKanbanProjectFilter(projects, selectedProjectId);
-  const selectedProject = projects.find((project) => project.id === filterProjectId) ?? null;
-  const syncAvailability = superthreadSyncAvailability(superthreadEnabled, projects, filterProjectId);
-  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
-  const [projectPickerPurpose, setProjectPickerPurpose] = useState<'filter' | 'direct' | 'notes' | 'release'>('filter');
-  const [projectPickerCurrentProjectId, setProjectPickerCurrentProjectId] = useState<string | null>(null);
-  const visibleCards = useMemo(() => filterKanbanCards(board.cards, filterProjectId), [board.cards, filterProjectId]);
-  const creationAvailability = useMemo(
-    () => cardCreationAvailability(projects, selectedProject, superthreadEnabled),
-    [projects, selectedProject, superthreadEnabled],
-  );
-  const creationProjects = creationAvailability.destinations;
+  const scope = useKanbanProjectScope({ projects, selectedProjectId, onSelectProject, superthreadEnabled, cards: board.cards });
+  const {
+    filterProjectId, selectedProject, syncAvailability, visibleCards, creationAvailability, creationProjects,
+    projectSwitcherOpen, setProjectSwitcherOpen, setProjectPickerPurpose, setProjectPickerCurrentProjectId,
+  } = scope;
   const { selectedCardId, selectedCard, selectCard, clearSelection } = useCanonicalCardSelection(board.cards);
-  // Selection/detail/card snapshots are shared mutable controller state, not
-  // callback plumbing: event handlers assign them eagerly before React commits
-  // and async continuations, subscriptions, and the detail coordinator compare
-  // against them. An Effect Event cannot stand in for these transitional reads.
-  const selectedCardIdRef = useRef(selectedCardId);
-  selectedCardIdRef.current = selectedCardId;
-  const [selectedDetail, setSelectedDetail] = useState<KanbanCard | null>(null);
-  const [eventCursor, setEventCursor] = useState<CardEventCursor | null>(null);
-  const detailCacheRef = useRef(new DetailSessionCache());
-  const eventCursorRef = useRef<CardEventCursor | null>(null);
-  const [detailNeedsPreflight, setDetailNeedsPreflight] = useState(false);
-  function updateCursor(cursor: CardEventCursor | null) {
-    eventCursorRef.current = cursor;
-    setEventCursor(cursor);
-    const detail = selectedDetailRef.current;
-    if (detail) detailCacheRef.current.remember(detail, cursor, boardCardsRef.current.find((card) => card.id === detail.id));
-  }
-  const cardDetailWorkflowRef = useRef<CardDetailWorkflowController | null>(null);
-  const setCardDetailWorkflow = useCallback((controller: CardDetailWorkflowController | null) => { cardDetailWorkflowRef.current = controller; }, []);
-  const [detailLoadError, setDetailLoadError] = useState<{ cardId: string; message: string } | null>(null);
-  const [detailRefreshError, setDetailRefreshError] = useState<{ cardId: string; message: string } | null>(null);
-  const selectedDetailRef = useRef(selectedDetail);
-  selectedDetailRef.current = selectedDetail;
-  // Mirror of the canonical board snapshot for synchronous/async detail checks;
-  // it is also read by handlers, so it is not an effect-owned subscription input.
-  const boardCardsRef = useRef(board.cards);
-  boardCardsRef.current = board.cards;
-  const eventRequestGenerationRef = useRef(0);
-  const openTimingRef = useRef<{ id: string; started: number } | null>(null);
-  useLayoutEffect(() => {
-    const timing = openTimingRef.current;
-    if (timing && timing.id === selectedDetail?.id && timing.id === selectedCardId) {
-      console.debug('Card open detail committed', timing.id, { commitMs: performance.now() - timing.started });
-    }
-  }, [selectedCardId, selectedDetail]);
-  useEffect(() => {
-    const timing = openTimingRef.current;
-    if (!timing || timing.id !== selectedCardId || selectedDetail?.id !== timing.id) return;
-    const frame = requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (openTimingRef.current !== timing) return;
-      console.debug('Card open detail painted', timing.id, { paintMs: performance.now() - timing.started });
-      openTimingRef.current = null;
-    }));
-    return () => cancelAnimationFrame(frame);
-  }, [selectedCardId, selectedDetail]);
-  const openingEventPageRef = useRef<{ cardId: string; generation: number; page: CardEventPage } | null>(null);
-  const detailCoordinatorRef = useRef<SelectedDetailRequestCoordinator<{ card: KanbanCard }> | null>(null);
-  useEffect(() => () => { detailCoordinatorRef.current?.select(null); }, []);
-  const launchRecoveryStartedRef = useRef(false);
-  const pendingNotificationRouteRef = useRef<NotificationRoute | null>(null);
-  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshCard } = useKanbanRefreshCoordinator({
-    cards: board.cards,
+  const detail = useKanbanCardDetail({
+    board,
+    selectedCardId,
+    selectedCard,
+    selectCard,
+    clearSelection,
+  });
+  const {
+    selectedDetail, cardDetailWorkflowRef, boardCardsRef, openCard, openCardById,
+    projectSelectedDetail, forgetDetail,
+  } = detail;
+  const { statuses: repositoryStatuses, activeSummary: gitChangeSummary, prChecks, recheckEnvironment, refreshCard } = useKanbanBoardRefresh({
+    board,
     projects,
     visibleCards,
     activeCardId: selectedCardId,
-    patchCard: board.patchCard,
   });
-  const [mergeCleanup, setMergeCleanup] = useState<{ card: KanbanCard; inventory: CleanupInventory; restoreFocus: () => void } | null>(null);
-  const prMerge = useBoardPrMerge({
-    cards: board.cards, projects, prChecks,
-    reconcile: (updated) => {
-      const canonical = board.applyCardSnapshot(updated);
-      detailCacheRef.current.remove(updated.id);
-      projectSelectedDetail(updated, updated.events, canonical);
-    },
-    reload: board.loadPersistedDetails,
-    prepareCleanup: async (card, restoreFocus) => {
-      const entry = await fetchCleanupPreflight(card.id);
-      const current = await board.loadPersistedDetails(card.id);
-      if (entry.card_id !== card.id || current.id !== card.id
-        || entry.project_id !== current.project_id || current.project_id !== card.project_id
-        || current.environment?.id !== card.environment?.id
-        || (current.environment && (entry.source_path !== current.environment.worktree_path
-          || entry.source_branch !== current.environment.branch))
-        || current.completion_outcome !== 'merged'
-        || entry.workflow_revision !== current.workflow_revision
-        || entry.environment_revision !== (current.environment?.revision ?? 0)) {
-        throw new Error('Cleanup evidence does not match the merged card or environment revision.');
-      }
-      if (!entry.has_resources) return () => {
-        showAppToast('PR merged successfully; nothing remains to clean up');
-        restoreFocus();
-      };
-      if (entry.blocked && !entry.override_available) {
-        throw new Error(`Cleanup blocked: ${entry.blockers.join('; ') || 'Cleanup evidence is not eligible.'}`);
-      }
-      const inventory = { entries: [entry], eligible_merged: Number(entry.merged && !entry.blocked), blocked: Number(entry.blocked), closed: 0, completed: 0 };
-      return () => setMergeCleanup({ card: current, inventory, restoreFocus });
-    },
+  const mergedPr = useKanbanMergedPr({
+    board, projects, prChecks, filterProjectId, onCleanupCard, forgetDetail, projectSelectedDetail,
+    onStartCleanup: () => setOpenLaneMenu(null),
   });
-  const [directWorkProjectId, setDirectWorkProjectId] = useState<string | null>(null);
-  // Async project switching compares against the in-flight selection before it
-  // commits; keep this as mutable controller state.
-  const directWorkProjectIdRef = useRef<string | null>(null);
-  directWorkProjectIdRef.current = directWorkProjectId;
-  const [directWorkInitialView, setDirectWorkInitialView] = useState<WorkView | undefined>();
-  const [directWorkNavigationRequest, setDirectWorkNavigationRequest] = useState<WorkNavigationRequest | null>(null);
-  const directWorkNavigationNonceRef = useRef(0);
-  const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
-  const [cardServices, setCardServices] = useState<Record<string, CardServices>>({});
-  // Server handoff handlers read the latest services synchronously before they
-  // await; this is mutable orchestration state, not an effect subscription.
-  const cardServicesRef = useRef(cardServices);
-  cardServicesRef.current = cardServices;
-  const [serverHandoff, setServerHandoff] = useState<{ targetCardId: string; externalId: string } | null>(null);
-  const [serverAction, setServerAction] = useState<{ cardId: string; pending: 'start' | 'stop' | null; error: string | null } | null>(null);
-  const serverActionPending = Boolean(serverAction?.pending);
-  const displayedCardServices = { ...cardServices };
-  if (serverAction && displayedCardServices[serverAction.cardId]) {
-    const services = displayedCardServices[serverAction.cardId];
-    displayedCardServices[serverAction.cardId] = {
-      ...services,
-      serverActionPending: serverAction.pending ?? services.serverActionPending,
-      serverError: serverAction.error ?? services.serverError,
-    };
-  }
-  const serverActionPendingRef = useRef(false);
-  const updateCardServices = useCallback((cardId: string, services: CardServices | null) => {
-    setCardServices((current) => {
-      if (!services) {
-        if (!current[cardId]) return current;
-        const next = { ...current };
-        delete next[cardId];
-        return next;
-      }
-      const existing = current[cardId];
-      if (existing && existing.start === services.start && existing.stop === services.stop && existing.toggle === services.toggle
-        && existing.serverActionPending === services.serverActionPending && existing.serverError === services.serverError
-        && existing.consoleActionPending === services.consoleActionPending && existing.consoleError === services.consoleError
-        && existing.serverActive === services.serverActive && existing.serverEnabled === services.serverEnabled
-        && existing.serverStarting === services.serverStarting && existing.serverRunning === services.serverRunning
-        && existing.serverRestartNonce === services.serverRestartNonce
-        && existing.consoleActive === services.consoleActive && existing.consoleEnabled === services.consoleEnabled
-        && existing.consoleStarting === services.consoleStarting && existing.consoleRunning === services.consoleRunning
-        && existing.consoleRestartNonce === services.consoleRestartNonce) return current;
-      return { ...current, [cardId]: services };
-    });
-  }, []);
-  const runServerAction = useCallback(async (targetCardId: string) => {
-    if (serverActionPendingRef.current) return;
-    serverActionPendingRef.current = true;
-    setServerAction({ cardId: targetCardId, pending: cardServicesRef.current[targetCardId]?.serverActive ? 'stop' : 'start', error: null });
-    try {
-      await handoffCardServer(targetCardId, boardCardsRef.current, cardServicesRef.current);
-      setServerAction(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setServerAction({ cardId: targetCardId, pending: null, error: message });
-      showAppToast(error instanceof CardServerShutdownError
-        ? `Could not shut down server: ${message}`
-        : `Could not start server: ${message}`);
-    } finally {
-      serverActionPendingRef.current = false;
-    }
-  }, []);
+  const { prMerge, mergeCleanup, cleaningMerged, cleanupInventory, cleanupMergedCards } = mergedPr;
 
-  const toggleCardServer = useCallback((targetCardId: string) => {
-    if (serverActionPendingRef.current) return;
-    const services = cardServicesRef.current[targetCardId];
-    if (!services) return;
-    if (services.serverActive) {
-      void runServerAction(targetCardId);
-      return;
-    }
-    const conflict = findConflictingCardServer(targetCardId, boardCardsRef.current, cardServicesRef.current);
-    if (conflict) setServerHandoff({ targetCardId, externalId: conflict.external_id });
-    else void runServerAction(targetCardId);
-  }, [runServerAction]);
+  const { directWorkProjectId, directWorkInitialView, directWorkNavigationRequest, replaceDirectWork } = useDirectProjectWork({
+    projects,
+    projectsHydrated,
+    cards: board.cards,
+    cardsHydrated: board.cardsHydrated,
+    applyCardSnapshot: board.applyCardSnapshot,
+    openCard,
+    setProjectSwitcherOpen,
+    setProjectPickerPurpose,
+    setProjectPickerCurrentProjectId,
+  });
+
+  const server = useKanbanCardServer({ boardCardsRef });
+  const { cardServices, displayedCardServices, serverHandoff, updateCardServices, toggleCardServer } = server;
 
   const [openLaneMenu, setOpenLaneMenu] = useState<KanbanStatus | null>(null);
-  const [cleaningMerged, setCleaningMerged] = useState(false);
-  const [cleanupInventory, setCleanupInventory] = useState<CleanupInventory | null>(null);
   const newCard = useNewCardDialog({
     creationProjects,
     selectedProject,
@@ -237,8 +84,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     deliveryContext: { projects, prChecks },
     doneCollapsed,
     backlogCollapsed,
-    attentionCollapsed,
-    progressCollapsed,
     selectedCard,
     openCard,
     creationAvailable: !creationAvailability.disabled,
@@ -251,84 +96,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     if (!board.loading) loading.settleStartup('cards');
   }, [board.loading, loading]);
 
-  useEffect(() => {
-    if (projectsHydrated && board.cardsHydrated && !launchRecoveryStartedRef.current) {
-      launchRecoveryStartedRef.current = true;
-      startupCardRecoveryAllowed()
-        .then((allowed) => allowed ? startLaunchCardRecovery(board.cards, projects) : undefined)
-        .catch(console.error);
-    }
-  }, [board.cards, board.cardsHydrated, board.load, projects, projectsHydrated]);
-
-  useEffect(() => {
-    if (selectedProjectId && !filterProjectId) onSelectProject(null);
-  }, [filterProjectId, onSelectProject, selectedProjectId]);
-
-  const replaceDirectWork = useCallback(async (projectId: string | null, view?: WorkView, requestNavigation = false) => {
-    const current = directWorkProjectIdRef.current;
-    if (current && current !== projectId) {
-      try { await flushProjectNotes(current); } catch { return false; }
-    }
-    setDirectWorkInitialView(view);
-    setDirectWorkNavigationRequest(requestNavigation && view
-      ? { view, nonce: ++directWorkNavigationNonceRef.current }
-      : null);
-    setDirectWorkProjectId(projectId);
-    return true;
-  }, []);
-
-  useEffect(() => {
-    const route = (detail: NotificationRoute) => {
-      if (!projectsHydrated || !board.cardsHydrated) {
-        pendingNotificationRouteRef.current = detail;
-        return;
-      }
-      if (detail.ownerKind === 'project' && detail.projectId && projects.some((project) => project.id === detail.projectId)) {
-        void replaceDirectWork(detail.projectId, detail.targetView === 'agent' ? 'agent' : detail.targetView);
-        return;
-      }
-      if (detail.ownerKind !== 'card' || !detail.cardId) return;
-      void (async () => {
-        const card = board.cards.find((candidate) => candidate.id === detail.cardId)
-          ?? (await fetchKanbanCard(detail.cardId!).then(({ card: loaded }) => loaded).catch(() => null));
-        if (!card || !projects.some((project) => project.id === card.project_id)) return;
-        if (!board.cards.some((candidate) => candidate.id === card.id)) board.applyCardSnapshot(card);
-        const view: CardView = detail.targetView === 'agent' ? 'chat' : detail.targetView;
-        await openCard(card, view);
-        if (detail.targetView === 'terminal' && detail.terminalId) {
-          window.setTimeout(() => dispatchCardTerminalCommand({ type: 'focus', paneId: detail.terminalId! }), 0);
-        }
-      })();
-    };
-    return applicationEvents.subscribe('notification-route', route);
-  }, [board.applyCardSnapshot, board.cards, board.cardsHydrated, projects, projectsHydrated, replaceDirectWork]);
-
-  useEffect(() => {
-    if (!projectsHydrated || !board.cardsHydrated || !pendingNotificationRouteRef.current) return;
-    const route = pendingNotificationRouteRef.current;
-    pendingNotificationRouteRef.current = null;
-    applicationEvents.publish('notification-route', route);
-  }, [board.cardsHydrated, projectsHydrated]);
-
-  useEffect(() => {
-    const openDirectWork = (detail: { projectId?: string; view?: WorkView; chooseProject?: boolean }) => {
-      const project = projects.find((candidate) => candidate.id === detail.projectId);
-      if (detail.chooseProject && detail.view === 'notes') {
-        setProjectPickerCurrentProjectId(project?.id ?? null);
-        setProjectPickerPurpose('notes');
-        setProjectSwitcherOpen(true);
-      } else if (project && (detail?.view !== 'release' || project.releases_enabled)) {
-        void replaceDirectWork(project.id, detail?.view);
-      } else if (detail?.view === 'release') {
-        // Opening the picker must not wait on release inspection (which can call GitHub).
-        // The selected project's Release tab shows any configuration error itself.
-        setProjectPickerPurpose('release'); setProjectSwitcherOpen(true);
-      } else {
-        setProjectPickerPurpose('direct'); setProjectSwitcherOpen(true);
-      }
-    };
-    return applicationEvents.subscribe('open-direct-work', openDirectWork);
-  }, [projects, replaceDirectWork]);
+  useKanbanLaunchRecovery({ board, projects, projectsHydrated });
 
   useEffect(() => {
     const handleOpenProjectSwitcher = () => {
@@ -339,527 +107,122 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     return applicationEvents.subscribe('open-project-switcher', handleOpenProjectSwitcher);
   }, [pointerOrdering.draggingId, newCard.open, openLaneMenu, projectSwitcherOpen, selectedCardId]);
 
-  useEffect(() => {
-    if (board.cardsHydrated) detailCacheRef.current.prune(new Set(board.cards.map((card) => card.id)));
-  }, [board.cards, board.cardsHydrated]);
+  usePaletteCardPublication({
+    onPaletteCardsChange,
+    visibleCards,
+    projects,
+    openCard: openCardById,
+    selectedCard,
+    selectedDetail,
+    directWorkProjectId,
+    cardDetailWorkflowRef,
+  });
 
-  useEffect(() => {
-    if (!selectedCardId || selectedCard) return;
-    selectedCardIdRef.current = null;
-    detailCacheRef.current.remove(selectedCardId);
-    detailCoordinatorRef.current?.select(null);
-    eventRequestGenerationRef.current++;
-    openingEventPageRef.current = null;
-    setDetailLoadError(null);
-    setDetailRefreshError(null);
-    clearSelection(selectedCardId);
-    showAppToast('This card was removed');
-  }, [clearSelection, selectedCard, selectedCardId]);
-
-  function projectSelectedDetail(updated: KanbanCard, incomingEvents = updated.events, canonicalOverride?: KanbanCardSummary) {
-    const current = selectedDetailRef.current;
-    if (!canProjectSelectedDetail(selectedCardIdRef.current, updated.id, current)) return false;
-    const canonical = canonicalOverride ?? boardCardsRef.current.find((candidate) => candidate.id === updated.id);
-    if (!detailIsCurrent(updated, canonical, current)) return false;
-    const page = openingEventPageRef.current;
-    const events = page?.cardId === updated.id && page.generation === eventRequestGenerationRef.current
-      ? mergeCardEvents(incomingEvents, page.page.events) : incomingEvents;
-    const detail = { ...updated, events: mergeCardEvents(current?.events, events) };
-    selectedDetailRef.current = detail;
-    detailCacheRef.current.remember(detail, eventCursorRef.current, canonical);
-    setSelectedDetail(detail);
-    setDetailLoadError((error) => error?.cardId === updated.id ? null : error);
-    setDetailRefreshError((error) => error?.cardId === updated.id ? null : error);
-    return true;
-  }
-
-  // Retry once per newer canonical record; cleanup can invalidate several intermediate phases.
-  const retriedCanonicalRevisionRef = useRef(new Map<string, number>());
-  const coordinatorConfiguration = {
-    run: async (cardId: string, _kind: DetailRequestKind) => ({ card: await board.loadPersistedDetails(cardId) }),
-    success: (result: { card: KanbanCard }, _kind: DetailRequestKind, cardId: string) => {
-      if (result.card.id !== cardId || !boardCardsRef.current.some((card) => card.id === cardId)) return false;
-      const canonical = board.applyCardSnapshot(result.card);
-      if (!projectSelectedDetail(result.card, result.card.events, canonical)) {
-        if (selectedCardIdRef.current === cardId) {
-          const newer = canonical.record_revision > result.card.record_revision;
-          const retried = retriedCanonicalRevisionRef.current.get(cardId) ?? 0;
-          if (newer && canonical.record_revision > retried) {
-            retriedCanonicalRevisionRef.current.set(cardId, canonical.record_revision);
-            void detailCoordinatorRef.current?.local(cardId).catch(() => {});
-          }
-          // An obsolete read is not a backend failure. The next revisioned
-          // invalidation (or a manual retry) can schedule another local read.
-        }
-        return false;
-      }
-      retriedCanonicalRevisionRef.current.delete(cardId);
-      setDetailNeedsPreflight(false);
-      return true;
-    },
-    failure: (error: unknown, _kind: DetailRequestKind, cardId: string) => {
-      if (!canProjectSelectedDetail(selectedCardIdRef.current, cardId, selectedDetailRef.current)) return;
-      const next = { cardId, message: error instanceof Error ? error.message : String(error) };
-      if (selectedDetailRef.current) setDetailRefreshError(next);
-      else setDetailLoadError(next);
-    },
-  };
-  if (!detailCoordinatorRef.current) detailCoordinatorRef.current = new SelectedDetailRequestCoordinator(coordinatorConfiguration);
-  else detailCoordinatorRef.current.configure(coordinatorConfiguration);
-  detailCoordinatorRef.current.select(selectedCardId);
-
-  async function hydrateCardDetails(card: KanbanCardSummary) {
-    setDetailLoadError(null);
-    setDetailRefreshError(null);
-    const result = await detailCoordinatorRef.current!.authoritative(card.id);
-    return result?.card;
-  }
-
-  async function refreshCardDetailsLocally(cardId: string) {
-    const result = await detailCoordinatorRef.current!.local(cardId);
-    return result?.card;
-  }
-
-  async function openCard(card: KanbanCardSummary, initialView?: CardView) {
-    setSelectedCardInitialView(initialView);
-    const usable = detailCacheRef.current.get(card.id, boardCardsRef.current.find((item) => item.id === card.id));
-    selectedDetailRef.current = usable?.card ?? null;
-    setSelectedDetail(usable?.card ?? null);
-    updateCursor(usable?.cursor ?? null);
-    setDetailNeedsPreflight(Boolean(usable));
-    setDetailRefreshError(null);
-    selectedCardIdRef.current = card.id;
-    selectCard(card.id);
-    detailCoordinatorRef.current?.select(card.id);
-    const generation = ++eventRequestGenerationRef.current;
-    openingEventPageRef.current = null;
-    const started = performance.now();
-    const debugOpen = import.meta.env.DEV && localStorage.getItem('stacks.debugCardOpen') === '1';
-    openTimingRef.current = debugOpen ? { id: card.id, started } : null;
-    if (debugOpen) requestAnimationFrame(() => {
-      if (selectedCardIdRef.current === card.id && eventRequestGenerationRef.current === generation)
-        console.debug('Card open panel', card.id, { panelMs: performance.now() - started });
-    });
-    // The directory check and the event page must never gate local detail or the panel.
-    // Start the one required local read before ancillary IPC work (directory and history).
-    void hydrateCardDetails(card).then((detail) => {
-      if (debugOpen && detail && selectedCardIdRef.current === card.id && eventRequestGenerationRef.current === generation)
-        requestAnimationFrame(() => console.debug('Card open usable detail', card.id, { detailPaintMs: performance.now() - started }));
-    }).catch(() => {});
-    void board.interact(card.id).catch(console.error);
-    void fetchKanbanCardEvents(card.id).then((page) => {
-      if (selectedCardIdRef.current !== card.id || eventRequestGenerationRef.current !== generation) return;
-      openingEventPageRef.current = { cardId: card.id, generation, page };
-      const detail = selectedDetailRef.current;
-      if (detail?.id === card.id) projectSelectedDetail(detail, page.events);
-      if (eventCursorRef.current === null) updateCursor(page.next_cursor);
-      if (debugOpen) console.debug('Card open events', card.id, { eventsMs: performance.now() - started });
-    }).catch(console.error);
-  }
-
-  function closeCardDetail(expectedCardId?: string) {
-    if (expectedCardId === undefined || selectedCardIdRef.current === expectedCardId) {
-      selectedCardIdRef.current = null;
-      detailCoordinatorRef.current?.select(null);
-      eventRequestGenerationRef.current++;
-      openingEventPageRef.current = null;
-      setDetailLoadError(null);
-      setDetailRefreshError(null);
-      selectedDetailRef.current = null;
-      setSelectedDetail(null);
-      updateCursor(null);
-      setDetailNeedsPreflight(false);
-    }
-    clearSelection(expectedCardId);
-  }
-
-  const openCardRef = useRef(openCard);
-  boardCardsRef.current = board.cards;
-  // openPaletteCard is a public palette callback, so it may not be an Effect
-  // Event; the ref keeps it stable while still opening the current detail flow.
-  openCardRef.current = openCard;
-  useEffect(() => {
-    const pending = new Map<string, number>();
-    let alive = true;
-    let queued = false;
-    const unsubscribe = board.subscribeDetailInvalidations(({ cardId, recordRevision }) => {
-      if (selectedCardIdRef.current !== cardId) return;
-      pending.set(cardId, Math.max(pending.get(cardId) ?? 0, recordRevision));
-      if (queued) return;
-      queued = true;
-      queueMicrotask(() => {
-        queued = false;
-        if (!alive) return;
-        const entries = [...pending];
-        pending.clear();
-        for (const [id, floor] of entries) {
-          if (selectedCardIdRef.current !== id) continue;
-          const summary = boardCardsRef.current.find((card) => card.id === id);
-          if (summary && summary.record_revision >= floor) void detailCoordinatorRef.current?.local(id).catch(() => {});
-        }
-      });
-    });
-    return () => { alive = false; pending.clear(); unsubscribe(); };
-  }, [board.subscribeDetailInvalidations]);
-
-  const openPaletteCard = useCallback((cardId: string) => {
-    const current = canonicalCardById(boardCardsRef.current, cardId);
-    if (current) void openCardRef.current(current);
-  }, []);
-
-  useEffect(() => {
-    onPaletteCardsChange({
-      cards: visibleCards,
-      projects,
-      openCard: openPaletteCard,
-      selectedCard: selectedCard?.id === selectedDetail?.id ? selectedDetail : null,
-      openWorkspace: selectedCard
-        ? { kind: 'card', cardId: selectedCard.id, projectId: selectedCard.project_id, worktreePath: selectedCard.environment?.worktree_path ?? null }
-        : directWorkProjectId ? { kind: 'project', projectId: directWorkProjectId } : null,
-      runSelectedAction: (action) => cardDetailWorkflowRef.current?.run(action),
-    });
-  }, [onPaletteCardsChange, openPaletteCard, projects, selectedCard, selectedDetail, directWorkProjectId, visibleCards]);
-
-  useEffect(() => () => onPaletteCardsChange(null), [onPaletteCardsChange]);
-
-  function toggleListGroup(group: 'attention' | 'progress', collapsed: boolean, onChange: (collapsed: boolean) => void) {
-    if (!collapsed) {
-      setKeyboardFocusedCardId((currentId) => (
-        visibleCards.some((card) => card.id === currentId && workGroup(card, { projects, prChecks }) === group) ? null : currentId
-      ));
-    }
-    onChange(!collapsed);
-  }
-
-  function toggleBacklogCollapsed() {
-    const collapsed = !backlogCollapsed;
-    if (collapsed) {
-      setKeyboardFocusedCardId((currentId) => (
-        visibleCards.some((card) => card.id === currentId && card.status === 'needs_refinement') ? null : currentId
-      ));
-    }
-    onBacklogCollapsedChange(collapsed);
-  }
-
-  function toggleDoneCollapsed() {
-    const collapsed = !doneCollapsed;
-    setOpenLaneMenu(null);
-    if (collapsed) {
-      setKeyboardFocusedCardId((currentId) => (
-        visibleCards.some((card) => card.id === currentId && card.status === 'done') ? null : currentId
-      ));
-    }
-    onDoneCollapsedChange(collapsed);
-  }
-
-  function closeMergeCleanup() {
-    const restoreFocus = mergeCleanup?.restoreFocus;
-    setMergeCleanup(null);
-    restoreFocus?.();
-  }
-
-  const mergeCleanupBusy = useRef(false);
-  async function confirmMergeCleanup([entry]: CleanupPreflight[]) {
-    if (mergeCleanupBusy.current || !mergeCleanup || !entry || entry.card_id !== mergeCleanup.card.id) return;
-    mergeCleanupBusy.current = true;
-    const cardId = mergeCleanup.card.id;
-    let failure: string | null = null;
-    try {
-      const current = await board.loadPersistedDetails(cardId);
-      if (current.id !== cardId || current.project_id !== mergeCleanup.card.project_id
-        || current.completion_outcome !== 'merged'
-        || current.environment?.id !== mergeCleanup.card.environment?.id
-        || current.workflow_revision !== entry.workflow_revision
-        || (current.environment?.revision ?? 0) !== entry.environment_revision
-        || (current.environment && (current.environment.worktree_path !== entry.source_path
-          || current.environment.branch !== entry.source_branch))) {
-        throw new Error('Card or environment changed after cleanup confirmation was prepared. Fetch fresh cleanup evidence before trying again.');
-      }
-      const cleaned = await onCleanupCard(current, entry);
-      if (!cleaned) failure = 'PR merged successfully; local environment retained after cleanup revalidation. Retry cleanup to fetch fresh evidence.';
-      showAppToast(cleaned ? 'PR merged successfully; cleanup complete' : failure!);
-    } catch (error) {
-      failure = `PR merged successfully, but cleanup failed: ${String(error)}`;
-      showAppToast(failure);
-    } finally {
-      try {
-        const updated = await board.loadPersistedDetails(cardId);
-        const canonical = board.applyCardSnapshot(updated);
-        detailCacheRef.current.remove(cardId);
-        projectSelectedDetail(updated, updated.events, canonical);
-      } catch (error) { showAppToast(`PR remains merged. Could not reload cleanup state: ${String(error)}`); }
-      mergeCleanupBusy.current = false;
-      if (failure) {
-        setMergeCleanup(null);
-        prMerge.cleanupFailed(failure);
-      } else closeMergeCleanup();
-    }
-  }
-
-  async function cleanupMergedCards() {
-    setOpenLaneMenu(null);
-    setCleaningMerged(true);
-    try {
-      const inventory = await fetchCleanupInventory(filterProjectId);
-      if (inventory.entries.length === 0) showAppToast('Nothing remains to clean up');
-      else setCleanupInventory(inventory);
-    }
-    catch (error) { showAppToast(`Could not inspect cleanup: ${String(error)}`); }
-    finally { setCleaningMerged(false); }
-  }
-
-  async function confirmBulkCleanup(entries: CleanupPreflight[]) {
-    setCleaningMerged(true);
-    const failures: string[] = [];
-    for (const entry of entries) {
-      const summary = board.cards.find((card) => card.id === entry.card_id);
-      if (!summary) { failures.push(entry.card_title); continue; }
-      try {
-        const detail = await board.loadPersistedDetails(summary);
-        const cleaned = await onCleanupCard(detail, entry);
-        if (!cleaned) failures.push(entry.card_title);
-        else board.applyCardSnapshot(await board.loadPersistedDetails(summary));
-      } catch (error) { console.error(error); failures.push(entry.card_title); }
-    }
-    setCleaningMerged(false);
-    setCleanupInventory(null);
-    const cleanedCount = entries.length - failures.length;
-    showAppToast(failures.length ? `Cleaned up ${cleanedCount}; ${failures.length} retained after revalidation` : `Cleaned up ${cleanedCount} merged ${cleanedCount === 1 ? 'card' : 'cards'}`);
-  }
-
+  const { toggleListGroup, toggleBacklogCollapsed, toggleDoneCollapsed } = useKanbanLaneToggles({
+    visibleCards,
+    projects,
+    prChecks,
+    backlogCollapsed,
+    onBacklogCollapsedChange,
+    doneCollapsed,
+    onDoneCollapsedChange,
+    setFocusedCardId: setKeyboardFocusedCardId,
+    setOpenLaneMenu,
+  });
   return (
     <div className="kanbanView" ref={navigationRootRef}>
-      <header className="kanbanHeader">
-        <div className="kanbanProjectTitleRow">
-          <label className="kanbanProjectFilter">
-            <select aria-label="Filter board by project" value={filterProjectId ?? ''} onChange={(event) => {
-              onSelectProject(event.target.value || null);
-              setKeyboardFocusedCardId(null);
-            }}>
-              <option value="">All projects</option>
-              {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
-            </select>
-          </label>
-        </div>
-        <div className="kanbanHeaderActions">
-          <button data-card-action="secondary" type="button" disabled={creationAvailability.disabled} title={creationAvailability.title} onClick={() => {
-            newCard.show();
-          }}>+ Add card</button>
-          <button data-card-action="secondary" type="button" disabled={projects.length === 0} onClick={() => {
-            if (selectedProject) void replaceDirectWork(selectedProject.id);
-            else {
-              setProjectPickerPurpose('direct');
-              setProjectSwitcherOpen(true);
-            }
-          }}>Open Project Workspace</button>
-          {syncAvailability.visible && <button data-card-action="secondary" type="button" title={syncAvailability.title} disabled={board.syncing || syncAvailability.disabled} onClick={() => board.sync(true)}>
-            <AsyncButtonLabel idle="Sync Superthread" busy="Syncing…" isBusy={board.syncing} />
-          </button>}
-        </div>
-      </header>
+      <KanbanBoardHeader
+        board={board}
+        projects={projects}
+        filterProjectId={filterProjectId}
+        onSelectProject={onSelectProject}
+        onClearKeyboardFocus={() => setKeyboardFocusedCardId(null)}
+        creationAvailability={creationAvailability}
+        onAddCard={newCard.show}
+        onOpenProjectWorkspace={() => {
+          if (selectedProject) void replaceDirectWork(selectedProject.id);
+          else {
+            setProjectPickerPurpose('direct');
+            setProjectSwitcherOpen(true);
+          }
+        }}
+        syncAvailability={syncAvailability}
+      />
       {board.error && <div className="kanbanNotice">{board.error}</div>}
       {board.providerError && <div className="kanbanNotice">{board.providerError}</div>}
-      <BoardCardServerServices
-        cards={board.cards}
+      <KanbanBoardLanes
+        board={board}
+        visibleCards={visibleCards}
+        selectedCardId={selectedCardId}
+        selectedProject={selectedProject}
         projects={projects}
-        detailCardId={selectedCardId}
+        repositoryStatuses={repositoryStatuses}
+        prChecks={prChecks}
+        displayedCardServices={displayedCardServices}
+        updateCardServices={updateCardServices}
         terminalFontSize={terminalFontSize}
         terminalFontFamily={terminalFontFamily}
         terminalScrollback={terminalScrollback}
         copyOnSelect={copyOnSelect}
-        onServices={updateCardServices}
-      />
-      {!board.loading && <KanbanList
-        cards={visibleCards}
-        onMergePullRequest={prMerge.request}
-        mergingCardId={prMerge.mergingCardId}
-        selectedProjectColor={projectColorAttribute(selectedProject)}
-        projects={projects}
-        repositoryStatuses={repositoryStatuses}
-        prChecks={prChecks}
-        serverServices={displayedCardServices}
+        prMerge={prMerge}
         backlogCollapsed={backlogCollapsed}
         attentionCollapsed={attentionCollapsed}
         progressCollapsed={progressCollapsed}
-        pointer={pointerOrdering}
         doneCollapsed={doneCollapsed}
+        pointerOrdering={pointerOrdering}
         openLaneMenu={openLaneMenu}
         setOpenLaneMenu={setOpenLaneMenu}
         cleaningMerged={cleaningMerged}
         keyboardFocusedCardId={keyboardFocusedCardId}
         setKeyboardFocusedCardId={setKeyboardFocusedCardId}
-        onToggleBacklog={toggleBacklogCollapsed}
-        onToggleAttention={() => toggleListGroup('attention', attentionCollapsed, onAttentionCollapsedChange)}
-        onToggleProgress={() => toggleListGroup('progress', progressCollapsed, onProgressCollapsedChange)}
-        onToggleDone={toggleDoneCollapsed}
-        onCleanupMerged={cleanupMergedCards}
-        onOpenCard={openCard}
-        onNavigateParent={(parentId) => {
-          const parent = board.cards.find((candidate) => candidate.id === parentId);
-          if (parent) openCard(parent, 'overview');
-        }}
-        onToggleServer={toggleCardServer}
-      />}
-      <ProjectSwitcherDialog
-        open={projectSwitcherOpen}
-        projects={projectPickerPurpose === 'release' ? projects.filter((project) => project.releases_enabled) : projects}
-        currentProjectId={projectPickerPurpose === 'filter' ? filterProjectId : projectPickerPurpose === 'notes' ? projectPickerCurrentProjectId : null}
-        includeAllProjects={projectPickerPurpose === 'filter'}
-        onCancel={() => setProjectSwitcherOpen(false)}
-        onSelect={(project) => {
-          if (projectPickerPurpose === 'direct' || projectPickerPurpose === 'notes' || projectPickerPurpose === 'release') {
-            if (!project) return;
-            const view = projectPickerPurpose === 'release' ? 'release' : projectPickerPurpose === 'notes' ? 'notes' : undefined;
-            void replaceDirectWork(project.id, view, projectPickerPurpose === 'notes');
-          } else {
-            onSelectProject(project?.id ?? null);
-            setKeyboardFocusedCardId(null);
-          }
-          setProjectSwitcherOpen(false);
-        }}
-        onAddProject={() => {
-          setProjectSwitcherOpen(false);
-          onAddProject();
-        }}
+        toggleAttention={() => toggleListGroup('attention', attentionCollapsed, onAttentionCollapsedChange)}
+        toggleProgress={() => toggleListGroup('progress', progressCollapsed, onProgressCollapsedChange)}
+        toggleBacklogCollapsed={toggleBacklogCollapsed}
+        toggleDoneCollapsed={toggleDoneCollapsed}
+        cleanupMergedCards={cleanupMergedCards}
+        openCard={openCard}
+        toggleCardServer={toggleCardServer}
+      />
+      <KanbanProjectSwitcherDialog
+        scope={scope}
+        projects={projects}
+        onSelectProject={onSelectProject}
+        onAddProject={onAddProject}
+        replaceDirectWork={replaceDirectWork}
+        clearKeyboardFocus={() => setKeyboardFocusedCardId(null)}
       />
       <NewCardDialog model={newCard} creationProjects={creationProjects} cards={board.cards} />
-      {prMerge.target && <BoardPrMergeDialog card={prMerge.target.card} busy={prMerge.busy} intent={prMerge.intent} error={prMerge.error}
-        onCancel={prMerge.close} onConfirm={(intent) => { void prMerge.confirm(intent); }}
-        onRetryCleanup={prMerge.canRetryCleanup ? () => { void prMerge.retryCleanup(); } : undefined} />}
-      {serverHandoff && <ServerHandoffDialog
-        externalId={serverHandoff.externalId}
-        busy={serverActionPending}
-        onCancel={() => { if (!serverActionPendingRef.current) setServerHandoff(null); }}
-        onConfirm={() => {
-          if (serverActionPendingRef.current) return;
-          const targetCardId = serverHandoff.targetCardId;
-          void runServerAction(targetCardId).finally(() => setServerHandoff(null));
-        }}
-      />}
-      {mergeCleanup && <CleanupPreflightDialog inventory={mergeCleanup.inventory} onCancel={closeMergeCleanup} onConfirm={confirmMergeCleanup} />}
-      {cleanupInventory && <CleanupPreflightDialog bulk inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={confirmBulkCleanup} />}
-      {directWorkProjectId && projects.find((project) => project.id === directWorkProjectId) && (
-        <DirectProjectWork
-          project={projects.find((project) => project.id === directWorkProjectId)!}
-          terminalFontSize={terminalFontSize}
-          terminalFontFamily={terminalFontFamily}
-          terminalScrollback={terminalScrollback}
-          copyOnSelect={copyOnSelect}
-          initialView={directWorkInitialView}
-          navigationRequest={directWorkNavigationRequest}
-          onClose={() => { void replaceDirectWork(null); }}
-        />
-      )}
-      {selectedCard && selectedDetail?.id !== selectedCard.id && <CardDetailLoadingShell
-        card={selectedCard}
-        error={detailLoadError?.cardId === selectedCard.id ? detailLoadError.message : null}
-        onRetry={() => { void hydrateCardDetails(selectedCard).catch(() => {}); }}
-        onClose={() => closeCardDetail(selectedCard.id)}
-      />}
-      {selectedCard && selectedDetail?.id === selectedCard.id && cardServices[selectedDetail.id] && (
-        <KanbanCardDetail
-          key={selectedDetail.id}
-          card={selectedDetail}
-          cards={board.cards}
-          cardServices={displayedCardServices[selectedDetail.id]}
-          projects={projects}
-          terminalFontSize={terminalFontSize}
-          terminalFontFamily={terminalFontFamily}
-          terminalScrollback={terminalScrollback}
-          copyOnSelect={copyOnSelect}
-          initialView={selectedCardInitialView}
-          environmentHealth={repositoryStatuses[selectedDetail.id]?.environmentHealth}
-          gitChangeSummary={gitChangeSummary}
-          onRecheckEnvironment={() => recheckEnvironment(selectedDetail.id)}
-          onRefreshGit={() => refreshCard(selectedDetail.id)}
-          detailLoadError={detailLoadError?.cardId === selectedDetail.id ? detailLoadError.message : null}
-          detailRefreshError={detailRefreshError?.cardId === selectedDetail.id ? detailRefreshError.message : null}
-          onRetryRefresh={() => hydrateCardDetails(selectedCard).then(() => undefined)}
-          requireActionPreflight={detailNeedsPreflight}
-          onClose={() => closeCardDetail(selectedDetail.id)}
-          onUpdate={(title, content, parentId) => board.update(selectedDetail.id, title, content, parentId)}
-          onAction={(action) => board.act(selectedDetail.id, action)}
-          onStopRefinement={() => board.stopRefinement(selectedDetail.id)}
-          onRefine={async () => {
-            const cardId = selectedDetail.id;
-            const launched = await launchPlanningAgent(cardId, projects, board.applyCardSnapshot);
-            const updated = (await fetchKanbanCard(cardId)).card;
-            const canonical = board.applyCardSnapshot(updated);
-            projectSelectedDetail(updated, updated.events, canonical);
-            if (!launched) throw new Error('Card changed before refinement could start; reload and try again');
-            return true;
-          }}
-          onOpenChat={async (projectId) => {
-            if (selectedDetail.project_id === projectId) return;
-            await board.assignProject(selectedDetail.id, projectId);
-          }}
-          onStartWork={async () => {
-            const cardId = selectedDetail.id;
-            try {
-              const updated = await onStartWork(cardId);
-              if (!updated) return false;
-              const canonical = board.applyCardSnapshot(updated);
-              if (updated.id === cardId) projectSelectedDetail(updated, updated.events, canonical);
-              return true;
-            } catch (error) {
-              // A compensated operation can return to Ready without an operation row.
-              // Keep the failure visible in the detail panel via the workflow error.
-              try {
-                const updated = (await fetchKanbanCard(cardId)).card;
-                const canonical = board.applyCardSnapshot(updated);
-                projectSelectedDetail(updated, updated.events, canonical);
-              } catch { /* Keep the original setup failure visible even if refresh fails. */ }
-              throw error;
-            }
-          }}
-          onCleanup={async (evidence) => {
-            const cardId = selectedDetail.id;
-            const current = selectedDetail.environment
-              ? { ...selectedDetail, environment: { ...selectedDetail.environment, revision: evidence.environment_revision } }
-              : selectedDetail;
-            try {
-              if (!await onCleanupCard(current, evidence)) return;
-            } finally {
-              // Completion reads by ID; never reproject the pre-cleanup environment.
-              await detailCoordinatorRef.current?.authoritative(cardId);
-            }
-          }}
-          onCardUpdated={(updated) => {
-            const canonical = board.applyCardSnapshot(updated);
-            projectSelectedDetail(updated, updated.events, canonical);
-          }}
-          onWorkflowControllerChange={setCardDetailWorkflow}
-          onToggleServer={toggleCardServer}
-          onNavigate={(id, initialView) => {
-            if (selectedCardIdRef.current !== selectedDetail.id) return;
-            const target = board.cards.find((candidate) => candidate.id === id);
-            if (target) openCard(target, initialView);
-          }}
-          onDelete={async () => {
-            const deletedCardId = selectedDetail.id;
-            await board.remove(deletedCardId);
-            closeCardDetail(deletedCardId);
-          }}
-          hasOlderEvents={eventCursor !== null}
-          onLoadOlderEvents={async () => {
-            if (!eventCursor) return;
-            const cardId = selectedDetail.id;
-            const page = await fetchKanbanCardEvents(cardId, eventCursor);
-            const current = selectedDetailRef.current;
-            if (!canProjectSelectedDetail(selectedCardIdRef.current, cardId, current) || !current) return;
-            const detail = { ...current, events: mergeCardEvents(current.events, page.events) };
-            selectedDetailRef.current = detail;
-            setSelectedDetail(detail);
-            detailCacheRef.current.remember(detail, eventCursorRef.current, boardCardsRef.current.find((card) => card.id === detail.id));
-            if (selectedCardIdRef.current === cardId && eventCursorRef.current === eventCursor) updateCursor(page.next_cursor);
-          }}
-          onReload={async () => {
-            const detail = await hydrateCardDetails(selectedCard);
-            if (!detail) throw new Error('Card refresh was superseded');
-            return detail;
-          }}
-        />
-      )}
+      <KanbanMergedPrDialogs mergedPr={mergedPr} server={server} />
+      <DirectProjectWorkOverlay
+        projectId={directWorkProjectId}
+        projects={projects}
+        initialView={directWorkInitialView}
+        navigationRequest={directWorkNavigationRequest}
+        onClose={() => { void replaceDirectWork(null); }}
+        terminalFontSize={terminalFontSize}
+        terminalFontFamily={terminalFontFamily}
+        terminalScrollback={terminalScrollback}
+        copyOnSelect={copyOnSelect}
+      />
+      <KanbanCardDetailOverlay
+        board={board}
+        detail={detail}
+        selectedCard={selectedCard}
+        projects={projects}
+        cardServices={cardServices}
+        displayedCardServices={displayedCardServices}
+        repositoryStatuses={repositoryStatuses}
+        gitChangeSummary={gitChangeSummary}
+        recheckEnvironment={recheckEnvironment}
+        refreshCard={refreshCard}
+        onStartWork={onStartWork}
+        onCleanupCard={onCleanupCard}
+        onToggleServer={toggleCardServer}
+        terminalFontSize={terminalFontSize}
+        terminalFontFamily={terminalFontFamily}
+        terminalScrollback={terminalScrollback}
+        copyOnSelect={copyOnSelect}
+      />
     </div>
   );
 }
