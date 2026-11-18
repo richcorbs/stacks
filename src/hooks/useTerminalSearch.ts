@@ -8,14 +8,16 @@ export function useTerminalSearch(terminalId: string, searchRequestNonce: number
   const [searchResultText, setSearchResultText] = useState('');
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [searchMatchIndex, setSearchMatchIndex] = useState(0);
-  const searchOpenRef = useRef(searchOpen);
-  const searchTermRef = useRef(searchTerm);
+  // onSearchResultsChange is a public callback registered with the terminal
+  // session, so it must stay a normal callback rather than be returned as an
+  // Effect Event. Keep its input snapshot committed-only: render writes would
+  // expose search state from a render that never committed.
+  const committedSearchRef = useRef({ searchOpen, searchTerm });
   const lastSearchRequestNonceRef = useRef(searchRequestNonce);
-  searchOpenRef.current = searchOpen;
-  searchTermRef.current = searchTerm;
+  useEffect(() => { committedSearchRef.current = { searchOpen, searchTerm }; }, [searchOpen, searchTerm]);
 
   const onSearchResultsChange = useCallback(({ resultIndex, resultCount }: { resultIndex: number; resultCount: number }) => {
-    if (!searchOpenRef.current || !searchTermRef.current) return;
+    if (!committedSearchRef.current.searchOpen || !committedSearchRef.current.searchTerm) return;
     setSearchMatchCount(resultCount);
     setSearchMatchIndex(resultCount > 0 && resultIndex >= 0 ? resultIndex + 1 : 0);
     setSearchResultText(resultCount > 0 && resultIndex >= 0 ? `${resultIndex + 1}/${resultCount}` : '0/0');
