@@ -499,7 +499,8 @@ body.appWindowInactive .cardTerminalPane.multiple .terminal.active.maximized { b
 .cardChat { box-sizing: border-box; flex: 1; min-width: 0; min-height: 0; padding-top: 18px; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--card-border, #223142); background: var(--surface-inset); }
 .kanbanDetail.cardWorkspace > header { border-bottom: 0; background: var(--surface-inset); }
 .kanbanDetail.cardWorkspace .cardWorkspaceTabs { border-bottom: 1px solid #223142; background: var(--surface-inset); }
-.kanbanDetail.chatActive > footer { background: transparent; }
+/* Action-button borders line up with the composer box while the chat tab is active. */
+.kanbanDetail.chatActive > footer { background: transparent; padding-left: 24px; padding-right: 24px; }
 /* Important: embedded chat removes standalone pane framing in every focus state. */
 .kanbanDetail.chatActive .cardChat .piGuiPane { flex: 1; min-height: 0; height: auto; border: 0 !important; border-radius: 0; box-shadow: none !important; }
 .cardChat .piGuiPane { --pi-composer-inset: 24px; }
@@ -509,7 +510,7 @@ body.appWindowInactive .cardTerminalPane.multiple .terminal.active.maximized { b
   .kanbanDetail > header { padding: 14px; }
   .kanbanDetailMeta { padding: 8px 14px; flex-wrap: wrap; gap: 8px; }
   .cardWorkspaceTabs { padding: 0 14px; }
-  .kanbanDetail > footer { padding: 10px 14px; }
+  .kanbanDetail:not(.chatActive) > footer { padding: 10px 14px; }
   .kanbanStartWork { width: 100%; }
 }
 

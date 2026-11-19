@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Card detail action alignment</title>
+<link rel="stylesheet" href="../src/styles.css">
+<style>
+  /* The fixture owns the card height only; every measured style comes from src/styles.css. */
+  #alignment-card { height: 560px; }
+</style>
+<div class="modalBackdrop kanbanDetailBackdrop">
+  <section class="kanbanDetail cardWorkspace chatActive" id="alignment-card" data-project-color="blue">
+    <header>
+      <div class="kanbanDetailHeading"><span>Agent fixture</span><h2>Card detail action alignment</h2></div>
+      <button class="kanbanDetailClose" type="button" aria-label="Close">×</button>
+    </header>
+    <nav class="cardWorkspaceTabs" aria-label="Card views">
+      <button class="active" type="button" data-fixture-tab="agent">Agent</button>
+      <button type="button" data-fixture-tab="overview">Overview</button>
+    </nav>
+    <div class="cardChatView cardView active" id="alignment-chat">
+      <div class="cardChat">
+        <div class="terminal piGuiPane active">
+          <div class="piGuiConversation">
+            <div class="piGuiTranscript">
+              <article class="piMessage piMessageAssistant"><div class="piMessageText">A transcript message.</div></article>
+            </div>
+          </div>
+          <div class="piComposer">
+            <div class="piComposerRow">
+              <div class="piComposerContent">
+                <textarea class="singleLine" rows="1" placeholder="Ask Pi…"></textarea>
+              </div>
+              <button class="piComposerAction" type="button" aria-label="Send" title="Send">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="kanbanDetailContent cardView" id="alignment-overview">
+      <p>Overview body text keeps its own inset.</p>
+    </div>
+    <footer class="cardWorkflowFooter">
+      <div class="cardFooterActions" aria-label="Workflow actions">
+        <div class="cardFooterActionGroup cardFooterActionGroupLeft">
+          <button type="button" data-card-action="secondary">Edit details</button>
+          <button type="button" class="primaryAction" data-card-action="primary">Start work</button>
+        </div>
+        <div class="cardFooterActionGroup cardFooterActionGroupRight">
+          <button type="button" class="workflowActionNeutralGhost" data-card-action="tertiary">Close</button>
+        </div>
+      </div>
+    </footer>
+  </section>
+</div>
+<script type="module">
+  // Mirrors the card detail: the Agent tab adds .chatActive to the detail element.
+  const card = document.querySelector('#alignment-card');
+  const views = { agent: document.querySelector('#alignment-chat'), overview: document.querySelector('#alignment-overview') };
+  for (const button of document.querySelectorAll('[data-fixture-tab]')) {
+    button.addEventListener('click', () => {
+      for (const [name, view] of Object.entries(views)) view.classList.toggle('active', name === button.dataset.fixtureTab);
+      card.classList.toggle('chatActive', button.dataset.fixtureTab === 'agent');
+      for (const tab of document.querySelectorAll('[data-fixture-tab]')) tab.classList.toggle('active', tab === button);
+    });
+  }
+</script>
