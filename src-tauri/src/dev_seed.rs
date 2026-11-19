@@ -37,6 +37,8 @@ const EXPECTED_TABLES: &[&str] = &[
     "kanban_project_sequences",
     "legacy_workspaces",
     "local_card_purge_jobs",
+    "operation_attempts",
+    "operations",
     "project_direct_panes",
     "project_direct_work",
     "projects",
@@ -126,6 +128,8 @@ fn sanitize_database(path: &Path) -> Result<(), String> {
          DELETE FROM card_target_merge_operations;
          DELETE FROM scripted_delivery_operations;
          DELETE FROM environment_creation_operations;
+         DELETE FROM operation_attempts;
+         DELETE FROM operations;
          DELETE FROM card_service_definitions;
          DELETE FROM card_panes;
          DELETE FROM card_layouts;
@@ -172,6 +176,7 @@ fn validate_schema(connection: &Connection) -> Result<(), String> {
         .iter()
         .filter(|name| migration >= 78 || **name != "local_card_purge_jobs")
         .filter(|name| migration >= 80 || !matches!(**name, "card_retirements" | "retired_provider_cards"))
+        .filter(|name| migration >= 81 || !matches!(**name, "operations" | "operation_attempts"))
         .map(|name| (*name).to_string())
         .collect::<BTreeSet<_>>();
     if actual != expected {
@@ -231,6 +236,8 @@ fn validate_staged_seed(database: &Path, directory: &Path) -> Result<(), String>
         "card_target_merge_operations",
         "environment_creation_operations",
         "global_terminal_state",
+        "operation_attempts",
+        "operations",
         "provider_sync_attempts",
         "provider_sync_operations",
         "scripted_delivery_operations",
