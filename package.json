@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "test:chat-scroll": "node tests/pi-chat-scroll.mjs",
+    "test:card-detail-alignment": "node tests/card-detail-alignment.mjs",
     "test:styles-cascade": "node tests/styles-cascade.mjs",
     "test:confirmation-buttons": "node tests/confirmation-buttons.mjs",
     "test:terminal-dependencies": "node tests/terminal-dependencies.mjs",
