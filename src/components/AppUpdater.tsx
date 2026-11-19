@@ -33,6 +33,9 @@ export function AppUpdater() {
   /** Set when a manual check is dismissed so the settled "up to date" state stays closed. */
   const dismissedCheckRef = useRef(false);
   const minDisplayTimerRef = useRef<number | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  /** Element focused before the dialog opened, restored when it closes. */
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   const clearMinDisplayTimer = useCallback(() => {
     if (minDisplayTimerRef.current === null) return;
@@ -197,7 +200,37 @@ export function AppUpdater() {
     setError(null);
   }
 
-  if (!update && !['error', 'checking', 'current'].includes(status)) return null;
+  const dialogVisible = !!update || ['error', 'checking', 'current'].includes(status);
+
+  // Remember where focus came from while the dialog is up, and give it back on
+  // close/unmount. Declared before the focus effect so capture happens before
+  // any requestAnimationFrame moves focus into the dialog.
+  useEffect(() => {
+    if (!dialogVisible) return;
+    const active = document.activeElement as HTMLElement | null;
+    restoreFocusRef.current = active && typeof active.focus === 'function' ? active : null;
+    return () => {
+      const target = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      if (!target?.isConnected || !document.hasFocus()) return;
+      target.focus();
+    };
+  }, [dialogVisible]);
+
+  // Keep focus inside the dialog so Cmd+Enter reaches the enabled primary action.
+  // Status changes can unmount the focused control (for example UPDATE while it
+  // downloads), so re-run on both open and status. Never steal focus from another
+  // app during a background check, and defer to anything the dialog itself focused
+  // (ConfirmationBoundary focuses Later in its mount layout effect).
+  useEffect(() => {
+    if (!dialogVisible || !document.hasFocus()) return;
+    const dialog = dialogRef.current;
+    if (!dialog || dialog.contains(document.activeElement)) return;
+    const frame = requestAnimationFrame(() => dialogRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [dialogVisible, status]);
+
+  if (!dialogVisible) return null;
   const releaseUrl = update ? `${RELEASES_URL}/tag/v${update.version}` : RELEASES_URL;
   const title = SETTLED_TITLES[status] ?? `Stacks ${update?.version} is available`;
   const showReleaseNotes = status !== 'checking' && status !== 'current';
@@ -205,7 +238,7 @@ export function AppUpdater() {
 
   const Boundary = status === 'confirmation' ? ConfirmationBoundary : Fragment;
   return <div className="modalBackdrop" onMouseDown={status === 'downloading' || status === 'confirmation' ? undefined : closeDialog}>
-    <section className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()} onKeyDownCapture={(event) => {
+    <section ref={dialogRef} tabIndex={-1} className="modal updateModal" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" onMouseDown={(event) => event.stopPropagation()} onKeyDownCapture={(event) => {
       handleDialogShortcut(event);
       if (dismissOnEscape && event.key === 'Escape') { event.preventDefault(); closeDialog(); }
     }}>
