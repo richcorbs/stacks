@@ -24,7 +24,7 @@ pub(in crate::kanban) fn next_local_card_number(
 ///
 /// Every DDL change must bump this constant and insert the matching `schema_migrations`
 /// row; `current_schema_migration_covers_every_migration` enforces the pairing.
-pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 80;
+pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 81;
 
 /// Cache of the one-time database initialization. Failures are recorded so concurrent callers
 /// see the same error, but an explicit reset (after a successful restore) retries.
@@ -1017,6 +1017,24 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     // (sync/refinement) may restore leaf eligibility.
     connection.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (77,unixepoch())", []).map_err(db_error)?;
     migrate_done_retention(connection)?;
+    // Older target-merge tables could be rebuilt without the provenance column by the
+    // v74 step; the journal payload needs it for every write.
+    let target_merge_columns = connection
+        .prepare("PRAGMA table_info(card_target_merge_operations)")
+        .map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    if !target_merge_columns.iter().any(|column| column == "target_source") {
+        connection
+            .execute(
+                "ALTER TABLE card_target_merge_operations ADD COLUMN target_source TEXT NOT NULL DEFAULT 'remote' CHECK(target_source IN ('local','remote'))",
+                [],
+            )
+            .map_err(db_error)?;
+    }
+    operations::install(connection)?;
     connection.execute_batch("CREATE TABLE IF NOT EXISTS card_retirements (
         card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
         done_entered_at INTEGER NOT NULL, identity TEXT NOT NULL, resources TEXT, evidence TEXT,
@@ -1029,6 +1047,9 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
     INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (80,unixepoch());").map_err(db_error)?;
     provider_sync::recover_interrupted(connection)?;
     retire_release_journals(connection)?;
+    for issue in operations::unreadable_operations(connection) {
+        eprintln!("Operation journal row is not resumable: {issue}");
+    }
     Ok(())
 }
 

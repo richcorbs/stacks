@@ -43,6 +43,7 @@ mod github_delivery;
 mod health;
 mod hygiene;
 mod local_delivery;
+mod operations;
 mod parent_reconciliation;
 mod provider_sync;
 mod repository;
@@ -81,6 +82,8 @@ pub(crate) use repository::{
 pub(crate) use hygiene::startup_board_health_report;
 pub(crate) use superthread_refinement::finish_superthread_refinement;
 
+#[cfg(test)]
+mod operations_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
