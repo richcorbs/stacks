@@ -1,5 +1,5 @@
 import DOMPurify from 'dompurify';
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { lazy, Suspense, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { ExternalHtmlLinks, ExternalLink } from '../ExternalLink';
 import type { Project } from '../../types';
 import type { CardEnvironmentHealth, KanbanCard, KanbanCardSummary } from '../../kanban/types';
@@ -9,6 +9,9 @@ import { CardCleanupStatus, cleanupPhaseLabel } from '../CardCleanupStatus';
 import { shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
 import { retryKanbanProviderSync } from '../../kanban/api';
 import { ParentStateResolution } from './ParentStateResolution';
+
+// Keep marked out of the eager board graph; the raw description is the Suspense fallback.
+const CardMarkdown = lazy(() => import('../PiMarkdown').then((module) => ({ default: module.PiMarkdown })));
 
 export function CardOverview({
   active,
@@ -93,7 +96,11 @@ export function CardOverview({
       </div>
     ) : card.content
       ? card.provider === 'local'
-        ? <div className="kanbanCardDescription kanbanLocalDescription">{card.content}</div>
+        ? <Suspense fallback={<div className="kanbanCardDescription kanbanLocalDescription">{card.content}</div>}>
+          <div className="kanbanCardDescription piMarkdown">
+            <CardMarkdown softBreaks>{card.content}</CardMarkdown>
+          </div>
+        </Suspense>
         : <ExternalHtmlLinks className="kanbanCardDescription" html={sanitizedContent} />
       : <p className="kanbanMuted">No description.</p>}
     {!editing && card.children.length > 0 && <section className="kanbanChildList" aria-label="Child cards">

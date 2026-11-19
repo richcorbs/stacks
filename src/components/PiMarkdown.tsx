@@ -6,8 +6,9 @@ import { Marked, type Token } from 'marked';
 import { ExternalLink } from './ExternalLink';
 import { normalizeClipboardText } from '../clipboard';
 
-// The chat renderer parses model/Superthread output, so its allowlist is deliberately
-// independent from the separate Superthread HTML path in CardOverview.
+// This renderer parses model output and local card descriptions, so its allowlist is
+// deliberately independent from the separate Superthread HTML path in CardOverview.
+// Remote (Superthread) descriptions keep their own DOMPurify path in CardOverview.
 const chatTagNames = [
   'a', 'b', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   'hr', 'i', 'input', 'kbd', 'li', 'mark', 'ol', 'p', 'pre', 's', 'small', 'span', 'strong', 'sub',
@@ -54,6 +55,7 @@ const maxMarkdownDepth = 100;
 const codeLanguage = /^[A-Za-z0-9_+.-]+$/;
 
 const markdownParser = new Marked({ gfm: true });
+const softBreakParser = new Marked({ gfm: true, breaks: true });
 
 type MarkdownToken = Token & {
   checked?: boolean;
@@ -306,10 +308,12 @@ function renderTable(token: MarkdownToken, path: string): ReactNode {
     { key: `${path}.r.${rowIndex}` },
     ...row.map((value, cellIndex) => cell(value, `${path}.r.${rowIndex}.${cellIndex}`, false)),
   ));
-  return <table key={path}>
-    <thead><tr>{header}</tr></thead>
-    <tbody>{rows}</tbody>
-  </table>;
+  return <div className="piTableScroll" key={path}>
+    <table>
+      <thead><tr>{header}</tr></thead>
+      <tbody>{rows}</tbody>
+    </table>
+  </div>;
 }
 
 function renderBlock(token: MarkdownToken, path: string): ReactNode {
@@ -357,8 +361,9 @@ function renderBlocks(tokens: Token[], path: string): ReactNode[] {
   });
 }
 
-export const PiMarkdown = memo(function PiMarkdown({ children }: { children: string }) {
-  return <>{renderBlocks(markdownParser.lexer(children), 'markdown')}</>;
+export const PiMarkdown = memo(function PiMarkdown({ children, softBreaks = false }: { children: string; softBreaks?: boolean }) {
+  const parser = softBreaks ? softBreakParser : markdownParser;
+  return <>{renderBlocks(parser.lexer(children), 'markdown')}</>;
 });
 
 function MarkdownCodeBlock({ children }: { children: ReactNode }) {

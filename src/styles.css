@@ -372,6 +372,11 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .kanbanCardDescription > * { max-width: 100%; }
 .kanbanCardDescription pre { min-width: 0; max-width: 100%; overflow-x: auto; white-space: pre; overflow-wrap: normal; }
 .kanbanLocalDescription { white-space: pre-wrap; }
+/* Remote (sanitized Superthread HTML) descriptions bypass renderTable, so their tables
+   scroll as blocks and reuse the chat table borders/header surface. */
+.kanbanCardDescription:not(.piMarkdown) table { width: 100%; margin: 12px 0 16px; border-collapse: collapse; display: block; overflow-x: auto; }
+.kanbanCardDescription:not(.piMarkdown) td { padding: 7px 9px; border: 1px solid #293a4a; text-align: left; }
+.kanbanCardDescription:not(.piMarkdown) th { padding: 7px 9px; border: 1px solid #293a4a; text-align: left; background: var(--surface-raised); color: #c1ccd7; }
 .cardEnvironmentWarningPanel { margin: 0 0 20px; padding: 13px 14px; border: 1px solid #67373d; border-radius: 8px; background: #26171b; color: #dca2a7; }
 .cardEnvironmentWarningPanel > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .cardEnvironmentWarningPanel strong { color: #f0b1b6; font-size: var(--fs-12); }
@@ -1243,6 +1248,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .piMarkdown blockquote { margin: 12px 0; padding: 2px 0 2px 12px; border-left: 3px solid #36536d; color: #8195a8; }
 .piMarkdown hr { margin: 20px 0; border: 0; border-top: 1px solid #253443; }
 .piMarkdown table { width: 100%; margin: 12px 0 16px; border-collapse: collapse; font-size: max(8px, calc(var(--pi-font-size, 13px) - 1px)); }
+.piTableScroll { max-width: 100%; margin: 12px 0 16px; overflow-x: auto; }
+.piTableScroll table { width: max-content; min-width: 100%; margin: 0; }
 .piMarkdown td { padding: 7px 9px; border: 1px solid #293a4a; text-align: left; }
 .piMarkdown th { padding: 7px 9px; border: 1px solid #293a4a; text-align: left; background: var(--surface-raised); color: #c1ccd7; }
 .piThinking { clear: both; margin: 12px 0 0; color: #697d91; font-size: max(8px, calc(var(--pi-font-size, 13px) - 2px)); }
@@ -1400,7 +1407,10 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .kanbanDetail.cardWorkspace[data-project-color] > footer {
   border-color: var(--card-border);
 }
-.kanbanDetail.cardWorkspace[data-project-color] :is(.piMarkdown hr, .piMarkdown blockquote, .piMarkdown th, .piMarkdown td) {
+.kanbanDetail.cardWorkspace[data-project-color] :is(
+  .piMarkdown hr, .piMarkdown blockquote, .piMarkdown th, .piMarkdown td,
+  .kanbanCardDescription:not(.piMarkdown) th, .kanbanCardDescription:not(.piMarkdown) td
+) {
   border-color: var(--card-border);
 }
 .kanbanDetail.cardWorkspace[data-project-color] .kanbanCardDescription code {
