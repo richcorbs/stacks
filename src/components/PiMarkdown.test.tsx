@@ -16,6 +16,10 @@ function render(source: string) {
   return renderToStaticMarkup(<div className="piMarkdown"><PiMarkdown>{source}</PiMarkdown></div>);
 }
 
+function renderSoftBreaks(source: string) {
+  return renderToStaticMarkup(<div className="piMarkdown"><PiMarkdown softBreaks>{source}</PiMarkdown></div>);
+}
+
 describe('PiMarkdown', () => {
   beforeEach(() => { vi.mocked(invoke).mockReset().mockResolvedValue(undefined); });
   it('renders Markdown, safe HTML, and mixed content together', () => {
@@ -180,6 +184,23 @@ describe('PiMarkdown', () => {
       'style', 'svg', 'video',
     ]);
     expect([...chatMarkdownPolicy.protocols]).toEqual(['http', 'https', 'mailto']);
+  });
+
+  it('keeps chat single newlines as whitespace unless soft breaks are requested', () => {
+    const source = 'line one\nline two';
+
+    const chatMarkup = render(source);
+    expect(chatMarkup).not.toContain('<br');
+    expect(chatMarkup).toMatch(/line one\s+line two/);
+
+    expect(renderSoftBreaks(source)).toMatch(/line one<br\/?>line two/);
+  });
+
+  it('wraps parsed tables in a horizontal scroll container', () => {
+    const markup = render('| A | B |\n| - | - |\n| 1 | 2 |');
+
+    expect(markup).toContain('<div class="piTableScroll"><table>');
+    expect(markup).toContain('</table></div>');
   });
 
   it('renders GFM tables, task lists, strikethrough, and autolinks', () => {
