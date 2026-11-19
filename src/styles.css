@@ -1151,6 +1151,8 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 @media (prefers-reduced-motion: reduce) { .githubCiRunning { animation-duration: 1.8s; } }
 
 .updateModal { width: min(500px, calc(100vw - 40px)); }
+/* Focus lives on the container so Cmd+Enter reaches the primary action; it is not a tab stop, so never paint a ring. */
+.updateModal:focus, .updateModal:focus-visible { outline: none; }
 .updateReleaseNotes { max-height: 220px; margin-top: 12px; padding: 10px; overflow-y: auto; border: 1px solid #26384a; border-radius: 6px; background: var(--surface-panel); color: #91a4b8; font-size: var(--fs-11); line-height: 1.5; white-space: pre-wrap; }
 .dialogSubmitError { margin-top: 12px; padding: 8px 10px; border: 1px solid #673c41; border-radius: 6px; background: #2b191d; color: #d38b91; font-size: var(--fs-10); line-height: 1.45; white-space: pre-wrap; }
 

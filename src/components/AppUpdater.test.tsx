@@ -30,6 +30,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.useFakeTimers();
   vi.stubGlobal('window', globalThis);
+  vi.stubGlobal('document', { hasFocus: () => true, activeElement: null });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.mocked(invoke).mockResolvedValue({ idle: false });
   vi.mocked(relaunch).mockResolvedValue(undefined);
@@ -89,6 +90,7 @@ describe('AppUpdater dialog', () => {
   it('places a native release-notes control after the labeled title and preserves content and URL', async () => {
     await renderUpdate();
     assertHeader(false);
+    expect(renderer.root.findByProps({ role: 'dialog' }).props.tabIndex).toBe(-1);
     expect(renderer.root.findByProps({ className: 'updateReleaseNotes' }).children).toEqual(['Inline release notes stay here.']);
     expect(renderer.root.findAllByType('button').map(renderedText)).toEqual([
       'Release Notes', 'Later', 'Download. Restart later.', 'UPDATE',
@@ -182,6 +184,46 @@ describe('AppUpdater dialog', () => {
     expect(button(action)).toBeDefined();
     await click('Later');
     expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0);
+  });
+
+  it('moves focus into the dialog on open only while the app is focused', async () => {
+    const focus = vi.fn();
+    const dialogNode = { focus, contains: () => false };
+    const renderWithFocus = async (hasFocus: boolean) => {
+      focus.mockClear();
+      vi.stubGlobal('document', { hasFocus: () => hasFocus, activeElement: null });
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      vi.mocked(check).mockResolvedValue(update() as never);
+      await act(async () => {
+        renderer = TestRenderer.create(<AppUpdater />, {
+          createNodeMock: (element) => element.type === 'section' ? dialogNode : null,
+        });
+      });
+      await act(async () => { await events.manualCheck(); });
+    };
+
+    await renderWithFocus(true);
+    expect(focus).toHaveBeenCalledOnce();
+    act(() => renderer.unmount());
+
+    await renderWithFocus(false);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('does not activate the primary action on plain Enter', async () => {
+    const available = await renderUpdate();
+    const dialog = renderer.root.findByProps({ role: 'dialog' });
+    const primary = dialog.findAllByType('button').find((node) => node.props.className === 'primaryAction')!;
+    const root = { querySelectorAll: () => [{ disabled: false, closest: () => root, getClientRects: () => [1], click: () => primary.props.onClick() }] };
+    const press = (metaKey: boolean) => dialog.props.onKeyDownCapture({
+      key: 'Enter', metaKey, ctrlKey: false, altKey: false, shiftKey: false,
+      currentTarget: root, target: root, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+    });
+    await act(async () => { press(false); });
+    expect(available.downloadAndInstall).not.toHaveBeenCalled();
+    await act(async () => { press(true); });
+    expect(available.downloadAndInstall).toHaveBeenCalledOnce();
   });
 
   it('keeps the general releases fallback and Retry action after a check error', async () => {
