@@ -643,29 +643,13 @@ pub(in crate::kanban) fn validate_card_deletion(
 }
 
 pub(in crate::kanban) fn kanban_delete_card_operation(id: String) -> Result<BoardChange, String> {
-    with_board_mutation(|connection| {
-        if !validate_card_deletion(connection, &id)? {
-            return Ok(());
-        }
-        let directory = card_directory(&id)?;
-        if directory.exists() {
-            fs::remove_dir_all(&directory)
-                .map_err(|error| format!("Could not remove card directory: {error}"))?;
-        }
-        let transaction = connection.savepoint().map_err(db_error)?;
-        transaction
-            .execute("DELETE FROM kanban_cards WHERE id = ?1", [&id])
-            .map_err(db_error)?;
-        transaction.commit().map_err(db_error)
-    })?;
-    with_read_connection(|connection| {
-        Ok(BoardChange {
-            upserts: Vec::new(),
-            removed_ids: vec![id],
-            detail_invalidated_ids: Vec::new(),
-            board_revision: board_revision(connection)?,
-        })
-    })
+    match super::retirement::retire(
+        super::retirement::RetirementRequest::DeleteRecord { card_id: id },
+        super::retirement::RetirementContext::none(),
+    )? {
+        super::retirement::RetirementOutcome::Deleted(change) => Ok(change),
+        _ => Err("Card deletion did not return a board change".to_string()),
+    }
 }
 
 pub(in crate::kanban) fn workflow_context_for_card(
@@ -1428,9 +1412,20 @@ pub(in crate::kanban) fn kanban_close_card_operation(
     pi_registry: State<'_, Mutex<PiRpcRegistry>>,
     pty_registry: State<'_, Mutex<PtyRegistry>>,
 ) -> Result<CardRuntimeCleanupResult, String> {
-    let targets =
-        with_board_mutation(|connection| commit_card_close(connection, &id, expected_revision))?;
-    finish_runtime_cleanup(&id, targets, pi_registry.inner(), pty_registry.inner())
+    match super::retirement::retire(
+        super::retirement::RetirementRequest::Preserve {
+            card_id: id,
+            expected_revision: Some(expected_revision),
+        },
+        super::retirement::RetirementContext {
+            pty: Some(pty_registry.inner()),
+            pi: Some(pi_registry.inner()),
+            setup: None,
+        },
+    )? {
+        super::retirement::RetirementOutcome::Preserved(result) => Ok(result),
+        _ => Err("Card close did not return a runtime cleanup result".to_string()),
+    }
 }
 
 pub(in crate::kanban) fn kanban_retry_runtime_cleanup_operation(
@@ -1438,23 +1433,20 @@ pub(in crate::kanban) fn kanban_retry_runtime_cleanup_operation(
     pi_registry: State<'_, Mutex<PiRpcRegistry>>,
     pty_registry: State<'_, Mutex<PtyRegistry>>,
 ) -> Result<CardRuntimeCleanupResult, String> {
-    let targets = with_board_mutation(|connection| {
-        require_structural_capability(connection, &id, WorkflowAction::RetryRuntimeCleanup)?;
-        let status: Option<String> = connection
-            .query_row(
-                "SELECT status FROM kanban_cards WHERE id=?1",
-                [&id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db_error)?;
-        match status.as_deref() {
-            None => Err("Kanban card was not found".to_string()),
-            Some("done") => persisted_runtime_targets(connection, &id),
-            _ => Err("Runtime cleanup can only be retried for a Done card".to_string()),
-        }
-    })?;
-    finish_runtime_cleanup(&id, targets, pi_registry.inner(), pty_registry.inner())
+    match super::retirement::retire(
+        super::retirement::RetirementRequest::Preserve {
+            card_id: id,
+            expected_revision: None,
+        },
+        super::retirement::RetirementContext {
+            pty: Some(pty_registry.inner()),
+            pi: Some(pi_registry.inner()),
+            setup: None,
+        },
+    )? {
+        super::retirement::RetirementOutcome::Preserved(result) => Ok(result),
+        _ => Err("Card runtime cleanup did not return a result".to_string()),
+    }
 }
 
 pub(in crate::kanban) fn kanban_reorder_cards_operation(

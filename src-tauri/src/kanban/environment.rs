@@ -348,6 +348,14 @@ pub(in crate::kanban) fn persist_validated_source(
     op: &CreationOperationRow,
     reported: Option<&str>,
 ) -> Result<CreationOperationRow, String> {
+    with_board_mutation(|connection| persist_validated_source_in(connection, op, reported))
+}
+
+fn persist_validated_source_in(
+    connection: &mut Connection,
+    op: &CreationOperationRow,
+    reported: Option<&str>,
+) -> Result<CreationOperationRow, String> {
     let post_worktrees = worktree_inventory(&op.target_checkout_path)?;
     let post_branches = branch_inventory(&op.target_checkout_path)?;
     let pre_worktrees: Vec<WorktreeEvidence> =
@@ -397,15 +405,11 @@ pub(in crate::kanban) fn persist_validated_source(
     };
     let worktree_new = !pre_paths.contains(&source.target_checkout_path.as_str());
     let branch_new = !pre_branches.contains_key(&source.target_branch);
-    with_board_mutation(|connection| {
-        let tx = connection
-            .savepoint()
-            .map_err(db_error)?;
-        tx.execute("UPDATE environment_creation_operations SET phase='setup_complete',post_worktrees=?1,post_branches=?2,source_path=?3,source_branch=?4,source_revision=?5,source_worktree_new=?6,source_branch_new=?7,error=NULL,cleanup_available=?8,revision=revision+1,updated_at=?9 WHERE card_id=?10",
-            params![serde_json::to_string(&post_worktrees).map_err(|e| e.to_string())?,serde_json::to_string(&post_branches).map_err(|e| e.to_string())?,source.target_checkout_path,source.target_branch,source.target_revision,worktree_new as i64,branch_new as i64,worktree_new as i64,unix_timestamp(),op.card_id]).map_err(db_error)?;
-        tx.commit().map_err(db_error)
-    })?;
-    with_read_connection(|connection| load_creation_operation_row(connection, &op.card_id))?
+    let tx = connection.savepoint().map_err(db_error)?;
+    tx.execute("UPDATE environment_creation_operations SET phase='setup_complete',post_worktrees=?1,post_branches=?2,source_path=?3,source_branch=?4,source_revision=?5,source_worktree_new=?6,source_branch_new=?7,error=NULL,cleanup_available=?8,revision=revision+1,updated_at=?9 WHERE card_id=?10",
+        params![serde_json::to_string(&post_worktrees).map_err(|e| e.to_string())?,serde_json::to_string(&post_branches).map_err(|e| e.to_string())?,source.target_checkout_path,source.target_branch,source.target_revision,worktree_new as i64,branch_new as i64,worktree_new as i64,unix_timestamp(),op.card_id]).map_err(db_error)?;
+    tx.commit().map_err(db_error)?;
+    load_creation_operation_row(connection, &op.card_id)?
         .ok_or_else(|| "Could not reload validated environment operation".to_string())
 }
 
@@ -424,6 +428,52 @@ pub(in crate::kanban) fn creation_recovery(
         connection.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','recovery_required',?3)", params![card_id,unix_timestamp(),detail]).map_err(db_error)?;
         get_card(connection, card_id)?.ok_or_else(|| "Kanban card was not found".to_string())
     })
+}
+
+/// A setup command failed. Record ownership when it can be proven, keep the Git
+/// resources, and expose an in-place retry plus an explicit cleanup action. This is
+/// deliberately not compensation: a one-line repair must not require recreating the
+/// environment.
+pub(in crate::kanban) fn setup_failed_recovery(
+    op: &CreationOperationRow,
+    error: &str,
+) -> Result<KanbanCard, String> {
+    with_board_mutation(|connection| setup_failed_recovery_in(connection, op, error))
+}
+
+pub(in crate::kanban) fn setup_failed_recovery_in(
+    connection: &mut Connection,
+    op: &CreationOperationRow,
+    error: &str,
+) -> Result<KanbanCard, String> {
+    let validated = match persist_validated_source_in(connection, op, None) {
+        Ok(validated) => validated,
+        Err(_) => {
+            // Keep the resources but do not claim ownership we cannot prove. Use the
+            // caller's connection: re-entering the board lock here would deadlock.
+            let detail =
+                format!("Setup failed and its Git resource changes are ambiguous: {error}");
+            let tx = connection.savepoint().map_err(db_error)?;
+            tx.execute(
+                "UPDATE environment_creation_operations SET phase='recovery_required',error=?1,cleanup_available=0,revision=revision+1,updated_at=?2 WHERE card_id=?3",
+                params![detail, unix_timestamp(), op.card_id],
+            )
+            .map_err(db_error)?;
+            tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','recovery_required',?3)", params![op.card_id,unix_timestamp(),detail]).map_err(db_error)?;
+            tx.commit().map_err(db_error)?;
+            return get_card(connection, &op.card_id)?
+                .ok_or_else(|| "Kanban card was not found".to_string());
+        }
+    };
+    let tx = connection.savepoint().map_err(db_error)?;
+    tx.execute(
+        "UPDATE environment_creation_operations SET phase='recovery_required',error=?1,cleanup_available=?2,revision=revision+1,updated_at=?3 WHERE card_id=?4",
+        params![error, validated.source_worktree_new as i64, unix_timestamp(), op.card_id],
+    )
+    .map_err(db_error)?;
+    tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','recovery_required',?3)", params![op.card_id,unix_timestamp(),error]).map_err(db_error)?;
+    tx.commit().map_err(db_error)?;
+    get_card(connection, &op.card_id)?.ok_or_else(|| "Kanban card was not found".to_string())
 }
 
 pub(in crate::kanban) fn compensate_creation(
@@ -640,18 +690,13 @@ pub(in crate::kanban) fn run_environment_creation(
             let current_branches =
                 serde_json::to_string(&branch_inventory(&op.target_checkout_path)?)
                     .map_err(|e| e.to_string())?;
-            if op.attempt_token.is_some()
-                && (current_worktrees != op.pre_worktrees || current_branches != op.pre_branches)
-            {
-                return creation_recovery(&id, "Explicit retry was refused because repository resources changed after the original snapshot", false);
-            }
             if op.attempt_token.is_none() {
                 let target = validate_checkout(&op.target_checkout_path, Some(&op.repository_id))?;
                 if target.target_branch != op.target_branch {
                     return creation_recovery(
                         &id,
                         "The target checkout is no longer on the configured branch",
-                        false,
+                        op.source_worktree_new,
                     );
                 }
                 with_board_mutation(|connection| {
@@ -661,8 +706,34 @@ pub(in crate::kanban) fn run_environment_creation(
                 op.pre_worktrees = current_worktrees;
                 op.pre_branches = current_branches;
             }
-            update_creation_phase(&id, "prepared", None, false)?;
-            op.phase = "prepared".to_string();
+            // A failing setup command is repairable in place: keep the worktree and
+            // branch it created and re-run the command. Compensation is reserved for
+            // Git-level failures and an explicit "clean up setup resources".
+            let token = uuid::Uuid::new_v4().to_string();
+            with_board_mutation(|connection| {
+                connection.execute("UPDATE environment_creation_operations SET phase='setup_running',attempt_token=?1,error=NULL,revision=revision+1,updated_at=?2 WHERE card_id=?3", params![token,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
+            })?;
+            op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
+                .unwrap();
+            match run_workspace_setup_durable(
+                op.setup_command.clone(),
+                op.target_checkout_path.clone(),
+                cancelled,
+                Path::new(&op.result_path),
+            ) {
+                Ok(result) => {
+                    with_board_mutation(|connection| {
+                        connection.execute("UPDATE environment_creation_operations SET phase='setup_complete',setup_result_cwd=?1,setup_output=?2,error=NULL,revision=revision+1,updated_at=?3 WHERE card_id=?4", params![result.cwd,result.output,unix_timestamp(),id]).map(|_| ()).map_err(db_error)
+                    })?;
+                    op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
+                        .unwrap();
+                }
+                Err(error) => {
+                    // Preserve the evidence for a retry; never delete what the
+                    // operator is about to repair.
+                    return setup_failed_recovery(&op, &error);
+                }
+            }
         }
     }
     if op.phase == "compensation_pending" {
@@ -716,25 +787,10 @@ pub(in crate::kanban) fn run_environment_creation(
                 })?;
             }
             Err(error) => {
-                update_creation_phase(&id, "compensation_pending", Some(&error), false)?;
-                op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?
-                    .unwrap();
-                match persist_validated_source(&op, None) {
-                    Ok(validated) => {
-                        update_creation_phase(&id, "compensation_pending", Some(&error), true)?;
-                        let card = compensate_creation(&validated)?;
-                        return if card.creation_operation.is_none() { Err(error) } else { Ok(card) };
-                    }
-                    Err(_) => {
-                        return creation_recovery(
-                            &id,
-                            &format!(
-                                "Setup failed and its Git resource changes are ambiguous: {error}"
-                            ),
-                            false,
-                        )
-                    }
-                }
+                // The setup command failed; this is not a Git-level failure. Keep the
+                // worktree and branch so the operator can repair and retry the same
+                // command instead of recreating the environment from scratch.
+                return setup_failed_recovery(&op, &error);
             }
         }
         op = with_read_connection(|connection| load_creation_operation_row(connection, &id))?.unwrap();
@@ -877,28 +933,13 @@ pub(in crate::kanban) async fn kanban_cleanup_environment_creation_operation(
     id: String,
 ) -> Result<KanbanCard, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        coordinate_card_repository(&id, false, || {
-            let op = with_read_connection(|connection| {
-                require_structural_capability(connection, &id, WorkflowAction::CleanupCreation)?;
-                load_creation_operation_row(connection, &id)
-            })?
-            .ok_or_else(|| "No environment creation recovery is pending".to_string())?;
-            if !op.source_worktree_new {
-                return Err(
-                    "Cleanup is unavailable because ownership of the source worktree is not proven"
-                        .to_string(),
-                );
-            }
-            update_creation_phase(
-                &id,
-                "compensation_pending",
-                op.source_path
-                    .as_ref()
-                    .map(|_| "User requested recovery cleanup"),
-                true,
-            )?;
-            compensate_creation(&op)
-        })
+        match super::retirement::retire(
+            super::retirement::RetirementRequest::RemoveCreation { card_id: id },
+            super::retirement::RetirementContext::none(),
+        )? {
+            super::retirement::RetirementOutcome::Removed(card) => Ok(card),
+            _ => Err("Environment cleanup did not return a card".to_string()),
+        }
     })
     .await
     .map_err(|error| format!("Environment cleanup worker failed: {error}"))?

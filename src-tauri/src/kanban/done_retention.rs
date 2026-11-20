@@ -63,7 +63,7 @@ fn identity(connection: &Connection, id: &str) -> Result<String, String> {
     }).map_err(db_error).and_then(|v| serde_json::to_string(&v).map_err(|e| e.to_string()))
 }
 
-fn storage_safety(connection: &Connection, id: &str) -> Result<(), String> {
+pub(super) fn storage_safety(connection: &Connection, id: &str) -> Result<(), String> {
     let key = safe_card_key(id);
     if key.is_empty() {
         return Err("Empty card storage identity is not owned storage".into());
@@ -611,6 +611,7 @@ fn retire(
     pi: &Mutex<PiRpcRegistry>,
     pty: &Mutex<PtyRegistry>,
     setup: &crate::workspace_setup::WorkspaceSetupState,
+    stop_before_storage: bool,
 ) -> Result<(), String> {
     // This transaction commits authorization before any process or Git effect.
     with_board_mutation(|connection| authorize(connection, c))?;
@@ -629,6 +630,19 @@ fn retire(
         // after removal therefore never loses the exact ownership evidence.
         with_board_mutation(|connection| capture_intent(connection, c))?;
         loop {
+            if stop_before_storage {
+                let phase: String = with_read_connection(|db| {
+                    db.query_row(
+                        "SELECT phase FROM card_retirements WHERE card_id=?1",
+                        [&c.id],
+                        |r| r.get(0),
+                    )
+                    .map_err(db_error)
+                })?;
+                if phase == "storage" {
+                    return Ok(());
+                }
+            }
             let done = with_board_mutation(|connection| {
                 retirement_step(
                     connection,
@@ -654,6 +668,28 @@ fn retire(
         }
         None => operation(),
     }
+}
+
+/// RemoveResources for the global Done discard: runtime, worktrees and branches.
+/// The record and its files stay until [`retire_record`] is called.
+pub(super) fn retire_resources(
+    c: DoneCleanupCandidate,
+    pi: &Mutex<PiRpcRegistry>,
+    pty: &Mutex<PtyRegistry>,
+    setup: &crate::workspace_setup::WorkspaceSetupState,
+) -> Result<(), String> {
+    retire(&c, pi, pty, setup, true)
+}
+
+/// DeleteRecord for the global Done discard: stage and purge the local record and files
+/// after [`retire_resources`] reported success.
+pub(super) fn retire_record(
+    c: DoneCleanupCandidate,
+    pi: &Mutex<PiRpcRegistry>,
+    pty: &Mutex<PtyRegistry>,
+    setup: &crate::workspace_setup::WorkspaceSetupState,
+) -> Result<(), String> {
+    retire(&c, pi, pty, setup, false)
 }
 
 fn capture_intent(connection: &Connection, c: &DoneCleanupCandidate) -> Result<(), String> {
@@ -847,7 +883,26 @@ pub(super) fn execute(
             ));
             continue;
         }
-        match retire(c, pi, pty, setup) {
+        let retirement = super::retirement::retire(
+            super::retirement::RetirementRequest::DiscardResources(c.clone()),
+            super::retirement::RetirementContext {
+                pty: Some(pty),
+                pi: Some(pi),
+                setup: Some(setup),
+            },
+        )
+        .and_then(|_| {
+            super::retirement::retire(
+                super::retirement::RetirementRequest::DiscardRecord(c.clone()),
+                super::retirement::RetirementContext {
+                    pty: Some(pty),
+                    pi: Some(pi),
+                    setup: Some(setup),
+                },
+            )
+            .map(|_| ())
+        });
+        match retirement {
             Ok(()) => {
                 result.deleted += 1;
                 result.removed_ids.push(c.id.clone());

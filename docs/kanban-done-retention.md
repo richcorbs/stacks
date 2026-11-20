@@ -41,6 +41,12 @@ clears it; re-entry starts a fresh period. Eligibility is strictly
 `done_entered_at < now - 604800`, not `<=`. `updated_at` is never an age source.
 Conservative history backfill and project-store rebuild behavior are unchanged.
 
+The sweep is one caller of the single retirement path (card #341): each candidate
+runs `RemoveResources` (runtime, worktrees, branches) and then `DeleteRecord`
+(record, history, files). Both intents are journaled as
+`retire_remove_resources` / `retire_delete_record` in the unified operations
+journal. See `docs/kanban-retirement.md`.
+
 ## Durable execution and retry
 
 Migration 80 adds the retirement journal and binding-scoped provider tombstones.
