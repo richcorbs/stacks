@@ -55,11 +55,41 @@ first without changing any feature's behaviour:
 - `in_flight_for_card(card_id)` is the single union query for "what is in flight here?",
   including operations parked for a human.
 
-The legacy tables are deliberately still tables in this step. The migration tests that
-drop and recreate them are part of the behavioural contract, and card #340's validation
-requires the existing kanban tests to pass unchanged. Follow-up work can move each
-feature's reads to this module and drop its journal in its own migration step, exactly as
-the card's plan prescribes.
+## Retiring the legacy journals (card #343)
+
+Card #343 finished the migration. `operations` is now the only physical operation
+journal; the eleven legacy names are write-through compatibility views:
+
+| schema revision | retired journal |
+| --- | --- |
+| 82 | `card_cleanup_operations`, `card_cleanup_evidence`, `card_cleanup_phase_outcomes` |
+| 83 | `environment_creation_operations` |
+| 84 | `card_target_merge_operations` |
+| 85 | `scripted_delivery_operations` |
+| 86 | `provider_sync_operations`, `provider_sync_attempts` |
+| 87 | `local_card_purge_jobs` |
+| 88 | `card_pi_lifecycle`, `card_pi_lifecycle_events` |
+
+Each step is its own `schema_migrations` row and never batches another feature's drop.
+The views expose the original column order and an `INSTEAD OF` trigger per write
+operation, mapping inserts/updates/deletes onto the typed payload and attempt tables.
+Feature code and its behaviour tests therefore stay unchanged.
+
+Two consequences are worth knowing:
+
+- Views cannot carry column defaults or `UNIQUE`/`PRIMARY KEY` constraints, so the
+  triggers supply the legacy defaults and preserve the uniqueness guards (one cleanup,
+  creation, target merge, scripted delivery or Pi lifecycle operation per card).
+- SQLite reports zero changed rows for a view write. The few call sites that used
+  `execute`/`changes()` as an optimistic-concurrency check now verify the same
+  predicate with an explicit `SELECT EXISTS` first.
+
+The `operations_card_delete` trigger restores the cascade the legacy tables got from
+their foreign keys. Purge tombstones and retirement intents still outlive the card, and
+purge keeps the original identity in `payload.card_id`.
+
+Purge remains the exception to card-bound state: the card record can be gone while the
+pending file purge is still reportable.
 
 ## Using it
 
@@ -91,5 +121,11 @@ KANBAN_MIGRATE_COPY=/path/to/workflow-copy.sqlite3 \
   -- --ignored --nocapture
 ```
 
-It asserts `integrity_check` is `ok` and `foreign_key_check` is empty before and after.
-Migration is idempotent: the backfill is an upsert and the triggers are `IF NOT EXISTS`.
+It asserts `integrity_check` is `ok` and `foreign_key_check` is empty before and after,
+and prints the per-kind row count. Migration is idempotent: the backfill is an upsert,
+the views/triggers are `IF NOT EXISTS`, and each retirement step only runs while its
+journal is still a physical table.
+
+A production rehearsal through revisions 81-88 kept every row count equal (cleanup 28,
+provider sync 20, Pi lifecycle 28, 237 operation attempts = 166 cleanup outcomes plus 71
+provider attempts) and left all eleven legacy names as views.

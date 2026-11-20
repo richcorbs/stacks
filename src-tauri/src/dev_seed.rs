@@ -112,7 +112,7 @@ fn sanitize_database(path: &Path) -> Result<(), String> {
         .transaction()
         .map_err(db_error("Could not begin seed sanitization"))?;
     // Pending purge jobs refer to production-owned storage, never seed them.
-    let has_purge_jobs: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_card_purge_jobs')", [], |row| row.get(0)).map_err(db_error("Could not inspect purge jobs"))?;
+    let has_purge_jobs: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name='local_card_purge_jobs')", [], |row| row.get(0)).map_err(db_error("Could not inspect purge jobs"))?;
     if has_purge_jobs { transaction.execute("DELETE FROM local_card_purge_jobs", []).map_err(db_error("Could not clear production purge jobs"))?; }
     let has_retirements: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='card_retirements')", [], |row| row.get(0)).map_err(db_error("Could not inspect retirements"))?;
     if has_retirements { transaction.execute("DELETE FROM card_retirements", []).map_err(db_error("Could not clear production retirement intents"))?; }
@@ -177,6 +177,12 @@ fn validate_schema(connection: &Connection) -> Result<(), String> {
         .filter(|name| migration >= 78 || **name != "local_card_purge_jobs")
         .filter(|name| migration >= 80 || !matches!(**name, "card_retirements" | "retired_provider_cards"))
         .filter(|name| migration >= 81 || !matches!(**name, "operations" | "operation_attempts"))
+        // Card #343 turns every per-feature journal into a view over `operations`.
+        .filter(|name| migration < 88 || !matches!(**name,
+            "card_cleanup_evidence" | "card_cleanup_operations" | "card_cleanup_phase_outcomes"
+            | "card_pi_lifecycle" | "card_pi_lifecycle_events" | "card_target_merge_operations"
+            | "environment_creation_operations" | "local_card_purge_jobs" | "provider_sync_attempts"
+            | "provider_sync_operations" | "scripted_delivery_operations"))
         .map(|name| (*name).to_string())
         .collect::<BTreeSet<_>>();
     if actual != expected {

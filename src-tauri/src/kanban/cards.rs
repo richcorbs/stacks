@@ -852,9 +852,10 @@ pub(crate) fn register_pi_lifecycle_generation(
         return Ok(());
     }
     with_board_mutation(|connection| {
+        // The compatibility view's INSTEAD OF trigger owns the upsert; a view cannot
+        // itself be the target of an ON CONFLICT clause.
         connection.execute(
-        "INSERT INTO card_pi_lifecycle (card_id,thread,generation,latest_event_order,latest_event_id) VALUES (?1,?2,?3,-1,'')
-         ON CONFLICT(card_id,thread) DO UPDATE SET generation=excluded.generation,latest_event_order=-1,latest_event_id=''",
+        "INSERT INTO card_pi_lifecycle (card_id,thread,generation,latest_event_order,latest_event_id) VALUES (?1,?2,?3,-1,'')",
         params![session.card_id, session.thread, generation],
     ).map(|_| ()).map_err(db_error)
     })
@@ -995,10 +996,19 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
         return get_card(connection, id)?.ok_or_else(|| "Kanban card was not found".to_string());
     }
     let duplicate_unordered = if event_order.is_none() {
-        transaction.execute(
-                "INSERT OR IGNORE INTO card_pi_lifecycle_events(card_id,thread,generation,event_id) VALUES (?1,?2,?3,?4)",
+        // View writes do not report SQLite change counts, so ask the journal directly.
+        let already: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM card_pi_lifecycle_events WHERE card_id=?1 AND thread=?2 AND generation=?3 AND event_id=?4)",
+            params![id, thread, generation, event_id],
+            |row| row.get(0),
+        ).map_err(db_error)?;
+        if !already {
+            transaction.execute(
+                "INSERT INTO card_pi_lifecycle_events(card_id,thread,generation,event_id) VALUES (?1,?2,?3,?4)",
                 params![id, thread, generation, event_id],
-            ).map_err(db_error)? == 0
+            ).map_err(db_error)?;
+        }
+        already
     } else {
         false
     };

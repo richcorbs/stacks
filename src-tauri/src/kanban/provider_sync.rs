@@ -91,9 +91,10 @@ pub(in crate::kanban) fn enqueue_transition(
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,'pending',?15,0,?16,?16)",
         params![id,card_id,kind,provider,external_id,board_id,source_id,source_name,destination_id,destination_name,workflow_revision,integration_revision,project_id,token_env,logical_revision,now],
     ).map_err(db_error)?;
-    let inserted = connection.changes() == 1;
+    // A view write always reports zero changed rows. The INSERT above has no conflict
+    // clause, so reaching this point means the operation was queued exactly once.
+    let inserted = true;
     if inserted {
-        connection.execute("UPDATE provider_sync_operations SET binding_id=(SELECT binding_id FROM kanban_cards WHERE id=?1) WHERE id=?2", params![card_id,id]).map_err(db_error)?;
         connection.execute("INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,?2,'system','provider_sync_queued','success',?3)", params![card_id,now,format!("Queued Superthread move from {source_name} to {destination_name}")]).map_err(db_error)?;
         Ok(Some(id))
     } else {

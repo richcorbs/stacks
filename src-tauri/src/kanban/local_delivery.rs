@@ -451,12 +451,28 @@ pub(in crate::kanban) fn merge_card(
         .map_err(db_error)?;
     if scripted {
         let now = unix_timestamp();
-        transaction.execute(
-            "INSERT INTO scripted_delivery_operations(card_id,project_id,environment_id,repository_id,primary_checkout_path,target_branch,source_revision,merge_revision,stage,started_at,updated_at)
-             SELECT c.id,c.project_id,e.id,?2,?3,?4,?5,?6,'merged',?7,?7 FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1
-             ON CONFLICT(card_id) DO UPDATE SET source_revision=excluded.source_revision,merge_revision=excluded.merge_revision,stage='merged',verified_push_revision=NULL,deployed_revision=NULL,failure_class=NULL,summary=NULL,updated_at=excluded.updated_at,revision=scripted_delivery_operations.revision+1",
-            params![id, repository_id, target_path, target_branch, source_tip, target_tip, now],
-        ).map_err(db_error)?;
+        let existing_revision: Option<i64> = transaction
+            .query_row(
+                "SELECT revision FROM scripted_delivery_operations WHERE card_id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?;
+        if let Some(revision) = existing_revision {
+            // A re-merge resets the delivery proof but keeps the attempt token and the
+            // monotonic revision, exactly as the previous ON CONFLICT clause did.
+            transaction.execute(
+                "UPDATE scripted_delivery_operations SET source_revision=?2,merge_revision=?3,stage='merged',verified_push_revision=NULL,deployed_revision=NULL,failure_class=NULL,summary=NULL,updated_at=?4,revision=?5 WHERE card_id=?1",
+                params![id, source_tip, target_tip, now, revision + 1],
+            ).map_err(db_error)?;
+        } else {
+            transaction.execute(
+                "INSERT INTO scripted_delivery_operations(card_id,project_id,environment_id,repository_id,primary_checkout_path,target_branch,source_revision,merge_revision,stage,started_at,updated_at)
+                 SELECT c.id,c.project_id,e.id,?2,?3,?4,?5,?6,'merged',?7,?7 FROM kanban_cards c JOIN card_environments e ON e.card_id=c.id WHERE c.id=?1",
+                params![id, repository_id, target_path, target_branch, source_tip, target_tip, now],
+            ).map_err(db_error)?;
+        }
         transaction.execute(
             "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary) VALUES (?1,?2,'user','scripted_merge','success','approved','approved',?3)",
             params![id, now, if already { "Verified source already reachable from target" } else { "Merged source locally; push and deploy remain separate" }],

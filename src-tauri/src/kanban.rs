@@ -68,6 +68,7 @@ pub use parent_reconciliation::{kanban_parent_state_preflight, kanban_repair_par
 pub use environment::{EnvironmentStartPreflight, WorkflowOperationResult};
 #[allow(unused_imports)]
 pub use local_delivery::TargetMergePrepareResult;
+pub(crate) use operations::ensure_card_delete_trigger;
 pub(crate) use provider_sync::{
     executing_for_project, run_pending_once, supersede_for_mapping_change, unresolved_for_project,
 };

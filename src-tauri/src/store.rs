@@ -340,6 +340,7 @@ pub(crate) fn migrate_store_schema(connection: &Connection) -> Result<(), String
     connection.execute("UPDATE provider_sync_operations SET binding_id=(SELECT binding_id FROM kanban_cards WHERE kanban_cards.id=provider_sync_operations.card_id) WHERE binding_id IS NULL", []).map_err(db_error)?;
     // The identity migration can rebuild kanban_cards, dropping its triggers.
     crate::kanban::migrate_done_retention(connection)?;
+    crate::kanban::ensure_card_delete_trigger(connection)?;
     Ok(())
 }
 

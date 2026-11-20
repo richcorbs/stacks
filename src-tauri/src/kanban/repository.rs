@@ -24,7 +24,7 @@ pub(in crate::kanban) fn next_local_card_number(
 ///
 /// Every DDL change must bump this constant and insert the matching `schema_migrations`
 /// row; `current_schema_migration_covers_every_migration` enforces the pairing.
-pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 81;
+pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 88;
 
 /// Cache of the one-time database initialization. Failures are recorded so concurrent callers
 /// see the same error, but an explicit reset (after a successful restore) retries.
@@ -237,12 +237,31 @@ fn install_mutation_tracking(connection: &Connection) -> Result<(), String> {
         "card_events",
         "provider_sync_operations",
     ] {
+        // Retired journals are views; an AFTER trigger cannot be attached to one.
+        if !operations::is_physical_table(connection, table)? {
+            continue;
+        }
         connection.execute_batch(&format!(
             "CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_insert AFTER INSERT ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(NEW.card_id); END;
              CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_update AFTER UPDATE ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(NEW.card_id); END;
              CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_delete BEFORE DELETE ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(OLD.card_id); END;"
         )).map_err(db_error)?;
     }
+    // Feature writes now land in the unified journal through the compatibility views.
+    // Track the same five kinds the legacy tables used to provide so board hydration is
+    // unchanged; purge tombstones, Pi lifecycle rows and retirement intents were never
+    // part of this tracking set.
+    connection.execute_batch(
+        "CREATE TEMP TRIGGER IF NOT EXISTS track_operations_insert AFTER INSERT ON main.operations
+           WHEN NEW.card_id IS NOT NULL AND NEW.kind IN ('cleanup','creation','target_merge','scripted_delivery','provider_sync')
+           BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(NEW.card_id); END;
+         CREATE TEMP TRIGGER IF NOT EXISTS track_operations_update AFTER UPDATE ON main.operations
+           WHEN NEW.card_id IS NOT NULL AND NEW.kind IN ('cleanup','creation','target_merge','scripted_delivery','provider_sync')
+           BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(NEW.card_id); END;
+         CREATE TEMP TRIGGER IF NOT EXISTS track_operations_delete BEFORE DELETE ON main.operations
+           WHEN OLD.card_id IS NOT NULL AND OLD.kind IN ('cleanup','creation','target_merge','scripted_delivery','provider_sync')
+           BEGIN INSERT OR IGNORE INTO kanban_affected VALUES(OLD.card_id); END;"
+    ).map_err(db_error)?;
     for table in ["card_panes", "card_layouts"] {
         connection.execute_batch(&format!(
             "CREATE TEMP TRIGGER IF NOT EXISTS track_{table}_insert AFTER INSERT ON main.{table} BEGIN INSERT OR IGNORE INTO kanban_affected SELECT card_id FROM main.card_environments WHERE id=NEW.environment_id; END;
@@ -631,15 +650,6 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             updated_at INTEGER NOT NULL,
             completed_at INTEGER
          );
-         CREATE TRIGGER IF NOT EXISTS card_cleanup_snapshot_immutable BEFORE UPDATE ON card_cleanup_operations
-         WHEN NEW.environment_id IS NOT OLD.environment_id OR NEW.workflow_revision IS NOT OLD.workflow_revision
-           OR NEW.environment_revision IS NOT OLD.environment_revision OR NEW.completion_outcome IS NOT OLD.completion_outcome
-           OR NEW.repository_id IS NOT OLD.repository_id OR NEW.source_path IS NOT OLD.source_path OR NEW.target_path IS NOT OLD.target_path
-           OR NEW.source_branch IS NOT OLD.source_branch OR NEW.target_branch IS NOT OLD.target_branch OR NEW.source_revision IS NOT OLD.source_revision
-           OR NEW.target_revision IS NOT OLD.target_revision OR NEW.delete_local_branch IS NOT OLD.delete_local_branch OR NEW.delete_remote_branch IS NOT OLD.delete_remote_branch
-           OR NEW.merged_pr_repository IS NOT OLD.merged_pr_repository OR NEW.merged_pr_number IS NOT OLD.merged_pr_number
-           OR NEW.merged_pr_head_revision IS NOT OLD.merged_pr_head_revision OR NEW.pane_ids IS NOT OLD.pane_ids
-         BEGIN SELECT RAISE(ABORT, 'cleanup operation snapshot is immutable'); END;
          CREATE TABLE IF NOT EXISTS card_panes (
             id TEXT PRIMARY KEY,
             environment_id TEXT NOT NULL REFERENCES card_environments(id) ON DELETE CASCADE,
@@ -854,15 +864,6 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             validation_completed_at INTEGER, error_code TEXT, error_detail TEXT,
             started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER
          );
-         CREATE TRIGGER IF NOT EXISTS card_cleanup_snapshot_immutable BEFORE UPDATE ON card_cleanup_operations
-         WHEN NEW.environment_id IS NOT OLD.environment_id OR NEW.workflow_revision IS NOT OLD.workflow_revision
-           OR NEW.environment_revision IS NOT OLD.environment_revision OR NEW.completion_outcome IS NOT OLD.completion_outcome
-           OR NEW.repository_id IS NOT OLD.repository_id OR NEW.source_path IS NOT OLD.source_path OR NEW.target_path IS NOT OLD.target_path
-           OR NEW.source_branch IS NOT OLD.source_branch OR NEW.target_branch IS NOT OLD.target_branch OR NEW.source_revision IS NOT OLD.source_revision
-           OR NEW.target_revision IS NOT OLD.target_revision OR NEW.delete_local_branch IS NOT OLD.delete_local_branch OR NEW.delete_remote_branch IS NOT OLD.delete_remote_branch
-           OR NEW.merged_pr_repository IS NOT OLD.merged_pr_repository OR NEW.merged_pr_number IS NOT OLD.merged_pr_number
-           OR NEW.merged_pr_head_revision IS NOT OLD.merged_pr_head_revision OR NEW.pane_ids IS NOT OLD.pane_ids
-         BEGIN SELECT RAISE(ABORT, 'cleanup operation snapshot is immutable'); END;
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (53, unixepoch());"
     ).map_err(db_error)?;
     for (name, sql) in [
@@ -980,7 +981,6 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             attempts INTEGER NOT NULL DEFAULT 0, error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER,
             UNIQUE(card_id,kind,workflow_revision,integration_revision,logical_revision)
          );
-         CREATE INDEX IF NOT EXISTS provider_sync_pending_idx ON provider_sync_operations(state,created_at);
          CREATE TABLE IF NOT EXISTS provider_sync_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT NOT NULL REFERENCES provider_sync_operations(id) ON DELETE CASCADE,
             attempt_number INTEGER NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, outcome TEXT, error TEXT,
@@ -988,6 +988,13 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
          );
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (73, unixepoch());"
     ).map_err(db_error)?;
+    // The index belongs to the physical journal only; a retired journal is a view.
+    if operations::is_physical_table(connection, "provider_sync_operations")? {
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS provider_sync_pending_idx ON provider_sync_operations(state,created_at)",
+            [],
+        ).map_err(db_error)?;
+    }
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS card_cleanup_evidence (
             card_id TEXT PRIMARY KEY REFERENCES card_cleanup_operations(card_id) ON DELETE CASCADE,
@@ -1035,6 +1042,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
             .map_err(db_error)?;
     }
     operations::install(connection)?;
+    operations::retire_legacy_journals(connection)?;
     connection.execute_batch("CREATE TABLE IF NOT EXISTS card_retirements (
         card_id TEXT PRIMARY KEY REFERENCES kanban_cards(id) ON DELETE CASCADE,
         done_entered_at INTEGER NOT NULL, identity TEXT NOT NULL, resources TEXT, evidence TEXT,
