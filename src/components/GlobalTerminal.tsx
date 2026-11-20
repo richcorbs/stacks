@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { ResolvedAppSettings } from '../settingsModel';
 import type { Project, TerminalEntry } from '../types';
-import { collectLeafTerminalIds, setSplitRatio, splitLeaf } from '../utils';
+import { collectLeafTerminalIds, focusPane, setSplitRatio, splitLeaf, toggleMaximizedPane } from '../splitTree';
 import { createGlobalTab, globalPaneId, removeGlobalPane, removeGlobalTab, selectRelativePane, selectRelativeTab, type GlobalTerminalCommand, type GlobalTerminalState, type GlobalTerminalTab } from '../globalTerminalState';
 import { loadGlobalTerminal, saveGlobalTerminal } from '../globalTerminalApi';
 import { disposeTerminalSession, disposeTerminalSessions, focusTerminalSession, getTerminalSession, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
@@ -67,7 +67,11 @@ export function GlobalTerminal({ visible, newTabNonce, settings, onVisibleChange
     const pane = globalPaneId(selected.id);
     const cwd = await invoke<string | null>('pty_cwd', { terminalId: selected.focused_pane_id }).catch(() => null) || state.home_dir;
     setTemporaryCwds((current) => ({ ...current, [pane]: cwd }));
-    setState((current) => current ? { ...current, tabs: current.tabs.map((tab) => tab.id === selected.id ? { ...tab, split_layout: splitLeaf(tab.split_layout, selected.focused_pane_id, pane, direction), focused_pane_id: pane, maximized_pane_id: tab.maximized_pane_id ? pane : null } : tab) } : current);
+    setState((current) => current ? { ...current, tabs: current.tabs.map((tab) => {
+      if (tab.id !== selected.id) return tab;
+      const focus = focusPane(pane, tab.maximized_pane_id);
+      return { ...tab, split_layout: splitLeaf(tab.split_layout, selected.focused_pane_id, pane, direction), focused_pane_id: focus.focusedPaneId, maximized_pane_id: focus.maximizedPaneId };
+    }) } : current);
   }, [selected, state]);
 
   const requestClosePane = useCallback(() => {
@@ -95,7 +99,7 @@ export function GlobalTerminal({ visible, newTabNonce, settings, onVisibleChange
     else if (command.type === 'search') setSearchRequest({ terminalId: selected.focused_pane_id, nonce: Date.now() });
     else if (command.type === 'clear') { const session = getTerminalSession(selected.focused_pane_id); session?.term.clearSelection(); session?.term.clear(); session?.term.scrollToBottom(); }
     else if (command.type === 'toggle-maximize' && collectLeafTerminalIds(selected.split_layout).length > 1) {
-      setState({ ...state, tabs: state.tabs.map((tab) => tab.id === selected.id ? { ...tab, maximized_pane_id: tab.maximized_pane_id ? null : tab.focused_pane_id } : tab) });
+      setState({ ...state, tabs: state.tabs.map((tab) => tab.id === selected.id ? { ...tab, maximized_pane_id: toggleMaximizedPane(tab.focused_pane_id, tab.maximized_pane_id).maximizedPaneId } : tab) });
       requestTerminalSessionsScrollToBottomAfterFit([selected.focused_pane_id]);
     }
   }, [addTab, requestClosePane, selected, split, state]);
@@ -144,7 +148,7 @@ function GlobalTab({ tab, home, selected, visible, settings, temporaryCwds, sear
   const ids = useMemo(() => collectLeafTerminalIds(tab.split_layout), [tab.split_layout]);
   const terminals = useMemo(() => Object.fromEntries(ids.map((id): [string, TerminalEntry] => [id, { id, workspaceId: `global-terminal:${tab.id}`, cwd: temporaryCwds[id] ?? home }])), [home, ids, tab.id, temporaryCwds]);
   return <div className={`globalTerminalTab${selected ? ' active' : ''}`}><div className={`cardTerminalPane${ids.length > 1 ? ' multiple' : ''}`}>
-    <SplitView node={tab.split_layout} terminalsById={terminals} workspace={{ id: `global-terminal:${tab.id}`, name: 'Top-level terminal', cwd: home }} project={{ ...project, path: home }} visible={visible && selected} canEditTerminal={false} canCloseTerminal={canClose} terminalFontSize={settings.terminal_font_size} terminalFontFamily={settings.terminal_font_family} terminalScrollback={settings.terminal_scrollback} copyOnSelect={settings.copy_on_select} activeTerminalId={tab.focused_pane_id} displayedMaximizedTerminalId={tab.maximized_pane_id} searchTerminalRequest={searchRequest} restartTerminalRequest={null} path="" onResizeSplit={(path, ratio) => update((current) => ({ ...current, split_layout: setSplitRatio(current.split_layout, path, ratio) }))} onFocus={(id) => update((current) => ({ ...current, focused_pane_id: id, maximized_pane_id: current.maximized_pane_id ? id : null }))} onClose={onClose} onSplitTerminal={(direction) => onSplit(direction)} onEditTerminal={() => {}} onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)} canToggleMaximize={ids.length > 1} onToggleMaximize={(id) => { update((current) => ({ ...current, focused_pane_id: id, maximized_pane_id: current.maximized_pane_id ? null : id })); requestTerminalSessionsScrollToBottomAfterFit([id]); }} />
+    <SplitView node={tab.split_layout} terminalsById={terminals} workspace={{ id: `global-terminal:${tab.id}`, name: 'Top-level terminal', cwd: home }} project={{ ...project, path: home }} visible={visible && selected} canEditTerminal={false} canCloseTerminal={canClose} terminalFontSize={settings.terminal_font_size} terminalFontFamily={settings.terminal_font_family} terminalScrollback={settings.terminal_scrollback} copyOnSelect={settings.copy_on_select} activeTerminalId={tab.focused_pane_id} displayedMaximizedTerminalId={tab.maximized_pane_id} searchTerminalRequest={searchRequest} restartTerminalRequest={null} path="" onResizeSplit={(path, ratio) => update((current) => ({ ...current, split_layout: setSplitRatio(current.split_layout, path, ratio) }))} onFocus={(id) => update((current) => { const focus = focusPane(id, current.maximized_pane_id); return { ...current, focused_pane_id: focus.focusedPaneId, maximized_pane_id: focus.maximizedPaneId }; })} onClose={onClose} onSplitTerminal={(direction) => onSplit(direction)} onEditTerminal={() => {}} onInput={(terminalId, data) => invoke('write_pty', { terminalId, data: Array.from(encoder.encode(data)) }).catch(console.error)} canToggleMaximize={ids.length > 1} onToggleMaximize={(id) => { update((current) => { const focus = toggleMaximizedPane(id, current.maximized_pane_id); return { ...current, focused_pane_id: focus.focusedPaneId, maximized_pane_id: focus.maximizedPaneId }; }); requestTerminalSessionsScrollToBottomAfterFit([id]); }} />
   </div></div>;
 }
 

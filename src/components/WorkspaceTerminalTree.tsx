@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import type { TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import { TerminalView } from './TerminalView';
 import { SplitResizeHandle } from './SplitResizeHandle';
+import { paneKindOf } from '../splitTree';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 
@@ -37,7 +38,7 @@ export function SplitView({ node, terminalsById, workspace, project, visible, ca
     const terminal = terminalsById[node.terminalId];
     if (!terminal) return null;
     const isDisplayed = visible && (!effectiveDisplayedMaximizedTerminalId || effectiveDisplayedMaximizedTerminalId === terminal.id);
-    const paneKind = node.paneKind ?? terminal.kind ?? 'terminal';
+    const paneKind = paneKindOf(node, terminal.kind);
     if (paneKind === 'pi') {
       return (
         <Suspense fallback={<div className="terminal piGuiPane"><div className="piGuiEmpty">Loading Pi GUI…</div></div>}>

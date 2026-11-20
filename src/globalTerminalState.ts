@@ -1,5 +1,5 @@
 import type { SplitNode } from './types';
-import { collectLeafTerminalIds, relativePaneId, removeLeaf } from './utils';
+import { closePane, collectLeafTerminalIds, focusPane, relativePaneId } from './splitTree';
 
 export type GlobalTerminalCommand = { type: 'new-tab' | 'select-tab' | 'navigate-tab' | 'navigate-pane' | 'split' | 'close' | 'clear' | 'search' | 'toggle-maximize'; number?: number; direction?: -1 | 1 | 'row' | 'column' };
 
@@ -28,7 +28,9 @@ export function selectRelativeTab(tabs: GlobalTerminalTab[], selectedId: string,
 }
 export function selectRelativePane(tab: GlobalTerminalTab, direction: -1 | 1): GlobalTerminalTab {
   const paneId = relativePaneId(tab.split_layout, tab.focused_pane_id, direction);
-  return paneId ? { ...tab, focused_pane_id: paneId, maximized_pane_id: tab.maximized_pane_id ? paneId : null } : tab;
+  if (!paneId) return tab;
+  const focus = focusPane(paneId, tab.maximized_pane_id);
+  return { ...tab, focused_pane_id: focus.focusedPaneId, maximized_pane_id: focus.maximizedPaneId };
 }
 export function removeGlobalTab(tabs: GlobalTerminalTab[], selectedId: string, removeId: string) {
   if (tabs.length <= 1) return { tabs, selectedId };
@@ -43,12 +45,11 @@ export function removeGlobalPane(tabs: GlobalTerminalTab[], selectedId: string, 
   if (!tab) return { tabs, selectedId };
   const panes = collectLeafTerminalIds(tab.split_layout);
   if (panes.length === 1) return removeGlobalTab(tabs, selectedId, tab.id);
-  const tree = removeLeaf(tab.split_layout, paneId) ?? tab.split_layout;
-  const remaining = collectLeafTerminalIds(tree);
+  const { tree, focusedPaneId } = closePane(tab.split_layout, paneId);
   return {
     tabs: tabs.map((candidate) => candidate.id === tab.id ? {
       ...candidate, split_layout: tree,
-      focused_pane_id: remaining[Math.max(0, panes.indexOf(paneId) - 1)] ?? remaining[0],
+      focused_pane_id: focusedPaneId ?? candidate.focused_pane_id,
       maximized_pane_id: null,
     } : candidate),
     selectedId,
