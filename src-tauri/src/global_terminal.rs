@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use crate::kanban;
+use crate::split_tree::{single_leaf, SplitTree};
 
 const PANE_PREFIX: &str = "global-terminal:";
 
@@ -47,36 +48,9 @@ fn new_tab() -> GlobalTerminalTab {
     let pane_id = format!("{PANE_PREFIX}{tab_id}:pane:{}", uuid::Uuid::new_v4());
     GlobalTerminalTab {
         id: tab_id,
-        split_layout: serde_json::json!({"kind":"leaf", "terminalId":pane_id}),
+        split_layout: single_leaf(&pane_id),
         focused_pane_id: pane_id,
         maximized_pane_id: None,
-    }
-}
-
-fn collect_tab_panes(node: &serde_json::Value, prefix: &str, panes: &mut Vec<String>) -> bool {
-    match node.get("kind").and_then(serde_json::Value::as_str) {
-        Some("leaf") => {
-            let Some(id) = node.get("terminalId").and_then(serde_json::Value::as_str) else {
-                return false;
-            };
-            if !id.starts_with(prefix) || panes.iter().any(|pane| pane == id) {
-                return false;
-            }
-            panes.push(id.to_string());
-            true
-        }
-        Some("split") => {
-            node.get("direction")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|direction| direction == "row" || direction == "column")
-                && node
-                    .get("first")
-                    .is_some_and(|child| collect_tab_panes(child, prefix, panes))
-                && node
-                    .get("second")
-                    .is_some_and(|child| collect_tab_panes(child, prefix, panes))
-        }
-        _ => false,
     }
 }
 
@@ -89,20 +63,19 @@ fn normalize(
         if tab.id.is_empty() || !tab_ids.insert(tab.id.clone()) {
             return false;
         }
-        let mut panes = Vec::new();
-        if !collect_tab_panes(
-            &tab.split_layout,
-            &format!("{PANE_PREFIX}{}:pane:", tab.id),
-            &mut panes,
-        ) || !panes.contains(&tab.focused_pane_id)
+        let Ok(tree) = SplitTree::parse(&tab.split_layout) else {
+            return false;
+        };
+        let Some(panes) = tree.unique_leaf_ids() else {
+            return false;
+        };
+        let prefix = format!("{PANE_PREFIX}{}:pane:", tab.id);
+        if !panes.iter().all(|pane| pane.starts_with(&prefix))
+            || tree.focused(Some(&tab.focused_pane_id)) != Some(tab.focused_pane_id.as_str())
         {
             return false;
         }
-        if tab
-            .maximized_pane_id
-            .as_ref()
-            .is_some_and(|id| !panes.contains(id))
-        {
+        if tree.maximized(tab.maximized_pane_id.as_deref()) != tab.maximized_pane_id.as_deref() {
             tab.maximized_pane_id = None;
         }
         true

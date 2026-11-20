@@ -1,5 +1,5 @@
 import type { SplitNode, TerminalEntry } from './types';
-import { collectLeafTerminalIds, relativePaneId, removeLeaf, setSplitRatio, splitLeaf } from './utils';
+import { closePane, collectLeafTerminalIds, focusPane, relativePaneId, resolveFocusedPaneId, resolveMaximizedPaneId, setSplitRatio, splitLeaf, toggleMaximizedPane } from './splitTree';
 
 export type WorkspaceShellRequest = { terminalId: string; nonce: number };
 export type WorkspaceShellPane = TerminalEntry;
@@ -81,7 +81,7 @@ export class WorkspaceShellController {
 
   focus(paneId: string) {
     if (!this.snapshot.paneIds.includes(paneId)) return false;
-    this.update({ focusedPaneId: paneId, maximizedPaneId: this.snapshot.maximizedPaneId ? paneId : null });
+    this.update(focusPane(paneId, this.snapshot.maximizedPaneId));
     return true;
   }
 
@@ -125,21 +125,13 @@ export class WorkspaceShellController {
     }
     if (!this.snapshot.paneIds.includes(paneId)) return false;
     this.ports.disposeAndKill(paneId);
-    const closingIndex = this.snapshot.paneIds.indexOf(paneId);
-    const remaining = this.snapshot.paneIds.filter((id) => id !== paneId);
-    const previousPaneId = remaining.length > 0 ? remaining[(closingIndex - 1 + remaining.length) % remaining.length] : null;
-    this.update({
-      tree: removeLeaf(this.snapshot.tree, paneId) ?? { kind: 'empty' },
-      focusedPaneId: previousPaneId,
-      maximizedPaneId: null,
-      pendingClosePaneId: null,
-    });
+    this.update({ ...closePane(this.snapshot.tree, paneId), maximizedPaneId: null, pendingClosePaneId: null });
     return true;
   }
 
   toggleMaximize(paneId = this.snapshot.focusedPaneId) {
     if (!paneId || !this.snapshot.paneIds.includes(paneId) || this.snapshot.paneIds.length < 2) return false;
-    this.update({ focusedPaneId: paneId, maximizedPaneId: this.snapshot.maximizedPaneId ? null : paneId });
+    this.update(toggleMaximizedPane(paneId, this.snapshot.maximizedPaneId));
     this.ports.scrollAfterFit([paneId]);
     return true;
   }
@@ -240,9 +232,8 @@ export class WorkspaceShellController {
 
   private makeSnapshot(tree: SplitNode, focusedPaneId: string | null, maximizedPaneId: string | null, pendingClosePaneId: string | null, searchRequest: WorkspaceShellRequest | null, restartRequest: WorkspaceShellRequest | null): WorkspaceShellSnapshot {
     const paneIds = collectLeafTerminalIds(tree);
-    const validFocus = focusedPaneId && paneIds.includes(focusedPaneId) ? focusedPaneId : paneIds[0] ?? null;
     const panes = Object.fromEntries(paneIds.map((id) => [id, this.ports.createPane(id, { temporary: id === this.temporaryRun?.terminalId, cwd: id === this.temporaryRun?.terminalId ? this.temporaryCwd : undefined })]));
-    return { tree, panes, paneIds, focusedPaneId: validFocus, maximizedPaneId: maximizedPaneId && paneIds.includes(maximizedPaneId) ? maximizedPaneId : null, pendingClosePaneId, searchRequest, restartRequest };
+    return { tree, panes, paneIds, focusedPaneId: resolveFocusedPaneId(tree, focusedPaneId), maximizedPaneId: resolveMaximizedPaneId(tree, maximizedPaneId), pendingClosePaneId, searchRequest, restartRequest };
   }
 
   private setSnapshot(snapshot: WorkspaceShellSnapshot, persist: boolean) {

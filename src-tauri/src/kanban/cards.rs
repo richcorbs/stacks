@@ -4,6 +4,7 @@ use super::{
     cleanup::*, domain::*, environment::*, git_effects::*, github_delivery::*, health::*,
     local_delivery::*, repository::*, sync::*,
 };
+use crate::split_tree::PaneKind;
 
 pub(in crate::kanban) fn kanban_cards_operation() -> Result<BoardSnapshot, String> {
     with_read_connection(board_snapshot)
@@ -1233,10 +1234,10 @@ pub(in crate::kanban) fn persisted_runtime_targets(
         .map_err(db_error)?
     {
         let (id, kind) = row.map_err(db_error)?;
-        if kind == "pi" && card_pi_owner(&id).as_deref() == Some(card_id) {
-            targets.pi.insert(id);
-        } else if kind == "terminal" && card_terminal_owner(&id).as_deref() == Some(card_id) {
-            targets.pty.insert(id);
+        match PaneKind::parse(&kind) {
+            Some(kind) if kind.is_pi() && card_pi_owner(&id).as_deref() == Some(card_id) => { targets.pi.insert(id); }
+            Some(kind) if kind.is_terminal() && card_terminal_owner(&id).as_deref() == Some(card_id) => { targets.pty.insert(id); }
+            _ => {}
         }
     }
     Ok(targets)

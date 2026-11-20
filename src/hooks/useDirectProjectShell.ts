@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { Project, SplitNode } from '../types';
-import { collectLeafTerminalIds } from '../utils';
+import type { Project } from '../types';
+import { layoutSignature, resolveFocusedPaneId } from '../splitTree';
 import { useWorkspaceShellShortcuts } from './useWorkspaceShellShortcuts';
 import { directWorkInitialLayout, workOwnerId, workTerminalId } from '../directWork';
 import { loadOrCreateDirectWork, saveDirectWorkLayout } from '../directWorkApi';
@@ -50,7 +50,7 @@ export function useDirectProjectShell(project: Project, active: boolean) {
     setLoading(true);
     loadOrCreateDirectWork(project.id).then((state) => {
       if (cancelled) return;
-      const focused = state.focused_pane_id ?? collectLeafTerminalIds(state.split_layout)[0] ?? null;
+      const focused = resolveFocusedPaneId(state.split_layout, state.focused_pane_id);
       const signature = layoutSignature(state.split_layout, focused);
       controller.replaceLayout(state.split_layout, focused);
       coordinatorRef.current = createDirectWorkLayoutPersistence({
@@ -74,5 +74,3 @@ export function useDirectProjectShell(project: Project, active: boolean) {
 
   return { owner, workspaceId, controller, shell, loading, error, clearError: () => setError(null) };
 }
-
-function layoutSignature(tree: SplitNode, focusedPaneId: string | null) { return JSON.stringify([tree, focusedPaneId]); }

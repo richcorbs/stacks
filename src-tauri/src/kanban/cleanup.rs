@@ -4,6 +4,7 @@ use super::{
     cards::*, domain::*, environment::*, git_effects::*, github_delivery::*, health::*,
     local_delivery::*, repository::*, sync::*,
 };
+use crate::split_tree::PaneKind;
 
 pub(in crate::kanban) const CLEANUP_PHASES: [&str; 7] = [
     "validate_repository",
@@ -821,7 +822,7 @@ pub(in crate::kanban) fn cleanup_runtime_sessions(
     let mut pty_ids = operation
         .pane_ids
         .iter()
-        .filter(|(_, kind)| kind == "terminal")
+        .filter(|(_, kind)| PaneKind::parse(kind).is_some_and(PaneKind::is_terminal))
         .map(|(id, _)| id.clone())
         .collect::<HashSet<_>>();
     pty_ids.extend([
@@ -833,7 +834,7 @@ pub(in crate::kanban) fn cleanup_runtime_sessions(
     let mut pi_ids = operation
         .pane_ids
         .iter()
-        .filter(|(_, kind)| kind == "pi")
+        .filter(|(_, kind)| PaneKind::parse(kind).is_some_and(PaneKind::is_pi))
         .map(|(id, _)| id.clone())
         .collect::<HashSet<_>>();
     pi_ids.extend([format!("{prefix}planning"), format!("{prefix}work")]);

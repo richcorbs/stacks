@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { SplitNode } from '../types';
-import { collectLeafTerminalIds } from '../utils';
+import { layoutSignature, resolveFocusedPaneId } from '../splitTree';
 import type { CardEnvironmentPane, KanbanCard } from './types';
 import { saveKanbanEnvironmentLayout } from './api';
 import { clearOneTimeStartupCommand, disposeTerminalSession, getTerminalSession, registerOneTimeStartupCommand, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
@@ -80,7 +80,7 @@ export function useCardTerminalWorkspace({ card, cardPath, activeView, setAction
   useEffect(() => {
     const environment = card.environment;
     if (!environment) return;
-    const focused = environment.focused_pane_id ?? collectLeafTerminalIds(environment.split_layout)[0] ?? initialShellId;
+    const focused = resolveFocusedPaneId(environment.split_layout, environment.focused_pane_id) ?? initialShellId;
     const signature = layoutSignature(environment.split_layout, focused);
     workflowRevisionRef.current = card.workflow_revision;
     environmentRevisionRef.current = environment.revision;
@@ -105,7 +105,7 @@ export function useCardTerminalWorkspace({ card, cardPath, activeView, setAction
 
   function applyEnvironment(updated: KanbanCard) {
     if (!updated.environment) return;
-    const focused = updated.environment.focused_pane_id ?? collectLeafTerminalIds(updated.environment.split_layout)[0] ?? initialShellId;
+    const focused = resolveFocusedPaneId(updated.environment.split_layout, updated.environment.focused_pane_id) ?? initialShellId;
     coordinatorRef.current?.reset(updated.environment.layout_revision, layoutSignature(updated.environment.split_layout, focused));
     controller.replaceLayout(updated.environment.split_layout, focused);
   }
@@ -137,8 +137,6 @@ export function useCardTerminalWorkspace({ card, cardPath, activeView, setAction
     handleTerminalStopped: (pane: string) => controller.handleTerminalStopped(pane),
   };
 }
-
-function layoutSignature(tree: SplitNode, focusedPaneId: string | null) { return JSON.stringify([tree, focusedPaneId]); }
 
 function clearWrappedPrompt(term: import('@xterm/xterm').Terminal) {
   const buffer = term.buffer.active;
