@@ -919,7 +919,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
               </button>;
             })}
         </ContextPicker>
-          {pi.context.contextPercent !== null && <><ContextSeparator /><ContextUsage context={pi.context} /></>}
+          {(pi.context.contextTokens != null || pi.context.contextWindow != null) && <><ContextSeparator /><ContextUsage context={pi.context} hasAssistantMessages={pi.messages.some((message) => message.role === 'assistant')} /></>}
         </div>
         <div className="piGuiFooterBalance" aria-hidden="true" />
       </div>
@@ -1024,13 +1024,23 @@ function ContextSeparator() {
   return <span className="piContextSeparator" aria-hidden="true">•</span>;
 }
 
-function ContextUsage({ context }: { context: PiSessionContext }) {
-  const percent = Math.max(0, Math.min(100, context.contextPercent ?? 0));
-  const tokens = context.contextTokens === null ? 'unknown' : context.contextTokens.toLocaleString();
-  const windowSize = context.contextWindow === null ? 'unknown' : context.contextWindow.toLocaleString();
-  const tooltip = `${tokens} / ${windowSize} tokens · ${Math.round(percent)}%`;
+export function ContextUsage({ context, hasAssistantMessages = false }: { context: PiSessionContext; hasAssistantMessages?: boolean }) {
+  const zeroWithAssistantMessages = context.contextTokens === 0 && hasAssistantMessages;
+  const tokenCount = context.contextTokens === null || context.contextTokens === undefined || zeroWithAssistantMessages
+    ? null : context.contextTokens;
+  const windowCount = context.contextWindow === null || context.contextWindow === undefined ? null : context.contextWindow;
+  // Never trust a separately supplied percent: derive it from the same pair
+  // of numbers the tooltip renders so the three values cannot disagree.
+  const percent = tokenCount !== null && windowCount !== null && windowCount > 0
+    ? (tokenCount / windowCount) * 100
+    : null;
+  const tokens = tokenCount === null ? 'unknown' : tokenCount.toLocaleString();
+  const windowSize = windowCount === null ? 'unknown' : windowCount.toLocaleString();
+  const percentLabel = percent === null ? 'unknown' : `${Math.round(percent)}%`;
+  const tooltip = `${tokens} / ${windowSize} tokens · ${percentLabel}`;
+  const donutPercent = percent === null ? 0 : Math.max(0, Math.min(100, percent));
   return <span className="piContextUsage" data-tooltip={tooltip} aria-label={`Context usage: ${tooltip}`}>
-    <span className="piContextDonut" style={{ background: `conic-gradient(#a9b6c2 ${percent * 3.6}deg, #647484 0deg)` }} />
+    <span className="piContextDonut" style={{ background: `conic-gradient(#a9b6c2 ${donutPercent * 3.6}deg, #647484 0deg)` }} />
   </span>;
 }
 

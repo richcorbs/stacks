@@ -5,6 +5,17 @@ export type PiThinkingContent = { type: 'thinking'; thinking: string };
 export type PiToolCallContent = { type: 'toolCall'; id?: string; name: string; arguments?: Record<string, unknown> };
 export type PiContentBlock = PiTextContent | PiThinkingContent | PiToolCallContent | { type: string; [key: string]: unknown };
 
+export type PiMessageUsage = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  reasoning?: number;
+  totalTokens?: number;
+  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number; [key: string]: unknown };
+  [key: string]: unknown;
+};
+
 export type PiMessage = {
   role: string;
   content: string | PiContentBlock[];
@@ -12,6 +23,7 @@ export type PiMessage = {
   toolName?: string;
   toolCallId?: string;
   isError?: boolean;
+  usage?: PiMessageUsage;
   [key: string]: unknown;
 };
 

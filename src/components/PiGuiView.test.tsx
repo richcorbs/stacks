@@ -3,8 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project, TerminalEntry, WorkspaceEntry } from '../types';
+import type { PiSessionContext } from '../pi/types';
 import { deliverPiFileDrop } from '../pi/fileDropBroker';
-import { PiGuiView, PiMcpCommandStatus, PiPendingOutput, PiQueuedMessage, useMcpBannerDismissal } from './PiGuiView';
+import { ContextUsage, PiGuiView, PiMcpCommandStatus, PiPendingOutput, PiQueuedMessage, useMcpBannerDismissal } from './PiGuiView';
 
 const pi = vi.hoisted(() => ({
   context: { contextPercent: null }, commands: [], messages: [], tools: [], queuedFollowUps: [], queuedSteering: [],
@@ -192,6 +193,33 @@ describe('Pi MCP command output', () => {
     expect(renderer.root.findByType('span').children.join('')).toBe('MCP connection: connected. MCP datadog: connected (reported by Pi).');
     act(() => renderer.root.findByProps({ 'aria-label': 'Dismiss MCP command status' }).props.onClick());
     expect(renderer.toJSON()).toBeNull();
+  });
+});
+
+describe('Pi context usage', () => {
+  const context = (overrides: Partial<PiSessionContext>): PiSessionContext => ({
+    modelName: '', modelId: '', provider: '', thinkingLevel: '', sessionId: '', sessionName: '',
+    supportsImages: false, contextTokens: null, contextWindow: null, contextPercent: null, ...overrides,
+  });
+
+  it('renders tokens, catalogue window, and a derived percent', () => {
+    const markup = renderToStaticMarkup(<ContextUsage context={context({
+      contextTokens: 130_445, contextWindow: 1_048_576, contextPercent: 99,
+    })} />);
+    expect(markup).toContain(`${(130_445).toLocaleString()} / ${(1_048_576).toLocaleString()} tokens · 12%`);
+  });
+
+  it('renders unknown for a null numerator', () => {
+    const markup = renderToStaticMarkup(<ContextUsage context={context({ contextWindow: 1_048_576 })} />);
+    expect(markup).toContain(`${'unknown'} / ${(1_048_576).toLocaleString()} tokens · unknown`);
+  });
+
+  it('renders unknown for zero usage once assistant messages exist', () => {
+    const markup = renderToStaticMarkup(<ContextUsage hasAssistantMessages context={context({
+      contextTokens: 0, contextWindow: 1_048_576, contextPercent: 0,
+    })} />);
+    expect(markup).toContain(`${'unknown'} / ${(1_048_576).toLocaleString()} tokens · unknown`);
+    expect(markup).not.toContain(`0 / ${(1_048_576).toLocaleString()}`);
   });
 });
 

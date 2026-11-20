@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { PiCommand, PiMessage, PiModel, PiPromptImage, PiResponseEvent, PiRpcEnvelope, PiSessionContext, PiToolActivity, PiUiRequest } from './types';
 import { subscribePiEvents } from './eventBroker';
 import { appendPiMessage, createPiTranscriptReconciliation, discardOptimisticPiMessage, reconcilePiMessages } from './transcript';
+import { derivePiContextUsage, type ReportedPiContextUsage } from './contextUsage';
 import { GUI_BUILTIN_COMMANDS } from './commands';
 import { notifyPiAgentSettled, notifyPiPromptFailed } from './promptEvent';
 import { notifyPiUiRequestDismissed, notifyPiUiRequestReceived, preparePiUiRequestResponse } from './uiRequestWorkflow';
@@ -96,6 +97,7 @@ export class PiSessionController {
   private pendingText = '';
   private pendingTextFlag: boolean | undefined;
   private pendingToolText = new Map<string, string>();
+  private reportedContextUsage: ReportedPiContextUsage = { tokens: null, contextWindow: null };
 
   constructor(private config: PiSessionConfig, private dependencies: ControllerDependencies = defaultDependencies) {
     this.snapshot = { ...this.snapshot, sessionBoundary: loadPiSessionBoundary(config.paneId) };
@@ -406,6 +408,7 @@ export class PiSessionController {
     // Live message_end events may race hydration. Hydrated history is the base,
     // then newer projected messages are appended with transcript deduplication.
     this.patch({ messages: reconcilePiMessages(response.data.messages, this.snapshot.messages, this.transcriptReconciliation) });
+    this.applyContextUsage();
   };
 
   private userMessageCount() {
@@ -439,15 +442,33 @@ export class PiSessionController {
       ...(requestedAtRevision === this.activityRevision ? { isStreaming: Boolean(response.data?.isStreaming) } : {}),
       sessionBoundary: boundary,
     });
+    this.applyContextUsage();
     return sessionId || null;
   };
 
   private refreshStats = async () => {
     const response = await this.sendRequest({ type: 'get_session_stats' });
     const usage = response.data?.contextUsage;
-    this.patch({ context: { ...this.snapshot.context, contextTokens: typeof usage?.tokens === 'number' ? usage.tokens : null,
+    this.reportedContextUsage = {
+      tokens: typeof usage?.tokens === 'number' ? usage.tokens : null,
       contextWindow: typeof usage?.contextWindow === 'number' ? usage.contextWindow : null,
-      contextPercent: typeof usage?.percent === 'number' ? usage.percent : null } });
+    };
+    this.applyContextUsage();
+  };
+
+  /**
+   * Context usage is derived from the transcript whenever possible. Pi's stat
+   * is retained only as the pre-usage fallback, and the model catalogue owns
+   * the window so model identity and window cannot come from racing requests.
+   */
+  private applyContextUsage = () => {
+    const context = derivePiContextUsage(
+      this.snapshot.messages,
+      this.reportedContextUsage,
+      this.snapshot.availableModels,
+      { provider: this.snapshot.context.provider, modelId: this.snapshot.context.modelId },
+    );
+    this.patch({ context: { ...this.snapshot.context, ...context } });
   };
 
   private refreshCommands = async () => {
@@ -468,6 +489,7 @@ export class PiSessionController {
 
   private patchModels(availableModels: PiModel[], scopedModels = this.snapshot.scopedModels) {
     this.patch({ availableModels, scopedModels, effectiveModels: effectivePickerModels(availableModels, scopedModels) });
+    this.applyContextUsage();
   };
   private refreshAvailableThinkingLevels = async () => {
     const response = await this.sendRequest({ type: 'get_available_thinking_levels' });
@@ -542,6 +564,7 @@ export class PiSessionController {
           }
           if (message.role === 'toolResult' && message.toolCallId) next.tools = this.snapshot.tools.filter((tool) => tool.id !== message.toolCallId);
           this.patch(next);
+          this.applyContextUsage();
           if (message.role === 'assistant') notifyOutput(this.dependencies, this.config.workspaceId, this.config.paneId);
         }
         break;

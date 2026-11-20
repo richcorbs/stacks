@@ -56,7 +56,7 @@ App-level focus restoration emits `pane-focus-request` when the active pane has 
 
 While a run is active but has not produced assistant text or a live tool card, the conversation shows an animated ellipsis (with an accessible `Pi is thinking` label) so activity is not communicated only by the composer stop button.
 
-The context footer refreshes RPC `get_session_stats` after startup, restart, and each settled run. It renders `contextUsage` as a percentage donut with exact token counts in its tooltip. App-level Cmd+V routing checks both the event target and active element before attempting a PTY write. The Pi composer handles Cmd+V directly through the clipboard plugin so paste remains reliable in the Tauri webview.
+The context footer derives the numerator from the newest assistant message usage (`input + cacheRead + cacheWrite`) and takes the window from the selected model in the catalogue. RPC `get_session_stats` remains the fallback only until an assistant usage arrives; a zero numerator with assistant history renders as unknown. `percent` is always derived from the displayed token/window pair. It renders as a percentage donut with exact token counts in its tooltip. App-level Cmd+V routing checks both the event target and active element before attempting a PTY write. The Pi composer handles Cmd+V directly through the clipboard plugin so paste remains reliable in the Tauri webview.
 
 ## File references and native drops
 
