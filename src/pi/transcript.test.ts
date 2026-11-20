@@ -169,6 +169,23 @@ describe('Pi transcript', () => {
     expect(messages[0].content).toBe('1');
   });
 
+  it('preserves assistant usage through compaction, reconciliation, and bounded retention', () => {
+    const usage = { input: 269, output: 40, cacheRead: 130_176, cacheWrite: 0, reasoning: 0, totalTokens: 130_485, cost: { total: 0 } };
+    expect(compactPiMessages([{ role: 'assistant', content: 'done', usage }])[0].usage).toEqual(usage);
+
+    let messages: PiMessage[] = [];
+    for (let index = 0; index < MAX_STORED_PI_MESSAGES + 5; index += 1) {
+      messages = appendPiMessage(messages, {
+        role: 'assistant', timestamp: index, content: String(index),
+        ...(index === MAX_STORED_PI_MESSAGES + 4 ? { usage } : {}),
+      });
+    }
+    expect(messages).toHaveLength(MAX_STORED_PI_MESSAGES);
+    expect(messages.at(-1)?.usage).toEqual(usage);
+    expect(compactPiMessages(messages).at(-1)?.usage).toEqual(usage);
+    expect(reconcilePiMessages([], messages).at(-1)?.usage).toEqual(usage);
+  });
+
   it('starts with the newest 50 messages without changing retained history', () => {
     const messages = Array.from({ length: 125 }, (_, timestamp) => ({ role: 'user', timestamp, content: String(timestamp) }));
     const visible = visiblePiMessages(messages);

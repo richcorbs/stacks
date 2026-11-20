@@ -68,6 +68,83 @@ describe('effectivePickerModels', () => {
   });
 });
 
+describe('PiSessionController context usage', () => {
+  const catalogueModel = { provider: 'deepseek', id: 'deepseek-v4.1-flash', name: 'DeepSeek Flash', contextWindow: 1_048_576 };
+  const usage = { input: 269, output: 40, cacheRead: 130_176, cacheWrite: 0, reasoning: 0, totalTokens: 130_485, cost: { total: 0 } };
+
+  async function hydrate(h: ReturnType<typeof harness>, options: {
+    model?: Record<string, unknown>;
+    messages: Array<Record<string, unknown>>;
+    models?: Array<Record<string, unknown>>;
+    stats?: Record<string, unknown>;
+  }) {
+    await begin(h);
+    respond(h, 0, 'get_state', { model: options.model, isStreaming: true });
+    respond(h, 1, 'get_messages', { messages: options.messages });
+    await vi.waitFor(() => expect(h.commands.length).toBeGreaterThanOrEqual(6));
+    const indexOf = (type: string) => h.commands.map((command) => command.type).lastIndexOf(type);
+    respond(h, indexOf('get_commands'), 'get_commands', { commands: [] });
+    respond(h, indexOf('get_available_models'), 'get_available_models', { models: options.models ?? [] });
+    respond(h, indexOf('get_available_thinking_levels'), 'get_available_thinking_levels', { levels: [] });
+    respond(h, indexOf('get_session_stats'), 'get_session_stats', { contextUsage: options.stats });
+    await vi.waitFor(() => expect(h.controller.getSnapshot().starting).toBe(false));
+  }
+
+  it('derives the #341 context size from the last assistant usage when the RPC stat is zero', async () => {
+    const h = harness();
+    await hydrate(h, {
+      model: catalogueModel,
+      messages: [
+        { role: 'user', content: 'work' },
+        { role: 'assistant', content: 'working', usage },
+      ],
+      models: [catalogueModel],
+      stats: { tokens: 0, contextWindow: 1_000_000, percent: 0 },
+    });
+
+    expect(h.controller.getSnapshot().context).toMatchObject({
+      contextTokens: 130_445,
+      contextWindow: 1_048_576,
+      contextPercent: (130_445 / 1_048_576) * 100,
+    });
+    h.controller.delete();
+  });
+
+  it('falls back to the RPC stat only while no assistant message carries usage', async () => {
+    const h = harness();
+    await hydrate(h, {
+      model: catalogueModel,
+      messages: [{ role: 'user', content: 'work' }],
+      models: [catalogueModel],
+      stats: { tokens: 1_234, contextWindow: 9_999, percent: 99 },
+    });
+
+    expect(h.controller.getSnapshot().context).toMatchObject({
+      contextTokens: 1_234,
+      contextWindow: 1_048_576,
+      contextPercent: (1_234 / 1_048_576) * 100,
+    });
+    h.controller.delete();
+  });
+
+  it('renders unknown instead of a zero numerator after assistant messages exist', async () => {
+    const h = harness();
+    await hydrate(h, {
+      model: catalogueModel,
+      messages: [{ role: 'assistant', content: 'working', usage: { ...usage, input: 0, cacheRead: 0, cacheWrite: 0 } }],
+      models: [catalogueModel],
+      stats: { tokens: 0, contextWindow: 1_000_000, percent: 0 },
+    });
+
+    expect(h.controller.getSnapshot().context).toMatchObject({
+      contextTokens: null,
+      contextWindow: 1_048_576,
+      contextPercent: null,
+    });
+    h.controller.delete();
+  });
+});
+
 describe('PiSessionController', () => {
   it('retires deleted-card frontend state without reconciling workflow or invoking backend mutations', async () => {
     const h = harness();
