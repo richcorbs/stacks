@@ -1105,8 +1105,8 @@ pub(in crate::kanban) fn kanban_create_environment(
             .map_err(db_error)?;
         let shell_pane = format!("kanban-card:{id}:terminal:shell");
         transaction.execute(
-            "INSERT OR IGNORE INTO card_panes (id, environment_id, role, kind, sort_order) VALUES (?1, ?2, 'shell', 'terminal', 0)",
-            params![shell_pane, environment_id],
+            "INSERT OR IGNORE INTO card_panes (id, environment_id, role, kind, sort_order) VALUES (?1, ?2, ?3, ?4, 0)",
+            params![shell_pane, environment_id, crate::split_tree::PaneKind::Shell.role(), crate::split_tree::PaneKind::Shell.kind()],
         ).map_err(db_error)?;
         for (index, thread) in ["planning", "work"].into_iter().enumerate() {
             transaction.execute(
@@ -1116,7 +1116,7 @@ pub(in crate::kanban) fn kanban_create_environment(
         }
         transaction.execute(
             "INSERT OR IGNORE INTO card_layouts (environment_id, split_layout, focused_pane_id, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            params![environment_id, serde_json::json!({"kind":"leaf", "terminalId":shell_pane}).to_string(), shell_pane, now],
+            params![environment_id, crate::split_tree::single_leaf(&shell_pane).to_string(), shell_pane, now],
         ).map_err(db_error)?;
         transaction
             .execute(

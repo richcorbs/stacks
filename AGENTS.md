@@ -198,7 +198,7 @@ Current expected behavior:
 - If splitting while maximized, split the underlying tree as if unmaximized, select the new terminal, and keep the workspace maximized.
 - Maximizing/restoring a workspace scrolls the displayed terminal to the bottom.
 
-Pure split tree logic lives in `src/utils.ts`; update/add tests in `src/utils.test.ts` for changes.
+Pure split tree logic lives in one shared owner per language: `src/splitTree.ts` (re-exported from `src/utils.ts`, so `utils.test.ts` stays the contract) and `src-tauri/src/split_tree.rs` for Rust-side layout reads and `PaneKind`. Update tests in `src/splitTree.test.ts`, `src/utils.test.ts` and the `npm run test:split-tree` golden when changing the maths. See `docs/split-tree.md`.
 
 ## Keyboard/menu shortcuts
 

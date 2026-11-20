@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use tauri::State;
 
 use crate::pi_rpc::PiRpcRegistry;
+use crate::split_tree::single_leaf;
 use crate::{kanban, pi_rpc, pty, pty_cwd::PtyRegistry};
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,7 +187,7 @@ fn shell_id(project_id: &str) -> String {
     format!("project-direct:{project_id}:terminal:shell")
 }
 fn initial_layout(project_id: &str) -> serde_json::Value {
-    serde_json::json!({"kind":"leaf", "terminalId":shell_id(project_id)})
+    single_leaf(&shell_id(project_id))
 }
 fn unix_timestamp() -> i64 {
     std::time::SystemTime::now()

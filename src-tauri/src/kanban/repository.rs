@@ -1290,7 +1290,7 @@ fn load_environment_indicators_batched(connection: &Connection, cards: &mut [Kan
         id: row.get(1)?, card_id: row.get(0)?, project_id: row.get(2)?, worktree_path: row.get(3)?, branch: row.get(4)?,
         repository_id: None, target_checkout_path: None, target_branch: row.get(5)?, source_revision: None, target_revision: None,
         lifecycle_state: row.get(6)?, revision: row.get(7)?, layout_revision: row.get(8)?,
-        split_layout: serde_json::json!({"kind":"empty"}), focused_pane_id: None, panes: Vec::new(),
+        split_layout: crate::split_tree::empty_layout(), focused_pane_id: None, panes: Vec::new(),
     }))).map_err(db_error)?;
     for row in rows {
         let (card_id, environment) = row.map_err(db_error)?;
@@ -1801,7 +1801,7 @@ pub(in crate::kanban) fn load_environments_batched(
                         revision: row.get(11)?,
                         split_layout: layout
                             .and_then(|value| serde_json::from_str(&value).ok())
-                            .unwrap_or(serde_json::json!({"kind":"empty"})),
+                            .unwrap_or_else(crate::split_tree::empty_layout),
                         focused_pane_id: row.get(13)?,
                         layout_revision: row.get::<_, Option<i64>>(14)?.unwrap_or(1),
                         panes: Vec::new(),
@@ -2257,12 +2257,12 @@ pub(in crate::kanban) fn load_environment(
         .map_err(db_error)?
         .map(|(layout, focused, layout_revision)| {
             (
-                serde_json::from_str(&layout).unwrap_or(serde_json::json!({"kind":"empty"})),
+                serde_json::from_str(&layout).unwrap_or_else(|_| crate::split_tree::empty_layout()),
                 focused,
                 layout_revision,
             )
         })
-        .unwrap_or((serde_json::json!({"kind":"empty"}), None, 1));
+        .unwrap_or((crate::split_tree::empty_layout(), None, 1));
     let mut pane_statement = connection.prepare("SELECT id, role, kind, command, sort_order FROM card_panes WHERE environment_id = ?1 ORDER BY sort_order").map_err(db_error)?;
     let panes = pane_statement
         .query_map([&id], |row| {

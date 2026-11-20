@@ -25,6 +25,7 @@ mod release;
 mod repository_coordinator;
 mod settings;
 mod settings_model;
+mod split_tree;
 mod store;
 mod superthread;
 mod workspace_setup;
