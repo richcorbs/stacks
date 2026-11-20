@@ -64,30 +64,30 @@ struct StaleParentRow {
 }
 
 #[derive(Debug, Clone)]
-struct EnvironmentRow {
-    id: String,
-    card_id: String,
-    project_id: String,
-    worktree_path: String,
-    branch: String,
-    repository_id: Option<String>,
-    target_checkout_path: Option<String>,
-    target_branch: Option<String>,
-    source_revision: Option<String>,
-    revision: i64,
-    card_title: String,
-    card_status: String,
-    workflow_revision: i64,
-    project_path: Option<String>,
-    project_target_branch: Option<String>,
+pub(super) struct EnvironmentRow {
+    pub(super) id: String,
+    pub(super) card_id: String,
+    pub(super) project_id: String,
+    pub(super) worktree_path: String,
+    pub(super) branch: String,
+    pub(super) repository_id: Option<String>,
+    pub(super) target_checkout_path: Option<String>,
+    pub(super) target_branch: Option<String>,
+    pub(super) source_revision: Option<String>,
+    pub(super) revision: i64,
+    pub(super) card_title: String,
+    pub(super) card_status: String,
+    pub(super) workflow_revision: i64,
+    pub(super) project_path: Option<String>,
+    pub(super) project_target_branch: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct EnvironmentEvidence {
-    reasons: Vec<String>,
-    cleanup_available: bool,
-    branch_exists: bool,
-    branch_tip: Option<String>,
+pub(super) struct EnvironmentEvidence {
+    pub(super) reasons: Vec<String>,
+    pub(super) cleanup_available: bool,
+    pub(super) branch_exists: bool,
+    pub(super) branch_tip: Option<String>,
 }
 
 fn finding(
@@ -194,7 +194,7 @@ fn stale_parent_finding(row: &StaleParentRow, repaired: bool) -> Vec<BoardHealth
 /// Clear aggregate metadata that can only describe children which no longer
 /// exist. This is the one automatic repair: it is deterministic, local, and
 /// leaves every provider, Git, environment, and card record untouched.
-fn repair_stale_parent_metadata(
+pub(super) fn repair_stale_parent_metadata(
     connection: &mut Connection,
 ) -> Result<Vec<BoardHealthFinding>, String> {
     let rows = stale_parent_rows(connection)?;
@@ -231,7 +231,7 @@ fn repair_stale_parent_metadata(
     Ok(findings)
 }
 
-fn environment_rows(connection: &Connection) -> Result<Vec<EnvironmentRow>, String> {
+pub(super) fn environment_rows(connection: &Connection) -> Result<Vec<EnvironmentRow>, String> {
     let mut statement = connection
         .prepare(
             "SELECT e.id,e.card_id,e.project_id,e.worktree_path,e.branch,e.repository_id,
@@ -278,7 +278,7 @@ fn comparable_path(path: &Path) -> Option<PathBuf> {
     Some(parent.join(path.file_name()?))
 }
 
-fn inspect_environment(
+pub(super) fn inspect_environment(
     connection: &Connection,
     row: &EnvironmentRow,
 ) -> Result<Option<EnvironmentEvidence>, String> {
@@ -838,7 +838,7 @@ pub(crate) fn startup_board_health_report() -> Result<BoardHealthReport, String>
     board_health_pass(false)
 }
 
-fn branch_is_claimed_elsewhere(
+pub(super) fn branch_is_claimed_elsewhere(
     connection: &Connection,
     environment_id: &str,
     branch: &str,
@@ -857,23 +857,7 @@ fn branch_is_claimed_elsewhere(
     Ok(claimed != 0)
 }
 
-fn cleanup_orphaned_environment(
-    card_id: &str,
-    environment_id: &str,
-    expected_environment_revision: i64,
-    confirmed: bool,
-) -> Result<(), String> {
-    with_board_mutation(|connection| {
-        cleanup_orphaned_environment_in(
-            connection,
-            card_id,
-            environment_id,
-            expected_environment_revision,
-            confirmed,
-        )
-    })
-}
-
+#[allow(dead_code)] // exercised by the hygiene tests through this seam
 fn cleanup_orphaned_environment_in(
     connection: &mut Connection,
     card_id: &str,
@@ -881,97 +865,15 @@ fn cleanup_orphaned_environment_in(
     expected_environment_revision: i64,
     confirmed: bool,
 ) -> Result<(), String> {
-    if !confirmed {
-        return Err("Explicit confirmation is required before cleaning up an environment".into());
-    }
-    let row = environment_rows(connection)?
-        .into_iter()
-        .find(|row| row.card_id == card_id && row.id == environment_id)
-        .ok_or_else(|| "The environment is already gone; refresh board health.".to_string())?;
-    if row.revision != expected_environment_revision {
-        return Err("The environment changed after inspection; refresh board health.".into());
-    }
-    let evidence = inspect_environment(connection, &row)?.ok_or_else(|| {
-        "The environment is still present or cannot be treated as orphaned.".to_string()
-    })?;
-    if !evidence.cleanup_available {
-        return Err(format!(
-            "Environment cleanup is not available: {}",
-            evidence.reasons.join("; ")
-        ));
-    }
-    let target_path = row
-        .target_checkout_path
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .or(row.project_path.as_deref())
-        .ok_or_else(|| "The environment has no target checkout to verify.".to_string())?;
-    let target_branch = row
-        .target_branch
-        .as_deref()
-        .or(row.project_target_branch.as_deref())
-        .unwrap_or("main");
-    let mut branch_disposition = "no local branch remained";
-    if evidence.branch_exists && row.branch != target_branch {
-        let checked_out = worktree_inventory(target_path)?
-            .iter()
-            .any(|worktree| worktree.branch.as_deref() == Some(row.branch.as_str()));
-        if checked_out {
-            branch_disposition = "local branch retained: checked out in another worktree";
-        } else if branch_is_claimed_elsewhere(connection, &row.id, &row.branch)? {
-            branch_disposition = "local branch retained: another resource ledger still claims it";
-        } else if let Some(tip) = evidence.branch_tip.as_deref() {
-            git_output(
-                target_path,
-                &[
-                    "update-ref",
-                    "-d",
-                    &format!("refs/heads/{}", row.branch),
-                    tip,
-                ],
-            )?;
-            branch_disposition = "local branch deleted with exact-tip merge proof";
-        }
-    }
-    let removed = connection
-        .execute(
-            "DELETE FROM card_environments WHERE id=?1 AND card_id=?2 AND revision=?3",
-            params![row.id, row.card_id, row.revision],
-        )
-        .map_err(db_error)?;
-    if removed != 1 {
-        return Err("The environment changed during cleanup; refresh board health.".into());
-    }
-    connection
-        .execute(
-            "DELETE FROM card_pi_lifecycle WHERE card_id=?1",
-            [&row.card_id],
-        )
-        .map_err(db_error)?;
-    let updated = connection
-        .execute(
-            "UPDATE kanban_cards SET workflow_revision=workflow_revision+1,updated_at=?1 WHERE id=?2",
-            params![unix_timestamp(), row.card_id],
-        )
-        .map_err(db_error)?;
-    if updated != 1 {
-        return Err("The card changed during environment cleanup; refresh board health.".into());
-    }
-    connection
-        .execute(
-            "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary)
-             VALUES (?1,?2,'user','board_hygiene_cleanup_environment','success',?3)",
-            params![
-                row.card_id,
-                unix_timestamp(),
-                format!(
-                    "Board hygiene removed orphaned environment {} ({branch_disposition})",
-                    row.id
-                )
-            ],
-        )
-        .map_err(db_error)?;
-    Ok(())
+    // Detection stays here; the repair is the same RemoveResources operation every
+    // other caller uses. Keeping this thin wrapper preserves the existing tests.
+    super::retirement::remove_orphaned_environment_in(
+        connection,
+        card_id,
+        environment_id,
+        expected_environment_revision,
+        confirmed,
+    )
 }
 
 #[tauri::command]
@@ -1004,12 +906,18 @@ pub async fn kanban_board_health_cleanup_environment(
         );
     }
     tauri::async_runtime::spawn_blocking(move || {
-        cleanup_orphaned_environment(
-            &card_id,
-            &environment_id,
-            expected_environment_revision,
-            confirmed,
-        )?;
+        match super::retirement::retire(
+            super::retirement::RetirementRequest::RemoveOrphanedEnvironment {
+                card_id,
+                environment_id,
+                expected_environment_revision,
+                confirmed,
+            },
+            super::retirement::RetirementContext::none(),
+        )? {
+            super::retirement::RetirementOutcome::RemovedResources => {}
+            _ => return Err("Orphaned environment cleanup did not run".to_string()),
+        }
         board_health_pass(true)
     })
     .await

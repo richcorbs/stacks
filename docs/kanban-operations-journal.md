@@ -27,6 +27,9 @@ Kinds map 1:1 to the legacy journals:
 | `provider_sync` | `provider_sync_operations` (+ `provider_sync_attempts`) |
 | `purge` | `local_card_purge_jobs` |
 | `pi_lifecycle` | `card_pi_lifecycle` (+ `card_pi_lifecycle_events`) |
+| `retire_preserve_resources` | card #341 retirement intent (PreserveResources) |
+| `retire_remove_resources` | card #341 retirement intent (RemoveResources) |
+| `retire_delete_record` | card #341 retirement intent (DeleteRecord) |
 
 ## What landed in #340
 

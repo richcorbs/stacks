@@ -178,6 +178,7 @@ fn encode(payload: &OperationPayload) -> String {
         OperationPayload::ProviderSync(value) => serde_json::to_string(value),
         OperationPayload::Purge(value) => serde_json::to_string(value),
         OperationPayload::PiLifecycle(value) => serde_json::to_string(value),
+        OperationPayload::Retirement(value) => serde_json::to_string(value),
     }
     .unwrap()
 }

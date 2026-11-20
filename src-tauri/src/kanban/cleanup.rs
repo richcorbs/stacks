@@ -117,8 +117,8 @@ pub(in crate::kanban) fn cleanup_preflight(
             .map(|v| v.flatten())
             .map_err(db_error)
     })?;
-    let cleanup_state: Option<(String, String, bool)> = with_read_connection(|connection| {
-        connection.query_row("SELECT status,phase,registration_validated FROM card_cleanup_operations WHERE card_id=?1", [card_id], |r| Ok((r.get(0)?,r.get(1)?,r.get::<_,i64>(2)? != 0))).optional().map_err(db_error)
+    let cleanup_state: Option<(String, String, bool, bool)> = with_read_connection(|connection| {
+        connection.query_row("SELECT status,phase,registration_validated,override_authorized FROM card_cleanup_operations WHERE card_id=?1", [card_id], |r| Ok((r.get(0)?,r.get(1)?,r.get::<_,i64>(2)? != 0,r.get::<_,i64>(3)? != 0))).optional().map_err(db_error)
     })?;
     let mut report = CleanupPreflight {
         card_id: card_id.to_string(),
@@ -170,7 +170,7 @@ pub(in crate::kanban) fn cleanup_preflight(
     // Environment deletion and phase advancement are separate durable commits.
     // Persisted registration proof makes this absence expected and retryable.
     if environment_id.is_none()
-        && cleanup_state.as_ref().is_some_and(|(_, phase, validated)| {
+        && cleanup_state.as_ref().is_some_and(|(_, phase, validated, _)| {
             *validated && matches!(phase.as_str(), "remove_metadata" | "record_completion")
                 && with_read_connection(|connection| connection.query_row("SELECT EXISTS(SELECT 1 FROM card_cleanup_phase_outcomes WHERE card_id=?1 AND phase='remove_metadata' AND outcome='success')", [card_id], |r| r.get::<_, i64>(0)).map(|value| value != 0).map_err(db_error)).unwrap_or(false)
         })
@@ -189,10 +189,15 @@ pub(in crate::kanban) fn cleanup_preflight(
             || git_status_success(&durable.2, &["merge-base", "--is-ancestor", &durable.5, "HEAD"]).unwrap_or(false);
         report.eligible = false;
         report.blocked = true;
-        report.override_available = report.merged && status == "done";
+        // Resuming an interrupted cleanup must honour the override that authorized the
+        // initial destructive phase even when the exact revision was never merged.
+        let persisted_override = cleanup_state
+            .as_ref()
+            .is_some_and(|(_, _, _, override_authorized)| *override_authorized);
+        report.override_available = status == "done" && (report.merged || persisted_override);
         report.merge_proof = if report.merged { "durable exact-revision proof revalidated".into() } else { "unproven".into() };
         report.metadata = vec!["cleanup metadata".into()];
-        report.blockers.push(if report.merged { "Only cleanup metadata remains.".into() } else { "Exact source revision is not authoritatively merged.".into() });
+        report.blockers.push(if report.merged { "Only cleanup metadata remains.".into() } else { crate::kanban::retirement::UNMERGED_REVISION.into() });
         if status != "done" {
             report.blockers.push("Only Done cards can resume cleanup.".into());
             report.override_available = false;
@@ -264,14 +269,14 @@ pub(in crate::kanban) fn cleanup_preflight(
         report.source_clean = status_output.as_ref().ok().map(|v| v.is_empty());
         if report.source_clean == Some(false) {
             report.blockers.push(
-                "Source worktree is dirty. Commit, stash, or discard its changes before cleanup."
+                crate::kanban::retirement::DIRTY_WORKTREE
                     .into(),
             );
         }
         report.source_git_operation = has_git_operation(source_path_value).ok();
         if report.source_git_operation == Some(true) {
             report.blockers.push(
-                "Source worktree has an active Git operation. Finish or abort it before cleanup."
+                crate::kanban::retirement::ACTIVE_GIT_OPERATION
                     .into(),
             );
         }
@@ -302,7 +307,7 @@ pub(in crate::kanban) fn cleanup_preflight(
                 Ok(()) => report.source_registered = true,
                 Err(_) => {
                     report.orphan_warning = Some("The recorded Stacks-owned path is no longer a registered worktree.".into());
-                    report.blockers.push("Source path is not a registered worktree.".into());
+                    report.blockers.push(crate::kanban::retirement::UNREGISTERED_WORKTREE.into());
                 }
             }
             if repository_identity(source_path_value).ok().as_deref()
@@ -358,7 +363,7 @@ pub(in crate::kanban) fn cleanup_preflight(
         } else if pr_matches {
             report.merge_proof = format!("Merged PR #{} in {} has exact head revision", pr_number.unwrap_or_default(), pr_repository.clone().unwrap_or_default());
         } else {
-            report.blockers.push("Exact source revision is not authoritatively merged.".into());
+            report.blockers.push(crate::kanban::retirement::UNMERGED_REVISION.into());
         }
         report.local_branch_disposition = "delete only with exact-tip lease and valid merge proof".into();
         if outcome != "merged" && outcome != "closed" {
@@ -383,12 +388,15 @@ pub(in crate::kanban) fn cleanup_preflight(
                 .push("Remote branch (delivery workflow did not require deletion)".into());
         }
     }
-    report.override_available = report.merged && !report.blockers.is_empty() && report.blockers.iter().all(|blocker| {
-        blocker.starts_with("Source worktree is dirty")
-            || blocker.starts_with("Source worktree has an active Git operation")
-            || blocker == "Source path is not a registered worktree."
-            || blocker == "Only cleanup metadata remains."
-    });
+    report.override_available = report.has_resources
+        && !report.blockers.is_empty()
+        && report.blockers.iter().all(|blocker| {
+            blocker.starts_with("Source worktree is dirty")
+                || blocker.starts_with("Source worktree has an active Git operation")
+                || blocker == crate::kanban::retirement::UNREGISTERED_WORKTREE
+                || blocker == "Only cleanup metadata remains."
+                || blocker == crate::kanban::retirement::UNMERGED_REVISION
+        });
     report.blocked = !report.blockers.is_empty();
     report.eligible = !report.blocked;
     Ok(report)
@@ -480,24 +488,27 @@ pub(in crate::kanban) async fn kanban_cleanup_environment_operation(
     tauri::async_runtime::spawn_blocking(move || {
         let pty_registry = app.state::<Mutex<PtyRegistry>>();
         let pi_registry = app.state::<Mutex<PiRpcRegistry>>();
-        let contract = cleanup_preflight(&id, pty_registry.inner(), pi_registry.inner())?;
-        if contract.source_revision != expected_source_revision
-            || contract.target_revision != expected_target_revision
-            || contract.repository_id != expected_repository_id
-            || contract.primary_checkout != expected_primary_checkout
-            || contract.current_target_branch != expected_target_branch
-        {
-            return Err("Repository state changed after cleanup preflight; inspect it again".into());
+        match super::retirement::retire(
+            super::retirement::RetirementRequest::RemoveEnvironment {
+                card_id: id,
+                expected_workflow_revision,
+                expected_environment_revision,
+                expected_source_revision,
+                expected_target_revision,
+                expected_repository_id,
+                expected_primary_checkout,
+                expected_target_branch,
+                override_authorized: cleanup_anyway,
+            },
+            super::retirement::RetirementContext {
+                pty: Some(pty_registry.inner()),
+                pi: Some(pi_registry.inner()),
+                setup: None,
+            },
+        )? {
+            super::retirement::RetirementOutcome::Removed(card) => Ok(card),
+            _ => Err("Cleanup did not return a card".to_string()),
         }
-        run_cleanup(
-            &id,
-            expected_workflow_revision,
-            expected_environment_revision,
-            expected_source_revision.as_deref().unwrap_or_default(),
-            cleanup_anyway,
-            pty_registry.inner(),
-            pi_registry.inner(),
-        )
     })
     .await
     .map_err(|error| format!("Cleanup worker failed: {error}"))?
@@ -509,6 +520,7 @@ pub(in crate::kanban) fn run_cleanup(
     expected_environment_revision: i64,
     effective_revision: &str,
     cleanup_anyway: bool,
+    override_evidence: Option<&str>,
     pty_registry: &Mutex<PtyRegistry>,
     pi_registry: &Mutex<PiRpcRegistry>,
 ) -> Result<KanbanCard, String> {
@@ -553,6 +565,7 @@ pub(in crate::kanban) fn run_cleanup(
             effective_revision,
             cleanup_anyway,
             preflight.merged,
+            override_evidence,
         )?;
         loop {
             let operation =
@@ -612,6 +625,7 @@ pub(in crate::kanban) fn initialize_cleanup(
     effective_revision: &str,
     cleanup_anyway: bool,
     authoritatively_merged: bool,
+    override_evidence: Option<&str>,
 ) -> Result<(), String> {
     with_board_mutation(|connection| {
         if let Some(existing) = optional_cleanup_snapshot(connection, card_id)? {
@@ -657,8 +671,8 @@ pub(in crate::kanban) fn initialize_cleanup(
             .ok_or_else(|| "Cleanup requires a recorded repository identity".to_string())?;
         let _recorded_source_revision = source_revision
             .ok_or_else(|| "Cleanup requires a recorded source revision".to_string())?;
-        if effective_revision.is_empty() || !authoritatively_merged {
-            return Err("Cleanup requires an exact authoritatively merged revision".to_string());
+        if effective_revision.is_empty() || (!authoritatively_merged && !cleanup_anyway) {
+            return Err("Cleanup requires an exact authoritatively merged revision or an explicit override".to_string());
         }
         let source_revision = effective_revision.to_string();
         let target_revision = git_output(&target_path, &["rev-parse", "HEAD"])?;
@@ -685,7 +699,7 @@ pub(in crate::kanban) fn initialize_cleanup(
             .unwrap_or_default();
         let now = unix_timestamp();
         let delete_remote = delivery_stage.as_deref() == Some("deleting_remote_branch");
-        let delete_local = authoritatively_merged;
+        let delete_local = authoritatively_merged || cleanup_anyway;
         let (recorded_target_path, recorded_target_branch): (Option<String>, Option<String>) =
             transaction
                 .query_row(
@@ -703,11 +717,22 @@ pub(in crate::kanban) fn initialize_cleanup(
             &target_path,
             &["merge-base", "--is-ancestor", &source_revision, "HEAD"],
         )?;
-        let proof_type = if ancestry { "ancestry" } else { "merged_pr" };
+        let proof_type = if ancestry {
+            "ancestry"
+        } else if override_evidence.is_some() {
+            "explicit_override_bundle"
+        } else {
+            "merged_pr"
+        };
         let proof_detail = if ancestry {
             format!(
                 "{} is an ancestor of {} at {}",
                 source_revision, target_branch, target_revision
+            )
+        } else if let Some(path) = override_evidence {
+            format!(
+                "Explicit override for exact source revision {}; unmerged work preserved at {}",
+                source_revision, path
             )
         } else {
             format!("Merged PR evidence captured for exact head {}", source_revision)
@@ -826,7 +851,7 @@ pub(in crate::kanban) fn validate_cleanup_repository(
     validate_target_checkout(&operation.target_path, Some(&operation.repository_id))?;
     let merged_by_pr = operation.merged_pr_head_revision.as_deref() == Some(&operation.source_revision);
     let merged_by_ancestry = git_status_success(&operation.target_path, &["merge-base", "--is-ancestor", &operation.source_revision, "HEAD"])?;
-    if !merged_by_pr && !merged_by_ancestry {
+    if !merged_by_pr && !merged_by_ancestry && !operation.override_authorized {
         return Err("The exact cleanup revision is not authoritatively merged".into());
     }
     if Path::new(&operation.source_path).exists() {
@@ -915,7 +940,8 @@ pub(in crate::kanban) fn delete_cleanup_local_branch(
     }
     let rewritten =
         operation.merged_pr_head_revision.as_deref() == Some(&operation.source_revision);
-    if !rewritten
+    if !operation.override_authorized
+        && !rewritten
         && !git_status_success(
             &operation.target_path,
             &[
@@ -928,7 +954,11 @@ pub(in crate::kanban) fn delete_cleanup_local_branch(
     {
         return Err("Local source branch is not safely merged".to_string());
     }
-    let flag = if rewritten { "-D" } else { "-d" };
+    let flag = if rewritten || operation.override_authorized {
+        "-D"
+    } else {
+        "-d"
+    };
     let output = Command::new("git")
         .args([
             "-C",

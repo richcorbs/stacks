@@ -48,6 +48,7 @@ mod parent_reconciliation;
 mod provider_sync;
 mod repository;
 mod query_diagnostics;
+mod retirement;
 mod scripted_delivery;
 mod superthread_identity;
 mod superthread_refinement;

@@ -31,10 +31,14 @@ pub(in crate::kanban) enum OperationKind {
     ProviderSync,
     Purge,
     PiLifecycle,
+    /// Card retirement, one kind per mode (see `retirement.rs`).
+    RetirePreserve,
+    RetireRemove,
+    RetireDelete,
 }
 
 impl OperationKind {
-    pub(in crate::kanban) const ALL: [OperationKind; 7] = [
+    pub(in crate::kanban) const ALL: [OperationKind; 10] = [
         OperationKind::Cleanup,
         OperationKind::Creation,
         OperationKind::TargetMerge,
@@ -42,6 +46,9 @@ impl OperationKind {
         OperationKind::ProviderSync,
         OperationKind::Purge,
         OperationKind::PiLifecycle,
+        OperationKind::RetirePreserve,
+        OperationKind::RetireRemove,
+        OperationKind::RetireDelete,
     ];
 
     pub(in crate::kanban) fn as_str(self) -> &'static str {
@@ -53,7 +60,19 @@ impl OperationKind {
             OperationKind::ProviderSync => "provider_sync",
             OperationKind::Purge => "purge",
             OperationKind::PiLifecycle => "pi_lifecycle",
+            OperationKind::RetirePreserve => "retire_preserve_resources",
+            OperationKind::RetireRemove => "retire_remove_resources",
+            OperationKind::RetireDelete => "retire_delete_record",
         }
+    }
+
+    pub(in crate::kanban) fn is_retirement(self) -> bool {
+        matches!(
+            self,
+            OperationKind::RetirePreserve
+                | OperationKind::RetireRemove
+                | OperationKind::RetireDelete
+        )
     }
 
     pub(in crate::kanban) fn from_str(value: &str) -> Result<Self, String> {
@@ -106,6 +125,12 @@ impl OperationKind {
             ],
             OperationKind::Purge => &["pending"],
             OperationKind::PiLifecycle => &["active"],
+            // Retirement records a durable intent and then applies the mode's
+            // existing resumable machinery. One phase keeps the journal honest:
+            // interruption leaves an in-flight row which the same API resumes.
+            OperationKind::RetirePreserve => &["execute"],
+            OperationKind::RetireRemove => &["execute"],
+            OperationKind::RetireDelete => &["execute"],
         }
     }
 
@@ -344,7 +369,23 @@ pub(in crate::kanban) struct PiLifecyclePayload {
     pub latest_event_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// Durable intent for the single card-retirement path.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub(in crate::kanban) struct RetirementPayload {
+    pub card_id: String,
+    /// `preserve_resources`, `remove_resources` or `delete_record`.
+    pub mode: String,
+    pub workflow_revision: i64,
+    /// The user explicitly accepted removing unmerged work; evidence is
+    /// preserved before any destructive Git effect.
+    #[serde(deserialize_with = "deserialize_sql_bool")]
+    pub override_authorized: bool,
+    /// Where the recovery bundle was written, when one was required.
+    pub evidence_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(untagged)]
 pub(in crate::kanban) enum OperationPayload {
     Cleanup(CleanupPayload),
     Creation(CreationPayload),
@@ -353,6 +394,7 @@ pub(in crate::kanban) enum OperationPayload {
     ProviderSync(ProviderSyncPayload),
     Purge(PurgePayload),
     PiLifecycle(PiLifecyclePayload),
+    Retirement(RetirementPayload),
 }
 
 impl OperationPayload {
@@ -365,7 +407,16 @@ impl OperationPayload {
             OperationPayload::ProviderSync(_) => OperationKind::ProviderSync,
             OperationPayload::Purge(_) => OperationKind::Purge,
             OperationPayload::PiLifecycle(_) => OperationKind::PiLifecycle,
+            OperationPayload::Retirement(payload) => match payload.mode.as_str() {
+                "preserve_resources" => OperationKind::RetirePreserve,
+                "delete_record" => OperationKind::RetireDelete,
+                _ => OperationKind::RetireRemove,
+            },
         }
+    }
+
+    pub(in crate::kanban) fn to_json(&self) -> Result<String, String> {
+        serde_json::to_string(self).map_err(|error| error.to_string())
     }
 
     /// Explicit, typed validation. Anything a feature would need to resume must be
@@ -484,6 +535,19 @@ impl OperationPayload {
                     ));
                 }
                 require(&payload.generation, "pi_lifecycle.generation")?;
+                Ok(())
+            }
+            OperationPayload::Retirement(payload) => {
+                require(&payload.card_id, "retirement.card_id")?;
+                if !matches!(
+                    payload.mode.as_str(),
+                    "preserve_resources" | "remove_resources" | "delete_record"
+                ) {
+                    return Err(format!(
+                        "retirement.mode {:?} is not a supported retirement mode",
+                        payload.mode
+                    ));
+                }
                 Ok(())
             }
         }
@@ -657,6 +721,12 @@ fn decode_operation(row: RawOperation) -> Result<Operation, String> {
             }
             OperationKind::PiLifecycle => serde_json::from_str::<PiLifecyclePayload>(&payload)
                 .map(OperationPayload::PiLifecycle),
+            OperationKind::RetirePreserve
+            | OperationKind::RetireRemove
+            | OperationKind::RetireDelete => {
+                serde_json::from_str::<RetirementPayload>(&payload)
+                    .map(OperationPayload::Retirement)
+            }
         }
         .map_err(|error| {
             format!(
@@ -762,6 +832,51 @@ pub(in crate::kanban) fn in_flight_for_card(
     operations.retain(Operation::is_in_flight);
     operations.sort_by(|left, right| (&left.kind, &left.id).cmp(&(&right.kind, &right.id)));
     Ok(operations)
+}
+
+/// An unfinished operation of exactly this kind for this card. Retirement uses it to
+/// resume an interrupted run instead of starting a parallel one.
+pub(in crate::kanban) fn open_for_card(
+    connection: &Connection,
+    card_id: &str,
+    kind: OperationKind,
+) -> Result<Option<Operation>, String> {
+    Ok(in_flight_for_card(connection, card_id)?
+        .into_iter()
+        .find(|operation| operation.kind == kind))
+}
+
+/// Write the durable retirement intent. Idempotent for the same card and kind: a
+/// retry resumes the existing row rather than stacking duplicate intents.
+pub(in crate::kanban) fn begin(
+    connection: &Connection,
+    kind: OperationKind,
+    card_id: &str,
+    phase: &str,
+    payload: &OperationPayload,
+) -> Result<String, String> {
+    if payload.kind() != kind {
+        return Err(format!(
+            "Cannot journal a {} payload as {}",
+            payload.kind().as_str(),
+            kind.as_str()
+        ));
+    }
+    payload.validate()?;
+    kind.validate_phase(phase)?;
+    if let Some(existing) = open_for_card(connection, card_id, kind)? {
+        return Ok(existing.id);
+    }
+    let id = format!("{}:{}", kind.as_str(), uuid::Uuid::new_v4());
+    let now = unix_timestamp();
+    connection
+        .execute(
+            "INSERT INTO operations(id,card_id,kind,phase,attempt,payload,created_at,updated_at)
+             VALUES (?1,?2,?3,?4,0,?5,?6,?6)",
+            params![id, card_id, kind.as_str(), phase, payload.to_json()?, now],
+        )
+        .map_err(db_error)?;
+    Ok(id)
 }
 
 pub(in crate::kanban) fn attempts(
