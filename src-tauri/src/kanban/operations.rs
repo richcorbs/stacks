@@ -6,11 +6,12 @@
 //! phase→action mapping; features keep their existing behaviour but are represented
 //! as one `operations` row with a typed, validated JSON payload.
 //!
-//! During the migration described on card #340 the legacy tables remain the write
-//! surface. Triggers installed by [`install`] mirror every insert/update/delete into
-//! `operations`, so the journal is always complete without changing any feature code.
-//! Later cards can move reads to this module and drop the legacy tables; the payload
-//! structs and the [`resume`] dispatcher are the contract they will use.
+//! Card #343 finished the migration: every legacy table is now a write-through
+//! compatibility view over `operations` / `operation_attempts`, and the per-feature
+//! journals were dropped one schema revision at a time (82-88). Feature SQL keeps its
+//! exact legacy column shape, so behaviour tests stay the contract, while `operations`
+//! is the only physical operation journal. The payload structs and the [`resume`]
+//! dispatcher remain the contract for future drivers.
 
 #![allow(dead_code)]
 
@@ -1112,23 +1113,178 @@ pub(in crate::kanban) fn unreadable_operations(connection: &Connection) -> Vec<S
         .collect()
 }
 
-/// Create the journal, copy every legacy journal into it and install the mirroring
-/// triggers. This is the single DDL step for card #340; legacy tables stay the write
-/// surface so no feature behaviour changes while follow-up cards move reads.
+/// Create the journal, copy every still-physical legacy journal into it and install the
+/// mirroring triggers. Legacy tables are converted to write-through views by
+/// [`retire_legacy_journals`], one schema revision per feature (card #343).
 pub(in crate::kanban) fn install(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(OPERATIONS_SCHEMA)
         .map_err(db_error)?;
-    connection
-        .execute_batch(&backfill_sql())
-        .map_err(db_error)?;
-    connection.execute_batch(&trigger_sql()).map_err(db_error)?;
+    for journal in LEGACY_JOURNALS {
+        if journal_is_physical(connection, journal)? {
+            connection
+                .execute_batch(&backfill_sql(journal))
+                .map_err(db_error)?;
+        }
+    }
     connection
         .execute(
             "INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?1,unixepoch())",
             [OPERATIONS_SCHEMA_MIGRATION],
         )
         .map_err(db_error)?;
+    Ok(())
+}
+
+/// True while `name` is still a real table. A retired journal is a view, so every
+/// backfill, mirror trigger and index must be skipped once it has been converted.
+pub(in crate::kanban) fn is_physical_table(
+    connection: &Connection,
+    name: &str,
+) -> Result<bool, String> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+            [name],
+            |row| row.get(0),
+        )
+        .map_err(db_error)
+}
+
+/// (Re)install the card-deletion cleanup trigger. The store migration may rebuild
+/// `kanban_cards`, and SQLite drops a table's triggers with it.
+pub(crate) fn ensure_card_delete_trigger(
+    connection: &Connection,
+) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS operations_card_delete BEFORE DELETE ON kanban_cards BEGIN
+               DELETE FROM operations WHERE card_id=OLD.id AND kind NOT IN
+                 ('purge','retire_preserve_resources','retire_remove_resources','retire_delete_record');
+             END;",
+        )
+        .map_err(db_error)
+}
+
+fn journal_is_physical(
+    connection: &Connection,
+    journal: LegacyJournal,
+) -> Result<bool, String> {
+    if !is_physical_table(connection, journal.table())? {
+        return Ok(false);
+    }
+    for child in journal.children() {
+        if !is_physical_table(connection, child)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// One legacy feature journal. Everything a feature wrote before card #343 maps onto one
+/// `operations.kind`; the view keeps the exact legacy column shape so feature SQL and its
+/// behaviour tests stay unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LegacyJournal {
+    Cleanup,
+    Creation,
+    TargetMerge,
+    ScriptedDelivery,
+    ProviderSync,
+    Purge,
+    PiLifecycle,
+}
+
+const LEGACY_JOURNALS: [LegacyJournal; 7] = [
+    LegacyJournal::Cleanup,
+    LegacyJournal::Creation,
+    LegacyJournal::TargetMerge,
+    LegacyJournal::ScriptedDelivery,
+    LegacyJournal::ProviderSync,
+    LegacyJournal::Purge,
+    LegacyJournal::PiLifecycle,
+];
+
+impl LegacyJournal {
+    fn table(self) -> &'static str {
+        match self {
+            LegacyJournal::Cleanup => "card_cleanup_operations",
+            LegacyJournal::Creation => "environment_creation_operations",
+            LegacyJournal::TargetMerge => "card_target_merge_operations",
+            LegacyJournal::ScriptedDelivery => "scripted_delivery_operations",
+            LegacyJournal::ProviderSync => "provider_sync_operations",
+            LegacyJournal::Purge => "local_card_purge_jobs",
+            LegacyJournal::PiLifecycle => "card_pi_lifecycle",
+        }
+    }
+
+    /// Child journals are dropped before the parent; their views stay afterwards.
+    fn children(self) -> &'static [&'static str] {
+        match self {
+            LegacyJournal::Cleanup => &["card_cleanup_evidence", "card_cleanup_phase_outcomes"],
+            LegacyJournal::ProviderSync => &["provider_sync_attempts"],
+            LegacyJournal::PiLifecycle => &["card_pi_lifecycle_events"],
+            _ => &[],
+        }
+    }
+
+    fn revision(self) -> i64 {
+        match self {
+            LegacyJournal::Cleanup => 82,
+            LegacyJournal::Creation => 83,
+            LegacyJournal::TargetMerge => 84,
+            LegacyJournal::ScriptedDelivery => 85,
+            LegacyJournal::ProviderSync => 86,
+            LegacyJournal::Purge => 87,
+            LegacyJournal::PiLifecycle => 88,
+        }
+    }
+
+    fn view_sql(self) -> String {
+        match self {
+            LegacyJournal::Cleanup => cleanup_view_sql(),
+            LegacyJournal::Creation => creation_view_sql(),
+            LegacyJournal::TargetMerge => target_merge_view_sql(),
+            LegacyJournal::ScriptedDelivery => scripted_delivery_view_sql(),
+            LegacyJournal::ProviderSync => provider_sync_view_sql(),
+            LegacyJournal::Purge => purge_view_sql(),
+            LegacyJournal::PiLifecycle => pi_lifecycle_view_sql(),
+        }
+    }
+}
+
+/// Replace every still-physical legacy journal with a write-through compatibility view.
+/// `operations` becomes the only physical operation journal; each step records its own
+/// `schema_migrations` revision and never batches another feature's drop.
+pub(in crate::kanban) fn retire_legacy_journals(connection: &Connection) -> Result<(), String> {
+    for journal in LEGACY_JOURNALS {
+        // The table may have gone a while without mirror triggers (intermediate
+        // migration state). Copy it once more before it is dropped.
+        if journal_is_physical(connection, journal)? {
+            connection
+                .execute_batch(&backfill_sql(journal))
+                .map_err(db_error)?;
+        }
+        if is_physical_table(connection, journal.table())? {
+            for child in journal.children() {
+                connection
+                    .execute_batch(&format!("DROP TABLE IF EXISTS {child};"))
+                    .map_err(db_error)?;
+            }
+            connection
+                .execute_batch(&format!("DROP TABLE IF EXISTS {};", journal.table()))
+                .map_err(db_error)?;
+        }
+        connection
+            .execute_batch(&journal.view_sql())
+            .map_err(db_error)?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?1,unixepoch())",
+                [journal.revision()],
+            )
+            .map_err(db_error)?;
+    }
     Ok(())
 }
 
@@ -1161,6 +1317,13 @@ CREATE TABLE IF NOT EXISTS operation_attempts (
     detail TEXT,
     UNIQUE(operation_id,attempt)
 );
+-- The legacy feature rows cascaded with their card. Views cannot carry that foreign
+-- key, so the journal resolves the same lifecycle explicitly. Purge tombstones and
+-- retirement intents deliberately outlive the card record.
+CREATE TRIGGER IF NOT EXISTS operations_card_delete BEFORE DELETE ON kanban_cards BEGIN
+  DELETE FROM operations WHERE card_id=OLD.id AND kind NOT IN
+    ('purge','retire_preserve_resources','retire_remove_resources','retire_delete_record');
+END;
 ";
 
 fn json_fields(prefix: &str, fields: &[(&str, &str)]) -> String {
@@ -1328,18 +1491,70 @@ fn cleanup_attempt_index(prefix: &str) -> String {
     )
 }
 
-fn backfill_sql() -> String {
-    let cleanup = json_fields("", CLEANUP_FIELDS);
-    let cleanup_evidence = json_fields("e.", CLEANUP_EVIDENCE_FIELDS);
-    let creation = json_fields("", CREATION_FIELDS);
-    let target = json_fields("", TARGET_MERGE_FIELDS);
-    let scripted = json_fields("", SCRIPTED_DELIVERY_FIELDS);
-    let provider = json_fields("", PROVIDER_SYNC_FIELDS);
-    let purge = json_fields("", PURGE_FIELDS);
-    let pi = json_fields("", PI_LIFECYCLE_FIELDS);
-    let attempt = cleanup_attempt_index("");
-    format!(
-        "
+
+/// Compatibility views have no column defaults, so an INSERT that omits a column yields
+/// NULL instead of the legacy table's default. Fill the defaults while building the
+/// journal payload so feature SQL can keep inserting only the columns it always did.
+fn json_fields_with_defaults(
+    prefix: &str,
+    fields: &[(&str, &str)],
+    defaults: &[(&str, &str)],
+) -> String {
+    let args = fields
+        .iter()
+        .map(|(key, column)| {
+            let value = defaults
+                .iter()
+                .find(|(default_key, _)| default_key == key)
+                .map(|(_, default)| format!("COALESCE({prefix}{column},{default})"))
+                .unwrap_or_else(|| format!("{prefix}{column}"));
+            format!("'{key}',{value}")
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("json_object({args})")
+}
+
+const CLEANUP_DEFAULTS: &[(&str, &str)] = &[
+    ("delete_local_branch", "0"),
+    ("delete_remote_branch", "0"),
+    ("pane_ids", "'[]'"),
+    ("override_authorized", "0"),
+    ("registration_validated", "0"),
+];
+
+const CREATION_DEFAULTS: &[(&str, &str)] = &[
+    ("custom_command", "0"),
+    ("source_worktree_new", "0"),
+    ("source_branch_new", "0"),
+    ("worktree_removed", "0"),
+    ("cleanup_available", "0"),
+    ("revision", "1"),
+];
+
+const TARGET_MERGE_DEFAULTS: &[(&str, &str)] = &[
+    ("push_attempts", "0"),
+    ("conflict_paths", "'[]'"),
+    ("target_source", "'remote'"),
+];
+
+const SCRIPTED_DELIVERY_DEFAULTS: &[(&str, &str)] = &[("revision", "1")];
+
+const PROVIDER_SYNC_DEFAULTS: &[(&str, &str)] = &[("logical_revision", "0")];
+
+const PI_LIFECYCLE_DEFAULTS: &[(&str, &str)] =
+    &[("latest_event_order", "-1"), ("latest_event_id", "''")];
+
+/// Backfill one legacy journal only. Splitting it per feature lets the migration retire
+/// journals one at a time without needing the other legacy tables to still exist.
+fn backfill_sql(journal: LegacyJournal) -> String {
+    match journal {
+        LegacyJournal::Cleanup => {
+            let cleanup = json_fields("", CLEANUP_FIELDS);
+            let cleanup_evidence = json_fields("e.", CLEANUP_EVIDENCE_FIELDS);
+            let attempt = cleanup_attempt_index("");
+            format!(
+                "
 INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
 SELECT 'cleanup:'||card_id,card_id,'cleanup',phase,0,error_code,error_detail,{cleanup},started_at,updated_at,completed_at
 FROM card_cleanup_operations WHERE 1
@@ -1355,25 +1570,55 @@ SET payload=json_set(payload,'$.evidence',{cleanup_evidence})
 FROM card_cleanup_evidence AS e
 WHERE operations.id='cleanup:'||e.card_id;
 
+INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
+SELECT 'cleanup:'||card_id,{attempt},phase,completed_at,completed_at,outcome,NULL,detail
+FROM card_cleanup_phase_outcomes WHERE 1
+ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
+  finished_at=excluded.finished_at,outcome=excluded.outcome,detail=excluded.detail;
+"
+            )
+        }
+        LegacyJournal::Creation => {
+            let creation = json_fields("", CREATION_FIELDS);
+            format!(
+                "
 INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
 SELECT 'creation:'||id,card_id,'creation',phase,0,NULL,error,{creation},created_at,updated_at,NULL
 FROM environment_creation_operations WHERE 1
 ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
   error_detail=excluded.error_detail,payload=excluded.payload,updated_at=excluded.updated_at;
-
+"
+            )
+        }
+        LegacyJournal::TargetMerge => {
+            let target = json_fields("", TARGET_MERGE_FIELDS);
+            format!(
+                "
 INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
 SELECT 'target_merge:'||id,card_id,'target_merge',phase,push_attempts,NULL,NULL,{target},created_at,updated_at,NULL
 FROM card_target_merge_operations WHERE 1
 ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
   attempt=excluded.attempt,payload=excluded.payload,updated_at=excluded.updated_at;
-
+"
+            )
+        }
+        LegacyJournal::ScriptedDelivery => {
+            let scripted = json_fields("", SCRIPTED_DELIVERY_FIELDS);
+            format!(
+                "
 INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
 SELECT 'scripted_delivery:'||card_id,card_id,'scripted_delivery',stage,attempt,failure_class,summary,{scripted},started_at,updated_at,completed_at
 FROM scripted_delivery_operations WHERE 1
 ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
   attempt=excluded.attempt,error_code=excluded.error_code,error_detail=excluded.error_detail,
   payload=excluded.payload,updated_at=excluded.updated_at,completed_at=excluded.completed_at;
-
+"
+            )
+        }
+        LegacyJournal::ProviderSync => {
+            let provider = json_fields("", PROVIDER_SYNC_FIELDS);
+            format!(
+                "
 INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
 SELECT 'provider_sync:'||id,card_id,'provider_sync',state,attempts,
   CASE WHEN state='failed' THEN 'provider_sync_failed' ELSE NULL END,error,{provider},created_at,updated_at,completed_at
@@ -1382,29 +1627,35 @@ ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=
   attempt=excluded.attempt,error_code=excluded.error_code,error_detail=excluded.error_detail,
   payload=excluded.payload,updated_at=excluded.updated_at,completed_at=excluded.completed_at;
 
+INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
+SELECT 'provider_sync:'||operation_id,attempt_number,'provider_sync',started_at,finished_at,outcome,error,NULL
+FROM provider_sync_attempts WHERE 1
+ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
+  finished_at=excluded.finished_at,outcome=excluded.outcome,error=excluded.error;
+"
+            )
+        }
+        LegacyJournal::Purge => {
+            let purge = json_fields("", PURGE_FIELDS);
+            format!(
+                "
 INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
 SELECT 'purge:'||card_id,
   CASE WHEN EXISTS(SELECT 1 FROM kanban_cards c WHERE c.id=local_card_purge_jobs.card_id) THEN card_id ELSE NULL END,
   'purge','pending',0,NULL,NULL,{purge},0,0,NULL
 FROM local_card_purge_jobs WHERE 1
 ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,phase=excluded.phase,payload=excluded.payload;
-
+"
+            )
+        }
+        LegacyJournal::PiLifecycle => {
+            let pi = json_fields("", PI_LIFECYCLE_FIELDS);
+            format!(
+                "
 INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
 SELECT 'pi_lifecycle:'||card_id||':'||thread,card_id,'pi_lifecycle','active',0,NULL,NULL,{pi},0,0,NULL
 FROM card_pi_lifecycle WHERE 1
 ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,payload=excluded.payload;
-
-INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
-SELECT 'provider_sync:'||operation_id,attempt_number,'provider_sync',started_at,finished_at,outcome,error,NULL
-FROM provider_sync_attempts WHERE 1
-ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
-  finished_at=excluded.finished_at,outcome=excluded.outcome,error=excluded.error;
-
-INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
-SELECT 'cleanup:'||card_id,{attempt},phase,completed_at,completed_at,outcome,NULL,detail
-FROM card_cleanup_phase_outcomes WHERE 1
-ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
-  finished_at=excluded.finished_at,outcome=excluded.outcome,detail=excluded.detail;
 
 INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
 SELECT operation_id,attempt,'active',0,0,outcome,NULL,detail FROM (
@@ -1415,205 +1666,478 @@ SELECT operation_id,attempt,'active',0,0,outcome,NULL,detail FROM (
 ) WHERE 1
 ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,outcome=excluded.outcome,detail=excluded.detail;
 "
+            )
+        }
+    }
+}
+
+fn cleanup_view_sql() -> String {
+    let cleanup_new = json_fields_with_defaults("NEW.", CLEANUP_FIELDS, CLEANUP_DEFAULTS);
+    let evidence_new = json_fields("NEW.", CLEANUP_EVIDENCE_FIELDS);
+    let cleanup_attempt_new = cleanup_attempt_index("NEW.");
+    let cleanup_attempt_read = cleanup_attempt_index("a.");
+    format!(
+        "
+DROP TRIGGER IF EXISTS operations_cleanup_insert;
+DROP TRIGGER IF EXISTS operations_cleanup_update;
+DROP TRIGGER IF EXISTS operations_cleanup_delete;
+DROP TRIGGER IF EXISTS operations_cleanup_evidence_insert;
+DROP TRIGGER IF EXISTS operations_cleanup_evidence_update;
+DROP TRIGGER IF EXISTS operations_cleanup_evidence_delete;
+DROP TRIGGER IF EXISTS operations_cleanup_outcome_insert;
+DROP TRIGGER IF EXISTS operations_cleanup_outcome_update;
+DROP TRIGGER IF EXISTS operations_cleanup_outcome_delete;
+CREATE VIEW IF NOT EXISTS card_cleanup_operations AS
+SELECT o.card_id AS card_id,
+  json_extract(o.payload,'$.environment_id') AS environment_id,
+  json_extract(o.payload,'$.workflow_revision') AS workflow_revision,
+  json_extract(o.payload,'$.environment_revision') AS environment_revision,
+  json_extract(o.payload,'$.status') AS status,
+  o.phase AS phase,
+  json_extract(o.payload,'$.completion_outcome') AS completion_outcome,
+  json_extract(o.payload,'$.repository_id') AS repository_id,
+  json_extract(o.payload,'$.source_path') AS source_path,
+  json_extract(o.payload,'$.target_path') AS target_path,
+  json_extract(o.payload,'$.source_branch') AS source_branch,
+  json_extract(o.payload,'$.target_branch') AS target_branch,
+  json_extract(o.payload,'$.source_revision') AS source_revision,
+  json_extract(o.payload,'$.target_revision') AS target_revision,
+  json_extract(o.payload,'$.delete_local_branch') AS delete_local_branch,
+  json_extract(o.payload,'$.delete_remote_branch') AS delete_remote_branch,
+  json_extract(o.payload,'$.merged_pr_repository') AS merged_pr_repository,
+  json_extract(o.payload,'$.merged_pr_number') AS merged_pr_number,
+  json_extract(o.payload,'$.merged_pr_head_revision') AS merged_pr_head_revision,
+  json_extract(o.payload,'$.pane_ids') AS pane_ids,
+  json_extract(o.payload,'$.registration_validated') AS registration_validated,
+  json_extract(o.payload,'$.validation_completed_at') AS validation_completed_at,
+  o.error_code AS error_code,
+  o.error_detail AS error_detail,
+  o.created_at AS started_at,
+  o.updated_at AS updated_at,
+  o.completed_at AS completed_at,
+  json_extract(o.payload,'$.override_authorized') AS override_authorized
+FROM operations o WHERE o.kind='cleanup';
+
+CREATE TRIGGER IF NOT EXISTS card_cleanup_operations_insert INSTEAD OF INSERT ON card_cleanup_operations BEGIN
+  SELECT RAISE(ABORT,'UNIQUE constraint failed: card_cleanup_operations.card_id')
+  WHERE EXISTS(SELECT 1 FROM operations WHERE kind='cleanup' AND card_id=NEW.card_id AND id<>'cleanup:'||NEW.card_id);
+  INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
+  VALUES ('cleanup:'||NEW.card_id,NEW.card_id,'cleanup',NEW.phase,0,NEW.error_code,NEW.error_detail,{cleanup_new},NEW.started_at,NEW.updated_at,NEW.completed_at)
+  ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
+    error_code=excluded.error_code,error_detail=excluded.error_detail,
+    payload=CASE WHEN json_extract(operations.payload,'$.evidence') IS NOT NULL
+      THEN json_patch(excluded.payload,json_object('evidence',json_extract(operations.payload,'$.evidence')))
+      ELSE excluded.payload END,
+    updated_at=excluded.updated_at,completed_at=excluded.completed_at;
+END;
+CREATE TRIGGER IF NOT EXISTS card_cleanup_operations_update INSTEAD OF UPDATE ON card_cleanup_operations BEGIN
+  SELECT RAISE(ABORT, 'cleanup operation snapshot is immutable')
+  WHERE NEW.environment_id IS NOT OLD.environment_id OR NEW.workflow_revision IS NOT OLD.workflow_revision
+    OR NEW.environment_revision IS NOT OLD.environment_revision OR NEW.completion_outcome IS NOT OLD.completion_outcome
+    OR NEW.repository_id IS NOT OLD.repository_id OR NEW.source_path IS NOT OLD.source_path OR NEW.target_path IS NOT OLD.target_path
+    OR NEW.source_branch IS NOT OLD.source_branch OR NEW.target_branch IS NOT OLD.target_branch OR NEW.source_revision IS NOT OLD.source_revision
+    OR NEW.target_revision IS NOT OLD.target_revision OR NEW.delete_local_branch IS NOT OLD.delete_local_branch OR NEW.delete_remote_branch IS NOT OLD.delete_remote_branch
+    OR NEW.merged_pr_repository IS NOT OLD.merged_pr_repository OR NEW.merged_pr_number IS NOT OLD.merged_pr_number
+    OR NEW.merged_pr_head_revision IS NOT OLD.merged_pr_head_revision OR NEW.pane_ids IS NOT OLD.pane_ids;
+  INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
+  VALUES ('cleanup:'||NEW.card_id,NEW.card_id,'cleanup',NEW.phase,0,NEW.error_code,NEW.error_detail,{cleanup_new},NEW.started_at,NEW.updated_at,NEW.completed_at)
+  ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
+    error_code=excluded.error_code,error_detail=excluded.error_detail,
+    payload=CASE WHEN json_extract(operations.payload,'$.evidence') IS NOT NULL
+      THEN json_patch(excluded.payload,json_object('evidence',json_extract(operations.payload,'$.evidence')))
+      ELSE excluded.payload END,
+    updated_at=excluded.updated_at,completed_at=excluded.completed_at;
+END;
+CREATE TRIGGER IF NOT EXISTS card_cleanup_operations_delete INSTEAD OF DELETE ON card_cleanup_operations BEGIN
+  DELETE FROM operations WHERE id='cleanup:'||OLD.card_id;
+END;
+
+CREATE VIEW IF NOT EXISTS card_cleanup_evidence AS
+SELECT o.card_id AS card_id,
+  json_extract(o.payload,'$.evidence.recorded_target_path') AS recorded_target_path,
+  json_extract(o.payload,'$.evidence.recorded_target_branch') AS recorded_target_branch,
+  json_extract(o.payload,'$.evidence.reconciled_target_path') AS reconciled_target_path,
+  json_extract(o.payload,'$.evidence.reconciled_target_branch') AS reconciled_target_branch,
+  json_extract(o.payload,'$.evidence.merge_proof_type') AS merge_proof_type,
+  json_extract(o.payload,'$.evidence.merge_proof_detail') AS merge_proof_detail,
+  json_extract(o.payload,'$.evidence.local_branch_disposition') AS local_branch_disposition,
+  json_extract(o.payload,'$.evidence.remote_branch_disposition') AS remote_branch_disposition,
+  json_extract(o.payload,'$.evidence.remote_name') AS remote_name,
+  json_extract(o.payload,'$.evidence.remote_tip') AS remote_tip,
+  json_extract(o.payload,'$.evidence.runtime_inventory') AS runtime_inventory,
+  json_extract(o.payload,'$.evidence.metadata_inventory') AS metadata_inventory,
+  json_extract(o.payload,'$.evidence.captured_at') AS captured_at
+FROM operations o WHERE o.kind='cleanup' AND json_extract(o.payload,'$.evidence') IS NOT NULL;
+
+CREATE TRIGGER IF NOT EXISTS card_cleanup_evidence_insert INSTEAD OF INSERT ON card_cleanup_evidence BEGIN
+  UPDATE operations SET payload=json_set(payload,'$.evidence',{evidence_new}),updated_at=NEW.captured_at
+  WHERE id='cleanup:'||NEW.card_id;
+END;
+CREATE TRIGGER IF NOT EXISTS card_cleanup_evidence_update INSTEAD OF UPDATE ON card_cleanup_evidence BEGIN
+  UPDATE operations SET payload=json_set(payload,'$.evidence',{evidence_new}),updated_at=NEW.captured_at
+  WHERE id='cleanup:'||NEW.card_id;
+END;
+CREATE TRIGGER IF NOT EXISTS card_cleanup_evidence_delete INSTEAD OF DELETE ON card_cleanup_evidence BEGIN
+  UPDATE operations SET payload=json_remove(payload,'$.evidence') WHERE id='cleanup:'||OLD.card_id;
+END;
+
+CREATE VIEW IF NOT EXISTS card_cleanup_phase_outcomes AS
+SELECT o.card_id AS card_id, a.phase AS phase, a.outcome AS outcome, a.detail AS detail, a.finished_at AS completed_at
+FROM operation_attempts a JOIN operations o ON o.id=a.operation_id
+WHERE o.kind='cleanup' AND a.attempt={cleanup_attempt_read};
+
+CREATE TRIGGER IF NOT EXISTS card_cleanup_phase_outcomes_insert INSTEAD OF INSERT ON card_cleanup_phase_outcomes BEGIN
+  INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
+  VALUES ('cleanup:'||NEW.card_id,{cleanup_attempt_new},NEW.phase,NEW.completed_at,NEW.completed_at,NEW.outcome,NULL,NEW.detail)
+  ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
+    finished_at=excluded.finished_at,outcome=excluded.outcome,detail=excluded.detail;
+END;
+CREATE TRIGGER IF NOT EXISTS card_cleanup_phase_outcomes_update INSTEAD OF UPDATE ON card_cleanup_phase_outcomes BEGIN
+  INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
+  VALUES ('cleanup:'||NEW.card_id,{cleanup_attempt_new},NEW.phase,NEW.completed_at,NEW.completed_at,NEW.outcome,NULL,NEW.detail)
+  ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
+    finished_at=excluded.finished_at,outcome=excluded.outcome,detail=excluded.detail;
+END;
+CREATE TRIGGER IF NOT EXISTS card_cleanup_phase_outcomes_delete INSTEAD OF DELETE ON card_cleanup_phase_outcomes BEGIN
+  DELETE FROM operation_attempts WHERE operation_id='cleanup:'||OLD.card_id AND phase=OLD.phase;
+END;
+"
     )
 }
 
-fn trigger_sql() -> String {
-    let cleanup_new = json_fields("NEW.", CLEANUP_FIELDS);
-    let creation_new = json_fields("NEW.", CREATION_FIELDS);
-    let target_new = json_fields("NEW.", TARGET_MERGE_FIELDS);
-    let scripted_new = json_fields("NEW.", SCRIPTED_DELIVERY_FIELDS);
-    let provider_new = json_fields("NEW.", PROVIDER_SYNC_FIELDS);
-    let purge_new = json_fields("NEW.", PURGE_FIELDS);
-    let pi_new = json_fields("NEW.", PI_LIFECYCLE_FIELDS);
-    let evidence_new = json_fields("NEW.", CLEANUP_EVIDENCE_FIELDS);
-    let cleanup_attempt_new = cleanup_attempt_index("NEW.");
+fn creation_view_sql() -> String {
+    let creation_new = json_fields_with_defaults("NEW.", CREATION_FIELDS, CREATION_DEFAULTS);
     format!(
         "
--- Cleanup journal and its evidence/phase children.
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_insert AFTER INSERT ON card_cleanup_operations BEGIN
-  INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('cleanup:'||NEW.card_id,NEW.card_id,'cleanup',NEW.phase,0,NEW.error_code,NEW.error_detail,{cleanup_new},NEW.started_at,NEW.updated_at,NEW.completed_at)
-  ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
-    error_code=excluded.error_code,error_detail=excluded.error_detail,
-    payload=CASE WHEN json_extract(operations.payload,'$.evidence') IS NOT NULL
-      THEN json_patch(excluded.payload,json_object('evidence',json_extract(operations.payload,'$.evidence')))
-      ELSE excluded.payload END,
-    updated_at=excluded.updated_at,completed_at=excluded.completed_at;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_update AFTER UPDATE ON card_cleanup_operations BEGIN
-  INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('cleanup:'||NEW.card_id,NEW.card_id,'cleanup',NEW.phase,0,NEW.error_code,NEW.error_detail,{cleanup_new},NEW.started_at,NEW.updated_at,NEW.completed_at)
-  ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
-    error_code=excluded.error_code,error_detail=excluded.error_detail,
-    payload=CASE WHEN json_extract(operations.payload,'$.evidence') IS NOT NULL
-      THEN json_patch(excluded.payload,json_object('evidence',json_extract(operations.payload,'$.evidence')))
-      ELSE excluded.payload END,
-    updated_at=excluded.updated_at,completed_at=excluded.completed_at;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_delete AFTER DELETE ON card_cleanup_operations BEGIN
-  DELETE FROM operations WHERE id='cleanup:'||OLD.card_id;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_evidence_insert AFTER INSERT ON card_cleanup_evidence BEGIN
-  UPDATE operations SET payload=json_set(payload,'$.evidence',{evidence_new}),updated_at=NEW.captured_at
-  WHERE id='cleanup:'||NEW.card_id;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_evidence_update AFTER UPDATE ON card_cleanup_evidence BEGIN
-  UPDATE operations SET payload=json_set(payload,'$.evidence',{evidence_new}),updated_at=NEW.captured_at
-  WHERE id='cleanup:'||NEW.card_id;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_evidence_delete AFTER DELETE ON card_cleanup_evidence BEGIN
-  UPDATE operations SET payload=json_remove(payload,'$.evidence') WHERE id='cleanup:'||OLD.card_id;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_outcome_insert AFTER INSERT ON card_cleanup_phase_outcomes BEGIN
-  INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
-  VALUES ('cleanup:'||NEW.card_id,{cleanup_attempt_new},NEW.phase,NEW.completed_at,NEW.completed_at,NEW.outcome,NULL,NEW.detail)
-  ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
-    finished_at=excluded.finished_at,outcome=excluded.outcome,detail=excluded.detail;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_outcome_update AFTER UPDATE ON card_cleanup_phase_outcomes BEGIN
-  INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
-  VALUES ('cleanup:'||NEW.card_id,{cleanup_attempt_new},NEW.phase,NEW.completed_at,NEW.completed_at,NEW.outcome,NULL,NEW.detail)
-  ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
-    finished_at=excluded.finished_at,outcome=excluded.outcome,detail=excluded.detail;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_cleanup_outcome_delete AFTER DELETE ON card_cleanup_phase_outcomes BEGIN
-  DELETE FROM operation_attempts WHERE operation_id='cleanup:'||OLD.card_id AND phase=OLD.phase;
-END;
+DROP TRIGGER IF EXISTS operations_creation_insert;
+DROP TRIGGER IF EXISTS operations_creation_update;
+DROP TRIGGER IF EXISTS operations_creation_delete;
+CREATE VIEW IF NOT EXISTS environment_creation_operations AS
+SELECT json_extract(o.payload,'$.operation_id') AS id, o.card_id AS card_id,
+  json_extract(o.payload,'$.project_id') AS project_id,
+  json_extract(o.payload,'$.repository_id') AS repository_id,
+  json_extract(o.payload,'$.expected_workflow_revision') AS expected_workflow_revision,
+  json_extract(o.payload,'$.target_checkout_path') AS target_checkout_path,
+  json_extract(o.payload,'$.target_branch') AS target_branch,
+  json_extract(o.payload,'$.observed_target_revision') AS observed_target_revision,
+  json_extract(o.payload,'$.setup_command') AS setup_command,
+  json_extract(o.payload,'$.custom_command') AS custom_command,
+  o.phase AS phase,
+  json_extract(o.payload,'$.attempt_token') AS attempt_token,
+  json_extract(o.payload,'$.result_path') AS result_path,
+  json_extract(o.payload,'$.pre_worktrees') AS pre_worktrees,
+  json_extract(o.payload,'$.pre_branches') AS pre_branches,
+  json_extract(o.payload,'$.post_worktrees') AS post_worktrees,
+  json_extract(o.payload,'$.post_branches') AS post_branches,
+  json_extract(o.payload,'$.setup_result_cwd') AS setup_result_cwd,
+  json_extract(o.payload,'$.setup_output') AS setup_output,
+  json_extract(o.payload,'$.source_path') AS source_path,
+  json_extract(o.payload,'$.source_branch') AS source_branch,
+  json_extract(o.payload,'$.source_revision') AS source_revision,
+  json_extract(o.payload,'$.source_worktree_new') AS source_worktree_new,
+  json_extract(o.payload,'$.source_branch_new') AS source_branch_new,
+  json_extract(o.payload,'$.worktree_removed') AS worktree_removed,
+  o.error_detail AS error,
+  json_extract(o.payload,'$.cleanup_available') AS cleanup_available,
+  json_extract(o.payload,'$.revision') AS revision,
+  o.created_at AS created_at,
+  o.updated_at AS updated_at
+FROM operations o WHERE o.kind='creation';
 
--- Environment creation journal.
-CREATE TRIGGER IF NOT EXISTS operations_creation_insert AFTER INSERT ON environment_creation_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS environment_creation_operations_insert INSTEAD OF INSERT ON environment_creation_operations BEGIN
+  SELECT RAISE(ABORT,'UNIQUE constraint failed: environment_creation_operations.card_id')
+  WHERE EXISTS(SELECT 1 FROM operations WHERE kind='creation' AND card_id=NEW.card_id AND id<>'creation:'||NEW.id);
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
   VALUES ('creation:'||NEW.id,NEW.card_id,'creation',NEW.phase,0,NULL,NEW.error,{creation_new},NEW.created_at,NEW.updated_at,NULL)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
     error_detail=excluded.error_detail,payload=excluded.payload,updated_at=excluded.updated_at;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_creation_update AFTER UPDATE ON environment_creation_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS environment_creation_operations_update INSTEAD OF UPDATE ON environment_creation_operations BEGIN
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
   VALUES ('creation:'||NEW.id,NEW.card_id,'creation',NEW.phase,0,NULL,NEW.error,{creation_new},NEW.created_at,NEW.updated_at,NULL)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
     error_detail=excluded.error_detail,payload=excluded.payload,updated_at=excluded.updated_at;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_creation_delete AFTER DELETE ON environment_creation_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS environment_creation_operations_delete INSTEAD OF DELETE ON environment_creation_operations BEGIN
   DELETE FROM operations WHERE id='creation:'||OLD.id;
 END;
+"
+    )
+}
 
--- Target merge journal.
-CREATE TRIGGER IF NOT EXISTS operations_target_merge_insert AFTER INSERT ON card_target_merge_operations BEGIN
+fn target_merge_view_sql() -> String {
+    let target_new = json_fields_with_defaults("NEW.", TARGET_MERGE_FIELDS, TARGET_MERGE_DEFAULTS);
+    format!(
+        "
+DROP TRIGGER IF EXISTS operations_target_merge_insert;
+DROP TRIGGER IF EXISTS operations_target_merge_update;
+DROP TRIGGER IF EXISTS operations_target_merge_delete;
+CREATE VIEW IF NOT EXISTS card_target_merge_operations AS
+SELECT json_extract(o.payload,'$.operation_id') AS id, o.card_id AS card_id,
+  json_extract(o.payload,'$.environment_id') AS environment_id,
+  json_extract(o.payload,'$.workflow_revision') AS workflow_revision,
+  json_extract(o.payload,'$.environment_revision') AS environment_revision,
+  json_extract(o.payload,'$.initial_status') AS initial_status,
+  json_extract(o.payload,'$.repository_id') AS repository_id,
+  json_extract(o.payload,'$.source_path') AS source_path,
+  json_extract(o.payload,'$.source_branch') AS source_branch,
+  json_extract(o.payload,'$.target_checkout_path') AS target_checkout_path,
+  json_extract(o.payload,'$.target_branch') AS target_branch,
+  json_extract(o.payload,'$.upstream_remote') AS upstream_remote,
+  json_extract(o.payload,'$.upstream_merge_ref') AS upstream_merge_ref,
+  json_extract(o.payload,'$.source_revision') AS source_revision,
+  json_extract(o.payload,'$.initial_target_revision') AS initial_target_revision,
+  json_extract(o.payload,'$.target_revision') AS target_revision,
+  json_extract(o.payload,'$.remote_revision') AS remote_revision,
+  json_extract(o.payload,'$.pushed_target_revision') AS pushed_target_revision,
+  json_extract(o.payload,'$.push_attempts') AS push_attempts,
+  o.phase AS phase,
+  json_extract(o.payload,'$.conflict_paths') AS conflict_paths,
+  o.created_at AS created_at,
+  o.updated_at AS updated_at,
+  json_extract(o.payload,'$.target_source') AS target_source
+FROM operations o WHERE o.kind='target_merge';
+
+CREATE TRIGGER IF NOT EXISTS card_target_merge_operations_insert INSTEAD OF INSERT ON card_target_merge_operations BEGIN
+  SELECT RAISE(ABORT,'UNIQUE constraint failed: card_target_merge_operations.card_id')
+  WHERE EXISTS(SELECT 1 FROM operations WHERE kind='target_merge' AND card_id=NEW.card_id AND id<>'target_merge:'||NEW.id);
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('target_merge:'||NEW.id,NEW.card_id,'target_merge',NEW.phase,NEW.push_attempts,NULL,NULL,{target_new},NEW.created_at,NEW.updated_at,NULL)
+  VALUES ('target_merge:'||NEW.id,NEW.card_id,'target_merge',NEW.phase,COALESCE(NEW.push_attempts,0),NULL,NULL,{target_new},NEW.created_at,NEW.updated_at,NULL)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
     attempt=excluded.attempt,payload=excluded.payload,updated_at=excluded.updated_at;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_target_merge_update AFTER UPDATE ON card_target_merge_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS card_target_merge_operations_update INSTEAD OF UPDATE ON card_target_merge_operations BEGIN
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('target_merge:'||NEW.id,NEW.card_id,'target_merge',NEW.phase,NEW.push_attempts,NULL,NULL,{target_new},NEW.created_at,NEW.updated_at,NULL)
+  VALUES ('target_merge:'||NEW.id,NEW.card_id,'target_merge',NEW.phase,COALESCE(NEW.push_attempts,0),NULL,NULL,{target_new},NEW.created_at,NEW.updated_at,NULL)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
     attempt=excluded.attempt,payload=excluded.payload,updated_at=excluded.updated_at;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_target_merge_delete AFTER DELETE ON card_target_merge_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS card_target_merge_operations_delete INSTEAD OF DELETE ON card_target_merge_operations BEGIN
   DELETE FROM operations WHERE id='target_merge:'||OLD.id;
 END;
+"
+    )
+}
 
--- Scripted delivery journal.
-CREATE TRIGGER IF NOT EXISTS operations_scripted_insert AFTER INSERT ON scripted_delivery_operations BEGIN
+fn scripted_delivery_view_sql() -> String {
+    let scripted_new = json_fields_with_defaults("NEW.", SCRIPTED_DELIVERY_FIELDS, SCRIPTED_DELIVERY_DEFAULTS);
+    format!(
+        "
+DROP TRIGGER IF EXISTS operations_scripted_insert;
+DROP TRIGGER IF EXISTS operations_scripted_update;
+DROP TRIGGER IF EXISTS operations_scripted_delete;
+CREATE VIEW IF NOT EXISTS scripted_delivery_operations AS
+SELECT o.card_id AS card_id,
+  json_extract(o.payload,'$.project_id') AS project_id,
+  json_extract(o.payload,'$.environment_id') AS environment_id,
+  json_extract(o.payload,'$.repository_id') AS repository_id,
+  json_extract(o.payload,'$.primary_checkout_path') AS primary_checkout_path,
+  json_extract(o.payload,'$.target_branch') AS target_branch,
+  json_extract(o.payload,'$.source_revision') AS source_revision,
+  json_extract(o.payload,'$.merge_revision') AS merge_revision,
+  json_extract(o.payload,'$.verified_push_revision') AS verified_push_revision,
+  json_extract(o.payload,'$.deployed_revision') AS deployed_revision,
+  json_extract(o.payload,'$.upstream_remote') AS upstream_remote,
+  json_extract(o.payload,'$.upstream_ref') AS upstream_ref,
+  o.phase AS stage,
+  o.attempt AS attempt,
+  json_extract(o.payload,'$.attempt_token') AS attempt_token,
+  o.error_code AS failure_class,
+  o.error_detail AS summary,
+  json_extract(o.payload,'$.started_at') AS started_at,
+  o.updated_at AS updated_at,
+  o.completed_at AS completed_at,
+  json_extract(o.payload,'$.revision') AS revision
+FROM operations o WHERE o.kind='scripted_delivery';
+
+CREATE TRIGGER IF NOT EXISTS scripted_delivery_operations_insert INSTEAD OF INSERT ON scripted_delivery_operations BEGIN
+  SELECT RAISE(ABORT,'UNIQUE constraint failed: scripted_delivery_operations.card_id')
+  WHERE EXISTS(SELECT 1 FROM operations WHERE kind='scripted_delivery' AND card_id=NEW.card_id AND id<>'scripted_delivery:'||NEW.card_id);
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('scripted_delivery:'||NEW.card_id,NEW.card_id,'scripted_delivery',NEW.stage,NEW.attempt,NEW.failure_class,NEW.summary,{scripted_new},NEW.started_at,NEW.updated_at,NEW.completed_at)
+  VALUES ('scripted_delivery:'||NEW.card_id,NEW.card_id,'scripted_delivery',NEW.stage,COALESCE(NEW.attempt,0),NEW.failure_class,NEW.summary,{scripted_new},NEW.started_at,NEW.updated_at,NEW.completed_at)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
     attempt=excluded.attempt,error_code=excluded.error_code,error_detail=excluded.error_detail,
     payload=excluded.payload,updated_at=excluded.updated_at,completed_at=excluded.completed_at;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_scripted_update AFTER UPDATE ON scripted_delivery_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS scripted_delivery_operations_update INSTEAD OF UPDATE ON scripted_delivery_operations BEGIN
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('scripted_delivery:'||NEW.card_id,NEW.card_id,'scripted_delivery',NEW.stage,NEW.attempt,NEW.failure_class,NEW.summary,{scripted_new},NEW.started_at,NEW.updated_at,NEW.completed_at)
+  VALUES ('scripted_delivery:'||NEW.card_id,NEW.card_id,'scripted_delivery',NEW.stage,COALESCE(NEW.attempt,0),NEW.failure_class,NEW.summary,{scripted_new},NEW.started_at,NEW.updated_at,NEW.completed_at)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
     attempt=excluded.attempt,error_code=excluded.error_code,error_detail=excluded.error_detail,
     payload=excluded.payload,updated_at=excluded.updated_at,completed_at=excluded.completed_at;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_scripted_delete AFTER DELETE ON scripted_delivery_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS scripted_delivery_operations_delete INSTEAD OF DELETE ON scripted_delivery_operations BEGIN
   DELETE FROM operations WHERE id='scripted_delivery:'||OLD.card_id;
 END;
+"
+    )
+}
 
--- Provider synchronization journal and its attempt history.
-CREATE TRIGGER IF NOT EXISTS operations_provider_insert AFTER INSERT ON provider_sync_operations BEGIN
+fn provider_sync_view_sql() -> String {
+    let provider_new = json_fields_with_defaults("NEW.", PROVIDER_SYNC_FIELDS, PROVIDER_SYNC_DEFAULTS);
+    format!(
+        "
+DROP TRIGGER IF EXISTS operations_provider_insert;
+DROP TRIGGER IF EXISTS operations_provider_update;
+DROP TRIGGER IF EXISTS operations_provider_delete;
+DROP TRIGGER IF EXISTS operations_provider_attempt_insert;
+DROP TRIGGER IF EXISTS operations_provider_attempt_update;
+DROP TRIGGER IF EXISTS operations_provider_attempt_delete;
+DROP INDEX IF EXISTS provider_sync_pending_idx;
+CREATE VIEW IF NOT EXISTS provider_sync_operations AS
+SELECT json_extract(o.payload,'$.operation_id') AS id, o.card_id AS card_id,
+  json_extract(o.payload,'$.sync_kind') AS kind,
+  json_extract(o.payload,'$.provider') AS provider,
+  json_extract(o.payload,'$.external_id') AS external_id,
+  json_extract(o.payload,'$.board_id') AS board_id,
+  json_extract(o.payload,'$.source_column_id') AS source_column_id,
+  json_extract(o.payload,'$.source_column_name') AS source_column_name,
+  json_extract(o.payload,'$.destination_column_id') AS destination_column_id,
+  json_extract(o.payload,'$.destination_column_name') AS destination_column_name,
+  json_extract(o.payload,'$.workflow_revision') AS workflow_revision,
+  json_extract(o.payload,'$.integration_revision') AS integration_revision,
+  json_extract(o.payload,'$.project_id') AS project_id,
+  json_extract(o.payload,'$.api_token_env_var') AS api_token_env_var,
+  o.phase AS state,
+  json_extract(o.payload,'$.logical_revision') AS logical_revision,
+  o.attempt AS attempts,
+  o.error_detail AS error,
+  o.created_at AS created_at,
+  o.updated_at AS updated_at,
+  o.completed_at AS completed_at,
+  -- The store migration owns the snapshot column; nothing reads it from this journal.
+  CAST(NULL AS TEXT) AS binding_id
+FROM operations o WHERE o.kind='provider_sync';
+
+CREATE TRIGGER IF NOT EXISTS provider_sync_operations_insert INSTEAD OF INSERT ON provider_sync_operations BEGIN
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('provider_sync:'||NEW.id,NEW.card_id,'provider_sync',NEW.state,NEW.attempts,
+  VALUES ('provider_sync:'||NEW.id,NEW.card_id,'provider_sync',NEW.state,COALESCE(NEW.attempts,0),
     CASE WHEN NEW.state='failed' THEN 'provider_sync_failed' ELSE NULL END,NEW.error,{provider_new},NEW.created_at,NEW.updated_at,NEW.completed_at)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
     attempt=excluded.attempt,error_code=excluded.error_code,error_detail=excluded.error_detail,
     payload=excluded.payload,updated_at=excluded.updated_at,completed_at=excluded.completed_at;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_provider_update AFTER UPDATE ON provider_sync_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS provider_sync_operations_update INSTEAD OF UPDATE ON provider_sync_operations BEGIN
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('provider_sync:'||NEW.id,NEW.card_id,'provider_sync',NEW.state,NEW.attempts,
+  VALUES ('provider_sync:'||NEW.id,NEW.card_id,'provider_sync',NEW.state,COALESCE(NEW.attempts,0),
     CASE WHEN NEW.state='failed' THEN 'provider_sync_failed' ELSE NULL END,NEW.error,{provider_new},NEW.created_at,NEW.updated_at,NEW.completed_at)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,
     attempt=excluded.attempt,error_code=excluded.error_code,error_detail=excluded.error_detail,
     payload=excluded.payload,updated_at=excluded.updated_at,completed_at=excluded.completed_at;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_provider_delete AFTER DELETE ON provider_sync_operations BEGIN
+CREATE TRIGGER IF NOT EXISTS provider_sync_operations_delete INSTEAD OF DELETE ON provider_sync_operations BEGIN
   DELETE FROM operations WHERE id='provider_sync:'||OLD.id;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_provider_attempt_insert AFTER INSERT ON provider_sync_attempts BEGIN
-  INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
-  VALUES ('provider_sync:'||NEW.operation_id,NEW.attempt_number,'provider_sync',NEW.started_at,NEW.finished_at,NEW.outcome,NEW.error,NULL)
-  ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
-    finished_at=excluded.finished_at,outcome=excluded.outcome,error=excluded.error;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_provider_attempt_update AFTER UPDATE ON provider_sync_attempts BEGIN
-  INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
-  VALUES ('provider_sync:'||NEW.operation_id,NEW.attempt_number,'provider_sync',NEW.started_at,NEW.finished_at,NEW.outcome,NEW.error,NULL)
-  ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
-    finished_at=excluded.finished_at,outcome=excluded.outcome,error=excluded.error;
-END;
-CREATE TRIGGER IF NOT EXISTS operations_provider_attempt_delete AFTER DELETE ON provider_sync_attempts BEGIN
-  DELETE FROM operation_attempts WHERE operation_id='provider_sync:'||OLD.operation_id AND attempt=OLD.attempt_number;
-END;
 
--- Local purge tombstone. It outlives the card, so the payload keeps the identity.
-CREATE TRIGGER IF NOT EXISTS operations_purge_insert AFTER INSERT ON local_card_purge_jobs BEGIN
+CREATE VIEW IF NOT EXISTS provider_sync_attempts AS
+SELECT a.id AS id, json_extract(o.payload,'$.operation_id') AS operation_id,
+  a.attempt AS attempt_number, a.started_at AS started_at, a.finished_at AS finished_at,
+  a.outcome AS outcome, a.error AS error
+FROM operation_attempts a JOIN operations o ON o.id=a.operation_id
+WHERE o.kind='provider_sync' AND a.phase='provider_sync';
+
+CREATE TRIGGER IF NOT EXISTS provider_sync_attempts_insert INSTEAD OF INSERT ON provider_sync_attempts BEGIN
+  INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
+  VALUES ('provider_sync:'||NEW.operation_id,NEW.attempt_number,'provider_sync',NEW.started_at,NEW.finished_at,NEW.outcome,NEW.error,NULL)
+  ON CONFLICT(operation_id,attempt) DO UPDATE SET phase=excluded.phase,started_at=excluded.started_at,
+    finished_at=excluded.finished_at,outcome=excluded.outcome,error=excluded.error;
+END;
+CREATE TRIGGER IF NOT EXISTS provider_sync_attempts_update INSTEAD OF UPDATE ON provider_sync_attempts BEGIN
+  UPDATE operation_attempts SET attempt=NEW.attempt_number,phase='provider_sync',started_at=NEW.started_at,
+    finished_at=NEW.finished_at,outcome=NEW.outcome,error=NEW.error WHERE id=OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS provider_sync_attempts_delete INSTEAD OF DELETE ON provider_sync_attempts BEGIN
+  DELETE FROM operation_attempts WHERE id=OLD.id;
+END;
+"
+    )
+}
+
+fn purge_view_sql() -> String {
+    let purge_new = json_fields("NEW.", PURGE_FIELDS);
+    format!(
+        "
+DROP TRIGGER IF EXISTS operations_purge_insert;
+DROP TRIGGER IF EXISTS operations_purge_update;
+DROP TRIGGER IF EXISTS operations_purge_delete;
+CREATE VIEW IF NOT EXISTS local_card_purge_jobs AS
+SELECT json_extract(o.payload,'$.card_id') AS card_id,
+  json_extract(o.payload,'$.storage_key') AS storage_key
+FROM operations o WHERE o.kind='purge';
+
+CREATE TRIGGER IF NOT EXISTS local_card_purge_jobs_insert INSTEAD OF INSERT ON local_card_purge_jobs BEGIN
+  SELECT RAISE(ABORT,'UNIQUE constraint failed: local_card_purge_jobs.card_id')
+  WHERE EXISTS(SELECT 1 FROM operations WHERE kind='purge' AND json_extract(payload,'$.card_id')=NEW.card_id);
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('purge:'||NEW.card_id,NEW.card_id,'purge','pending',0,NULL,NULL,{purge_new},0,0,NULL)
+  VALUES ('purge:'||NEW.card_id,(SELECT id FROM kanban_cards WHERE id=NEW.card_id),'purge','pending',0,NULL,NULL,{purge_new},0,0,NULL)
   ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,phase=excluded.phase,payload=excluded.payload;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_purge_update AFTER UPDATE ON local_card_purge_jobs BEGIN
+CREATE TRIGGER IF NOT EXISTS local_card_purge_jobs_update INSTEAD OF UPDATE ON local_card_purge_jobs BEGIN
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
-  VALUES ('purge:'||NEW.card_id,NEW.card_id,'purge','pending',0,NULL,NULL,{purge_new},0,0,NULL)
+  VALUES ('purge:'||NEW.card_id,(SELECT id FROM kanban_cards WHERE id=NEW.card_id),'purge','pending',0,NULL,NULL,{purge_new},0,0,NULL)
   ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,phase=excluded.phase,payload=excluded.payload;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_purge_delete AFTER DELETE ON local_card_purge_jobs BEGIN
+CREATE TRIGGER IF NOT EXISTS local_card_purge_jobs_delete INSTEAD OF DELETE ON local_card_purge_jobs BEGIN
   DELETE FROM operations WHERE id='purge:'||OLD.card_id;
 END;
+"
+    )
+}
 
--- Pi lifecycle cursors and their event dedupe history.
-CREATE TRIGGER IF NOT EXISTS operations_pi_insert AFTER INSERT ON card_pi_lifecycle BEGIN
+fn pi_lifecycle_view_sql() -> String {
+    let pi_new = json_fields_with_defaults("NEW.", PI_LIFECYCLE_FIELDS, PI_LIFECYCLE_DEFAULTS);
+    format!(
+        "
+DROP TRIGGER IF EXISTS operations_pi_insert;
+DROP TRIGGER IF EXISTS operations_pi_update;
+DROP TRIGGER IF EXISTS operations_pi_delete;
+DROP TRIGGER IF EXISTS operations_pi_event_insert;
+DROP TRIGGER IF EXISTS operations_pi_event_update;
+DROP TRIGGER IF EXISTS operations_pi_event_delete;
+CREATE VIEW IF NOT EXISTS card_pi_lifecycle AS
+SELECT json_extract(o.payload,'$.card_id') AS card_id,
+  json_extract(o.payload,'$.thread') AS thread,
+  json_extract(o.payload,'$.generation') AS generation,
+  json_extract(o.payload,'$.latest_event_order') AS latest_event_order,
+  json_extract(o.payload,'$.latest_event_id') AS latest_event_id
+FROM operations o WHERE o.kind='pi_lifecycle';
+
+CREATE TRIGGER IF NOT EXISTS card_pi_lifecycle_insert INSTEAD OF INSERT ON card_pi_lifecycle BEGIN
+  SELECT RAISE(ABORT,'UNIQUE constraint failed: card_pi_lifecycle.card_id,thread')
+  WHERE EXISTS(SELECT 1 FROM operations WHERE kind='pi_lifecycle' AND card_id=NEW.card_id AND json_extract(payload,'$.thread')=NEW.thread AND id<>'pi_lifecycle:'||NEW.card_id||':'||NEW.thread);
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
   VALUES ('pi_lifecycle:'||NEW.card_id||':'||NEW.thread,NEW.card_id,'pi_lifecycle','active',0,NULL,NULL,{pi_new},0,0,NULL)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,payload=excluded.payload;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_pi_update AFTER UPDATE ON card_pi_lifecycle BEGIN
+CREATE TRIGGER IF NOT EXISTS card_pi_lifecycle_update INSTEAD OF UPDATE ON card_pi_lifecycle BEGIN
   INSERT INTO operations(id,card_id,kind,phase,attempt,error_code,error_detail,payload,created_at,updated_at,completed_at)
   VALUES ('pi_lifecycle:'||NEW.card_id||':'||NEW.thread,NEW.card_id,'pi_lifecycle','active',0,NULL,NULL,{pi_new},0,0,NULL)
   ON CONFLICT(id) DO UPDATE SET card_id=excluded.card_id,kind=excluded.kind,phase=excluded.phase,payload=excluded.payload;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_pi_delete AFTER DELETE ON card_pi_lifecycle BEGIN
+CREATE TRIGGER IF NOT EXISTS card_pi_lifecycle_delete INSTEAD OF DELETE ON card_pi_lifecycle BEGIN
   DELETE FROM operations WHERE id='pi_lifecycle:'||OLD.card_id||':'||OLD.thread;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_pi_event_insert AFTER INSERT ON card_pi_lifecycle_events BEGIN
+
+CREATE VIEW IF NOT EXISTS card_pi_lifecycle_events AS
+SELECT json_extract(o.payload,'$.card_id') AS card_id,
+  json_extract(o.payload,'$.thread') AS thread,
+  a.detail AS generation, a.outcome AS event_id
+FROM operation_attempts a JOIN operations o ON o.id=a.operation_id
+WHERE o.kind='pi_lifecycle' AND a.phase='active';
+
+CREATE TRIGGER IF NOT EXISTS card_pi_lifecycle_events_insert INSTEAD OF INSERT ON card_pi_lifecycle_events BEGIN
   INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
   SELECT 'pi_lifecycle:'||NEW.card_id||':'||NEW.thread,
          COALESCE(MAX(attempt),0)+1,'active',0,0,NEW.event_id,NULL,NEW.generation
   FROM operation_attempts WHERE operation_id='pi_lifecycle:'||NEW.card_id||':'||NEW.thread
   ON CONFLICT(operation_id,attempt) DO UPDATE SET outcome=excluded.outcome,detail=excluded.detail;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_pi_event_update AFTER UPDATE ON card_pi_lifecycle_events BEGIN
-  INSERT INTO operation_attempts(operation_id,attempt,phase,started_at,finished_at,outcome,error,detail)
-  SELECT 'pi_lifecycle:'||NEW.card_id||':'||NEW.thread,
-         COALESCE(MAX(attempt),0)+1,'active',0,0,NEW.event_id,NULL,NEW.generation
-  FROM operation_attempts WHERE operation_id='pi_lifecycle:'||NEW.card_id||':'||NEW.thread
-  ON CONFLICT(operation_id,attempt) DO UPDATE SET outcome=excluded.outcome,detail=excluded.detail;
+CREATE TRIGGER IF NOT EXISTS card_pi_lifecycle_events_update INSTEAD OF UPDATE ON card_pi_lifecycle_events BEGIN
+  UPDATE operation_attempts SET outcome=NEW.event_id,detail=NEW.generation
+  WHERE operation_id='pi_lifecycle:'||OLD.card_id||':'||OLD.thread
+    AND outcome=OLD.event_id AND detail=OLD.generation;
 END;
-CREATE TRIGGER IF NOT EXISTS operations_pi_event_delete AFTER DELETE ON card_pi_lifecycle_events BEGIN
+CREATE TRIGGER IF NOT EXISTS card_pi_lifecycle_events_delete INSTEAD OF DELETE ON card_pi_lifecycle_events BEGIN
   DELETE FROM operation_attempts WHERE operation_id='pi_lifecycle:'||OLD.card_id||':'||OLD.thread
     AND outcome=OLD.event_id AND detail=OLD.generation;
 END;

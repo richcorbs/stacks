@@ -115,10 +115,16 @@ pub(in crate::kanban) fn update_creation_phase(
         let tx = connection
             .savepoint()
             .map_err(db_error)?;
-        let changed = tx.execute("UPDATE environment_creation_operations SET phase=?1,error=?2,cleanup_available=?3,revision=revision+1,updated_at=?4 WHERE card_id=?5", params![phase,error,cleanup_available as i64,unix_timestamp(),card_id]).map_err(db_error)?;
-        if changed != 1 {
+        // View writes do not report change counts, so check the row is still there.
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM environment_creation_operations WHERE card_id=?1)",
+            [card_id],
+            |row| row.get(0),
+        ).map_err(db_error)?;
+        if !exists {
             return Err("Environment creation operation disappeared".to_string());
         }
+        tx.execute("UPDATE environment_creation_operations SET phase=?1,error=?2,cleanup_available=?3,revision=revision+1,updated_at=?4 WHERE card_id=?5", params![phase,error,cleanup_available as i64,unix_timestamp(),card_id]).map_err(db_error)?;
         tx.commit().map_err(db_error)
     })
 }

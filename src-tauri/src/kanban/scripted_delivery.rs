@@ -148,13 +148,19 @@ fn reconcile_push(connection: &mut Connection, id: &str) -> Result<(String, bool
         }
     }
     let now = unix_timestamp();
-    let changed = connection.execute(
+    // View writes do not report change counts, so verify the optimistic revision first.
+    let changed: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM scripted_delivery_operations WHERE card_id=?1 AND revision=?2)",
+        params![id, op.revision],
+        |row| row.get(0),
+    ).map_err(db_error)?;
+    if !changed {
+        return Err("Delivery operation changed; reload and retry".into());
+    }
+    connection.execute(
         "UPDATE scripted_delivery_operations SET stage='pushing',attempt=attempt+1,attempt_token=?2,failure_class=NULL,summary='Push prepared',upstream_remote=?3,upstream_ref=?4,updated_at=?5,revision=revision+1 WHERE card_id=?1 AND revision=?6",
         params![id, Uuid::new_v4().to_string(), remote, upstream_ref, now, op.revision],
     ).map_err(db_error)?;
-    if changed != 1 {
-        return Err("Delivery operation changed; reload and retry".into());
-    }
     connection.execute("UPDATE kanban_cards SET delivery_operation_stage='pushing',delivery_error=NULL WHERE id=?1", [id]).map_err(db_error)?;
     let output = Command::new("git")
         .args([

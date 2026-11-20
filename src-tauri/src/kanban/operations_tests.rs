@@ -1,8 +1,8 @@
-//! Contract tests for the single operations journal (card #340).
+//! Contract tests for the single operations journal (cards #340 and #343).
 //!
-//! The legacy tables remain the write surface during the migration. These tests pin
-//! the mirroring, the typed payload round-trip and the single resume dispatcher so the
-//! follow-up cards can move reads without losing the state machine.
+//! Card #343 retired the legacy journals into write-through views, so these tests pin
+//! the view writes, the typed payload round-trip, the migration revisions and the single
+//! resume dispatcher. `operations` is the only physical operation journal.
 
 use super::health::db_error;
 use super::operations::*;
@@ -458,8 +458,46 @@ fn reinstall_backfills_evidence_and_stays_idempotent() {
             [],
         )
         .unwrap();
-    // Simulate a database whose journal was recreated from the legacy tables.
+    // Simulate a database whose journal was recreated from the legacy tables. Card #343
+    // retired the physical cleanup journal, so the fixture recreates its old table shape.
     connection.execute("DELETE FROM operations", []).unwrap();
+    connection
+        .execute_batch(
+            "DROP VIEW card_cleanup_operations;
+             DROP VIEW card_cleanup_evidence;
+             DROP VIEW card_cleanup_phase_outcomes;
+             CREATE TABLE card_cleanup_operations (
+               card_id TEXT PRIMARY KEY, environment_id TEXT NOT NULL, workflow_revision INTEGER NOT NULL,
+               environment_revision INTEGER NOT NULL, status TEXT NOT NULL, phase TEXT NOT NULL,
+               completion_outcome TEXT NOT NULL, repository_id TEXT NOT NULL, source_path TEXT NOT NULL,
+               target_path TEXT NOT NULL, source_branch TEXT NOT NULL, target_branch TEXT NOT NULL,
+               source_revision TEXT NOT NULL, target_revision TEXT, delete_local_branch INTEGER NOT NULL,
+               delete_remote_branch INTEGER NOT NULL, merged_pr_repository TEXT, merged_pr_number INTEGER,
+               merged_pr_head_revision TEXT, pane_ids TEXT NOT NULL DEFAULT '[]',
+               registration_validated INTEGER NOT NULL DEFAULT 0, validation_completed_at INTEGER,
+               error_code TEXT, error_detail TEXT, started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+               completed_at INTEGER, override_authorized INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE card_cleanup_evidence (
+               card_id TEXT PRIMARY KEY, recorded_target_path TEXT, recorded_target_branch TEXT,
+               reconciled_target_path TEXT NOT NULL, reconciled_target_branch TEXT NOT NULL,
+               merge_proof_type TEXT NOT NULL, merge_proof_detail TEXT NOT NULL,
+               local_branch_disposition TEXT NOT NULL, remote_branch_disposition TEXT NOT NULL,
+               remote_name TEXT, remote_tip TEXT, runtime_inventory TEXT NOT NULL,
+               metadata_inventory TEXT NOT NULL, captured_at INTEGER NOT NULL
+             );
+             CREATE TABLE card_cleanup_phase_outcomes (
+               card_id TEXT NOT NULL, phase TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT,
+               completed_at INTEGER NOT NULL, PRIMARY KEY(card_id,phase)
+             );
+             INSERT INTO card_cleanup_operations
+               (card_id,environment_id,workflow_revision,environment_revision,status,phase,completion_outcome,repository_id,source_path,target_path,source_branch,target_branch,source_revision,delete_local_branch,delete_remote_branch,started_at,updated_at)
+               VALUES ('local:op','environment',1,1,'failed','remove_metadata','merged','repo','/source','/target','feature','main','source-tip',1,0,1,1);
+             INSERT INTO card_cleanup_evidence
+               (card_id,reconciled_target_path,reconciled_target_branch,merge_proof_type,merge_proof_detail,local_branch_disposition,remote_branch_disposition,runtime_inventory,metadata_inventory,captured_at)
+               VALUES ('local:op','/target','main','revision','proof','deleted','retained','[]','[]',5);",
+        )
+        .unwrap();
     install(&connection).unwrap();
     let operation = load_operation(&connection, "cleanup:local:op")
         .unwrap()
@@ -682,5 +720,51 @@ fn migrate_a_database_copy_for_rehearsal() {
     for kind in OperationKind::ALL {
         let count = list_operations(&connection, Some(kind)).unwrap().len();
         println!("VALIDATED {} {count}", kind.as_str());
+    }
+}
+
+/// Card #343 contract: the unified journal is the only physical operation table.
+#[test]
+fn every_legacy_journal_is_a_view_over_the_single_operations_table() {
+    let connection = connection();
+    for name in [
+        "card_cleanup_operations",
+        "card_cleanup_evidence",
+        "card_cleanup_phase_outcomes",
+        "environment_creation_operations",
+        "card_target_merge_operations",
+        "scripted_delivery_operations",
+        "provider_sync_operations",
+        "provider_sync_attempts",
+        "local_card_purge_jobs",
+        "card_pi_lifecycle",
+        "card_pi_lifecycle_events",
+    ] {
+        let kind: String = connection
+            .query_row(
+                "SELECT type FROM sqlite_master WHERE name=?1",
+                [name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kind, "view", "{name} must not be a physical journal");
+    }
+    let operations_kind: String = connection
+        .query_row(
+            "SELECT type FROM sqlite_master WHERE name='operations'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(operations_kind, "table");
+    for revision in 82..=88 {
+        let applied: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version=?1",
+                [revision],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(applied, 1, "revision {revision} must be recorded");
     }
 }

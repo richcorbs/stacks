@@ -2410,7 +2410,7 @@ fn environment_creation_migration_persists_one_active_operation_per_card() {
             params![id,card.id],
         )
     };
-    assert_eq!(insert(&connection, "operation:1").unwrap(), 1);
+    insert(&connection, "operation:1").unwrap();
     assert!(insert(&connection, "operation:2").is_err());
     let operation = load_creation_operation(&connection, &card.id)
         .unwrap()
@@ -2876,7 +2876,7 @@ fn target_merge_migration_preserves_pending_operations() {
     let (root, target, source) = upstream_merge_repository();
     let connection = target_merge_connection(&source, &target, "needs_human");
     connection.execute_batch(
-        "DROP TABLE card_target_merge_operations;
+        "DROP VIEW card_target_merge_operations;
          CREATE TABLE card_target_merge_operations (
            id TEXT PRIMARY KEY, card_id TEXT NOT NULL UNIQUE, environment_id TEXT NOT NULL,
            workflow_revision INTEGER NOT NULL, environment_revision INTEGER NOT NULL, initial_status TEXT NOT NULL,

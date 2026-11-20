@@ -1139,10 +1139,16 @@ pub(in crate::kanban) fn advance_cleanup_phase_in_connection(
         }
         let now = unix_timestamp();
         transaction.execute("INSERT OR REPLACE INTO card_cleanup_phase_outcomes(card_id,phase,outcome,detail,completed_at) VALUES (?1,?2,'success','Cleanup completed',?3)", params![operation.card_id,operation.phase,now]).map_err(db_error)?;
-        let changed = transaction.execute("UPDATE card_cleanup_operations SET status='completed',error_code=NULL,error_detail=NULL,completed_at=?1,updated_at=?1 WHERE card_id=?2 AND phase=?3 AND status!='completed'", params![now, operation.card_id, operation.phase]).map_err(db_error)?;
-        if changed == 0 {
+        // View writes do not report change counts, so verify the same predicate first.
+        let changed: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM card_cleanup_operations WHERE card_id=?1 AND phase=?2 AND status!='completed')",
+            params![operation.card_id, operation.phase],
+            |row| row.get(0),
+        ).map_err(db_error)?;
+        if !changed {
             return Err("Cleanup operation changed while recording completion".to_string());
         }
+        transaction.execute("UPDATE card_cleanup_operations SET status='completed',error_code=NULL,error_detail=NULL,completed_at=?1,updated_at=?1 WHERE card_id=?2 AND phase=?3 AND status!='completed'", params![now, operation.card_id, operation.phase]).map_err(db_error)?;
         transaction.execute("UPDATE kanban_cards SET delivery_operation_stage=NULL,delivery_error=NULL WHERE id=?1", [&operation.card_id]).map_err(db_error)?;
         transaction.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,summary) VALUES (?1,?2,'user','cleanup','success','Cleanup completed and safely deleted required branches')", params![operation.card_id, now]).map_err(db_error)?;
     } else {
@@ -1156,10 +1162,15 @@ pub(in crate::kanban) fn advance_cleanup_phase_in_connection(
             operation.phase.as_str(),
             "validate_repository" | "runtime_sessions"
         ) as i64;
-        let changed = transaction.execute("UPDATE card_cleanup_operations SET status='pending',phase=?1,error_code=NULL,error_detail=NULL,registration_validated=CASE WHEN ?2=1 THEN 1 ELSE registration_validated END,validation_completed_at=CASE WHEN ?2=1 THEN ?3 ELSE validation_completed_at END,updated_at=?3 WHERE card_id=?4 AND phase=?5 AND status!='completed'", params![next, validation, now, operation.card_id, operation.phase]).map_err(db_error)?;
-        if changed == 0 {
+        let changed: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM card_cleanup_operations WHERE card_id=?1 AND phase=?2 AND status!='completed')",
+            params![operation.card_id, operation.phase],
+            |row| row.get(0),
+        ).map_err(db_error)?;
+        if !changed {
             return Err("Cleanup operation changed while advancing its phase".to_string());
         }
+        transaction.execute("UPDATE card_cleanup_operations SET status='pending',phase=?1,error_code=NULL,error_detail=NULL,registration_validated=CASE WHEN ?2=1 THEN 1 ELSE registration_validated END,validation_completed_at=CASE WHEN ?2=1 THEN ?3 ELSE validation_completed_at END,updated_at=?3 WHERE card_id=?4 AND phase=?5 AND status!='completed'", params![next, validation, now, operation.card_id, operation.phase]).map_err(db_error)?;
         transaction.execute("UPDATE card_environments SET lifecycle_state='cleanup_pending',updated_at=?1 WHERE id=?2", params![now, operation.environment_id]).map_err(db_error)?;
     }
     transaction.commit().map_err(db_error)
