@@ -265,10 +265,13 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
       `kanban-card:${card.id}:terminal:server`, `kanban-card:${card.id}:terminal:console`,
     ]));
     try {
+      // Every expectation comes from the preflight that the dialog displayed, so the
+      // guards and the evidence cannot disagree when a board update lands between the
+      // preflight read and the click.
       await invoke('kanban_cleanup_environment', {
         id: card.id,
-        expectedWorkflowRevision: card.workflow_revision,
-        expectedEnvironmentRevision: card.environment?.revision ?? 0,
+        expectedWorkflowRevision: evidence.workflow_revision,
+        expectedEnvironmentRevision: evidence.environment_revision,
         expectedSourceRevision: evidence.source_revision,
         expectedTargetRevision: evidence.target_revision,
         expectedRepositoryId: evidence.repository_id,

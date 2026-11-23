@@ -33,6 +33,7 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
 }) {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Set<string>>(() => new Set());
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmable = useMemo(() => cleanupSelections(inventory.entries, overrides), [inventory, overrides]);
@@ -64,10 +65,14 @@ export function CleanupPreflightDialog({ inventory, bulk = false, onCancel, onCo
       />)}</div>
       <div className="modalActions">
         <button data-card-action="secondary" type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button data-card-action="danger" className="danger primaryAction" type="button" disabled={busy || confirmable.length === 0} onClick={async () => { if (busyRef.current) return; busyRef.current = true; setBusy(true); try { await onConfirm(confirmable); } finally { busyRef.current = false; setBusy(false); } }}>
+        <button data-card-action="danger" className="danger primaryAction" type="button" disabled={busy || confirmable.length === 0} onClick={async () => { if (busyRef.current) return; busyRef.current = true; setBusy(true); setError(null); try { await onConfirm(confirmable); } catch (cause) { // Cleanup is revision-guarded and can be refused after the preflight was read.
+            // Keep the dialog (and its evidence) open and say why, instead of
+            // re-enabling the button with no explanation.
+            setError(cause instanceof Error ? cause.message : String(cause)); } finally { busyRef.current = false; setBusy(false); } }}>
           <AsyncButtonLabel idle={bulk ? `Clean up ${confirmable.length}` : 'Clean up'} busy="Cleaning up…" isBusy={busy} />
         </button>
       </div>
+      {error && <div className="dialogSubmitError" role="alert">Cleanup refused: {error}</div>}
     </div>
   </div></ConfirmationBoundary>;
 }
