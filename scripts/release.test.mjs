@@ -38,6 +38,32 @@ function fakeGhResponses(root, responses) {
   const script = `#!/usr/bin/env node\nconst fs = require('node:fs');\nconst stateFile = ${JSON.stringify(stateFile)};\nconst responses = ${JSON.stringify(responses)};\nlet index = Number(fs.readFileSync(stateFile, 'utf8'));\nfs.writeFileSync(stateFile, String(index + 1));\nprocess.stdout.write(JSON.stringify(responses[Math.min(index, responses.length - 1)]) + '\\n');\n`;
   fs.writeFileSync(bin, script); fs.chmodSync(bin, 0o755); return bin;
 }
+function fakeGhStub(root, { runs = [], jobs = [] } = {}) {
+  const stateFile = path.join(root, 'gh-state.json');
+  const callsFile = path.join(root, 'gh-calls.jsonl');
+  fs.writeFileSync(stateFile, JSON.stringify({ runs: 0, jobs: 0 })); fs.writeFileSync(callsFile, '');
+  const bin = path.join(root, 'gh');
+  const script = `#!/usr/bin/env node
+const fs = require('node:fs');
+const stateFile = ${JSON.stringify(stateFile)};
+const callsFile = ${JSON.stringify(callsFile)};
+const runs = ${JSON.stringify(runs)};
+const jobs = ${JSON.stringify(jobs)};
+const args = process.argv.slice(2);
+fs.appendFileSync(callsFile, JSON.stringify(args) + '\\n');
+if (args[0] === 'run' && args[1] === 'rerun') process.exit(0);
+const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+const isJobs = args[0] === 'api' && String(args[1]).includes('/jobs');
+const list = isJobs ? (jobs.length ? jobs : [{ jobs: [] }]) : (runs.length ? runs : [{ workflow_runs: [] }]);
+const index = isJobs ? state.jobs++ : state.runs++;
+fs.writeFileSync(stateFile, JSON.stringify(state));
+process.stdout.write(JSON.stringify(list[Math.min(index, list.length - 1)]) + '\\n');
+`;
+  fs.writeFileSync(bin, script); fs.chmodSync(bin, 0o755); return bin;
+}
+function ghCalls(root) {
+  return fs.readFileSync(path.join(root, 'gh-calls.jsonl'), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+}
 function artifacts(root, version = '1.2.4') {
   const out = path.join(root, 'release-artifacts', `v${version}`); fs.mkdirSync(out, { recursive: true });
   for (const name of ASSET_NAMES.slice(0, -2)) fs.writeFileSync(path.join(out, name), `${name} contents`);
@@ -142,6 +168,9 @@ describe('exact-commit release CI gate', () => {
 
 describe('exact-commit CI status and publish polling', () => {
   const revision = 'ce556e35cef9ffcb7352ba3d48d5db42937bcdeb';
+  // Signature from the blocked v0.6.17 release: empty runner_name, no steps.
+  const neverScheduledJobs = [{ id: 900, name: 'validate (macos-15)', runner_name: '', started_at: '2025-01-01T17:11:42Z', completed_at: '2025-01-01T17:26:43Z', steps: [] }];
+  const failedJobs = [{ id: 901, name: 'validate (macos-15)', runner_name: 'GitHub Actions 12', steps: [{ name: 'Build', status: 'completed', conclusion: 'failure' }] }];
   it('classifies CI runs into success, failed, pending, and missing states', () => {
     expect(ciRunInfo(null)).toMatchObject({ state: 'missing', summary: 'no run found', success: false, failed: false });
     expect(ciRunInfo({ status: 'completed', conclusion: 'success' })).toMatchObject({ state: 'success', success: true });
@@ -151,6 +180,18 @@ describe('exact-commit CI status and publish polling', () => {
     expect(formatDuration(0)).toBe('0m 00s');
     expect(formatDuration(15 * 60 * 1000)).toBe('15m 00s');
     expect(formatDuration(880000)).toBe('14m 40s');
+  });
+  it('classifies a completed run whose jobs never got a runner as never scheduled', () => {
+    expect(ciRunInfo({ id: 1, status: 'completed', conclusion: 'cancelled' }, neverScheduledJobs))
+      .toMatchObject({ state: 'never-scheduled', neverScheduled: true, failed: false, success: false });
+    expect(ciRunInfo({ id: 1, status: 'completed', conclusion: 'timed_out' }, neverScheduledJobs)).toMatchObject({ state: 'never-scheduled' });
+    // A real failure keeps a runner and executed steps, so it can never be retried away.
+    expect(ciRunInfo({ id: 2, status: 'completed', conclusion: 'failure' }, failedJobs)).toMatchObject({ state: 'failed', failed: true, neverScheduled: false });
+    // Without job evidence the gate stays conservative and reports a failure.
+    expect(ciRunInfo({ id: 3, status: 'completed', conclusion: 'cancelled' })).toMatchObject({ state: 'failed', failed: true, neverScheduled: false });
+    // A queued-then-succeeded run with a null runner_name is not misclassified.
+    expect(ciRunInfo({ id: 4, status: 'completed', conclusion: 'success' }, [{ runner_name: null, steps: [] }])).toMatchObject({ state: 'success', neverScheduled: false });
+    expect(ciRunInfo({ id: 5, status: 'queued', conclusion: null }, [{ runner_name: '', steps: [] }])).toMatchObject({ state: 'pending', neverScheduled: false });
   });
   it('reports exact-commit CI status and run link after draft verification without blocking it', () => {
     const root = temp();
@@ -172,6 +213,64 @@ describe('exact-commit CI status and publish polling', () => {
     logs.length = 0;
     reportCiStatus('', revision, { gh: fakeGh(root, { workflow_runs: [run] }), log: (message) => logs.push(message) });
     expect(logs[0]).toContain('could not determine status');
+    logs.length = 0;
+    const neverRoot = temp();
+    const neverRun = { ...run, id: 42, conclusion: 'cancelled' };
+    reportCiStatus('ci.yml', revision, {
+      gh: fakeGhStub(neverRoot, { runs: [{ workflow_runs: [neverRun] }], jobs: [{ jobs: neverScheduledJobs }] }),
+      log: (message) => logs.push(message),
+    });
+    expect(logs[0]).toContain('never scheduled');
+    expect(logs[0]).toContain('no runner was assigned');
+  });
+  it('re-runs a never-scheduled job once and publishes when the re-run passes', async () => {
+    const root = temp(); const logs = [];
+    const cancelled = { id: 42, head_sha: revision, status: 'completed', conclusion: 'cancelled', attempt: 1, html_url: 'https://example.test/runs/42' };
+    const gh = fakeGhStub(root, {
+      runs: [
+        { workflow_runs: [cancelled] },
+        { workflow_runs: [{ ...cancelled, status: 'completed', conclusion: 'success', attempt: 2 }] },
+      ],
+      jobs: [{ jobs: neverScheduledJobs }],
+    });
+    let currentTime = 0; const sleeps = [];
+    const result = await pollForCiSuccess('ci.yml', revision, {
+      gh, now: () => currentTime, sleep: async (ms) => { sleeps.push(ms); currentTime += ms; }, log: (message) => logs.push(message), intervalMs: 20_000,
+    });
+    expect(result.conclusion).toBe('success');
+    expect(ghCalls(root).filter((args) => args[0] === 'run')).toEqual([['run', 'rerun', '42']]);
+    expect(ghCalls(root)).toContainEqual(['api', 'repos/{owner}/{repo}/actions/runs/42/jobs?per_page=100']);
+    expect(sleeps).toEqual([60_000]);
+    expect(logs.join('\n')).toContain('CI job was never scheduled (no runner assigned, no job steps executed); re-running attempt 1 of 2');
+    expect(logs.join('\n')).toContain('https://example.test/runs/42');
+    expect(logs.join('\n')).toContain('passed');
+  });
+  it('fails with the infrastructure explanation after the re-run bound is exhausted', async () => {
+    const root = temp(); const logs = [];
+    const cancelled = (attempt) => ({ workflow_runs: [{ id: 42, head_sha: revision, status: 'completed', conclusion: 'cancelled', attempt, html_url: 'https://example.test/runs/42' }] });
+    const gh = fakeGhStub(root, { runs: [cancelled(1), cancelled(2), cancelled(3)], jobs: [{ jobs: neverScheduledJobs }] });
+    let currentTime = 0; const sleeps = [];
+    const error = await pollForCiSuccess('ci.yml', revision, {
+      gh, now: () => currentTime, sleep: async (ms) => { sleeps.push(ms); currentTime += ms; }, log: (message) => logs.push(message),
+    }).catch((thrown) => thrown);
+    expect(error.message).toMatch(/was never scheduled: no runner was ever assigned/);
+    expect(error.message).toMatch(/after 2 automatic re-run attempts/);
+    expect(error.message).toMatch(/not a test failure/);
+    expect(error.message).toContain(revision);
+    expect(error.message).not.toMatch(/Publish again after a passing run exists/);
+    expect(ghCalls(root).filter((args) => args[0] === 'run')).toEqual([['run', 'rerun', '42'], ['run', 'rerun', '42']]);
+    expect(sleeps).toEqual([60_000, 60_000]);
+    expect(logs.join('\n')).toContain('re-running attempt 2 of 2');
+  });
+  it('fails a genuine failure immediately without ever asking for a re-run', async () => {
+    const root = temp(); const logs = [];
+    const failed = { id: 77, head_sha: revision, status: 'completed', conclusion: 'failure', attempt: 1, html_url: 'https://example.test/runs/77' };
+    const gh = fakeGhStub(root, { runs: [{ workflow_runs: [failed] }], jobs: [{ jobs: failedJobs }] });
+    await expect(pollForCiSuccess('ci.yml', revision, { gh, now: () => 0, sleep: async () => {}, log: (message) => logs.push(message) }))
+      .rejects.toThrow(/failed: status completed, conclusion failure/);
+    expect(ghCalls(root).filter((args) => args[0] === 'run')).toEqual([]);
+    expect(logs.join('\n')).not.toContain('re-running');
+    expect(ghCalls(root).some((args) => String(args[1]).includes('/jobs'))).toBe(true);
   });
   it('publishes immediately when exact-commit CI already passed', async () => {
     const root = temp(); const logs = [];

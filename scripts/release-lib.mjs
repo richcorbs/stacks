@@ -54,6 +54,11 @@ export function workflowApiId(workflow) {
 }
 export const CI_POLL_TIMEOUT_MS = 15 * 60 * 1000;
 export const CI_POLL_INTERVAL_MS = 20 * 1000;
+// A run can be cancelled with no runner ever assigned (empty runner_name, zero
+// executed job steps). That is pool capacity, not a failing validation, so the
+// gate retries it a bounded number of times before failing with that explanation.
+export const CI_RERUN_LIMIT = 2;
+export const CI_RERUN_WAIT_MS = 60 * 1000;
 
 export function formatDuration(ms) {
   const totalSeconds = Math.round(Math.max(0, ms) / 1000);
@@ -74,13 +79,42 @@ export function fetchLatestCiRun(workflow, revision, options = {}) {
   return runs[0] || null;
 }
 
-export function ciRunInfo(run) {
-  if (!run) return { run: null, state: 'missing', status: null, conclusion: null, summary: 'no run found', url: null, success: false, failed: false, pending: false };
+export function fetchCiRunJobs(runId, options = {}) {
+  if (!runId) return null;
+  const response = ghJson(['api', `repos/{owner}/{repo}/actions/runs/${encodeURIComponent(String(runId))}/jobs?per_page=100`], options);
+  return Array.isArray(response?.jobs) ? response.jobs : null;
+}
+
+// Job evidence only exists for a completed non-success run, and a failed
+// inspection returns null (unknown) so it can never be read as "never scheduled".
+function ciJobEvidence(run, options = {}, log) {
+  if (!run?.id || run.status !== 'completed' || run.conclusion === 'success') return null;
+  try { return fetchCiRunJobs(run.id, options); }
+  catch (error) { if (log) log(`Could not inspect CI job evidence for run ${run.id}: ${error.message}`); return null; }
+}
+
+function executedStepCount(job) { return Array.isArray(job?.steps) ? job.steps.length : null; }
+function isNeverScheduledJob(job) {
+  // Real failures always have an assigned runner and executed steps.
+  if (String(job?.runner_name || '').trim()) return false;
+  return executedStepCount(job) === 0;
+}
+// Never-scheduled means: no runner and no executed steps on every job of a
+// completed, non-successful run. Any executed step keeps it a genuine failure.
+export function ciNeverScheduled(run, jobs) {
+  if (!run || run.status !== 'completed' || run.conclusion === 'success') return false;
+  if (!Array.isArray(jobs) || jobs.length === 0) return false;
+  return jobs.every(isNeverScheduledJob);
+}
+
+export function ciRunInfo(run, jobs) {
+  if (!run) return { run: null, state: 'missing', status: null, conclusion: null, summary: 'no run found', url: null, success: false, failed: false, pending: false, neverScheduled: false };
   const completed = run.status === 'completed';
   const success = completed && run.conclusion === 'success';
-  const failed = completed && !success;
+  const neverScheduled = ciNeverScheduled(run, jobs);
+  const failed = completed && !success && !neverScheduled;
   const pending = !completed;
-  const state = success ? 'success' : failed ? 'failed' : 'pending';
+  const state = success ? 'success' : neverScheduled ? 'never-scheduled' : failed ? 'failed' : 'pending';
   return {
     run,
     state,
@@ -91,11 +125,22 @@ export function ciRunInfo(run) {
     success,
     failed,
     pending,
+    neverScheduled,
   };
 }
 
+export function rerunCiRun(runId, options = {}) {
+  if (!runId) fail('Cannot re-run required CI: the workflow run id is missing');
+  return run(options.gh || 'gh', ['run', 'rerun', String(runId)], { cwd: options.cwd, env: options.env });
+}
+
 export function requiredCiRun(workflow, revision, options = {}) {
-  const info = ciRunInfo(fetchLatestCiRun(workflow, revision, options));
+  const run = fetchLatestCiRun(workflow, revision, options);
+  const info = ciRunInfo(run, ciJobEvidence(run, options));
+  if (info.neverScheduled) {
+    const url = info.url ? ` Run: ${info.url}` : '';
+    fail(`Required CI workflow ${workflow} for captured SHA ${revision} was never scheduled: no runner was assigned and no job steps executed (${info.summary}). That is an infrastructure capacity problem, not a test failure.${url} Re-run the workflow, then publish again.`);
+  }
   if (!info.success) {
     const url = info.url ? ` Run: ${info.url}` : '';
     fail(`Required CI workflow ${workflow} for captured SHA ${revision} is not successful: ${info.summary}.${url} Wait for CI to complete successfully or retry the workflow, then publish again.`);
@@ -106,10 +151,13 @@ export function requiredCiRun(workflow, revision, options = {}) {
 export function reportCiStatus(workflow, revision, options = {}) {
   const log = options.log || ((message) => console.log(message));
   let info;
-  try { info = ciRunInfo(fetchLatestCiRun(workflow, revision, options)); }
-  catch (error) { info = { run: null, state: 'unknown', status: null, conclusion: null, summary: `could not inspect CI: ${error.message}`, url: null, success: false, failed: false, pending: false }; }
+  try {
+    const run = fetchLatestCiRun(workflow, revision, options);
+    info = ciRunInfo(run, ciJobEvidence(run, options, log));
+  } catch (error) { info = { run: null, state: 'unknown', status: null, conclusion: null, summary: `could not inspect CI: ${error.message}`, url: null, success: false, failed: false, pending: false, neverScheduled: false }; }
   const url = info.url ? ` Run: ${info.url}` : '';
   if (info.state === 'success') log(`Exact-commit CI: passed (${info.summary}).${url}`);
+  else if (info.state === 'never-scheduled') log(`Exact-commit CI: the job was never scheduled: no runner was assigned and no steps executed (${info.summary}). Publish re-runs it automatically within a bound.${url}`);
   else if (info.state === 'failed') log(`Exact-commit CI: FAILED (${info.summary}). Publish is blocked until a passing run exists.${url}`);
   else if (info.state === 'missing') log(`Exact-commit CI: no run found yet for ${revision}. Publish will wait for it to appear.`);
   else if (info.state === 'pending') log(`Exact-commit CI: pending (${info.summary}). Publish will poll until it passes.${url}`);
@@ -123,24 +171,57 @@ export async function pollForCiSuccess(workflow, revision, options = {}) {
   const log = options.log || ((message) => console.log(message));
   const timeoutMs = options.timeoutMs ?? CI_POLL_TIMEOUT_MS;
   const intervalMs = options.intervalMs ?? CI_POLL_INTERVAL_MS;
+  const rerunLimit = options.rerunLimit ?? CI_RERUN_LIMIT;
+  const rerunWaitMs = options.rerunWaitMs ?? CI_RERUN_WAIT_MS;
   const deadline = now() + timeoutMs;
+  let reruns = 0;
+  let rerunAttempt = null;
+  let sawNeverScheduled = false;
   while (true) {
-    const info = ciRunInfo(fetchLatestCiRun(workflow, revision, options));
+    const run = fetchLatestCiRun(workflow, revision, options);
+    const info = ciRunInfo(run, ciJobEvidence(run, options, log));
+    const url = info.url ? ` Run: ${info.url}` : '';
     if (info.state === 'success') {
-      log(`Exact-commit CI passed: ${info.summary}.${info.url ? ` Run: ${info.url}` : ''}`);
+      log(`Exact-commit CI passed: ${info.summary}.${url}`);
       return info.run;
     }
+    if (info.state === 'never-scheduled') {
+      sawNeverScheduled = true;
+      const attempt = Number(info.run?.attempt || 1);
+      const rerunPending = rerunAttempt !== null && attempt <= rerunAttempt;
+      if (rerunPending) log(`Exact-commit CI job is still never scheduled on attempt ${attempt}; waiting for re-run ${reruns} of ${rerunLimit} to be picked up.${url}`);
+      else if (reruns < rerunLimit) {
+        reruns += 1;
+        rerunAttempt = attempt;
+        log(`Exact-commit CI job was never scheduled (no runner assigned, no job steps executed); re-running attempt ${reruns} of ${rerunLimit}.${url}`);
+        try { rerunCiRun(info.run?.id, options); }
+        catch (error) { log(`Could not request CI re-run ${reruns} of ${rerunLimit}: ${error.message}`); }
+      } else {
+        fail(neverScheduledMessage(workflow, revision, info, reruns, url));
+      }
+    }
     if (info.state === 'failed') {
-      fail(`Required CI workflow ${workflow} for captured SHA ${revision} failed: ${info.summary}.${info.url ? ` Run: ${info.url}` : ''} Publish again after a passing run exists.`);
+      fail(`Required CI workflow ${workflow} for captured SHA ${revision} failed: ${info.summary}.${url} Publish again after a passing run exists.`);
     }
     const remainingMs = Math.max(0, deadline - now());
     if (remainingMs <= 0) {
-      fail(`Required CI workflow ${workflow} for captured SHA ${revision} is still in progress after ${formatDuration(timeoutMs)}: ${info.summary}.${info.url ? ` Run: ${info.url}` : ''} Publish again to resume polling.`);
+      if (sawNeverScheduled) fail(neverScheduledMessage(workflow, revision, info, reruns, url, `after ${formatDuration(timeoutMs)}`));
+      fail(`Required CI workflow ${workflow} for captured SHA ${revision} is still in progress after ${formatDuration(timeoutMs)}: ${info.summary}.${url} Publish again to resume polling.`);
     }
-    const stateLabel = info.state === 'missing' ? 'not started' : info.status || 'pending';
-    log(`Exact-commit CI ${stateLabel} (${info.summary}); waiting up to ${formatDuration(remainingMs)}.${info.url ? ` Run: ${info.url}` : ''}`);
-    await sleep(Math.min(intervalMs, remainingMs));
+    if (info.state === 'never-scheduled') {
+      await sleep(Math.min(rerunWaitMs, remainingMs));
+    } else {
+      const stateLabel = info.state === 'missing' ? 'not started' : info.status || 'pending';
+      log(`Exact-commit CI ${stateLabel} (${info.summary}); waiting up to ${formatDuration(remainingMs)}.${url}`);
+      await sleep(Math.min(intervalMs, remainingMs));
+    }
   }
+}
+
+// Names the condition plainly so nobody goes looking for a failing test.
+function neverScheduledMessage(workflow, revision, info, reruns, url, when) {
+  const attemptWord = reruns === 1 ? 'attempt' : 'attempts';
+  return `Required CI workflow ${workflow} for captured SHA ${revision} was never scheduled: no runner was ever assigned and no job steps executed (${info.summary})${when ? ` ${when}` : ''} after ${reruns} automatic re-run ${attemptWord}. This is an infrastructure capacity problem, not a test failure.${url} Re-run the workflow manually or wait for CI capacity, then publish again; the gate stays pinned to ${revision}.`;
 }
 export function uploadReleaseAsset(tag, file, options = {}) {
   return run(options.gh || 'gh', ['release', 'upload', tag, file], { cwd: options.cwd, env: options.env });
