@@ -392,7 +392,10 @@ pub(in crate::kanban) fn evaluate(
     //    Preserving resources does not depend on them; closing was always allowed.
     if mode != RetirementMode::PreserveResources {
         for operation in operations::in_flight_for_card(connection, card_id)? {
-            if operation.kind.is_retirement() || overrides.unresolved_operation_discard {
+            if operation.kind.is_retirement()
+                || operation.kind.is_lifecycle_projection()
+                || overrides.unresolved_operation_discard
+            {
                 continue;
             }
             if mode == RetirementMode::RemoveResources

@@ -67,6 +67,14 @@ impl OperationKind {
         }
     }
 
+    /// `PiLifecycle` is the live generation projection of a card/thread, not resumable
+    /// work: its only valid phase is `active`, the journal migration backfilled it for
+    /// every existing card, and nothing ever completes it. Treating it as an
+    /// unfinished operation permanently blocks retiring the card.
+    pub(in crate::kanban) fn is_lifecycle_projection(self) -> bool {
+        matches!(self, Self::PiLifecycle)
+    }
+
     pub(in crate::kanban) fn is_retirement(self) -> bool {
         matches!(
             self,

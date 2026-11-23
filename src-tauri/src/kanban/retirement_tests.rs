@@ -92,6 +92,66 @@ fn environment(
 }
 
 /// 1. A finalized aggregate with no linked children must be closeable. The stale
+///    A card/thread lifecycle row is a projection of live Pi state, not work in
+///    flight. The journal migration backfilled one per card+thread in phase
+///    `active` (its only valid phase, never completed), which used to block
+///    removing resources forever with "must be resumed instead of retiring".
+#[test]
+fn lifecycle_projection_does_not_block_removing_resources() {
+    let root = tempfile::tempdir().unwrap();
+    let connection = database(root.path());
+    card(&connection, "local:done", "done", 2);
+    connection
+        .execute(
+            "UPDATE kanban_cards SET completion_outcome='merged' WHERE id='local:done'",
+            [],
+        )
+        .unwrap();
+    for thread in ["planning", "work"] {
+        connection
+            .execute(
+                "INSERT INTO card_pi_lifecycle(card_id,thread,generation,latest_event_order,latest_event_id) VALUES (?1,?2,'gen',0,'gen:0')",
+                rusqlite::params!["local:done", thread],
+            )
+            .unwrap();
+    }
+    let in_flight = operations::in_flight_for_card(&connection, "local:done").unwrap();
+    assert_eq!(in_flight.len(), 2, "the projection rows exist");
+    assert!(in_flight.iter().all(|operation| operation.kind.is_lifecycle_projection()));
+
+    let checklist = evaluate(
+        &connection,
+        "local:done",
+        RetirementMode::RemoveResources,
+        RetirementOverride::default(),
+        &[],
+    )
+    .unwrap();
+    assert!(
+        !checklist.blockers.iter().any(|blocker| blocker.code == UNRESOLVED_OPERATION),
+        "a lifecycle projection must not block retirement: {:?}",
+        checklist.blockers
+    );
+
+    // A real unfinished operation of another kind still blocks, so the gate is intact.
+    connection
+        .execute(
+            "INSERT INTO operations(id,card_id,kind,phase,attempt,payload,created_at,updated_at)
+             VALUES ('purge:test','local:done','purge','pending',0,'{\"card_id\":\"local:done\",\"storage_key\":\"local_done\"}',1,1)",
+            [],
+        )
+        .unwrap();
+    let blocked = evaluate(
+        &connection,
+        "local:done",
+        RetirementMode::RemoveResources,
+        RetirementOverride::default(),
+        &[],
+    )
+    .unwrap();
+    assert!(blocked.blockers.iter().any(|blocker| blocker.code == UNRESOLVED_OPERATION));
+}
+
 ///    metadata is repaired and the close event recorded; the card is never bricked.
 #[test]
 fn finalized_parent_without_children_is_retirement_ready_and_repaired() {
