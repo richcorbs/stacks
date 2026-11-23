@@ -39,6 +39,8 @@ import { CardTerminalView } from './CardTerminalView';
 import { CardOverview } from './CardOverview';
 import { CardDetailHeader, CardDetailTabs } from './CardDetailChrome';
 import { CardLevelErrorBanner, collectCardLevelErrors } from './CardLevelErrorBanner';
+import { CardAgentFailure } from './CardAgentFailure';
+import { activeAgentFailure, agentFailureRecovery } from '../../kanban/agentFailure';
 import { publishWorkPresence } from '../../appAttention';
 import { useCardDetailModel } from '../../kanban/useCardDetailModel';
 import { executeCardWorkflowAction, type CardWorkflowExecutorDependencies } from '../../kanban/cardWorkflowExecutor';
@@ -142,10 +144,18 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const workflowCard = workflowOperation === 'ship' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
   const workflowActions = useMemo(() => deriveCardWorkflowActions({ card: workflowCard, project, activeTab: activeView, operation: workflowOperation ? { kind: workflowOperation } : null }), [activeView, project, workflowCard, workflowOperation]);
   const actionRowVisible = activeView === 'overview' || activeView === 'chat' || activeView === 'diff';
-  const primaryAction = workflowActions.find((action) => action.primary);
-  const latestAgentRunEvent = (card.events ?? []).find((event) => ['agent_launch_failed', 'protocol_failed', 'process_exited', 'agent_started', 'agent_settled'].includes(event.event_type));
-  const agentFailure = latestAgentRunEvent?.outcome === 'failure' ? latestAgentRunEvent.error_detail : null;
-  const cardLevelErrors = useMemo(() => collectCardLevelErrors({ actionError, detailLoadError, detailRefreshError, recoveryError: card.creation_operation?.error, agentFailure }), [actionError, agentFailure, card.creation_operation?.error, detailLoadError, detailRefreshError]);
+  const visibleFailure = activeAgentFailure(card);
+  const failureRecovery = visibleFailure ? agentFailureRecovery(visibleFailure) : null;
+  const footerWorkflowActions = useMemo(() => {
+    if (!visibleFailure) return workflowActions;
+    const actions = failureRecovery === 'retry_setup' || failureRecovery === 'retry_start'
+      ? workflowActions.filter((action) => action.kind !== 'start_work')
+      : workflowActions;
+    return actions.map((action) => action.primary ? { ...action, primary: false } : action);
+  }, [failureRecovery, visibleFailure, workflowActions]);
+  const primaryAction = footerWorkflowActions.find((action) => action.primary);
+  const cardLevelErrors = useMemo(() => collectCardLevelErrors({ actionError, detailLoadError, detailRefreshError, recoveryError: card.creation_operation?.error }), [actionError, card.creation_operation?.error, detailLoadError, detailRefreshError]);
+  const agentFailureVisible = Boolean(visibleFailure);
 
   async function recheckEnvironmentHealth() {
     if (recheckingEnvironment) return;
@@ -478,7 +488,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
 
         {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={cardServices.serverEnabled} active={activeView === 'server'} background={cardServices.serverEnabled && activeView !== 'server'} restartRequestNonce={cardServices.serverRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
         {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={cardServices.consoleEnabled} active={activeView === 'console'} background={cardServices.consoleEnabled && activeView !== 'console'} restartRequestNonce={cardServices.consoleRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        {(editing || (actionRowVisible && (workflowActions.length > 0 || card.scripted_delivery))) && <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
+        {(editing || (actionRowVisible && (footerWorkflowActions.length > 0 || card.scripted_delivery || agentFailureVisible))) && <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
           {editing ? (
             <div className="kanbanEditActions">
               <button data-card-action="secondary" type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
@@ -487,12 +497,19 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
               </button>
             </div>
           ) : <>
+            {project && agentFailureVisible && <CardAgentFailure
+              card={card}
+              project={project}
+              onCardUpdated={(updated) => onCardUpdatedRef.current(preserveRevisionValues(updated))}
+              onStartWork={onStartWork}
+              onError={setActionError}
+            />}
             {card.scripted_delivery && <div className={`scriptedDeliveryStatus stage-${card.scripted_delivery.stage}`}>
               <span>{scriptedDeliveryLabel(card.scripted_delivery.stage)}</span>
               {card.scripted_delivery.summary && <small>{card.scripted_delivery.summary}</small>}
             </div>}
-            {workflowActions.length > 0 && <CardWorkflowControls
-              actions={workflowActions}
+            {footerWorkflowActions.length > 0 && <CardWorkflowControls
+              actions={footerWorkflowActions}
               working={working}
               onAction={performWorkflowAction}
             />}</>}

@@ -1029,6 +1029,19 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
         thread,
         intent,
     );
+    let failure_class = match intent {
+        PiLifecycleIntent::ProtocolFailed => Some(AgentFailureClass::ProtocolFailed),
+        PiLifecycleIntent::ProcessExited => Some(AgentFailureClass::ProcessExited),
+        PiLifecycleIntent::AgentSettled if failure_detail.is_some() => {
+            Some(AgentFailureClass::classify(failure_detail.unwrap_or_default()))
+        }
+        PiLifecycleIntent::UiInputRequested => Some(AgentFailureClass::AgentQuestion),
+        _ => None,
+    };
+    let failure_detail = failure_detail.map(AgentFailureClass::actionable_detail).or_else(|| {
+        (intent == PiLifecycleIntent::UiInputRequested)
+            .then(|| "Pi is waiting for your input".to_string())
+    });
     let records_initial_work_launch = thread == PiThread::Work
         && intent == PiLifecycleIntent::AgentStarted
         && card.status == CardStatus::AgentWorking;
@@ -1042,17 +1055,14 @@ pub(in crate::kanban) fn apply_pi_lifecycle_intent_with_detail(
                     params![transition.to, now, id, card.workflow_revision],
                 ).map_err(db_error)?;
         }
-        let failed = matches!(
-            intent,
-            PiLifecycleIntent::ProtocolFailed | PiLifecycleIntent::ProcessExited
-        );
+        let failed = failure_class.is_some();
         let (from_status, to_status) = transition
             .map(|value| (value.from, value.to))
             .unwrap_or((card.status, card.status));
         transaction.execute(
                 "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail) VALUES (?1,?2,'agent',?3,?4,?5,?6,?7,?8,?9)",
                 params![id, now, intent, if failed { "failure" } else { "success" }, from_status, to_status,
-                    format!("Pi {} {}", thread, intent), failed.then(|| intent.as_str()), failure_detail],
+                    format!("Pi {} {}", thread, intent), failure_class.map(AgentFailureClass::as_str), failure_detail],
             ).map_err(db_error)?;
     }
     if let Some(event_order) = event_order {
@@ -1150,8 +1160,8 @@ pub(in crate::kanban) fn record_refinement_launch_failure(
     }
     transaction.execute(
         "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail)
-         VALUES (?1,?2,'system','refinement_launch_failed','failure',?3,?4,'Refinement launch failed','refinement_launch_failed',?5)",
-        params![id, now, card.status, to, error_detail],
+         VALUES (?1,?2,'system','refinement_launch_failed','failure',?3,?4,'Refinement launch failed','launch_failed',?5)",
+        params![id, now, card.status, to, AgentFailureClass::actionable_detail(error_detail)],
     ).map_err(db_error)?;
     transaction.commit().map_err(db_error)
 }
@@ -1206,10 +1216,56 @@ pub(in crate::kanban) fn record_agent_launch_failure(
         ).map_err(db_error)?;
     transaction.execute(
             "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail)
-             VALUES (?1,?2,'system','agent_launch_failed','failure',?3,?4,'Work agent launch failed','agent_launch_failed',?5)",
-            params![id, now, card.status, to, error_detail],
+             VALUES (?1,?2,'system','agent_launch_failed','failure',?3,?4,'Work agent launch failed','launch_failed',?5)",
+            params![id, now, card.status, to, AgentFailureClass::actionable_detail(error_detail)],
         ).map_err(db_error)?;
     transaction.commit().map_err(db_error)
+}
+
+pub(in crate::kanban) fn kanban_record_agent_retry_operation(
+    id: String,
+    event_type: String,
+    attempt: i64,
+    max_attempts: i64,
+    next_retry_at: Option<i64>,
+) -> Result<CardSnapshot, String> {
+    if !matches!(
+        event_type.as_str(),
+        "agent_retry_scheduled" | "agent_retry_attempted" | "agent_retry_cancelled"
+    ) {
+        return Err("Unknown agent retry event".to_string());
+    }
+    if !(1..=10).contains(&max_attempts) || attempt < 0 || attempt > max_attempts {
+        return Err("Agent retry attempt is out of bounds".to_string());
+    }
+    if event_type == "agent_retry_scheduled" && next_retry_at.is_none() {
+        return Err("A scheduled agent retry needs a next attempt time".to_string());
+    }
+    with_board_mutation(|connection| {
+        let card = get_card(connection, &id)?
+            .ok_or_else(|| "Kanban card was not found".to_string())?;
+        if !matches!(
+            card.status,
+            CardStatus::NeedsHuman | CardStatus::AgentWorking | CardStatus::NeedsRefinementInput
+        ) {
+            return Err("Agent retry is not available for this card status".to_string());
+        }
+        let state = event_type.trim_start_matches("agent_retry_").to_string();
+        let retry = CardAgentRetry { state: state.clone(), attempt, max_attempts, next_retry_at, created_at: unix_timestamp(), event_id: 0 };
+        let detail = serde_json::to_string(&retry).map_err(|error| error.to_string())?;
+        let summary = match state.as_str() {
+            "scheduled" => format!("Agent retry {} of {} scheduled", attempt, max_attempts),
+            "attempted" => format!("Agent retry {} of {} started", attempt, max_attempts),
+            _ => format!("Agent retry {} of {} cancelled", attempt, max_attempts),
+        };
+        connection.execute(
+            "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary,error_code,error_detail)
+             VALUES (?1,?2,'system',?3,'success',?4,NULL,?5)",
+            params![id, unix_timestamp(), event_type, summary, detail],
+        ).map_err(db_error)?;
+        Ok(())
+    })?;
+    fresh_card_snapshot(&id)
 }
 
 pub(in crate::kanban) fn kanban_status_metadata_operation() -> Vec<workflow::StatusMetadata> {

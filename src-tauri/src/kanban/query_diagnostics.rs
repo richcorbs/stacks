@@ -39,6 +39,7 @@ fn query_id(sql: &str) -> &'static str {
         "board.creation_operations",
         "board.cleanup_operations",
         "board.pull_requests",
+        "board.agent_state",
         "board.parents",
         "board.children",
     ];

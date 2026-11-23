@@ -41,6 +41,14 @@ export function buildSuperthreadWorkspaceInput(
   };
 }
 
+export function buildCardSetupCommand(card: { provider: 'local' | 'superthread'; external_id: string; title: string }, project: NonNullable<Store['projects']>[number]): string {
+  const store = { projects: [project] } as Store;
+  const input = card.provider === 'superthread'
+    ? buildSuperthreadWorkspaceInput(store, project.id, card.external_id, card.title, project.start_work_command || '')
+    : buildLocalWorkspaceInput(store, project.id, card.external_id, card.title);
+  return input.setupCommand?.trim() ?? '';
+}
+
 function renderTemplate(template: string, cardNumber: string, cardTitle: string) {
   return template
     .replaceAll('{card_number}', cardNumber)

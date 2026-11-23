@@ -1626,3 +1626,26 @@ body.resizingSplit .splitResizeHandle-row * { cursor: col-resize !important; }
 body.resizingSplit .splitResizeHandle-column,
 body.resizingSplit .splitResizeHandle-column * { cursor: row-resize !important; }
 }
+
+@layer components {
+/* Agent failure reason and in-place recovery. The actionable line stays visible;
+   the complete raw detail is a disclosure, never the card title or status badge. */
+.cardAgentFailure { min-width: 0; display: grid; gap: 9px; padding: 11px 12px; border: 1px solid #614247; border-radius: 8px; background: #21191c; }
+.cardAgentFailureSummary { min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
+.cardAgentFailureSummary > div { min-width: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.cardAgentFailureSummary strong { color: #e6b3b8; font-size: var(--fs-11); }
+.cardAgentFailureSummary code { min-width: 0; overflow: hidden; color: #f0c7ca; font: 550 var(--fs-10) ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.cardAgentRetryStatus { color: #c7a5a9; font-size: var(--fs-10); }
+.cardAgentFailureActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.cardAgentFailureNote { display: grid; gap: 5px; color: #9dafc0; font-size: var(--fs-10); }
+.cardAgentFailureNote input { min-width: 0; }
+.cardAgentModelPicker { max-height: 210px; display: grid; gap: 3px; overflow: auto; padding: 6px; border: 1px solid #314558; border-radius: 7px; background: var(--surface-panel); }
+.cardAgentModelPicker button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 7px 8px; border: 0; background: transparent; text-align: left; }
+.cardAgentModelPicker button:hover { background: var(--surface-hover); }
+.cardAgentModelPicker strong { overflow: hidden; color: #cdd9e4; text-overflow: ellipsis; white-space: nowrap; }
+.cardAgentModelPicker small { color: #7f94a8; font-size: var(--fs-9); }
+.cardAgentFailureDetail { color: #a68c8f; font-size: var(--fs-10); }
+.cardAgentFailureDetail summary { cursor: pointer; color: #b9a0a3; }
+.cardAgentFailureDetail pre { max-height: 220px; margin: 7px 0 0; padding: 9px; overflow: auto; border: 1px solid #402c30; border-radius: 6px; background: #171113; color: #d0b7ba; font: var(--fs-9)/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+}

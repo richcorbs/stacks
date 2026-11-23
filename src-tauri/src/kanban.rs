@@ -18,9 +18,9 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use workflow::{
-    CardStatus, CompletionOutcome, DeliveryWorkflow, EnvironmentLifecycle, PiLifecycleIntent,
-    PiThread, PullRequestState, WorkflowAction, WorkflowActor, WorkflowCapability, WorkflowContext,
-    WorkflowEventOutcome,
+    AgentFailureClass, CardStatus, CompletionOutcome, DeliveryWorkflow, EnvironmentLifecycle,
+    PiLifecycleIntent, PiThread, PullRequestState, WorkflowAction, WorkflowActor,
+    WorkflowCapability, WorkflowContext, WorkflowEventOutcome,
 };
 
 static BOARD_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();

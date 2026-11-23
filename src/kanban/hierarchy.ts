@@ -1,5 +1,6 @@
 import type { KanbanCard, KanbanCardSummary, KanbanStatus } from './types';
 import { KANBAN_LANES } from './workflow';
+import { failureStatusText } from './agentFailure';
 
 export function candidateParents(cards: KanbanCardSummary[], child: Pick<KanbanCardSummary, 'id' | 'project_id'>): KanbanCardSummary[] {
   return cards.filter((card) => card.id !== child.id
@@ -15,7 +16,7 @@ export function childCountLabel(count: number) {
   return `${count} ${count === 1 ? 'child' : 'children'}`;
 }
 
-export function hierarchyStatusLabel(card: Pick<KanbanCard, 'status' | 'hierarchy_finalized' | 'children' | 'child_count' | 'completion_outcome'>) {
+export function hierarchyStatusLabel(card: Pick<KanbanCard, 'status' | 'hierarchy_finalized' | 'children' | 'child_count' | 'completion_outcome' | 'agent_failure' | 'creation_operation'>) {
   if (card.hierarchy_finalized && card.child_count > 0 && card.children.length === card.child_count && card.children.every((child) => child.status === 'done')) {
     return 'Done · Children complete';
   }
@@ -23,7 +24,8 @@ export function hierarchyStatusLabel(card: Pick<KanbanCard, 'status' | 'hierarch
   if (card.status === 'done' && !card.hierarchy_finalized) {
     return `Done · ${card.completion_outcome === 'merged' ? 'Merged' : 'Closed'}`;
   }
-  return KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
+  const base = KANBAN_LANES.find((lane) => lane.status === card.status)?.label ?? card.status;
+  return failureStatusText(card, base);
 }
 
 export function statusLabel(status: KanbanStatus) {

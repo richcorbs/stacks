@@ -1282,6 +1282,7 @@ pub(in crate::kanban) fn list_card_summaries(
     load_creation_operations_batched(connection, &mut cards)?;
     load_cleanup_operations_batched(connection, &mut cards)?;
     load_pull_requests_batched(connection, &mut cards)?;
+    load_agent_states_batched(connection, &mut cards)?;
     enrich_relationships_batched(connection, &mut cards)?;
     Ok(cards.iter().map(KanbanCardSummary::from).collect())
 }
@@ -1328,6 +1329,7 @@ pub(in crate::kanban) fn list_cards(
     provider_sync::load_summaries(connection, &mut cards)?;
     load_pull_requests_batched(connection, &mut cards)?;
     let work_agent_launch_retries = load_events_batched(connection, &mut cards)?;
+    for card in &mut cards { apply_agent_state_from_events(card); }
     enrich_relationships_batched(connection, &mut cards)?;
     enrich_capabilities(connection, &mut cards, Some(&work_agent_launch_retries))?;
     Ok(cards)
@@ -1373,7 +1375,12 @@ fn get_card_projection(
             .or(card.delivery_operation_stage.take());
         card.provider_sync = provider_sync::load_summary(connection, id)?;
         card.pull_request = load_pull_request(connection, card)?;
-        if include_events { card.events = load_events(connection, id)?; }
+        if include_events {
+            card.events = load_events(connection, id)?;
+            apply_agent_state_from_events(card);
+        } else {
+            load_agent_state(connection, card)?;
+        }
         let mut cards = vec![card.clone()];
         enrich_relationships(connection, &mut cards)?;
         enrich_capabilities(connection, &mut cards, None)?;
@@ -2081,6 +2088,103 @@ pub(in crate::kanban) fn load_events_batched(
     Ok(work_agent_launch_retries)
 }
 
+const AGENT_RUN_EVENTS: &str = "'agent_started','agent_settled','protocol_failed','process_exited','agent_launch_failed','refinement_launch_failed','ui_input_requested','environment_start'";
+const AGENT_RETRY_EVENTS: &str = "'agent_retry_scheduled','agent_retry_attempted','agent_retry_cancelled'";
+
+fn is_agent_run_event(event_type: &str) -> bool {
+    matches!(event_type, "agent_started" | "agent_settled" | "protocol_failed" | "process_exited" | "agent_launch_failed" | "refinement_launch_failed" | "ui_input_requested" | "environment_start")
+}
+
+fn is_agent_retry_event(event_type: &str) -> bool {
+    matches!(event_type, "agent_retry_scheduled" | "agent_retry_attempted" | "agent_retry_cancelled")
+}
+
+fn agent_failure_from_event(event: &CardEvent) -> Option<CardAgentFailure> {
+    if event.outcome != WorkflowEventOutcome::Failure || !is_agent_run_event(&event.event_type) {
+        return None;
+    }
+    let error_code = event.error_code.as_deref()?;
+    Some(CardAgentFailure {
+        class: error_code.parse().unwrap_or(AgentFailureClass::Unknown),
+        detail: event.error_detail.clone().unwrap_or_default(),
+        event_type: event.event_type.clone(),
+        created_at: event.created_at,
+        event_id: event.id,
+    })
+}
+
+fn agent_retry_from_event(event: &CardEvent) -> Option<CardAgentRetry> {
+    if event.event_type == "agent_retry_cancelled" {
+        return None;
+    }
+    let mut retry: CardAgentRetry = serde_json::from_str(event.error_detail.as_deref()?).ok()?;
+    retry.created_at = event.created_at;
+    (retry.state != "cancelled").then_some(retry)
+}
+
+fn event_is_newer(left: &CardEvent, right: &CardEvent) -> bool {
+    left.created_at > right.created_at || (left.created_at == right.created_at && left.id > right.id)
+}
+
+fn apply_agent_state(events: &[CardEvent], card: &mut KanbanCard) {
+    let latest_run = events.iter().find(|event| is_agent_run_event(&event.event_type));
+    let latest_retry = events.iter().find(|event| is_agent_retry_event(&event.event_type));
+    card.agent_failure = latest_run.and_then(agent_failure_from_event);
+    card.agent_retry = latest_retry.and_then(|retry| {
+        let keep = latest_run.map_or(true, |run| {
+            run.outcome == WorkflowEventOutcome::Failure || event_is_newer(retry, run)
+        });
+        keep.then(|| agent_retry_from_event(retry)).flatten()
+    });
+}
+
+fn apply_agent_state_from_events(card: &mut KanbanCard) {
+    let events = std::mem::take(&mut card.events);
+    apply_agent_state(&events, card);
+    card.events = events;
+}
+
+fn load_agent_state(connection: &Connection, card: &mut KanbanCard) -> Result<(), String> {
+    let mut statement = connection.prepare(&format!(
+        "SELECT id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail
+         FROM card_events WHERE card_id=?1 AND (event_type IN ({AGENT_RUN_EVENTS}) OR event_type IN ({AGENT_RETRY_EVENTS}))
+         ORDER BY created_at DESC,id DESC LIMIT 100"
+    )).map_err(db_error)?;
+    let events = statement.query_map([&card.id], |row| Ok(CardEvent {
+        id: row.get(0)?, created_at: row.get(1)?, actor: row.get(2)?, event_type: row.get(3)?, outcome: row.get(4)?,
+        from_status: row.get(5)?, to_status: row.get(6)?, summary: row.get(7)?, error_code: row.get(8)?, error_detail: row.get(9)?,
+    })).map_err(db_error)?.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
+    apply_agent_state(&events, card);
+    Ok(())
+}
+
+fn load_agent_states_batched(connection: &Connection, cards: &mut [KanbanCard]) -> Result<(), String> {
+    let indexes = cards.iter().enumerate().map(|(index, card)| (card.id.clone(), index)).collect::<HashMap<_, _>>();
+    let mut statement = connection.prepare(&format!(
+        "SELECT card_id,id,created_at,actor,event_type,outcome,from_status,to_status,summary,error_code,error_detail
+         FROM (
+           SELECT e.*, ROW_NUMBER() OVER (
+             PARTITION BY e.card_id, CASE WHEN e.event_type IN ({AGENT_RUN_EVENTS}) THEN 1 ELSE 2 END
+             ORDER BY e.created_at DESC,e.id DESC) AS event_rank
+           FROM card_events e JOIN kanban_cards c ON c.id=e.card_id
+           WHERE c.in_scope=1 AND (e.event_type IN ({AGENT_RUN_EVENTS}) OR e.event_type IN ({AGENT_RETRY_EVENTS}))
+         ) WHERE event_rank=1 /* stacks-query:board.agent_state */"
+    )).map_err(db_error)?;
+    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, CardEvent {
+        id: row.get(1)?, created_at: row.get(2)?, actor: row.get(3)?, event_type: row.get(4)?, outcome: row.get(5)?,
+        from_status: row.get(6)?, to_status: row.get(7)?, summary: row.get(8)?, error_code: row.get(9)?, error_detail: row.get(10)?,
+    }))).map_err(db_error)?;
+    let mut by_card: HashMap<String, Vec<CardEvent>> = HashMap::new();
+    for row in rows {
+        let (card_id, event) = row.map_err(db_error)?;
+        if indexes.contains_key(&card_id) { by_card.entry(card_id).or_default().push(event); }
+    }
+    for (card_id, events) in by_card {
+        if let Some(index) = indexes.get(&card_id) { apply_agent_state(&events, &mut cards[*index]); }
+    }
+    Ok(())
+}
+
 pub(in crate::kanban) fn load_pull_request(
     connection: &Connection,
     card: &KanbanCard,
@@ -2390,6 +2494,8 @@ pub(in crate::kanban) fn map_card(row: &rusqlite::Row<'_>) -> rusqlite::Result<K
         environment: None,
         creation_operation: None,
         cleanup_operation: None,
+        agent_failure: None,
+        agent_retry: None,
         provider_sync: None,
         created_at: row.get(21)?,
         updated_at: row.get(22)?,

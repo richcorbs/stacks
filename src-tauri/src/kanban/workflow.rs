@@ -85,6 +85,140 @@ string_enum!(PiLifecycleIntent {
     UiInputRequested => "ui_input_requested",
     UiInputResolved => "ui_input_resolved",
 });
+string_enum!(AgentFailureClass {
+    ProviderOverloaded => "provider_overloaded",
+    ProviderAuth => "provider_auth",
+    ProviderUnavailable => "provider_unavailable",
+    ModelUnavailable => "model_unavailable",
+    ProtocolFailed => "protocol_failed",
+    ProcessExited => "process_exited",
+    LaunchFailed => "launch_failed",
+    SetupFailed => "setup_failed",
+    AgentQuestion => "agent_question",
+    AgentStalled => "agent_stalled",
+    Unknown => "unknown",
+});
+
+impl AgentFailureClass {
+    /// One taxonomy owner for provider turn errors. Keep this ordering explicit:
+    /// an auth or missing-model error can contain a status/code that otherwise
+    /// looks transient, and an overload response must not be treated as a 5xx.
+    pub fn classify(detail: &str) -> Self {
+        let value = detail.to_ascii_lowercase();
+        if [
+            "401",
+            "403",
+            "unauthorized",
+            "authentication",
+            "invalid api key",
+            "api key",
+            "token expired",
+            "permission denied",
+            "forbidden",
+            "not logged in",
+            "sign in",
+        ]
+        .iter()
+        .any(|needle| value.contains(needle))
+        {
+            return Self::ProviderAuth;
+        }
+        if [
+            "model not found",
+            "unknown model",
+            "unsupported model",
+            "model unavailable",
+            "no such model",
+            "model is not configured",
+            "invalid model",
+        ]
+        .iter()
+        .any(|needle| value.contains(needle))
+        {
+            return Self::ModelUnavailable;
+        }
+        if [
+            "429",
+            "overloaded",
+            "rate limit",
+            "rate_limit",
+            "too many requests",
+            "capacity",
+        ]
+        .iter()
+        .any(|needle| value.contains(needle))
+        {
+            return Self::ProviderOverloaded;
+        }
+        if ["stalled", "stopped responding", "no longer responding"].iter().any(|needle| value.contains(needle)) {
+            return Self::AgentStalled;
+        }
+        if [
+            "protocol",
+            "invalid rpc",
+            "malformed",
+            "unexpected response",
+            "failed to parse",
+            "parse error",
+            "invalid json",
+        ]
+        .iter()
+        .any(|needle| value.contains(needle))
+        {
+            return Self::ProtocolFailed;
+        }
+        if [
+            "500",
+            "502",
+            "503",
+            "504",
+            "5xx",
+            "server error",
+            "service unavailable",
+            "connection",
+            "network",
+            "timed out",
+            "timeout",
+            "econnreset",
+            "enotfound",
+            "socket",
+            "transport",
+            "unreachable",
+            "terminated",
+        ]
+        .iter()
+        .any(|needle| value.contains(needle))
+        {
+            return Self::ProviderUnavailable;
+        }
+        Self::Unknown
+    }
+
+    pub fn is_transient(self) -> bool {
+        matches!(self, Self::ProviderOverloaded | Self::ProviderUnavailable)
+    }
+
+    /// The last non-empty line is the useful stderr/provider line; the rest is
+    /// kept after it so the UI never has to expand a 256 KB tail to find it.
+    pub fn actionable_detail(detail: &str) -> String {
+        let raw = detail.trim();
+        if raw.is_empty() {
+            return String::new();
+        }
+        let line = raw
+            .lines()
+            .rev()
+            .find(|candidate| !candidate.trim().is_empty())
+            .map(str::trim)
+            .unwrap_or(raw);
+        if line == raw {
+            raw.to_string()
+        } else {
+            format!("{line}\n\n{raw}")
+        }
+    }
+}
+
 string_enum!(PiThread { Planning => "planning", Work => "work" });
 string_enum!(DeliveryWorkflow { LocalMerge => "local_merge", GithubPullRequest => "github_pull_request", ScriptedDelivery => "scripted_delivery" });
 string_enum!(EnvironmentLifecycle { Creating => "creating", Ready => "ready", CleanupPending => "cleanup_pending", CleanupFailed => "cleanup_failed" });
@@ -841,6 +975,24 @@ mod tests {
         card.has_children = false;
         card.project_present = false;
         assert!(capabilities(&card).iter().any(|item| item.action == WorkflowAction::StartWork && !item.available));
+    }
+
+    #[test]
+    fn failure_taxonomy_classifies_provider_errors_and_keeps_the_actionable_line_first() {
+        assert_eq!(AgentFailureClass::classify("429: {\"type\":\"server_error\",\"message\":\"overloaded\"}"), AgentFailureClass::ProviderOverloaded);
+        assert_eq!(AgentFailureClass::classify("401 Unauthorized: invalid api key"), AgentFailureClass::ProviderAuth);
+        assert_eq!(AgentFailureClass::classify("Model not found: openai/nope"), AgentFailureClass::ModelUnavailable);
+        assert_eq!(AgentFailureClass::classify("503 Service Unavailable"), AgentFailureClass::ProviderUnavailable);
+        assert_eq!(AgentFailureClass::classify("invalid RPC response"), AgentFailureClass::ProtocolFailed);
+        assert_eq!(AgentFailureClass::classify("something odd"), AgentFailureClass::Unknown);
+        assert_eq!(AgentFailureClass::ProviderOverloaded.as_str().parse::<AgentFailureClass>().unwrap(), AgentFailureClass::ProviderOverloaded);
+        assert!(AgentFailureClass::ProviderOverloaded.is_transient());
+        assert!(!AgentFailureClass::ProviderAuth.is_transient());
+
+        let blob = "bundle install output\nmore setup output\nBundler::GemNotFound: Could not find gem\n\n";
+        let detail = AgentFailureClass::actionable_detail(blob);
+        assert!(detail.starts_with("Bundler::GemNotFound: Could not find gem\n\n"));
+        assert!(detail.ends_with(blob.trim()));
     }
 
     #[test]

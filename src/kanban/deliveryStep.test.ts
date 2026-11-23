@@ -65,6 +65,12 @@ describe('delivery-step projection', () => {
       ['uncertain', 'Deployment uncertain · Resolve', true], ['deployed', 'Deployed · Reconciling', false],
     ] as const) expect(deliveryStep({ ...card, delivery_operation_stage: stage }, { projects: [scripted] })).toEqual({ label, actionRequired });
   });
+  it('shows the failure reason instead of a generic waiting status', () => {
+    const failed = { ...card, status: 'needs_human' as const, agent_failure: { class: 'provider_overloaded' as const, detail: '429 overloaded', event_type: 'agent_settled', created_at: 1, event_id: 1 } } as KanbanCardSummary;
+    expect(deliveryStep(failed, context(failed))).toEqual({ label: 'Needs you — provider overloaded', actionRequired: true });
+    const setup = { ...card, status: 'ready' as const, environment: null, agent_failure: { class: 'setup_failed' as const, detail: 'Bundler::GemNotFound\n\ntail', event_type: 'environment_start', created_at: 1, event_id: 1 }, creation_operation: { phase: 'recovery_required' as const, error: 'Bundler::GemNotFound' } } as KanbanCardSummary;
+    expect(deliveryStep(setup, context(setup)).label).toBe('Setup failed — Bundler::GemNotFound');
+  });
   it('labels finalized parents by actual child progress, not breakdown finalization', () => {
     const backlog = { ...card, status: 'needs_refinement' as const, child_count: 2, hierarchy_finalized: true,
       children: [{ status: 'needs_refinement' }, { status: 'done' }] } as KanbanCardSummary;

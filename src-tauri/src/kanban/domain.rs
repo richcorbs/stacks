@@ -190,6 +190,26 @@ pub struct ScriptedDeliveryOperation {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardAgentFailure {
+    pub class: AgentFailureClass,
+    pub detail: String,
+    pub event_type: String,
+    pub created_at: i64,
+    pub event_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CardAgentRetry {
+    pub state: String,
+    pub attempt: i64,
+    pub max_attempts: i64,
+    pub next_retry_at: Option<i64>,
+    pub created_at: i64,
+    pub event_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CardRelationshipSummary {
     pub(in crate::kanban) id: String,
     pub(in crate::kanban) external_id: String,
@@ -237,6 +257,8 @@ pub struct KanbanCard {
     pub(in crate::kanban) environment: Option<CardEnvironment>,
     pub(in crate::kanban) creation_operation: Option<EnvironmentCreationOperation>,
     pub(in crate::kanban) cleanup_operation: Option<CardCleanupOperation>,
+    pub(in crate::kanban) agent_failure: Option<CardAgentFailure>,
+    pub(in crate::kanban) agent_retry: Option<CardAgentRetry>,
     pub(in crate::kanban) provider_sync: Option<provider_sync::ProviderSyncOperationSummary>,
     pub(in crate::kanban) created_at: i64,
     pub(in crate::kanban) updated_at: i64,
@@ -275,6 +297,8 @@ pub struct KanbanCardSummary {
     pub pull_request: Option<CardPullRequestIndicator>,
     pub creation_operation: Option<CardCreationIndicator>,
     pub cleanup_operation: Option<CardCleanupIndicator>,
+    pub agent_failure: Option<CardAgentFailure>,
+    pub agent_retry: Option<CardAgentRetry>,
     pub runtime_cleanup_status: Option<String>,
     pub delivery_operation_stage: Option<String>,
     pub delivery_error: Option<String>,
@@ -338,6 +362,7 @@ impl From<&KanbanCard> for KanbanCardSummary {
             }),
             creation_operation: card.creation_operation.as_ref().map(|value| CardCreationIndicator { phase: value.phase.clone(), error: value.error.clone() }),
             cleanup_operation: card.cleanup_operation.as_ref().map(|value| CardCleanupIndicator { status: value.status.clone() }),
+            agent_failure: card.agent_failure.clone(), agent_retry: card.agent_retry.clone(),
             runtime_cleanup_status: card.runtime_cleanup_status.clone(),
             delivery_operation_stage: card.delivery_operation_stage.clone(), delivery_error: card.delivery_error.clone(),
             created_at: card.created_at, updated_at: card.updated_at, sort_order: card.sort_order,
