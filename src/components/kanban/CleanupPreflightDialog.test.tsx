@@ -95,6 +95,32 @@ describe('CleanupPreflightDialog keyboard focus', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it('keeps the dialog open and shows the reason when cleanup is refused', async () => {
+    // The backend re-validates revisions on execute, so a refusal made after the
+    // preflight was read must not look like a dead button.
+    const onConfirm = vi.fn().mockRejectedValue(new Error('Card changed; reload before cleaning up'));
+    const { buttons } = mount({ onConfirm });
+    act(() => { vi.advanceTimersByTime(2000); });
+    await act(async () => { await buttons()[1].props.onClick(); });
+    const alert = renderer!.root.findByProps({ role: 'alert' });
+    expect(alert.props.children.join('')).toContain('Card changed; reload before cleaning up');
+    expect(renderer!.root.findAllByProps({ role: 'dialog' })).toHaveLength(1);
+    expect(buttons().every((button) => !button.props.disabled)).toBe(true);
+  });
+
+  it('clears a previous refusal when cleanup is retried', async () => {
+    const onConfirm = vi.fn()
+      .mockRejectedValueOnce(new Error('First refusal'))
+      .mockResolvedValueOnce(undefined);
+    const { buttons } = mount({ onConfirm });
+    act(() => { vi.advanceTimersByTime(2000); });
+    await act(async () => { await buttons()[1].props.onClick(); });
+    expect(renderer!.root.findByProps({ role: 'alert' }).props.children.join('')).toContain('First refusal');
+    await act(async () => { await buttons()[1].props.onClick(); });
+    expect(renderer!.root.findAllByProps({ role: 'alert' })).toHaveLength(0);
+    expect(onConfirm).toHaveBeenCalledTimes(2);
+  });
+
   it('cancels on Escape', () => {
     const { dispatch, onCancel } = mount();
     dispatch('Escape');
