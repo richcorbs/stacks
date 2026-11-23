@@ -457,27 +457,29 @@ pub(in crate::kanban) fn setup_failed_recovery_in(
         Err(_) => {
             // Keep the resources but do not claim ownership we cannot prove. Use the
             // caller's connection: re-entering the board lock here would deadlock.
-            let detail =
-                format!("Setup failed and its Git resource changes are ambiguous: {error}");
+            let detail = AgentFailureClass::actionable_detail(&format!(
+                "Setup failed and its Git resource changes are ambiguous: {error}"
+            ));
             let tx = connection.savepoint().map_err(db_error)?;
             tx.execute(
                 "UPDATE environment_creation_operations SET phase='recovery_required',error=?1,cleanup_available=0,revision=revision+1,updated_at=?2 WHERE card_id=?3",
                 params![detail, unix_timestamp(), op.card_id],
             )
             .map_err(db_error)?;
-            tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','recovery_required',?3)", params![op.card_id,unix_timestamp(),detail]).map_err(db_error)?;
+            tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','setup_failed',?3)", params![op.card_id,unix_timestamp(),detail]).map_err(db_error)?;
             tx.commit().map_err(db_error)?;
             return get_card(connection, &op.card_id)?
                 .ok_or_else(|| "Kanban card was not found".to_string());
         }
     };
+    let detail = AgentFailureClass::actionable_detail(error);
     let tx = connection.savepoint().map_err(db_error)?;
     tx.execute(
         "UPDATE environment_creation_operations SET phase='recovery_required',error=?1,cleanup_available=?2,revision=revision+1,updated_at=?3 WHERE card_id=?4",
-        params![error, validated.source_worktree_new as i64, unix_timestamp(), op.card_id],
+        params![detail, validated.source_worktree_new as i64, unix_timestamp(), op.card_id],
     )
     .map_err(db_error)?;
-    tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','recovery_required',?3)", params![op.card_id,unix_timestamp(),error]).map_err(db_error)?;
+    tx.execute("INSERT INTO card_events (card_id,created_at,actor,event_type,outcome,error_code,error_detail) VALUES (?1,?2,'system','environment_start','failure','setup_failed',?3)", params![op.card_id,unix_timestamp(),detail]).map_err(db_error)?;
     tx.commit().map_err(db_error)?;
     get_card(connection, &op.card_id)?.ok_or_else(|| "Kanban card was not found".to_string())
 }

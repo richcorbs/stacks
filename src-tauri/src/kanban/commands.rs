@@ -110,6 +110,17 @@ pub fn kanban_apply_workflow_action(
 }
 
 #[tauri::command]
+pub fn kanban_record_agent_retry(
+    id: String,
+    event_type: String,
+    attempt: i64,
+    max_attempts: i64,
+    next_retry_at: Option<i64>,
+) -> Result<CardSnapshot, String> {
+    kanban_record_agent_retry_operation(id, event_type, attempt, max_attempts, next_retry_at)
+}
+
+#[tauri::command]
 pub fn kanban_apply_pi_lifecycle_intent(
     id: String,
     thread: PiThread,

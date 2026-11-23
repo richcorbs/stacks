@@ -35,6 +35,29 @@ describe('KanbanWorkflowLifecycleService', () => {
     service.dispose();
   });
 
+  it('carries an assistant stopReason error into the settled classification', async () => {
+    let listener!: (event: PiRpcEnvelope) => void;
+    const calls: Array<{ intent: string; detail?: string }> = [];
+    const service = new KanbanWorkflowLifecycleService({
+      card: () => card(), applyCard: (next) => next,
+      applyIntent: async (_id, _thread, intent, _generation, _eventId, _order, failureDetail) => {
+        calls.push({ intent, detail: failureDetail });
+        return { card: card(2, 'needs_human'), board_revision: 2 };
+      },
+      applyAction: async () => ({ card: card(), board_revision: 1 }), subscribePi: async (next) => { listener = next; return () => {}; },
+      registerUiRequests: () => () => {}, session: () => ({ lifecycleGeneration: () => 'g', stopRefinement: async () => {} }),
+      load: async () => {}, reportError: () => {},
+    });
+    service.start(); await Promise.resolve();
+    listener({
+      ...envelope('message_end', 'g', 1),
+      event: { type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: '429: overloaded', usage: { totalTokens: 0 } } },
+    });
+    listener(envelope('agent_settled', 'g', 2));
+    await vi.waitFor(() => expect(calls).toEqual([{ intent: 'agent_settled', detail: '429: overloaded' }]));
+    service.dispose();
+  });
+
   it('ignores failure events from replaced process generations', async () => {
     let listener!: (event: PiRpcEnvelope) => void;
     const applyIntent = vi.fn(async () => ({ card: card(2), board_revision: 2 }));

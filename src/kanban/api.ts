@@ -80,6 +80,10 @@ export function applyKanbanPiLifecycleIntent(id: string, thread: 'planning' | 'w
   return invoke<CardSnapshot>('kanban_apply_pi_lifecycle_intent', { id, thread, intent, generation, eventId, eventOrder, failureDetail } satisfies BoundaryRequest_kanban_apply_pi_lifecycle_intent);
 }
 
+export function recordKanbanAgentRetry(id: string, eventType: 'agent_retry_scheduled' | 'agent_retry_attempted' | 'agent_retry_cancelled', attempt: number, maxAttempts: number, nextRetryAt: number | null) {
+  return invoke<CardSnapshot>('kanban_record_agent_retry', { id, eventType, attempt, maxAttempts, nextRetryAt });
+}
+
 export function recordKanbanAgentLaunchFailure(id: string, expectedWorkflowRevision: number, expectedProjectId: string, errorDetail: string) {
   return invoke<CardSnapshot>('kanban_record_agent_launch_failure', { id, expectedWorkflowRevision, expectedProjectId, errorDetail });
 }

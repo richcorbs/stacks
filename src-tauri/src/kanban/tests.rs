@@ -633,9 +633,9 @@ fn board_profiles_use_safe_identifiers_without_changing_results() {
     let actual = list_card_summaries(&mut connection).unwrap();
     assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(expected).unwrap());
     let lines = lines.lock().unwrap();
-    assert_eq!(lines.len(), 7);
+    assert_eq!(lines.len(), 8);
     for id in ["board.cards", "board.environment_indicators", "board.creation_operations",
-        "board.cleanup_operations", "board.pull_requests", "board.parents", "board.children"] {
+        "board.cleanup_operations", "board.pull_requests", "board.agent_state", "board.parents", "board.children"] {
         assert!(lines.iter().any(|line| line.starts_with(&format!("[stacks sqlite] slow_query query={id} elapsed_ms="))), "missing {id}");
     }
 }
@@ -935,6 +935,48 @@ fn work_pi_failure_moves_agent_working_to_needs_human_with_durable_detail() {
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     ).unwrap();
     assert_eq!(event, ("failure".into(), "protocol_failed".into(), "invalid RPC response".into()));
+}
+
+#[test]
+fn zero_token_agent_error_settles_as_a_classified_failure_and_retry_state_is_projected() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&connection).unwrap();
+    local_card(&mut connection);
+    connection.execute("UPDATE kanban_cards SET status='agent_working' WHERE id='local:test'", []).unwrap();
+    connection.execute(
+        "INSERT INTO card_pi_lifecycle(card_id,thread,generation,latest_event_order,latest_event_id) VALUES ('local:test','work','work-generation',-1,'')",
+        [],
+    ).unwrap();
+
+    let failed = apply_pi_lifecycle_intent_with_detail(
+        &mut connection,
+        "local:test",
+        PiThread::Work,
+        PiLifecycleIntent::AgentSettled,
+        "work-generation",
+        "error-settle-1",
+        Some(0),
+        Some("429: {\"type\":\"server_error\",\"message\":\"The inference service is overloaded\"}"),
+    ).unwrap();
+    assert_eq!(failed.status, CardStatus::NeedsHuman);
+    let failure = failed.agent_failure.as_ref().unwrap();
+    assert_eq!(failure.class, AgentFailureClass::ProviderOverloaded);
+    assert!(failure.detail.starts_with("429:"));
+    let event: (String, String) = connection.query_row(
+        "SELECT outcome,error_code FROM card_events WHERE card_id='local:test' ORDER BY id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!(event, ("failure".into(), "provider_overloaded".into()));
+
+    let retry = CardAgentRetry { state: "scheduled".into(), attempt: 1, max_attempts: 3, next_retry_at: Some(unix_timestamp() + 30), created_at: unix_timestamp(), event_id: 0 };
+    connection.execute(
+        "INSERT INTO card_events(card_id,created_at,actor,event_type,outcome,summary,error_code,error_detail) VALUES (?1,?2,'system','agent_retry_scheduled','success','Retry 1 of 3 scheduled',NULL,?3)",
+        params!["local:test", unix_timestamp(), serde_json::to_string(&retry).unwrap()],
+    ).unwrap();
+    let projected = get_card(&connection, "local:test").unwrap().unwrap();
+    assert_eq!(projected.agent_retry.as_ref().unwrap().state, "scheduled");
+    assert_eq!(projected.agent_retry.as_ref().unwrap().attempt, 1);
 }
 
 #[test]

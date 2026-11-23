@@ -37,6 +37,7 @@ import { ServerHandoffDialog } from './ServerHandoffDialog';
 import { useBoardPrMerge } from '../../kanban/useBoardPrMerge';
 import { BoardPrMergeDialog } from './BoardPrMergeDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
+import { useAgentRetryScheduler } from '../../kanban/useAgentRetryScheduler';
 
 export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnabled, projects, projectsHydrated, selectedProjectId, onSelectProject, backlogCollapsed, onBacklogCollapsedChange, attentionCollapsed, onAttentionCollapsedChange, progressCollapsed, onProgressCollapsedChange, doneCollapsed, onDoneCollapsedChange, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, onAddProject, onCleanupCard, onStartWork, onPaletteCardsChange }: KanbanBoardProps & { board: KanbanBoardModel }) {
   const loading = useLoadingCoordinator();
@@ -355,6 +356,12 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     clearSelection(selectedCardId);
     showAppToast('This card was removed');
   }, [clearSelection, selectedCard, selectedCardId]);
+
+  const applyAgentRetryCard = useCallback((updated: KanbanCard) => {
+    const canonical = board.applyCardSnapshot(updated);
+    if (selectedDetailRef.current?.id === updated.id) projectSelectedDetail(updated, updated.events, canonical);
+  }, [board.applyCardSnapshot]);
+  useAgentRetryScheduler(board.cards, projects, applyAgentRetryCard);
 
   function projectSelectedDetail(updated: KanbanCard, incomingEvents = updated.events, canonicalOverride?: KanbanCardSummary) {
     const current = selectedDetailRef.current;

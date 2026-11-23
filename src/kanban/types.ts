@@ -5,6 +5,9 @@ export type KanbanStatus = typeof KANBAN_STATUS_METADATA[number]['status'];
 export type KanbanWorkflowAction = typeof KANBAN_WORKFLOW_ACTIONS[number];
 export type KanbanCapability = { action: KanbanWorkflowAction; available: boolean; disabled_reason?: string };
 export type PiLifecycleIntent = 'agent_started' | 'agent_settled' | 'protocol_failed' | 'process_exited' | 'ui_input_requested' | 'ui_input_resolved';
+export type AgentFailureClass = 'provider_overloaded' | 'provider_auth' | 'provider_unavailable' | 'model_unavailable' | 'protocol_failed' | 'process_exited' | 'launch_failed' | 'setup_failed' | 'agent_question' | 'agent_stalled' | 'unknown';
+export type CardAgentFailure = { class: AgentFailureClass; detail: string; event_type: string; created_at: number; event_id: number };
+export type CardAgentRetry = { state: 'scheduled' | 'attempted' | 'cancelled'; attempt: number; max_attempts: number; next_retry_at: number | null; created_at: number; event_id: number };
 
 export type CardEnvironmentPane = {
   id: string;
@@ -194,6 +197,8 @@ export type KanbanCardDetail = {
   environment: CardEnvironment | null;
   creation_operation?: EnvironmentCreationOperation | null;
   cleanup_operation?: CardCleanupOperation | null;
+  agent_failure?: CardAgentFailure | null;
+  agent_retry?: CardAgentRetry | null;
   provider_sync?: {
     id: string;
     kind: 'start_work' | 'done';
@@ -219,6 +224,8 @@ export type KanbanCardSummary = Pick<KanbanCardDetail,
     pull_request?: CardPullRequestIndicator | null;
     creation_operation?: Pick<EnvironmentCreationOperation, 'phase' | 'error'> | null;
     cleanup_operation?: Pick<CardCleanupOperation, 'status'> | null;
+    agent_failure?: CardAgentFailure | null;
+    agent_retry?: CardAgentRetry | null;
     runtime_cleanup_status?: 'pending' | 'complete' | 'failed' | null;
     delivery_operation_stage?: string | null;
     delivery_error?: string | null;

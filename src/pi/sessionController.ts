@@ -85,6 +85,7 @@ export class PiSessionController {
   private generation: string | null = null;
   private previousGeneration: string | null = null;
   private completionNotificationEligible = false;
+  private lastTurnFailed = false;
   private activityRevision = 0;
   private uiResponseEpoch = 0;
   private initializationPromise: Promise<void> | null = null;
@@ -535,6 +536,7 @@ export class PiSessionController {
     switch (event.type) {
       case 'agent_start':
         this.activityRevision += 1;
+        this.lastTurnFailed = false;
         this.completionNotificationEligible = true;
         this.patch({ isStreaming: true, isStreamingText: false, streamingText: '', tools: [], error: null });
         break;
@@ -556,7 +558,10 @@ export class PiSessionController {
         if (event.message && typeof event.message === 'object') {
           const message = event.message as PiMessage;
           const next: Partial<PiSessionSnapshot> = { messages: appendPiMessage(this.snapshot.messages, message, this.transcriptReconciliation) };
-          if (message.role === 'assistant') Object.assign(next, { isStreamingText: false, streamingText: '' });
+          if (message.role === 'assistant') {
+            Object.assign(next, { isStreamingText: false, streamingText: '' });
+            if (message.stopReason === 'error' || typeof message.errorMessage === 'string') this.lastTurnFailed = true;
+          }
           if (message.role === 'user') {
             const text = messageContentText(message.content).trim();
             next.queuedSteering = removeDeliveredQueuedMessage(this.snapshot.queuedSteering, text);
@@ -605,9 +610,10 @@ export class PiSessionController {
         // Only Pi's explicit non-aborted result confirms completion. Legacy Pi
         // and the stacks_watchdog idle-recovery event omit aborted: neither
         // proves success nor cancellation, so settle without completion attention.
-        if (this.completionNotificationEligible && event.aborted === false && event.source !== 'stacks_watchdog')
+        if (this.completionNotificationEligible && !this.lastTurnFailed && event.aborted === false && event.source !== 'stacks_watchdog')
           this.dispatchAttention('pi-complete', `${payload.generation}:run:${this.activityRevision}`);
         this.completionNotificationEligible = false;
+        this.lastTurnFailed = false;
         this.patch({ isStreaming: false, isStreamingText: false, streamingText: '', tools: [] });
         this.refreshState().catch(() => {});
         this.refreshStats().catch(() => {});

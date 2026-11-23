@@ -21,6 +21,7 @@ export type WorkflowLifecycleDependencies = {
 export class KanbanWorkflowLifecycleService {
   private transitions = new Map<string, Promise<void>>();
   private uiBlocks = new Map<string, { generation: string; transition: Promise<KanbanCardSummary | null> }>();
+  private turnFailures = new Map<string, string>();
   private unsubscribePi?: () => void;
   private unregisterUi?: () => void;
   private disposed = false;
@@ -45,6 +46,7 @@ export class KanbanWorkflowLifecycleService {
     this.unregisterUi?.();
     this.uiBlocks.clear();
     this.transitions.clear();
+    this.turnFailures.clear();
   }
 
   async act(id: string, action: 'return_to_refinement' | 'request_changes') {
@@ -125,11 +127,27 @@ export class KanbanWorkflowLifecycleService {
     const session = cardAgentSession(envelope.pane_id);
     const eventType = typeof envelope.event?.type === 'string' ? envelope.event.type : '';
     const lifecycleError = eventType === 'pi_protocol_error' || eventType === 'pi_process_exit';
-    if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled' && !lifecycleError)) return;
+    if (!session || (eventType !== 'agent_start' && eventType !== 'agent_settled' && eventType !== 'agent_end' && eventType !== 'message_end' && !lifecycleError)) return;
     const diagnostic = { stage: 'frontend_projection', pane: envelope.pane_id, generation: envelope.generation,
       eventId: envelope.event_id, eventOrder: envelope.event_order, eventType, source: envelope.event.source ?? 'native' };
     if (eventType === 'pi_process_exit' && envelope.event.expected === true) {
       console.debug('[pi-lifecycle]', { ...diagnostic, result: 'filtered', reason: 'expected_exit' });
+      return;
+    }
+    if (eventType === 'agent_start') this.turnFailures.delete(envelope.pane_id);
+    if (eventType === 'message_end') {
+      const message = (envelope.event as { message?: unknown }).message;
+      const detail = failedTurnDetail(message);
+      if (detail) this.turnFailures.set(envelope.pane_id, detail);
+      else if (message && typeof message === 'object' && (message as { role?: unknown }).role === 'assistant') this.turnFailures.delete(envelope.pane_id);
+      return;
+    }
+    if (eventType === 'agent_end') {
+      const eventRecord = envelope.event as unknown as { messages?: unknown };
+      const messages = Array.isArray(eventRecord.messages) ? eventRecord.messages : [];
+      const detail = [...messages].reverse().map(failedTurnDetail).find(Boolean);
+      if (detail) this.turnFailures.set(envelope.pane_id, detail);
+      else this.turnFailures.delete(envelope.pane_id);
       return;
     }
     const acceptedGeneration = this.dependencies.session(envelope.pane_id)?.lifecycleGeneration();
@@ -148,9 +166,13 @@ export class KanbanWorkflowLifecycleService {
     }
     console.debug('[pi-lifecycle]', { ...diagnostic, result: 'received' });
     const intent = piLifecycleIntent(eventType);
+    const turnFailure = eventType === 'agent_settled' ? this.turnFailures.get(envelope.pane_id) : undefined;
+    if (eventType === 'agent_settled') this.turnFailures.delete(envelope.pane_id);
+    const watchdogStall = eventType === 'agent_settled' && envelope.event.source === 'stacks_watchdog' && !turnFailure
+      ? 'Pi stopped responding before it finished; the session was settled automatically' : undefined;
     const failureDetail = eventType === 'pi_protocol_error'
       ? (typeof (envelope.event as { message?: unknown }).message === 'string' ? String((envelope.event as { message: string }).message) : 'Pi protocol failed')
-      : eventType === 'pi_process_exit' ? 'Pi process exited unexpectedly' : undefined;
+      : eventType === 'pi_process_exit' ? 'Pi process exited unexpectedly' : turnFailure ?? watchdogStall;
     if (intent) this.enqueue(session.cardId, session.thread, intent, envelope.generation, envelope.event_id, envelope.event_order, undefined, undefined, failureDetail);
   };
 }
@@ -175,4 +197,16 @@ export function cardAgentSession(paneId: string): { cardId: string; thread: Card
   }
   return null;
 }
+export function failedTurnDetail(message: unknown): string | null {
+  if (!message || typeof message !== 'object') return null;
+  const value = message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown; content?: unknown; usage?: { totalTokens?: unknown } };
+  if (value.role !== 'assistant' || value.stopReason !== 'error') return null;
+  const error = typeof value.errorMessage === 'string' ? value.errorMessage.trim() : '';
+  if (error) return error;
+  const content = typeof value.content === 'string' ? value.content.trim()
+    : Array.isArray(value.content) ? value.content.flatMap((block) => block && typeof block === 'object' && (block as { type?: unknown }).type === 'text' && typeof (block as { text?: unknown }).text === 'string' ? [String((block as { text: string }).text)] : []).join('\n').trim()
+      : '';
+  return content || `Provider turn failed (${typeof value.usage?.totalTokens === 'number' ? value.usage.totalTokens : 0} tokens)`;
+}
+
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }

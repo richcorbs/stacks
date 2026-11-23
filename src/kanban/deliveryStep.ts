@@ -1,6 +1,7 @@
 import type { Project } from '../types';
 import type { KanbanCardSummary } from './types';
 import { PrRefreshSchedule } from './prRefreshSchedule';
+import { activeAgentFailure, failureStatusText } from './agentFailure';
 
 export type PrCheck = { identity?: string; checkedAt: number | null; failed: boolean; refreshing: boolean };
 export type DeliveryContext = { projects?: Project[]; prChecks?: Record<string, PrCheck>; now?: number };
@@ -24,6 +25,13 @@ export function deliveryStep(card: KanbanCardSummary, context: DeliveryContext =
   }
   if (card.status === 'done') return step(card.completion_outcome === 'merged' ? 'Delivered' : 'Closed', false);
   if (card.child_count > 0 && card.status === 'approved') return step('Children in delivery', false);
+  const failure = activeAgentFailure(card);
+  if (failure) {
+    const base = failure.class === 'setup_failed' ? 'Setup failed'
+      : card.status === 'needs_refinement_input' ? 'Refinement input needed'
+        : 'Needs you';
+    return step(failureStatusText(card, base), true);
+  }
   if (card.status === 'needs_refinement') return step('Awaiting refinement', false);
   if (card.status === 'refining') return step('Refining', false);
   if (card.status === 'needs_refinement_input') return step('Refinement input needed', true);
