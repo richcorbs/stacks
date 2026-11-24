@@ -3414,6 +3414,45 @@ fn environment_health_checks_merged_cleanup_revisions_and_ancestry() {
 }
 
 #[test]
+fn environment_health_distinguishes_a_stale_target_checkout_from_a_lost_merge() {
+    // Pull requests are merged on the forge. Until the primary checkout pulls, the
+    // merged revision is an ancestor of origin/main but not of HEAD; reporting that as
+    // "no longer reachable" sends the operator hunting for a rewritten history.
+    let (root, target, source) = upstream_merge_repository();
+    let connection = approval_connection(&source, &target);
+    connection
+        .execute(
+            "UPDATE kanban_cards SET status='done', completion_outcome='merged' WHERE id='local:approve'",
+            [],
+        )
+        .unwrap();
+    let source_tip = git_output(source.to_str().unwrap(), &["rev-parse", "HEAD"]).unwrap();
+    connection
+        .execute(
+            "UPDATE card_environments SET source_revision=?1 WHERE card_id='local:approve'",
+            [&source_tip],
+        )
+        .unwrap();
+
+    // Merge the feature into the upstream main, exactly as GitHub does, and leave the
+    // primary checkout where it was.
+    git_ok(&target, &["push", "origin", "feature"]);
+    git_ok(&target, &["fetch", "-q", "origin"]);
+    git_ok(&target, &["merge", "--no-ff", "origin/feature", "-m", "Merge pull request #1"]);
+    git_ok(&target, &["push", "origin", "main"]);
+    git_ok(&target, &["reset", "--hard", "-q", "origin/main~1"]);
+
+    let codes = health_codes(&connection, "local:approve");
+    assert!(codes.contains(&"target_checkout_behind".to_string()), "{codes:?}");
+    assert!(!codes.contains(&"source_revision_not_merged".to_string()), "{codes:?}");
+
+    // A pull is the whole fix.
+    git_ok(&target, &["merge", "--ff-only", "-q", "origin/main"]);
+    assert!(health_codes(&connection, "local:approve").is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn cleanup_phases_are_ordered_and_cover_every_resumable_boundary() {
     let mut visited = vec![CLEANUP_PHASES[0]];
     while let Some(next) = next_cleanup_phase(visited.last().unwrap()) {

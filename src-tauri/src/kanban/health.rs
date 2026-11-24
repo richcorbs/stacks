@@ -428,6 +428,21 @@ pub(in crate::kanban) fn environment_health(
                     ));
                 } else {
                     match git_status_success(target, &["merge-base", "--is-ancestor", current, "HEAD"]) {
+                        // Pull requests are merged on the forge, so a primary checkout that has
+                        // not been pulled yet still reports the merge as missing. Distinguish
+                        // "behind upstream" from "the revision is gone": the first is a pull,
+                        // the second is a rewritten history and genuinely needs a human.
+                        Ok(false) if target_branch.is_some_and(|branch| {
+                            let remote = format!("origin/{branch}");
+                            git_status_success(target, &["merge-base", "--is-ancestor", current, &remote]).unwrap_or(false)
+                        }) => issues.push(health_issue(
+                            "target_checkout_behind",
+                            &format!(
+                                "The merged revision is on origin/{}, but the target checkout is behind it; pull {0} before cleaning up.",
+                                target_branch.unwrap_or_default()
+                            ),
+                            "cleanup",
+                        )),
                         Ok(false) => issues.push(health_issue(
                             "source_revision_not_merged",
                             "The merged source revision is no longer reachable from the target branch.",
