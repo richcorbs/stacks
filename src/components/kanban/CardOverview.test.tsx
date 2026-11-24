@@ -93,6 +93,18 @@ describe('CardOverview descriptions', () => {
     expect(markup).toContain('<pre><code>const  value = 1;</code></pre>');
   });
 
+  it('offers the same retry for a queued update that was never attempted', async () => {
+    // A `pending` row with 0 attempts was queued and never drained (the drain can
+    // run before the row commits). Without a retry here the card has no way to
+    // finish the update, and cleanup refuses while the operation is unresolved.
+    const markup = await renderOverview(card({ provider_sync: {
+      id: 'operation', kind: 'done', state: 'pending', destination_column_name: 'Done',
+      attempts: 0, error: null, updated_at: 2,
+    } }));
+    expect(markup).toContain('Superthread update pending');
+    expect(markup).toContain('Retry provider sync');
+  });
+
   it('shows durable provider failures with an independent retry control', async () => {
     const markup = await renderOverview(card({ provider_sync: {
       id: 'operation', kind: 'done', state: 'failed', destination_column_name: 'Stacks is done',

@@ -398,8 +398,14 @@ pub(in crate::kanban) fn evaluate(
             {
                 continue;
             }
+            // Provider synchronization touches the remote card, never local resources:
+            // a queued "move to Done" must not block removing the worktree and branch.
+            // Deleting the record still requires it, because the row owns that intent.
             if mode == RetirementMode::RemoveResources
-                && matches!(operation.kind, OperationKind::Cleanup | OperationKind::Creation)
+                && matches!(
+                    operation.kind,
+                    OperationKind::Cleanup | OperationKind::Creation | OperationKind::ProviderSync
+                )
             {
                 continue;
             }

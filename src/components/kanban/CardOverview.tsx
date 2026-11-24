@@ -127,7 +127,10 @@ export function CardOverview({
         <strong>Superthread update {card.provider_sync.state}</strong>
         <span>{card.provider_sync.error ?? `Moving this card to ${card.provider_sync.destination_column_name}. Local work is safely committed.`}</span>
       </div>
-      {card.provider_sync.state === 'failed' && <button data-card-action="secondary" type="button" disabled={retryingProviderSync} onClick={async () => {
+      {/* A pending row with attempt 0 was queued and never drained; a failed one was
+          tried and gave up. Both need the same retry, and without it the card has no
+          way forward (cleanup refuses while the operation is unresolved). */}
+      {card.provider_sync.state !== 'running' && <button data-card-action="secondary" type="button" disabled={retryingProviderSync} onClick={async () => {
         setRetryingProviderSync(true); setActionError(null);
         try { onCardUpdated(await retryKanbanProviderSync(card.id)); }
         catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }

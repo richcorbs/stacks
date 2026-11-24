@@ -96,6 +96,53 @@ fn environment(
 ///    flight. The journal migration backfilled one per card+thread in phase
 ///    `active` (its only valid phase, never completed), which used to block
 ///    removing resources forever with "must be resumed instead of retiring".
+///    A queued provider sync ("move the remote card to Done") owns no local
+///    resource, so it must not block removing the worktree and branch — otherwise
+///    the card is stuck: cleanup refuses, and nothing drains the queue unless the
+///    app restarts.
+#[test]
+fn queued_provider_sync_does_not_block_removing_resources() {
+    let root = tempfile::tempdir().unwrap();
+    let connection = database(root.path());
+    card(&connection, "local:synced", "done", 2);
+    connection
+        .execute("UPDATE kanban_cards SET completion_outcome='merged' WHERE id='local:synced'", [])
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO operations(id,card_id,kind,phase,attempt,payload,created_at,updated_at)
+             VALUES ('provider_sync:test','local:synced','provider_sync','pending',0,
+                     '{\"operation_id\":\"test\",\"card_id\":\"local:synced\",\"sync_kind\":\"done\",\"provider\":\"superthread\",\"external_id\":\"1\",\"board_id\":\"b\",\"source_column_id\":\"1\",\"source_column_name\":\"In Review\",\"destination_column_id\":\"2\",\"destination_column_name\":\"Done\",\"workflow_revision\":2,\"integration_revision\":1,\"project_id\":\"p\",\"api_token_env_var\":\"ST_TOKEN\",\"logical_revision\":0}',1,1)",
+            [],
+        )
+        .unwrap();
+
+    let removable = evaluate(
+        &connection,
+        "local:synced",
+        RetirementMode::RemoveResources,
+        RetirementOverride::default(),
+        &[],
+    )
+    .unwrap();
+    assert!(
+        !removable.blockers.iter().any(|blocker| blocker.code == UNRESOLVED_OPERATION),
+        "a queued provider sync must not block cleanup: {:?}",
+        removable.blockers
+    );
+
+    // Deleting the record still refuses: the operation owns the remote-move intent.
+    let deletable = evaluate(
+        &connection,
+        "local:synced",
+        RetirementMode::DeleteRecord,
+        RetirementOverride::default(),
+        &[],
+    )
+    .unwrap();
+    assert!(deletable.blockers.iter().any(|blocker| blocker.code == UNRESOLVED_OPERATION));
+}
+
 #[test]
 fn lifecycle_projection_does_not_block_removing_resources() {
     let root = tempfile::tempdir().unwrap();
