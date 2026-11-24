@@ -1,5 +1,5 @@
 import { showAppToast } from '../applicationEvents';
-import { createElement, Fragment, memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, createElement, Fragment, memo, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import createDOMPurify, { type Config, type DOMPurify, type WindowLike } from 'dompurify';
 import { Marked, type Token } from 'marked';
@@ -361,24 +361,44 @@ function renderBlocks(tokens: Token[], path: string): ReactNode[] {
   });
 }
 
-export const PiMarkdown = memo(function PiMarkdown({ children, softBreaks = false }: { children: string; softBreaks?: boolean }) {
+export type PasteIntoTerminal = (code: string) => Promise<boolean> | boolean;
+
+// The chat renderer is deep inside PiGuiView and must not know about card tabs,
+// so the one card-level action arrives through context instead of prop drilling
+// through every block renderer.
+const PasteIntoTerminalContext = createContext<PasteIntoTerminal | null>(null);
+
+export const PiMarkdown = memo(function PiMarkdown({ children, softBreaks = false, onPasteIntoTerminal }: { children: string; softBreaks?: boolean; onPasteIntoTerminal?: PasteIntoTerminal }) {
   const parser = softBreaks ? softBreakParser : markdownParser;
-  return <>{renderBlocks(parser.lexer(children), 'markdown')}</>;
+  return <PasteIntoTerminalContext.Provider value={onPasteIntoTerminal ?? null}>
+    {renderBlocks(parser.lexer(children), 'markdown')}
+  </PasteIntoTerminalContext.Provider>;
 });
 
 function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   const preRef = useRef<HTMLPreElement | null>(null);
+  const onPasteIntoTerminal = useContext(PasteIntoTerminalContext);
   const [copied, setCopied] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
+  const pastedTimerRef = useRef<number | null>(null);
 
   useEffect(() => () => {
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+    if (pastedTimerRef.current !== null) window.clearTimeout(pastedTimerRef.current);
   }, []);
 
-  async function copyCode() {
+  // The rendered code element owns the snippet; the fence's trailing newline is
+  // added for display and is never part of a copy or a paste.
+  function snippet() {
     const code = preRef.current?.querySelector('code')?.textContent ?? preRef.current?.textContent ?? '';
+    return code.replace(/(?:\r?\n)+$/, '');
+  }
+
+  async function copyCode() {
     try {
-      await writeText(normalizeClipboardText(code.replace(/(?:\r?\n)+$/, '')));
+      await writeText(normalizeClipboardText(snippet()));
       setCopied(true);
       if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200);
@@ -388,7 +408,23 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
     }
   }
 
-  return <div className="piCodeBlock">
+  async function pasteCode() {
+    if (!onPasteIntoTerminal || pasting) return;
+    setPasting(true);
+    try {
+      if (await onPasteIntoTerminal(snippet())) {
+        setPasted(true);
+        if (pastedTimerRef.current !== null) window.clearTimeout(pastedTimerRef.current);
+        pastedTimerRef.current = window.setTimeout(() => setPasted(false), 1200);
+      }
+    } catch (error) {
+      showAppToast(`Could not paste into terminal: ${String(error)}`);
+    } finally {
+      setPasting(false);
+    }
+  }
+
+  return <div className={`piCodeBlock${onPasteIntoTerminal ? ' hasPasteAction' : ''}`}>
     <pre ref={preRef}>{children}</pre>
     <button
       className={`piCodeCopyButton ${copied ? 'copied' : ''}`}
@@ -401,5 +437,18 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
         ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
         : <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" /></svg>}
     </button>
+    {onPasteIntoTerminal && <button
+      className={`piCodeCopyButton piCodePasteButton ${pasting ? 'pasting' : pasted ? 'pasted' : ''}`}
+      type="button"
+      aria-label={pasting ? 'Pasting into terminal' : pasted ? 'Pasted into terminal' : 'Paste into terminal'}
+      title={pasting ? 'Pasting…' : pasted ? 'Pasted' : 'Paste into terminal'}
+      onClick={() => pasteCode().catch(console.error)}
+    >
+      {pasting
+        ? <svg className="piCodeSpinner" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /></svg>
+        : pasted
+          ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+          : <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>}
+    </button>}
   </div>;
 }

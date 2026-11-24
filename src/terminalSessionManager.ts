@@ -173,7 +173,8 @@ export function disposeTerminalSession(terminalId: string) {
   session.selectionDisposable.dispose();
   session.unlistenData?.();
   session.unlistenExit?.();
-  session.pendingInitialInputCleanup?.();
+  session.pendingInputCleanups?.forEach((cleanup) => cleanup());
+  session.pendingInputCleanups?.clear();
   if (session.outputActivityFrame !== null) window.cancelAnimationFrame(session.outputActivityFrame);
   session.outputQueue = [];
   session.outputQueuedChars = 0;

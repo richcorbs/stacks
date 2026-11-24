@@ -121,7 +121,7 @@ export type TerminalSession = {
   resizeObserver?: ResizeObserver;
   unlistenData?: () => void;
   unlistenExit?: () => void;
-  pendingInitialInputCleanup?: () => void;
+  pendingInputCleanups?: Set<() => void>;
 };
 
 export type SuperthreadColumnMapping = { id: string; name: string };
