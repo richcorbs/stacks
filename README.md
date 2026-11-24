@@ -174,6 +174,7 @@ cargo audit --file src-tauri/Cargo.lock
 # Browser smoke tests (install browsers once):
 npx playwright install chromium webkit
 npm run test:chat-scroll
+npm run test:composer-resize
 npm run test:terminal-dependencies
 ```
 

@@ -97,6 +97,29 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   const readPrompt = useEffectEvent(() => prompt);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<ReturnType<typeof createChatScroll> | null>(null);
+  const composerRestyleFrameRef = useRef(0);
+  const composerComposingRef = useRef(false);
+  const composerRestylePendingRef = useRef(false);
+  const scheduleComposerRestyle = useCallback(() => {
+    if (composerComposingRef.current) {
+      composerRestylePendingRef.current = true;
+      return;
+    }
+    if (composerRestyleFrameRef.current) return;
+    composerRestyleFrameRef.current = requestAnimationFrame(() => {
+      composerRestyleFrameRef.current = 0;
+      if (composerComposingRef.current) {
+        composerRestylePendingRef.current = true;
+        return;
+      }
+      const input = inputRef.current;
+      if (!input || input.isConnected === false) return;
+      // Style writes must happen outside the input event and only when the
+      // required height changed; restyling a focused textarea per keystroke can
+      // drop the character being committed in WKWebView.
+      if (resizeComposerInput(input)) chatScrollRef.current?.layout();
+    });
+  }, []);
   useLayoutEffect(() => {
     const viewport = scrollRef.current;
     const transcript = transcriptRef.current;
@@ -198,16 +221,8 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    const resize = () => {
-      resizeComposerInput(input);
-      chatScrollRef.current?.layout();
-    };
-    resize();
-    let resizeFrame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(resizeFrame);
-      resizeFrame = requestAnimationFrame(resize);
-    });
+    scheduleComposerRestyle();
+    const observer = new ResizeObserver(() => scheduleComposerRestyle());
     if (input.parentElement) observer.observe(input.parentElement);
     if (paneRef.current) {
       observer.observe(paneRef.current);
@@ -215,15 +230,17 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
       if (conversation) observer.observe(conversation);
     }
     return () => {
-      cancelAnimationFrame(resizeFrame);
       observer.disconnect();
+      cancelAnimationFrame(composerRestyleFrameRef.current);
+      composerRestyleFrameRef.current = 0;
     };
-  }, []);
+  }, [scheduleComposerRestyle]);
 
   useEffect(() => {
-    if (inputRef.current) resizeComposerInput(inputRef.current);
-    chatScrollRef.current?.layout();
-  }, [fontSize, prompt]);
+    // A font-size change is a real restyle; a prompt change is only potentially
+    // one. Both go through the same coalesced, composition-aware frame.
+    scheduleComposerRestyle();
+  }, [fontSize, prompt, scheduleComposerRestyle]);
 
   useLayoutEffect(() => {
     if (cutCaretRef.current === null) return;
@@ -740,12 +757,21 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
             rows={1}
             placeholder={pi.isStreaming ? 'Steer Pi… (↩) · follow up (⌥↩)' : 'Ask Pi…'}
             disabled={pi.starting}
+            onCompositionStart={() => {
+              composerComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              composerComposingRef.current = false;
+              composerRestylePendingRef.current = false;
+              scheduleComposerRestyle();
+            }}
             onSelect={(event) => {
               const { selectionStart: start, selectionEnd: end } = event.currentTarget;
               selectionRef.current = { start, end };
               setCompletionCursor(end);
             }}
             onChange={(event) => {
+              if ((event.nativeEvent as InputEvent | undefined)?.isComposing) composerComposingRef.current = true;
               historyIndexRef.current = null;
               historyDraftRef.current = '';
               const cursor = event.target.selectionEnd;
@@ -1045,20 +1071,83 @@ export function ContextUsage({ context, hasAssistantMessages = false }: { contex
   </span>;
 }
 
-function resizeComposerInput(input: HTMLTextAreaElement) {
+const COMPOSER_MIN_HEIGHT = 23;
+const composerMirrors = new WeakMap<HTMLTextAreaElement, HTMLTextAreaElement>();
+
+/**
+ * Measure the height the composer's text needs without collapsing the real,
+ * focused textarea. A detached mirror is updated off-screen and measured; the
+ * input itself is only ever written with a settled target height.
+ */
+function composerContentHeight(input: HTMLTextAreaElement): number {
+  const doc = input.ownerDocument;
+  if (!doc?.createElement || !doc.body) return input.scrollHeight;
+  const computed = doc.defaultView?.getComputedStyle(input);
+  if (!computed) return input.scrollHeight;
+  const paddingLeft = Number.parseFloat(computed.paddingLeft) || 0;
+  const paddingRight = Number.parseFloat(computed.paddingRight) || 0;
+  const paddingTop = Number.parseFloat(computed.paddingTop) || 0;
+  const paddingBottom = Number.parseFloat(computed.paddingBottom) || 0;
+  let mirror = composerMirrors.get(input);
+  if (!mirror?.isConnected) {
+    // Keep the mirror inside a closed shadow root: it is a second textarea for
+    // layout purposes, but must not become another queryable/visible field.
+    const host = doc.createElement('div');
+    host.setAttribute('aria-hidden', 'true');
+    host.style.cssText = 'position:fixed;top:0;left:-10000px;width:0;height:0;visibility:hidden;pointer-events:none;z-index:-1;overflow:visible;';
+    const shadow = host.attachShadow({ mode: 'closed' });
+    mirror = doc.createElement('textarea');
+    mirror.rows = 1;
+    mirror.readOnly = true;
+    mirror.tabIndex = -1;
+    mirror.setAttribute('aria-hidden', 'true');
+    mirror.style.cssText = 'display:block;box-sizing:content-box;border:0;margin:0;resize:none;overflow:hidden;min-height:0;max-height:none;height:auto;';
+    shadow.appendChild(mirror);
+    (input.parentElement ?? doc.body).appendChild(host);
+    composerMirrors.set(input, mirror);
+  }
+  mirror.style.width = `${Math.max(1, input.clientWidth - paddingLeft - paddingRight)}px`;
+  mirror.style.padding = `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`;
+  mirror.style.fontFamily = computed.fontFamily;
+  mirror.style.fontSize = computed.fontSize;
+  mirror.style.fontWeight = computed.fontWeight;
+  mirror.style.fontStyle = computed.fontStyle;
+  mirror.style.fontVariant = computed.fontVariant;
+  mirror.style.fontStretch = computed.fontStretch;
+  mirror.style.fontKerning = computed.fontKerning;
+  mirror.style.lineHeight = computed.lineHeight;
+  mirror.style.letterSpacing = computed.letterSpacing;
+  mirror.style.wordSpacing = computed.wordSpacing;
+  mirror.style.textTransform = computed.textTransform;
+  mirror.style.textIndent = computed.textIndent;
+  mirror.style.textRendering = computed.textRendering;
+  mirror.style.whiteSpace = computed.whiteSpace;
+  mirror.style.wordBreak = computed.wordBreak;
+  mirror.style.overflowWrap = computed.overflowWrap;
+  mirror.style.tabSize = computed.tabSize;
+  mirror.value = input.value;
+  return mirror.scrollHeight;
+}
+
+function resizeComposerInput(input: HTMLTextAreaElement): boolean {
   const pane = input.closest<HTMLElement>('.piGuiPane');
   const conversation = pane?.querySelector<HTMLElement>(':scope > .piGuiConversation');
-  const currentHeight = Math.max(23, input.offsetHeight);
+  const currentHeight = Math.max(COMPOSER_MIN_HEIGHT, input.offsetHeight);
   let availableGrowth = 0;
   if (conversation) {
     const style = getComputedStyle(conversation);
     const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
     availableGrowth = Math.max(0, conversation.clientHeight - verticalPadding);
   }
-  const maxHeight = Math.max(23, currentHeight + availableGrowth);
-  input.style.height = 'auto';
-  const height = Math.min(input.scrollHeight, maxHeight);
-  input.style.maxHeight = `${maxHeight}px`;
-  input.style.height = `${height}px`;
-  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  const maxHeight = Math.max(COMPOSER_MIN_HEIGHT, currentHeight + availableGrowth);
+  const contentHeight = composerContentHeight(input);
+  const height = Math.min(contentHeight, maxHeight);
+  const overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+  const heightValue = `${height}px`;
+  const maxHeightValue = `${maxHeight}px`;
+  const heightChanged = input.style.height !== heightValue;
+  if (heightChanged) input.style.height = heightValue;
+  if (input.style.maxHeight !== maxHeightValue) input.style.maxHeight = maxHeightValue;
+  if (input.style.overflowY !== overflowY) input.style.overflowY = overflowY;
+  return heightChanged;
 }

@@ -48,3 +48,7 @@ content-only layout changes, wrapping, viewport resize, reader scroll-away,
 returning to bottom, sending from history, and anchored history prepends.
 Timestamp/message bottoms are checked against the entire clipping chain, not
 just the inner scrollport.
+
+The composer's own height/restyle contract is covered separately by
+`npm run test:composer-resize`; see
+[Pi composer resize regression](pi-composer-resize.md).
