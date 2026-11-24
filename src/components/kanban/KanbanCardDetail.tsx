@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { applicationEvents, showAppToast } from '../../applicationEvents';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
 import { openExternalUrl } from '../../externalLinks';
 import { listen } from '@tauri-apps/api/event';
@@ -22,7 +23,9 @@ import { sendPromptToPiAndWait } from '../../pi/promptEvent';
 import { ConfirmCloseTerminalDialog } from '../ConfirmDialogs';
 import { useConfirmation } from '../ConfirmDialogs';
 import { WorkflowShortcutConfirmDialog } from './WorkflowShortcutConfirmDialog';
-import { disposeTerminalSession } from '../../terminalSessionManager';
+import { disposeTerminalSession, focusTerminalSession } from '../../terminalSessionManager';
+import { bracketedPastePayload, sendTerminalInput } from '../../terminalInput';
+import { normalizeClipboardText } from '../../clipboard';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardWorkflowControls } from '../CardWorkflowControls';
 import type { CardView } from '../../kanban/cardView';
@@ -50,6 +53,9 @@ import { sameActionRevisions } from '../../kanban/detailSessionCache';
 function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery']>['stage']) {
   return ({ merged: 'Merged locally', pushing: 'Pushing…', push_failed: 'Push failed', pushed: 'Pushed', deploying: 'Deploying…', deployment_failed: 'Deployment failed', cancelled: 'Deployment cancelled', uncertain: 'Deployment outcome uncertain', deployed: 'Deployed' } as const)[stage];
 }
+
+/** A card shell that never becomes ready should report a failure promptly. */
+const CARD_CODE_PASTE_TIMEOUT_MS = 10_000;
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
@@ -193,6 +199,58 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
     setPendingCloseShellPane,
     closeShellPane,
   } = terminalWorkspace;
+
+  // One click from a chat code block: clipboard, Terminal tab, focused shell.
+  // The transcript only offers the button when a card terminal is reachable,
+  // but the callback re-checks so a late environment change fails loudly.
+  async function pasteCodeIntoTerminal(code: string): Promise<boolean> {
+    if (!project) {
+      showAppToast('Could not paste into terminal: this card has no project');
+      return false;
+    }
+    if (!cardPath) {
+      showAppToast('Could not paste into terminal: this card has no environment yet');
+      return false;
+    }
+    const paneId = focusedShellPane || terminalWorkspace.shellTerminalIds[0] || '';
+    if (!paneId) {
+      showAppToast('Could not paste into terminal: no card terminal is open');
+      return false;
+    }
+    const snippet = normalizeClipboardText(code);
+    try {
+      await writeText(snippet);
+    } catch (error) {
+      // The paste can still land in the shell; report the clipboard failure and continue.
+      showAppToast(`Could not copy to clipboard: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!await requestView('terminal')) {
+      showAppToast('Could not paste into terminal: the Terminal tab is unavailable');
+      return false;
+    }
+    let bracketedPaste = false;
+    const sent = await sendTerminalInput(paneId, snippet, {
+      timeoutMs: CARD_CODE_PASTE_TIMEOUT_MS,
+      payload: (text, session) => {
+        bracketedPaste = session.term.modes.bracketedPasteMode;
+        return bracketedPastePayload(text, bracketedPaste);
+      },
+    });
+    if (!sent) {
+      showAppToast('Could not paste into terminal: the shell is not running');
+      return false;
+    }
+    focusTerminalSession(paneId, 'code-block-paste');
+    showAppToast(bracketedPaste
+      ? 'Pasted into terminal'
+      : 'Pasted into terminal — multi-line code may execute');
+    return true;
+  }
+  // Keep the identity stable: the memoized transcript must not re-render every message just
+  // because the card detail re-rendered.
+  const pasteCodeIntoTerminalRef = useRef(pasteCodeIntoTerminal);
+  pasteCodeIntoTerminalRef.current = pasteCodeIntoTerminal;
+  const onPasteIntoTerminal = useCallback((code: string) => pasteCodeIntoTerminalRef.current(code), []);
 
   async function reloadCard() {
     setReloadingCard(true);
@@ -482,7 +540,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
           onLoadOlderEvents={onLoadOlderEvents}
           onReload={reloadCard}
         />
-        {project && !card.hierarchy_finalized && <CardChatView card={card} project={project} cardPath={cardPath} thread={activeChatThread} active={showChat} deploymentOutput={deploymentOutput} />}
+        {project && !card.hierarchy_finalized && <CardChatView card={card} project={project} cardPath={cardPath} thread={activeChatThread} active={showChat} deploymentOutput={deploymentOutput} onPasteIntoTerminal={project && cardPath ? onPasteIntoTerminal : undefined} />}
         <CardDiffView active={activeView === 'diff'} card={card} cardPath={cardPath} refreshNonce={diffRefreshNonce} review={diffReview} canSubmit={Boolean(project)} onSubmit={submitDiffReview} onClose={() => { diffReview.reset(); setActiveView('chat'); }} />
         <CardTerminalView active={activeView === 'terminal'} card={card} project={project} cardPath={cardPath} controller={terminalWorkspace} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />
 

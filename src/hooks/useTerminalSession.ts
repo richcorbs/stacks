@@ -9,9 +9,7 @@ import { attachTerminalResizeObserver } from '../terminalResizeObserver';
 import { notifyTerminalStartup } from '../terminalStartup';
 import { applicationEvents } from '../applicationEvents';
 import { applyTerminalAppearance } from '../terminalAppearance';
-
-const PROMPT_RENDER_SETTLE_MS = 100;
-const PROMPT_RENDER_TIMEOUT_MS = 30_000;
+import { sendTerminalInput } from '../terminalInput';
 
 let terminalSessionFactoryPromise: Promise<typeof import('../terminalSessionFactory')> | null = null;
 
@@ -136,7 +134,7 @@ export function useTerminalSession({
       const createdSession = session;
       const { term, fit } = createdSession;
       setTerminalSession(terminal.id, createdSession);
-      if (initialInput) scheduleInitialInputAfterPromptRender(terminal.id, createdSession, initialInput);
+      if (initialInput) scheduleInitialInputAfterPromptRender(terminal.id, initialInput);
 
       const generation = `${terminal.id}:${Date.now()}:${Math.random()}`;
       createdSession.ptyGeneration = generation;
@@ -197,40 +195,7 @@ export function useTerminalSession({
   return { hostRef, termRef, fitRef, restartTerminalSessionIfDead };
 }
 
-function scheduleInitialInputAfterPromptRender(terminalId: string, session: TerminalSession, input: string) {
-  let settleTimer: number | null = null;
-  let timeoutTimer: number | null = null;
-
-  const cleanup = () => {
-    if (settleTimer !== null) window.clearTimeout(settleTimer);
-    if (timeoutTimer !== null) window.clearTimeout(timeoutTimer);
-    unsubscribeRendered();
-    if (session.pendingInitialInputCleanup === cleanup) session.pendingInitialInputCleanup = undefined;
-  };
-
-  const send = () => {
-    if (getTerminalSession(terminalId) !== session) {
-      cleanup();
-      return;
-    }
-    if (!session.running) {
-      settleTimer = window.setTimeout(send, PROMPT_RENDER_SETTLE_MS);
-      return;
-    }
-    cleanup();
-    invoke('write_pty', { terminalId, data: Array.from(new TextEncoder().encode(input)) }).catch(console.error);
-  };
-
-  const handleRendered = (detail: { terminalId: string }) => {
-    if (detail.terminalId !== terminalId) return;
-    if (settleTimer !== null) window.clearTimeout(settleTimer);
-    // The xterm write callback confirms that output has been painted. A short
-    // quiet period coalesces prompt output that arrived in multiple chunks.
-    settleTimer = window.setTimeout(send, PROMPT_RENDER_SETTLE_MS);
-  };
-
-  session.pendingInitialInputCleanup?.();
-  session.pendingInitialInputCleanup = cleanup;
-  const unsubscribeRendered = applicationEvents.subscribe('terminal-output-rendered', handleRendered);
-  timeoutTimer = window.setTimeout(cleanup, PROMPT_RENDER_TIMEOUT_MS);
+function scheduleInitialInputAfterPromptRender(terminalId: string, input: string) {
+  // The session manager owns the readiness wait and cancels it on dispose.
+  void sendTerminalInput(terminalId, input);
 }

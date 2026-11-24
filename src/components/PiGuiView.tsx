@@ -20,7 +20,7 @@ import { useComposerDraft } from '../pi/useComposerDraft';
 import { createChatScroll } from '../pi/chatScroll';
 import { TerminalControls } from './TerminalControls';
 import { handleDialogShortcut } from './dialogShortcut';
-import { PiMarkdown } from './PiMarkdown';
+import { PiMarkdown, type PasteIntoTerminal } from './PiMarkdown';
 import { collectToolArgs, messageText, PiSessionBoundaryEntry, PiSettledMessages, PiToolCard } from './PiTranscript';
 import { isStructuredPiUiRequest, PiStructuredRequest } from './PiStructuredRequest';
 import { normalizeClipboardText } from '../clipboard';
@@ -41,7 +41,7 @@ export function useMcpBannerDismissal(terminalId: string) {
   return [dismissed, dismiss] as const;
 }
 
-export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, fontSize, composerDraftKey, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize }: {
+export function PiGuiView({ terminal, workspace, project, active, visible, maximized, canToggleMaximize, restartRequestNonce, fontSize, composerDraftKey, onFocus, onClose, onSplitTerminal, onEditTerminal, onToggleMaximize, onPasteIntoTerminal }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -57,6 +57,7 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
   onSplitTerminal: (direction: 'row' | 'column') => void;
   onEditTerminal: () => void;
   onToggleMaximize: () => void;
+  onPasteIntoTerminal?: PasteIntoTerminal;
 }) {
   const cwd = terminal.cwd || workspace.cwd || project.path;
   const pi = usePiSession(terminal.id, cwd, workspace.id, project.id, project.path);
@@ -642,10 +643,10 @@ export function PiGuiView({ terminal, workspace, project, active, visible, maxim
           <span>{hiddenMessageCount} earlier {hiddenMessageCount === 1 ? 'message' : 'messages'}</span>
         </div>}
         {pi.sessionBoundary && <PiSessionBoundaryEntry boundary={pi.sessionBoundary} />}
-        <PiSettledMessages messages={visibleMessages} toolArgs={historicalToolArgs} />
+        <PiSettledMessages messages={visibleMessages} toolArgs={historicalToolArgs} onPasteIntoTerminal={onPasteIntoTerminal} />
         {hasStreamingText && (
           <div className="piMessage piMessageAssistant">
-            <div className="piMessageText piMarkdown"><PiMarkdown>{pi.streamingText}</PiMarkdown>{hasActiveStreamingText && <span className="piStreamingCursor" />}</div>
+            <div className="piMessageText piMarkdown"><PiMarkdown onPasteIntoTerminal={onPasteIntoTerminal}>{pi.streamingText}</PiMarkdown>{hasActiveStreamingText && <span className="piStreamingCursor" />}</div>
           </div>
         )}
         {pi.tools.map((tool) => (

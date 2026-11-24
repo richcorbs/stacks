@@ -2,7 +2,7 @@ import { memo } from 'react';
 import type { PiContentBlock, PiMessage as PiMessageData, PiPromptImage } from '../pi/types';
 import type { PiSessionBoundary } from '../types';
 import { piDiffLineKind, piEditDiff, piToolSummary } from '../pi/toolPresentation';
-import { PiMarkdown } from './PiMarkdown';
+import { PiMarkdown, type PasteIntoTerminal } from './PiMarkdown';
 
 const messageIdentity = new WeakMap<PiMessageData, number>();
 let nextMessageIdentity = 1;
@@ -25,15 +25,16 @@ export function PiSessionBoundaryEntry({ boundary }: { boundary: PiSessionBounda
   </div>;
 }
 
-export const PiSettledMessages = memo(function PiSettledMessages({ messages, toolArgs }: { messages: PiMessageData[]; toolArgs: Map<string, unknown> }) {
+export const PiSettledMessages = memo(function PiSettledMessages({ messages, toolArgs, onPasteIntoTerminal }: { messages: PiMessageData[]; toolArgs: Map<string, unknown>; onPasteIntoTerminal?: PasteIntoTerminal }) {
   return <>{messages.map((message) => <PiMessage
     key={piMessageKey(message)}
     message={message}
     toolArg={message.toolCallId ? toolArgs.get(message.toolCallId) : undefined}
+    onPasteIntoTerminal={onPasteIntoTerminal}
   />)}</>;
 });
 
-export const PiMessage = memo(function PiMessage({ message, toolArg }: { message: PiMessageData; toolArg?: unknown }) {
+export const PiMessage = memo(function PiMessage({ message, toolArg, onPasteIntoTerminal }: { message: PiMessageData; toolArg?: unknown; onPasteIntoTerminal?: PasteIntoTerminal }) {
   if (message.role === 'user') {
     const imageBlocks = Array.isArray(message.content)
       ? message.content.filter((block): block is PiContentBlock & PiPromptImage => block.type === 'image')
@@ -42,7 +43,7 @@ export const PiMessage = memo(function PiMessage({ message, toolArg }: { message
       {imageBlocks.length > 0 && <div className="piMessageImages">{imageBlocks.map((block, index) => block.data
         ? <img key={index} src={`data:${String(block.mimeType)};base64,${String(block.data)}`} alt="Attached" />
         : <span className="piOmittedImage" key={index}>Image attachment</span>)}</div>}
-      <PiMarkdown>{messageText(message.content)}</PiMarkdown>
+      <PiMarkdown onPasteIntoTerminal={onPasteIntoTerminal}>{messageText(message.content)}</PiMarkdown>
     </div><MessageTimestamp timestamp={message.timestamp} /></div>;
   }
   if (message.role === 'assistant') {
@@ -52,10 +53,10 @@ export const PiMessage = memo(function PiMessage({ message, toolArg }: { message
     return <div className="piMessage piMessageAssistant">
       {visibleBlocks.map((block, index) => {
         if (block?.type === 'text' && typeof block.text === 'string' && block.text) {
-          return <div className="piMessageText piMarkdown piAssistantTextBlock" key={`text:${index}`}><PiMarkdown>{block.text}</PiMarkdown></div>;
+          return <div className="piMessageText piMarkdown piAssistantTextBlock" key={`text:${index}`}><PiMarkdown onPasteIntoTerminal={onPasteIntoTerminal}>{block.text}</PiMarkdown></div>;
         }
         if (block?.type === 'thinking' && typeof block.thinking === 'string' && block.thinking) {
-          return <details className="piThinking" key={`thinking:${index}`}><summary>Reasoning</summary><div className="piMarkdown"><PiMarkdown>{block.thinking}</PiMarkdown></div></details>;
+          return <details className="piThinking" key={`thinking:${index}`}><summary>Reasoning</summary><div className="piMarkdown"><PiMarkdown onPasteIntoTerminal={onPasteIntoTerminal}>{block.thinking}</PiMarkdown></div></details>;
         }
         return null;
       })}

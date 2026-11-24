@@ -89,6 +89,67 @@ describe('PiMarkdown', () => {
   });
 
   it.each([
+    ['LF', 'echo one\n  echo two\n', 'echo one\n  echo two'],
+    ['CRLF', 'echo one\r\n  echo two\r\n', 'echo one\r\n  echo two'],
+    ['no trailing line ending', 'echo one  ', 'echo one  '],
+  ])('passes the exact snippet to the terminal paste callback for %s', async (_case, code, expected) => {
+    const onPasteIntoTerminal = vi.fn().mockResolvedValue(true);
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<PiMarkdown onPasteIntoTerminal={onPasteIntoTerminal}>{'```sh\necho hello\n```'}</PiMarkdown>, {
+        createNodeMock: (element) => element.type === 'pre'
+          ? { querySelector: () => ({ textContent: code }) }
+          : null,
+      });
+    });
+    await act(async () => {
+      renderer.root.findByProps({ 'aria-label': 'Paste into terminal' }).props.onClick();
+      await Promise.resolve();
+    });
+    expect(onPasteIntoTerminal).toHaveBeenCalledExactlyOnceWith(expected);
+    expect(invoke).not.toHaveBeenCalledWith('write_pty', expect.anything());
+    act(() => renderer.unmount());
+  });
+
+  it('hides the terminal paste action when no card terminal is reachable', () => {
+    const markup = renderToStaticMarkup(<PiMarkdown>{'```sh\necho hello\n```'}</PiMarkdown>);
+
+    expect(markup).toContain('aria-label="Copy code"');
+    expect(markup).not.toContain('Paste into terminal');
+    expect(invoke).not.toHaveBeenCalledWith('write_pty', expect.anything());
+  });
+
+  it('keeps copy and paste transient state independent', async () => {
+    vi.mocked(writeText).mockResolvedValue(undefined);
+    const onPasteIntoTerminal = vi.fn().mockResolvedValue(true);
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<PiMarkdown onPasteIntoTerminal={onPasteIntoTerminal}>{'```sh\necho hello\n```'}</PiMarkdown>, {
+        createNodeMock: (element) => element.type === 'pre'
+          ? { querySelector: () => ({ textContent: 'echo hello\n' }) }
+          : null,
+      });
+    });
+
+    await act(async () => {
+      renderer.root.findByProps({ 'aria-label': 'Copy code' }).props.onClick();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({ 'aria-label': 'Code copied' })).toBeTruthy();
+    expect(renderer.root.findByProps({ 'aria-label': 'Paste into terminal' })).toBeTruthy();
+
+    await act(async () => {
+      renderer.root.findByProps({ 'aria-label': 'Paste into terminal' }).props.onClick();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({ 'aria-label': 'Pasted into terminal' })).toBeTruthy();
+    // The paste action must not borrow the copy button's check state.
+    expect(renderer.root.findByProps({ 'aria-label': 'Code copied' })).toBeTruthy();
+
+    act(() => renderer.unmount());
+  });
+
+  it.each([
     '[link](https://example.com/path "Title")',
     '<https://example.com/path>',
     'https://example.com/path',
