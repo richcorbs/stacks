@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { GitInfo, Project } from '../types';
 import { projectColorAttribute } from '../projectColor';
@@ -22,6 +22,7 @@ import { flushProjectNotes } from '../projectNotes';
 import { publishWorkPresence } from '../appAttention';
 import { useDirectProjectShell } from '../hooks/useDirectProjectShell';
 import { useWorkDiffRefresh } from '../hooks/useWorkDiffRefresh';
+import { pasteCodeIntoTarget } from '../terminalCodePaste';
 
 type ServiceMode = 'server' | 'console';
 
@@ -124,6 +125,24 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
     }));
   }
 
+  const terminalAvailable = tabs.includes('terminal');
+  async function pasteCodeIntoTerminal(code: string): Promise<boolean> {
+    return pasteCodeIntoTarget(code, {
+      paneId: focusedShellPane || shell.paneIds[0],
+      unavailableReason: terminalAvailable ? null : 'this project is not a Git repository',
+      switchToTerminal: () => {
+        if (!terminalAvailable) return false;
+        requestView('terminal');
+        return true;
+      },
+    });
+  }
+  // Same reason as the card chat: the memoized transcript must not re-render every
+  // message just because this view did.
+  const pasteCodeIntoTerminalRef = useRef(pasteCodeIntoTerminal);
+  pasteCodeIntoTerminalRef.current = pasteCodeIntoTerminal;
+  const onPasteIntoTerminal = useCallback((code: string) => pasteCodeIntoTerminalRef.current(code), []);
+
   const showAgent = activeView === 'agent';
   useEffect(() => {
     const terminalId = activeView === 'agent' ? agentId
@@ -145,7 +164,7 @@ export function DirectProjectWork({ project, terminalFontSize, terminalFontFamil
             : <button key={tab} className={activeView === tab ? 'active' : ''} type="button" onClick={() => setActiveView(tab)}>{tab === 'agent' ? 'Agent' : tab === 'notes' ? 'Notes' : tab === 'release' ? 'RELEASES' : 'Terminal'}</button>)}
         </nav>
         {actionError && <div className="kanbanActionError" role="alert">{actionError}</div>}
-        <WorkAgentView terminal={{ id: agentId, workspaceId, kind: 'pi', cwd: project.path }} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} active={showAgent} label={PROJECT_WORKSPACE_AGENT_LABEL} openingMessage="Opening Agent…" />
+        <WorkAgentView terminal={{ id: agentId, workspaceId, kind: 'pi', cwd: project.path }} workspace={{ id: workspaceId, name: PROJECT_WORKSPACE_NAME, cwd: project.path }} project={project} active={showAgent} label={PROJECT_WORKSPACE_AGENT_LABEL} openingMessage="Opening Agent…" onPasteIntoTerminal={terminalAvailable ? onPasteIntoTerminal : undefined} />
         <ProjectNotesView
           key={project.id}
           projectId={project.id}

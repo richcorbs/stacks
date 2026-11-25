@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { applicationEvents, showAppToast } from '../../applicationEvents';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
 import { openExternalUrl } from '../../externalLinks';
 import { listen } from '@tauri-apps/api/event';
@@ -23,9 +22,8 @@ import { sendPromptToPiAndWait } from '../../pi/promptEvent';
 import { ConfirmCloseTerminalDialog } from '../ConfirmDialogs';
 import { useConfirmation } from '../ConfirmDialogs';
 import { WorkflowShortcutConfirmDialog } from './WorkflowShortcutConfirmDialog';
-import { disposeTerminalSession, focusTerminalSession } from '../../terminalSessionManager';
-import { bracketedPastePayload, sendTerminalInput } from '../../terminalInput';
-import { normalizeClipboardText } from '../../clipboard';
+import { disposeTerminalSession } from '../../terminalSessionManager';
+import { pasteCodeIntoTarget } from '../../terminalCodePaste';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardWorkflowControls } from '../CardWorkflowControls';
 import type { CardView } from '../../kanban/cardView';
@@ -208,43 +206,18 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
       showAppToast('Could not paste into terminal: this card has no project');
       return false;
     }
+    // The Terminal tab only exists once the card has an environment; before that the
+    // paste action is not offered, and this re-check keeps a late change honest.
     if (!cardPath) {
       showAppToast('Could not paste into terminal: this card has no environment yet');
       return false;
     }
     const paneId = focusedShellPane || terminalWorkspace.shellTerminalIds[0] || '';
-    if (!paneId) {
-      showAppToast('Could not paste into terminal: no card terminal is open');
-      return false;
-    }
-    const snippet = normalizeClipboardText(code);
-    try {
-      await writeText(snippet);
-    } catch (error) {
-      // The paste can still land in the shell; report the clipboard failure and continue.
-      showAppToast(`Could not copy to clipboard: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (!await requestView('terminal')) {
-      showAppToast('Could not paste into terminal: the Terminal tab is unavailable');
-      return false;
-    }
-    let bracketedPaste = false;
-    const sent = await sendTerminalInput(paneId, snippet, {
+    return pasteCodeIntoTarget(code, {
+      paneId,
+      switchToTerminal: () => requestView('terminal'),
       timeoutMs: CARD_CODE_PASTE_TIMEOUT_MS,
-      payload: (text, session) => {
-        bracketedPaste = session.term.modes.bracketedPasteMode;
-        return bracketedPastePayload(text, bracketedPaste);
-      },
     });
-    if (!sent) {
-      showAppToast('Could not paste into terminal: the shell is not running');
-      return false;
-    }
-    focusTerminalSession(paneId, 'code-block-paste');
-    showAppToast(bracketedPaste
-      ? 'Pasted into terminal'
-      : 'Pasted into terminal — multi-line code may execute');
-    return true;
   }
   // Keep the identity stable: the memoized transcript must not re-render every message just
   // because the card detail re-rendered.
