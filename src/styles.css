@@ -1107,9 +1107,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .diffReviewToolbar button:hover { background: var(--surface-selected); color: #e0e8f0; }
 .diffReviewedCheckbox { display: flex; align-items: center; gap: 5px; color: #aebdcb; cursor: pointer; white-space: nowrap; font-size: var(--fs-11); }
 .diffReviewedCheckbox input { margin: 0; accent-color: #71b98a; cursor: pointer; }
-.diffCommentDropdown { position: relative; }
-.diffCommentOptions { position: absolute; top: calc(100% + 4px); right: 0; z-index: 1; min-width: 150px; padding: 4px; border: 1px solid #34485e; border-radius: 6px; background: var(--surface-parent); box-shadow: 0 6px 18px #0006; }
-.diffCommentOptions button { display: block; width: 100%; text-align: left; }
+.diffReviewToolbar button.diffCommentIconButton { display: inline-flex; align-items: center; justify-content: center; width: 28px; padding: 0; }
+.diffReviewToolbar button.diffCommentIconButton svg { width: 15px; height: 15px; }
+.diffReviewToolbar button.diffCommentIconButton[aria-pressed="true"] { background: var(--surface-selected); color: #e0e8f0; }
 .diffReviewToolbar button.diffClose { width: 28px; padding: 0; font-size: var(--fs-20); }
 .diffReviewToolbar button:focus-visible, .diffReviewedCheckbox input:focus-visible { outline: 2px solid #729fc7; outline-offset: 2px; }
 .diffReviewToolbar button.diffSubmitReview { border-color: #477ba9; background: var(--surface-action-hover); color: #f1f7fc; }

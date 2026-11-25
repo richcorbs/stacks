@@ -21,15 +21,13 @@ function render(review = makeReview(), canSubmit = true) {
   return renderer.root;
 }
 const button = (text: string) => renderer.root.findAllByType('button').find((node) => node.children.includes(text))!;
-const openComments = () => act(() => button('Comment ').props.onClick());
+const iconButton = (label: string) => renderer.root.findByProps({ 'aria-label': label });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
 });
 afterEach(() => {
   act(() => renderer?.unmount());
-  vi.unstubAllGlobals();
 });
 
 describe('DiffOverlay compact review header', () => {
@@ -53,42 +51,52 @@ describe('DiffOverlay compact review header', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('preserves both comment actions and overall comment editing without clearing feedback', () => {
+  it('renders globe then file icon buttons with matching tooltips and no legacy dropdown', () => {
+    const root = render();
+    const header = root.findByType('header');
+    const labels = header.findAllByType('button').map((node) => node.props['aria-label']).filter(Boolean);
+    expect(labels).toEqual(['Overall comment', 'File comment', 'Close diff']);
+    const overall = iconButton('Overall comment');
+    const file = iconButton('File comment');
+    expect(overall.props.title).toBe('Overall comment');
+    expect(file.props.title).toBe('File comment');
+    expect(overall.findAllByType('svg')).toHaveLength(1);
+    expect(file.findAllByType('svg')).toHaveLength(1);
+    expect(root.findAllByProps({ className: 'diffCommentDropdown' })).toHaveLength(0);
+    expect(root.findAllByProps({ className: 'diffCommentOptions' })).toHaveLength(0);
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('Comment ▾');
+  });
+
+  it('toggles the overall comment editor and reflects the state through aria-pressed', () => {
     const review = makeReview();
-    render(review);
-    expect(button('File comment')).toBeUndefined();
-    openComments();
-    expect(button('Comment ').props['aria-expanded']).toBe(true);
-    act(() => button('File comment').props.onClick());
-    expect(review.addComment).toHaveBeenCalledWith({ filePath: 'src/git/diffLines.ts', side: 'file', line: null });
-    expect(button('Comment ').props['aria-expanded']).toBe(false);
-    openComments();
-    act(() => button('Overall comment').props.onClick());
-    const textarea = renderer.root.findByProps({ id: 'diff-overall-comment' });
+    const root = render(review);
+    expect(iconButton('Overall comment').props['aria-pressed']).toBe(false);
+    expect(root.findAllByProps({ id: 'diff-overall-comment' })).toHaveLength(0);
+    act(() => iconButton('Overall comment').props.onClick());
+    const textarea = root.findByProps({ id: 'diff-overall-comment' });
     act(() => textarea.props.onChange({ target: { value: 'Overall feedback' } }));
     expect(review.setOverallComment).toHaveBeenCalledWith('Overall feedback');
-    openComments();
-    expect(button('Overall comment').props['aria-pressed']).toBe(true);
-    act(() => button('Overall comment').props.onClick());
-    expect(renderer.root.findAllByType('textarea')).toHaveLength(0);
+    expect(iconButton('Overall comment').props['aria-pressed']).toBe(true);
+    act(() => iconButton('Overall comment').props.onClick());
+    expect(root.findAllByProps({ id: 'diff-overall-comment' })).toHaveLength(0);
+    expect(iconButton('Overall comment').props['aria-pressed']).toBe(false);
     expect(review.setOverallComment).toHaveBeenCalledTimes(1);
   });
 
-  it('dismisses the dropdown on Escape, focus departure, and outside pointer interaction', () => {
-    render();
-    openComments();
-    const stopPropagation = vi.fn();
-    act(() => renderer.root.findByProps({ className: 'diffCommentDropdown' }).props.onKeyDown({ key: 'Escape', stopPropagation }));
-    expect(stopPropagation).toHaveBeenCalledOnce();
-    expect(button('Comment ').props['aria-expanded']).toBe(false);
-    openComments();
-    act(() => renderer.root.findByProps({ className: 'diffCommentDropdown' }).props.onBlur({ currentTarget: { contains: () => false }, relatedTarget: null }));
-    expect(button('Comment ').props['aria-expanded']).toBe(false);
-    openComments();
-    const dismiss = vi.mocked(document.addEventListener).mock.calls.at(-1)![1] as (event: { target: null }) => void;
-    act(() => dismiss({ target: null }));
-    expect(button('Comment ').props['aria-expanded']).toBe(false);
-    expect(document.removeEventListener).toHaveBeenCalledWith('pointerdown', dismiss);
+  it('opens the overall editor when an overall comment already exists', () => {
+    render(makeReview({ overallComment: 'Existing feedback' }));
+    expect(renderer.root.findByProps({ id: 'diff-overall-comment' }).props.value).toBe('Existing feedback');
+    expect(iconButton('Overall comment').props['aria-pressed']).toBe(true);
+  });
+
+  it('adds exactly one file-scoped comment for the open diff path per click', () => {
+    const review = makeReview();
+    const root = render(review);
+    act(() => iconButton('File comment').props.onClick());
+    expect(review.addComment).toHaveBeenCalledWith({ filePath: 'src/git/diffLines.ts', side: 'file', line: null });
+    expect(review.addComment).toHaveBeenCalledTimes(1);
+    act(() => iconButton('File comment').props.onClick());
+    expect(review.addComment).toHaveBeenCalledTimes(2);
   });
 
   it.each([
