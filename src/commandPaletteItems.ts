@@ -24,6 +24,7 @@ export type CommandPaletteItemOptions = {
   onCleanUpDoneCards: () => void;
   onCardTerminalCommand: (command: 'split-right' | 'split-down' | 'search' | 'clear' | 'restart' | 'stop' | 'close' | 'toggle-maximize') => void;
   onFocusCardTerminalPane: (paneId: string) => void;
+  onTerminalServiceCommand: (mode: 'server' | 'console', action: 'start' | 'stop' | 'restart') => void;
 };
 
 export function buildCommandPaletteItems(options: CommandPaletteItemOptions): PaletteItem[] {
@@ -60,6 +61,19 @@ export function buildCommandPaletteItems(options: CommandPaletteItemOptions): Pa
     { id: 'stop-terminal', title: 'Stop focused pane', subtitle: 'Terminate the terminal process', keywords: 'kill terminate process terminal pane', danger: true, action: () => options.onCardTerminalCommand('stop') },
     { id: 'close-terminal', title: 'Close focused pane', subtitle: 'Close and remove the terminal pane', keywords: 'remove kill terminal pane', danger: true, action: () => options.onCardTerminalCommand('close') },
   );
+  (['server', 'console'] as const).forEach((mode) => {
+    const state = cardTerminal.services?.[mode];
+    if (!state?.configured) return;
+    const label = mode === 'server' ? 'server' : 'console';
+    if (state.active) {
+      items.push(
+        { id: `stop-${mode}`, title: `Stop ${label}`, subtitle: `Stop the ${label} pane`, keywords: `stop ${label} service process terminal pane kill`, danger: true, action: () => options.onTerminalServiceCommand(mode, 'stop') },
+        { id: `restart-${mode}`, title: `Restart ${label}`, subtitle: `Stop and start the ${label} pane again`, keywords: `restart ${label} service process terminal pane rerun`, action: () => options.onTerminalServiceCommand(mode, 'restart') },
+      );
+    } else {
+      items.push({ id: `start-${mode}`, title: `Start ${label}`, subtitle: `Run the ${label} command in a terminal pane`, keywords: `start ${label} service process terminal pane run`, action: () => options.onTerminalServiceCommand(mode, 'start') });
+    }
+  });
   if (cardTerminal.paneIds.length > 1) items.push({
     id: 'maximize-terminal',
     title: cardTerminal.maximized ? 'Restore focused pane' : 'Maximize focused pane',

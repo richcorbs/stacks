@@ -3,12 +3,10 @@ import type { Project } from '../../types';
 import { projectColorAttribute } from '../../projectColor';
 import type { CardPullRequestIndicator, KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
-import type { CardServices } from '../../kanban/useCardServices';
 import { deliveryStep, type PrCheck } from '../../kanban/deliveryStep';
 import { owningProject } from '../../kanban/projectScope';
 import { pullRequestPresentation } from '../../kanban/pullRequestPresentation';
 import { hasGitChanges } from '../../kanban/useCardRepositoryStatus';
-import { ManagedServiceControl } from '../ManagedServiceControl';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { GithubStatusIcon } from '../GithubStatusIcon';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
@@ -106,10 +104,6 @@ export function kanbanCardClassName(card: Pick<KanbanCardSummary, 'child_count'>
   return `kanbanCard${card.child_count > 0 ? ' kanbanParentCard' : ''}${keyboardFocused ? ' keyboardFocused' : ''}`;
 }
 
-export function KanbanServerControl({ services, onToggle }: { services: CardServices; onToggle: () => void }) {
-  return <ManagedServiceControl services={services} mode="server" className="kanbanServerToggle" onToggle={onToggle} isolate />;
-}
-
 export function deliveryBadgeLabel(label: string) {
   const separator = ' · ';
   const separatorIndex = label.indexOf(separator);
@@ -121,9 +115,7 @@ export function KanbanCardContents({
   projects,
   repositoryStatus,
   prCheck,
-  serverServices,
   onNavigateParent,
-  onToggleServer,
   listWarning,
   onMergePullRequest,
   mergingCardId,
@@ -132,10 +124,8 @@ export function KanbanCardContents({
   projects: Project[];
   repositoryStatus: CardRepositoryStatus | undefined;
   prCheck?: PrCheck;
-  serverServices?: CardServices;
   listWarning?: { tooltip: string; onOpen: () => void };
   onNavigateParent: (parentId: string) => void;
-  onToggleServer: (cardId: string) => void;
 }) {
   const hasHierarchy = Boolean(card.parent) || card.child_count > 0;
   const project = owningProject(card, projects);
@@ -146,7 +136,7 @@ export function KanbanCardContents({
     ? <span className="kanbanProviderBoardTitle">{card.board_title}</span> : null;
   const hasGitChangesBadge = repositoryStatus?.git?.status === 'ok' && hasGitChanges(repositoryStatus.git);
   const hasAttribution = card.provider !== 'local';
-  const hasIndicators = Boolean(serverServices || repositoryStatus?.git?.status === 'error' || hasGitChangesBadge || (card.pull_request && (hasAttribution || card.pull_request.state === 'open')));
+  const hasIndicators = Boolean(repositoryStatus?.git?.status === 'error' || hasGitChangesBadge || (card.pull_request && (hasAttribution || card.pull_request.state === 'open')));
 
   return <>
     <span className="kanbanCardSource">
@@ -194,7 +184,6 @@ export function KanbanCardContents({
           onKeyUp={(event) => event.stopPropagation()}
           onClick={(event) => { event.stopPropagation(); onMergePullRequest(card, event.currentTarget); }}
         >{mergingCardId === card.id ? <span className="asyncButtonSpinner" aria-hidden="true" /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="6" cy="4" r="2" /><circle cx="6" cy="20" r="2" /><circle cx="18" cy="4" r="2" /><path d="M6 6v12M18 6c0 7-12 4-12 10" /></svg>}</button>}
-        {serverServices && <KanbanServerControl services={serverServices} onToggle={() => onToggleServer(card.id)} />}
       </span>
     </span>}
   </>;

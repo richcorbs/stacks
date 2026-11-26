@@ -22,8 +22,7 @@ vi.mock('./ProjectNotesView', () => ({ ProjectNotesView: () => null }));
 vi.mock('./kanban/CardChatView', () => ({ CardChatView: () => null }));
 vi.mock('./kanban/CardTerminalView', () => ({ CardTerminalView: () => null }));
 vi.mock('./kanban/CardOverview', () => ({ CardOverview: () => null }));
-vi.mock('./kanban/CardServiceTerminal', () => ({ CardServiceTerminal: () => null }));
-vi.mock('../hooks/useManagedServices', () => ({ useManagedServices: () => ({ toggle: vi.fn() }) }));
+vi.mock('../hooks/useServicePanes', () => ({ useServicePanes: () => ({ controls: undefined, running: false, context: { server: { configured: false, active: false }, console: { configured: false, active: false } } }) }));
 vi.mock('../hooks/useDirectProjectShell', () => ({ useDirectProjectShell: () => ({ owner: { kind: 'project', projectId: 'p' }, workspaceId: 'w', shell: { focusedPaneId: null }, controller: {}, loading: false }) }));
 vi.mock('../kanban/useCardTerminalWorkspace', () => ({ useCardTerminalWorkspace: () => ({ shell: { focusedPaneId: null }, controller: {} }) }));
 
@@ -66,7 +65,7 @@ beforeAll(() => {
 
 describe('project workspace tab shortcuts', () => {
   it('keeps disabled Diff at position 3 and numbers optional tabs in visible order', async () => {
-    const extended = { ...project, releases_enabled: true, server_command: 'server', console_command: 'console' };
+    const extended = { ...project, releases_enabled: true };
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<DirectProjectWork project={extended} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} onClose={() => {}} />); });
     const active = () => renderer.root.findByProps({ 'aria-label': 'Project Workspace views' }).findAllByType('button').filter((button) => button.props.className?.includes('active')).map((button) => button.props.children);
@@ -80,11 +79,7 @@ describe('project workspace tab shortcuts', () => {
     select(5);
     expect(active()).toContain('RELEASES');
     select(6);
-    expect(renderer.root.findByProps({ className: 'cardServiceView cardView active', 'aria-label': 'server terminal' })).toBeTruthy();
-    select(7);
-    expect(renderer.root.findByProps({ className: 'cardServiceView cardView active', 'aria-label': 'console terminal' })).toBeTruthy();
-    select(8);
-    expect(renderer.root.findByProps({ className: 'cardServiceView cardView active', 'aria-label': 'console terminal' })).toBeTruthy();
+    expect(active()).toContain('RELEASES');
     act(() => applicationEvents.publish('card-tab-shortcut', { direction: 1 }));
     expect(renderer.root.findByProps({ className: 'cardChatView cardView active' })).toBeTruthy();
     act(() => renderer.unmount());
@@ -144,7 +139,7 @@ describe('diff review Close', () => {
     const card = { id: 'c', project_id: 'p', status: 'agent_working', capabilities: [], environment: { worktree_path: '/repo', target_branch: 'main' } };
     focusDiff.mockClear();
     let renderer!: TestRenderer.ReactTestRenderer;
-    await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} cardServices={{} as never} projects={[project]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView="diff" gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={() => {}} onUpdate={async () => card as never} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={async () => true} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} onToggleServer={() => {}} />, diffNodeOptions); });
+    await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} projects={[project]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView="diff" gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={() => {}} onUpdate={async () => card as never} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={async () => true} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} />, diffNodeOptions); });
     expect(focusDiff).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
     focusDiff.mockClear();
     const nonce = () => renderer.root.findByType(CardDiffView).props.refreshNonce;

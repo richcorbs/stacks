@@ -24,7 +24,7 @@ pub(in crate::kanban) fn next_local_card_number(
 ///
 /// Every DDL change must bump this constant and insert the matching `schema_migrations`
 /// row; `current_schema_migration_covers_every_migration` enforces the pairing.
-pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 88;
+pub(crate) const CURRENT_SCHEMA_MIGRATION: i64 = 89;
 
 /// Cache of the one-time database initialization. Failures are recorded so concurrent callers
 /// see the same error, but an explicit reset (after a successful restore) retries.
@@ -700,13 +700,6 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
               SELECT id FROM card_events WHERE card_id = NEW.card_id ORDER BY created_at DESC, id DESC LIMIT 200
             );
          END;
-         CREATE TABLE IF NOT EXISTS card_service_definitions (
-            id TEXT PRIMARY KEY,
-            environment_id TEXT NOT NULL REFERENCES card_environments(id) ON DELETE CASCADE,
-            name TEXT NOT NULL,
-            command TEXT NOT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0
-         );
          INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, unixepoch());"
     ).map_err(db_error)?;
     // A deploying row cannot still have a supervised child after process restart.
@@ -725,6 +718,9 @@ pub(crate) fn migrate(connection: &Connection) -> Result<(), String> {
         connection.execute("UPDATE kanban_cards SET delivery_operation_stage='uncertain',delivery_error='Deployment outcome is uncertain after restart.' WHERE id IN (SELECT card_id FROM scripted_delivery_operations WHERE stage='uncertain')", []).map_err(db_error)?;
     }
     connection.execute_batch("DROP TABLE IF EXISTS kanban_cleaned_cards; INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (66, unixepoch());").map_err(db_error)?;
+    // Card #351 runs the server and console commands as terminal panes; the
+    // per-card service definition table has no reader left.
+    connection.execute_batch("DROP TABLE IF EXISTS card_service_definitions; INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (89, unixepoch());").map_err(db_error)?;
     migrate_done_status(connection)?;
     migrate_refinement_statuses(connection)?;
     let columns = connection

@@ -18,8 +18,6 @@ import type { KanbanBoardModel, KanbanBoardProps } from '../KanbanBoard';
 import { KanbanCardDetail, type CardDetailWorkflowController } from './KanbanCardDetail';
 import { NewCardDialog } from './NewCardDialog';
 import { KanbanList } from './KanbanList';
-import { BoardCardServerServices } from './BoardCardServerServices';
-import type { CardServices } from '../../kanban/useCardServices';
 import { useNewCardDialog } from '../../kanban/useNewCardDialog';
 import { startLaunchCardRecovery, startupCardRecoveryAllowed } from '../../kanban/launchRecovery';
 import { useCanonicalCardSelection } from '../../kanban/useCanonicalCardSelection';
@@ -32,8 +30,6 @@ import { dispatchCardTerminalCommand } from '../../cardTerminalCommands';
 import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 import { useLoadingCoordinator } from '../../loadingState';
 import { launchPlanningAgent } from '../../kanban/planningLauncher';
-import { CardServerShutdownError, findConflictingCardServer, handoffCardServer } from '../../kanban/cardServerHandoff';
-import { ServerHandoffDialog } from './ServerHandoffDialog';
 import { useBoardPrMerge } from '../../kanban/useBoardPrMerge';
 import { BoardPrMergeDialog } from './BoardPrMergeDialog';
 import { CardDetailLoadingShell } from './CardDetailLoadingShell';
@@ -157,76 +153,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
   const [directWorkNavigationRequest, setDirectWorkNavigationRequest] = useState<WorkNavigationRequest | null>(null);
   const directWorkNavigationNonceRef = useRef(0);
   const [selectedCardInitialView, setSelectedCardInitialView] = useState<CardView | undefined>();
-  const [cardServices, setCardServices] = useState<Record<string, CardServices>>({});
-  // Server handoff handlers read the latest services synchronously before they
-  // await; this is mutable orchestration state, not an effect subscription.
-  const cardServicesRef = useRef(cardServices);
-  cardServicesRef.current = cardServices;
-  const [serverHandoff, setServerHandoff] = useState<{ targetCardId: string; externalId: string } | null>(null);
-  const [serverAction, setServerAction] = useState<{ cardId: string; pending: 'start' | 'stop' | null; error: string | null } | null>(null);
-  const serverActionPending = Boolean(serverAction?.pending);
-  const displayedCardServices = { ...cardServices };
-  if (serverAction && displayedCardServices[serverAction.cardId]) {
-    const services = displayedCardServices[serverAction.cardId];
-    displayedCardServices[serverAction.cardId] = {
-      ...services,
-      serverActionPending: serverAction.pending ?? services.serverActionPending,
-      serverError: serverAction.error ?? services.serverError,
-    };
-  }
-  const serverActionPendingRef = useRef(false);
-  const updateCardServices = useCallback((cardId: string, services: CardServices | null) => {
-    setCardServices((current) => {
-      if (!services) {
-        if (!current[cardId]) return current;
-        const next = { ...current };
-        delete next[cardId];
-        return next;
-      }
-      const existing = current[cardId];
-      if (existing && existing.start === services.start && existing.stop === services.stop && existing.toggle === services.toggle
-        && existing.serverActionPending === services.serverActionPending && existing.serverError === services.serverError
-        && existing.consoleActionPending === services.consoleActionPending && existing.consoleError === services.consoleError
-        && existing.serverActive === services.serverActive && existing.serverEnabled === services.serverEnabled
-        && existing.serverStarting === services.serverStarting && existing.serverRunning === services.serverRunning
-        && existing.serverRestartNonce === services.serverRestartNonce
-        && existing.consoleActive === services.consoleActive && existing.consoleEnabled === services.consoleEnabled
-        && existing.consoleStarting === services.consoleStarting && existing.consoleRunning === services.consoleRunning
-        && existing.consoleRestartNonce === services.consoleRestartNonce) return current;
-      return { ...current, [cardId]: services };
-    });
-  }, []);
-  const runServerAction = useCallback(async (targetCardId: string) => {
-    if (serverActionPendingRef.current) return;
-    serverActionPendingRef.current = true;
-    setServerAction({ cardId: targetCardId, pending: cardServicesRef.current[targetCardId]?.serverActive ? 'stop' : 'start', error: null });
-    try {
-      await handoffCardServer(targetCardId, boardCardsRef.current, cardServicesRef.current);
-      setServerAction(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setServerAction({ cardId: targetCardId, pending: null, error: message });
-      showAppToast(error instanceof CardServerShutdownError
-        ? `Could not shut down server: ${message}`
-        : `Could not start server: ${message}`);
-    } finally {
-      serverActionPendingRef.current = false;
-    }
-  }, []);
-
-  const toggleCardServer = useCallback((targetCardId: string) => {
-    if (serverActionPendingRef.current) return;
-    const services = cardServicesRef.current[targetCardId];
-    if (!services) return;
-    if (services.serverActive) {
-      void runServerAction(targetCardId);
-      return;
-    }
-    const conflict = findConflictingCardServer(targetCardId, boardCardsRef.current, cardServicesRef.current);
-    if (conflict) setServerHandoff({ targetCardId, externalId: conflict.external_id });
-    else void runServerAction(targetCardId);
-  }, [runServerAction]);
-
   const [openLaneMenu, setOpenLaneMenu] = useState<KanbanStatus | null>(null);
   const [cleaningMerged, setCleaningMerged] = useState(false);
   const [cleanupInventory, setCleanupInventory] = useState<CleanupInventory | null>(null);
@@ -247,7 +173,7 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
     selectedCard,
     openCard,
     creationAvailable: !creationAvailability.disabled,
-    shortcutBlocked: boardShortcutBlocked || board.loading || !projectsHydrated || Boolean(prMerge.target || mergeCleanup || selectedCardId || projectSwitcherOpen || newCard.open || openLaneMenu || serverHandoff || cleanupInventory || directWorkProjectId || cleaningMerged),
+    shortcutBlocked: boardShortcutBlocked || board.loading || !projectsHydrated || Boolean(prMerge.target || mergeCleanup || selectedCardId || projectSwitcherOpen || newCard.open || openLaneMenu || cleanupInventory || directWorkProjectId || cleaningMerged),
     openNewCard: newCard.show,
   });
   const pointerOrdering = usePointerCardOrdering({ allCards: board.cards, visibleCards, reorder: board.reorder, backlogCollapsed });
@@ -670,16 +596,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       </header>
       {board.error && <div className="kanbanNotice">{board.error}</div>}
       {board.providerError && <div className="kanbanNotice">{board.providerError}</div>}
-      <BoardCardServerServices
-        cards={board.cards}
-        projects={projects}
-        detailCardId={selectedCardId}
-        terminalFontSize={terminalFontSize}
-        terminalFontFamily={terminalFontFamily}
-        terminalScrollback={terminalScrollback}
-        copyOnSelect={copyOnSelect}
-        onServices={updateCardServices}
-      />
       {!board.loading && <KanbanList
         cards={visibleCards}
         onMergePullRequest={prMerge.request}
@@ -688,7 +604,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         projects={projects}
         repositoryStatuses={repositoryStatuses}
         prChecks={prChecks}
-        serverServices={displayedCardServices}
         backlogCollapsed={backlogCollapsed}
         attentionCollapsed={attentionCollapsed}
         progressCollapsed={progressCollapsed}
@@ -709,7 +624,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
           const parent = board.cards.find((candidate) => candidate.id === parentId);
           if (parent) openCard(parent, 'overview');
         }}
-        onToggleServer={toggleCardServer}
       />}
       <ProjectSwitcherDialog
         open={projectSwitcherOpen}
@@ -737,16 +651,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
       {prMerge.target && <BoardPrMergeDialog card={prMerge.target.card} busy={prMerge.busy} intent={prMerge.intent} error={prMerge.error}
         onCancel={prMerge.close} onConfirm={(intent) => { void prMerge.confirm(intent); }}
         onRetryCleanup={prMerge.canRetryCleanup ? () => { void prMerge.retryCleanup(); } : undefined} />}
-      {serverHandoff && <ServerHandoffDialog
-        externalId={serverHandoff.externalId}
-        busy={serverActionPending}
-        onCancel={() => { if (!serverActionPendingRef.current) setServerHandoff(null); }}
-        onConfirm={() => {
-          if (serverActionPendingRef.current) return;
-          const targetCardId = serverHandoff.targetCardId;
-          void runServerAction(targetCardId).finally(() => setServerHandoff(null));
-        }}
-      />}
       {mergeCleanup && <CleanupPreflightDialog inventory={mergeCleanup.inventory} onCancel={closeMergeCleanup} onConfirm={confirmMergeCleanup} />}
       {cleanupInventory && <CleanupPreflightDialog bulk inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={confirmBulkCleanup} />}
       {directWorkProjectId && projects.find((project) => project.id === directWorkProjectId) && (
@@ -767,12 +671,11 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         onRetry={() => { void hydrateCardDetails(selectedCard).catch(() => {}); }}
         onClose={() => closeCardDetail(selectedCard.id)}
       />}
-      {selectedCard && selectedDetail?.id === selectedCard.id && cardServices[selectedDetail.id] && (
+      {selectedCard && selectedDetail?.id === selectedCard.id && (
         <KanbanCardDetail
           key={selectedDetail.id}
           card={selectedDetail}
           cards={board.cards}
-          cardServices={displayedCardServices[selectedDetail.id]}
           projects={projects}
           terminalFontSize={terminalFontSize}
           terminalFontFamily={terminalFontFamily}
@@ -840,7 +743,6 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
             projectSelectedDetail(updated, updated.events, canonical);
           }}
           onWorkflowControllerChange={setCardDetailWorkflow}
-          onToggleServer={toggleCardServer}
           onNavigate={(id, initialView) => {
             if (selectedCardIdRef.current !== selectedDetail.id) return;
             const target = board.cards.find((candidate) => candidate.id === id);

@@ -13,11 +13,11 @@ vi.mock('./CardChatView', () => ({ CardChatView: () => null }));
 vi.mock('./CardTerminalView', () => ({ CardTerminalView: () => null }));
 vi.mock('./CardOverview', () => ({ CardOverview: () => null }));
 vi.mock('./CardDiffView', () => ({ CardDiffView: () => null }));
-vi.mock('./CardServiceTerminal', () => ({ CardServiceTerminal: () => null }));
 vi.mock('../DiffTab', () => ({ DiffTab: () => null }));
-vi.mock('../../kanban/useCardTerminalWorkspace', () => ({ useCardTerminalWorkspace: () => ({ focusedShellPane: null, pendingCloseShellPane: null, setPendingCloseShellPane: vi.fn(), closeShellPane: vi.fn(), applyEnvironment: vi.fn() }) }));
+vi.mock('../../hooks/useServicePanes', () => ({ useServicePanes: () => ({ controls: undefined, running: false, context: undefined }) }));
+vi.mock('../../kanban/useCardTerminalWorkspace', () => ({ useCardTerminalWorkspace: () => ({ focusedShellPane: null, shellTerminalIds: [], maximizedShellPane: null, pendingCloseShellPane: null, setPendingCloseShellPane: vi.fn(), closeShellPane: vi.fn(), applyEnvironment: vi.fn() }) }));
 
-const project = { id: 'p', name: 'P', path: '/repo', server_command: 'echo server', console_command: 'echo console', delivery_workflow: 'local_merge', target_branch: 'main' };
+const project = { id: 'p', name: 'P', path: '/repo', delivery_workflow: 'local_merge', target_branch: 'main' };
 const baseCard = { id: 'local:1', provider: 'local', external_id: '1', title: 'Card', content: '', board_id: '', board_title: '', list_id: '', list_title: '', card_url: '', assignee_names: [], status: 'ready', workflow_revision: 1, record_revision: 1, project_id: 'p', parent: null, child_count: 0, children: [], hierarchy_finalized: false, environment: { worktree_path: '/repo' }, created_at: 1, updated_at: 1, sort_order: 0, events: [] };
 let keyboard: (event: KeyboardEvent) => void;
 let composerKeyboard: (event: KeyboardEvent) => void;
@@ -31,11 +31,11 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-async function mount(options: { initialView?: 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console'; capabilities?: { action: string; available: boolean; disabled_reason?: string }[]; onStartWork?: () => Promise<boolean>; onUpdate?: () => Promise<never>; onClose?: () => void } = {}) {
+async function mount(options: { initialView?: 'overview' | 'chat' | 'diff' | 'terminal'; capabilities?: { action: string; available: boolean; disabled_reason?: string }[]; onStartWork?: () => Promise<boolean>; onUpdate?: () => Promise<never>; onClose?: () => void } = {}) {
   const card = { ...baseCard, capabilities: options.capabilities ?? [{ action: 'return_to_refinement', available: true }, { action: 'start_work', available: true }] };
   const onStartWork = options.onStartWork ?? vi.fn(async () => false);
   let renderer!: TestRenderer.ReactTestRenderer;
-  await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} cardServices={{} as never} projects={[project as never]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView={options.initialView} gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={options.onClose ?? (() => {})} onUpdate={options.onUpdate ?? (async () => card as never)} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={onStartWork} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} onToggleServer={() => {}} />); });
+  await act(async () => { renderer = TestRenderer.create(<KanbanCardDetail card={card as never} cards={[]} projects={[project as never]} terminalFontSize={13} terminalFontFamily="monospace" terminalScrollback={1000} copyOnSelect={false} initialView={options.initialView} gitChangeSummary={null} detailLoadError={null} detailRefreshError={null} requireActionPreflight={false} hasOlderEvents={false} onLoadOlderEvents={async () => {}} onRecheckEnvironment={async () => ({} as never)} onRefreshGit={async () => {}} onClose={options.onClose ?? (() => {})} onUpdate={options.onUpdate ?? (async () => card as never)} onAction={async () => {}} onStopRefinement={async () => {}} onOpenChat={async () => {}} onRefine={async () => true} onStartWork={onStartWork} onCleanup={async () => {}} onDelete={async () => {}} onReload={async () => card as never} onRetryRefresh={async () => {}} onCardUpdated={() => {}} onNavigate={() => {}} />); });
   return { renderer, onStartWork };
 }
 function key(metaKey = true, shiftKey = false) {
@@ -82,7 +82,7 @@ describe('card workflow shortcut', () => {
     act(() => renderer.unmount());
   });
 
-  it.each(['terminal', 'server', 'console'] as const)('hides workflow and ignores shortcut on %s', async (initialView) => {
+  it.each(['terminal'] as const)('hides workflow and ignores shortcut on %s', async (initialView) => {
     const { renderer, onStartWork } = await mount({ initialView });
     expect(renderer.root.findAllByProps({ 'aria-label': 'Workflow actions' })).toHaveLength(0);
     expect(key().preventDefault).not.toHaveBeenCalled();

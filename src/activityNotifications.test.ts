@@ -109,11 +109,11 @@ describe('activity notifications', () => {
     });
     const exited: AppAttention = {
       kind: 'process-exit', owner: { kind: 'project', projectId: project.id },
-      target: { view: 'server', terminalId: 'project-direct:project-1:terminal:server' }, lifecycleKey: 'pty:g',
+      target: { view: 'terminal', terminalId: 'project-direct:project-1:terminal:server' }, lifecycleKey: 'pty:g',
     };
     const content = notificationContent(exited, { project });
     expect(content.title).toBe('Command exited');
-    expect(content.body).toBe('Stacks — Project Workspace — Server');
+    expect(content.body).toBe('Stacks — Project Workspace — Terminal');
     expect(content.body).not.toMatch(/success|fail/i);
   });
 

@@ -4,10 +4,8 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '../../types';
 import type { CardPullRequest, KanbanCard, KanbanStatus } from '../../kanban/types';
-import type { CardServices } from '../../kanban/useCardServices';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
-import { deliveryBadgeLabel, DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, KanbanServerControl, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanCardParts';
-import { cardServerAvailability } from './BoardCardServerServices';
+import { deliveryBadgeLabel, DoneLaneMenu, KanbanCardContents, KanbanPullRequestBadge, kanbanCardClassName, shouldDismissDoneLaneMenu } from './KanbanCardParts';
 import { PrRefreshSchedule } from '../../kanban/prRefreshSchedule';
 
 const project: Project = { id: 'project-1', name: 'A project with a deliberately long name', path: '/tmp/project-1' };
@@ -24,29 +22,15 @@ function card(overrides: Partial<KanbanCard> = {}): KanbanCard {
   };
 }
 
-function services(active = false, toggle = vi.fn()): CardServices {
-  return {
-    serverActionPending: null, consoleActionPending: null, serverError: null, consoleError: null,
-    serverEnabled: active, consoleEnabled: false,
-    serverStarting: active, consoleStarting: false,
-    serverRunning: false, consoleRunning: false,
-    serverActive: active, consoleActive: false,
-    serverRestartNonce: 0, consoleRestartNonce: 0,
-    start: vi.fn(), stop: vi.fn(), toggle,
-  };
-}
-
-function renderCardContents(currentCard: KanbanCard, serverServices?: CardServices) {
+function renderCardContents(currentCard: KanbanCard, withChanges = false) {
   return renderToStaticMarkup(<KanbanCardContents
     card={currentCard}
     projects={[project]}
-    repositoryStatus={serverServices ? {
+    repositoryStatus={withChanges ? {
       git: { branch: 'card-177', status: 'ok', created: 1, changed: 0, deleted: 0 },
       environmentHealth: { card_id: currentCard.id, issues: [] },
     } : undefined}
-    serverServices={serverServices}
     onNavigateParent={() => undefined}
-    onToggleServer={() => undefined}
   />);
 }
 
@@ -54,7 +38,7 @@ it('shows unknown status without stale counts when Git fails', () => {
   const markup = renderToStaticMarkup(<KanbanCardContents
     card={card()} projects={[project]}
     repositoryStatus={{ git: { branch: 'feature', status: 'error', message: 'Check the worktree and retry' }, environmentHealth: { card_id: card().id, issues: [] } }}
-    onNavigateParent={() => undefined} onToggleServer={() => undefined}
+    onNavigateParent={() => undefined}
   />);
   expect(markup).toContain('Git ?');
   expect(markup).toContain('Git status unknown');
@@ -82,7 +66,7 @@ it('keeps the merge-ready delivery label while exposing refresh failure separate
   const current = card({ status: 'approved', child_count: 0, parent: null, pull_request: pullRequest() });
   const markup = renderToStaticMarkup(<KanbanCardContents card={current} projects={[{ ...project, delivery_workflow: 'github_pull_request' }]}
     prCheck={{ checkedAt: null, failed: true, refreshing: false }} repositoryStatus={undefined}
-    onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    onNavigateParent={() => {}} />);
   expect(markup).toContain('>PR merge available</span>');
   expect(markup).toContain('aria-label="PR merge available · Merge PR"');
   expect(markup).toContain('GitHub refresh failed; retrying');
@@ -105,10 +89,10 @@ it.each(['fresh', 'refreshing', 'expired', 'failed', 'retrying', 'reopened'] as 
   }]));
   const markup = renderToStaticMarkup(<KanbanCardContents card={actionable} onMergePullRequest={() => {}} projects={[prProject]}
     repositoryStatus={undefined} prCheck={prChecks?.[actionable.id]}
-    serverServices={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+   onNavigateParent={() => {}} />);
   const waitingMarkup = renderToStaticMarkup(<KanbanCardContents card={waiting} projects={[prProject]}
     repositoryStatus={undefined} prCheck={prChecks?.[waiting.id]}
-    onNavigateParent={() => {}} onToggleServer={() => {}} />);
+    onNavigateParent={() => {}} />);
   expect(markup.match(/class="kanbanServerToggle kanbanPrMerge"/g)).toHaveLength(1);
   expect(markup).toContain('Merge PR #98 for card #2');
   expect(markup).toContain('PR #98');
@@ -173,7 +157,7 @@ describe('KanbanCardContents', () => {
     const first = { ...project, color_id: 'teal' };
     const render = (owner: Project | null) => renderToStaticMarkup(<KanbanCardContents
       card={card({ project_id: owner?.id ?? 'missing', board_id: owner?.id ?? 'missing' })}
-      projects={[first, other]} repositoryStatus={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+      projects={[first, other]} repositoryStatus={undefined} onNavigateParent={() => {}} />);
     expect(render(first).match(/data-project-color="teal"/g)).toHaveLength(2);
     expect(render(other).match(/data-project-color="rose"/g)).toHaveLength(2);
     expect(render(null)).not.toContain('data-project-color=');
@@ -200,7 +184,7 @@ describe('KanbanCardContents', () => {
 
   it('retains the unknown-project badge treatment in the heading', () => {
     const markup = renderToStaticMarkup(<KanbanCardContents card={card({ project_id: 'missing', board_id: 'missing' })}
-      projects={[project]} repositoryStatus={undefined} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+      projects={[project]} repositoryStatus={undefined} onNavigateParent={() => {}} />);
     expect(markup).toContain('class="kanbanCardNumber">#128</span><span class="kanbanProjectBadge invalid">Unknown project</span><span class="kanbanCardStatusBadge"');
     expect(markup).not.toContain('data-project-color=');
     expect(markup.match(/kanbanProjectBadge/g)).toHaveLength(1);
@@ -237,11 +221,11 @@ describe('KanbanCardContents', () => {
 
   it('aligns local indicators after an invisible flexible slot without assignee text', () => {
     const cases = [
-      [renderCardContents(card(), services()), ['kanbanServerToggle', 'kanbanGitBadge']],
+      [renderCardContents(card(), true), ['kanbanGitBadge']],
       [renderCardContents(card({ pull_request: pullRequest() })), ['kanbanPrBadge']],
       [renderToStaticMarkup(<KanbanCardContents card={card()} projects={[project]}
         repositoryStatus={{ git: { branch: 'feature', status: 'error', message: 'Git unavailable' }, environmentHealth: { card_id: card().id, issues: [] } }}
-        onNavigateParent={() => {}} onToggleServer={() => {}} />), ['kanbanGitBadge']],
+        onNavigateParent={() => {}} />), ['kanbanGitBadge']],
     ] as const;
     for (const [markup, indicators] of cases) {
       expect(markup).toContain('class="kanbanCardMeta"><span class="kanbanCardLocalAttribution" aria-hidden="true"></span><span class="kanbanCardIndicators">');
@@ -253,25 +237,22 @@ describe('KanbanCardContents', () => {
   });
 
   it('preserves Superthread attribution and indicator layout', () => {
-    const markup = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', pull_request: pullRequest() }), services());
+    const markup = renderCardContents(card({ provider: 'superthread', board_title: 'Roadmap', pull_request: pullRequest() }), true);
     expect(markup).toContain('class="kanbanCardMeta"><span class="kanbanCardAttribution"><span class="kanbanProviderBoardTitle">Roadmap</span><span title="Assigned in Superthread">Unassigned</span></span><span class="kanbanCardIndicators">');
     expect(markup).not.toContain('kanbanCardLocalAttribution');
     expect(markup.indexOf('kanbanGitBadge')).toBeLessThan(markup.indexOf('kanbanPrBadge'));
-    expect(markup.indexOf('kanbanPrBadge')).toBeLessThan(markup.indexOf('kanbanServerToggle'));
   });
 
-  it('keeps attribution left and orders present Git, PR, and server indicators', () => {
+  it('keeps attribution left and orders present Git and PR indicators', () => {
     const cases = [
-      { git: 'changes', pr: true, server: true, expected: ['kanbanGitBadge', 'kanbanPrBadge', 'kanbanServerToggle'] },
-      { git: 'error', pr: true, server: true, expected: ['kanbanGitBadge', 'kanbanPrBadge', 'kanbanServerToggle'] },
-      { git: 'none', pr: true, server: true, expected: ['kanbanPrBadge', 'kanbanServerToggle'] },
-      { git: 'changes', pr: false, server: true, expected: ['kanbanGitBadge', 'kanbanServerToggle'] },
-      { git: 'changes', pr: true, server: false, expected: ['kanbanGitBadge', 'kanbanPrBadge'] },
-      { git: 'none', pr: false, server: true, expected: ['kanbanServerToggle'] },
-      { git: 'none', pr: false, server: false, expected: [] },
+      { git: 'changes', pr: true, expected: ['kanbanGitBadge', 'kanbanPrBadge'] },
+      { git: 'error', pr: true, expected: ['kanbanGitBadge', 'kanbanPrBadge'] },
+      { git: 'none', pr: true, expected: ['kanbanPrBadge'] },
+      { git: 'changes', pr: false, expected: ['kanbanGitBadge'] },
+      { git: 'none', pr: false, expected: [] },
     ] as const;
 
-    for (const { git, pr, server, expected } of cases) {
+    for (const { git, pr, expected } of cases) {
       const repositoryStatus: CardRepositoryStatus | undefined = git === 'none' ? undefined : {
         git: git === 'error'
           ? { branch: 'card-224', status: 'error', message: 'Git unavailable' }
@@ -281,10 +262,9 @@ describe('KanbanCardContents', () => {
       const markup = renderToStaticMarkup(<KanbanCardContents
         card={card({ provider: 'superthread', assignee_names: ['Rich'], pull_request: pr ? pullRequest() : null })}
         projects={[project]} repositoryStatus={repositoryStatus}
-        serverServices={server ? services() : undefined}
-        onNavigateParent={() => {}} onToggleServer={() => {}}
+        onNavigateParent={() => {}}
       />);
-      const indicators = [...markup.matchAll(/class="(kanbanGitBadge|kanbanPrBadge|kanbanServerToggle)(?: [^"]*)?"/g)].map((match) => match[1]);
+      const indicators = [...markup.matchAll(/class="(kanbanGitBadge|kanbanPrBadge)(?: [^"]*)?"/g)].map((match) => match[1]);
 
       expect(markup.indexOf('kanbanProjectBadge')).toBeLessThan(markup.indexOf('kanbanCardStatusBadge'));
       expect(markup.indexOf('Rich')).toBeLessThan(markup.indexOf('kanbanCardIndicators'));
@@ -293,61 +273,6 @@ describe('KanbanCardContents', () => {
   });
 });
 
-describe('board server control', () => {
-  const environment = { worktree_path: '/tmp/card-177' } as KanbanCard['environment'];
-  const serverProject = { ...project, server_command: ' npm run dev ' };
-
-  it('is available only with a non-finalized card environment and owning project server command', () => {
-    expect(cardServerAvailability(card({ environment }), [serverProject])).toMatchObject({ eligible: true, command: 'npm run dev', cardPath: '/tmp/card-177' });
-    expect(cardServerAvailability(card({ environment, hierarchy_finalized: true }), [serverProject]).eligible).toBe(false);
-    expect(cardServerAvailability(card(), [serverProject]).eligible).toBe(false);
-    expect(cardServerAvailability(card({ environment }), []).eligible).toBe(false);
-    expect(cardServerAvailability(card({ environment }), [project]).eligible).toBe(false);
-    expect(cardServerAvailability(card({ environment }), [{ ...project, console_command: 'bin/console' }]).eligible).toBe(false);
-  });
-
-  it.each([
-    [false, 'Start server', 'servicePlayIcon'],
-    [true, 'Stop server', 'serviceBusyIcon'],
-  ])('renders active=%s with the accessible %s state', (active, label, icon) => {
-    const markup = renderToStaticMarkup(<KanbanServerControl services={services(active)} onToggle={() => {}} />);
-    expect(markup).toContain(`aria-label="${label}"`);
-    expect(markup).toContain(`aria-pressed="${active}"`);
-    expect(markup).toContain(icon);
-  });
-
-  it.each(['start', 'stop'] as const)('renders a disabled per-card %s request without claiming startup', (pending) => {
-    const markup = renderToStaticMarkup(<KanbanServerControl services={{ ...services(false), serverActionPending: pending }} onToggle={() => {}} />);
-    expect(markup).toContain('disabled=""');
-    expect(markup).toContain('aria-busy="true"');
-    expect(markup).toContain(pending === 'start' ? 'Start requested…' : 'Stop requested…');
-    expect(markup).not.toContain('Starting…');
-  });
-
-  it('renders failure feedback with an enabled retry', () => {
-    const markup = renderToStaticMarkup(<KanbanServerControl services={{ ...services(false), serverError: 'kill failed' }} onToggle={() => {}} />);
-    expect(markup).toContain('Failed: kill failed');
-    expect(markup).not.toContain('disabled=""');
-  });
-
-  it('handles pointer and click interaction without propagating to card open or drag handlers', async () => {
-    const toggle = vi.fn();
-    let renderer!: TestRenderer.ReactTestRenderer;
-    await act(async () => { renderer = TestRenderer.create(<KanbanServerControl services={services(false)} onToggle={toggle} />); });
-    const button = renderer.root.findByType('button');
-    const pointerStop = vi.fn();
-    const clickStop = vi.fn();
-
-    button.props.onPointerDown({ stopPropagation: pointerStop });
-    button.props.onPointerUp({ stopPropagation: pointerStop });
-    button.props.onClick({ stopPropagation: clickStop });
-
-    expect(pointerStop).toHaveBeenCalledTimes(2);
-    expect(clickStop).toHaveBeenCalledOnce();
-    expect(toggle).toHaveBeenCalledOnce();
-    expect(toggle).toHaveBeenCalledWith();
-  });
-});
 
 describe('KanbanPullRequestBadge', () => {
   it.each([
@@ -475,14 +400,14 @@ describe('card merge control', () => {
   ])('does not offer merging for a non-ready projection (%j)', (overrides) => {
     const current = card({ status: 'approved', child_count: 0, pull_request: pullRequest(), ...overrides });
     const markup = renderToStaticMarkup(<KanbanCardContents card={current} projects={[prProject]}
-      repositoryStatus={undefined} onMergePullRequest={() => {}} onNavigateParent={() => {}} onToggleServer={() => {}} />);
+      repositoryStatus={undefined} onMergePullRequest={() => {}} onNavigateParent={() => {}} />);
     expect(markup).not.toContain('kanbanPrMerge');
   });
   it('rejects an explicitly obsolete PR observation', () => {
     const markup = renderToStaticMarkup(<KanbanCardContents card={card({ status: 'approved', child_count: 0, pull_request: pullRequest() })}
       projects={[prProject]} repositoryStatus={undefined} onMergePullRequest={() => {}}
       prCheck={{ identity: 'obsolete', checkedAt: Date.now(), failed: false, refreshing: false }}
-      onNavigateParent={() => {}} onToggleServer={() => {}} />);
+      onNavigateParent={() => {}} />);
     expect(markup).not.toContain('kanbanPrMerge');
   });
   it('isolates pointer and keyboard events and captures the exact card and trigger', async () => {
@@ -490,7 +415,7 @@ describe('card merge control', () => {
     const request = vi.fn();
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<KanbanCardContents card={current} projects={[prProject]}
-      repositoryStatus={undefined} onMergePullRequest={request} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+      repositoryStatus={undefined} onMergePullRequest={request} onNavigateParent={() => {}} />); });
     const button = renderer.root.findByProps({ className: 'kanbanServerToggle kanbanPrMerge' });
     for (const handler of ['onPointerDown', 'onPointerUp', 'onPointerCancel', 'onKeyDown', 'onKeyUp']) {
       const stopPropagation = vi.fn();
@@ -504,7 +429,7 @@ describe('card merge control', () => {
     expect(stopPropagation).toHaveBeenCalledOnce();
     expect(request).toHaveBeenCalledWith(current, trigger);
     await act(async () => { renderer.update(<KanbanCardContents card={current} projects={[prProject]} mergingCardId={current.id}
-      repositoryStatus={undefined} onMergePullRequest={request} onNavigateParent={() => {}} onToggleServer={() => {}} />); });
+      repositoryStatus={undefined} onMergePullRequest={request} onNavigateParent={() => {}} />); });
     expect(renderer.root.findByProps({ className: 'kanbanServerToggle kanbanPrMerge' }).props.disabled).toBe(true);
     expect(renderer.root.findByProps({ className: 'kanbanServerToggle kanbanPrMerge' }).props['aria-busy']).toBe(true);
     act(() => renderer.unmount());

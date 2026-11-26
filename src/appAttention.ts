@@ -5,7 +5,7 @@ export type AgentThread = 'planning' | 'work';
 export type AttentionKind = 'pi-complete' | 'pi-request' | 'process-exit';
 export type AttentionTarget =
   | { view: 'agent'; agentThread?: AgentThread; terminalId: string }
-  | { view: 'terminal' | 'server' | 'console'; terminalId: string };
+  | { view: 'terminal'; terminalId: string };
 
 export type AppAttention = {
   kind: AttentionKind;
@@ -68,7 +68,7 @@ export function attentionRoute(attention: AppAttention): NotificationRoute {
 
 export function routeFromExtra(extra: Record<string, unknown> | undefined): NotificationRoute | null {
   if (!extra || (extra.ownerKind !== 'card' && extra.ownerKind !== 'project')) return null;
-  if (!['agent', 'terminal', 'server', 'console'].includes(String(extra.targetView))) return null;
+  if (!['agent', 'terminal'].includes(String(extra.targetView))) return null;
   if (extra.ownerKind === 'card' && typeof extra.cardId !== 'string') return null;
   if (extra.ownerKind === 'project' && typeof extra.projectId !== 'string') return null;
   return {

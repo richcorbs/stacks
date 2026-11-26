@@ -2,16 +2,18 @@ import { useSyncExternalStore } from 'react';
 import type { Project, WorkspaceEntry } from '../types';
 import type { WorkspaceShellController } from '../workspaceShellController';
 import { SplitView } from './WorkspaceTerminalTree';
+import type { TerminalServiceControls } from './TerminalControls';
 
 export function useWorkspaceShell(controller: WorkspaceShellController) {
   return useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 }
 
-export function WorkspaceShellView({ controller, workspace, project, visible, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
+export function WorkspaceShellView({ controller, workspace, project, visible, serviceControls, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
   controller: WorkspaceShellController;
   workspace: WorkspaceEntry;
   project: Project;
   visible: boolean;
+  serviceControls?: TerminalServiceControls;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -27,6 +29,7 @@ export function WorkspaceShellView({ controller, workspace, project, visible, te
       project={project}
       visible={visible}
       canEditTerminal={false}
+      serviceControls={serviceControls}
       terminalFontSize={terminalFontSize}
       terminalFontFamily={terminalFontFamily}
       terminalScrollback={terminalScrollback}

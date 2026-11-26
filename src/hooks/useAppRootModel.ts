@@ -19,7 +19,7 @@ import { buildCommandPaletteItems } from '../commandPaletteItems';
 import { incrementCommandUsage } from '../commandPaletteUsage';
 import { selectedKanbanProject } from '../kanban/providerSelection';
 import { canOpenProjectSwitcher } from '../projectSwitcher';
-import type { CardTerminalContext } from '../cardTerminalCommands';
+import { dispatchTerminalServiceCommand, type CardTerminalContext } from '../cardTerminalCommands';
 import { fetchKanbanCard, fetchKanbanEnvironmentHealth, skipKanbanRefinement, startKanbanEnvironment } from '../kanban/api';
 import { deletePiSessionController, getRetainedPiSessionController } from '../pi/sessionController';
 import { buildLocalWorkspaceInput, buildSuperthreadWorkspaceInput } from '../superthread/startWork';
@@ -303,6 +303,7 @@ export function useAppRootModel(events: EventBroker<AppEventMap>, loading: Loadi
     onRelease: (project) => events.publish('open-direct-work', { projectId: project?.id, view: 'release' }),
     onCardTerminalCommand: (action) => events.publish('card-terminal-command', action === 'split-right' ? { type: 'split', direction: 'row' } : action === 'split-down' ? { type: 'split', direction: 'column' } : action === 'toggle-maximize' ? { type: 'toggle-maximize' } : { type: action }),
     onFocusCardTerminalPane: (paneId) => events.publish('card-terminal-command', { type: 'focus', paneId }),
+    onTerminalServiceCommand: (mode, action) => dispatchTerminalServiceCommand({ mode, action, ownerId: cardTerminal?.ownerId ?? (cardTerminal?.cardId ? `kanban-card:${cardTerminal.cardId}` : undefined) }),
   }), [appSettings.editor_app, appSettings.superthread_enabled, cardTerminal, cleanUpDone, events, selectedProject, store, workspaceDirectory]);
 
   const paletteCardItems = useMemo(

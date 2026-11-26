@@ -49,7 +49,7 @@ export type Project = {
 };
 export type PaneKind = 'terminal' | 'pi';
 export type WorkspaceEntry = { id: string; name: string; command?: string | null; cwd?: string | null; splits?: SplitNode | null };
-type PaneEntryBase = { id: string; workspaceId: string; command?: string | null; cwd?: string | null; temporary?: boolean };
+type PaneEntryBase = { id: string; workspaceId: string; command?: string | null; cwd?: string | null; temporary?: boolean; managedService?: boolean };
 export type PaneEntry = PaneEntryBase & ({ kind?: 'terminal' } | { kind: 'pi' });
 /** Legacy internal name. Prefer PaneEntry for code that handles both terminals and Pi GUIs. */
 export type TerminalEntry = PaneEntry;

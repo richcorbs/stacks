@@ -28,7 +28,6 @@ const EXPECTED_TABLES: &[&str] = &[
     "card_pi_lifecycle_events",
     "card_pull_requests",
     "card_retirements",
-    "card_service_definitions",
     "card_target_merge_operations",
     "environment_creation_operations",
     "global_terminal_state",
@@ -130,7 +129,6 @@ fn sanitize_database(path: &Path) -> Result<(), String> {
          DELETE FROM environment_creation_operations;
          DELETE FROM operation_attempts;
          DELETE FROM operations;
-         DELETE FROM card_service_definitions;
          DELETE FROM card_panes;
          DELETE FROM card_layouts;
          DELETE FROM card_environments;
@@ -238,7 +236,6 @@ fn validate_staged_seed(database: &Path, directory: &Path) -> Result<(), String>
         "card_panes",
         "card_pi_lifecycle",
         "card_pi_lifecycle_events",
-        "card_service_definitions",
         "card_target_merge_operations",
         "environment_creation_operations",
         "global_terminal_state",

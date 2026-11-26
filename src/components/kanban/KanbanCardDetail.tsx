@@ -31,9 +31,9 @@ import { isEditableElement } from '../../kanban/boardInteractions';
 import { hierarchyStatusLabel } from '../../kanban/hierarchy';
 import { useWorkflowOperation } from '../../kanban/useWorkflowOperation';
 import { cardPaneId, cardTerminalId, type CardChatThread } from '../../kanban/cardWorkspace';
-import type { CardServices } from '../../kanban/useCardServices';
 import { useCardTerminalWorkspace } from '../../kanban/useCardTerminalWorkspace';
-import { CardServiceTerminal } from './CardServiceTerminal';
+import { useServicePanes, type ServicePaneConfigs } from '../../hooks/useServicePanes';
+import { publishCardTerminalContext } from '../../cardTerminalCommands';
 import { CardChatView } from './CardChatView';
 import { CardDiffView } from './CardDiffView';
 import { CardTerminalView } from './CardTerminalView';
@@ -57,10 +57,9 @@ const CARD_CODE_PASTE_TIMEOUT_MS = 10_000;
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
-export function KanbanCardDetail({ card, cards, cardServices, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, requireActionPreflight, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onRefreshGit, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onRefine, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onToggleServer, onWorkflowControllerChange }: {
+export function KanbanCardDetail({ card, cards, projects, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, initialView, environmentHealth, gitChangeSummary, detailLoadError, detailRefreshError, requireActionPreflight, hasOlderEvents, onLoadOlderEvents, onRecheckEnvironment, onRefreshGit, onClose, onUpdate, onAction, onStopRefinement, onOpenChat, onRefine, onStartWork, onCleanup, onDelete, onReload, onRetryRefresh, onCardUpdated, onNavigate, onWorkflowControllerChange }: {
   card: KanbanCard;
   cards: KanbanCardSummary[];
-  cardServices: CardServices;
   projects: Project[];
   terminalFontSize: number;
   terminalFontFamily: string;
@@ -89,7 +88,6 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   onRetryRefresh: () => Promise<void>;
   onCardUpdated: (card: KanbanCard) => void;
   onNavigate: (id: string, initialView?: CardView) => void;
-  onToggleServer: (cardId: string) => void;
   onWorkflowControllerChange?: (controller: CardDetailWorkflowController | null) => void;
 }) {
   const [cleanupInventory, setCleanupInventory] = useState<CleanupInventory | null>(null);
@@ -107,12 +105,10 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   const projectId = card.project_id ?? '';
   const project = projects.find((candidate) => candidate.id === projectId);
   const cardPath = card.environment?.worktree_path ?? null;
-  const serverCommand = project?.server_command?.trim() ?? '';
-  const consoleCommand = project?.console_command?.trim() ?? '';
   const { diffRefreshNonce, refreshDiff, onViewSelected } = useWorkDiffRefresh();
   const detail = useCardDetailModel({
     card, initialView,
-    availability: { chat: Boolean(project && !card.hierarchy_finalized), workspace: Boolean(cardPath), server: Boolean(serverCommand), console: Boolean(consoleCommand) },
+    availability: { chat: Boolean(project && !card.hierarchy_finalized), workspace: Boolean(cardPath) },
     onUpdate: (title, content) => onUpdate(title, content),
     onViewSelected,
   });
@@ -191,12 +187,30 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
     environmentRevisionRef,
     layoutRevisionRef,
   });
+  const serviceConfigs = useMemo<ServicePaneConfigs>(() => ({
+    server: { terminalId: cardTerminalId(card.id, 'server'), command: project?.server_command?.trim() ?? '', cwd: cardPath },
+    console: { terminalId: cardTerminalId(card.id, 'console'), command: project?.console_command?.trim() ?? '', cwd: cardPath },
+  }), [card.id, cardPath, project?.console_command, project?.server_command]);
+  const services = useServicePanes({ controller: terminalWorkspace.controller, configs: serviceConfigs });
   const {
     focusedShellPane,
     pendingCloseShellPane,
     setPendingCloseShellPane,
     closeShellPane,
   } = terminalWorkspace;
+
+  useEffect(() => {
+    publishCardTerminalContext({
+      cardId: card.id,
+      active: activeView === 'terminal',
+      focusedPaneId: activeView === 'terminal' ? terminalWorkspace.focusedShellPane : null,
+      paneIds: terminalWorkspace.shellTerminalIds,
+      cwd: cardPath,
+      maximized: Boolean(terminalWorkspace.maximizedShellPane),
+      services: services.context,
+    });
+    return () => publishCardTerminalContext(null);
+  }, [activeView, card.id, cardPath, services.context, terminalWorkspace.focusedShellPane, terminalWorkspace.maximizedShellPane, terminalWorkspace.shellTerminalIds]);
 
   // One click from a chat code block: clipboard, Terminal tab, focused shell.
   // The transcript only offers the button when a card terminal is reachable,
@@ -452,9 +466,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
   useEffect(() => {
     const owner = { kind: 'card' as const, cardId: card.id };
     const terminalId = activeView === 'chat' ? cardPaneId(card.id, activeChatThread)
-      : activeView === 'terminal' ? focusedShellPane
-      : activeView === 'server' ? cardTerminalId(card.id, 'server')
-      : activeView === 'console' ? cardTerminalId(card.id, 'console') : undefined;
+      : activeView === 'terminal' ? focusedShellPane : undefined;
     publishWorkPresence({ owner, view: activeView === 'chat' ? 'agent' : activeView, agentThread: activeView === 'chat' ? activeChatThread : undefined, terminalId });
     return () => publishWorkPresence(null);
   }, [activeChatThread, activeView, card.id, focusedShellPane]);
@@ -485,12 +497,9 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
           hierarchyFinalized={card.hierarchy_finalized}
           projectAvailable={Boolean(project)}
           cardPath={cardPath}
-          serverCommand={serverCommand}
-          consoleCommand={consoleCommand}
-          serverServices={cardServices}
+          terminalRunning={services.running}
           onRequestView={requestView}
           onRefreshDiff={refreshDiff}
-          onToggleServer={() => onToggleServer(card.id)}
         />
         <CardOverview
           active={activeView === 'overview'}
@@ -515,10 +524,7 @@ export function KanbanCardDetail({ card, cards, cardServices, projects, terminal
         />
         {project && !card.hierarchy_finalized && <CardChatView card={card} project={project} cardPath={cardPath} thread={activeChatThread} active={showChat} deploymentOutput={deploymentOutput} onPasteIntoTerminal={project && cardPath ? onPasteIntoTerminal : undefined} />}
         <CardDiffView active={activeView === 'diff'} card={card} cardPath={cardPath} refreshNonce={diffRefreshNonce} review={diffReview} canSubmit={Boolean(project)} onSubmit={submitDiffReview} onClose={() => { diffReview.reset(); setActiveView('chat'); }} />
-        <CardTerminalView active={activeView === 'terminal'} card={card} project={project} cardPath={cardPath} controller={terminalWorkspace} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />
-
-        {project && cardPath && serverCommand && <CardServiceTerminal mode="server" command={serverCommand} enabled={cardServices.serverEnabled} active={activeView === 'server'} background={cardServices.serverEnabled && activeView !== 'server'} restartRequestNonce={cardServices.serverRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
-        {project && cardPath && consoleCommand && <CardServiceTerminal mode="console" command={consoleCommand} enabled={cardServices.consoleEnabled} active={activeView === 'console'} background={cardServices.consoleEnabled && activeView !== 'console'} restartRequestNonce={cardServices.consoleRestartNonce} card={card} project={project} cardPath={cardPath} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />}
+        <CardTerminalView active={activeView === 'terminal'} card={card} project={project} cardPath={cardPath} controller={terminalWorkspace} serviceControls={services.controls} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />
         {(editing || (actionRowVisible && (footerWorkflowActions.length > 0 || card.scripted_delivery || agentFailureVisible))) && <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
           {editing ? (
             <div className="kanbanEditActions">

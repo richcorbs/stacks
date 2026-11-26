@@ -4,24 +4,21 @@ import type { usePointerCardOrdering } from '../../kanban/usePointerCardOrdering
 import type { Project } from '../../types';
 import type { KanbanCardSummary, KanbanStatus } from '../../kanban/types';
 import type { CardRepositoryStatus } from '../../kanban/useCardRepositoryStatus';
-import type { CardServices } from '../../kanban/useCardServices';
 import type { CardView } from '../../kanban/cardView';
 import { environmentHealthTooltip, shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
 import { WORK_GROUPS, groupCards, type WorkGroup } from '../../kanban/workflowGroups';
-import { cardServerAvailability } from './BoardCardServerServices';
 import { owningProject } from '../../kanban/projectScope';
 import { projectColorAttribute } from '../../projectColor';
 import type { BoardPrMergeProps } from '../../kanban/useBoardPrMerge';
 import type { PrCheck } from '../../kanban/deliveryStep';
 import { DoneLaneMenu, KanbanCardContents, kanbanCardClassName } from './KanbanCardParts';
 
-export function KanbanList({ cards, projects, selectedProjectColor, repositoryStatuses, prChecks, serverServices, backlogCollapsed, attentionCollapsed = false, progressCollapsed = false, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleAttention = () => {}, onToggleProgress = () => {}, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onToggleServer, onMergePullRequest, mergingCardId }: BoardPrMergeProps & {
+export function KanbanList({ cards, projects, selectedProjectColor, repositoryStatuses, prChecks, backlogCollapsed, attentionCollapsed = false, progressCollapsed = false, doneCollapsed, openLaneMenu, setOpenLaneMenu, cleaningMerged, keyboardFocusedCardId, setKeyboardFocusedCardId, pointer, onToggleBacklog, onToggleAttention = () => {}, onToggleProgress = () => {}, onToggleDone, onCleanupMerged, onOpenCard, onNavigateParent, onMergePullRequest, mergingCardId }: BoardPrMergeProps & {
   cards: KanbanCardSummary[];
   projects: Project[];
   selectedProjectColor?: string;
   repositoryStatuses: Record<string, CardRepositoryStatus>;
   prChecks?: Record<string, PrCheck>;
-  serverServices: Record<string, CardServices>;
   backlogCollapsed: boolean;
   attentionCollapsed?: boolean;
   progressCollapsed?: boolean;
@@ -39,7 +36,6 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
   onCleanupMerged: () => void;
   onOpenCard: (card: KanbanCardSummary, initialView?: CardView) => void;
   onNavigateParent: (parentId: string) => void;
-  onToggleServer: (cardId: string) => void;
 }) {
   const doneMenuRef = useRef<HTMLButtonElement>(null);
   const dragging = Boolean(pointer?.dragPreview);
@@ -90,8 +86,7 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
             <KanbanCardContents card={card} onMergePullRequest={onMergePullRequest} mergingCardId={mergingCardId} projects={projects} repositoryStatus={repositoryStatuses[card.id]}
               listWarning={warning ? { tooltip, onOpen: () => onOpenCard(card, 'overview') } : undefined}
               prCheck={prChecks?.[card.id]}
-              serverServices={cardServerAvailability(card, projects).eligible ? serverServices[card.id] : undefined}
-              onNavigateParent={onNavigateParent} onToggleServer={onToggleServer} />
+              onNavigateParent={onNavigateParent} />
           </div>;
           })}
           {!entries.length && <p className="kanbanListEmpty">No cards here</p>}
@@ -105,7 +100,7 @@ export function KanbanList({ cards, projects, selectedProjectColor, repositorySt
         width: pointer.dragPreview.sourceBounds.width, height: pointer.dragPreview.sourceBounds.height }}>
       <div className={`${kanbanCardClassName(draggedCard)} kanbanListRow`} data-project-color={projectColorAttribute(owningProject(draggedCard, projects))}>
         <KanbanCardContents card={draggedCard} projects={projects} repositoryStatus={repositoryStatuses[draggedCard.id]}
-          prCheck={prChecks?.[draggedCard.id]} onNavigateParent={() => {}} onToggleServer={() => {}} />
+          prCheck={prChecks?.[draggedCard.id]} onNavigateParent={() => {}} />
       </div>
     </div>, document.body)}
   </div>;

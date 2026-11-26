@@ -12,17 +12,29 @@ export type CardTerminalCommand =
   | { type: 'toggle-maximize' }
   | { type: 'run-one-time'; command: string };
 
+export type TerminalServiceCommand = {
+  mode: 'server' | 'console';
+  action: 'start' | 'stop' | 'restart';
+  ownerId?: string;
+};
+
 export type CardTerminalContext = {
-  cardId: string;
+  cardId?: string;
+  ownerId?: string;
   active: boolean;
   focusedPaneId: string | null;
   paneIds: string[];
   cwd: string | null;
   maximized: boolean;
+  services?: Record<'server' | 'console', { configured: boolean; active: boolean }>;
 };
 
 export function dispatchCardTerminalCommand(command: CardTerminalCommand) {
   applicationEvents.publish('card-terminal-command', command);
+}
+
+export function dispatchTerminalServiceCommand(command: TerminalServiceCommand) {
+  applicationEvents.publish('terminal-service-command', command);
 }
 
 export function publishCardTerminalContext(context: CardTerminalContext | null) {
