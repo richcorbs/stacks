@@ -1980,14 +1980,43 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        let service_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM card_service_definitions", [], |row| {
-                row.get(0)
-            })
+        let service_table: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='card_service_definitions'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(status, "approved");
         assert_eq!(path, "/repo");
-        assert_eq!(service_count, 0);
+        assert_eq!(service_table, 0, "card_service_definitions is retired");
+    }
+
+    #[test]
+    fn migration_retires_card_service_definitions_and_keeps_project_commands() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(
+            "CREATE TABLE card_service_definitions (
+                id TEXT PRIMARY KEY, environment_id TEXT NOT NULL, name TEXT NOT NULL,
+                command TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
+             );
+             INSERT INTO card_service_definitions(id, environment_id, name, command) VALUES ('s','e','server','bin/dev');",
+        ).unwrap();
+
+        kanban::migrate(&connection).unwrap();
+        migrate_store_schema(&connection).unwrap();
+        let mut store = sample_store();
+        store.projects[0].console_command = Some("bin/console".into());
+        write_store(&mut connection, &store).unwrap();
+
+        let table_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='card_service_definitions'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(table_count, 0);
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM schema_migrations WHERE version=89", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        let project = &read_store(&connection).unwrap().projects[0];
+        assert_eq!(project.server_command.as_deref(), Some("npm run dev"));
+        assert_eq!(project.console_command.as_deref(), Some("bin/console"));
     }
 
     #[test]

@@ -4,7 +4,7 @@ export type WorkOwner =
   | { kind: 'card'; cardId: string }
   | { kind: 'project'; projectId: string };
 
-export type WorkView = 'overview' | 'agent' | 'notes' | 'diff' | 'terminal' | 'release' | 'server' | 'console';
+export type WorkView = 'overview' | 'agent' | 'notes' | 'diff' | 'terminal' | 'release';
 
 export type WorkNavigationRequest = {
   view: WorkView;
@@ -33,8 +33,6 @@ export function displayedDirectWorkTabs(project: Project): WorkView[] {
   return [
     'agent', 'notes', 'diff', 'terminal',
     ...(project.releases_enabled ? ['release' as const] : []),
-    ...(project.server_command?.trim() ? ['server' as const] : []),
-    ...(project.console_command?.trim() ? ['console' as const] : []),
   ];
 }
 

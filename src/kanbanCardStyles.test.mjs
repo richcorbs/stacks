@@ -23,7 +23,6 @@ function list(cards, { focused = null, projectColor = 'teal' } = {}) {
     projects: [project],
     selectedProjectColor: projectColor,
     repositoryStatuses: {},
-    serverServices: {},
     backlogCollapsed: true,
     attentionCollapsed: false,
     progressCollapsed: false,
@@ -40,7 +39,6 @@ function list(cards, { focused = null, projectColor = 'teal' } = {}) {
     onCleanupMerged() {},
     onOpenCard() {},
     onNavigateParent() {},
-    onToggleServer() {},
   });
 }
 
@@ -51,9 +49,7 @@ function cardMarkup(overrides = {}, { parent = false } = {}) {
       card: value,
       projects: [project],
       repositoryStatus: undefined,
-      serverServices: undefined,
       onNavigateParent() {},
-      onToggleServer() {},
     }));
 }
 

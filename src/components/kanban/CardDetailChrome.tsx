@@ -1,18 +1,14 @@
 import type { RefObject } from 'react';
-import { ManagedServiceControl } from '../ManagedServiceControl';
 import { ExternalLink } from '../ExternalLink';
 import type { GitChangeSummary, Project } from '../../types';
 import type { KanbanCard } from '../../kanban/types';
 import type { CardView } from '../../kanban/cardView';
 import { displayedCardDetailTabs } from '../../kanban/cardDetailModel';
-import type { useCardServices } from '../../kanban/useCardServices';
 import { CardProjectAssignment } from '../CardProjectAssignment';
 import { CardGitSummary, hasGitChangeSummary } from '../CardGitSummary';
 import { CardPullRequestLink } from '../CardPullRequestLink';
 import { CardEnvironmentBranch } from '../CardEnvironmentBranch';
 import { CardHierarchyBadges } from './CardHierarchyBadges';
-
-type CardServices = ReturnType<typeof useCardServices>;
 
 export function CardDetailHeader({ card, project, projects, statusLabel, gitChangeSummary, editable, editing, draftTitle, titleInputRef, onDraftTitleChange, onBeginEditing, onRequestClose, onAssignProject, onActionError, onNavigateParent, onRefreshGit }: {
   card: KanbanCard;
@@ -71,20 +67,17 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
   </header>;
 }
 
-export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailable, cardPath, serverCommand, consoleCommand, serverServices, onRequestView, onRefreshDiff, onToggleServer }: {
+export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailable, cardPath, terminalRunning, onRequestView, onRefreshDiff }: {
   activeView: CardView;
   hierarchyFinalized: boolean;
   projectAvailable: boolean;
   cardPath: string | null;
-  serverCommand: string;
-  consoleCommand: string;
-  serverServices: CardServices;
+  terminalRunning: boolean;
   onRequestView: (view: CardView) => unknown;
   onRefreshDiff: () => void;
-  onToggleServer: () => void;
 }) {
   const displayedTabs = displayedCardDetailTabs(hierarchyFinalized, {
-    chat: projectAvailable, workspace: Boolean(cardPath), server: Boolean(serverCommand), console: Boolean(consoleCommand),
+    chat: projectAvailable, workspace: Boolean(cardPath),
   });
   return <nav className="cardWorkspaceTabs" aria-label="Card views">
     <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => onRequestView('overview')}>Description</button>
@@ -94,17 +87,9 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
         <button className="cardDiffTabLabel" type="button" disabled={!cardPath} onClick={() => onRequestView('diff')}>Diff</button>
         <button className="cardDiffRefresh" type="button" disabled={!cardPath} aria-label="Refresh diff" title="Refresh diff" onClick={onRefreshDiff}><span className="diffRefreshIcon" aria-hidden="true" /></button>
       </span>
-      <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath} onClick={() => onRequestView('terminal')}>Terminal</button>
-      {(displayedTabs.includes('server') || displayedTabs.includes('console')) && <span className="cardServiceTabs" aria-label="Card services">
-        {displayedTabs.includes('server') && <span className={`cardServiceTab${activeView === 'server' ? ' active' : ''}`}>
-          <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('server')}>Server</button>
-          <ManagedServiceControl services={serverServices} mode="server" className="cardServiceToggle" onToggle={onToggleServer} />
-        </span>}
-        {displayedTabs.includes('console') && <span className={`cardServiceTab${activeView === 'console' ? ' active' : ''}`}>
-          <button className="cardServiceTabLabel" type="button" onClick={() => onRequestView('console')}>Console</button>
-          <ManagedServiceControl services={serverServices} mode="console" className="cardServiceToggle" onToggle={() => serverServices.toggle('console')} />
-        </span>}
-      </span>}
+      <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath}
+        aria-label={terminalRunning ? 'Terminal, server or console running' : undefined}
+        onClick={() => onRequestView('terminal')}>Terminal{terminalRunning && <span className="cardTabRunningDot" title="Server or console running" aria-hidden="true" />}</button>
     </>}
   </nav>;
 }

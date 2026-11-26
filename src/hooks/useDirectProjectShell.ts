@@ -27,7 +27,7 @@ export function useDirectProjectShell(project: Project, active: boolean) {
     focusedPaneId: workTerminalId(owner, 'shell'),
   }, {
     createPaneId: () => workTerminalId(owner, `shell:${crypto.randomUUID()}`),
-    createPane: (id) => ({ id, workspaceId, cwd: projectPathRef.current }),
+    createPane: (id, options) => ({ id, workspaceId, cwd: options.cwd ?? projectPathRef.current, command: options.command, temporary: options.temporary || options.managedService, managedService: options.managedService }),
     clearSession: (terminalId) => {
       const session = getTerminalSession(terminalId);
       session?.term.clearSelection(); session?.term.clear(); session?.term.scrollToBottom();

@@ -54,8 +54,6 @@ export function notificationContent(attention: AppAttention, context: Notificati
     : `${context.project.name} — Project Workspace`;
   let target: string;
   if (attention.target.view === 'agent') target = attention.target.agentThread === 'planning' ? 'Planning agent' : attention.owner.kind === 'card' ? 'Work agent' : 'Agent';
-  else if (attention.target.view === 'server') target = 'Server';
-  else if (attention.target.view === 'console') target = 'Console';
   else target = 'Terminal';
   return { title, body: `${owner} — ${target}`, extra: attentionRoute(attention), autoCancel: true };
 }

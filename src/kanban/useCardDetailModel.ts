@@ -17,8 +17,8 @@ export function useCardDetailModel({ card, initialView, availability, onUpdate, 
   // Async discard/save guards compare snapshots taken before an await. These
   // are mutable operation state, not callbacks handed to an effect.
   const latest = useRef({ card, saving: false, draftTitle: card.title, draftContent: card.content });
-  const tabs = useMemo(() => availableCardDetailTabs(availability), [availability.chat, availability.console, availability.server, availability.workspace]);
-  const displayedTabs = useMemo(() => displayedCardDetailTabs(card.hierarchy_finalized, availability), [card.hierarchy_finalized, availability.workspace, availability.server, availability.console]);
+  const tabs = useMemo(() => availableCardDetailTabs(availability), [availability.chat, availability.workspace]);
+  const displayedTabs = useMemo(() => displayedCardDetailTabs(card.hierarchy_finalized, availability), [card.hierarchy_finalized, availability.workspace]);
   const [activeView, setActiveView] = useState<CardView>(() => validCardDetailView(card.hierarchy_finalized ? 'overview' : initialCardView(card.status, initialView), tabs));
   const navigation = useRef({ activeView, tabs });
   // A deferred confirmation resolves after an await and must validate against

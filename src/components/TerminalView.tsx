@@ -6,9 +6,9 @@ import { useTerminalRestartRequest } from '../hooks/useTerminalRestartRequest';
 import { useTerminalActivation } from '../hooks/useTerminalActivation';
 import { useTerminalSession } from '../hooks/useTerminalSession';
 import { TerminalSearchOverlay } from './TerminalSearchOverlay';
-import { TerminalControls } from './TerminalControls';
+import { TerminalControls, type TerminalServiceControls } from './TerminalControls';
 
-export function TerminalView({ terminal, workspace, project, active, maximized, visible, canEdit = true, canClose, managedService = false, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, onEditTerminal, onInput, canToggleMaximize, onToggleMaximize }: {
+export function TerminalView({ terminal, workspace, project, active, maximized, visible, canEdit = true, canClose, managedService = false, serviceControls, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, searchRequestNonce, restartRequestNonce, onFocus, onClose, onSplitTerminal, onEditTerminal, onInput, canToggleMaximize, onToggleMaximize }: {
   terminal: TerminalEntry;
   workspace: WorkspaceEntry;
   project: Project;
@@ -18,6 +18,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
   canEdit?: boolean;
   canClose?: boolean;
   managedService?: boolean;
+  serviceControls?: TerminalServiceControls;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -67,6 +68,7 @@ export function TerminalView({ terminal, workspace, project, active, maximized, 
           canToggleMaximize={canToggleMaximize}
           canClose={canClose}
           canEdit={canEdit}
+          serviceControls={serviceControls}
           onSplitTerminal={onSplitTerminal}
           onEditTerminal={onEditTerminal}
           onToggleMaximize={onToggleMaximize}

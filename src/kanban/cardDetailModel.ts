@@ -3,8 +3,6 @@ import type { CardView } from './cardView';
 export type CardDetailTabAvailability = {
   chat: boolean;
   workspace: boolean;
-  server: boolean;
-  console: boolean;
 };
 
 export type CardDetailNavigationCommand =
@@ -17,16 +15,12 @@ export function availableCardDetailTabs(availability: CardDetailTabAvailability)
     'overview',
     ...(availability.chat ? ['chat' as const] : []),
     ...(availability.workspace ? ['diff' as const, 'terminal' as const] : []),
-    ...(availability.workspace && availability.server ? ['server' as const] : []),
-    ...(availability.workspace && availability.console ? ['console' as const] : []),
   ];
 }
 
 export function displayedCardDetailTabs(hierarchyFinalized: boolean, availability: CardDetailTabAvailability): CardView[] {
   return hierarchyFinalized ? ['overview'] : [
     'overview', 'chat', 'diff', 'terminal',
-    ...(availability.workspace && availability.server ? ['server' as const] : []),
-    ...(availability.workspace && availability.console ? ['console' as const] : []),
   ];
 }
 

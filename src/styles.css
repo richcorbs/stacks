@@ -438,39 +438,21 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardDiffTab.active { border-bottom-color: #6295c2; }
 .cardWorkspaceTabs .cardDiffTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
 .cardWorkspaceTabs .cardDiffTab.active .cardDiffTabLabel { color: #b9cad9; }
-.cardServiceTabs { align-self: stretch; display: inline-flex; align-items: stretch; gap: 16px; }
-.cardServiceTab { align-self: stretch; display: inline-flex; align-items: end; gap: 0; border-bottom: 2px solid transparent; }
-.cardServiceTab.active { border-bottom-color: #6295c2; }
-.cardWorkspaceTabs .cardDiffTab:has(.cardDiffRefresh), .cardWorkspaceTabs .cardServiceTab { padding-right: 10px; }
-.cardWorkspaceTabs .cardServiceTabLabel { padding-left: 10px; padding-right: 10px; border-bottom: 0; }
-.cardWorkspaceTabs .cardServiceTab.active .cardServiceTabLabel { color: #b9cad9; }
+.cardWorkspaceTabs .cardDiffTab:has(.cardDiffRefresh) { padding-right: 10px; }
 /* Paint compound tabs once, behind both the label and auxiliary control. */
 .cardWorkspaceTabs > button:hover:not(:disabled),
-.cardDiffTab:hover:has(button:not(:disabled)),
-.cardServiceTab:hover:has(button:not(:disabled)) { background: var(--surface-drag); }
-.cardWorkspaceTabs :is(.cardDiffTabLabel, .cardServiceTabLabel):hover:not(:disabled) { background: transparent; }
-.cardWorkspaceTabs button:hover:not(:disabled), .cardDiffTab:hover .cardDiffTabLabel:not(:disabled), .cardServiceTab:hover .cardServiceTabLabel:not(:disabled) { color: #fff; }
-.cardWorkspaceTabs button.cardServiceToggle, .cardWorkspaceTabs button.cardDiffRefresh { width: 20px; height: 20px; margin-bottom: 7px; padding: 0; border: 1px solid #344657; border-radius: 5px; background: var(--surface-raised); display: grid; place-items: center; color: #73879a; }
-.cardWorkspaceTabs button.cardServiceToggle:hover, .cardWorkspaceTabs button.cardDiffRefresh:hover, .cardServiceTab:hover button.cardServiceToggle, .cardDiffTab:hover button.cardDiffRefresh { border-color: #4a6278; color: #aabac8; }
-.cardWorkspaceTabs button.cardServiceToggle.running { border-color: #416b55; background: #15271e; color: #70bd8d; }
-.servicePlayIcon { width: 0; height: 0; margin-left: 1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid currentColor; }
-.serviceStopIcon { width: 8px; height: 8px; border-radius: 1px; background: currentColor; }
-.managedServiceControl { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
-.managedServiceStatus { font-size: var(--fs-10); color: #aabac8; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.managedServiceStatus.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.managedServiceControl button:disabled { cursor: wait; opacity: 0.8; }
-.managedServiceControl button.failed { color: #db9696; border-color: #875555; }
-.serviceBusyIcon { width: 9px; height: 9px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: serviceBusySpin 0.8s linear infinite; }
-@keyframes serviceBusySpin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .serviceBusyIcon { animation: none; } }
+.cardDiffTab:hover:has(button:not(:disabled)) { background: var(--surface-drag); }
+.cardWorkspaceTabs :is(.cardDiffTabLabel):hover:not(:disabled) { background: transparent; }
+.cardWorkspaceTabs button:hover:not(:disabled), .cardDiffTab:hover .cardDiffTabLabel:not(:disabled) { color: #fff; }
+.cardWorkspaceTabs button.cardDiffRefresh { width: 20px; height: 20px; margin-bottom: 7px; padding: 0; border: 1px solid #344657; border-radius: 5px; background: var(--surface-raised); display: grid; place-items: center; color: #73879a; }
+.cardWorkspaceTabs button.cardDiffRefresh:hover, .cardDiffTab:hover button.cardDiffRefresh { border-color: #4a6278; color: #aabac8; }
+.cardTabRunningDot { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #70bd8d; vertical-align: middle; }
 .diffRefreshIcon { position: relative; width: 11px; height: 11px; }
 .diffRefreshIcon::before { content: ''; position: absolute; inset: 1px; border: 1.5px solid currentColor; border-left-color: transparent; border-radius: 50%; }
 .diffRefreshIcon::after { content: ''; position: absolute; left: 0; top: 1px; width: 0; height: 0; border-top: 2.5px solid transparent; border-bottom: 2.5px solid transparent; border-right: 4px solid currentColor; transform: rotate(-25deg); }
 /* Important: tab visibility overrides the display modes of mounted content hosts. */
 .cardView { display: none !important; }
 .cardView.active, .cardView.background { display: flex !important; }
-.cardServiceView.background { position: fixed; left: -10000px; top: 0; width: 800px; height: 500px; opacity: 0; pointer-events: none; }
-.boardCardServerHost { pointer-events: none; }
 .kanbanDetailContent.cardView.active { display: block !important; }
 .cardChatView { flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 0; overflow: hidden; }
 .cardDiffView { flex: 1; min-width: 0; min-height: 0; position: relative; flex-direction: row; overflow: hidden; }
@@ -494,9 +476,6 @@ button.kanbanHierarchyBadge.parent:focus-visible { outline: 2px solid #78a9d1; o
 .cardTerminalPane.multiple .terminal.active { border-color: var(--focused-terminal-border, #3b82f6) !important; box-shadow: 0 0 0 1px var(--focused-terminal-border, #3b82f6) !important; }
 .cardTerminalPane.multiple .terminal.active.maximized { border-color: var(--maximized-terminal-border, #84cc16) !important; box-shadow: 0 0 0 1px var(--maximized-terminal-border, #84cc16) !important; }
 body.appWindowInactive .cardTerminalPane.multiple .terminal.active.maximized { border-color: var(--maximized-terminal-border-inactive, #426923) !important; box-shadow: 0 0 0 1px var(--maximized-terminal-border-inactive, #426923) !important; }
-.cardServiceView { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.cardServiceView > .kanbanEmpty { flex: 1; text-align: center; }
-.cardServiceView .terminal { border: 0; border-radius: 0; box-shadow: none; }
 .kanbanActionError, .cardLevelErrorBanner { min-height: 33px; box-sizing: border-box; padding: 6px 20px; border-bottom: 1px solid #5a3135; background: #2b171b; color: #e08b91; font-size: var(--fs-11); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .kanbanActionError button, .cardLevelErrorBanner button { flex: none; padding: 3px 9px; border-color: #74444a; color: #f0b1b5; }
 .cardLevelErrorMessages { min-width: 0; display: grid; gap: 2px; }
@@ -593,6 +572,10 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
   transition: background .12s ease, color .12s ease;
 }
 .terminalControlButton:hover { background: var(--surface-selected); color: #d6deeb; }
+.terminalServiceIcon { display: block; }
+.terminalServiceButton.active { background: #15271e; color: #70bd8d; }
+.terminalServiceButton.active:hover { background: #1b3527; color: #8ad6a6; }
+.terminalServiceButton.failed { color: #db9696; }
 .terminalCloseButton:hover { background: #3b1f2a; color: #fca5a5; }
 .terminalMaximizeIcon {
   width: 14px;
@@ -1489,11 +1472,9 @@ body.appWindowInactive .terminal.maximized { border-color: var(--maximized-termi
 .kanbanDetail[data-project-color] .kanbanDetailHeaderMeta .kanbanCardStatus { border-color: var(--project-detail-status-border); background: var(--project-detail-status-surface); color: var(--project-detail-status-color); }
 .kanbanProjectAssignment[data-project-color] { border-color: var(--project-badge-border); color: var(--project-badge-color); }
 .cardWorkspace[data-project-color] .cardWorkspaceTabs > button:hover:not(:disabled),
-.cardWorkspace[data-project-color] .cardDiffTab:hover:has(button:not(:disabled)),
-.cardWorkspace[data-project-color] .cardServiceTab:hover:has(button:not(:disabled)) { background: var(--project-card-hover-surface); }
+.cardWorkspace[data-project-color] .cardDiffTab:hover:has(button:not(:disabled)) { background: var(--project-card-hover-surface); }
 [data-project-color] .cardWorkspaceTabs button.active,
-[data-project-color] .cardDiffTab.active,
-[data-project-color] .cardServiceTab.active { border-bottom-color: var(--project-tab-accent); }
+[data-project-color] .cardDiffTab.active { border-bottom-color: var(--project-tab-accent); }
 [data-project-color] .projectNotesView textarea:focus { border-color: var(--project-note-focus); }
 .projectColorField { min-width: 0; padding: 8px 0; border: 0; color: #aab9c8; }
 .projectColorField legend { padding: 0; font-size: var(--fs-12); }

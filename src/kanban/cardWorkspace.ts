@@ -3,7 +3,6 @@ import { statusLabel as childStatusLabel } from './hierarchy';
 import type { KanbanCard } from './types';
 
 export type CardChatThread = 'planning' | 'work';
-export type CardServiceMode = 'server' | 'console';
 
 export function cardWorkspaceId(cardId: string) {
   return workOwnerId({ kind: 'card', cardId });

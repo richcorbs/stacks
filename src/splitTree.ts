@@ -216,6 +216,16 @@ export function setSplitRatio(node: SplitNode, path: string, ratio: number): Spl
   };
 }
 
+export function removeLeaves(node: SplitNode, terminalIds: ReadonlySet<string>): SplitNode | null {
+  if (node.kind === 'empty') return node;
+  if (node.kind === 'leaf') return terminalIds.has(node.terminalId) ? null : node;
+  const first = removeLeaves(node.first, terminalIds);
+  const second = removeLeaves(node.second, terminalIds);
+  if (!first) return second;
+  if (!second) return first;
+  return { ...node, first, second };
+}
+
 export function removeLeaf(node: SplitNode, terminalId: string): SplitNode | null {
   if (node.kind === 'empty') return node;
   if (node.kind === 'leaf') return node.terminalId === terminalId ? null : node;

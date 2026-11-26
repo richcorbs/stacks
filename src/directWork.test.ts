@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { directWorkInitialLayout, directWorkTabs, displayedDirectWorkTabs, workAgentId, workOwnerId, workTerminalId } from './directWork';
 import type { Project } from './types';
 
-const project: Project = { id: 'one', name: 'One', path: '/one', workspaces: [], server_command: 'npm run dev', console_command: 'bin/console' };
+const project: Project = { id: 'one', name: 'One', path: '/one', workspaces: [] };
 
 describe('Direct project work identity and tabs', () => {
   it('uses a stable project namespace isolated from cards and other projects', () => {
@@ -16,10 +16,10 @@ describe('Direct project work identity and tabs', () => {
   });
 
   it('orders only the views available to the project', () => {
-    expect(directWorkTabs(project, true)).toEqual(['agent', 'notes', 'diff', 'terminal', 'server', 'console']);
-    expect(directWorkTabs({ ...project, server_command: '', console_command: undefined }, false)).toEqual(['agent', 'notes', 'terminal']);
-    expect(directWorkTabs({ ...project, releases_enabled: true }, true)).toEqual(['agent', 'notes', 'diff', 'terminal', 'release', 'server', 'console']);
-    expect(displayedDirectWorkTabs({ ...project, releases_enabled: true })).toEqual(['agent', 'notes', 'diff', 'terminal', 'release', 'server', 'console']);
-    expect(displayedDirectWorkTabs({ ...project, server_command: '', console_command: undefined })).toEqual(['agent', 'notes', 'diff', 'terminal']);
+    expect(directWorkTabs(project, true)).toEqual(['agent', 'notes', 'diff', 'terminal']);
+    expect(directWorkTabs(project, false)).toEqual(['agent', 'notes', 'terminal']);
+    expect(directWorkTabs({ ...project, releases_enabled: true }, true)).toEqual(['agent', 'notes', 'diff', 'terminal', 'release']);
+    expect(displayedDirectWorkTabs({ ...project, releases_enabled: true })).toEqual(['agent', 'notes', 'diff', 'terminal', 'release']);
+    expect(displayedDirectWorkTabs(project)).toEqual(['agent', 'notes', 'diff', 'terminal']);
   });
 });

@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { AppAttention, NotificationRoute } from './appAttention';
-import type { CardTerminalCommand, CardTerminalContext } from './cardTerminalCommands';
+import type { CardTerminalCommand, CardTerminalContext, TerminalServiceCommand } from './cardTerminalCommands';
 import type { GlobalTerminalCommand } from './globalTerminalState';
 import type { WorkView } from './directWork';
 import type { PiEditorTextRequest } from './pi/editorTextEvent';
@@ -23,6 +23,7 @@ export type AppEventMap = {
   'card-terminal-close': { pane?: string } | undefined;
   'card-terminal-command': CardTerminalCommand;
   'card-terminal-context': CardTerminalContext | null;
+  'terminal-service-command': TerminalServiceCommand;
   'global-terminal-command': GlobalTerminalCommand;
   'refresh-card-repository-status': undefined;
   'notification-route': NotificationRoute;

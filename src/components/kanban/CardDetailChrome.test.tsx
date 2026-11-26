@@ -82,28 +82,10 @@ describe('CardDetailTabs', () => {
   it('keeps the Diff refresh control rendered while another tab is active', () => {
     const markup = renderToStaticMarkup(<CardDetailTabs
       activeView="overview"
-      onToggleServer={() => undefined}
       hierarchyFinalized={false}
       projectAvailable
       cardPath="/tmp/stacks-card-82"
-      serverCommand=""
-      consoleCommand=""
-      serverServices={{
-        serverActionPending: null, consoleActionPending: null, serverError: null, consoleError: null,
-        serverEnabled: false,
-        consoleEnabled: false,
-        serverStarting: false,
-        consoleStarting: false,
-        serverRunning: false,
-        consoleRunning: false,
-        serverActive: false,
-        consoleActive: false,
-        serverRestartNonce: 0,
-        consoleRestartNonce: 0,
-        start: async () => undefined,
-        stop: async () => undefined,
-        toggle: async () => undefined,
-      }}
+      terminalRunning={false}
       onRequestView={() => undefined}
       onRefreshDiff={() => undefined}
     />);
@@ -112,42 +94,24 @@ describe('CardDetailTabs', () => {
     expect(markup).not.toContain('>Card</button>');
     expect(markup).toContain('class="cardDiffRefresh"');
     expect(markup).toContain('aria-label="Refresh diff"');
+    expect(markup).not.toContain('cardTabRunningDot');
   });
 
-  it('renders Server and Console controls from command lifecycle rather than terminal mounting', () => {
+  it('shows the Terminal running dot while a server or console pane is alive', () => {
     const markup = renderToStaticMarkup(<CardDetailTabs
-      activeView="server"
-      onToggleServer={() => undefined}
+      activeView="chat"
       hierarchyFinalized={false}
       projectAvailable
       cardPath="/tmp/stacks-card-82"
-      serverCommand="bin/dev"
-      consoleCommand="bin/console"
-      serverServices={{
-        serverActionPending: null, consoleActionPending: null, serverError: null, consoleError: null,
-        serverEnabled: true,
-        consoleEnabled: true,
-        serverStarting: true,
-        consoleStarting: false,
-        serverRunning: false,
-        consoleRunning: false,
-        serverActive: true,
-        consoleActive: false,
-        serverRestartNonce: 1,
-        consoleRestartNonce: 2,
-        start: async () => undefined,
-        stop: async () => undefined,
-        toggle: async () => undefined,
-      }}
+      terminalRunning
       onRequestView={() => undefined}
       onRefreshDiff={() => undefined}
     />);
 
-    expect(markup).toContain('aria-label="Stop server" aria-pressed="true"');
-    expect(markup).toContain('class="serviceBusyIcon"');
-    expect(markup).toContain('Starting…');
-    expect(markup).toContain('aria-label="Start console" aria-pressed="false"');
-    expect(markup).toContain('class="servicePlayIcon"');
+    expect(markup).toContain('aria-label="Terminal, server or console running"');
+    expect(markup).toContain('class="cardTabRunningDot"');
+    expect(markup).not.toContain('>Server</button>');
+    expect(markup).not.toContain('>Console</button>');
   });
 });
 

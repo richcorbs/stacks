@@ -11,7 +11,7 @@ function card(overrides: Partial<KanbanCard> = {}): KanbanCard {
 
 type Model = ReturnType<typeof useCardDetailModel>;
 let model: Model;
-function Harness({ value, update, confirmDiscard, onViewSelected, availability = { chat: true, workspace: true, server: false, console: false } }: { value: KanbanCard; update: (title: string, content: string) => Promise<KanbanCard>; confirmDiscard?: () => boolean | Promise<boolean>; onViewSelected?: (view: CardView) => void; availability?: CardDetailTabAvailability }) {
+function Harness({ value, update, confirmDiscard, onViewSelected, availability = { chat: true, workspace: true } }: { value: KanbanCard; update: (title: string, content: string) => Promise<KanbanCard>; confirmDiscard?: () => boolean | Promise<boolean>; onViewSelected?: (view: CardView) => void; availability?: CardDetailTabAvailability }) {
   model = useCardDetailModel({ card: value, availability, onUpdate: update, confirmDiscard, onViewSelected });
   return model.confirmationDialog;
 }
@@ -62,7 +62,7 @@ describe('useCardDetailModel editing', () => {
     const selected = vi.fn();
     let accept!: (accepted: boolean) => void;
     let renderer!: TestRenderer.ReactTestRenderer;
-    const render = (workspace = true) => <Harness value={card()} update={async () => card()} confirmDiscard={() => new Promise((resolve) => { accept = resolve; })} onViewSelected={selected} availability={{ chat: true, workspace, server: false, console: false }} />;
+    const render = (workspace = true) => <Harness value={card()} update={async () => card()} confirmDiscard={() => new Promise((resolve) => { accept = resolve; })} onViewSelected={selected} availability={{ chat: true, workspace }} />;
     await act(async () => { renderer = TestRenderer.create(render()); });
     act(() => { model.command({ type: 'select', view: 'overview' }); });
     act(() => { model.begin(); model.setDraftTitle('Unsaved'); });
@@ -101,20 +101,20 @@ describe('useCardDetailModel editing', () => {
 
   it('only prompts to discard on valid numbered targets, keeping disabled positions', async () => {
     const confirmDiscard = vi.fn(() => false);
-    const availability = { chat: false, workspace: true, server: true, console: true };
+    const availability = { chat: false, workspace: true };
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => { renderer = TestRenderer.create(<Harness value={card()} availability={availability} update={async () => card()} confirmDiscard={confirmDiscard} />); });
     act(() => { model.begin(); model.setDraftTitle('Changed'); });
     act(() => {
       expect(model.command({ type: 'number', number: 2 })).toBe(false);
-      expect(model.command({ type: 'number', number: 7 })).toBe(false);
+      expect(model.command({ type: 'number', number: 5 })).toBe(false);
     });
     expect(confirmDiscard).not.toHaveBeenCalled();
-    act(() => expect(model.command({ type: 'number', number: 6 })).toBe(false));
+    act(() => expect(model.command({ type: 'number', number: 4 })).toBe(false));
     expect(confirmDiscard).toHaveBeenCalledOnce();
     await act(async () => { renderer.update(<Harness value={card()} availability={availability} update={async () => card()} confirmDiscard={() => true} />); });
-    act(() => expect(model.command({ type: 'number', number: 6 })).toBe(true));
-    expect(model.activeView).toBe('console');
+    act(() => expect(model.command({ type: 'number', number: 4 })).toBe(true));
+    expect(model.activeView).toBe('terminal');
     expect(model.editing).toBe(false);
     act(() => renderer.unmount());
   });

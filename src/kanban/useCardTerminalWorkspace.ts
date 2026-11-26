@@ -6,7 +6,6 @@ import type { CardEnvironmentPane, KanbanCard } from './types';
 import { saveKanbanEnvironmentLayout } from './api';
 import { clearOneTimeStartupCommand, disposeTerminalSession, getTerminalSession, registerOneTimeStartupCommand, requestTerminalSessionsScrollToBottomAfterFit } from '../terminalSessionManager';
 import { buildOneTimeCommandScript } from '../oneTimeCommand';
-import { publishCardTerminalContext } from '../cardTerminalCommands';
 import { useWorkspaceShellShortcuts } from '../hooks/useWorkspaceShellShortcuts';
 import { temporaryPaneCwd } from '../cardTerminalState';
 import { cardTerminalId, cardWorkspaceId } from './cardWorkspace';
@@ -44,7 +43,7 @@ export function useCardTerminalWorkspace({ card, cardPath, activeView, setAction
     focusedPaneId: card.environment?.focused_pane_id ?? initialShellId,
   }, {
     createPaneId: () => cardTerminalId(card.id, `shell:${crypto.randomUUID()}`),
-    createPane: (id, options) => ({ id, workspaceId: cardWorkspaceId(card.id), cwd: options.cwd ?? cardPathRef.current, temporary: options.temporary }),
+    createPane: (id, options) => ({ id, workspaceId: cardWorkspaceId(card.id), cwd: options.cwd ?? cardPathRef.current, command: options.command, temporary: options.temporary || options.managedService, managedService: options.managedService }),
     prepareSplit: (terminalId) => new Promise((resolve) => {
       const session = getTerminalSession(terminalId);
       if (session?.running) session.term.write(clearWrappedPrompt(session.term), resolve); else resolve();
@@ -109,11 +108,6 @@ export function useCardTerminalWorkspace({ card, cardPath, activeView, setAction
     coordinatorRef.current?.reset(updated.environment.layout_revision, layoutSignature(updated.environment.split_layout, focused));
     controller.replaceLayout(updated.environment.split_layout, focused);
   }
-
-  useEffect(() => {
-    publishCardTerminalContext({ cardId: card.id, active: activeView === 'terminal', focusedPaneId: activeView === 'terminal' ? shell.focusedPaneId : null, paneIds: shell.paneIds, cwd: cardPath, maximized: Boolean(shell.maximizedPaneId) });
-    return () => publishCardTerminalContext(null);
-  }, [activeView, card.id, cardPath, shell.focusedPaneId, shell.maximizedPaneId, shell.paneIds]);
 
   useWorkspaceShellShortcuts(controller, activeView === 'terminal');
 

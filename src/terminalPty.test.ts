@@ -13,7 +13,7 @@ describe('PTY exit attention', () => {
   it('emits routing and generation metadata for natural command-backed exits', () => {
     expect(processExitAttention(base)).toEqual({
       kind: 'process-exit', owner: { kind: 'card', cardId: 'card-1' },
-      target: { view: 'server', terminalId: base.terminalId },
+      target: { view: 'terminal', terminalId: base.terminalId },
       lifecycleKey: `pty:${base.terminalId}:generation-1:exit`,
     });
   });

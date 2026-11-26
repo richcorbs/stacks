@@ -7,7 +7,7 @@ function options(overrides: Partial<CommandPaletteItemOptions> = {}): CommandPal
     store: { projects: [project] }, selectedKanbanProject: project, superthreadEnabled: true, cardTerminal: null, workspaceDirectory: null,
     onCleanUpDoneCards: vi.fn(), onNewProject: vi.fn(), onEditProject: vi.fn(), onDeleteProject: vi.fn(), onOpenSettings: vi.fn(), onRestartApp: vi.fn(),
     onOpenDirectoryInEditor: vi.fn(), onRunOneTimeCommand: vi.fn(), onNewCard: vi.fn(), onDirectProjectWork: vi.fn(),
-    onAddProjectNote: vi.fn(), onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), onCheckForUpdates: vi.fn(), ...overrides,
+    onAddProjectNote: vi.fn(), onCardTerminalCommand: vi.fn(), onFocusCardTerminalPane: vi.fn(), onTerminalServiceCommand: vi.fn(), onCheckForUpdates: vi.fn(), ...overrides,
   };
 }
 
@@ -101,6 +101,32 @@ describe('command palette items', () => {
     ]));
     items.find((item) => item.id === 'restart-terminal')?.action();
     expect(onCardTerminalCommand).toHaveBeenCalledWith('restart');
+  });
+
+  it('offers configured server and console pane actions only in an active Terminal tab', () => {
+    const onTerminalServiceCommand = vi.fn();
+    const terminal = { cardId: 'c1', active: true, focusedPaneId: 'pane-1', paneIds: ['pane-1'], cwd: '/worktree', maximized: false };
+    const configured = buildCommandPaletteItems(options({
+      onTerminalServiceCommand,
+      cardTerminal: { ...terminal, services: {
+        server: { configured: true, active: false },
+        console: { configured: true, active: true },
+      } },
+    }));
+    expect(configured.map((item) => item.id)).toEqual(expect.arrayContaining(['start-server', 'stop-console', 'restart-console']));
+    expect(configured.some((item) => item.id === 'stop-server')).toBe(false);
+    configured.find((item) => item.id === 'start-server')?.action();
+    configured.find((item) => item.id === 'restart-console')?.action();
+    expect(onTerminalServiceCommand).toHaveBeenNthCalledWith(1, 'server', 'start');
+    expect(onTerminalServiceCommand).toHaveBeenNthCalledWith(2, 'console', 'restart');
+
+    const unconfigured = buildCommandPaletteItems(options({ cardTerminal: { ...terminal, services: {
+      server: { configured: false, active: false },
+      console: { configured: false, active: false },
+    } } }));
+    expect(unconfigured.some((item) => item.id.endsWith('-server') || item.id.endsWith('-console'))).toBe(false);
+    const inactive = buildCommandPaletteItems(options({ cardTerminal: { ...terminal, active: false } }));
+    expect(inactive.some((item) => item.id === 'start-server')).toBe(false);
   });
 
   it('uses sentence case while preserving proper names and dynamic values', () => {

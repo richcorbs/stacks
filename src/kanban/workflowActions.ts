@@ -17,7 +17,7 @@ export type CardWorkflowAction = {
 export type CardWorkflowContext = {
   card: KanbanCard;
   project?: Project | null;
-  activeTab?: 'overview' | 'chat' | 'diff' | 'terminal' | 'server' | 'console';
+  activeTab?: 'overview' | 'chat' | 'diff' | 'terminal';
   operation?: { kind: CardWorkflowActionKind; error?: string } | null;
   backendPreflight?: { ok: boolean; message?: string } | null;
 };

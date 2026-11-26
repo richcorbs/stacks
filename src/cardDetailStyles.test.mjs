@@ -145,15 +145,9 @@ describe('shared card workspace tabs', () => {
     hierarchyFinalized: false,
     projectAvailable: true,
     cardPath: '/repo',
-    serverCommand: 'npm run dev',
-    consoleCommand: '',
-    serverServices: {
-      serverActive: false, serverActionPending: null, serverStarting: false, serverError: null, serverRunning: false,
-      consoleActive: false, consoleActionPending: null, consoleStarting: false, consoleError: null, consoleRunning: false,
-    },
+    terminalRunning: false,
     onRequestView() {},
     onRefreshDiff() {},
-    onToggleServer() {},
   });
   const workspace = (owned = true) => h('div', { className: 'kanbanDetail cardWorkspace', ...(owned ? { 'data-project-color': 'teal' } : {}) }, h('header'), tabs);
 
@@ -177,43 +171,47 @@ describe('shared card workspace tabs', () => {
 
   it('paints compound tab hover once behind labels and keeps nested label hover transparent', () => {
     const { declaration, token } = renderToStyle(workspace(), { projectAccent: tealAccent });
-    expect(color(declaration('.cardWorkspaceTabs > button:hover:not(:disabled),\n.cardDiffTab:hover:has(button:not(:disabled)),\n.cardServiceTab:hover:has(button:not(:disabled))', 'background'))).toBe(color(token('--surface-drag')));
-    expect(declaration('.cardWorkspaceTabs :is(.cardDiffTabLabel, .cardServiceTabLabel):hover:not(:disabled)', 'background')).toBe('transparent');
-    expect(color(declaration('.cardWorkspaceTabs button:hover:not(:disabled), .cardDiffTab:hover .cardDiffTabLabel:not(:disabled), .cardServiceTab:hover .cardServiceTabLabel:not(:disabled)', 'color'))).toBe('rgb(255, 255, 255)');
+    expect(color(declaration('.cardWorkspaceTabs > button:hover:not(:disabled),\n.cardDiffTab:hover:has(button:not(:disabled))', 'background'))).toBe(color(token('--surface-drag')));
+    expect(declaration('.cardWorkspaceTabs :is(.cardDiffTabLabel):hover:not(:disabled)', 'background')).toBe('transparent');
+    expect(color(declaration('.cardWorkspaceTabs button:hover:not(:disabled), .cardDiffTab:hover .cardDiffTabLabel:not(:disabled)', 'color'))).toBe('rgb(255, 255, 255)');
   });
 
   it('scopes the subdued project hover palette to owned workspace tabs', () => {
     const { declaration, token } = renderToStyle(workspace(), { projectAccent: tealAccent });
-    const ownedHover = '.cardWorkspace[data-project-color] .cardWorkspaceTabs > button:hover:not(:disabled),\n.cardWorkspace[data-project-color] .cardDiffTab:hover:has(button:not(:disabled)),\n.cardWorkspace[data-project-color] .cardServiceTab:hover:has(button:not(:disabled))';
+    const ownedHover = '.cardWorkspace[data-project-color] .cardWorkspaceTabs > button:hover:not(:disabled),\n.cardWorkspace[data-project-color] .cardDiffTab:hover:has(button:not(:disabled))';
     const hover = declaration(ownedHover, 'background');
     expect(hover).toContain('color-mix');
     expect(parseCssColor(hover).g).toBeGreaterThan(parseCssColor(hover).r);
     expect(hover).not.toBe(color(token('--surface-drag')));
   });
 
-  it('reserves the trailing inset for icon-bearing tabs and keeps control geometry', () => {
+  it('reserves the trailing inset for the Diff refresh control and keeps control geometry', () => {
     const { style } = renderToStyle(workspace(), { projectAccent: tealAccent });
     expect(style('.cardWorkspaceTabs button', 'padding')).toBe('7px 10px 11px');
     expect(style('.cardWorkspaceTabs .cardDiffTabLabel', 'paddingTop')).toBe('7px');
     expect(style('.cardWorkspaceTabs .cardDiffTabLabel', 'paddingBottom')).toBe('11px');
-    expect(style('.cardWorkspaceTabs .cardDiffTab:has(.cardDiffRefresh), .cardWorkspaceTabs .cardServiceTab', 'paddingRight')).toBe('10px');
+    expect(style('.cardWorkspaceTabs .cardDiffTab:has(.cardDiffRefresh)', 'paddingRight')).toBe('10px');
     expect(style('.cardWorkspaceTabs > button', 'alignSelf')).toBe('stretch');
     expect(style('.cardWorkspaceTabs > button', 'display')).toBe('inline-flex');
     expect(style('.cardWorkspaceTabs > button', 'alignItems')).toBe('end');
 
-    const controls = renderToStyle('<div class="cardWorkspaceTabs"><button class="cardServiceToggle"><span class="servicePlayIcon"></span></button><button class="cardDiffRefresh"></button></div>');
-    for (const selector of ['.cardWorkspaceTabs button.cardServiceToggle', '.cardWorkspaceTabs button.cardDiffRefresh']) {
-      expect(controls.style(selector, 'width'), selector).toBe('20px');
-      expect(controls.style(selector, 'height'), selector).toBe('20px');
-      expect(controls.style(selector, 'marginBottom'), selector).toBe('7px');
-      expect(controls.style(selector, 'padding'), selector).toBe('0');
-    }
-    expect(controls.style('.servicePlayIcon', 'marginLeft')).toBe('1px');
-    expect(controls.style('.servicePlayIcon', 'borderTop')).toBe('4px solid transparent');
-    expect(controls.style('.servicePlayIcon', 'borderLeft')).toBe('6px solid currentColor');
-    const stop = renderToStyle('<span class="serviceStopIcon"></span>');
-    expect(stop.style('.serviceStopIcon', 'width')).toBe('8px');
-    expect(stop.style('.serviceStopIcon', 'height')).toBe('8px');
+    const refresh = renderToStyle('<div class="cardWorkspaceTabs"><button class="cardDiffRefresh"></button></div>');
+    expect(refresh.style('.cardWorkspaceTabs button.cardDiffRefresh', 'width')).toBe('20px');
+    expect(refresh.style('.cardWorkspaceTabs button.cardDiffRefresh', 'height')).toBe('20px');
+    expect(refresh.style('.cardWorkspaceTabs button.cardDiffRefresh', 'marginBottom')).toBe('7px');
+    expect(refresh.style('.cardWorkspaceTabs button.cardDiffRefresh', 'padding')).toBe('0');
+  });
+
+  it('paints service control buttons in the terminal header with an active and failed state', () => {
+    const controls = renderToStyle('<div class="terminalControls"><button class="terminalControlButton terminalServiceButton active"><svg class="terminalServiceIcon"></svg></button><button class="terminalControlButton terminalServiceButton failed"></button></div>');
+    expect(controls.colorOf('.terminalServiceButton.active', 'backgroundColor')).toBe('rgb(21, 39, 30)');
+    expect(controls.colorOf('.terminalServiceButton.active', 'color')).toBe('rgb(112, 189, 141)');
+    expect(controls.colorOf('.terminalServiceButton.failed', 'color')).toBe('rgb(219, 150, 150)');
+    expect(controls.style('.terminalServiceIcon', 'display')).toBe('block');
+    const dot = renderToStyle('<nav class="cardWorkspaceTabs"><button>Terminal<span class="cardTabRunningDot"></span></button></nav>');
+    expect(dot.style('.cardTabRunningDot', 'width')).toBe('6px');
+    expect(dot.style('.cardTabRunningDot', 'height')).toBe('6px');
+    expect(dot.colorOf('.cardTabRunningDot', 'backgroundColor')).toBe('rgb(112, 189, 141)');
   });
 });
 

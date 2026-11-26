@@ -1,12 +1,13 @@
 import { lazy, Suspense } from 'react';
 import type { TerminalEntry, Project, SplitNode, WorkspaceEntry } from '../types';
 import { TerminalView } from './TerminalView';
+import type { TerminalServiceControls } from './TerminalControls';
 import { SplitResizeHandle } from './SplitResizeHandle';
 import { paneKindOf } from '../splitTree';
 
 const PiGuiView = lazy(() => import('./PiGuiView').then((module) => ({ default: module.PiGuiView })));
 
-export function SplitView({ node, terminalsById, workspace, project, visible, canEditTerminal = true, canCloseTerminal, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, activeTerminalId, displayedMaximizedTerminalId, searchTerminalRequest, restartTerminalRequest, path, onResizeSplit, onFocus, onClose, onSplitTerminal, onEditTerminal, onInput, canToggleMaximize, onToggleMaximize }: {
+export function SplitView({ node, terminalsById, workspace, project, visible, canEditTerminal = true, canCloseTerminal, serviceControls, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect, activeTerminalId, displayedMaximizedTerminalId, searchTerminalRequest, restartTerminalRequest, path, onResizeSplit, onFocus, onClose, onSplitTerminal, onEditTerminal, onInput, canToggleMaximize, onToggleMaximize }: {
   node: SplitNode;
   terminalsById: Record<string, TerminalEntry>;
   workspace: WorkspaceEntry;
@@ -14,6 +15,7 @@ export function SplitView({ node, terminalsById, workspace, project, visible, ca
   visible: boolean;
   canEditTerminal?: boolean;
   canCloseTerminal?: boolean;
+  serviceControls?: TerminalServiceControls;
   terminalFontSize: number;
   terminalFontFamily: string;
   terminalScrollback: number;
@@ -71,6 +73,8 @@ export function SplitView({ node, terminalsById, workspace, project, visible, ca
         visible={isDisplayed}
         canEdit={canEditTerminal}
         canClose={canCloseTerminal}
+        managedService={Boolean(terminal.managedService)}
+        serviceControls={terminal.managedService ? undefined : serviceControls}
         terminalFontSize={terminalFontSize}
         terminalFontFamily={terminalFontFamily}
         terminalScrollback={terminalScrollback}
@@ -91,11 +95,11 @@ export function SplitView({ node, terminalsById, workspace, project, visible, ca
   return (
     <div className={`split split-${node.direction}`}>
       <div className="splitChild" style={{ flex: `${ratio} 1 0` }}>
-        <SplitView node={node.first} terminalsById={terminalsById} workspace={workspace} project={project} visible={visible} canEditTerminal={canEditTerminal} canCloseTerminal={canCloseTerminal} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activeTerminalId={activeTerminalId} displayedMaximizedTerminalId={effectiveDisplayedMaximizedTerminalId} searchTerminalRequest={searchTerminalRequest} restartTerminalRequest={restartTerminalRequest} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} onSplitTerminal={onSplitTerminal} onEditTerminal={onEditTerminal} onInput={onInput} canToggleMaximize={canToggleMaximize} onToggleMaximize={onToggleMaximize} />
+        <SplitView node={node.first} terminalsById={terminalsById} workspace={workspace} project={project} visible={visible} canEditTerminal={canEditTerminal} canCloseTerminal={canCloseTerminal} serviceControls={serviceControls} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activeTerminalId={activeTerminalId} displayedMaximizedTerminalId={effectiveDisplayedMaximizedTerminalId} searchTerminalRequest={searchTerminalRequest} restartTerminalRequest={restartTerminalRequest} path={path ? `${path}.first` : 'first'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} onSplitTerminal={onSplitTerminal} onEditTerminal={onEditTerminal} onInput={onInput} canToggleMaximize={canToggleMaximize} onToggleMaximize={onToggleMaximize} />
       </div>
       <SplitResizeHandle direction={node.direction} onResize={(nextRatio) => onResizeSplit(path, nextRatio)} />
       <div className="splitChild" style={{ flex: `${1 - ratio} 1 0` }}>
-        <SplitView node={node.second} terminalsById={terminalsById} workspace={workspace} project={project} visible={visible} canEditTerminal={canEditTerminal} canCloseTerminal={canCloseTerminal} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activeTerminalId={activeTerminalId} displayedMaximizedTerminalId={effectiveDisplayedMaximizedTerminalId} searchTerminalRequest={searchTerminalRequest} restartTerminalRequest={restartTerminalRequest} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} onSplitTerminal={onSplitTerminal} onEditTerminal={onEditTerminal} onInput={onInput} canToggleMaximize={canToggleMaximize} onToggleMaximize={onToggleMaximize} />
+        <SplitView node={node.second} terminalsById={terminalsById} workspace={workspace} project={project} visible={visible} canEditTerminal={canEditTerminal} canCloseTerminal={canCloseTerminal} serviceControls={serviceControls} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} activeTerminalId={activeTerminalId} displayedMaximizedTerminalId={effectiveDisplayedMaximizedTerminalId} searchTerminalRequest={searchTerminalRequest} restartTerminalRequest={restartTerminalRequest} path={path ? `${path}.second` : 'second'} onResizeSplit={onResizeSplit} onFocus={onFocus} onClose={onClose} onSplitTerminal={onSplitTerminal} onEditTerminal={onEditTerminal} onInput={onInput} canToggleMaximize={canToggleMaximize} onToggleMaximize={onToggleMaximize} />
       </div>
     </div>
   );

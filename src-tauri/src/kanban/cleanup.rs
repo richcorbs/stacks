@@ -251,7 +251,6 @@ pub(in crate::kanban) fn cleanup_preflight(
     report.metadata = vec![
         "card environment".into(),
         "terminal layout and panes".into(),
-        "service definitions".into(),
         "Pi lifecycle metadata".into(),
     ];
     for id in crate::pty::card_pty_runtime_ids(pty_registry, card_id)? {
@@ -795,7 +794,6 @@ pub(in crate::kanban) fn initialize_cleanup(
         let metadata_inventory = serde_json::to_string(&vec![
             "card environment",
             "terminal layout and panes",
-            "service definitions",
             "Pi lifecycle metadata",
         ])
         .map_err(|e| e.to_string())?;

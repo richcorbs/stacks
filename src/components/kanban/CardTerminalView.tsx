@@ -3,11 +3,13 @@ import type { KanbanCard } from '../../kanban/types';
 import type { useCardTerminalWorkspace } from '../../kanban/useCardTerminalWorkspace';
 import { cardWorkspaceId } from '../../kanban/cardWorkspace';
 import { WorkspaceShellView } from '../WorkspaceShellView';
+import type { TerminalServiceControls } from '../TerminalControls';
 
 type TerminalController = ReturnType<typeof useCardTerminalWorkspace>;
 
-export function CardTerminalView({ active, card, project, cardPath, controller, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
+export function CardTerminalView({ active, card, project, cardPath, controller, serviceControls, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
   active: boolean; card: KanbanCard; project: Project | undefined; cardPath: string | null; controller: TerminalController;
+  serviceControls?: TerminalServiceControls;
   terminalFontSize: number; terminalFontFamily: string; terminalScrollback: number; copyOnSelect: boolean;
 }) {
   return <section className={`cardTerminalView cardView${active ? ' active' : ''}`}>
@@ -16,6 +18,7 @@ export function CardTerminalView({ active, card, project, cardPath, controller, 
       workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: cardPath }}
       project={project}
       visible={active}
+      serviceControls={serviceControls}
       terminalFontSize={terminalFontSize}
       terminalFontFamily={terminalFontFamily}
       terminalScrollback={terminalScrollback}

@@ -10,7 +10,7 @@ function createHarness(tree: SplitNode = { kind: 'leaf', terminalId: 'one' }, fo
   const registered: Array<[string, string]> = [];
   const ports: WorkspaceShellPorts = {
     createPaneId: () => `new-${id++}`,
-    createPane: (terminalId, options) => ({ id: terminalId, workspaceId: 'owner', cwd: options.cwd ?? '/work', temporary: options.temporary }),
+    createPane: (terminalId, options) => ({ id: terminalId, workspaceId: 'owner', cwd: options.cwd ?? '/work', command: options.command, temporary: options.temporary || options.managedService, managedService: options.managedService }),
     clearSession: vi.fn(),
     disposeAndKill: (terminalId) => disposed.push(terminalId),
     write: vi.fn(),
@@ -42,6 +42,24 @@ describe('WorkspaceShellController', () => {
     expect(layouts).toHaveLength(2);
     expect(listener).toHaveBeenCalledTimes(2);
     unsubscribe();
+  });
+
+  it('mounts service panes in the tree without persisting them into the shell layout', () => {
+    const { controller, layouts, scrolled } = createHarness();
+    expect(controller.startServicePane({ terminalId: 'service', command: 'bin/dev', cwd: '/work' })).toBe(true);
+    expect(controller.getSnapshot().paneIds).toEqual(['one', 'service']);
+    expect(controller.getSnapshot().focusedPaneId).toBe('service');
+    expect(controller.getSnapshot().panes.service).toMatchObject({ command: 'bin/dev', cwd: '/work', managedService: true, temporary: true });
+    expect(layouts).toHaveLength(0);
+    expect(scrolled).toEqual([['service']]);
+
+    expect(controller.startServicePane({ terminalId: 'service', command: 'bin/dev', cwd: '/work' })).toBe(false);
+    expect(controller.getSnapshot().restartRequest).toMatchObject({ terminalId: 'service' });
+
+    controller.focus('one');
+    expect(layouts.at(-1)?.tree).toEqual({ kind: 'leaf', terminalId: 'one' });
+    expect(layouts.at(-1)?.panes.map((pane) => pane.id)).toEqual(['one']);
+    expect(layouts.at(-1)?.focusedPaneId).toBe('one');
   });
 
   it('moves focus, follows focus while maximized, resizes, and restores maximize scroll', () => {

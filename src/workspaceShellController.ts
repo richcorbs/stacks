@@ -1,8 +1,9 @@
 import type { SplitNode, TerminalEntry } from './types';
-import { closePane, collectLeafTerminalIds, focusPane, relativePaneId, resolveFocusedPaneId, resolveMaximizedPaneId, setSplitRatio, splitLeaf, toggleMaximizedPane } from './splitTree';
+import { closePane, collectLeafTerminalIds, focusPane, relativePaneId, removeLeaves, resolveFocusedPaneId, resolveMaximizedPaneId, setSplitRatio, splitLeaf, toggleMaximizedPane } from './splitTree';
 
 export type WorkspaceShellRequest = { terminalId: string; nonce: number };
 export type WorkspaceShellPane = TerminalEntry;
+export type WorkspaceShellServicePane = { terminalId: string; command: string; cwd: string | null };
 
 export type WorkspaceShellSnapshot = {
   tree: SplitNode;
@@ -41,7 +42,7 @@ export type WorkspaceShellTemporaryCapability = {
 
 export type WorkspaceShellPorts = {
   createPaneId: () => string;
-  createPane: (terminalId: string, options: { temporary: boolean; cwd?: string | null }) => WorkspaceShellPane;
+  createPane: (terminalId: string, options: { temporary: boolean; cwd?: string | null; command?: string | null; managedService?: boolean }) => WorkspaceShellPane;
   prepareSplit?: (terminalId: string) => Promise<void>;
   clearSession: (terminalId: string) => void;
   disposeAndKill: (terminalId: string) => void;
@@ -61,6 +62,7 @@ export class WorkspaceShellController {
   private listeners = new Set<() => void>();
   private temporaryRun: TemporaryRun | null = null;
   private temporaryCwd: string | null = null;
+  private readonly servicePanes = new Map<string, WorkspaceShellServicePane>();
   private nonce = 0;
   private disposed = false;
   private snapshot: WorkspaceShellSnapshot;
@@ -81,8 +83,39 @@ export class WorkspaceShellController {
 
   focus(paneId: string) {
     if (!this.snapshot.paneIds.includes(paneId)) return false;
-    this.update(focusPane(paneId, this.snapshot.maximizedPaneId));
+    // Service panes are ephemeral runners, never part of the persisted shell layout.
+    this.update(focusPane(paneId, this.snapshot.maximizedPaneId), !this.servicePanes.has(paneId));
     return true;
+  }
+
+  /** Mount a service pane in the tree, or remount the existing one with a fresh process. */
+  startServicePane(config: WorkspaceShellServicePane, direction: 'row' | 'column' = 'row') {
+    const existed = this.snapshot.paneIds.includes(config.terminalId);
+    this.servicePanes.set(config.terminalId, config);
+    const nonce = this.nextNonce();
+    if (existed) {
+      // Recreate the pane entry so a changed command is not hidden behind the cached one.
+      this.update({
+        tree: this.snapshot.tree,
+        focusedPaneId: config.terminalId,
+        restartRequest: { terminalId: config.terminalId, nonce },
+      }, false);
+    } else {
+      const target = this.snapshot.focusedPaneId && this.snapshot.paneIds.includes(this.snapshot.focusedPaneId)
+        ? this.snapshot.focusedPaneId : this.snapshot.paneIds.at(-1);
+      this.update({
+        tree: target ? splitLeaf(this.snapshot.tree, target, config.terminalId, direction, null) : { kind: 'leaf', terminalId: config.terminalId },
+        focusedPaneId: config.terminalId,
+        maximizedPaneId: null,
+        restartRequest: { terminalId: config.terminalId, nonce },
+      }, false);
+    }
+    this.ports.scrollAfterFit([config.terminalId]);
+    return !existed;
+  }
+
+  setServicePane(config: WorkspaceShellServicePane) {
+    this.servicePanes.set(config.terminalId, config);
   }
 
   navigatePane(direction: -1 | 1) {
@@ -232,13 +265,26 @@ export class WorkspaceShellController {
 
   private makeSnapshot(tree: SplitNode, focusedPaneId: string | null, maximizedPaneId: string | null, pendingClosePaneId: string | null, searchRequest: WorkspaceShellRequest | null, restartRequest: WorkspaceShellRequest | null): WorkspaceShellSnapshot {
     const paneIds = collectLeafTerminalIds(tree);
-    const panes = Object.fromEntries(paneIds.map((id) => [id, this.ports.createPane(id, { temporary: id === this.temporaryRun?.terminalId, cwd: id === this.temporaryRun?.terminalId ? this.temporaryCwd : undefined })]));
+    const panes = Object.fromEntries(paneIds.map((id) => {
+      const service = this.servicePanes.get(id);
+      return [id, this.ports.createPane(id, {
+        temporary: id === this.temporaryRun?.terminalId,
+        cwd: service?.cwd ?? (id === this.temporaryRun?.terminalId ? this.temporaryCwd : undefined),
+        command: service?.command,
+        managedService: Boolean(service),
+      })];
+    }));
     return { tree, panes, paneIds, focusedPaneId: resolveFocusedPaneId(tree, focusedPaneId), maximizedPaneId: resolveMaximizedPaneId(tree, maximizedPaneId), pendingClosePaneId, searchRequest, restartRequest };
   }
 
   private setSnapshot(snapshot: WorkspaceShellSnapshot, persist: boolean) {
     this.snapshot = snapshot;
     this.listeners.forEach((listener) => listener());
-    if (persist && !this.temporaryRun) this.ports.persist({ tree: snapshot.tree, focusedPaneId: snapshot.focusedPaneId, panes: snapshot.paneIds.map((id) => snapshot.panes[id]) });
+    if (!persist || this.temporaryRun) return;
+    const persistedTree = removeLeaves(snapshot.tree, new Set(this.servicePanes.keys())) ?? { kind: 'empty' };
+    const persistedPaneIds = collectLeafTerminalIds(persistedTree);
+    const persistedFocus = snapshot.focusedPaneId && persistedPaneIds.includes(snapshot.focusedPaneId)
+      ? snapshot.focusedPaneId : persistedPaneIds[0] ?? null;
+    this.ports.persist({ tree: persistedTree, focusedPaneId: persistedFocus, panes: persistedPaneIds.map((id) => snapshot.panes[id]) });
   }
 }

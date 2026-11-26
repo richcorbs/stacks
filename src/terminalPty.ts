@@ -13,10 +13,8 @@ import { applicationEvents } from './applicationEvents';
 export function processExitAttention(input: { terminalId: string; workspaceId: string; generation: string; commandBacked: boolean; eligible: boolean }): AppAttention | null {
   const owner = parseWorkOwnerId(input.workspaceId);
   if (!input.commandBacked || !input.eligible || !owner) return null;
-  const view = input.terminalId.includes(':terminal:server') ? 'server' as const
-    : input.terminalId.includes(':terminal:console') ? 'console' as const : 'terminal' as const;
   return {
-    kind: 'process-exit', owner, target: { view, terminalId: input.terminalId },
+    kind: 'process-exit', owner, target: { view: 'terminal', terminalId: input.terminalId },
     lifecycleKey: `pty:${input.terminalId}:${input.generation}:exit`,
   };
 }

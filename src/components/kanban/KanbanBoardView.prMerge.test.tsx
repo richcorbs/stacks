@@ -14,7 +14,6 @@ vi.mock('../../loadingState', () => ({ useLoadingCoordinator: () => ({ settleSta
 vi.mock('../../kanban/useKanbanRefreshCoordinator', () => ({ useKanbanRefreshCoordinator: () => ({ statuses: {}, prChecks: {} }) }));
 vi.mock('../../kanban/useBoardKeyboardNavigation', () => ({ useBoardKeyboardNavigation: () => ({}) }));
 vi.mock('../../kanban/usePointerCardOrdering', () => ({ usePointerCardOrdering: () => ({}) }));
-vi.mock('./BoardCardServerServices', () => ({ BoardCardServerServices: () => null }));
 vi.mock('./NewCardDialog', () => ({ NewCardDialog: () => null }));
 vi.mock('./KanbanList', () => ({ KanbanList: (props: object) => <div data-entry="list" {...props} /> }));
 
