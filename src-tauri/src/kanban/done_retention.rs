@@ -883,6 +883,26 @@ pub(super) fn execute(
             ));
             continue;
         }
+        // One verdict decides; retention cites the gate's code rather than inventing
+        // a reason. The global discard authorises the resources this mode removes.
+        let verdict = with_read_connection(|db| {
+            super::gate::evaluate(
+                db,
+                &c.id,
+                super::gate::GateContext::retention(
+                    super::retirement::RetirementOverride::discard(),
+                ),
+            )
+        })?;
+        if verdict.blocked() {
+            result.skipped += 1;
+            result.details.push(format!(
+                "{}: not retired; blocked by {}",
+                c.id,
+                verdict.codes().join(", ")
+            ));
+            continue;
+        }
         let retirement = super::retirement::retire(
             super::retirement::RetirementRequest::DiscardResources(c.clone()),
             super::retirement::RetirementContext {

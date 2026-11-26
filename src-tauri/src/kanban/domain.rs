@@ -113,6 +113,8 @@ pub struct EnvironmentHealthIssue {
     pub(in crate::kanban) code: String,
     pub(in crate::kanban) message: String,
     pub(in crate::kanban) step: String,
+    /// The one action that clears this blocker (or explains why a human must act).
+    pub(in crate::kanban) repair: Option<super::gate::Repair>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -412,6 +414,11 @@ pub struct CleanupPreflight {
     pub resources: Vec<CleanupResource>,
     pub metadata: Vec<String>,
     pub blockers: Vec<String>,
+    /// Stable gate codes for each blocker, so the UI and retention cite the same
+    /// vocabulary the banner shows.
+    pub blocked_codes: Vec<String>,
+    /// The one repair offered for each blocker (automatic or needs-user).
+    pub repairs: Vec<super::gate::Repair>,
     pub retained: Vec<String>,
     pub orphan_warning: Option<String>,
 }

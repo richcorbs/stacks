@@ -12,13 +12,21 @@ use super::{
     local_delivery::*, repository::*, sync::*,
 };
 
-pub(in crate::kanban) const FINALIZED_WITHOUT_CHILDREN: &str = "finalized_parent_without_children";
-pub(in crate::kanban) const STALE_PARENT_CHILD_COUNT: &str = "stale_parent_child_count";
-pub(in crate::kanban) const ORPHANED_ENVIRONMENT: &str = "environment_worktree_missing";
+// Invariant names are gate codes: the board report cannot drift from the banner.
+pub(in crate::kanban) const FINALIZED_WITHOUT_CHILDREN: &str =
+    super::gate::BlockerCode::FinalizedParentWithoutChildren.as_str();
+pub(in crate::kanban) const STALE_PARENT_CHILD_COUNT: &str =
+    super::gate::BlockerCode::StaleParentChildCount.as_str();
+pub(in crate::kanban) const ORPHANED_ENVIRONMENT: &str =
+    super::gate::BlockerCode::EnvironmentWorktreeMissing.as_str();
 pub(in crate::kanban) const DONE_RETENTION_BLOCKED: &str = "done_card_retention_blocked";
-pub(in crate::kanban) const UNACTIONABLE_CARD: &str = "unactionable_card";
+pub(in crate::kanban) const UNACTIONABLE_CARD: &str =
+    super::gate::BlockerCode::UnactionableCard.as_str();
 
-const ACTION_REPAIR_PARENT: &str = "repair_parent_metadata";
+const ACTION_REPAIR_PARENT: &str =
+    super::gate::RepairId::RepairParentMetadata.as_str();
+// The board-health panel's legacy action name; the gate's repair id for the same
+// operation is `cleanup_orphaned_environment` (see `gate::RepairId`).
 const ACTION_CLEANUP_ENVIRONMENT: &str = "cleanup_environment";
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -549,57 +557,13 @@ fn done_retention_findings(connection: &Connection) -> Result<Vec<BoardHealthFin
         .map_err(db_error)?;
     let mut findings = Vec::new();
     for (id, title, status, project_id, workflow_revision) in cards {
-        let mut reasons = Vec::new();
-        if connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM card_environments WHERE card_id=?1)",
-                [&id],
-                |r| r.get::<_, i64>(0),
-            )
-            .map_err(db_error)?
-            != 0
-        {
-            reasons.push("owning environment".to_string());
-        }
-        if connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM card_cleanup_operations WHERE card_id=?1 AND status!='completed') OR EXISTS(SELECT 1 FROM card_retirements WHERE card_id=?1)",
-                [&id],
-                |r| r.get::<_, i64>(0),
-            )
-            .map_err(db_error)?
-            != 0
-        {
-            reasons.push("incomplete cleanup operation".to_string());
-        }
-        if connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM kanban_cards WHERE parent_id=?1)",
-                [&id],
-                |r| r.get::<_, i64>(0),
-            )
-            .map_err(db_error)?
-            != 0
-        {
-            reasons.push("retained hierarchy".to_string());
-        }
-        if connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM environment_creation_operations WHERE card_id=?1)
-                    OR EXISTS(SELECT 1 FROM card_target_merge_operations WHERE card_id=?1)
-                    OR EXISTS(SELECT 1 FROM scripted_delivery_operations WHERE card_id=?1)
-                    OR EXISTS(SELECT 1 FROM provider_sync_operations WHERE card_id=?1 AND state IN ('pending','running','failed'))
-                    OR EXISTS(SELECT 1 FROM kanban_cards WHERE id=?1 AND delivery_operation_stage IS NOT NULL)
-                    OR EXISTS(SELECT 1 FROM card_pull_requests WHERE card_id=?1 AND state!='merged')",
-                [&id],
-                |r| r.get::<_, i64>(0),
-            )
-            .map_err(db_error)?
-            != 0
-        {
-            reasons.push("unresolved provider/delivery operation".to_string());
-        }
-        if reasons.is_empty() {
+        // Retention reports the gate's own verdict; there is no sixth checklist.
+        let verdict = super::gate::evaluate(
+            connection,
+            &id,
+            super::gate::GateContext::retention(super::retirement::RetirementOverride::default()),
+        )?;
+        if !verdict.blocked() {
             continue;
         }
         findings.push(finding(
@@ -610,7 +574,11 @@ fn done_retention_findings(connection: &Connection) -> Result<Vec<BoardHealthFin
             project_id.as_deref(),
             workflow_revision,
             "Done retention cannot retire this card while these resources or operations remain.",
-            reasons,
+            verdict
+                .blockers
+                .iter()
+                .map(|blocker| blocker.message.clone())
+                .collect(),
         ));
     }
     Ok(findings)

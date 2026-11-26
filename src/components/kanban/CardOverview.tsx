@@ -7,7 +7,7 @@ import { candidateParents, childCountLabel, statusLabel as childStatusLabel } fr
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardCleanupStatus, cleanupPhaseLabel } from '../CardCleanupStatus';
 import { shouldShowEnvironmentWarning } from '../../kanban/useCardRepositoryStatus';
-import { retryKanbanProviderSync } from '../../kanban/api';
+import { applyKanbanCardRepair, retryKanbanProviderSync } from '../../kanban/api';
 import { ParentStateResolution } from './ParentStateResolution';
 
 // Keep marked out of the eager board graph; the raw description is the Suspense fallback.
@@ -55,7 +55,20 @@ export function CardOverview({
   onReload?: () => Promise<unknown>;
 }) {
   const [retryingProviderSync, setRetryingProviderSync] = useState(false);
+  const [applyingRepair, setApplyingRepair] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const applyRepair = async (repairId: string) => {
+    setApplyingRepair(repairId);
+    setActionError(null);
+    try {
+      await applyKanbanCardRepair(card.id, repairId);
+      onRecheckEnvironment();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setApplyingRepair(null);
+    }
+  };
   const sanitizedContent = useMemo(() => DOMPurify.sanitize(card.content, {
     FORBID_TAGS: ['img', 'style'], FORBID_ATTR: ['style'],
   }), [card.content]);
@@ -82,6 +95,12 @@ export function CardOverview({
           <li key={`${issue.code}:${issue.step}`}>
             <span>{issue.message}</span>
             <small>Affects {issue.step}</small>
+            {issue.repair && (issue.repair.kind === 'automatic'
+              ? <button data-card-action="secondary" data-card-repair={issue.repair.id} type="button"
+                  disabled={applyingRepair !== null} onClick={() => applyRepair(issue.repair!.id)}>
+                  <AsyncButtonLabel idle={issue.repair.label} busy="Applying…" isBusy={applyingRepair === issue.repair.id} />
+                </button>
+              : <small className="kanbanRepairHint">{issue.repair.label}: {issue.repair.effect}</small>)}
           </li>
         ))}</ul>
         <button data-card-action="secondary" type="button" disabled={recheckingEnvironment} onClick={onRecheckEnvironment}>

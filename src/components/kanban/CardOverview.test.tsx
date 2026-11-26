@@ -115,3 +115,49 @@ describe('CardOverview descriptions', () => {
     expect(markup).toContain('Retry provider sync');
   });
 });
+
+describe('CardOverview gate repairs', () => {
+  it('shows a one-click action for automatic repairs and an instruction for needs-user repairs', async () => {
+    const current = card();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<CardOverview
+        active
+        editing={false}
+        card={current}
+        cards={[current]}
+        project={project}
+        environmentHealth={{
+          card_id: current.id,
+          issues: [
+            {
+              code: 'environment_worktree_missing',
+              message: "The card environment's worktree is gone.",
+              step: 'cleanup',
+              repair: { id: 'cleanup_orphaned_environment', label: 'Clean up environment', kind: 'automatic', effect: 'Remove the orphaned environment.' },
+            },
+            {
+              code: 'dirty_worktree',
+              message: 'Source worktree is dirty.',
+              step: 'cleanup',
+              repair: { id: 'commit_or_stash', label: 'Commit, stash or discard', kind: 'needs_user', effect: 'Leave the source worktree clean.' },
+            },
+          ],
+        }}
+        recheckingEnvironment={false}
+        draftContent={current.content}
+        editError={null}
+        setDraftContent={() => undefined}
+        setEditError={() => undefined}
+        setActionError={() => undefined}
+        onRecheckEnvironment={() => undefined}
+        onUpdate={async () => current}
+        onCardUpdated={() => undefined}
+        onNavigate={() => undefined}
+      />);
+    });
+    const repairButton = container.querySelector('[data-card-repair="cleanup_orphaned_environment"]');
+    expect(repairButton?.textContent).toContain('Clean up environment');
+    expect(container.textContent).toContain('Commit, stash or discard: Leave the source worktree clean.');
+  });
+});
