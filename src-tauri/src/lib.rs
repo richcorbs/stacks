@@ -42,7 +42,7 @@ use github::{
 };
 use global_terminal::{global_terminal_load_or_create, global_terminal_save};
 use kanban::{
-    kanban_abort_target_merge, kanban_apply_pi_lifecycle_intent, kanban_apply_workflow_action,
+    kanban_abort_target_merge, kanban_apply_card_repair, kanban_apply_pi_lifecycle_intent, kanban_apply_workflow_action,
     kanban_approve_and_commit, kanban_board_health, kanban_board_health_cleanup_environment,
     kanban_cancel_scripted_deployment, kanban_card_events,
     kanban_card_snapshot, kanban_cards, kanban_cleanup_environment, kanban_cleanup_environment_creation,
@@ -278,6 +278,7 @@ pub fn run() {
             kanban_cleanup_environment,
             kanban_close_card,
             kanban_retry_provider_sync,
+            kanban_apply_card_repair,
             kanban_retry_runtime_cleanup,
             kanban_create_pull_request,
             kanban_refresh_pull_request,

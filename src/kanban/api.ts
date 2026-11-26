@@ -158,6 +158,11 @@ export function retryKanbanProviderSync(id: string) {
   return invoke<CardSnapshot>('kanban_retry_provider_sync', { id }).then(({ card }) => card);
 }
 
+/** One click for an automatic gate repair; needs-user repairs return their instruction. */
+export function applyKanbanCardRepair(cardId: string, repairId: string) {
+  return invoke<CardEnvironmentHealth>('kanban_apply_card_repair', { cardId, repairId });
+}
+
 export type KanbanPullRequestRefreshResult = { card: KanbanCard; error: string | null };
 
 export function refreshKanbanPullRequest(id: string) {

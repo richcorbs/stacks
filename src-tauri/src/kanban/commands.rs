@@ -478,3 +478,42 @@ pub async fn kanban_retry_provider_sync(
         .map_err(|error| format!("Provider synchronization worker failed: {error}"))??;
     fresh_card_snapshot(&id)
 }
+
+/// One click for every automatic repair, and the explicit instruction for every
+/// repair that needs a human. The response is the gate's new verdict, so the banner
+/// updates from the same evaluation that blocked the card.
+#[tauri::command]
+pub async fn kanban_apply_card_repair(
+    app: AppHandle,
+    service: State<'_, SuperthreadService>,
+    card_id: String,
+    repair_id: String,
+) -> Result<CardEnvironmentHealth, String> {
+    let id = super::gate::RepairId::from_str(&repair_id)
+        .ok_or_else(|| format!("Unknown card repair {repair_id:?}"))?;
+    if id == super::gate::RepairId::RetryProviderSync {
+        let provider = service.inner().clone();
+        let target = card_id.clone();
+        tauri::async_runtime::spawn_blocking(move || run_pending_once(provider, Some(&target)))
+            .await
+            .map_err(|error| format!("Provider synchronization worker failed: {error}"))??;
+        return with_read_connection(|connection| {
+            super::gate::environment_health(connection, &card_id)
+        });
+    }
+    let pty = app.state::<Mutex<PtyRegistry>>();
+    let pi = app.state::<Mutex<PiRpcRegistry>>();
+    let mut runtime_ids = crate::pty::card_pty_runtime_ids(pty.inner(), &card_id)?;
+    runtime_ids.extend(crate::pi_rpc::card_pi_runtime_ids(pi.inner(), &card_id)?);
+    let target = card_id.clone();
+    let verdict = tauri::async_runtime::spawn_blocking(move || {
+        super::gate::apply_repair(
+            &target,
+            &repair_id,
+            &super::gate::RepairContext::with_runtime_ids(runtime_ids),
+        )
+    })
+    .await
+    .map_err(|error| format!("Card repair worker failed: {error}"))??;
+    Ok(verdict.issues(&card_id))
+}

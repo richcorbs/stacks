@@ -736,6 +736,7 @@ pub(in crate::kanban) fn require_structural_capability(
             .disabled_reason
             .unwrap_or_else(|| "Workflow action is unavailable".to_string()));
     }
+    super::gate::enforce_action(connection, id, action)?;
     Ok(card)
 }
 

@@ -38,10 +38,21 @@ export type CardEnvironment = {
 
 export type EnvironmentHealthStep = 'work' | 'approval' | 'merge' | 'cleanup';
 
+export type CardRepairKind = 'automatic' | 'needs_user';
+
+/** One action that clears a blocker, or an explicit instruction for a human. */
+export type CardRepair = {
+  id: string;
+  label: string;
+  kind: CardRepairKind;
+  effect: string;
+};
+
 export type EnvironmentHealthIssue = {
   code: string;
   message: string;
   step: EnvironmentHealthStep;
+  repair?: CardRepair | null;
 };
 
 export type CardPullRequest = {
@@ -73,7 +84,9 @@ export type CleanupPreflight = {
   source_path: string | null; source_exists: boolean; source_registered: boolean; source_branch: string | null;
   source_clean: boolean | null; source_head: string | null; source_revision: string | null; source_git_operation: boolean | null;
   merge_proof: string; local_branch_disposition: string; remote_branch_disposition: string;
-  resources: CleanupResource[]; metadata: string[]; blockers: string[]; retained: string[]; orphan_warning: string | null;
+  resources: CleanupResource[]; metadata: string[]; blockers: string[];
+  blocked_codes: string[]; repairs: CardRepair[];
+  retained: string[]; orphan_warning: string | null;
 };
 export type CleanupInventory = { entries: CleanupPreflight[]; eligible_merged: number; blocked: number; closed: number; completed: number };
 

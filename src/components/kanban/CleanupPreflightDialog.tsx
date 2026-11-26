@@ -21,6 +21,10 @@ export function CleanupPreflightEntry({ entry, cleanupAnyway = false, onCleanupA
       <span>{entry.merged ? 'Merged' : 'Not merged'}</span>
       <span>{entry.blocked ? 'Blocked' : 'Not blocked'}</span>
     </div>
+    {entry.blocked && (entry.blockers.length > 0 || (entry.repairs ?? []).length > 0) && <ul className="cleanupPreflightBlockers">
+      {entry.blockers.map((blocker) => <li key={blocker}><span>{blocker}</span></li>)}
+      {(entry.repairs ?? []).map((repair) => <li key={repair.id}><small>{`${repair.label}: ${repair.effect}`}</small></li>)}
+    </ul>}
     {entry.override_available && <label className="cleanupOverride">
       <input type="checkbox" checked={cleanupAnyway} onChange={(event) => onCleanupAnywayChange?.(event.target.checked)} />
       Cleanup anyway

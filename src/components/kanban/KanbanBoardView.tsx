@@ -138,7 +138,11 @@ export function KanbanBoardView({ board, boardShortcutBlocked, superthreadEnable
         restoreFocus();
       };
       if (entry.blocked && !entry.override_available) {
-        throw new Error(`Cleanup blocked: ${entry.blockers.join('; ') || 'Cleanup evidence is not eligible.'}`);
+        // Name the action for every blocker, exactly as the environment banner does.
+        const repairs = (entry.repairs ?? [])
+          .map((repair) => repair.kind === 'automatic' ? repair.label : `${repair.label}: ${repair.effect}`)
+          .join('; ');
+        throw new Error(`Cleanup blocked: ${entry.blockers.join('; ') || 'Cleanup evidence is not eligible.'}${repairs ? ` — ${repairs}` : ''}`);
       }
       const inventory = { entries: [entry], eligible_merged: Number(entry.merged && !entry.blocked), blocked: Number(entry.blocked), closed: 0, completed: 0 };
       return () => setMergeCleanup({ card: current, inventory, restoreFocus });

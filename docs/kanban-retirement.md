@@ -19,7 +19,9 @@ wrappers:
 ## The invariant checklist
 
 `retirement::evaluate(connection, card_id, mode, overrides, runtime_ids)` is the one
-answer. Checks run in a fixed order and return a `RetirementBlocker { code, reason }`
+answer. It delegates to `gate::evaluate` (card #350) and maps the verdict into a
+`RetirementChecklist`; the gate owns the codes, the copy and the repair offered for
+each. Checks run in a fixed order and return a `RetirementBlocker { code, reason }`
 using the strings the UI already shows:
 
 1. linked children (an aggregate is not a leaf retirement unit)

@@ -126,7 +126,7 @@ fn queued_provider_sync_does_not_block_removing_resources() {
     )
     .unwrap();
     assert!(
-        !removable.blockers.iter().any(|blocker| blocker.code == UNRESOLVED_OPERATION),
+        !removable.blockers.iter().any(|blocker| blocker.code == "unresolved_operation"),
         "a queued provider sync must not block cleanup: {:?}",
         removable.blockers
     );
@@ -140,7 +140,7 @@ fn queued_provider_sync_does_not_block_removing_resources() {
         &[],
     )
     .unwrap();
-    assert!(deletable.blockers.iter().any(|blocker| blocker.code == UNRESOLVED_OPERATION));
+    assert!(deletable.blockers.iter().any(|blocker| blocker.code == "unresolved_operation"));
 }
 
 #[test]
@@ -175,7 +175,7 @@ fn lifecycle_projection_does_not_block_removing_resources() {
     )
     .unwrap();
     assert!(
-        !checklist.blockers.iter().any(|blocker| blocker.code == UNRESOLVED_OPERATION),
+        !checklist.blockers.iter().any(|blocker| blocker.code == "unresolved_operation"),
         "a lifecycle projection must not block retirement: {:?}",
         checklist.blockers
     );
@@ -196,7 +196,7 @@ fn lifecycle_projection_does_not_block_removing_resources() {
         &[],
     )
     .unwrap();
-    assert!(blocked.blockers.iter().any(|blocker| blocker.code == UNRESOLVED_OPERATION));
+    assert!(blocked.blockers.iter().any(|blocker| blocker.code == "unresolved_operation"));
 }
 
 ///    metadata is repaired and the close event recorded; the card is never bricked.
@@ -550,11 +550,11 @@ fn retention_discard_uses_the_same_invariant_list_with_a_complete_override() {
     assert!(normal
         .blockers
         .iter()
-        .any(|blocker| blocker.code == LINKED_CHILDREN));
+        .any(|blocker| blocker.code == "linked_children"));
     assert!(normal
         .blockers
         .iter()
-        .any(|blocker| blocker.code == UNMERGED_REVISION));
+        .any(|blocker| blocker.code == "unmerged_revision"));
 
     let discard = evaluate(
         &connection,

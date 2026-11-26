@@ -13,7 +13,7 @@ function entry(overrides: Partial<CleanupPreflight> = {}): CleanupPreflight {
     source_exists: true, source_registered: true, source_branch: 'secret-card-branch', source_clean: true, source_head: 'source-secret',
     source_revision: 'source-secret', source_git_operation: false, merge_proof: 'exact ancestry secret', local_branch_disposition: 'delete exact tip',
     remote_branch_disposition: 'retained', resources: [{ resource_type: 'PTY', id: 'secret-terminal', disposition: 'stop' }],
-    metadata: ['secret metadata'], blockers: ['secret blocker detail'], retained: ['secret retained detail'], orphan_warning: 'secret warning', ...overrides,
+    metadata: ['secret metadata'], blockers: ['secret blocker detail'], blocked_codes: ['dirty_worktree'], repairs: [], retained: ['secret retained detail'], orphan_warning: 'secret warning', ...overrides,
   };
 }
 

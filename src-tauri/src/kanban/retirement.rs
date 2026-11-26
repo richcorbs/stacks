@@ -30,30 +30,11 @@ use super::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
-/// Canonical blocker strings. These are the reasons the UI already shows; defining
-/// them once is the point of the single checklist.
-pub(in crate::kanban) const LINKED_CHILDREN: &str =
-    "Linked children make this card an aggregate; reload before attempting leaf work";
-pub(in crate::kanban) const DIRTY_WORKTREE: &str =
-    "Source worktree is dirty. Commit, stash, or discard its changes before cleanup.";
-pub(in crate::kanban) const ACTIVE_GIT_OPERATION: &str =
-    "Source worktree has an active Git operation. Finish or abort it before cleanup.";
-pub(in crate::kanban) const UNREGISTERED_WORKTREE: &str = "Source path is not a registered worktree.";
-pub(in crate::kanban) const UNMERGED_REVISION: &str =
-    "Exact source revision is not authoritatively merged.";
-pub(in crate::kanban) const OPEN_PULL_REQUEST: &str =
-    "The card has an open pull request; merge or close it before removing resources.";
-pub(in crate::kanban) const UNRESOLVED_OPERATION: &str =
-    "An incomplete cleanup operation must be resumed instead of deleting its environment metadata.";
-pub(in crate::kanban) const RUNTIME_PROCESSES: &str =
-    "Card terminal processes are running; stop them before cleaning up the environment.";
-pub(in crate::kanban) const SHARED_STORAGE_KEY: &str = "Card storage key is shared with another card";
-pub(in crate::kanban) const INVALID_ENVIRONMENT_OWNERSHIP: &str =
-    "The card environment or project ownership is invalid";
-pub(in crate::kanban) const PRIMARY_CHECKOUT: &str =
-    "Source worktree is the configured primary checkout and cannot be removed.";
-pub(in crate::kanban) const FOREIGN_REPOSITORY: &str =
-    "Source worktree belongs to another repository.";
+/// Canonical blocker strings, owned by the gate. Re-exported here because the
+/// retirement checklist and cleanup inventory have always named them.
+pub(in crate::kanban) use super::gate::{
+    ACTIVE_GIT_OPERATION, DIRTY_WORKTREE, UNMERGED_REVISION, UNREGISTERED_WORKTREE,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::kanban) enum RetirementMode {
@@ -92,6 +73,9 @@ pub(in crate::kanban) struct RetirementOverride {
     pub linked_children_discard: bool,
     pub unresolved_operation_discard: bool,
     pub runtime_discard: bool,
+    /// The global Done-retention discard also defers the report-only retention
+    /// reasons (owning environment, incomplete cleanup, retained hierarchy).
+    pub retention_discard: bool,
 }
 
 impl RetirementOverride {
@@ -118,6 +102,7 @@ impl RetirementOverride {
             linked_children_discard: true,
             unresolved_operation_discard: true,
             runtime_discard: true,
+            retention_discard: true,
         }
     }
 }
@@ -161,73 +146,9 @@ impl RetirementChecklist {
     }
 }
 
-#[derive(Debug, Clone)]
-struct RetirementCardRow {
-    status: String,
-    completion_outcome: Option<String>,
-    workflow_revision: i64,
-    project_id: Option<String>,
-    project_path: Option<String>,
-    environment_id: Option<String>,
-    environment_project_id: Option<String>,
-    environment_revision: i64,
-    worktree_path: Option<String>,
-    branch: Option<String>,
-    repository_id: Option<String>,
-    target_checkout_path: Option<String>,
-    source_revision: Option<String>,
-}
-
-fn card_row(connection: &Connection, card_id: &str) -> Result<Option<RetirementCardRow>, String> {
-    connection
-        .query_row(
-            "SELECT c.status,c.completion_outcome,c.workflow_revision,c.project_id,
-                    p.path,
-                    e.id,e.project_id,COALESCE(e.revision,0),
-                    e.worktree_path,e.branch,e.repository_id,
-                    e.target_checkout_path,e.source_revision
-             FROM kanban_cards c
-             LEFT JOIN projects p ON p.id=c.project_id
-             LEFT JOIN card_environments e ON e.card_id=c.id
-             WHERE c.id=?1",
-            [card_id],
-            |row| {
-                Ok(RetirementCardRow {
-                    status: row.get(0)?,
-                    completion_outcome: row.get(1)?,
-                    workflow_revision: row.get(2)?,
-                    project_id: row.get(3)?,
-                    project_path: row.get(4)?,
-                    environment_id: row.get(5)?,
-                    environment_project_id: row.get(6)?,
-                    environment_revision: row.get(7)?,
-                    worktree_path: row.get(8)?,
-                    branch: row.get(9)?,
-                    repository_id: row.get(10)?,
-                    target_checkout_path: row.get(11)?,
-                    source_revision: row.get(12)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(db_error)
-}
-
-fn push_blocker(
-    blockers: &mut Vec<RetirementBlocker>,
-    code: &'static str,
-    reason: impl Into<String>,
-) {
-    let reason = reason.into();
-    if blockers.iter().any(|blocker| blocker.reason == reason) {
-        return;
-    }
-    blockers.push(RetirementBlocker { code, reason });
-}
-
-/// The one invariant checklist, evaluated in a fixed order. Callers never invent
-/// their own guard list; a mode only decides which checks apply and which overrides
-/// are authorised.
+/// The one invariant checklist, evaluated by the gate. Callers never invent their
+/// own guard list; a mode only decides which checks apply and which overrides are
+/// authorised.
 pub(in crate::kanban) fn evaluate(
     connection: &Connection,
     card_id: &str,
@@ -235,224 +156,37 @@ pub(in crate::kanban) fn evaluate(
     overrides: RetirementOverride,
     runtime_ids: &[String],
 ) -> Result<RetirementChecklist, String> {
-    let row = card_row(connection, card_id)?
-        .ok_or_else(|| "Kanban card was not found".to_string())?;
-    let has_resources = row.environment_id.is_some();
-    let linked_children = has_linked_children(connection, card_id)?;
-    let mut blockers = Vec::new();
-
-    // 1. Linked children: an aggregate is not a leaf retirement unit.
-    if linked_children && !overrides.linked_children_discard {
-        push_blocker(&mut blockers, LINKED_CHILDREN, LINKED_CHILDREN);
-    }
-
-    // 2. Environment ownership is immutable and must match the card's project.
-    if let Some(environment_project) = row.environment_project_id.as_deref() {
-        if row.project_id.as_deref() != Some(environment_project) {
-            push_blocker(
-                &mut blockers,
-                INVALID_ENVIRONMENT_OWNERSHIP,
-                INVALID_ENVIRONMENT_OWNERSHIP,
-            );
-        }
-    }
-
-    // 3. Shared storage identity (only relevant once the record is removed).
-    if mode == RetirementMode::DeleteRecord
-        && storage_safety(connection, card_id).is_err()
-        && !overrides.linked_children_discard
-    {
-        push_blocker(&mut blockers, SHARED_STORAGE_KEY, SHARED_STORAGE_KEY);
-    }
-
-    // 4. Runtime processes. Preserve/Remove stop them themselves; only DeleteRecord
-    //    and the orphaned-environment repair require them already stopped.
-    if !runtime_ids.is_empty()
-        && mode == RetirementMode::DeleteRecord
-        && !overrides.runtime_discard
-    {
-        push_blocker(&mut blockers, RUNTIME_PROCESSES, RUNTIME_PROCESSES);
-    }
-
-    let project_path = row.project_path.clone();
-    let target_path = row
-        .target_checkout_path
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| project_path.clone());
-    let mut merged = false;
-
-    if mode == RetirementMode::RemoveResources {
-        // 5. The worktree must be registered, clean, on its recorded branch, and
-        //    owned by the configured repository before anything is removed.
-        // 6. A missing registered worktree alone is not a blocker: branch and
-        //    metadata may still be reconcilable (orphaned tombstones).
-        if let Some(worktree) = row.worktree_path.as_deref() {
-            if Path::new(worktree).exists() {
-                let canonical_worktree = Path::new(worktree).canonicalize().ok();
-                let canonical_project = project_path
-                    .as_deref()
-                    .and_then(|value| Path::new(value).canonicalize().ok());
-                if canonical_worktree.is_some() && canonical_worktree == canonical_project {
-                    push_blocker(&mut blockers, PRIMARY_CHECKOUT, PRIMARY_CHECKOUT);
-                } else {
-                    if let Some(repository) = row.repository_id.as_deref() {
-                        if repository_identity(worktree).ok().as_deref() != Some(repository) {
-                            push_blocker(&mut blockers, FOREIGN_REPOSITORY, FOREIGN_REPOSITORY);
-                        }
-                    }
-                    if let Some(target) = target_path.as_deref() {
-                        if ensure_registered_distinct_worktree(target, worktree).is_err()
-                            && !overrides.unregistered_discard
-                        {
-                            push_blocker(
-                                &mut blockers,
-                                UNREGISTERED_WORKTREE,
-                                UNREGISTERED_WORKTREE,
-                            );
-                        }
-                    }
-                    if git_output(
-                        worktree,
-                        &["status", "--porcelain=v1", "--untracked-files=all"],
-                    )
-                    .map(|value| !value.is_empty())
-                    .unwrap_or(false)
-                        && !overrides.dirty_discard
-                    {
-                        push_blocker(&mut blockers, DIRTY_WORKTREE, DIRTY_WORKTREE);
-                    }
-                    if has_git_operation(worktree).unwrap_or(false) && !overrides.dirty_discard {
-                        push_blocker(
-                            &mut blockers,
-                            ACTIVE_GIT_OPERATION,
-                            ACTIVE_GIT_OPERATION,
-                        );
-                    }
-                    if let Some(branch) = row.branch.as_deref().filter(|value| !value.is_empty()) {
-                        match git_output(worktree, &["symbolic-ref", "--quiet", "--short", "HEAD"])
-                        {
-                            Ok(actual) if actual == branch => {}
-                            Ok(actual) => push_blocker(
-                                &mut blockers,
-                                UNREGISTERED_WORKTREE,
-                                format!("Source worktree is on {actual}, expected {branch}."),
-                            ),
-                            Err(_) => push_blocker(
-                                &mut blockers,
-                                UNREGISTERED_WORKTREE,
-                                "Source worktree is detached; restore its recorded branch before cleanup.",
-                            ),
-                        }
-                    }
-                }
-            }
-        }
-
-        // 7. Merge proof (ancestry or a merged PR with the exact head revision).
-        if has_resources {
-            let revision = row.source_revision.clone();
-            if let (Some(target), Some(revision)) = (target_path.as_deref(), revision) {
-                let ancestry = git_status_success(
-                    target,
-                    &["merge-base", "--is-ancestor", &revision, "HEAD"],
-                )
-                .unwrap_or(false);
-                let merged_pr: bool = connection
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM card_pull_requests WHERE card_id=?1 AND state='merged' AND head_revision=?2)",
-                        params![card_id, revision],
-                        |r| r.get::<_, i64>(0),
-                    )
-                    .map_err(db_error)?
-                    != 0;
-                merged = ancestry || merged_pr;
-            }
-            if !merged && !overrides.unmerged_discard {
-                push_blocker(&mut blockers, UNMERGED_REVISION, UNMERGED_REVISION);
-            }
-        }
-
-        // 8. An open pull request is unresolved delivery, not disposable work.
-        let open_pull_request: bool = connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM card_pull_requests WHERE card_id=?1 AND state='open')",
-                [card_id],
-                |r| r.get::<_, i64>(0),
-            )
-            .map_err(db_error)?
-            != 0;
-        if open_pull_request && !overrides.open_pull_request_discard {
-            push_blocker(&mut blockers, OPEN_PULL_REQUEST, OPEN_PULL_REQUEST);
-        }
-    }
-
-    // 9. Unresolved provider/delivery/cleanup operations. The cleanup and creation
-    //    journals ARE the resumable path for RemoveResources, so they are expected.
-    //    Preserving resources does not depend on them; closing was always allowed.
-    if mode != RetirementMode::PreserveResources {
-        for operation in operations::in_flight_for_card(connection, card_id)? {
-            if operation.kind.is_retirement()
-                || operation.kind.is_lifecycle_projection()
-                || overrides.unresolved_operation_discard
-            {
-                continue;
-            }
-            // Provider synchronization touches the remote card, never local resources:
-            // a queued "move to Done" must not block removing the worktree and branch.
-            // Deleting the record still requires it, because the row owns that intent.
-            if mode == RetirementMode::RemoveResources
-                && matches!(
-                    operation.kind,
-                    OperationKind::Cleanup | OperationKind::Creation | OperationKind::ProviderSync
-                )
-            {
-                continue;
-            }
-            push_blocker(
-                &mut blockers,
-                UNRESOLVED_OPERATION,
-                format!(
-                    "An incomplete {} operation must be resumed instead of retiring the card.",
-                    operation.kind.as_str()
-                ),
-            );
-        }
-    }
-
-    let override_available = mode == RetirementMode::RemoveResources
-        && has_resources
-        && !merged
-        && blockers.iter().all(|blocker| {
-            !matches!(
-                blocker.code,
-                LINKED_CHILDREN
-                    | INVALID_ENVIRONMENT_OWNERSHIP
-                    | SHARED_STORAGE_KEY
-                    | UNRESOLVED_OPERATION
-                    | PRIMARY_CHECKOUT
-                    | FOREIGN_REPOSITORY
-            )
-        });
-
+    let verdict = super::gate::evaluate(
+        connection,
+        card_id,
+        super::gate::GateContext::retire(mode, overrides, runtime_ids),
+    )?;
+    let facts = verdict.facts;
     Ok(RetirementChecklist {
         card_id: card_id.to_string(),
         mode,
-        status: row.status,
-        completion_outcome: row.completion_outcome,
-        workflow_revision: row.workflow_revision,
-        project_id: row.project_id,
-        environment_id: row.environment_id,
-        environment_revision: row.environment_revision,
-        worktree_path: row.worktree_path,
-        branch: row.branch,
-        repository_id: row.repository_id,
-        target_path,
-        source_revision: row.source_revision,
-        merged,
-        has_resources,
-        override_available,
-        blockers,
+        status: facts.status,
+        completion_outcome: facts.completion_outcome,
+        workflow_revision: facts.workflow_revision,
+        project_id: facts.project_id,
+        environment_id: facts.environment_id,
+        environment_revision: facts.environment_revision,
+        worktree_path: facts.worktree_path,
+        branch: facts.branch,
+        repository_id: facts.repository_id,
+        target_path: facts.target_path,
+        source_revision: facts.source_revision,
+        merged: facts.merged,
+        has_resources: facts.has_resources,
+        override_available: facts.override_available,
+        blockers: verdict
+            .blockers
+            .into_iter()
+            .map(|blocker| RetirementBlocker {
+                code: blocker.code.as_str(),
+                reason: blocker.message,
+            })
+            .collect(),
     })
 }
 

@@ -21,11 +21,20 @@ export function healthCheckFailure(card: Pick<KanbanCard, 'id' | 'status'>, erro
   };
 }
 
+const REPAIRABLE_ON_FINALIZED = new Set([
+  'parent_state_inconsistent',
+  'finalized_parent_without_children',
+  'stale_parent_child_count',
+]);
+
 export function shouldShowEnvironmentWarning(
   card: Pick<KanbanCard, 'hierarchy_finalized'>,
   health: CardEnvironmentHealth | null | undefined,
 ) {
-  return Boolean(health?.issues.length) && (!card.hierarchy_finalized || health?.issues.some((issue) => issue.code === 'parent_state_inconsistent'));
+  // A stale finalized flag is a repairable projection, not an aggregate: show the
+  // banner and its one-click repair instead of hiding the card's only way forward.
+  return Boolean(health?.issues.length)
+    && (!card.hierarchy_finalized || health?.issues.some((issue) => REPAIRABLE_ON_FINALIZED.has(issue.code)));
 }
 
 export function environmentHealthTooltip(health: CardEnvironmentHealth | null | undefined) {

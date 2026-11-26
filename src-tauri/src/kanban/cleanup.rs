@@ -5,6 +5,23 @@ use super::{
     local_delivery::*, repository::*, sync::*,
 };
 use crate::split_tree::PaneKind;
+use super::gate::BlockerCode;
+
+/// Record one cleanup blocker through the gate vocabulary so cleanup cannot grow a
+/// parallel set of codes, copy or repairs.
+fn record_blocker(report: &mut CleanupPreflight, code: BlockerCode, message: impl Into<String>) {
+    let message = message.into();
+    if !report.blockers.iter().any(|existing| existing == &message) {
+        report.blockers.push(message);
+    }
+    if !report.blocked_codes.iter().any(|existing| existing == code.as_str()) {
+        report.blocked_codes.push(code.as_str().to_string());
+    }
+    let repair = code.repair().repair();
+    if !report.repairs.iter().any(|existing| existing.id == repair.id) {
+        report.repairs.push(repair);
+    }
+}
 
 pub(in crate::kanban) const CLEANUP_PHASES: [&str; 7] = [
     "validate_repository",
@@ -158,6 +175,8 @@ pub(in crate::kanban) fn cleanup_preflight(
         resources: Vec::new(),
         metadata: Vec::new(),
         blockers: Vec::new(),
+        blocked_codes: Vec::new(),
+        repairs: Vec::new(),
         retained: Vec::new(),
         orphan_warning: None,
     };
@@ -198,17 +217,23 @@ pub(in crate::kanban) fn cleanup_preflight(
         report.override_available = status == "done" && (report.merged || persisted_override);
         report.merge_proof = if report.merged { "durable exact-revision proof revalidated".into() } else { "unproven".into() };
         report.metadata = vec!["cleanup metadata".into()];
-        report.blockers.push(if report.merged { "Only cleanup metadata remains.".into() } else { crate::kanban::retirement::UNMERGED_REVISION.into() });
+        if report.merged {
+            record_blocker(&mut report, BlockerCode::OnlyCleanupMetadataRemains, BlockerCode::OnlyCleanupMetadataRemains.message());
+        } else {
+            record_blocker(&mut report, BlockerCode::UnmergedRevision, crate::kanban::retirement::UNMERGED_REVISION);
+        }
         if status != "done" {
-            report.blockers.push("Only Done cards can resume cleanup.".into());
+            record_blocker(&mut report, BlockerCode::CleanupOnlyDoneEligible, "Only Done cards can resume cleanup.");
             report.override_available = false;
         }
         return Ok(report);
     }
     if status != "done" {
-        report
-            .blockers
-            .push("Only Done cards are eligible for cleanup.".into());
+        record_blocker(
+            &mut report,
+            BlockerCode::CleanupOnlyDoneEligible,
+            BlockerCode::CleanupOnlyDoneEligible.message(),
+        );
     }
     if environment_id.is_none()
         || source_path.is_none()
@@ -249,12 +274,12 @@ pub(in crate::kanban) fn cleanup_preflight(
             report.current_target_branch = Some(target.target_branch.clone());
             report.target_revision = Some(target.target_revision.clone());
             if target.target_branch != configured_branch {
-                report.blockers.push(format!("Primary checkout is on {}, but project configuration requires {}. Check out the configured target branch.", target.target_branch, configured_branch));
+                record_blocker(&mut report, BlockerCode::PrimaryCheckoutBranchMismatch, format!("Primary checkout is on {}, but project configuration requires {}. Check out the configured target branch.", target.target_branch, configured_branch));
             }
             Some(target)
         }
         Err(error) => {
-            report.blockers.push(format!("Primary checkout: {error}"));
+            record_blocker(&mut report, BlockerCode::PrimaryCheckoutInvalid, format!("Primary checkout: {error}"));
             None
         }
     };
@@ -269,16 +294,18 @@ pub(in crate::kanban) fn cleanup_preflight(
         );
         report.source_clean = status_output.as_ref().ok().map(|v| v.is_empty());
         if report.source_clean == Some(false) {
-            report.blockers.push(
-                crate::kanban::retirement::DIRTY_WORKTREE
-                    .into(),
+            record_blocker(
+                &mut report,
+                BlockerCode::DirtyWorktree,
+                crate::kanban::retirement::DIRTY_WORKTREE,
             );
         }
         report.source_git_operation = has_git_operation(source_path_value).ok();
         if report.source_git_operation == Some(true) {
-            report.blockers.push(
-                crate::kanban::retirement::ACTIVE_GIT_OPERATION
-                    .into(),
+            record_blocker(
+                &mut report,
+                BlockerCode::ActiveGitOperation,
+                crate::kanban::retirement::ACTIVE_GIT_OPERATION,
             );
         }
         match git_output(
@@ -286,11 +313,15 @@ pub(in crate::kanban) fn cleanup_preflight(
             &["symbolic-ref", "--quiet", "--short", "HEAD"],
         ) {
             Ok(branch) if branch == source_branch_value => {}
-            Ok(branch) => report.blockers.push(format!(
-                "Source worktree is on {branch}, expected {source_branch_value}."
-            )),
-            Err(_) => report.blockers.push(
-                "Source worktree is detached; restore its recorded branch before cleanup.".into(),
+            Ok(branch) => record_blocker(
+                &mut report,
+                BlockerCode::SourceBranchMismatch,
+                format!("Source worktree is on {branch}, expected {source_branch_value}."),
+            ),
+            Err(_) => record_blocker(
+                &mut report,
+                BlockerCode::SourceCheckoutDetached,
+                "Source worktree is detached; restore its recorded branch before cleanup.",
             ),
         }
         match git_output(source_path_value, &["rev-parse", "HEAD"]) {
@@ -308,37 +339,40 @@ pub(in crate::kanban) fn cleanup_preflight(
                 Ok(()) => report.source_registered = true,
                 Err(_) => {
                     report.orphan_warning = Some("The recorded Stacks-owned path is no longer a registered worktree.".into());
-                    report.blockers.push(crate::kanban::retirement::UNREGISTERED_WORKTREE.into());
+                    record_blocker(&mut report, BlockerCode::SourceWorktreeNotRegistered, crate::kanban::retirement::UNREGISTERED_WORKTREE);
                 }
             }
             if repository_identity(source_path_value).ok().as_deref()
                 != Some(target.repository_id.as_str())
             {
-                report
-                    .blockers
-                    .push("Source worktree belongs to another repository.".into());
+                record_blocker(
+                    &mut report,
+                    BlockerCode::ForeignRepository,
+                    "Source worktree belongs to another repository.",
+                );
             }
             if Path::new(source_path_value).canonicalize().ok()
                 == Path::new(&project_path).canonicalize().ok()
             {
-                report.blockers.push(
-                    "Source worktree is the configured primary checkout and cannot be removed."
-                        .into(),
+                record_blocker(
+                    &mut report,
+                    BlockerCode::PrimaryCheckout,
+                    "Source worktree is the configured primary checkout and cannot be removed.",
                 );
             }
         }
     }
     if let Ok(Some(tip)) = local_ref_tip(&project_path, source_branch_value) {
         if report.source_exists && report.source_head.as_deref() != Some(tip.as_str()) {
-            report.blockers.push("Local source branch and worktree tips differ.".into());
+            record_blocker(&mut report, BlockerCode::SourceBranchTipMismatch, "Local source branch and worktree tips differ.");
         } else {
             effective_revision = tip.clone();
             report.source_revision = Some(tip);
         }
     } else if report.source_exists {
-        report.blockers.push("Recorded local source branch is absent.".into());
+        record_blocker(&mut report, BlockerCode::SourceBranchAbsent, "Recorded local source branch is absent.");
     } else {
-        report.blockers.push("Only cleanup metadata remains.".into());
+        record_blocker(&mut report, BlockerCode::OnlyCleanupMetadataRemains, BlockerCode::OnlyCleanupMetadataRemains.message());
     }
     if let Some(target) = &target {
         let ancestor = git_status_success(
@@ -356,7 +390,7 @@ pub(in crate::kanban) fn cleanup_preflight(
             != Some(target.target_checkout_path.as_str())
             || report.recorded_target_branch.as_deref() != Some(configured_branch.as_str());
         if target_reconciled && !ancestor {
-            report.blockers.push("Recorded target changed and the exact source revision is not an ancestor of the configured target; Stacks will not reinterpret unmerged work.".into());
+            record_blocker(&mut report, BlockerCode::TargetReconfiguredUnmerged, BlockerCode::TargetReconfiguredUnmerged.message());
         }
         report.merged = ancestor || pr_matches;
         if ancestor {
@@ -364,24 +398,24 @@ pub(in crate::kanban) fn cleanup_preflight(
         } else if pr_matches {
             report.merge_proof = format!("Merged PR #{} in {} has exact head revision", pr_number.unwrap_or_default(), pr_repository.clone().unwrap_or_default());
         } else {
-            report.blockers.push(crate::kanban::retirement::UNMERGED_REVISION.into());
+            record_blocker(&mut report, BlockerCode::UnmergedRevision, crate::kanban::retirement::UNMERGED_REVISION);
         }
         report.local_branch_disposition = "delete only with exact-tip lease and valid merge proof".into();
         if outcome != "merged" && outcome != "closed" {
-            report.blockers.push("Done card has no recognized completion outcome.".into());
+            record_blocker(&mut report, BlockerCode::CompletionOutcomeMissing, "Done card has no recognized completion outcome.");
         }
         if delivery_stage.as_deref() == Some("deleting_remote_branch") {
             report.remote_branch_disposition =
                 "delete required by delivery workflow with exact remote-tip lease".into();
             if !pr_matches {
-                report.blockers.push("Required remote deletion needs matching merged-PR repository, number, and exact head revision evidence.".into());
+                record_blocker(&mut report, BlockerCode::RemoteDeletionEvidenceMissing, "Required remote deletion needs matching merged-PR repository, number, and exact head revision evidence.");
             }
             let remote_ref = format!("refs/heads/{source_branch_value}");
             match git_output(&project_path, &["ls-remote","--heads","origin",&remote_ref]) {
                 Ok(value) if value.is_empty() => report.remote_branch_disposition = "already absent".into(),
                 Ok(value) if value.split_whitespace().next() == Some(effective_revision.as_str()) => {}
-                Ok(_) => report.blockers.push("Remote branch tip changed; it is retained and cannot be deleted with the captured lease.".into()),
-                Err(error) => report.blockers.push(format!("Required remote branch cannot be verified: {error}")),
+                Ok(_) => record_blocker(&mut report, BlockerCode::RemoteBranchTipChanged, "Remote branch tip changed; it is retained and cannot be deleted with the captured lease."),
+                Err(error) => record_blocker(&mut report, BlockerCode::RemoteBranchUnverifiable, format!("Required remote branch cannot be verified: {error}")),
             }
         } else {
             report
@@ -390,13 +424,18 @@ pub(in crate::kanban) fn cleanup_preflight(
         }
     }
     report.override_available = report.has_resources
-        && !report.blockers.is_empty()
-        && report.blockers.iter().all(|blocker| {
-            blocker.starts_with("Source worktree is dirty")
-                || blocker.starts_with("Source worktree has an active Git operation")
-                || blocker == crate::kanban::retirement::UNREGISTERED_WORKTREE
-                || blocker == "Only cleanup metadata remains."
-                || blocker == crate::kanban::retirement::UNMERGED_REVISION
+        && !report.blocked_codes.is_empty()
+        && report.blocked_codes.iter().all(|code| {
+            matches!(
+                BlockerCode::from_str(code),
+                Some(
+                    BlockerCode::DirtyWorktree
+                        | BlockerCode::ActiveGitOperation
+                        | BlockerCode::SourceWorktreeNotRegistered
+                        | BlockerCode::OnlyCleanupMetadataRemains
+                        | BlockerCode::UnmergedRevision
+                )
+            )
         });
     report.blocked = !report.blockers.is_empty();
     report.eligible = !report.blocked;
@@ -422,7 +461,7 @@ pub(in crate::kanban) async fn kanban_cleanup_preflight_operation(
     let pi = app.state::<Mutex<PiRpcRegistry>>();
     let mut report = cleanup_preflight(&id, pty.inner(), pi.inner())?;
     if let Some(error) = refresh_error.filter(|_| !report.merged) {
-        report.blockers.push(format!("Merged-PR evidence could not be refreshed: {error}"));
+        record_blocker(&mut report, BlockerCode::MergedPrEvidenceUnavailable, format!("Merged-PR evidence could not be refreshed: {error}"));
         report.eligible = false;
         report.blocked = true;
         report.override_available = false;
@@ -450,7 +489,7 @@ pub(in crate::kanban) async fn kanban_cleanup_inventory_operation(
         let refresh_error = refresh_cleanup_pr_evidence(&id);
         let mut report = cleanup_preflight(&id, pty.inner(), pi.inner())?;
         if let Some(error) = refresh_error.filter(|_| !report.merged) {
-            report.blockers.push(format!("Merged-PR evidence could not be refreshed: {error}"));
+            record_blocker(&mut report, BlockerCode::MergedPrEvidenceUnavailable, format!("Merged-PR evidence could not be refreshed: {error}"));
             report.eligible = false;
             report.blocked = true;
             report.override_available = false;
