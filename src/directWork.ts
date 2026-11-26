@@ -39,3 +39,24 @@ export function displayedDirectWorkTabs(project: Project): WorkView[] {
 export function directWorkTabs(project: Project, isGitRepository: boolean): WorkView[] {
   return displayedDirectWorkTabs(project).filter((tab) => tab !== 'diff' || isGitRepository);
 }
+
+export type WorkNavigationCommand<T extends string = WorkView> =
+  | { type: 'select'; view: T }
+  | { type: 'number'; number: number }
+  | { type: 'cycle'; direction: -1 | 1 };
+
+/**
+ * One tab-navigation rule for both surfaces: Cmd-# addresses the displayed tab
+ * (including disabled ones), cycling and selection only touch available tabs.
+ */
+export function resolveWorkNavigation<T extends string>(active: T, tabs: readonly T[], displayedTabs: readonly T[], command: WorkNavigationCommand<T>): T | null {
+  if (tabs.length === 0) return null;
+  if (command.type === 'select') return tabs.includes(command.view) ? command.view : null;
+  if (command.type === 'number') {
+    const target = displayedTabs[command.number - 1];
+    return target && tabs.includes(target) ? target : null;
+  }
+  const index = tabs.indexOf(active);
+  const current = index < 0 ? 0 : index;
+  return tabs[(current + command.direction + tabs.length) % tabs.length];
+}

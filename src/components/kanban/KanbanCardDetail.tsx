@@ -8,10 +8,7 @@ import { projectColorAttribute } from '../../projectColor';
 import type { CardEnvironmentHealth, CleanupInventory, CleanupPreflight, KanbanCard, KanbanCardSummary } from '../../kanban/types';
 import { abortKanbanTargetMerge, approveAndCommitKanbanCard, cancelScriptedDeployment, cleanupKanbanEnvironmentCreation, closeKanbanCard, confirmScriptedDeployed, createKanbanPullRequest, deployScriptedDelivery, fetchCleanupPreflight, finalizeKanbanTargetMerge, mergeKanbanCard, mergeKanbanPullRequest, prepareKanbanTargetMerge, pushScriptedDelivery, retryKanbanRuntimeCleanup } from '../../kanban/api';
 import { deriveCardWorkflowActions, type CardWorkflowAction } from '../../kanban/workflowActions';
-import { useDiffReview } from '../../diffReview/useDiffReview';
 import { useWorkDiffRefresh } from '../../hooks/useWorkDiffRefresh';
-import { composeDiffReviewPrompt } from '../../diffReview/prompt';
-import { sendTextToPiEditor } from '../../pi/editorTextEvent';
 import { deletePiSessionController } from '../../pi/sessionController';
 import { disposeAcceptedRuntimeOutcomes } from '../../kanban/runtimeCleanup';
 import { runApproveAndCommit } from '../../kanban/approveAndCommit';
@@ -23,7 +20,6 @@ import { ConfirmCloseTerminalDialog } from '../ConfirmDialogs';
 import { useConfirmation } from '../ConfirmDialogs';
 import { WorkflowShortcutConfirmDialog } from './WorkflowShortcutConfirmDialog';
 import { disposeTerminalSession } from '../../terminalSessionManager';
-import { pasteCodeIntoTarget } from '../../terminalCodePaste';
 import { AsyncButtonLabel } from '../AsyncButtonLabel';
 import { CardWorkflowControls } from '../CardWorkflowControls';
 import type { CardView } from '../../kanban/cardView';
@@ -33,7 +29,6 @@ import { useWorkflowOperation } from '../../kanban/useWorkflowOperation';
 import { cardPaneId, cardTerminalId, type CardChatThread } from '../../kanban/cardWorkspace';
 import { useCardTerminalWorkspace } from '../../kanban/useCardTerminalWorkspace';
 import { useServicePanes, type ServicePaneConfigs } from '../../hooks/useServicePanes';
-import { publishCardTerminalContext } from '../../cardTerminalCommands';
 import { CardChatView } from './CardChatView';
 import { CardDiffView } from './CardDiffView';
 import { CardTerminalView } from './CardTerminalView';
@@ -42,8 +37,11 @@ import { CardDetailHeader, CardDetailTabs } from './CardDetailChrome';
 import { CardLevelErrorBanner, collectCardLevelErrors } from './CardLevelErrorBanner';
 import { CardAgentFailure } from './CardAgentFailure';
 import { activeAgentFailure, agentFailureRecovery } from '../../kanban/agentFailure';
-import { publishWorkPresence } from '../../appAttention';
 import { useCardDetailModel } from '../../kanban/useCardDetailModel';
+import { WorkSurface, type WorkSurfaceAdapter } from '../WorkSurface';
+import { requestWorkLeave, type WorkSurfaceSection } from '../../workSurface';
+import { displayedCardDetailTabs } from '../../kanban/cardDetailModel';
+import type { WorkView } from '../../directWork';
 import { executeCardWorkflowAction, type CardWorkflowExecutorDependencies } from '../../kanban/cardWorkflowExecutor';
 import { CleanupPreflightDialog } from './CleanupPreflightDialog';
 import { sameActionRevisions } from '../../kanban/detailSessionCache';
@@ -52,8 +50,10 @@ function scriptedDeliveryLabel(stage: NonNullable<KanbanCard['scripted_delivery'
   return ({ merged: 'Merged locally', pushing: 'Pushing…', push_failed: 'Push failed', pushed: 'Pushed', deploying: 'Deploying…', deployment_failed: 'Deployment failed', cancelled: 'Deployment cancelled', uncertain: 'Deployment outcome uncertain', deployed: 'Deployed' } as const)[stage];
 }
 
-/** A card shell that never becomes ready should report a failure promptly. */
-const CARD_CODE_PASTE_TIMEOUT_MS = 10_000;
+const CARD_TO_SURFACE_VIEW: Record<CardView, WorkView> = { overview: 'overview', chat: 'agent', diff: 'diff', terminal: 'terminal' };
+function cardViewForSurface(view: WorkView): CardView {
+  return view === 'agent' ? 'chat' : view === 'diff' ? 'diff' : view === 'terminal' ? 'terminal' : 'overview';
+}
 
 export type CardDetailWorkflowController = { run: (kind: CardWorkflowAction['kind']) => void };
 
@@ -117,7 +117,7 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   const cancelEditing = detail.cancel;
   const saveEdit = detail.save;
   const requestView = (view: CardView) => detail.command({ type: 'select', view });
-  const requestClose = async () => { if (await detail.mayLeave()) onClose(); };
+  const requestClose = () => { void requestWorkLeave({ canLeave: detail.mayLeave, close: onClose }); };
   const navigateToParent = async (parentId: string) => { if (await detail.mayLeave()) { detail.cancel(); setActiveView('overview'); onNavigate(parentId, 'overview'); } };
   const confirmation = useConfirmation(`${card.id}:${card.record_revision}:${card.workflow_revision}:${card.environment?.revision}`);
   // Workflow actions await backend work and re-read the card to guard a stale
@@ -138,7 +138,6 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
   // Passed into useCardTerminalWorkspace's persistent coordinator, which may
   // invoke it outside the component's effects; it is not effect-owned.
   onCardUpdatedRef.current = onCardUpdated;
-  const diffReview = useDiffReview(card.id);
   const activeChatThread: CardChatThread = card.environment && cardPath ? 'work' : 'planning';
   const statusLabel = hierarchyStatusLabel(card);
   const workflowCard = workflowOperation === 'ship' || (workflowOperation === 'merge_target' && card.status === 'agent_working') ? { ...card, status: 'needs_human' as const } : card;
@@ -198,46 +197,6 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
     setPendingCloseShellPane,
     closeShellPane,
   } = terminalWorkspace;
-
-  useEffect(() => {
-    publishCardTerminalContext({
-      cardId: card.id,
-      active: activeView === 'terminal',
-      focusedPaneId: activeView === 'terminal' ? terminalWorkspace.focusedShellPane : null,
-      paneIds: terminalWorkspace.shellTerminalIds,
-      cwd: cardPath,
-      maximized: Boolean(terminalWorkspace.maximizedShellPane),
-      services: services.context,
-    });
-    return () => publishCardTerminalContext(null);
-  }, [activeView, card.id, cardPath, services.context, terminalWorkspace.focusedShellPane, terminalWorkspace.maximizedShellPane, terminalWorkspace.shellTerminalIds]);
-
-  // One click from a chat code block: clipboard, Terminal tab, focused shell.
-  // The transcript only offers the button when a card terminal is reachable,
-  // but the callback re-checks so a late environment change fails loudly.
-  async function pasteCodeIntoTerminal(code: string): Promise<boolean> {
-    if (!project) {
-      showAppToast('Could not paste into terminal: this card has no project');
-      return false;
-    }
-    // The Terminal tab only exists once the card has an environment; before that the
-    // paste action is not offered, and this re-check keeps a late change honest.
-    if (!cardPath) {
-      showAppToast('Could not paste into terminal: this card has no environment yet');
-      return false;
-    }
-    const paneId = focusedShellPane || terminalWorkspace.shellTerminalIds[0] || '';
-    return pasteCodeIntoTarget(code, {
-      paneId,
-      switchToTerminal: () => requestView('terminal'),
-      timeoutMs: CARD_CODE_PASTE_TIMEOUT_MS,
-    });
-  }
-  // Keep the identity stable: the memoized transcript must not re-render every message just
-  // because the card detail re-rendered.
-  const pasteCodeIntoTerminalRef = useRef(pasteCodeIntoTerminal);
-  pasteCodeIntoTerminalRef.current = pasteCodeIntoTerminal;
-  const onPasteIntoTerminal = useCallback((code: string) => pasteCodeIntoTerminalRef.current(code), []);
 
   async function reloadCard() {
     setReloadingCard(true);
@@ -326,14 +285,6 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
       window.removeEventListener('keydown', composerKeyboard);
     };
   }, [activeView, actionRowVisible, primaryAction, working, cleanupInventory, shortcutConfirmation, editable, editing, pendingCloseShellPane, savingEdit, detail.begin, detail.cancel, detail.save, detail.mayLeave]);
-
-  useEffect(() => {
-    const handleTabShortcut = (shortcut: { number?: number; direction?: -1 | 1 }) => {
-      if (shortcut.number) detail.command({ type: 'number', number: shortcut.number });
-      else if (shortcut.direction) detail.command({ type: 'cycle', direction: shortcut.direction });
-    };
-    return applicationEvents.subscribe('card-tab-shortcut', handleTabShortcut);
-  }, [detail.command]);
 
   const workflowDependencies: CardWorkflowExecutorDependencies = {
     confirm: async (title, detailText, requested) => {
@@ -452,134 +403,161 @@ export function KanbanCardDetail({ card, cards, projects, terminalFontSize, term
     return () => onWorkflowControllerChange?.(null);
   }, [card.id, onWorkflowControllerChange]);
 
-  function submitDiffReview() {
-    const prompt = composeDiffReviewPrompt(diffReview.overallComment, diffReview.comments);
-    const targetThread = activeChatThread;
-    setActiveView('chat');
-    requestAnimationFrame(() => sendTextToPiEditor(cardPaneId(card.id, targetThread), prompt).then((delivered) => {
-      if (delivered) diffReview.reset();
-      else setActionError('Could not send the review to the card chat.');
-    }));
-  }
-
-  const showChat = activeView === 'chat';
-  useEffect(() => {
-    const owner = { kind: 'card' as const, cardId: card.id };
-    const terminalId = activeView === 'chat' ? cardPaneId(card.id, activeChatThread)
-      : activeView === 'terminal' ? focusedShellPane : undefined;
-    publishWorkPresence({ owner, view: activeView === 'chat' ? 'agent' : activeView, agentThread: activeView === 'chat' ? activeChatThread : undefined, terminalId });
-    return () => publishWorkPresence(null);
-  }, [activeChatThread, activeView, card.id, focusedShellPane]);
-  return <>
-    <div className="modalBackdrop kanbanDetailBackdrop" onMouseDown={requestClose}>
-      <article data-project-color={projectColorAttribute(project)} className={`kanbanDetail cardWorkspace${showChat ? ' chatActive' : ''}${editing ? ' editing' : ''}`} onMouseDown={(event) => event.stopPropagation()}>
-        <CardDetailHeader
-          card={card}
-          project={project}
-          projects={projects}
-          statusLabel={statusLabel}
-          gitChangeSummary={gitChangeSummary}
-          editable={editable}
-          editing={editing}
-          draftTitle={draftTitle}
-          titleInputRef={titleInputRef}
-          onDraftTitleChange={(title) => { setDraftTitle(title); setEditError(null); }}
-          onBeginEditing={beginEditing}
-          onRequestClose={requestClose}
-          onAssignProject={onOpenChat}
-          onActionError={setActionError}
-          onNavigateParent={navigateToParent}
-          onRefreshGit={() => { void onRefreshGit().catch(console.error); }}
-        />
-        <CardLevelErrorBanner errors={cardLevelErrors} reloading={reloadingCard} onReload={reloadCard} onRetryRefresh={() => { void onRetryRefresh().catch(() => {}); }} />
-        <CardDetailTabs
-          activeView={activeView}
-          hierarchyFinalized={card.hierarchy_finalized}
-          projectAvailable={Boolean(project)}
-          cardPath={cardPath}
-          terminalRunning={services.running}
-          onRequestView={requestView}
-          onRefreshDiff={refreshDiff}
-        />
-        <CardOverview
-          active={activeView === 'overview'}
-          editing={editing}
-          card={card}
-          cards={cards}
-          project={project}
-          environmentHealth={environmentHealth}
-          recheckingEnvironment={recheckingEnvironment}
-          draftContent={draftContent}
-          editError={editError}
-          setDraftContent={setDraftContent}
-          setEditError={setEditError}
-          setActionError={setActionError}
-          onRecheckEnvironment={recheckEnvironmentHealth}
-          onUpdate={onUpdate}
-          onCardUpdated={onCardUpdated}
-          onNavigate={onNavigate}
-          hasOlderEvents={hasOlderEvents}
-          onLoadOlderEvents={onLoadOlderEvents}
-          onReload={reloadCard}
-        />
-        {project && !card.hierarchy_finalized && <CardChatView card={card} project={project} cardPath={cardPath} thread={activeChatThread} active={showChat} deploymentOutput={deploymentOutput} onPasteIntoTerminal={project && cardPath ? onPasteIntoTerminal : undefined} />}
-        <CardDiffView active={activeView === 'diff'} card={card} cardPath={cardPath} refreshNonce={diffRefreshNonce} review={diffReview} canSubmit={Boolean(project)} onSubmit={submitDiffReview} onClose={() => { diffReview.reset(); setActiveView('chat'); }} />
-        <CardTerminalView active={activeView === 'terminal'} card={card} project={project} cardPath={cardPath} controller={terminalWorkspace} serviceControls={services.controls} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />
-        {(editing || (actionRowVisible && (footerWorkflowActions.length > 0 || card.scripted_delivery || agentFailureVisible))) && <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
-          {editing ? (
-            <div className="kanbanEditActions">
-              <button data-card-action="secondary" type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
-              <button data-card-action="primary" className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
-                <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
-              </button>
-            </div>
-          ) : <>
-            {project && agentFailureVisible && <CardAgentFailure
-              card={card}
-              project={project}
-              onCardUpdated={(updated) => onCardUpdatedRef.current(preserveRevisionValues(updated))}
-              onStartWork={onStartWork}
-              onError={setActionError}
-            />}
-            {card.scripted_delivery && <div className={`scriptedDeliveryStatus stage-${card.scripted_delivery.stage}`}>
-              <span>{scriptedDeliveryLabel(card.scripted_delivery.stage)}</span>
-              {card.scripted_delivery.summary && <small>{card.scripted_delivery.summary}</small>}
-            </div>}
-            {footerWorkflowActions.length > 0 && <CardWorkflowControls
-              actions={footerWorkflowActions}
-              working={working}
-              onAction={performWorkflowAction}
-            />}</>}
-        </footer>}
-      </article>
-    </div>
-    {shortcutConfirmation && <WorkflowShortcutConfirmDialog label={shortcutConfirmation.action.label} onCancel={dismissShortcutConfirmation} onConfirm={() => {
-      if (shortcutConfirmingRef.current) return;
-      const current = workflowActionsRef.current.find((action) => action.primary);
-      if (card.id !== shortcutConfirmation.cardId || card.workflow_revision !== shortcutConfirmation.workflowRevision
-        || (card.environment?.revision ?? 0) !== shortcutConfirmation.environmentRevision || card.record_revision !== shortcutConfirmation.recordRevision
-        || !actionRowVisible || editing || !current || current.kind !== shortcutConfirmation.action.kind
-        || current.label !== shortcutConfirmation.action.label || current.confirmation || current.disabledReason || working
-        || workflow.isRunning() || actionPendingRef.current || cancellationPendingRef.current) {
-        dismissShortcutConfirmation();
-        return;
-      }
-      shortcutConfirmingRef.current = true;
-      setShortcutConfirmation(null);
-      void performWorkflowActionRef.current(current).finally(() => { shortcutConfirmingRef.current = false; });
-    }} />}
-    {cleanupInventory && <CleanupPreflightDialog inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={async ([entry]) => {
-      if (!entry) return;
-      await onCleanup(entry);
-      setCleanupInventory(null);
-    }} />}
-    {pendingCloseShellPane && (
-      <ConfirmCloseTerminalDialog key={pendingCloseShellPane}
-        onCancel={() => setPendingCloseShellPane(null)}
-        onConfirm={() => closeShellPane(pendingCloseShellPane)}
+  const surfaceOwner = useMemo(() => ({ kind: 'card' as const, cardId: card.id }), [card.id]);
+  const surfaceView = CARD_TO_SURFACE_VIEW[activeView];
+  const selectSurfaceView = useCallback((view: WorkView) => detail.command({ type: 'select', view: cardViewForSurface(view) }), [detail.command]);
+  const availableSurfaceViews = useMemo(() => detail.tabs.map((view) => CARD_TO_SURFACE_VIEW[view]), [detail.tabs]);
+  const displayedSurfaceViews = useMemo(() => displayedCardDetailTabs(card.hierarchy_finalized, { chat: Boolean(project && !card.hierarchy_finalized), workspace: Boolean(cardPath) }).map((view) => CARD_TO_SURFACE_VIEW[view]), [card.hierarchy_finalized, cardPath, project]);
+  const agentAvailable = Boolean(project && !card.hierarchy_finalized);
+  const agentId = cardPaneId(card.id, activeChatThread);
+  const surfaceSections = useMemo<WorkSurfaceSection[]>(() => [
+    { view: 'overview', content: (active) => <CardOverview
+      active={active}
+      editing={editing}
+      card={card}
+      cards={cards}
+      project={project}
+      environmentHealth={environmentHealth}
+      recheckingEnvironment={recheckingEnvironment}
+      draftContent={draftContent}
+      editError={editError}
+      setDraftContent={setDraftContent}
+      setEditError={setEditError}
+      setActionError={setActionError}
+      onRecheckEnvironment={recheckEnvironmentHealth}
+      onUpdate={onUpdate}
+      onCardUpdated={onCardUpdated}
+      onNavigate={onNavigate}
+      hasOlderEvents={hasOlderEvents}
+      onLoadOlderEvents={onLoadOlderEvents}
+      onReload={reloadCard}
+    /> },
+    ...(agentAvailable ? [{ view: 'agent' as const }] : []),
+    { view: 'diff' },
+    { view: 'terminal' },
+  ], [agentAvailable, card, cards, draftContent, editError, editing, environmentHealth, hasOlderEvents, onCardUpdated, onLoadOlderEvents, onNavigate, onRecheckEnvironment, onReload, onUpdate, project, recheckingEnvironment, setDraftContent, setEditError]);
+  const surfaceTabs: WorkSurfaceAdapter = {
+    activeView: surfaceView,
+    available: availableSurfaceViews,
+    displayed: displayedSurfaceViews,
+    sections: surfaceSections,
+    selectView: selectSurfaceView,
+    renderTabs: () => <CardDetailTabs
+      activeView={activeView}
+      hierarchyFinalized={card.hierarchy_finalized}
+      projectAvailable={Boolean(project)}
+      cardPath={cardPath}
+      terminalRunning={services.running}
+      onRequestView={requestView}
+      onRefreshDiff={refreshDiff}
+    />,
+    agent: agentAvailable ? {
+      id: agentId,
+      thread: activeChatThread,
+      render: (active, onPaste) => <CardChatView card={card} project={project!} cardPath={cardPath} thread={activeChatThread} active={active} deploymentOutput={deploymentOutput} onPasteIntoTerminal={onPaste} />,
+    } : undefined,
+    diff: {
+      reviewKey: card.id,
+      canSubmit: Boolean(project),
+      errorMessage: 'Could not send the review to the card chat.',
+      render: ({ active, review, canSubmit, onSubmit, onClose }) => <CardDiffView active={active} card={card} cardPath={cardPath} refreshNonce={diffRefreshNonce} review={review} canSubmit={canSubmit} onSubmit={onSubmit} onClose={onClose} />,
+    },
+    terminal: {
+      focusedPaneId: focusedShellPane,
+      paneIds: terminalWorkspace.shellTerminalIds,
+      cwd: cardPath,
+      maximized: Boolean(terminalWorkspace.maximizedShellPane),
+      services: services.context,
+      available: Boolean(cardPath),
+      pasteAvailable: Boolean(project && cardPath),
+      pasteUnavailableReason: !project ? 'this card has no project' : !cardPath ? 'this card has no environment yet' : null,
+      render: (active) => <CardTerminalView active={active} card={card} project={project} cardPath={cardPath} controller={terminalWorkspace} serviceControls={services.controls} terminalFontSize={terminalFontSize} terminalFontFamily={terminalFontFamily} terminalScrollback={terminalScrollback} copyOnSelect={copyOnSelect} />,
+    },
+    onError: setActionError,
+  };
+  return <WorkSurface
+    owner={surfaceOwner}
+    tabs={surfaceTabs}
+    projectColor={projectColorAttribute(project)}
+    className={editing ? 'editing' : undefined}
+    onRequestClose={requestClose}
+    header={<>
+      <CardDetailHeader
+        card={card}
+        project={project}
+        projects={projects}
+        statusLabel={statusLabel}
+        gitChangeSummary={gitChangeSummary}
+        editable={editable}
+        editing={editing}
+        draftTitle={draftTitle}
+        titleInputRef={titleInputRef}
+        onDraftTitleChange={(title) => { setDraftTitle(title); setEditError(null); }}
+        onBeginEditing={beginEditing}
+        onRequestClose={requestClose}
+        onAssignProject={onOpenChat}
+        onActionError={setActionError}
+        onNavigateParent={navigateToParent}
+        onRefreshGit={() => { void onRefreshGit().catch(console.error); }}
       />
-    )}
-    {confirmation.dialog}
-    {detail.confirmationDialog}
-  </>;
+      <CardLevelErrorBanner errors={cardLevelErrors} reloading={reloadingCard} onReload={reloadCard} onRetryRefresh={() => { void onRetryRefresh().catch(() => {}); }} />
+    </>}
+    overlays={<>
+      {shortcutConfirmation && <WorkflowShortcutConfirmDialog label={shortcutConfirmation.action.label} onCancel={dismissShortcutConfirmation} onConfirm={() => {
+        if (shortcutConfirmingRef.current) return;
+        const current = workflowActionsRef.current.find((action) => action.primary);
+        if (card.id !== shortcutConfirmation.cardId || card.workflow_revision !== shortcutConfirmation.workflowRevision
+          || (card.environment?.revision ?? 0) !== shortcutConfirmation.environmentRevision || card.record_revision !== shortcutConfirmation.recordRevision
+          || !actionRowVisible || editing || !current || current.kind !== shortcutConfirmation.action.kind
+          || current.label !== shortcutConfirmation.action.label || current.confirmation || current.disabledReason || working
+          || workflow.isRunning() || actionPendingRef.current || cancellationPendingRef.current) {
+          dismissShortcutConfirmation();
+          return;
+        }
+        shortcutConfirmingRef.current = true;
+        setShortcutConfirmation(null);
+        void performWorkflowActionRef.current(current).finally(() => { shortcutConfirmingRef.current = false; });
+      }} />}
+      {cleanupInventory && <CleanupPreflightDialog inventory={cleanupInventory} onCancel={() => setCleanupInventory(null)} onConfirm={async ([entry]) => {
+        if (!entry) return;
+        await onCleanup(entry);
+        setCleanupInventory(null);
+      }} />}
+      {pendingCloseShellPane && (
+        <ConfirmCloseTerminalDialog key={pendingCloseShellPane}
+          onCancel={() => setPendingCloseShellPane(null)}
+          onConfirm={() => closeShellPane(pendingCloseShellPane)}
+        />
+      )}
+      {confirmation.dialog}
+      {detail.confirmationDialog}
+    </>}
+  >
+    {(editing || (actionRowVisible && (footerWorkflowActions.length > 0 || card.scripted_delivery || agentFailureVisible))) && <footer className={`cardWorkflowFooter${editing ? ' editing' : ''}`}>
+      {editing ? (
+        <div className="kanbanEditActions">
+          <button data-card-action="secondary" type="button" disabled={savingEdit} onClick={cancelEditing}>Cancel</button>
+          <button data-card-action="primary" className="primaryAction" type="button" disabled={savingEdit} onClick={() => saveEdit()}>
+            <AsyncButtonLabel idle="Save" busy="Saving…" isBusy={savingEdit} />
+          </button>
+        </div>
+      ) : <>
+        {project && agentFailureVisible && <CardAgentFailure
+          card={card}
+          project={project}
+          onCardUpdated={(updated) => onCardUpdatedRef.current(preserveRevisionValues(updated))}
+          onStartWork={onStartWork}
+          onError={setActionError}
+        />}
+        {card.scripted_delivery && <div className={`scriptedDeliveryStatus stage-${card.scripted_delivery.stage}`}>
+          <span>{scriptedDeliveryLabel(card.scripted_delivery.stage)}</span>
+          {card.scripted_delivery.summary && <small>{card.scripted_delivery.summary}</small>}
+        </div>}
+        {footerWorkflowActions.length > 0 && <CardWorkflowControls
+          actions={footerWorkflowActions}
+          working={working}
+          onAction={performWorkflowAction}
+        />}</>}
+    </footer>}
+  </WorkSurface>;
 }
