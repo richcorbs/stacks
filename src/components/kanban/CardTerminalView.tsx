@@ -7,22 +7,21 @@ import type { TerminalServiceControls } from '../TerminalControls';
 
 type TerminalController = ReturnType<typeof useCardTerminalWorkspace>;
 
+/** Inner content for the shared terminal section; `WorkSurface` owns the frame. */
 export function CardTerminalView({ active, card, project, cardPath, controller, serviceControls, terminalFontSize, terminalFontFamily, terminalScrollback, copyOnSelect }: {
   active: boolean; card: KanbanCard; project: Project | undefined; cardPath: string | null; controller: TerminalController;
   serviceControls?: TerminalServiceControls;
   terminalFontSize: number; terminalFontFamily: string; terminalScrollback: number; copyOnSelect: boolean;
 }) {
-  return <section className={`cardTerminalView cardView${active ? ' active' : ''}`}>
-    {project && cardPath && <WorkspaceShellView
-      controller={controller.controller}
-      workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: cardPath }}
-      project={project}
-      visible={active}
-      serviceControls={serviceControls}
-      terminalFontSize={terminalFontSize}
-      terminalFontFamily={terminalFontFamily}
-      terminalScrollback={terminalScrollback}
-      copyOnSelect={copyOnSelect}
-    />}
-  </section>;
+  return project && cardPath ? <WorkspaceShellView
+    controller={controller.controller}
+    workspace={{ id: cardWorkspaceId(card.id), name: `Card #${card.external_id}`, cwd: cardPath }}
+    project={project}
+    visible={active}
+    serviceControls={serviceControls}
+    terminalFontSize={terminalFontSize}
+    terminalFontFamily={terminalFontFamily}
+    terminalScrollback={terminalScrollback}
+    copyOnSelect={copyOnSelect}
+  /> : null;
 }

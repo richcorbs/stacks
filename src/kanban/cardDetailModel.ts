@@ -1,4 +1,5 @@
 import type { CardView } from './cardView';
+import { resolveWorkNavigation } from '../directWork';
 
 export type CardDetailTabAvailability = {
   chat: boolean;
@@ -25,15 +26,7 @@ export function displayedCardDetailTabs(hierarchyFinalized: boolean, availabilit
 }
 
 export function resolveCardDetailNavigation(active: CardView, tabs: CardView[], displayedTabs: CardView[], command: CardDetailNavigationCommand): CardView | null {
-  if (tabs.length === 0) return null;
-  if (command.type === 'select') return tabs.includes(command.view) ? command.view : null;
-  if (command.type === 'number') {
-    const target = displayedTabs[command.number - 1];
-    return target && tabs.includes(target) ? target : null;
-  }
-  const index = tabs.indexOf(active);
-  const current = index < 0 ? 0 : index;
-  return tabs[(current + command.direction + tabs.length) % tabs.length];
+  return resolveWorkNavigation<CardView>(active, tabs, displayedTabs, command);
 }
 
 export function validCardDetailView(active: CardView, tabs: CardView[]): CardView {

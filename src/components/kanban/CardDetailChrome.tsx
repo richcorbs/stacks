@@ -4,6 +4,8 @@ import type { GitChangeSummary, Project } from '../../types';
 import type { KanbanCard } from '../../kanban/types';
 import type { CardView } from '../../kanban/cardView';
 import { displayedCardDetailTabs } from '../../kanban/cardDetailModel';
+import type { WorkTab } from '../../workSurface';
+import { WorkTabs } from '../WorkTabs';
 import { CardProjectAssignment } from '../CardProjectAssignment';
 import { CardGitSummary, hasGitChangeSummary } from '../CardGitSummary';
 import { CardPullRequestLink } from '../CardPullRequestLink';
@@ -67,6 +69,24 @@ export function CardDetailHeader({ card, project, projects, statusLabel, gitChan
   </header>;
 }
 
+export function cardDetailWorkTabs({ hierarchyFinalized, projectAvailable, cardPath, terminalRunning }: {
+  hierarchyFinalized: boolean;
+  projectAvailable: boolean;
+  cardPath: string | null;
+  terminalRunning: boolean;
+}): WorkTab<CardView>[] {
+  const displayedTabs = displayedCardDetailTabs(hierarchyFinalized, {
+    chat: projectAvailable, workspace: Boolean(cardPath),
+  });
+  return displayedTabs.map((view) => view === 'overview'
+    ? { view, label: 'Description' }
+    : view === 'chat'
+      ? { view, label: 'Agent', disabled: !projectAvailable }
+      : view === 'diff'
+        ? { view, label: 'Diff', disabled: !cardPath, refreshDisabled: !cardPath, refreshTitle: 'Refresh diff' }
+        : { view, label: 'Terminal', disabled: !cardPath, running: terminalRunning });
+}
+
 export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailable, cardPath, terminalRunning, onRequestView, onRefreshDiff }: {
   activeView: CardView;
   hierarchyFinalized: boolean;
@@ -76,20 +96,11 @@ export function CardDetailTabs({ activeView, hierarchyFinalized, projectAvailabl
   onRequestView: (view: CardView) => unknown;
   onRefreshDiff: () => void;
 }) {
-  const displayedTabs = displayedCardDetailTabs(hierarchyFinalized, {
-    chat: projectAvailable, workspace: Boolean(cardPath),
-  });
-  return <nav className="cardWorkspaceTabs" aria-label="Card views">
-    <button className={activeView === 'overview' ? 'active' : ''} type="button" onClick={() => onRequestView('overview')}>Description</button>
-    {displayedTabs.includes('chat') && <>
-      <button className={activeView === 'chat' ? 'active' : ''} type="button" disabled={!projectAvailable} onClick={() => onRequestView('chat')}>Agent</button>
-      <span className={`cardDiffTab${activeView === 'diff' ? ' active' : ''}`}>
-        <button className="cardDiffTabLabel" type="button" disabled={!cardPath} onClick={() => onRequestView('diff')}>Diff</button>
-        <button className="cardDiffRefresh" type="button" disabled={!cardPath} aria-label="Refresh diff" title="Refresh diff" onClick={onRefreshDiff}><span className="diffRefreshIcon" aria-hidden="true" /></button>
-      </span>
-      <button className={activeView === 'terminal' ? 'active' : ''} type="button" disabled={!cardPath}
-        aria-label={terminalRunning ? 'Terminal, server or console running' : undefined}
-        onClick={() => onRequestView('terminal')}>Terminal{terminalRunning && <span className="cardTabRunningDot" title="Server or console running" aria-hidden="true" />}</button>
-    </>}
-  </nav>;
+  return <WorkTabs
+    activeView={activeView}
+    tabs={cardDetailWorkTabs({ hierarchyFinalized, projectAvailable, cardPath, terminalRunning })}
+    ariaLabel="Card views"
+    onSelect={(view) => onRequestView(view as CardView)}
+    onRefreshDiff={onRefreshDiff}
+  />;
 }
